@@ -143,3 +143,59 @@ describe('clipboard payload', () => {
     expect(validateClipboardPayload({}).ok).toBe(false)
   })
 })
+
+describe('repair on load', () => {
+  it('rescues a presentation whose theme colour became invalid', () => {
+    const presentation = sample()
+    const broken = {
+      ...presentation,
+      theme: { ...presentation.theme, backgroundColor: 'rgb(1,2,3)' },
+    }
+    expect(validatePresentation(broken).ok).toBe(false)
+
+    const result = migratePresentation(broken)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value.theme.backgroundColor).toBe('#667788')
+  })
+
+  it('rescues an invalid card colour', () => {
+    const presentation = sample()
+    const card = createUntitledCard()
+    const broken = {
+      ...presentation,
+      slides: [
+        {
+          ...presentation.slides[0],
+          root: createLeaf({ ...card, backgroundColor: 'papayawhip' }),
+        },
+      ],
+    }
+    const result = migratePresentation(broken)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const content = (result.value.slides[0].root as { content: typeof card }).content
+      expect(content.backgroundColor).toBe('#ffffff')
+    }
+  })
+
+  it('rescues an empty font stack', () => {
+    const presentation = sample()
+    const result = migratePresentation({
+      ...presentation,
+      theme: { ...presentation.theme, bodyFontFamily: '   ' },
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value.theme.bodyFontFamily.length).toBeGreaterThan(0)
+  })
+
+  it('still rejects structural corruption instead of rewriting it', () => {
+    const presentation = sample()
+    const broken = {
+      ...presentation,
+      slides: [
+        { ...presentation.slides[0], root: { ...presentation.slides[0].root, weights: [1] } },
+      ],
+    }
+    expect(migratePresentation(broken).ok).toBe(false)
+  })
+})

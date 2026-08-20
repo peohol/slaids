@@ -36,7 +36,10 @@ interface HistoryEntry {
 }
 
 const HISTORY_LIMIT = 100
-const COALESCE_MS = 700
+/** Idle gap that ends a typing run. */
+const COALESCE_IDLE_MS = 700
+/** Hard cap on a single coalesced run, so one Ctrl+Z cannot erase a paragraph. */
+const COALESCE_RUN_MS = 4000
 
 interface EditorStore {
   presentation: Presentation | null
@@ -52,6 +55,7 @@ interface EditorStore {
   future: HistoryEntry[]
   lastLabel: string | null
   lastChangeAt: number
+  coalesceStartedAt: number
 
   saveStatus: SaveStatus
   lastSavedAt: string | null
@@ -100,6 +104,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   future: [],
   lastLabel: null,
   lastChangeAt: 0,
+  coalesceStartedAt: 0,
 
   saveStatus: 'saved',
   lastSavedAt: null,
@@ -114,6 +119,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       lastLabel: null,
       lastChangeAt: 0,
+      coalesceStartedAt: 0,
       saveStatus: 'saved',
     }),
 
@@ -176,6 +182,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       saveStatus: 'dirty',
       lastLabel: null,
       lastChangeAt: 0,
+      coalesceStartedAt: 0,
       ...reconcileSelection(previous.presentation, state),
     })
   },
@@ -194,6 +201,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       saveStatus: 'dirty',
       lastLabel: null,
       lastChangeAt: 0,
+      coalesceStartedAt: 0,
       ...reconcileSelection(next.presentation, state),
     })
   },
@@ -255,10 +263,17 @@ function commit(
   label: string,
 ): void {
   const now = Date.now()
+  /**
+   * Typing coalesces into one undo step while it stays in the same field, but
+   * only within an idle gap and a bounded run length — otherwise a single Ctrl+Z
+   * would wipe out a whole paragraph, or edits to two different fields would
+   * collapse into each other.
+   */
   const coalesce =
     state.lastLabel === label &&
     label.startsWith('typing:') &&
-    now - state.lastChangeAt < COALESCE_MS &&
+    now - state.lastChangeAt < COALESCE_IDLE_MS &&
+    now - state.coalesceStartedAt < COALESCE_RUN_MS &&
     state.past.length > 0
 
   set({
@@ -269,6 +284,7 @@ function commit(
     future: [],
     lastLabel: label,
     lastChangeAt: now,
+    coalesceStartedAt: coalesce ? state.coalesceStartedAt : now,
     saveStatus: 'dirty',
     ...reconcileSelection(next, state),
   })

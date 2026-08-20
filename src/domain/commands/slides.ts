@@ -3,8 +3,10 @@
  */
 
 import { computeMainRect } from '../geometry'
-import type { GeometryOptions } from '../geometry'
-import { cloneSubtreeWithNewIds, createLeaf, subtreeFitsHelper } from './internal'
+import { isDocEmpty } from '../richdoc'
+import { normalizeHex } from '../color'
+import { cloneSubtreeWithNewIds, createLeaf, findFitFailures, subtreeFitsHelper } from './internal'
+import type { StructuralOptions } from './types'
 import { createSlide, findSlide, slideIndexOf, touch, withSlide } from '../presentation'
 import { titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
@@ -97,11 +99,20 @@ export function setSlideTitle(
  * Adding a title shrinks the main area, so the existing layout subtree must
  * still satisfy the minimum zone sizes; removing a title only grows it.
  */
+export interface SetSlideHasTitleOptions extends StructuralOptions {
+  /**
+   * Required to remove a title zone whose text is not empty. Without it the
+   * command refuses, so no caller — UI or agent — can destroy a title by
+   * accident.
+   */
+  force?: boolean
+}
+
 export function setSlideHasTitle(
   presentation: Presentation,
   slideId: string,
   hasTitle: boolean,
-  options: GeometryOptions = {},
+  options: SetSlideHasTitleOptions = {},
 ): Result<Presentation> {
   const slide = findSlide(presentation, slideId)
   if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
@@ -112,16 +123,35 @@ export function setSlideHasTitle(
       hasTitle ? 'Sliden har allerede en overskrift.' : 'Sliden har ingen overskrift.',
     )
   }
-  if (hasTitle) {
-    const mainRect = computeMainRect(true, options)
-    if (!subtreeFitsHelper(slide.root, mainRect, options)) {
+
+  if (!hasTitle) {
+    if (slide.title && !isDocEmpty(slide.title) && !options.force) {
       return err(
-        'ZONE_TOO_SMALL',
-        'Layoutet får ikke plass når overskriftssonen legges til. Forenkle soneinndelingen først.',
+        'INVALID_ARGUMENT',
+        'Overskriften har tekst. Bekreft at den skal fjernes (force).',
       )
     }
+    return ok(withSlide(presentation, { ...slide, title: null }))
   }
-  return ok(withSlide(presentation, { ...slide, title: hasTitle ? titleDoc('') : null }))
+
+  // Adding a title shrinks the main area by TITLE_ZONE_HEIGHT + G, so both the
+  // structural minimum and the content itself must still fit.
+  const mainRect = computeMainRect(true, options.geometry)
+  if (!subtreeFitsHelper(slide.root, mainRect, options.geometry)) {
+    return err(
+      'ZONE_TOO_SMALL',
+      'Layoutet får ikke plass når overskriftssonen legges til. Forenkle soneinndelingen først.',
+    )
+  }
+  const failures = findFitFailures(slide.root, mainRect, options.fits, options.geometry)
+  if (failures.length > 0) {
+    return err(
+      'CONTENT_DOES_NOT_FIT',
+      'Innholdet får ikke plass når overskriftssonen legges til.',
+      { overflow: failures[0].overflow },
+    )
+  }
+  return ok(withSlide(presentation, { ...slide, title: titleDoc('') }))
 }
 
 export function setPresentationTitle(
@@ -133,11 +163,31 @@ export function setPresentationTitle(
   return ok(touch({ ...presentation, title: trimmed }))
 }
 
+/**
+ * Theme values are validated here, not only in the schema: an invalid colour
+ * would be autosaved and then rejected on load, leaving the presentation
+ * permanently unopenable.
+ */
 export function setTheme(
   presentation: Presentation,
   theme: Partial<PresentationTheme>,
 ): Result<Presentation> {
-  return ok(touch({ ...presentation, theme: { ...presentation.theme, ...theme } }))
+  const next: PresentationTheme = { ...presentation.theme }
+
+  if (theme.backgroundColor !== undefined) {
+    const color = normalizeHex(theme.backgroundColor)
+    if (!color) return err('INVALID_ARGUMENT', 'Ugyldig bakgrunnsfarge.')
+    next.backgroundColor = color
+  }
+  if (theme.headingFontFamily !== undefined) {
+    if (!theme.headingFontFamily.trim()) return err('INVALID_ARGUMENT', 'Fonten kan ikke være tom.')
+    next.headingFontFamily = theme.headingFontFamily
+  }
+  if (theme.bodyFontFamily !== undefined) {
+    if (!theme.bodyFontFamily.trim()) return err('INVALID_ARGUMENT', 'Fonten kan ikke være tom.')
+    next.bodyFontFamily = theme.bodyFontFamily
+  }
+  return ok(touch({ ...presentation, theme: next }))
 }
 
 export function setFolder(

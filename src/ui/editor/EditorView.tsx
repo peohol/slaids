@@ -314,15 +314,19 @@ export function EditorView({
   const removeTitle = useCallback(() => {
     if (!slide?.title) return
     removedTitles.current.set(slide.id, slide.title)
-    run('toggle-title', (current) => setSlideHasTitle(current, slide.id, false))
+    // `force` is the user's confirmation; the command refuses without it.
+    run('toggle-title', (current) => setSlideHasTitle(current, slide.id, false, { force: true }))
   }, [run, slide])
 
   const restoreTitle = useCallback(() => {
     if (!slide) return
-    if (!run('toggle-title', (current) => setSlideHasTitle(current, slide.id, true))) return
+    const added = run('toggle-title', (current) =>
+      setSlideHasTitle(current, slide.id, true, { fits }),
+    )
+    if (!added) return
     const remembered = removedTitles.current.get(slide.id)
     if (remembered) run('restore-title', (current) => setSlideTitle(current, slide.id, remembered))
-  }, [run, slide])
+  }, [fits, run, slide])
 
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {

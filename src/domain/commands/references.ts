@@ -6,7 +6,7 @@
 import { mapPresentationDocs } from '../docs'
 import { newReferenceId } from '../ids'
 import { touch } from '../presentation'
-import { isReferenceValid, usedReferenceIds } from '../references'
+import { citedReferenceIds, isReferenceValid } from '../references'
 import { removeCitations } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { Presentation, Reference } from '../types'
@@ -68,9 +68,13 @@ export function deleteReference(presentation: Presentation, id: string): Result<
   )
 }
 
+/**
+ * Drop references nothing cites. Content in the sandbox counts as citing, so
+ * pruning can never corrupt an item waiting to be placed back on a slide.
+ */
 export function deleteUnusedReferences(presentation: Presentation): Result<Presentation> {
-  const used = usedReferenceIds(presentation)
-  const references = presentation.references.filter((reference) => used.has(reference.id))
+  const cited = citedReferenceIds(presentation)
+  const references = presentation.references.filter((reference) => cited.has(reference.id))
   if (references.length === presentation.references.length) return ok(presentation)
   return ok(touch({ ...presentation, references }))
 }

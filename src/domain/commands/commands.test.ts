@@ -8,6 +8,7 @@ import type { Presentation, SplitNode } from '../types'
 import {
   addReference,
   addSlide,
+  deleteUnusedReferences,
   clearLayoutNode,
   deleteLayoutNode,
   deleteReference,
@@ -20,7 +21,9 @@ import {
   setBodyWeights,
   setContentKind,
   setSlideHasTitle,
+  setSlideTitle,
   setSubfieldDoc,
+  setTheme,
   setZoneContent,
   splitLeaf,
   updateSplit,
@@ -675,5 +678,185 @@ describe('titles', () => {
     const slide = presentation.slides[0]
     expect(findNode(slide.root, slide.root.id)).not.toBeNull()
     expect(findSplit(slide.root, slide.root.id)).toBeNull()
+  })
+})
+
+describe('content fit on structural changes', () => {
+  function filledCard(text: string) {
+    const card = createUntitledCard()
+    return {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc(text) }],
+      },
+    }
+  }
+
+  it('refuses a ratio change that would make existing content overflow', () => {
+    let presentation = base()
+    const slide = presentation.slides[0]
+    presentation = unwrap(
+      splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
+    ).presentation
+    const root = presentation.slides[0].root as SplitNode
+    presentation = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: root.children[0].id,
+        content: filledCard('ord '.repeat(220)),
+        fits: estimateFitChecker,
+      }),
+    ).presentation
+
+    const shrink = updateSplit(presentation, {
+      slideId: slide.id,
+      nodeId: root.id,
+      weights: [1, 6],
+      fits: estimateFitChecker,
+    })
+    expect(shrink.ok).toBe(false)
+    if (!shrink.ok) expect(shrink.error.code).toBe('CONTENT_DOES_NOT_FIT')
+
+    // Growing the same zone is fine.
+    expect(
+      updateSplit(presentation, {
+        slideId: slide.id,
+        nodeId: root.id,
+        weights: [6, 1],
+        fits: estimateFitChecker,
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('refuses to add a title zone when the content would then overflow', () => {
+    let presentation = base()
+    const slideId = presentation.slides[0].id
+    presentation = unwrap(setSlideHasTitle(presentation, slideId, false))
+    presentation = unwrap(
+      setZoneContent(presentation, {
+        slideId,
+        nodeId: presentation.slides[0].root.id,
+        // Fits the full-height main zone, but not once the title zone takes 96 px.
+        content: filledCard('ord '.repeat(900)),
+        fits: estimateFitChecker,
+      }),
+    ).presentation
+
+    const result = setSlideHasTitle(presentation, slideId, true, { fits: estimateFitChecker })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('CONTENT_DOES_NOT_FIT')
+  })
+
+  it('refuses to remove a title that has text unless forced', () => {
+    let presentation = base()
+    const slideId = presentation.slides[0].id
+    presentation = unwrap(setSlideTitle(presentation, slideId, titleDoc('Viktig overskrift')))
+
+    const refused = setSlideHasTitle(presentation, slideId, false)
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.error.code).toBe('INVALID_ARGUMENT')
+
+    const forced = setSlideHasTitle(presentation, slideId, false, { force: true })
+    expect(forced.ok).toBe(true)
+    if (forced.ok) expect(forced.value.slides[0].title).toBeNull()
+  })
+
+  it('removes an empty title zone without forcing', () => {
+    const presentation = base()
+    expect(setSlideHasTitle(presentation, presentation.slides[0].id, false).ok).toBe(true)
+  })
+
+  it('gives copied content fresh ids', () => {
+    let presentation = base()
+    const slide = presentation.slides[0]
+    presentation = unwrap(
+      splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
+    ).presentation
+    const root = presentation.slides[0].root as SplitNode
+    presentation = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: root.children[0].id,
+        content: createTitledCard('Kilde'),
+      }),
+    ).presentation
+
+    const copied = unwrap(
+      moveZoneContent(presentation, {
+        slideId: slide.id,
+        fromNodeId: root.children[0].id,
+        toNodeId: root.children[1].id,
+        copy: true,
+      }),
+    ).presentation
+
+    const nextRoot = copied.slides[0].root as SplitNode
+    const a = findLeaf(nextRoot, nextRoot.children[0].id)?.content
+    const b = findLeaf(nextRoot, nextRoot.children[1].id)?.content
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(a?.id).not.toBe(b?.id)
+    if (a?.kind === 'titled-card' && b?.kind === 'titled-card') {
+      expect(a.body.subfields[0].id).not.toBe(b.body.subfields[0].id)
+    }
+  })
+})
+
+describe('theme validation', () => {
+  it('rejects a colour the schema would refuse on load', () => {
+    const result = setTheme(base(), { backgroundColor: 'rgb(1,2,3)' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('INVALID_ARGUMENT')
+  })
+
+  it('normalises shorthand hex', () => {
+    const result = setTheme(base(), { backgroundColor: '#678' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value.theme.backgroundColor).toBe('#667788')
+  })
+
+  it('rejects an empty font stack', () => {
+    expect(setTheme(base(), { bodyFontFamily: '  ' }).ok).toBe(false)
+  })
+})
+
+describe('reference pruning', () => {
+  it('keeps a reference that is only cited from the sandbox', () => {
+    const presentation = base()
+    const added = unwrap(addReference(presentation, { title: 'Kilde', authors: '', url: '', year: '' }))
+    const card = createUntitledCard()
+    const withCitation = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [
+          {
+            ...card.body.subfields[0],
+            doc: {
+              type: 'doc' as const,
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'citation', attrs: { referenceIds: [added.reference.id] } }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    }
+    const parked = {
+      ...added.presentation,
+      sandbox: [{ id: 'sb1', content: withCitation, createdAt: '', note: '' }],
+    }
+
+    const pruned = unwrap(deleteUnusedReferences(parked))
+    expect(pruned.references).toHaveLength(1)
+  })
+
+  it('still prunes a reference nothing cites', () => {
+    const added = unwrap(addReference(base(), { title: 'Ubrukt', authors: '', url: '', year: '' }))
+    expect(unwrap(deleteUnusedReferences(added.presentation)).references).toHaveLength(0)
   })
 })

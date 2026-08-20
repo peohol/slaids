@@ -47,6 +47,30 @@ export function computeReferenceNumbering(presentation: Presentation): Reference
   return numbering
 }
 
+/**
+ * Reference ids cited anywhere in the document, including content parked in the
+ * sandbox. Sandbox citations get no *number* (they are not on a slide), but they
+ * are still real references and must survive pruning.
+ */
+export function citedReferenceIds(presentation: Presentation): Set<string> {
+  const known = new Set(presentation.references.map((reference) => reference.id))
+  const ids = new Set(referenceOrder(presentation))
+  for (const id of sandboxCitedReferenceIds(presentation)) {
+    if (known.has(id)) ids.add(id)
+  }
+  return ids
+}
+
+/** Reference ids cited only from sandbox content. */
+export function sandboxCitedReferenceIds(presentation: Presentation): Set<string> {
+  const ids = new Set<string>()
+  for (const item of presentation.sandbox) {
+    for (const id of contentCitationIds(item.content)) ids.add(id)
+  }
+  return ids
+}
+
+/** Ids that currently appear on a slide, and therefore carry a number. */
 export function usedReferenceIds(presentation: Presentation): Set<string> {
   return new Set(referenceOrder(presentation))
 }

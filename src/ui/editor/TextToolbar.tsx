@@ -201,7 +201,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
                   : 'btn btn--sm'
               }
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().focus().updateSlaidsShape({ kind }).run()}
+              onClick={() => editor.chain().updateSlaidsShape({ kind }).focus().run()}
               data-testid={`shape-node-${kind}`}
             >
               {SHAPE_LABELS[kind]}
@@ -217,7 +217,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
                   : 'btn btn--sm'
               }
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().focus().updateSlaidsShape({ height }).run()}
+              onClick={() => editor.chain().updateSlaidsShape({ height }).focus().run()}
               data-testid={`shape-height-${height}`}
             >
               {height}
@@ -227,7 +227,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
             label="Fyll"
             value={String(editor.getAttributes('slaidsShape').fill ?? '#bfccd9')}
             testId="shape-fill"
-            onChange={(fill) => editor.chain().focus().updateSlaidsShape({ fill }).run()}
+            onChange={(fill) => editor.chain().updateSlaidsShape({ fill }).focus().run()}
           />
         </div>
       )}
@@ -245,7 +245,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
                   : 'btn btn--sm'
               }
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().focus().setSlaidsImageWidth(percent).run()}
+              onClick={() => editor.chain().setSlaidsImageWidth(percent).focus().run()}
               data-testid={`image-width-${percent}`}
             >
               {percent}%

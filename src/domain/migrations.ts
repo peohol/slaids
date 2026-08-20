@@ -7,12 +7,15 @@
  */
 
 import { DEFAULT_BACKGROUND_COLOR } from './constants'
+import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import type { Presentation } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 
 type Raw = Record<string, unknown>
+
+const DEFAULT_CARD_COLOR = WHITE
 
 export type MigrationFn = (data: Raw) => Raw
 
@@ -57,6 +60,43 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
 }
 
+/**
+ * Repair the small set of defects that would otherwise make a whole
+ * presentation unopenable.
+ *
+ * Deliberately narrow: only colour and font fields are coerced, because those
+ * are single values that the schema rejects outright while the rest of the
+ * document is perfectly readable. Structural corruption is *not* repaired — it
+ * should surface as a validation error rather than be silently rewritten.
+ */
+export function repairPresentation(data: Raw): Raw {
+  const theme = (data.theme ?? {}) as Raw
+  const repairedTheme = {
+    ...theme,
+    backgroundColor:
+      normalizeHex(asString(theme.backgroundColor, '')) ?? DEFAULT_BACKGROUND_COLOR,
+    headingFontFamily: asString(theme.headingFontFamily, '').trim() || DEFAULT_HEADING_FONT,
+    bodyFontFamily: asString(theme.bodyFontFamily, '').trim() || DEFAULT_BODY_FONT,
+  }
+
+  const repairColors = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(repairColors)
+    if (!value || typeof value !== 'object') return value
+    const entries = Object.entries(value as Raw).map(([key, entry]) => {
+      if ((key === 'backgroundColor' || key === 'headerColor') && typeof entry === 'string') {
+        return [key, normalizeHex(entry) ?? DEFAULT_CARD_COLOR]
+      }
+      return [key, repairColors(entry)]
+    })
+    return Object.fromEntries(entries)
+  }
+
+  return {
+    ...(repairColors(data) as Raw),
+    theme: repairedTheme,
+  }
+}
+
 export function detectSchemaVersion(input: unknown): number {
   if (!input || typeof input !== 'object') return -1
   const version = (input as Raw).schemaVersion
@@ -93,7 +133,7 @@ export function migratePresentation(input: unknown): Result<Presentation> {
     version = next
   }
 
-  const validation = validatePresentation(data)
+  const validation = validatePresentation(repairPresentation(data))
   if (!validation.ok || !validation.value) {
     const detail = validation.issues
       .slice(0, 5)

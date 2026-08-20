@@ -19,6 +19,7 @@ import { DEFAULT_IDEAS_GEOMETRY } from '../../state/prefs'
 import type { Idea, IdeaCategory } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { Icon } from '../components/Icon'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 function IdeaCard({ idea }: { idea: Idea }) {
   const run = useEditorStore((state) => state.run)
@@ -71,7 +72,15 @@ function IdeaCard({ idea }: { idea: Idea }) {
   )
 }
 
-function CategoryColumn({ category, ideas }: { category: IdeaCategory; ideas: Idea[] }) {
+function CategoryColumn({
+  category,
+  ideas,
+  onRequestDelete,
+}: {
+  category: IdeaCategory
+  ideas: Idea[]
+  onRequestDelete: (category: IdeaCategory) => void
+}) {
   const run = useEditorStore((state) => state.run)
   const [draft, setDraft] = useState('')
   const { setNodeRef, isOver } = useDroppable({ id: `category:${category.id}` })
@@ -97,11 +106,8 @@ function CategoryColumn({ category, ideas }: { category: IdeaCategory; ideas: Id
           type="button"
           className="btn btn--ghost btn--icon btn--sm"
           aria-label={`Slett kategorien ${category.name}`}
-          onClick={() =>
-            run('idea-category-delete', (presentation) =>
-              deleteIdeaCategory(presentation, category.id),
-            )
-          }
+          data-testid="delete-idea-category"
+          onClick={() => onRequestDelete(category)}
         >
           <Icon name="trash" size={13} />
         </button>
@@ -140,7 +146,13 @@ function CategoryColumn({ category, ideas }: { category: IdeaCategory; ideas: Id
 export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => void }) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
+  const [deleting, setDeleting] = useState<IdeaCategory | null>(null)
+
   if (!presentation) return null
+
+  const doomedIdeas = deleting
+    ? presentation.ideas.filter((idea) => idea.categoryId === deleting.id).length
+    : 0
 
   return (
     <FloatingWindow
@@ -158,6 +170,7 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
               key={category.id}
               category={category}
               ideas={presentation.ideas.filter((idea) => idea.categoryId === category.id)}
+              onRequestDelete={setDeleting}
             />
           ))}
       </div>
@@ -177,6 +190,22 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
       >
         <Icon name="plus" size={14} /> Ny kategori
       </button>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Slette kategorien?"
+        message={
+          doomedIdeas > 0
+            ? `Kategorien «${deleting?.name ?? ''}» og ${doomedIdeas} idé(er) i den slettes.`
+            : `Kategorien «${deleting?.name ?? ''}» slettes.`
+        }
+        onConfirm={() => {
+          if (!deleting) return
+          run('idea-category-delete', (current) => deleteIdeaCategory(current, deleting.id))
+          setDeleting(null)
+        }}
+        onCancel={() => setDeleting(null)}
+      />
     </FloatingWindow>
   )
 }

@@ -32,6 +32,7 @@ import type { LayoutNode, NodeId, Slide, ZoneContentKind } from '../../domain/ty
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
+import { fitCheckerFor } from '../../state/measure'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
@@ -177,6 +178,8 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
           slideId: slide.id,
           nodeId: pending.nodeId,
           weights: pending.weights,
+          // A ratio change may not shrink a zone past what its content needs.
+          fits: fitCheckerFor(theme),
         }),
       )
     }
@@ -198,7 +201,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
     }
-  }, [preview, runStructural, scale, slide.id])
+  }, [preview, runStructural, scale, slide.id, theme])
 
   const titleColor = bestTextColor(theme.backgroundColor)
 
@@ -272,7 +275,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                       setActiveField({ nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' })
                     }}
                     onChange={(doc) =>
-                      run('typing:slide-title', (presentation) =>
+                      run(`typing:${slide.id}:slide-title`, (presentation) =>
                         setSlideTitle(presentation, slide.id, doc),
                       )
                     }

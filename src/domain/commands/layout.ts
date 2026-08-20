@@ -9,6 +9,7 @@
 import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../constants'
 import { areWeightsValid, previewSplit, subtreeFitsInRect } from '../geometry'
 import {
+  cloneContentWithNewIds,
   collectContent,
   createLeaf,
   findLeaf,
@@ -21,7 +22,7 @@ import {
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
-import { rectForNode } from './internal'
+import { findFitFailures, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
 
@@ -191,6 +192,18 @@ export function updateSplit(
     return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små for innholdet sitt.', {
       tooSmall: preview.tooSmall,
     })
+  }
+
+  // Ratio, axis and child-count changes are content-fit consumers too: a zone
+  // that shrinks must still be able to show everything inside it.
+  for (let i = 0; i < children.length; i += 1) {
+    const failures = findFitFailures(children[i], preview.childRects[i], input.fits, input.geometry)
+    if (failures.length > 0) {
+      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass med disse forholdstallene.', {
+        childIndex: i,
+        overflow: failures[0].overflow,
+      })
+    }
   }
 
   const removedChildren = split.children.slice(targetCount)
@@ -388,13 +401,16 @@ export function moveZoneContent(
   }
 
   let next = presentation
+  // A copy gets fresh ids; sharing them would put the same content id on two
+  // leaves and corrupt the document.
+  const placed = input.copy ? cloneContentWithNewIds(from.content) : from.content
   if (!input.copy) {
     const clearedRoot = replaceNode(sourceSlide.root, from.id, { ...from, content: null })
     next = withSlide(next, { ...sourceSlide, root: clearedRoot })
   }
   const refreshedTarget = findSlide(next, targetSlideId)
   if (!refreshedTarget) return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.')
-  const targetRoot = replaceNode(refreshedTarget.root, to.id, { ...to, content: from.content })
+  const targetRoot = replaceNode(refreshedTarget.root, to.id, { ...to, content: placed })
   next = withSlide(next, { ...refreshedTarget, root: targetRoot })
   return ok(outcome(touch(next)))
 }
