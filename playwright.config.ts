@@ -1,5 +1,12 @@
 import { defineConfig, devices } from '@playwright/test'
 
+/**
+ * Sandboxes and CI images sometimes ship a pre-installed Chromium that does not
+ * match this Playwright version's expected build. Point
+ * `PLAYWRIGHT_CHROMIUM_EXECUTABLE` at it to run the suite without downloading.
+ */
+const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -14,6 +21,7 @@ export default defineConfig({
     viewport: { width: 1600, height: 1000 },
     trace: 'retain-on-failure',
     deviceScaleFactor: 1,
+    ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

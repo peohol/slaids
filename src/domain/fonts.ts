@@ -14,8 +14,9 @@ export interface FontOption {
 }
 
 export const FONT_OPTIONS: FontOption[] = [
-  { id: 'inter', label: 'Inter', stack: "'Inter', 'Segoe UI', system-ui, sans-serif", webFont: 'Inter' },
+  { id: 'system', label: 'System', stack: "system-ui, 'Segoe UI', Roboto, Arial, sans-serif" },
   { id: 'segoe', label: 'Segoe UI', stack: "'Segoe UI', system-ui, sans-serif" },
+  { id: 'inter', label: 'Inter', stack: "'Inter', 'Segoe UI', system-ui, sans-serif", webFont: 'Inter' },
   { id: 'arial', label: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
   { id: 'calibri', label: 'Calibri', stack: 'Calibri, Candara, Segoe, sans-serif' },
   { id: 'verdana', label: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
@@ -51,7 +52,10 @@ export function findFontByStack(stack: string): FontOption | undefined {
   return FONT_OPTIONS.find((font) => font.stack === stack)
 }
 
-/** Google Fonts families that must be loaded for the given stacks. */
+/**
+ * Google Fonts families that must be loaded for the given stacks.
+ * Nothing is fetched unless the presentation actually uses a web font.
+ */
 export function webFontsFor(stacks: string[]): string[] {
   const families = new Set<string>()
   for (const stack of stacks) {

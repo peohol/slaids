@@ -13,6 +13,7 @@ import { presentationSlides } from '../../domain/referenceSlides'
 import type { Presentation } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { SlideView } from '../slide/SlideView'
+import { loadWebFonts } from '../fonts'
 
 export function PresentView({
   presentation,
@@ -29,12 +30,24 @@ export function PresentView({
   const hostRef = useRef<HTMLDivElement>(null)
   const numbering = computeReferenceNumbering(presentation)
 
+  useEffect(() => {
+    loadWebFonts([presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
+  }, [presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
+
   useLayoutEffect(() => {
     const element = hostRef.current
     if (!element) return
     const update = (): void => {
-      const rect = element.getBoundingClientRect()
-      setScale(fitScale(rect.width, rect.height))
+      const styles = getComputedStyle(element)
+      const width =
+        element.clientWidth -
+        parseFloat(styles.paddingLeft || '0') -
+        parseFloat(styles.paddingRight || '0')
+      const height =
+        element.clientHeight -
+        parseFloat(styles.paddingTop || '0') -
+        parseFloat(styles.paddingBottom || '0')
+      setScale(fitScale(width, height))
     }
     update()
     const observer = new ResizeObserver(update)

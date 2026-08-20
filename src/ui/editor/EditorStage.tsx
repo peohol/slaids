@@ -26,7 +26,7 @@ import { findSplit, updateNode } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { setSlideTitle, setSplitWeights } from '../../domain/commands'
 import { useEditorStore } from '../../state/store'
-import type { LayoutNode, NodeId, Slide } from '../../domain/types'
+import type { LayoutNode, NodeId, Slide, ZoneContentKind } from '../../domain/types'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -35,6 +35,7 @@ import { EditableZoneContent } from './EditableZoneContent'
 import { RichTextEditor } from './RichTextEditor'
 import { ZoneOverlay, type ZoneAction } from './ZoneOverlay'
 import { ZoneDropZone } from './ZoneDropZone'
+import { EmptyZone } from './EmptyZone'
 
 interface DragState {
   splitId: NodeId
@@ -49,9 +50,10 @@ interface DragState {
 export interface EditorStageProps {
   slide: Slide
   actions: ZoneAction[]
+  onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
 }
 
-export function EditorStage({ slide, actions }: EditorStageProps) {
+export function EditorStage({ slide, actions, onAddContent }: EditorStageProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
   const titleHostRef = useRef<HTMLDivElement>(null)
@@ -72,8 +74,17 @@ export function EditorStage({ slide, actions }: EditorStageProps) {
     const element = viewportRef.current
     if (!element) return
     const update = (): void => {
-      const rect = element.getBoundingClientRect()
-      setScale(fitScale(rect.width, rect.height))
+      // clientWidth/Height include padding, which is not usable stage area.
+      const styles = getComputedStyle(element)
+      const width =
+        element.clientWidth -
+        parseFloat(styles.paddingLeft || '0') -
+        parseFloat(styles.paddingRight || '0')
+      const height =
+        element.clientHeight -
+        parseFloat(styles.paddingTop || '0') -
+        parseFloat(styles.paddingBottom || '0')
+      setScale(fitScale(width, height))
     }
     update()
     const observer = new ResizeObserver(update)
@@ -267,9 +278,7 @@ export function EditorStage({ slide, actions }: EditorStageProps) {
             renderLeaf={(leaf) => (
               <ZoneDropZone nodeId={leaf.id} slideId={slide.id}>
                 {!leaf.content ? (
-                  mode === 'zone' ? (
-                    <div className="zone-empty">Tom sone</div>
-                  ) : null
+                  <EmptyZone nodeId={leaf.id} compact={mode === 'zone'} onAdd={onAddContent} />
                 ) : mode === 'zone' ? (
                   <ZoneContentView content={leaf.content} />
                 ) : (

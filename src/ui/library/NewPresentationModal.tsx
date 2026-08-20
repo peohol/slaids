@@ -3,12 +3,13 @@
  * These are presentation-wide by design — a slide can never diverge from them.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from '../components/Modal'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { DEFAULT_BACKGROUND_COLOR } from '../../domain/constants'
 import { FONT_OPTIONS } from '../../domain/fonts'
 import { bestTextColor } from '../../domain/color'
+import { loadWebFonts } from '../fonts'
 import type { PresentationTheme } from '../../domain/types'
 
 export interface NewPresentationResult {
@@ -29,6 +30,10 @@ export function NewPresentationModal({
   const [backgroundColor, setBackgroundColor] = useState(DEFAULT_BACKGROUND_COLOR)
   const [headingFontFamily, setHeadingFontFamily] = useState(FONT_OPTIONS[0].stack)
   const [bodyFontFamily, setBodyFontFamily] = useState(FONT_OPTIONS[0].stack)
+
+  useEffect(() => {
+    loadWebFonts([headingFontFamily, bodyFontFamily])
+  }, [headingFontFamily, bodyFontFamily])
 
   const trimmed = title.trim()
   const valid = trimmed.length > 0

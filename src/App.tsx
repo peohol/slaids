@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { LibraryView } from './ui/library/LibraryView'
 import { EditorView } from './ui/editor/EditorView'
 import { Toaster } from './ui/components/Toaster'
 import { TooltipProvider } from './ui/components/Tooltip'
 import { readPref, writePref } from './state/prefs'
-import { loadWebFonts } from './ui/fonts'
 
 const LAST_OPEN_KEY = 'lastOpenPresentation'
 
 export default function App() {
   const [openId, setOpenId] = useState<string | null>(() => readPref<string | null>(LAST_OPEN_KEY, null))
-
-  useEffect(() => {
-    loadWebFonts()
-  }, [])
 
   const open = useCallback((id: string) => {
     writePref(LAST_OPEN_KEY, id)

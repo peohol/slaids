@@ -33,6 +33,7 @@ import { startAutosave } from '../../state/autosave'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { fitCheckerFor } from '../../state/measure'
+import { loadWebFonts } from '../fonts'
 import {
   instantiateClipboardContent,
   readStructuralClipboardSync,
@@ -45,6 +46,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
+import { Inspector } from './Inspector'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
 import { NewSlideModal } from './NewSlideModal'
@@ -139,6 +141,15 @@ export function EditorView({
     }
   }, [])
 
+  const themeFonts = presentation
+    ? `${presentation.theme.headingFontFamily}|${presentation.theme.bodyFontFamily}`
+    : ''
+
+  useEffect(() => {
+    if (!themeFonts) return
+    loadWebFonts(themeFonts.split('|'))
+  }, [themeFonts])
+
   const slide = useMemo(
     () => presentation?.slides.find((entry) => entry.id === currentSlideId) ?? null,
     [presentation, currentSlideId],
@@ -162,6 +173,23 @@ export function EditorView({
   /* -------------------------------------------------------------- *
    * Commands
    * -------------------------------------------------------------- */
+
+  const addContentTo = useCallback(
+    (nodeId: string, kind: ZoneContentKind) => {
+      if (!slide) return
+      runStructural('content-add', (current) =>
+        setZoneContent(current, {
+          slideId: slide.id,
+          nodeId,
+          content: createContentOfKind(kind),
+          fits,
+        }),
+      )
+      useEditorStore.getState().selectNode(nodeId)
+      setMode('content')
+    },
+    [fits, runStructural, setMode, slide],
+  )
 
   const applyContentKind = useCallback(
     (kind: ZoneContentKind) => {
@@ -525,7 +553,8 @@ export function EditorView({
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
             />
-            <EditorStage slide={slide} actions={zoneActions} />
+            <EditorStage slide={slide} actions={zoneActions} onAddContent={addContentTo} />
+            <Inspector slide={slide} actions={zoneActions} onAddContent={addContentTo} />
           </div>
 
           <StatusBar presentation={presentation} />

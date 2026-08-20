@@ -2,7 +2,7 @@
  * Factories and pure helpers for zone content.
  */
 
-import { WHITE } from './color'
+import { PALETTE_SATURATION, WHITE, hslToHex } from './color'
 import { newContentId, newSubfieldId } from './ids'
 import { collectCitationIds, collectDocAssetIds, emptyDoc, isDocEmpty, titleDoc } from './richdoc'
 import type {
@@ -173,5 +173,10 @@ export function isContentEmpty(content: ZoneContent): boolean {
 }
 
 export function defaultShape(): ShapeSpec {
-  return { kind: 'rectangle', fill: '#8899aa', stroke: '#33475b', strokeWidth: 3 }
+  return {
+    kind: 'rectangle',
+    fill: hslToHex(210, PALETTE_SATURATION, 80),
+    stroke: hslToHex(210, PALETTE_SATURATION, 20),
+    strokeWidth: 3,
+  }
 }

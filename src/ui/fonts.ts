@@ -1,20 +1,28 @@
-/** Loads the small set of web fonts the theme picker offers. */
+/**
+ * Loads web fonts on demand.
+ *
+ * Only families a presentation actually uses are requested, so the default
+ * (system) theme makes no network request at all.
+ */
 
-import { FONT_OPTIONS } from '../domain/fonts'
+import { webFontsFor } from '../domain/fonts'
 
-let loaded = false
+const loaded = new Set<string>()
 
-export function loadWebFonts(): void {
-  if (loaded || typeof document === 'undefined') return
-  loaded = true
-  const families = FONT_OPTIONS.flatMap((font) => (font.webFont ? [font.webFont] : []))
+export function loadWebFonts(stacks: string[]): void {
+  if (typeof document === 'undefined') return
+  const families = webFontsFor(stacks).filter((family) => !loaded.has(family))
   if (families.length === 0) return
+  for (const family of families) loaded.add(family)
 
-  const preconnect = document.createElement('link')
-  preconnect.rel = 'preconnect'
-  preconnect.href = 'https://fonts.gstatic.com'
-  preconnect.crossOrigin = 'anonymous'
-  document.head.appendChild(preconnect)
+  if (!document.querySelector('link[data-slaids-font-preconnect]')) {
+    const preconnect = document.createElement('link')
+    preconnect.rel = 'preconnect'
+    preconnect.href = 'https://fonts.gstatic.com'
+    preconnect.crossOrigin = 'anonymous'
+    preconnect.setAttribute('data-slaids-font-preconnect', '')
+    document.head.appendChild(preconnect)
+  }
 
   const link = document.createElement('link')
   link.rel = 'stylesheet'
