@@ -4,7 +4,7 @@
  */
 
 import { walkNodes } from './layout'
-import type { LayoutNode, Presentation, RichDoc, ZoneContent } from './types'
+import type { LayoutNode, Presentation, RichDoc, RichNode, ZoneContent } from './types'
 
 export type DocTransform = (doc: RichDoc) => RichDoc
 
@@ -92,4 +92,64 @@ export function allContent(presentation: Presentation): ZoneContent[] {
   }
   for (const item of presentation.sandbox) out.push(item.content)
   return out
+}
+
+/** Rewrite asset ids everywhere they are referenced. Used by import. */
+export function remapAssetIds(
+  presentation: Presentation,
+  map: ReadonlyMap<string, string>,
+): Presentation {
+  if (map.size === 0) return presentation
+  const remapDoc = (doc: RichDoc): RichDoc => {
+    let changed = false
+    const walk = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
+      if (!nodes) return undefined
+      return nodes.map((node) => {
+        const assetId = node.attrs?.assetId
+        const next = typeof assetId === 'string' ? map.get(assetId) : undefined
+        const content = walk(node.content)
+        if (!next && content === node.content) return node
+        changed = true
+        return {
+          ...node,
+          ...(next ? { attrs: { ...node.attrs, assetId: next } } : {}),
+          ...(content ? { content } : {}),
+        }
+      })
+    }
+    const content = walk(doc.content)
+    return changed && content ? { ...doc, content } : doc
+  }
+
+  const remapContent = (content: ZoneContent): ZoneContent => {
+    const mapped = mapContentDocs(content, remapDoc)
+    if (mapped.kind === 'container' && mapped.payload.type === 'asset') {
+      const next = map.get(mapped.payload.assetId)
+      if (next) return { ...mapped, payload: { ...mapped.payload, assetId: next } }
+    }
+    return mapped
+  }
+
+  const slides = presentation.slides.map((slide) => ({
+    ...slide,
+    root: mapTreeContent(slide.root, remapContent),
+  }))
+  const sandbox = presentation.sandbox.map((item) => ({
+    ...item,
+    content: remapContent(item.content),
+  }))
+  const assets = presentation.assets.map((asset) => ({ ...asset, id: map.get(asset.id) ?? asset.id }))
+  return { ...presentation, slides, sandbox, assets }
+}
+
+function mapTreeContent(
+  node: LayoutNode,
+  transform: (content: ZoneContent) => ZoneContent,
+): LayoutNode {
+  if (node.kind === 'leaf') {
+    if (!node.content) return node
+    const content = transform(node.content)
+    return content === node.content ? node : { ...node, content }
+  }
+  return { ...node, children: node.children.map((child) => mapTreeContent(child, transform)) }
 }
