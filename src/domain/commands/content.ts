@@ -15,6 +15,7 @@ import {
   withSubfieldCount,
   withSubfieldDoc,
 } from '../content'
+import { imageNode, shapeNode } from '../richdoc'
 import { areWeightsValid } from '../geometry'
 import { findLeaf, findNode, replaceNode } from '../layout'
 import { emptyDoc, isDocEmpty } from '../richdoc'
@@ -23,9 +24,11 @@ import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
 import type {
   Axis,
+  CardBody,
   ContainerPayload,
   Presentation,
   RichDoc,
+  RichNode,
   ZoneContent,
   ZoneContentKind,
 } from '../types'
@@ -168,52 +171,96 @@ export function setCardColor(
 }
 
 /**
- * Convert content from one kind to another, carrying text across so the user
- * does not lose what they already wrote.
+ * Convert content from one kind to another **without losing anything**.
+ *
+ * A card title becomes a heading when the target has no title of its own; a
+ * container's image or figure becomes an inline node in the card body. Every
+ * conversion is reversible in the sense that no user content disappears.
  */
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
-  const docs: RichDoc[] =
-    content.kind === 'container'
-      ? content.payload.type === 'richdoc'
-        ? [content.payload.doc]
-        : []
-      : content.body.subfields.map((field) => field.doc)
-
   if (kind === 'container') {
-    const merged = docs.length > 0 ? mergeDocs(docs) : emptyDoc()
-    if (content.kind !== 'container' || content.payload.type === 'richdoc') {
-      return createContainer({ type: 'richdoc', doc: merged })
+    const blocks: RichNode[] = []
+    if (content.kind === 'titled-card') {
+      const heading = titleAsHeading(content.title)
+      if (heading) blocks.push(heading)
     }
-    return createContainer(content.payload)
+    if (content.kind !== 'container') {
+      for (const field of content.body.subfields) blocks.push(...(field.doc.content ?? []))
+    }
+    return createContainer({
+      type: 'richdoc',
+      doc: blocks.length > 0 ? { type: 'doc', content: blocks } : emptyDoc(),
+    })
   }
 
-  const body = createCardBody(Math.max(1, docs.length))
-  const subfields = body.subfields.map((field, index) => ({
-    ...field,
-    doc: docs[index] ?? emptyDoc(),
-  }))
-  const nextBody = { ...body, subfields }
+  let docs: RichDoc[]
+  let axis: CardBody['axis'] = 'y'
+  let weights: number[] | null = null
+  let carriedTitle: RichDoc | null = null
+
+  if (content.kind === 'container') {
+    docs = [{ type: 'doc', content: containerBlocks(content) }]
+  } else {
+    docs = content.body.subfields.map((field) => field.doc)
+    axis = content.body.axis
+    weights = [...content.body.weights]
+    if (content.kind === 'titled-card') {
+      if (kind === 'titled-card') {
+        carriedTitle = content.title
+      } else {
+        const heading = titleAsHeading(content.title)
+        if (heading) {
+          docs = [
+            { type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] },
+            ...docs.slice(1),
+          ]
+        }
+      }
+    }
+  }
+
+  const base = createCardBody(Math.max(1, docs.length), axis)
+  const body: CardBody = {
+    axis,
+    weights: weights && weights.length === base.subfields.length ? weights : base.weights,
+    subfields: base.subfields.map((field, index) => ({ ...field, doc: docs[index] ?? emptyDoc() })),
+  }
 
   if (kind === 'untitled-card') {
     const card = createUntitledCard(
       content.kind === 'untitled-card' ? content.backgroundColor : undefined,
     )
-    return { ...card, body: nextBody }
+    return { ...card, body }
   }
 
   const card = createTitledCard()
   return {
     ...card,
-    body: nextBody,
-    ...(content.kind === 'titled-card' ? { title: content.title, headerColor: content.headerColor } : {}),
+    body,
+    ...(carriedTitle ? { title: carriedTitle } : {}),
+    ...(content.kind === 'titled-card' ? { headerColor: content.headerColor } : {}),
   }
 }
 
-function mergeDocs(docs: RichDoc[]): RichDoc {
-  const content = docs.flatMap((doc) => doc.content ?? [])
-  return content.length > 0 ? { type: 'doc', content } : emptyDoc()
+/** A card title becomes a heading so its text survives the conversion. */
+function titleAsHeading(title: RichDoc): RichNode | null {
+  const inline = (title.content ?? []).flatMap((node) => node.content ?? [])
+  if (inline.length === 0) return null
+  return { type: 'heading', attrs: { level: 1 }, content: inline }
+}
+
+/** A container's payload as body blocks, so images and figures are carried over. */
+function containerBlocks(content: Extract<ZoneContent, { kind: 'container' }>): RichNode[] {
+  switch (content.payload.type) {
+    case 'richdoc':
+      return content.payload.doc.content ?? []
+    case 'asset':
+      return [imageNode(content.payload.assetId)]
+    case 'shape':
+      return [shapeNode(content.payload.shape)]
+  }
 }
 
 export function setContentKind(

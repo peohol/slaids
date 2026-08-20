@@ -38,6 +38,8 @@ export interface SlaidsRepository {
   listAssets(presentationId: string): Promise<AssetRef[]>
   deleteAsset(id: string): Promise<void>
   deleteAssetsForPresentation(presentationId: string): Promise<void>
+  /** Remove asset rows whose owning presentation no longer exists. */
+  deleteOrphanAssets(): Promise<number>
 }
 
 export class RepositoryError extends Error {

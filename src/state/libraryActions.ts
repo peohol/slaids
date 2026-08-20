@@ -36,6 +36,10 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
   }
   copy = remapAssetIds(copy, assetMap)
 
+  // The presentation is written first so its assets always have an owner; an
+  // asset row whose presentation does not exist can never be cleaned up.
+  await repository.savePresentation(copy)
+
   for (const asset of source.assets) {
     const stored = await repository.getAsset(asset.id)
     if (!stored) continue
@@ -44,7 +48,6 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
     await repository.putAsset(copy.id, { ...stored.ref, id: targetId }, stored.blob)
   }
 
-  await repository.savePresentation(copy)
   return copy
 }
 

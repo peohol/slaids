@@ -13,7 +13,7 @@
 
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate'
 import { migratePresentation } from '../domain/migrations'
-import { newAssetId, newPresentationId } from '../domain/ids'
+import { newAssetId, newPresentationId, newTemplateId } from '../domain/ids'
 import { remapAssetIds } from '../domain/docs'
 import { slaidsFileManifestSchema, validateLayoutTemplate } from '../domain/schema'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
@@ -112,15 +112,28 @@ export async function importSlaidsArchive(
     report.errors.push('Filen mangler manifest.json.')
     return report
   }
-  const manifest = slaidsFileManifestSchema.safeParse(JSON.parse(strFromU8(manifestRaw)))
+  let manifestJson: unknown
+  try {
+    manifestJson = JSON.parse(strFromU8(manifestRaw))
+  } catch {
+    report.errors.push('Manifestet kunne ikke leses.')
+    return report
+  }
+  const manifest = slaidsFileManifestSchema.safeParse(manifestJson)
   if (!manifest.success) {
     report.errors.push('Manifestet er ugyldig eller fra et ukjent format.')
     return report
   }
 
-  const assetIndex: AssetIndexEntry[] = entries['assets/index.json']
-    ? (JSON.parse(strFromU8(entries['assets/index.json'])) as AssetIndexEntry[])
-    : []
+  let assetIndex: AssetIndexEntry[] = []
+  if (entries['assets/index.json']) {
+    try {
+      const parsedIndex = JSON.parse(strFromU8(entries['assets/index.json']))
+      if (Array.isArray(parsedIndex)) assetIndex = parsedIndex as AssetIndexEntry[]
+    } catch {
+      report.errors.push('assets/index.json kunne ikke leses; filer hoppes over.')
+    }
+  }
 
   const existing = new Set((await repository.listPresentations()).map((summary) => summary.id))
 
@@ -177,11 +190,28 @@ export async function importSlaidsArchive(
 
   if (entries['templates.json']) {
     try {
-      const templates = JSON.parse(strFromU8(entries['templates.json'])) as LayoutTemplate[]
+      const parsed = JSON.parse(strFromU8(entries['templates.json']))
+      const templates = Array.isArray(parsed) ? (parsed as LayoutTemplate[]) : []
+      const existingTemplates = new Set((await repository.listTemplates()).map((entry) => entry.id))
       for (const template of templates) {
         if (!validateLayoutTemplate(template).ok) continue
-        await repository.saveTemplate(template)
-        report.importedTemplates += 1
+        // A local template with the same id may have been edited since the
+        // backup was taken, so it is never overwritten.
+        const clash = existingTemplates.has(template.id)
+        const toSave = clash
+          ? { ...template, id: newTemplateId(), name: `${template.name} (importert)` }
+          : template
+        try {
+          await repository.saveTemplate(toSave)
+          existingTemplates.add(toSave.id)
+          report.importedTemplates += 1
+        } catch (error) {
+          report.errors.push(
+            `Kunne ikke lagre malen «${template.name}» (${
+              error instanceof Error ? error.message : 'ukjent feil'
+            }).`,
+          )
+        }
       }
     } catch {
       report.errors.push('templates.json kunne ikke leses.')

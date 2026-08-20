@@ -10,6 +10,7 @@ import { DndContext, DragOverlay, PointerSensor, closestCenter, useSensor, useSe
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import {
   addSlide,
+  canAcceptContent,
   clearLayoutNode,
   deleteLayoutNode,
   deleteSlide,
@@ -17,17 +18,27 @@ import {
   moveSlide,
   moveZoneContentToSandbox,
   placeSandboxItem,
+  registerAsset,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
+  setSlideTitle,
   setZoneContent,
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
 import { CONTENT_KIND_LABELS, createContentOfKind } from '../../domain/content'
 import { computeReferenceNumbering } from '../../domain/references'
+import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { cloneSubtreeWithNewIds, findLeaf, findNode } from '../../domain/layout'
+import { buildReferenceSlides } from '../../domain/referenceSlides'
+import {
+  cloneSubtreeWithNewIds,
+  collectLeaves,
+  countContent,
+  findLeaf,
+  findNode,
+} from '../../domain/layout'
 import { repository } from '../../persistence/dexieRepository'
 import { startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
@@ -35,12 +46,9 @@ import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { fitCheckerFor } from '../../state/measure'
 import { loadWebFonts } from '../fonts'
-import {
-  instantiateClipboardContent,
-  readStructuralClipboardSync,
-  writeStructuralClipboard,
-} from '../../state/clipboard'
-import type { LayoutTemplate, Slide, ZoneContentKind } from '../../domain/types'
+import { readStructuralClipboardSync, writeStructuralClipboard } from '../../state/clipboard'
+import { materializeClipboardContent } from '../../state/pasteAssets'
+import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -48,6 +56,7 @@ import { Modal } from '../components/Modal'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
+import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
 import { NewSlideModal } from './NewSlideModal'
@@ -97,9 +106,14 @@ export function EditorView({
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
   const [deletingSlide, setDeletingSlide] = useState<Slide | null>(null)
-  const [deletingZone, setDeletingZone] = useState<{ nodeId: string; hasContent: boolean } | null>(null)
-  const [clearingZone, setClearingZone] = useState<{ nodeId: string; hasContent: boolean } | null>(null)
+  const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null)
+  const [clearingZoneId, setClearingZoneId] = useState<string | null>(null)
   const [dragItemId, setDragItemId] = useState<string | null>(null)
+  const [derivedView, setDerivedView] = useState<{ id: string; from: string } | null>(null)
+  const [removingTitle, setRemovingTitle] = useState(false)
+  /** Titles removed in this session, so toggling the zone back on restores the text. */
+  const removedTitles = useRef(new Map<string, TitleDoc>())
+  const [dropTargets, setDropTargets] = useState<ReadonlySet<string>>(() => new Set())
   const autosaveRef = useRef<ReturnType<typeof startAutosave> | null>(null)
 
   /* -------------------------------------------------------------- *
@@ -163,6 +177,25 @@ export function EditorView({
     () => presentation?.slides.find((entry) => entry.id === currentSlideId) ?? null,
     [presentation, currentSlideId],
   )
+
+  /**
+   * Reference slides are derived on every render rather than stored, so they
+   * always match the citations. They are read-only in the editor.
+   */
+  const derivedSlides = useMemo(
+    () => (presentation ? buildReferenceSlides(presentation) : []),
+    [presentation],
+  )
+
+  /**
+   * Derived by construction rather than synchronised: remembering which
+   * authored slide the view was opened from means selecting another slide, or
+   * losing the last citation, closes it without an effect.
+   */
+  const viewedDerivedSlide =
+    derivedView && derivedView.from === currentSlideId
+      ? (derivedSlides.find((entry) => entry.id === derivedView.id) ?? null)
+      : null
 
   const numbering = useMemo(
     () => (presentation ? computeReferenceNumbering(presentation) : new Map<string, number>()),
@@ -278,6 +311,19 @@ export function EditorView({
     [currentSlideId, run],
   )
 
+  const removeTitle = useCallback(() => {
+    if (!slide?.title) return
+    removedTitles.current.set(slide.id, slide.title)
+    run('toggle-title', (current) => setSlideHasTitle(current, slide.id, false))
+  }, [run, slide])
+
+  const restoreTitle = useCallback(() => {
+    if (!slide) return
+    if (!run('toggle-title', (current) => setSlideHasTitle(current, slide.id, true))) return
+    const remembered = removedTitles.current.get(slide.id)
+    if (remembered) run('restore-title', (current) => setSlideTitle(current, slide.id, remembered))
+  }, [run, slide])
+
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {
       insertSlide(template.hasTitle, cloneSubtreeWithNewIds(template.root))
@@ -369,14 +415,27 @@ export function EditorView({
           notify.warning('Utklippstavlen er tom.')
           return
         }
-        runStructural('paste-content', (presentationState) =>
-          setZoneContent(presentationState, {
-            slideId: activeSlide.id,
-            nodeId: state.selectedNodeId as string,
-            content: instantiateClipboardContent(payload),
-            fits,
-          }),
-        )
+        const targetNodeId = state.selectedNodeId
+        // Copy any referenced assets into this presentation first, so a paste
+        // across presentations does not depend on the source surviving.
+        void materializeClipboardContent(payload, current).then(({ content, refs }) => {
+          const placed = useEditorStore
+            .getState()
+            .runStructural('paste-content', (presentationState) =>
+              setZoneContent(presentationState, {
+                slideId: activeSlide.id,
+                nodeId: targetNodeId,
+                content,
+                fits,
+              }),
+            )
+          if (!placed) return
+          for (const ref of refs) {
+            useEditorStore
+              .getState()
+              .run('asset-register', (presentationState) => registerAsset(presentationState, ref))
+          }
+        })
       }
     }
 
@@ -392,11 +451,37 @@ export function EditorView({
 
   const handleDragStart = (event: DragStartEvent): void => {
     const data = event.active.data.current
-    if (data?.kind === 'sandbox-item') setDragItemId(String(data.itemId))
+    if (data?.kind !== 'sandbox-item') return
+    setDragItemId(String(data.itemId))
+
+    // Decide valid drop targets here, in an event handler, where the offscreen
+    // fit measurement is allowed to render synchronously.
+    const current = useEditorStore.getState().presentation
+    const activeSlide = current?.slides.find((entry) => entry.id === currentSlideId)
+    const item = current?.sandbox.find((entry) => entry.id === String(data.itemId))
+    if (!current || !activeSlide || !item) {
+      setDropTargets(new Set())
+      return
+    }
+    const targets = new Set<string>()
+    for (const leaf of collectLeaves(activeSlide.root)) {
+      if (
+        canAcceptContent(current, {
+          slideId: activeSlide.id,
+          nodeId: leaf.id,
+          content: item.content,
+          fits,
+        })
+      ) {
+        targets.add(leaf.id)
+      }
+    }
+    setDropTargets(targets)
   }
 
   const handleDragEnd = (event: DragEndEvent): void => {
     setDragItemId(null)
+    setDropTargets(new Set())
     const { active, over } = event
     const data = active.data.current
     if (!over) return
@@ -479,18 +564,14 @@ export function EditorView({
         id: 'clear',
         label: 'Tøm sone',
         icon: 'eraser',
-        onSelect: () =>
-          setClearingZone({
-            nodeId: selectedNodeId,
-            hasContent: selectedNode.kind === 'split' || Boolean(hasContent),
-          }),
+        onSelect: () => setClearingZoneId(selectedNodeId),
       },
       {
         id: 'delete',
         label: 'Slett sone',
         icon: 'trash',
         disabled: isRoot,
-        onSelect: () => setDeletingZone({ nodeId: selectedNodeId, hasContent: Boolean(hasContent) }),
+        onSelect: () => setDeletingZoneId(selectedNodeId),
       },
       {
         id: 'image',
@@ -529,6 +610,12 @@ export function EditorView({
     )
   }
 
+  // Recomputed on every render, so a dialog can never act on a stale snapshot.
+  const deletingZoneNode = deletingZoneId ? findNode(slide.root, deletingZoneId) : null
+  const deletingZoneHasContent = deletingZoneNode ? countContent(deletingZoneNode) > 0 : false
+  const clearingZoneNode = clearingZoneId ? findNode(slide.root, clearingZoneId) : null
+  const clearingZoneHasContent = clearingZoneNode ? countContent(clearingZoneNode) > 0 : false
+
   const draggedItem = dragItemId
     ? presentation.sandbox.find((item) => item.id === dragItemId) ?? null
     : null
@@ -540,14 +627,17 @@ export function EditorView({
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onDragCancel={() => setDragItemId(null)}
+        onDragCancel={() => {
+          setDragItemId(null)
+          setDropTargets(new Set())
+        }}
       >
         <div className="editor" data-testid="editor">
           <TopToolbar
             title={presentation.title}
             hasTitleZone={slide.title !== null}
-            canToggleTitle
-            selectionIsLeaf={selectedNode?.kind === 'leaf'}
+            canToggleTitle={viewedDerivedSlide === null}
+            selectionIsLeaf={viewedDerivedSlide === null && selectedNode?.kind === 'leaf'}
             selectionHasContent={Boolean(selectedLeaf?.content)}
             sandboxCount={presentation.sandbox.length}
             onBack={onClose}
@@ -555,11 +645,17 @@ export function EditorView({
               setRenameValue(presentation.title)
               setRenameOpen(true)
             }}
-            onToggleTitle={() =>
-              run('toggle-title', (current) =>
-                setSlideHasTitle(current, slide.id, slide.title === null),
-              )
-            }
+            onToggleTitle={() => {
+              if (slide.title !== null) {
+                if (!isDocEmpty(slide.title)) {
+                  setRemovingTitle(true)
+                  return
+                }
+                removeTitle()
+                return
+              }
+              restoreTitle()
+            }}
             onSetContentKind={applyContentKind}
             onOpenReferences={() => setReferencesOpen(true)}
             onOpenTemplates={() => setTemplatesOpen(true)}
@@ -575,11 +671,40 @@ export function EditorView({
           <div className="editor__body">
             <Filmstrip
               presentation={presentation}
+              derivedSlides={derivedSlides}
+              viewingDerivedId={viewedDerivedSlide?.id ?? null}
+              onSelectDerived={(slideId) =>
+                setDerivedView(currentSlideId ? { id: slideId, from: currentSlideId } : null)
+              }
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
             />
-            <EditorStage slide={slide} actions={zoneActions} onAddContent={addContentTo} />
-            <Inspector slide={slide} actions={zoneActions} onAddContent={addContentTo} />
+            {viewedDerivedSlide ? (
+              <ReadOnlySlideStage
+                slide={viewedDerivedSlide}
+                note="Referanseslides genereres automatisk fra referansene og kan ikke redigeres."
+              />
+            ) : (
+              <EditorStage
+                slide={slide}
+                actions={zoneActions}
+                onAddContent={addContentTo}
+                dropTargets={dropTargets}
+              />
+            )}
+            {viewedDerivedSlide ? (
+              <aside className="inspector" data-testid="inspector">
+                <section className="inspector__section">
+                  <h2 className="inspector__heading">Avledet slide</h2>
+                  <p className="hint">
+                    Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger
+                    rekkefølgen de først nevnes i, og oppdateres automatisk.
+                  </p>
+                </section>
+              </aside>
+            ) : (
+              <Inspector slide={slide} actions={zoneActions} onAddContent={addContentTo} />
+            )}
           </div>
 
           <StatusBar presentation={presentation} />
@@ -679,6 +804,18 @@ export function EditorView({
       </Modal>
 
       <ConfirmDialog
+        open={removingTitle}
+        title="Fjerne overskriftssonen?"
+        message="Overskriften har tekst. Teksten kan hentes tilbake ved å slå sonen på igjen, eller med Ctrl+Z."
+        confirmLabel="Fjern sonen"
+        onConfirm={() => {
+          removeTitle()
+          setRemovingTitle(false)
+        }}
+        onCancel={() => setRemovingTitle(false)}
+      />
+
+      <ConfirmDialog
         open={deletingSlide !== null}
         title="Slette sliden?"
         message="Sliden og alt innhold på den fjernes."
@@ -691,76 +828,79 @@ export function EditorView({
       />
 
       <ConfirmDialog
-        open={deletingZone !== null}
+        open={deletingZoneId !== null}
         title="Slette sonen?"
         message={
-          deletingZone?.hasContent
+          deletingZoneHasContent
             ? 'Sonen har innhold. Du kan flytte innholdet til sandkassen i stedet for å slette det.'
             : 'Sonen fjernes, og søsknene fyller plassen.'
         }
-        confirmLabel={deletingZone?.hasContent ? 'Slett innholdet' : 'Slett sonen'}
-        alternativeLabel={deletingZone?.hasContent ? 'Flytt til sandkassen' : undefined}
+        confirmLabel={deletingZoneHasContent ? 'Slett innholdet' : 'Slett sonen'}
+        alternativeLabel={deletingZoneHasContent ? 'Flytt til sandkassen' : undefined}
         onAlternative={
-          deletingZone?.hasContent
+          deletingZoneHasContent
             ? () => {
+                if (!deletingZoneId) return
                 runStructural('delete-zone', (current) =>
                   deleteLayoutNode(current, {
                     slideId: slide.id,
-                    nodeId: deletingZone.nodeId,
+                    nodeId: deletingZoneId,
                     contentDisposition: 'sandbox',
                   }),
                 )
-                setDeletingZone(null)
+                setDeletingZoneId(null)
               }
             : undefined
         }
         onConfirm={() => {
-          if (!deletingZone) return
+          if (!deletingZoneId) return
           runStructural('delete-zone', (current) =>
             deleteLayoutNode(current, {
               slideId: slide.id,
-              nodeId: deletingZone.nodeId,
-              contentDisposition: 'delete',
+              nodeId: deletingZoneId,
+              // Content is only ever discarded when the dialog said so; if content
+              // appeared since (an undo, say), it is rescued instead.
+              contentDisposition: deletingZoneHasContent ? 'delete' : 'sandbox',
             }),
           )
-          setDeletingZone(null)
+          setDeletingZoneId(null)
         }}
-        onCancel={() => setDeletingZone(null)}
+        onCancel={() => setDeletingZoneId(null)}
       />
 
       <ConfirmDialog
-        open={clearingZone !== null}
+        open={clearingZoneId !== null}
         title="Tømme sonen?"
         message={
-          clearingZone?.hasContent
+          clearingZoneHasContent
             ? 'Alle subsoner og alt innhold i denne sonen fjernes.'
             : 'Sonen tømmes.'
         }
         confirmLabel="Tøm og slett innhold"
         alternativeLabel="Flytt innhold til sandkassen"
         onAlternative={() => {
-          if (!clearingZone) return
+          if (!clearingZoneId) return
           runStructural('clear-zone', (current) =>
             clearLayoutNode(current, {
               slideId: slide.id,
-              nodeId: clearingZone.nodeId,
+              nodeId: clearingZoneId,
               contentDisposition: 'sandbox',
             }),
           )
-          setClearingZone(null)
+          setClearingZoneId(null)
         }}
         onConfirm={() => {
-          if (!clearingZone) return
+          if (!clearingZoneId) return
           runStructural('clear-zone', (current) =>
             clearLayoutNode(current, {
               slideId: slide.id,
-              nodeId: clearingZone.nodeId,
-              contentDisposition: 'delete',
+              nodeId: clearingZoneId,
+              contentDisposition: clearingZoneHasContent ? 'delete' : 'sandbox',
             }),
           )
-          setClearingZone(null)
+          setClearingZoneId(null)
         }}
-        onCancel={() => setClearingZone(null)}
+        onCancel={() => setClearingZoneId(null)}
       />
     </SlideRenderProvider>
   )

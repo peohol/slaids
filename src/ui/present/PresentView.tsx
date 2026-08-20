@@ -5,14 +5,14 @@
  * separate presentation layout — and appends the derived reference slides.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { fitScale } from '../../domain/geometry'
 import { computeReferenceNumbering } from '../../domain/references'
 import { presentationSlides } from '../../domain/referenceSlides'
 import type { Presentation } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { SlideView } from '../slide/SlideView'
+import { useFitScale } from '../slide/useFitScale'
 import { loadWebFonts } from '../fonts'
 
 export function PresentView({
@@ -26,34 +26,13 @@ export function PresentView({
 }) {
   const slides = presentationSlides(presentation)
   const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), slides.length - 1))
-  const [scale, setScale] = useState(1)
   const hostRef = useRef<HTMLDivElement>(null)
+  const scale = useFitScale(hostRef, 1)
   const numbering = computeReferenceNumbering(presentation)
 
   useEffect(() => {
     loadWebFonts([presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
   }, [presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
-
-  useLayoutEffect(() => {
-    const element = hostRef.current
-    if (!element) return
-    const update = (): void => {
-      const styles = getComputedStyle(element)
-      const width =
-        element.clientWidth -
-        parseFloat(styles.paddingLeft || '0') -
-        parseFloat(styles.paddingRight || '0')
-      const height =
-        element.clientHeight -
-        parseFloat(styles.paddingTop || '0') -
-        parseFloat(styles.paddingBottom || '0')
-      setScale(fitScale(width, height))
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
 
   const go = useCallback(
     (delta: number) => {

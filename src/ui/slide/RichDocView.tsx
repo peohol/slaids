@@ -11,7 +11,9 @@ import { citationLabel } from '../../domain/references'
 import { bestTextColor } from '../../domain/color'
 import type { RichDoc, RichMark, RichNode } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
-import { useAssetUrl } from '../../state/assets'
+import { InlineAssetImage } from './AssetImage'
+import { ShapeView } from './ShapeView'
+import { DEFAULT_SHAPE_HEIGHT, shapeFromNode } from '../../domain/richdoc'
 
 const DEFAULT_HEADING_PILL = '#33475b'
 
@@ -58,17 +60,24 @@ function Citation({ node }: { node: RichNode }) {
 
 function SlaidsImage({ node }: { node: RichNode }) {
   const assetId = typeof node.attrs?.assetId === 'string' ? node.attrs.assetId : null
-  const url = useAssetUrl(assetId)
   const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : ''
   const percent = Number(node.attrs?.widthPercent)
   const width = `${Number.isFinite(percent) && percent > 0 ? percent : 100}%`
   return (
     <div className="rd-image-wrapper" style={{ width }}>
-      {url ? (
-        <img className="rd-image" src={url} alt={alt} />
-      ) : (
-        <span className="rd-image rd-image--pending" aria-label={alt} />
-      )}
+      <InlineAssetImage assetId={assetId} alt={alt} />
+    </div>
+  )
+}
+
+function SlaidsShape({ node }: { node: RichNode }) {
+  const height = Number(node.attrs?.height)
+  return (
+    <div
+      className="rd-shape-wrapper"
+      style={{ height: Number.isFinite(height) && height > 0 ? height : DEFAULT_SHAPE_HEIGHT }}
+    >
+      <ShapeView shape={shapeFromNode(node)} />
     </div>
   )
 }
@@ -114,6 +123,8 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
       return <Citation node={node} />
     case 'slaidsImage':
       return <SlaidsImage node={node} />
+    case 'slaidsShape':
+      return <SlaidsShape node={node} />
     case 'table':
       return (
         <table className="rd-table">

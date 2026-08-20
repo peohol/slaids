@@ -7,7 +7,7 @@
 
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
-import { AssetImage } from '../slide/AssetImage'
+import { InlineAssetImage } from '../slide/AssetImage'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -29,11 +29,7 @@ function ImageNodeView({ node }: NodeViewProps) {
       className="rd-image-wrapper"
       style={{ width: `${Number.isFinite(percent) && percent > 0 ? percent : 100}%` }}
     >
-      {assetId ? (
-        <AssetImage assetId={assetId} fit="contain" alt={String(node.attrs.alt ?? '')} />
-      ) : (
-        <span className="rd-image rd-image--pending" />
-      )}
+      <InlineAssetImage assetId={assetId} alt={String(node.attrs.alt ?? '')} />
     </NodeViewWrapper>
   )
 }

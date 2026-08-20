@@ -218,13 +218,20 @@
 }
 
 .rich-doc :is(img, .rd-image) {
-  max-width: 100%;
   display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
 }
 
-.rd-image-wrapper {
+.rd-image-wrapper,
+.rd-shape-wrapper {
   margin: 0 0 6px;
   max-width: 100%;
+}
+
+.rd-shape-wrapper {
+  width: 100%;
 }
 
 .rd-image--pending {

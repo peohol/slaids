@@ -130,6 +130,13 @@ export function sumWeights(weights: readonly number[]): number {
  * Child boundaries are derived from cumulative weight fractions rather than by
  * accumulating individual child lengths, so rounding error cannot drift and the
  * final child always ends exactly on the parent's edge.
+ *
+ * Degenerate case: if the rect is too short to even hold the gaps
+ * (`length < gap * (n - 1)`), the gap is scaled down instead of going negative.
+ * The children collapse to zero length but stay inside the parent, so "nothing
+ * escapes its parent" holds unconditionally. The commands prevent this from
+ * being created in the first place — see `previewSplit` and `minimumSizeFor` —
+ * and `validateSlideGeometry` reports it as a below-minimum violation.
  */
 export function splitRect(
   source: Rect,
@@ -143,15 +150,18 @@ export function splitRect(
   const count = weights.length
   const total = sumWeights(weights)
   const along = axis === 'x' ? source.width : source.height
-  const usable = along - gap * (count - 1)
+  const rawUsable = along - gap * (count - 1)
+  const collapsed = rawUsable < 0
+  const effectiveGap = collapsed ? Math.max(0, along) / (count - 1) : gap
+  const usable = collapsed ? 0 : rawUsable
   const origin = axis === 'x' ? source.x : source.y
 
   const result: Rect[] = []
   let cumulative = 0
   for (let i = 0; i < count; i += 1) {
-    const start = origin + (usable * cumulative) / total + gap * i
+    const start = origin + (usable * cumulative) / total + effectiveGap * i
     cumulative += weights[i]
-    const end = origin + (usable * cumulative) / total + gap * i
+    const end = origin + (usable * cumulative) / total + effectiveGap * i
     const length = end - start
     result.push(
       axis === 'x'

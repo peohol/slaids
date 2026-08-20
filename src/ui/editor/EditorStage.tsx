@@ -7,7 +7,7 @@
  * than overlapping DOM elements.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
@@ -16,8 +16,8 @@ import {
   G,
 } from '../../domain/constants'
 import {
+  TITLE_NODE_ID,
   computeSlideGeometry,
-  fitScale,
   hitTestLayout,
   minimumSizeFor,
   viewportToSlide,
@@ -26,9 +26,12 @@ import { findSplit, updateNode } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { setSlideTitle, setSplitWeights } from '../../domain/commands'
 import { useEditorStore } from '../../state/store'
+import { useActiveEditor } from '../../state/activeEditor'
+import type { Editor } from '@tiptap/react'
 import type { LayoutNode, NodeId, Slide, ZoneContentKind } from '../../domain/types'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
+import { useFitScale } from '../slide/useFitScale'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
@@ -51,46 +54,28 @@ export interface EditorStageProps {
   slide: Slide
   actions: ZoneAction[]
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
+  /** Zones that can accept the item currently being dragged, decided at drag start. */
+  dropTargets: ReadonlySet<NodeId>
 }
 
-export function EditorStage({ slide, actions, onAddContent }: EditorStageProps) {
+export function EditorStage({ slide, actions, onAddContent, dropTargets }: EditorStageProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
   const titleHostRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0.5)
   const [hovered, setHovered] = useState<NodeId | null>(null)
   const [preview, setPreview] = useState<{ nodeId: NodeId; weights: number[] } | null>(null)
   const dragRef = useRef<DragState | null>(null)
 
+  const scale = useFitScale(viewportRef)
   const mode = useEditorStore((state) => state.mode)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const selectNode = useEditorStore((state) => state.selectNode)
   const run = useEditorStore((state) => state.run)
   const runStructural = useEditorStore((state) => state.runStructural)
   const setActiveField = useEditorStore((state) => state.setActiveField)
+  const setActiveEditor = useActiveEditor((state) => state.setEditor)
+  const titleEditorRef = useRef<Editor | null>(null)
   const { theme } = useSlideRender()
-
-  useLayoutEffect(() => {
-    const element = viewportRef.current
-    if (!element) return
-    const update = (): void => {
-      // clientWidth/Height include padding, which is not usable stage area.
-      const styles = getComputedStyle(element)
-      const width =
-        element.clientWidth -
-        parseFloat(styles.paddingLeft || '0') -
-        parseFloat(styles.paddingRight || '0')
-      const height =
-        element.clientHeight -
-        parseFloat(styles.paddingTop || '0') -
-        parseFloat(styles.paddingBottom || '0')
-      setScale(fitScale(width, height))
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
 
   const displaySlide: Slide = preview
     ? {
@@ -196,11 +181,22 @@ export function EditorStage({ slide, actions, onAddContent }: EditorStageProps) 
       )
     }
 
+    /** A gesture the browser took over (touch panning) must not commit. */
+    const cancel = (): void => {
+      if (!dragRef.current) return
+      dragRef.current = null
+      setPreview(null)
+    }
+
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', cancel)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', cancel)
     }
   }, [preview, runStructural, scale, slide.id])
 
@@ -263,7 +259,18 @@ export function EditorStage({ slide, actions, onAddContent }: EditorStageProps) 
                           )
                         : 0
                     }
-                    onFocus={() => setActiveField({ nodeId: '__title__', subfieldId: null, kind: 'slide-title' })}
+                    onEditorReady={(editor) => {
+                      titleEditorRef.current = editor
+                      if (!editor && useActiveEditor.getState().editor === editor) {
+                        setActiveEditor(null)
+                      }
+                    }}
+                    onFocus={() => {
+                      // Without this the toolbars would still target the last
+                      // body field, and citations would land in the wrong zone.
+                      setActiveEditor(titleEditorRef.current)
+                      setActiveField({ nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' })
+                    }}
                     onChange={(doc) =>
                       run('typing:slide-title', (presentation) =>
                         setSlideTitle(presentation, slide.id, doc),
@@ -276,7 +283,7 @@ export function EditorStage({ slide, actions, onAddContent }: EditorStageProps) 
               </div>
             )}
             renderLeaf={(leaf) => (
-              <ZoneDropZone nodeId={leaf.id} slideId={slide.id}>
+              <ZoneDropZone nodeId={leaf.id} acceptable={dropTargets.has(leaf.id)}>
                 {!leaf.content ? (
                   <EmptyZone nodeId={leaf.id} compact={mode === 'zone'} onAdd={onAddContent} />
                 ) : mode === 'zone' ? (

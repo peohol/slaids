@@ -65,10 +65,36 @@ test.describe('presentation mode', () => {
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
 
+    // The derived slide is visible in the editor too, as a read-only entry.
+    await expect(page.getByTestId('filmstrip-derived')).toHaveCount(1)
+    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
+    await expect(page.getByTestId('stage-note')).toBeVisible()
+    await expect(page.getByTestId('stage-slide')).toContainText('En viktig kilde')
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
+
     await page.getByTestId('present').click()
     await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
     await page.keyboard.press('ArrowRight')
     await expect(page.getByTestId('present-view')).toContainText('Referanser')
     await expect(page.getByTestId('present-view')).toContainText('En viktig kilde')
+  })
+
+  test('removes the derived slide when the last citation goes away', async ({ page }) => {
+    await createPresentation(page, 'Uten kilder')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Påstand')
+
+    await page.getByTestId('insert-reference').click()
+    await page.getByTestId('reference-title').fill('Kilde som skal bort')
+    await page.getByTestId('save-reference').click()
+    await expect(page.getByTestId('reference-row')).toHaveCount(1)
+    await page.getByTestId('delete-reference').click()
+    await page.getByTestId('confirm-accept').click()
+    await page.getByRole('button', { name: 'Lukk' }).click()
+
+    await expect(stage(page).locator('.rd-citation')).toHaveCount(0)
+    await expect(page.getByTestId('filmstrip-derived')).toHaveCount(0)
   })
 })

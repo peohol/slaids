@@ -94,13 +94,22 @@ export function allContent(presentation: Presentation): ZoneContent[] {
   return out
 }
 
-/** Rewrite asset ids everywhere they are referenced. Used by import. */
-export function remapAssetIds(
-  presentation: Presentation,
+/** Rewrite asset ids inside a single content object. */
+export function remapContentAssetIds(
+  content: ZoneContent,
   map: ReadonlyMap<string, string>,
-): Presentation {
-  if (map.size === 0) return presentation
-  const remapDoc = (doc: RichDoc): RichDoc => {
+): ZoneContent {
+  if (map.size === 0) return content
+  const mapped = mapContentDocs(content, makeAssetDocRemapper(map))
+  if (mapped.kind === 'container' && mapped.payload.type === 'asset') {
+    const next = map.get(mapped.payload.assetId)
+    if (next) return { ...mapped, payload: { ...mapped.payload, assetId: next } }
+  }
+  return mapped
+}
+
+function makeAssetDocRemapper(map: ReadonlyMap<string, string>): DocTransform {
+  return (doc: RichDoc): RichDoc => {
     let changed = false
     const walk = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
       if (!nodes) return undefined
@@ -120,15 +129,15 @@ export function remapAssetIds(
     const content = walk(doc.content)
     return changed && content ? { ...doc, content } : doc
   }
+}
 
-  const remapContent = (content: ZoneContent): ZoneContent => {
-    const mapped = mapContentDocs(content, remapDoc)
-    if (mapped.kind === 'container' && mapped.payload.type === 'asset') {
-      const next = map.get(mapped.payload.assetId)
-      if (next) return { ...mapped, payload: { ...mapped.payload, assetId: next } }
-    }
-    return mapped
-  }
+/** Rewrite asset ids everywhere they are referenced. Used by import and paste. */
+export function remapAssetIds(
+  presentation: Presentation,
+  map: ReadonlyMap<string, string>,
+): Presentation {
+  if (map.size === 0) return presentation
+  const remapContent = (content: ZoneContent): ZoneContent => remapContentAssetIds(content, map)
 
   const slides = presentation.slides.map((slide) => ({
     ...slide,

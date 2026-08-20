@@ -1,45 +1,24 @@
 /**
  * Drop target for a leaf zone.
  *
- * A zone only lights up when it can genuinely take the dragged content: it must
- * be an empty leaf, and `canFit` must approve the content at that exact rect.
+ * Validity is decided once when the drag starts, not while rendering: the fit
+ * check renders the content offscreen with `flushSync`, which React refuses to
+ * do during a render pass. Deciding it in the drag-start event handler makes the
+ * answer real instead of silently always "fits".
  */
 
-import { useDndContext, useDroppable } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import type { ReactNode } from 'react'
-import { canAcceptContent } from '../../domain/commands'
-import { useEditorStore } from '../../state/store'
-import { fitCheckerFor } from '../../state/measure'
 
 export function ZoneDropZone({
   nodeId,
-  slideId,
+  acceptable,
   children,
 }: {
   nodeId: string
-  slideId: string
+  acceptable: boolean
   children: ReactNode
 }) {
-  const { active } = useDndContext()
-  const presentation = useEditorStore((state) => state.presentation)
-
-  const data = active?.data.current
-  const item =
-    data?.kind === 'sandbox-item'
-      ? presentation?.sandbox.find((entry) => entry.id === String(data.itemId))
-      : undefined
-
-  const acceptable = Boolean(
-    item &&
-      presentation &&
-      canAcceptContent(presentation, {
-        slideId,
-        nodeId,
-        content: item.content,
-        fits: fitCheckerFor(presentation.theme),
-      }),
-  )
-
   const { setNodeRef, isOver } = useDroppable({ id: `zone:${nodeId}`, disabled: !acceptable })
 
   return (

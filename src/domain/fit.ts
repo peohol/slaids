@@ -92,6 +92,10 @@ function estimateNodeHeight(node: RichNode, width: number): number {
       // Assume a 4:3 figure; the browser measurer refines this in the app.
       return (width * share * 3) / 4 + BLOCK_SPACING
     }
+    case 'slaidsShape': {
+      const height = Number(node.attrs?.height)
+      return (Number.isFinite(height) && height > 0 ? height : 160) + BLOCK_SPACING
+    }
     case 'table': {
       const rows = node.content?.length ?? 0
       return rows * (BODY_FONT_SIZE * BODY_LINE_HEIGHT + 12) + BLOCK_SPACING

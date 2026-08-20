@@ -39,6 +39,7 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('slide-title')).toBeVisible()
     const withTitle = (await zoneRects(page))[0]
 
+    // An empty title zone is removed without a prompt.
     await page.getByTestId('toggle-title').click()
     await expect(page.getByTestId('slide-title')).toHaveCount(0)
     const withoutTitle = (await zoneRects(page))[0]
@@ -49,6 +50,20 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('slide-title')).toBeVisible()
     const again = (await zoneRects(page))[0]
     expect(again.h).toBeCloseTo(withTitle.h, 0)
+  })
+
+  test('confirms before removing a title that has text, and restores it', async ({ page }) => {
+    await createPresentation(page, 'Overskriftstekst')
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Tekst som ikke skal forsvinne')
+
+    await page.getByTestId('toggle-title').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('slide-title')).toHaveCount(0)
+
+    await page.getByTestId('toggle-title').click()
+    await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
   })
 
   test('writes a slide title and body text that survive a reload', async ({ page }) => {

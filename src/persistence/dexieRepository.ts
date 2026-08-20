@@ -127,6 +127,26 @@ export class DexieSlaidsRepository implements SlaidsRepository {
   async deleteAssetsForPresentation(presentationId: string): Promise<void> {
     await this.database.assets.where('presentationId').equals(presentationId).delete()
   }
+
+  /**
+   * Asset rows are only ever deleted with their presentation, so a write that
+   * failed halfway could leave rows nothing can reach. This reclaims them.
+   */
+  async deleteOrphanAssets(): Promise<number> {
+    return this.database.transaction(
+      'rw',
+      this.database.presentations,
+      this.database.assets,
+      async () => {
+        const owners = new Set(await this.database.presentations.toCollection().primaryKeys())
+        const orphans = await this.database.assets
+          .filter((asset) => !owners.has(asset.presentationId))
+          .primaryKeys()
+        if (orphans.length > 0) await this.database.assets.bulkDelete(orphans)
+        return orphans.length
+      },
+    )
+  }
 }
 
 export const repository: SlaidsRepository = new DexieSlaidsRepository()

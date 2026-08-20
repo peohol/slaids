@@ -345,3 +345,40 @@ describe('golden path geometry', () => {
     expect(bottomRightRect.height).toBeCloseTo(488, EPS)
   })
 })
+
+describe('degenerate rects', () => {
+  it('keeps children inside a rect too small to hold the gaps', () => {
+    const source = { x: 100, y: 50, width: 40, height: 30 }
+    const rects = splitRect(source, 'x', [1, 1, 1, 1, 1], G)
+    for (const r of rects) {
+      expect(r.width).toBeGreaterThanOrEqual(0)
+      expect(rectContainsRect(source, r)).toBe(true)
+    }
+    expect(rectRight(rects[rects.length - 1])).toBeCloseTo(rectRight(source), 9)
+  })
+
+  it('keeps children inside a zero-sized rect', () => {
+    const source = { x: 0, y: 0, width: 0, height: 0 }
+    for (const r of splitRect(source, 'y', [1, 2], G)) {
+      expect(rectContainsRect(source, r)).toBe(true)
+      expect(r.height).toBe(0)
+    }
+  })
+
+  it('still reports the violation through validateSlideGeometry', () => {
+    const many = Array.from({ length: 10 }, () => createLeaf())
+    const inner = createSplit('y', many.map(() => 1), many)
+    const outer = createSplit('y', [1, 1, 1, 1, 1, 1], [
+      inner,
+      createLeaf(),
+      createLeaf(),
+      createLeaf(),
+      createLeaf(),
+      createLeaf(),
+    ])
+    const slide = createSlide({ hasTitle: true, root: outer })
+    const violations = validateSlideGeometry(slide)
+    expect(violations.some((violation) => violation.kind === 'below-minimum')).toBe(true)
+    expect(violations.some((violation) => violation.kind === 'outside-parent')).toBe(false)
+  })
+})

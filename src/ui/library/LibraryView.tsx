@@ -60,6 +60,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   useEffect(() => {
     void requestPersistentStorage()
+    // Reclaim any asset left behind by an interrupted import or duplicate.
+    void repository.deleteOrphanAssets()
   }, [])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
@@ -102,14 +104,19 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   }
 
   const handleImport = async (file: File): Promise<void> => {
-    const report = await importSlaidsArchive(repository, file)
-    refresh()
-    if (report.errors.length > 0) {
-      notify.error(report.errors[0])
-    }
-    if (report.importedPresentations.length > 0) {
-      notify.success(
-        `Importerte ${report.importedPresentations.length} presentasjon(er) og ${report.importedAssets} fil(er).`,
+    try {
+      const report = await importSlaidsArchive(repository, file)
+      refresh()
+      for (const error of report.errors.slice(0, 3)) notify.error(error)
+      if (report.importedPresentations.length > 0) {
+        notify.success(
+          `Importerte ${report.importedPresentations.length} presentasjon(er) og ${report.importedAssets} fil(er).`,
+        )
+      }
+    } catch (error) {
+      refresh()
+      notify.error(
+        `Importen feilet: ${error instanceof Error ? error.message : 'ukjent feil'}.`,
       )
     }
   }

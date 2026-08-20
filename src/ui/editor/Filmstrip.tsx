@@ -111,15 +111,23 @@ function SlideThumb({
 
 export function Filmstrip({
   presentation,
+  derivedSlides,
+  viewingDerivedId,
+  onSelectDerived,
   onRequestDelete,
   onRequestNewSlide,
 }: {
   presentation: Presentation
+  /** Reference slides, computed from the citations rather than stored. */
+  derivedSlides: Slide[]
+  viewingDerivedId: string | null
+  onSelectDerived: (slideId: string) => void
   onRequestDelete: (slide: Slide) => void
   onRequestNewSlide: () => void
 }) {
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const selectSlide = useEditorStore((state) => state.selectSlide)
+  const selectAuthored = (slideId: string): void => selectSlide(slideId)
   const run = useEditorStore((state) => state.run)
 
   const duplicate = (slideId: string, index: number): void => {
@@ -140,14 +148,53 @@ export function Filmstrip({
                 key={slide.id}
                 slide={slide}
                 index={index}
-                active={slide.id === currentSlideId}
+                active={slide.id === currentSlideId && viewingDerivedId === null}
                 canDelete={presentation.slides.length > 1}
-                onSelect={() => selectSlide(slide.id)}
+                onSelect={() => selectAuthored(slide.id)}
                 onDuplicate={() => duplicate(slide.id, index)}
                 onDelete={() => onRequestDelete(slide)}
               />
             ))}
         </SortableContext>
+
+        {derivedSlides.map((slide, index) => (
+          <div
+            key={slide.id}
+            className={
+              slide.id === viewingDerivedId
+                ? 'filmstrip__item filmstrip__item--active filmstrip__item--derived'
+                : 'filmstrip__item filmstrip__item--derived'
+            }
+            data-testid="filmstrip-derived"
+          >
+            <div className="filmstrip__index">
+              <span>{presentation.slides.length + index + 1}</span>
+              <span className="filmstrip__badge">Avledet</span>
+            </div>
+            <button
+              type="button"
+              className="filmstrip__thumb"
+              style={{ width: THUMB_WIDTH, height: (SLIDE_HEIGHT * THUMB_WIDTH) / SLIDE_WIDTH }}
+              onClick={() => onSelectDerived(slide.id)}
+              aria-label={`Referanseslide ${index + 1}`}
+            >
+              <div
+                style={{
+                  width: SLIDE_WIDTH,
+                  height: SLIDE_HEIGHT,
+                  transform: `scale(${THUMB_WIDTH / SLIDE_WIDTH})`,
+                  transformOrigin: 'top left',
+                  pointerEvents: 'none',
+                }}
+              >
+                <SlideView slide={slide} />
+              </div>
+            </button>
+            <div className="filmstrip__tools">
+              <span className="hint">Genereres fra referansene</span>
+            </div>
+          </div>
+        ))}
       </div>
       <div className="filmstrip__footer">
         <button

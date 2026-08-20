@@ -1,9 +1,11 @@
 /**
  * Debounced autosave.
  *
- * Saving is serialised: at most one write is in flight, and a change that
- * arrives mid-write schedules another one. The status only becomes `Saved`
- * after the repository call for the *latest* snapshot has actually resolved.
+ * Writes are serialised through a single pump: at most one repository call is in
+ * flight, and a change that lands mid-write is picked up by the next iteration.
+ * The status only becomes `Saved` once the *latest* snapshot has actually been
+ * persisted, and `flush()` does not resolve until the queue is drained — which
+ * is what makes leaving the editor or hiding the tab safe.
  */
 
 import type { SlaidsRepository } from '../persistence/repository'
@@ -23,38 +25,48 @@ export function startAutosave(
   debounceMs = AUTOSAVE_DEBOUNCE_MS,
 ): AutosaveController {
   let pending: Presentation | null = null
-  let inFlight = false
+  let pumping: Promise<void> | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let stopped = false
+  let lastWriteFailed = false
 
-  const write = async (): Promise<void> => {
-    if (inFlight || !pending || stopped) return
-    const snapshot = pending
-    inFlight = true
-    useEditorStore.getState().setSaveStatus('saving')
-    try {
-      await repository.savePresentation(snapshot)
-      inFlight = false
-      if (pending === snapshot) {
-        pending = null
-        useEditorStore.getState().setSaveStatus('saved', new Date().toISOString())
-      } else {
-        void write()
+  const pump = (): Promise<void> => {
+    if (pumping) return pumping
+    pumping = (async () => {
+      while (pending && !stopped) {
+        const snapshot = pending
+        useEditorStore.getState().setSaveStatus('saving')
+        try {
+          await repository.savePresentation(snapshot)
+        } catch (error) {
+          // Keep `pending` so the next change or flush retries this snapshot,
+          // rather than spinning on a failure that is not going away.
+          lastWriteFailed = true
+          useEditorStore.getState().setSaveStatus('error')
+          notify.error(
+            `Kunne ikke lagre: ${
+              error instanceof Error ? error.message : 'ukjent feil'
+            }. Endringene ligger fortsatt i minnet.`,
+          )
+          return
+        }
+        lastWriteFailed = false
+        if (pending === snapshot) {
+          pending = null
+          useEditorStore.getState().setSaveStatus('saved', new Date().toISOString())
+        }
       }
-    } catch (error) {
-      inFlight = false
-      useEditorStore.getState().setSaveStatus('error')
-      notify.error(
-        `Kunne ikke lagre: ${error instanceof Error ? error.message : 'ukjent feil'}. Endringene ligger fortsatt i minnet.`,
-      )
-    }
+    })().finally(() => {
+      pumping = null
+    })
+    return pumping
   }
 
   const schedule = (): void => {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       timer = null
-      void write()
+      void pump()
     }, debounceMs)
   }
 
@@ -72,17 +84,20 @@ export function startAutosave(
       clearTimeout(timer)
       timer = null
     }
-    await write()
-    // A change may have landed while the first write was in flight.
-    if (pending && !inFlight) await write()
+    await pump()
+    // A change can land between the pump's last check and its teardown.
+    if (pending && !stopped && !lastWriteFailed) await pump()
   }
 
   const onHide = (): void => {
     if (document.visibilityState === 'hidden') void flush()
   }
+  const onPageHide = (): void => {
+    void flush()
+  }
 
   document.addEventListener('visibilitychange', onHide)
-  window.addEventListener('pagehide', flush)
+  window.addEventListener('pagehide', onPageHide)
 
   return {
     stop: () => {
@@ -90,7 +105,7 @@ export function startAutosave(
       unsubscribe()
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', onHide)
-      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('pagehide', onPageHide)
     },
     flush,
   }
