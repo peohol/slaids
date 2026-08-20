@@ -49,13 +49,15 @@ layoutet er nestet.
 - beholder (transparent), kort uten tittel, kort med tittel
 - 1–6 subfelt per kort med egne forholdstall, orientering og skillelinjer
 - rik tekst via Tiptap: avsnitt, overskrift (pilledesign), fet/kursiv/understreket,
-  punktlister, nummererte lister, sitat, kode, lenker og tabeller
-- bilder og SVG som filer i IndexedDB, enkle vektorfigurer, 12 × 4-fargepalett
-  med automatisk tekstfarge etter kontrast
+  punktlister, nummererte lister, sitat, kode, lenker og tabeller med rad-/kolonnekontroller
+- bilder og SVG som filer i IndexedDB, med breddevalg i prosent
+- enkle vektorfigurer, både som hel sone og inline i tekst
+- 12 × 4-fargepalett med automatisk tekstfarge etter kontrast
 - referanser med avledet nummerering (`1–3, 5, 6, 8–10`) og automatisk genererte
   referanseslides, som vises som skrivebeskyttede slides i filmstripen
 - sandkasse for innhold som midlertidig er utenfor en sone, med fit-bevisst DnD
-- strukturell utklippstavle (Ctrl+C/X/V i sonemodus) og normalisert ekstern paste
+- strukturell utklippstavle (Ctrl+C/X/V i sonemodus), normalisert ekstern paste
+  og Ctrl+Shift+V for ren tekst
 - idé-panel og layout-maler
 - angre/gjør om, autosave med eksplisitt status
 
@@ -64,7 +66,13 @@ layoutet er nestet.
 Innhold som ikke får plass i sonen sin blir avvist: redigeringen rulles tilbake til
 siste gyldige dokument (aldri midt i en IME-komposisjon), og strukturelle
 operasjoner som ikke har plass til innholdet blokkeres eller flytter innholdet til
-sandkassen.
+sandkassen. Det samme gjelder geometriske endringer: forholdstall kan ikke dras
+forbi punktet der innholdet slutter å få plass, og overskriftssonen kan ikke legges
+til hvis hovedsonen da blir for liten for innholdet.
+
+Målingen skjer med de samme komponentene som brukes til visning: innholdet rendres
+utenfor skjermen i nøyaktig målsonens størrelse, slik at svaret er det brukeren
+faktisk vil se.
 
 ## Kom i gang
 

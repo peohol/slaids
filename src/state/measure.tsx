@@ -145,10 +145,3 @@ export function measureTitleFit(doc: RichDoc, theme: PresentationTheme, width?: 
 export function fitCheckerFor(theme: PresentationTheme): ContentFitChecker {
   return (content, rect) => measureContentFit(content, rect, theme)
 }
-
-export function disposeMeasurementHost(): void {
-  if (root) root.unmount()
-  if (host?.parentNode) host.parentNode.removeChild(host)
-  root = null
-  host = null
-}

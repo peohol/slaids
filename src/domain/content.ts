@@ -4,7 +4,7 @@
 
 import { PALETTE_SATURATION, WHITE, hslToHex } from './color'
 import { newContentId, newSubfieldId } from './ids'
-import { collectCitationIds, collectDocAssetIds, emptyDoc, isDocEmpty, titleDoc } from './richdoc'
+import { collectCitationIds, collectDocAssetIds, emptyDoc, titleDoc } from './richdoc'
 import type {
   Axis,
   CardBody,
@@ -93,10 +93,6 @@ export function hasCardBody(
   return content.kind === 'untitled-card' || content.kind === 'titled-card'
 }
 
-export function bodyOf(content: ZoneContent): CardBody | null {
-  return hasCardBody(content) ? content.body : null
-}
-
 /* ------------------------------------------------------------------ *
  * Subfield editing (pure)
  * ------------------------------------------------------------------ */
@@ -161,15 +157,6 @@ export function contentAssetIds(content: ZoneContent): string[] {
   }
   for (const doc of contentDocs(content)) ids.push(...collectDocAssetIds(doc))
   return ids
-}
-
-export function isContentEmpty(content: ZoneContent): boolean {
-  if (content.kind === 'container') {
-    if (content.payload.type !== 'richdoc') return false
-    return isDocEmpty(content.payload.doc)
-  }
-  const titleEmpty = content.kind === 'titled-card' ? isDocEmpty(content.title) : true
-  return titleEmpty && content.body.subfields.every((field) => isDocEmpty(field.doc))
 }
 
 export function defaultShape(): ShapeSpec {

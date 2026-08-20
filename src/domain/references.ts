@@ -16,7 +16,7 @@ import {
 import { contentCitationIds } from './content'
 import { collectContent } from './layout'
 import { collectCitationIds } from './richdoc'
-import type { Presentation, Reference, Slide } from './types'
+import type { Presentation, Reference } from './types'
 
 export type ReferenceNumbering = ReadonlyMap<string, number>
 
@@ -256,6 +256,3 @@ function fill(
 /** Derived reference slides are never stored; they are recomputed on render. */
 export const REFERENCE_SLIDE_ID_PREFIX = '__references__'
 
-export function isDerivedReferenceSlide(slide: Slide): boolean {
-  return slide.id.startsWith(REFERENCE_SLIDE_ID_PREFIX)
-}

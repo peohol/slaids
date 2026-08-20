@@ -20,15 +20,17 @@ import {
   computeSlideGeometry,
   hitTestLayout,
   minimumSizeFor,
+  splitRect,
   viewportToSlide,
 } from '../../domain/geometry'
+import { findFitFailures } from '../../domain/commands/internal'
 import { findSplit, updateNode } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { setSlideTitle, setSplitWeights } from '../../domain/commands'
 import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { Editor } from '@tiptap/react'
-import type { LayoutNode, NodeId, Slide, ZoneContentKind } from '../../domain/types'
+import type { LayoutNode, NodeId, Rect, Slide, ZoneContentKind } from '../../domain/types'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
@@ -49,6 +51,9 @@ interface DragState {
   originalWeights: number[]
   usable: number
   minShare: number[]
+  /** Captured so the drag can be fit-validated without re-reading the tree. */
+  parentRect: Rect
+  children: LayoutNode[]
 }
 
 export interface EditorStageProps {
@@ -139,6 +144,8 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       originalWeights: [...split.weights],
       usable,
       minShare,
+      parentRect,
+      children: split.children,
     }
     selectNode(splitId)
   }
@@ -164,6 +171,14 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       if (!Number.isFinite(next) || next <= 0 || pairTotal - next <= 0) return
       weights[i] = next
       weights[i + 1] = pairTotal - next
+
+      // The handle stops where the content stops fitting, rather than letting
+      // the user drag into an invalid state and snapping back on release.
+      const childRects = splitRect(drag.parentRect, drag.axis, weights, G)
+      const checker = fitCheckerFor(theme)
+      for (const index of [i, i + 1]) {
+        if (findFitFailures(drag.children[index], childRects[index], checker).length > 0) return
+      }
       setPreview({ nodeId: drag.splitId, weights })
     }
 

@@ -18,7 +18,7 @@ import { Tooltip } from '../components/Tooltip'
 const PREVIEW_WIDTH = 150
 const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
 
-export function SandboxItemCard({ item }: { item: SandboxItem }) {
+function SandboxItemCard({ item }: { item: SandboxItem }) {
   const run = useEditorStore((state) => state.run)
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sandbox:${item.id}`,

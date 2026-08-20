@@ -217,21 +217,34 @@
   margin: 8px 0;
 }
 
+/*
+ * A figure can never be the cause of an overflow: it fills the width it is
+ * given but is always contained by the height of its field.
+ */
 .rich-doc :is(img, .rd-image) {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: left top;
 }
 
 .rd-image-wrapper,
 .rd-shape-wrapper {
   margin: 0 0 6px;
   max-width: 100%;
+  max-height: 100%;
 }
 
 .rd-shape-wrapper {
   width: 100%;
+}
+
+.rd-image-wrapper {
+  /* Without an explicit ratio the box would collapse until the file loads. */
+  aspect-ratio: var(--slaids-image-aspect, 16 / 9);
 }
 
 .rd-image--pending {

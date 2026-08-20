@@ -76,18 +76,27 @@ test.describe('rich text', () => {
     const wrapper = stage(page).locator('.rd-image-wrapper').first()
     await expect(wrapper).toBeVisible()
 
+    const ratio = async (): Promise<number> =>
+      page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="stage-slide"] .rd-image-wrapper',
+        ) as HTMLElement
+        const parent = el.parentElement as HTMLElement
+        return el.getBoundingClientRect().width / parent.getBoundingClientRect().width
+      })
+
+    // Images are inserted at half width so they leave room for the text.
+    expect(await ratio()).toBeCloseTo(0.5, 1)
+
     await wrapper.click()
     await expect(page.getByTestId('image-tools')).toBeVisible()
-    await page.getByTestId('image-width-50').click()
-    await expect(wrapper).toHaveCSS('width', /.+/)
-    const widths = await page.evaluate(() => {
-      const el = document.querySelector(
-        '[data-testid="stage-slide"] .rd-image-wrapper',
-      ) as HTMLElement
-      const parent = el.parentElement as HTMLElement
-      return { image: el.getBoundingClientRect().width, parent: parent.getBoundingClientRect().width }
-    })
-    expect(widths.image / widths.parent).toBeCloseTo(0.5, 1)
+    await page.getByTestId('image-width-25').click()
+    await expect
+      .poll(ratio, { message: 'image width follows the chosen percentage' })
+      .toBeCloseTo(0.25, 1)
+
+    await page.getByTestId('image-width-100').click()
+    await expect.poll(ratio).toBeCloseTo(1, 1)
   })
 
   test('inserts a citation into a card title', async ({ page }) => {

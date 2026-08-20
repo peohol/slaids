@@ -20,7 +20,6 @@ import {
   HEADING_FONT_SIZE,
   SUBFIELD_GAP,
 } from './constants'
-import { docCharacterCount } from './richdoc'
 import type { CardBody, Rect, RichDoc, RichNode, ZoneContent } from './types'
 
 export interface FitResult {
@@ -32,9 +31,6 @@ export interface FitResult {
 export type ContentFitChecker = (content: ZoneContent, rect: Rect) => FitResult
 
 export const FITS: FitResult = { fits: true, overflow: 0 }
-
-/** Permissive checker used where fit is not the constraint being tested. */
-export const alwaysFits: ContentFitChecker = () => FITS
 
 /* ------------------------------------------------------------------ *
  * Deterministic estimation
@@ -176,11 +172,3 @@ export function estimateFit(content: ZoneContent, rect: Rect): FitResult {
 
 export const estimateFitChecker: ContentFitChecker = estimateFit
 
-/** Character budget for a single-line title zone at a given width. */
-export function titleFitsWidth(text: string, width: number, fontSize: number): boolean {
-  return text.length * fontSize * AVERAGE_GLYPH_RATIO <= width
-}
-
-export function docFitsTitleZone(doc: RichDoc, width: number, fontSize: number): boolean {
-  return docCharacterCount(doc) * fontSize * AVERAGE_GLYPH_RATIO <= width
-}

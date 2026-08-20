@@ -62,9 +62,18 @@ function SlaidsImage({ node }: { node: RichNode }) {
   const assetId = typeof node.attrs?.assetId === 'string' ? node.attrs.assetId : null
   const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : ''
   const percent = Number(node.attrs?.widthPercent)
+  const aspect = Number(node.attrs?.aspect)
   const width = `${Number.isFinite(percent) && percent > 0 ? percent : 100}%`
   return (
-    <div className="rd-image-wrapper" style={{ width }}>
+    <div
+      className="rd-image-wrapper"
+      style={
+        {
+          width,
+          '--slaids-image-aspect': Number.isFinite(aspect) && aspect > 0 ? String(aspect) : undefined,
+        } as React.CSSProperties
+      }
+    >
       <InlineAssetImage assetId={assetId} alt={alt} />
     </div>
   )

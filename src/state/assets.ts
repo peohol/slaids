@@ -20,10 +20,6 @@ export function loadAsset(id: string): Promise<{ ref: AssetRef; blob: Blob } | n
   return promise
 }
 
-export function forgetAsset(id: string): void {
-  blobCache.delete(id)
-}
-
 export function useAssetUrl(assetId: string | null): string | null {
   const [entry, setEntry] = useState<{ id: string; url: string } | null>(null)
 

@@ -67,7 +67,15 @@ export function ImageUploadModal({
       run('asset-register', (current) => registerAsset(current, ref))
 
       if (editor && !targetNodeId) {
-        editor.chain().focus().insertSlaidsImage({ assetId: ref.id, alt: file.name }).run()
+        editor
+          .chain()
+          .focus()
+          .insertSlaidsImage({
+            assetId: ref.id,
+            alt: file.name,
+            aspect: size.width > 0 && size.height > 0 ? size.width / size.height : undefined,
+          })
+          .run()
       } else if (targetNodeId && slideId) {
         runStructural('place-asset', (current) =>
           setZoneContent(current, {

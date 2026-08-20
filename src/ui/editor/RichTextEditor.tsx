@@ -4,7 +4,8 @@
  * Two rules make this component the enforcement point of the content-fit
  * invariant:
  *  - an edit that makes the content overflow its zone is rolled back to the
- *    last valid document (never mid-IME-composition), and
+ *    last valid document (never mid-IME-composition, and never when the edit
+ *    is what *reduces* the overflow), and
  *  - pasted HTML is normalised before it can reach the schema.
  */
 
@@ -50,6 +51,10 @@ export function RichTextEditor({
   overflowMessage = 'Innholdet får ikke plass i sonen.',
 }: RichTextEditorProps) {
   const lastValid = useRef<{ doc: RichDoc; anchor: number }>({ doc, anchor: 1 })
+  /** Overflow of the last accepted document, so an edit that improves it is allowed. */
+  const lastOverflow = useRef(0)
+  const deferredRef = useRef<number | null>(null)
+  const initialised = useRef(false)
   const lastEmitted = useRef<string>(JSON.stringify(doc))
   const measureRef = useRef(measureOverflow)
   const onChangeRef = useRef(onChange)
@@ -59,20 +64,83 @@ export function RichTextEditor({
     onChangeRef.current = onChange
   }, [measureOverflow, onChange])
 
-  const validate = useCallback((editor: Editor): void => {
-    const measure = measureRef.current
-    if (!measure) return
-    if (editor.view.composing) return
+  /**
+   * Decide whether the current document may stand.
+   *
+   * This runs *after* layout rather than inside `onUpdate`, because React node
+   * views (images, figures, tables) mount asynchronously: measuring
+   * synchronously would read a box that has not been laid out yet and reject
+   * perfectly valid edits — including the very edit that would fix an overflow.
+   */
+  const validate = useCallback(
+    (editor: Editor): void => {
+      const measure = measureRef.current
+      if (!measure || editor.isDestroyed || editor.view.composing) return
 
-    const overflow = measure()
-    if (overflow <= OVERFLOW_TOLERANCE) return
+      const overflow = measure()
+      // The first validation observes whatever the document arrived as; only
+      // later ones can attribute an overflow to an edit.
+      const isFirst = !initialised.current
+      initialised.current = true
 
-    const restore = lastValid.current
-    editor.commands.setContent(restore.doc, { emitUpdate: false })
-    const size = editor.state.doc.content.size
-    editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
-    notify.warning(overflowMessage)
-  }, [overflowMessage])
+      const accept = (): void => {
+        lastOverflow.current = overflow <= OVERFLOW_TOLERANCE ? 0 : overflow
+        lastValid.current = {
+          doc: editor.getJSON() as RichDoc,
+          anchor: editor.state.selection.anchor,
+        }
+      }
+
+      if (overflow <= OVERFLOW_TOLERANCE) {
+        accept()
+        return
+      }
+      // Content can arrive overflowing — a theme change, a smaller zone, a file
+      // that finished loading. Record it rather than fighting the user.
+      if (isFirst) {
+        accept()
+        return
+      }
+      // Any edit that reduces the overflow is allowed, otherwise an overflowing
+      // document could never be repaired.
+      if (overflow < lastOverflow.current - OVERFLOW_TOLERANCE) {
+        accept()
+        return
+      }
+
+      const restore = lastValid.current
+      editor.commands.setContent(restore.doc, { emitUpdate: false })
+      const size = editor.state.doc.content.size
+      editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
+      lastOverflow.current = measure()
+
+      const restored = editor.getJSON() as RichDoc
+      const serialized = JSON.stringify(restored)
+      if (serialized !== lastEmitted.current) {
+        lastEmitted.current = serialized
+        onChangeRef.current(restored)
+      }
+      notify.warning(overflowMessage)
+    },
+    [overflowMessage],
+  )
+
+  const scheduleValidate = useCallback(
+    (editor: Editor) => {
+      if (deferredRef.current !== null) cancelAnimationFrame(deferredRef.current)
+      deferredRef.current = requestAnimationFrame(() => {
+        deferredRef.current = null
+        validate(editor)
+      })
+    },
+    [validate],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (deferredRef.current !== null) cancelAnimationFrame(deferredRef.current)
+    }
+  }, [])
 
   const editor = useEditor(
     {
@@ -95,28 +163,37 @@ export function RichTextEditor({
         },
       },
       onUpdate: ({ editor: instance }) => {
-        validate(instance)
         const json = instance.getJSON() as RichDoc
         const serialized = JSON.stringify(json)
-        if (serialized === lastEmitted.current) return
-        lastEmitted.current = serialized
-        lastValid.current = { doc: json, anchor: instance.state.selection.anchor }
-        onChangeRef.current(json)
+        if (serialized !== lastEmitted.current) {
+          lastEmitted.current = serialized
+          onChangeRef.current(json)
+        }
+        scheduleValidate(instance)
       },
       onFocus: () => onFocus?.(),
     },
     [variant, placeholder],
   )
 
+  // Establish the starting overflow, and re-check when the surrounding zone or
+  // the theme changes underneath the editor.
+  useEffect(() => {
+    if (!editor) return
+    scheduleValidate(editor)
+  }, [editor, scheduleValidate])
+
   // Re-validate once an IME composition finishes, since edits made during
   // composition deliberately skip the fit check.
   useEffect(() => {
     if (!editor) return
     const dom = editor.view.dom
-    const handler = (): void => validate(editor)
+    const handler = (): void => {
+      scheduleValidate(editor)
+    }
     dom.addEventListener('compositionend', handler)
     return () => dom.removeEventListener('compositionend', handler)
-  }, [editor, validate])
+  }, [editor, scheduleValidate])
 
   useEffect(() => {
     onEditorReady?.(editor ?? null)

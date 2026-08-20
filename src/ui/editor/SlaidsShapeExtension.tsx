@@ -10,6 +10,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tip
 import { DEFAULT_SHAPE_HEIGHT, shapeFromNode } from '../../domain/richdoc'
 import type { ShapeKind } from '../../domain/types'
 import { ShapeView } from '../slide/ShapeView'
+import { findSelectedNodePos } from './SlaidsImageExtension'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -26,7 +27,6 @@ function ShapeNodeView({ node }: NodeViewProps) {
   const height = Number(node.attrs.height)
   return (
     <NodeViewWrapper
-      as="div"
       className="rd-shape-wrapper"
       style={{ height: Number.isFinite(height) && height > 0 ? height : DEFAULT_SHAPE_HEIGHT }}
     >
@@ -71,8 +71,14 @@ export const SlaidsShapeExtension = Node.create({
           commands.insertContent({ type: this.name, attrs: { ...attrs } }),
       updateSlaidsShape:
         (attrs) =>
-        ({ commands }) =>
-          commands.updateAttributes(this.name, attrs),
+        ({ state, dispatch, tr }) => {
+          const pos = findSelectedNodePos(state, this.name)
+          if (pos === null) return false
+          const node = state.doc.nodeAt(pos)
+          if (!node) return false
+          if (dispatch) tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs })
+          return true
+        },
     }
   },
 })

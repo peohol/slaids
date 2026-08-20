@@ -49,14 +49,6 @@ export function err<T = never>(
   return { ok: false, error: details ? { code, message, details } : { code, message } }
 }
 
-export function isOk<T>(result: Result<T>): result is { ok: true; value: T } {
-  return result.ok
-}
-
-export function unwrapOr<T>(result: Result<T>, fallback: T): T {
-  return result.ok ? result.value : fallback
-}
-
 /** Norwegian, user-facing messages for the typed error codes. */
 export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   NODE_NOT_FOUND: 'Fant ikke sonen.',

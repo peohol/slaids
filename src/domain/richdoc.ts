@@ -31,20 +31,6 @@ export function titleDoc(text: string): TitleDoc {
   return paragraphDoc(text)
 }
 
-export function headingParagraphDoc(heading: string, body: string): RichDoc {
-  const content: RichNode[] = []
-  content.push({
-    type: 'heading',
-    attrs: { level: 1 },
-    ...(heading ? { content: [{ type: 'text', text: heading }] } : {}),
-  })
-  content.push({
-    type: 'paragraph',
-    ...(body ? { content: [{ type: 'text', text: body }] } : {}),
-  })
-  return { type: 'doc', content }
-}
-
 export function imageNode(assetId: string, alt = '', widthPercent = 100): RichNode {
   return { type: IMAGE_NODE, attrs: { assetId, alt, widthPercent } }
 }
@@ -188,15 +174,6 @@ export function docCharacterCount(doc: RichDoc | null | undefined): number {
   walkRichNodes(doc, (node) => {
     if (node.type === 'text' && node.text) count += node.text.length
     if (node.type === CITATION_NODE) count += 4
-  })
-  return count
-}
-
-export function docBlockCount(doc: RichDoc | null | undefined): number {
-  if (!doc) return 0
-  let count = 0
-  walkRichNodes(doc, (node) => {
-    if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'listItem') count += 1
   })
   return count
 }

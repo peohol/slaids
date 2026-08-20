@@ -7,7 +7,7 @@ import { createPresentation } from '../../domain/presentation'
 import { newFolderId } from '../../domain/ids'
 import { repository } from '../../persistence/dexieRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
-import { requestPersistentStorage } from '../../persistence/db'
+import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
 import { notify } from '../../state/toast'
 import {
   downloadBlob,
@@ -21,6 +21,18 @@ import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['kB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
+}
 
 function formatDate(iso: string): string {
   const date = new Date(iso)
@@ -38,6 +50,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [renameValue, setRenameValue] = useState('')
   const [deleting, setDeleting] = useState<PresentationSummary | null>(null)
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null)
+  const [storage, setStorage] = useState<StorageEstimateInfo | null>(null)
+  const [persisted, setPersisted] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [reloadToken, setReloadToken] = useState(0)
@@ -59,10 +73,19 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   }, [reloadToken])
 
   useEffect(() => {
-    void requestPersistentStorage()
+    let cancelled = false
+    requestPersistentStorage().then((granted) => {
+      if (!cancelled) setPersisted(granted)
+    })
+    estimateStorage().then((info) => {
+      if (!cancelled) setStorage(info)
+    })
     // Reclaim any asset left behind by an interrupted import or duplicate.
     void repository.deleteOrphanAssets()
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [reloadToken])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
     const presentation = createPresentation({
@@ -309,6 +332,20 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           ))}
         </main>
       </div>
+
+      <footer className="library__footer" data-testid="library-footer">
+        <span>
+          {storage
+            ? `Bruker ${formatBytes(storage.usage)}${
+                storage.quota > 0 ? ` av ${formatBytes(storage.quota)}` : ''
+              } lokalt`
+            : 'Lagres lokalt i nettleseren'}
+          {persisted ? ' · varig lagring innvilget' : ''}
+        </span>
+        <span className="hint">
+          Nettleserlagring kan bli tømt. Last ned en sikkerhetskopi av det du ikke vil miste.
+        </span>
+      </footer>
 
       <NewPresentationModal
         open={creating}
