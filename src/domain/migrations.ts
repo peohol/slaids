@@ -1,0 +1,107 @@
+/**
+ * Schema migrations.
+ *
+ * Every persisted presentation carries a `schemaVersion`. Loading runs the
+ * chain of migrations from the stored version up to `CURRENT_SCHEMA_VERSION`
+ * before validation, so early test presentations never become unreadable.
+ */
+
+import { DEFAULT_BACKGROUND_COLOR } from './constants'
+import { err, ok, type Result } from './result'
+import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
+import type { Presentation } from './types'
+import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
+
+type Raw = Record<string, unknown>
+
+export type MigrationFn = (data: Raw) => Raw
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+/**
+ * Pre-versioned documents (anything without a numeric `schemaVersion`) are
+ * treated as version 0 and normalised up to version 1 by filling in the
+ * collections and theme fields that version 1 requires.
+ */
+const migrate0to1: MigrationFn = (data) => {
+  const theme = (data.theme ?? {}) as Raw
+  return {
+    ...data,
+    schemaVersion: 1,
+    title: asString(data.title, 'Uten tittel'),
+    folderId: typeof data.folderId === 'string' ? data.folderId : null,
+    theme: {
+      backgroundColor: asString(theme.backgroundColor, DEFAULT_BACKGROUND_COLOR),
+      headingFontFamily: asString(theme.headingFontFamily, DEFAULT_HEADING_FONT),
+      bodyFontFamily: asString(theme.bodyFontFamily, DEFAULT_BODY_FONT),
+    },
+    slides: asArray(data.slides),
+    references: asArray(data.references),
+    sandbox: asArray(data.sandbox),
+    ideas: asArray(data.ideas),
+    ideaCategories: asArray(data.ideaCategories),
+    assets: asArray(data.assets),
+    createdAt: asString(data.createdAt, new Date().toISOString()),
+    updatedAt: asString(data.updatedAt, new Date().toISOString()),
+  }
+}
+
+/** Keyed by the version the migration upgrades *from*. */
+export const MIGRATIONS: Record<number, MigrationFn> = {
+  0: migrate0to1,
+}
+
+export function detectSchemaVersion(input: unknown): number {
+  if (!input || typeof input !== 'object') return -1
+  const version = (input as Raw).schemaVersion
+  return typeof version === 'number' && Number.isInteger(version) && version >= 0 ? version : 0
+}
+
+/** Run migrations then validate. Returns a typed error rather than throwing. */
+export function migratePresentation(input: unknown): Result<Presentation> {
+  if (!input || typeof input !== 'object') {
+    return err('INVALID_CONTENT', 'Presentasjonsdataene er ikke et objekt.')
+  }
+  let version = detectSchemaVersion(input)
+  if (version < 0) {
+    return err('INVALID_CONTENT', 'Ukjent dataformat.')
+  }
+  if (version > CURRENT_SCHEMA_VERSION) {
+    return err(
+      'INVALID_CONTENT',
+      `Presentasjonen er lagret med et nyere format (v${version}) enn denne versjonen av Slaids støtter (v${CURRENT_SCHEMA_VERSION}).`,
+    )
+  }
+
+  let data = { ...(input as Raw) }
+  while (version < CURRENT_SCHEMA_VERSION) {
+    const migration = MIGRATIONS[version]
+    if (!migration) {
+      return err('INVALID_CONTENT', `Mangler migrasjon fra schemaVersion ${version}.`)
+    }
+    data = migration(data)
+    const next = detectSchemaVersion(data)
+    if (next <= version) {
+      return err('INVALID_CONTENT', `Migrasjonen fra v${version} økte ikke schemaVersion.`)
+    }
+    version = next
+  }
+
+  const validation = validatePresentation(data)
+  if (!validation.ok || !validation.value) {
+    const detail = validation.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path || 'root'}: ${issue.message}`)
+      .join('; ')
+    return err('INVALID_CONTENT', `Presentasjonen er ugyldig. ${detail}`, {
+      issues: validation.issues,
+    })
+  }
+  return ok(validation.value)
+}
