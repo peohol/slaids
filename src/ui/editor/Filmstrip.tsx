@@ -8,7 +8,7 @@
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { addSlide, deleteSlide, duplicateSlide } from '../../domain/commands'
+import { duplicateSlide } from '../../domain/commands'
 import { useEditorStore } from '../../state/store'
 import type { Presentation, Slide } from '../../domain/types'
 import { SlideView } from '../slide/SlideView'
@@ -82,7 +82,13 @@ function SlideThumb({
       </button>
       <div className="filmstrip__tools">
         <Tooltip label="Dupliser slide">
-          <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={onDuplicate}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon btn--sm"
+            onClick={onDuplicate}
+            aria-label={`Dupliser slide ${index + 1}`}
+            data-testid="duplicate-slide"
+          >
             <Icon name="copy" size={14} />
           </button>
         </Tooltip>
@@ -92,6 +98,7 @@ function SlideThumb({
             className="btn btn--ghost btn--icon btn--sm"
             onClick={onDelete}
             disabled={!canDelete}
+            aria-label={`Slett slide ${index + 1}`}
             data-testid="delete-slide"
           >
             <Icon name="trash" size={14} />
@@ -115,6 +122,12 @@ export function Filmstrip({
   const selectSlide = useEditorStore((state) => state.selectSlide)
   const run = useEditorStore((state) => state.run)
 
+  const duplicate = (slideId: string, index: number): void => {
+    if (!run('duplicate-slide', (current) => duplicateSlide(current, slideId))) return
+    const copy = useEditorStore.getState().presentation?.slides[index + 1]
+    if (copy) selectSlide(copy.id)
+  }
+
   return (
     <aside className="filmstrip" data-testid="filmstrip">
       <div className="filmstrip__list">
@@ -130,7 +143,7 @@ export function Filmstrip({
                 active={slide.id === currentSlideId}
                 canDelete={presentation.slides.length > 1}
                 onSelect={() => selectSlide(slide.id)}
-                onDuplicate={() => run('duplicate-slide', (current) => duplicateSlide(current, slide.id))}
+                onDuplicate={() => duplicate(slide.id, index)}
                 onDelete={() => onRequestDelete(slide)}
               />
             ))}
@@ -149,20 +162,3 @@ export function Filmstrip({
     </aside>
   )
 }
-
-/** Adds a slide directly after the current one. */
-export function addSlideAfterCurrent(
-  presentation: Presentation,
-  currentSlideId: string | null,
-  hasTitle: boolean,
-  root?: Slide['root'],
-) {
-  const index = presentation.slides.findIndex((slide) => slide.id === currentSlideId)
-  return addSlide(presentation, {
-    index: index >= 0 ? index + 1 : presentation.slides.length,
-    hasTitle,
-    root,
-  })
-}
-
-export { deleteSlide }

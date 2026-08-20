@@ -24,7 +24,7 @@ import {
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
-import { createContentOfKind } from '../../domain/content'
+import { CONTENT_KIND_LABELS, createContentOfKind } from '../../domain/content'
 import { computeReferenceNumbering } from '../../domain/references'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { cloneSubtreeWithNewIds, findLeaf, findNode } from '../../domain/layout'
@@ -249,19 +249,31 @@ export function EditorView({
     [fits, runStructural, selectedNode, selectedNodeId, slide],
   )
 
+  /**
+   * Insert a slide after the current one and move to it. Creating a slide you
+   * cannot see would be a trap.
+   */
+  const insertSlide = useCallback(
+    (hasTitle: boolean, root?: LayoutTemplate['root']) => {
+      const current = useEditorStore.getState().presentation
+      if (!current) return
+      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
+      const insertAt = index >= 0 ? index + 1 : current.slides.length
+      const created = run('add-slide', (presentationState) =>
+        addSlide(presentationState, { index: insertAt, hasTitle, root }),
+      )
+      if (!created) return
+      const next = useEditorStore.getState().presentation?.slides[insertAt]
+      if (next) useEditorStore.getState().selectSlide(next.id)
+    },
+    [currentSlideId, run],
+  )
+
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {
-      if (!presentation) return
-      const index = presentation.slides.findIndex((entry) => entry.id === currentSlideId)
-      run('slide-from-template', (current) =>
-        addSlide(current, {
-          index: index >= 0 ? index + 1 : current.slides.length,
-          hasTitle: template.hasTitle,
-          root: cloneSubtreeWithNewIds(template.root),
-        }),
-      )
+      insertSlide(template.hasTitle, cloneSubtreeWithNewIds(template.root))
     },
-    [currentSlideId, presentation, run],
+    [insertSlide],
   )
 
   /* -------------------------------------------------------------- *
@@ -426,10 +438,14 @@ export function EditorView({
         label: 'Velg innholdstype',
         icon: 'card',
         disabled: !isLeaf,
-        onSelect: () => {
-          setMode('zone')
-          applyContentKind(hasContent ? 'titled-card' : 'untitled-card')
-        },
+        onSelect: () => undefined,
+        menu: (Object.keys(CONTENT_KIND_LABELS) as ZoneContentKind[]).map((kind) => ({
+          id: kind,
+          label: CONTENT_KIND_LABELS[kind],
+          icon:
+            kind === 'container' ? 'container' : kind === 'untitled-card' ? 'card' : 'card-titled',
+          onSelect: () => applyContentKind(kind),
+        })),
       },
       {
         id: 'split',
@@ -475,7 +491,7 @@ export function EditorView({
         onSelect: () => setImageOpen(true),
       },
     ]
-  }, [applyContentKind, runStructural, selectedLeaf, selectedNode, selectedNodeId, setMode, slide])
+  }, [applyContentKind, runStructural, selectedLeaf, selectedNode, selectedNodeId, slide])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -601,10 +617,7 @@ export function EditorView({
         open={newSlideOpen}
         onOpenChange={setNewSlideOpen}
         onCreate={(hasTitle) => {
-          const index = presentation.slides.findIndex((entry) => entry.id === currentSlideId)
-          run('add-slide', (current) =>
-            addSlide(current, { index: index >= 0 ? index + 1 : current.slides.length, hasTitle }),
-          )
+          insertSlide(hasTitle)
           setNewSlideOpen(false)
         }}
       />

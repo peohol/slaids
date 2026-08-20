@@ -17,14 +17,25 @@ interface ToastStore {
   dismiss: (id: string) => void
 }
 
-export const useToasts = create<ToastStore>((set) => ({
+const MAX_TOASTS = 4
+
+/**
+ * Repeated identical messages are collapsed. Without this, a guard that fires on
+ * every keystroke — such as the content-fit rollback — would flood the screen
+ * and the render loop.
+ */
+export const useToasts = create<ToastStore>((set, get) => ({
   toasts: [],
   push: (tone, message) => {
+    if (get().toasts.some((entry) => entry.message === message && entry.tone === tone)) return
     const toast: Toast = { id: createId('toast'), tone, message }
-    set((state) => ({ toasts: [...state.toasts, toast] }))
-    setTimeout(() => {
-      set((state) => ({ toasts: state.toasts.filter((entry) => entry.id !== toast.id) }))
-    }, tone === 'error' ? 7000 : 4000)
+    set((state) => ({ toasts: [...state.toasts, toast].slice(-MAX_TOASTS) }))
+    setTimeout(
+      () => {
+        set((state) => ({ toasts: state.toasts.filter((entry) => entry.id !== toast.id) }))
+      },
+      tone === 'error' ? 7000 : 4000,
+    )
   },
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((entry) => entry.id !== id) })),
 }))

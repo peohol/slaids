@@ -168,7 +168,13 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="library__folders-head">
             <span>Mapper</span>
             <Tooltip label="Ny mappe">
-              <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => void addFolder()} data-testid="new-folder">
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon btn--sm"
+                onClick={() => void addFolder()}
+                aria-label="Ny mappe"
+                data-testid="new-folder"
+              >
                 <Icon name="plus" size={15} />
               </button>
             </Tooltip>
@@ -235,6 +241,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                       setRenaming(summary)
                       setRenameValue(summary.title)
                     }}
+                    aria-label={`Gi ${summary.title} nytt navn`}
                     data-testid="rename-presentation"
                   >
                     <Icon name="edit" size={15} />
@@ -244,6 +251,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                   <button
                     type="button"
                     className="btn btn--ghost btn--icon btn--sm"
+                    aria-label={`Dupliser ${summary.title}`}
+                    data-testid="duplicate-presentation"
                     onClick={() => void handleDuplicate(summary.id)}
                   >
                     <Icon name="copy" size={15} />
@@ -254,6 +263,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                     type="button"
                     className="btn btn--ghost btn--icon btn--sm"
                     onClick={() => void handleExport(summary)}
+                    aria-label={`Last ned sikkerhetskopi av ${summary.title}`}
                     data-testid="export-presentation"
                   >
                     <Icon name="download" size={15} />
@@ -264,6 +274,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                     type="button"
                     className="btn btn--ghost btn--icon btn--sm"
                     onClick={() => setDeleting(summary)}
+                    aria-label={`Slett ${summary.title}`}
                     data-testid="delete-presentation"
                   >
                     <Icon name="trash" size={15} />

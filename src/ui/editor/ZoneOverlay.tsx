@@ -6,6 +6,7 @@
  */
 
 import { Fragment } from 'react'
+import * as Popover from '@radix-ui/react-popover'
 import { collectNodes, findNode } from '../../domain/layout'
 import { breadcrumbLabels } from '../../domain/layout'
 import type { LayoutNode, NodeId, Rect, Slide } from '../../domain/types'
@@ -14,12 +15,21 @@ import { absoluteStyle } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
+export interface ZoneActionMenuItem {
+  id: string
+  label: string
+  icon: Parameters<typeof Icon>[0]['name']
+  onSelect: () => void
+}
+
 export interface ZoneAction {
   id: string
   label: string
   icon: Parameters<typeof Icon>[0]['name']
   disabled?: boolean
   onSelect: () => void
+  /** When present, the button opens this menu instead of acting directly. */
+  menu?: ZoneActionMenuItem[]
   testId?: string
 }
 
@@ -132,6 +142,7 @@ export function ZoneOverlay({
                   data-split-id={node.id}
                   data-boundary={index}
                   onPointerDown={(event) => onHandleDown(node.id, index, event)}
+                  onClick={(event) => event.stopPropagation()}
                 />
               )
             })}
@@ -153,6 +164,9 @@ export function ZoneOverlay({
           <div
             className="zone-actions"
             style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top left' }}
+            // The stage hit-tests every click; overlay controls must not also
+            // re-select whatever zone happens to sit underneath them.
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="zone-breadcrumb" data-testid="zone-breadcrumb">
               {breadcrumb.map((label, index) => (
@@ -169,20 +183,53 @@ export function ZoneOverlay({
               ))}
             </div>
             <div className="zone-actions__buttons">
-              {actions.map((action) => (
-                <Tooltip key={action.id} label={action.label}>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--icon"
-                    disabled={action.disabled}
-                    onClick={action.onSelect}
-                    data-testid={action.testId ?? `zone-action-${action.id}`}
-                    aria-label={action.label}
-                  >
-                    <Icon name={action.icon} size={16} />
-                  </button>
-                </Tooltip>
-              ))}
+              {actions.map((action) =>
+                action.menu ? (
+                  <Popover.Root key={action.id}>
+                    <Tooltip label={action.label}>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--icon"
+                          disabled={action.disabled}
+                          data-testid={action.testId ?? `zone-action-${action.id}`}
+                          aria-label={action.label}
+                        >
+                          <Icon name={action.icon} size={16} />
+                        </button>
+                      </Popover.Trigger>
+                    </Tooltip>
+                    <Popover.Portal>
+                      <Popover.Content className="popover zone-action-menu" sideOffset={6}>
+                        {action.menu.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="btn btn--sm"
+                            data-testid={`zone-menu-${item.id}`}
+                            onClick={item.onSelect}
+                          >
+                            <Icon name={item.icon} size={15} /> {item.label}
+                          </button>
+                        ))}
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                ) : (
+                  <Tooltip key={action.id} label={action.label}>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--icon"
+                      disabled={action.disabled}
+                      onClick={action.onSelect}
+                      data-testid={action.testId ?? `zone-action-${action.id}`}
+                      aria-label={action.label}
+                    >
+                      <Icon name={action.icon} size={16} />
+                    </button>
+                  </Tooltip>
+                ),
+              )}
             </div>
           </div>
         </div>

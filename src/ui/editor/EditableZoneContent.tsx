@@ -10,8 +10,8 @@ import type { Editor } from '@tiptap/react'
 import { setCardTitle, setContainerDoc, setSubfieldDoc } from '../../domain/commands'
 import { measureElementOverflow } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
-import { useEditorStore } from '../../state/store'
-import type { RichDoc, Subfield, ZoneContent } from '../../domain/types'
+import { useEditorStore, type ActiveField } from '../../state/store'
+import type { RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { AssetImage } from '../slide/AssetImage'
 import { ShapeView } from '../slide/ShapeView'
@@ -28,45 +28,11 @@ export function EditableZoneContent({
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
-  const setActiveField = useEditorStore((state) => state.setActiveField)
-  const setActiveEditor = useActiveEditor((state) => state.setEditor)
-  const bump = useActiveEditor((state) => state.bump)
-  const editorRef = useRef<Editor | null>(null)
 
-  const measureOverflow = useCallback(() => {
-    return hostRef.current ? measureElementOverflow(hostRef.current) : 0
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      // Never leave a stale editor reference behind for the toolbars.
-      if (editorRef.current && useActiveEditor.getState().editor === editorRef.current) {
-        setActiveEditor(null)
-      }
-    }
-  }, [setActiveEditor])
-
-  const bindEditor = useCallback(
-    (editor: Editor | null) => {
-      editorRef.current = editor
-    },
+  const measureOverflow = useCallback(
+    () => (hostRef.current ? measureElementOverflow(hostRef.current) : 0),
     [],
   )
-
-  const focusEditor = useCallback(
-    (kind: 'body' | 'card-title', subfieldId: string | null) => {
-      setActiveField({ nodeId, subfieldId, kind })
-      setActiveEditor(editorRef.current)
-      bump()
-    },
-    [bump, nodeId, setActiveEditor, setActiveField],
-  )
-
-  const writeSubfield = (field: Subfield, doc: RichDoc): void => {
-    run(`typing:${nodeId}:${field.id}`, (presentation) =>
-      setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
-    )
-  }
 
   return (
     <div className="zone-host" ref={hostRef}>
@@ -77,10 +43,9 @@ export function EditableZoneContent({
             doc={card.title}
             variant="title"
             placeholder="Korttittel"
+            field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             measureOverflow={measureOverflow}
             overflowMessage="Tittelen får ikke plass i kortet."
-            onFocus={() => focusEditor('card-title', null)}
-            onEditorReady={bindEditor}
             onChange={(doc) =>
               run(`typing:${nodeId}:title`, (presentation) =>
                 setCardTitle(presentation, { slideId, nodeId, doc }),
@@ -92,10 +57,14 @@ export function EditableZoneContent({
           <FieldEditor
             doc={field.doc}
             variant="body"
+            placeholder="Skriv innhold …"
+            field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             measureOverflow={measureOverflow}
-            onFocus={() => focusEditor('body', field.id)}
-            onEditorReady={bindEditor}
-            onChange={(doc) => writeSubfield(field, doc)}
+            onChange={(doc) =>
+              run(`typing:${nodeId}:${field.id}`, (presentation) =>
+                setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
+              )
+            }
           />
         )}
         renderContainer={(container) => {
@@ -109,9 +78,9 @@ export function EditableZoneContent({
             <FieldEditor
               doc={container.payload.doc}
               variant="body"
+              placeholder="Skriv innhold …"
+              field={{ nodeId, subfieldId: null, kind: 'body' }}
               measureOverflow={measureOverflow}
-              onFocus={() => focusEditor('body', null)}
-              onEditorReady={bindEditor}
               onChange={(doc) =>
                 run(`typing:${nodeId}:container`, (presentation) =>
                   setContainerDoc(presentation, { slideId, nodeId, doc }),
@@ -126,46 +95,50 @@ export function EditableZoneContent({
 }
 
 /**
- * A single editable field. Focus wiring is separated so the surrounding
- * component can track which field is active without every field owning state.
+ * A single editable field.
+ *
+ * Each field owns its own editor instance and publishes it as the active editor
+ * when it takes focus, so the toolbars always act on the field the user is in.
  */
 function FieldEditor({
   doc,
   variant,
   placeholder,
+  field,
   onChange,
-  onFocus,
-  onEditorReady,
   measureOverflow,
   overflowMessage,
 }: {
   doc: RichDoc
   variant: 'body' | 'title'
   placeholder?: string
+  field: ActiveField
   onChange: (doc: RichDoc) => void
-  onFocus: () => void
-  onEditorReady: (editor: Editor | null) => void
   measureOverflow: () => number
   overflowMessage?: string
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
-  const bump = useActiveEditor((state) => state.bump)
-  const localEditor = useRef<Editor | null>(null)
+  const setActiveField = useEditorStore((state) => state.setActiveField)
+  const editorRef = useRef<Editor | null>(null)
+  const { nodeId, subfieldId, kind } = field
 
-  const handleReady = useCallback(
-    (editor: Editor | null) => {
-      localEditor.current = editor
-      onEditorReady(editor)
-    },
-    [onEditorReady],
-  )
+  useEffect(() => {
+    return () => {
+      // Never leave a destroyed editor behind as the toolbar's target.
+      if (editorRef.current && useActiveEditor.getState().editor === editorRef.current) {
+        setActiveEditor(null)
+      }
+    }
+  }, [setActiveEditor])
 
   const handleFocus = useCallback(() => {
-    onEditorReady(localEditor.current)
-    setActiveEditor(localEditor.current)
-    bump()
-    onFocus()
-  }, [bump, onEditorReady, onFocus, setActiveEditor])
+    setActiveEditor(editorRef.current)
+    setActiveField({ nodeId, subfieldId, kind })
+  }, [kind, nodeId, setActiveEditor, setActiveField, subfieldId])
+
+  const handleReady = useCallback((editor: Editor | null) => {
+    editorRef.current = editor
+  }, [])
 
   return (
     <RichTextEditor

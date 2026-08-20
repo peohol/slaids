@@ -395,6 +395,17 @@
   color: var(--chrome-text-dim);
 }
 
+.zone-action-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.zone-action-menu .btn {
+  justify-content: flex-start;
+}
+
 .zone-handle {
   position: absolute;
   pointer-events: auto;

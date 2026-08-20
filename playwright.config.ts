@@ -27,7 +27,8 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && npm run preview',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    // Always build: reusing a server would silently test a stale bundle.
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 })
