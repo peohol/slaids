@@ -1,0 +1,363 @@
+/**
+ * Presentation library: the app's home screen.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPresentation } from '../../domain/presentation'
+import { newFolderId } from '../../domain/ids'
+import { repository } from '../../persistence/dexieRepository'
+import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
+import { requestPersistentStorage } from '../../persistence/db'
+import { notify } from '../../state/toast'
+import {
+  downloadBlob,
+  duplicatePresentation,
+  movePresentationToFolder,
+  renamePresentation,
+} from '../../state/libraryActions'
+import type { Folder, PresentationSummary } from '../../domain/types'
+import { Icon } from '../components/Icon'
+import { Tooltip } from '../components/Tooltip'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Modal } from '../components/Modal'
+import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
+
+function formatDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('nb-NO', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
+  const [summaries, setSummaries] = useState<PresentationSummary[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [activeFolder, setActiveFolder] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [renaming, setRenaming] = useState<PresentationSummary | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [deleting, setDeleting] = useState<PresentationSummary | null>(null)
+  const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  const [reloadToken, setReloadToken] = useState(0)
+  const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([repository.listPresentations(), repository.listFolders()]).then(
+      ([list, folderList]) => {
+        if (cancelled) return
+        setSummaries(list)
+        setFolders(folderList)
+        setLoading(false)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [reloadToken])
+
+  useEffect(() => {
+    void requestPersistentStorage()
+  }, [])
+
+  const create = async (result: NewPresentationResult): Promise<void> => {
+    const presentation = createPresentation({
+      title: result.title,
+      theme: result.theme,
+      folderId: activeFolder,
+    })
+    await repository.savePresentation(presentation)
+    setCreating(false)
+    onOpen(presentation.id)
+  }
+
+  const handleDuplicate = async (id: string): Promise<void> => {
+    try {
+      await duplicatePresentation(id)
+      refresh()
+      notify.success('Presentasjonen ble kopiert.')
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke kopiere presentasjonen.')
+    }
+  }
+
+  const handleDelete = async (): Promise<void> => {
+    if (!deleting) return
+    await repository.deletePresentation(deleting.id)
+    setDeleting(null)
+    refresh()
+    notify.info('Presentasjonen ble slettet.')
+  }
+
+  const handleExport = async (summary: PresentationSummary): Promise<void> => {
+    try {
+      const archive = await exportSlaidsArchive(repository, { presentationIds: [summary.id] })
+      downloadBlob(archive, suggestedFileName(summary.title))
+      notify.success('Sikkerhetskopi lastet ned.')
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Eksport feilet.')
+    }
+  }
+
+  const handleImport = async (file: File): Promise<void> => {
+    const report = await importSlaidsArchive(repository, file)
+    refresh()
+    if (report.errors.length > 0) {
+      notify.error(report.errors[0])
+    }
+    if (report.importedPresentations.length > 0) {
+      notify.success(
+        `Importerte ${report.importedPresentations.length} presentasjon(er) og ${report.importedAssets} fil(er).`,
+      )
+    }
+  }
+
+  const addFolder = async (): Promise<void> => {
+    const name = window.prompt('Navn på mappen')
+    if (!name?.trim()) return
+    await repository.saveFolder({
+      id: newFolderId(),
+      name: name.trim(),
+      createdAt: new Date().toISOString(),
+    })
+    refresh()
+  }
+
+  const visible = summaries.filter((summary) =>
+    activeFolder === null ? true : summary.folderId === activeFolder,
+  )
+
+  return (
+    <div className="library">
+      <header className="library__header">
+        <div>
+          <h1 className="library__title">Slaids</h1>
+          <p className="library__subtitle">Presentasjoner med matematisk stram soneinndeling.</p>
+        </div>
+        <div className="library__actions">
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".slaids,application/x-slaids+zip,application/zip"
+            style={{ display: 'none' }}
+            data-testid="import-input"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void handleImport(file)
+            }}
+          />
+          <button type="button" className="btn" onClick={() => fileInput.current?.click()}>
+            <Icon name="upload" /> Importer
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setCreating(true)}
+            data-testid="new-presentation"
+          >
+            <Icon name="plus" /> Ny presentasjon
+          </button>
+        </div>
+      </header>
+
+      <div className="library__body">
+        <aside className="library__folders">
+          <div className="library__folders-head">
+            <span>Mapper</span>
+            <Tooltip label="Ny mappe">
+              <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => void addFolder()} data-testid="new-folder">
+                <Icon name="plus" size={15} />
+              </button>
+            </Tooltip>
+          </div>
+          <button
+            type="button"
+            className={activeFolder === null ? 'folder-item folder-item--active' : 'folder-item'}
+            onClick={() => setActiveFolder(null)}
+          >
+            <Icon name="folder" size={15} /> Alle ({summaries.length})
+          </button>
+          {folders.map((folder) => (
+            <div key={folder.id} className="folder-row">
+              <button
+                type="button"
+                className={activeFolder === folder.id ? 'folder-item folder-item--active' : 'folder-item'}
+                onClick={() => setActiveFolder(folder.id)}
+              >
+                <Icon name="folder" size={15} /> {folder.name} (
+                {summaries.filter((summary) => summary.folderId === folder.id).length})
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon btn--sm"
+                aria-label={`Slett mappen ${folder.name}`}
+                onClick={() => setDeletingFolder(folder)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
+          ))}
+        </aside>
+
+        <main className="library__grid" data-testid="presentation-grid">
+          {loading && <p className="hint">Laster …</p>}
+          {!loading && visible.length === 0 && (
+            <div className="library__empty">
+              <p>Ingen presentasjoner her ennå.</p>
+              <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
+                <Icon name="plus" /> Lag den første
+              </button>
+            </div>
+          )}
+          {visible.map((summary) => (
+            <article key={summary.id} className="presentation-card" data-testid="presentation-card">
+              <button
+                type="button"
+                className="presentation-card__open"
+                onClick={() => onOpen(summary.id)}
+                data-testid="open-presentation"
+              >
+                <span className="presentation-card__name">{summary.title}</span>
+                <span className="presentation-card__meta">
+                  {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
+                  {formatDate(summary.updatedAt)}
+                </span>
+              </button>
+              <div className="presentation-card__tools">
+                <Tooltip label="Gi nytt navn">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--sm"
+                    onClick={() => {
+                      setRenaming(summary)
+                      setRenameValue(summary.title)
+                    }}
+                    data-testid="rename-presentation"
+                  >
+                    <Icon name="edit" size={15} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Dupliser">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--sm"
+                    onClick={() => void handleDuplicate(summary.id)}
+                  >
+                    <Icon name="copy" size={15} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Last ned sikkerhetskopi">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--sm"
+                    onClick={() => void handleExport(summary)}
+                    data-testid="export-presentation"
+                  >
+                    <Icon name="download" size={15} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Slett">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--sm"
+                    onClick={() => setDeleting(summary)}
+                    data-testid="delete-presentation"
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                </Tooltip>
+                {folders.length > 0 && (
+                  <select
+                    className="select select--inline"
+                    value={summary.folderId ?? ''}
+                    aria-label="Mappe"
+                    onChange={(event) => {
+                      void movePresentationToFolder(summary.id, event.target.value || null).then(() => refresh())
+                    }}
+                  >
+                    <option value="">Ingen mappe</option>
+                    {folders.map((folder) => (
+                      <option key={folder.id} value={folder.id}>
+                        {folder.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </article>
+          ))}
+        </main>
+      </div>
+
+      <NewPresentationModal
+        open={creating}
+        onOpenChange={setCreating}
+        onCreate={(result) => void create(result)}
+      />
+
+      <Modal
+        open={renaming !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenaming(null)
+        }}
+        title="Gi nytt navn"
+        width={460}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setRenaming(null)}>
+              Avbryt
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              data-testid="rename-confirm"
+              onClick={() => {
+                if (!renaming) return
+                void renamePresentation(renaming.id, renameValue).then(() => {
+                  setRenaming(null)
+                  refresh()
+                })
+              }}
+            >
+              Lagre
+            </button>
+          </>
+        }
+      >
+        <input
+          className="input"
+          value={renameValue}
+          autoFocus
+          data-testid="rename-input"
+          onChange={(event) => setRenameValue(event.target.value)}
+        />
+      </Modal>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Slette presentasjonen?"
+        message={`«${deleting?.title ?? ''}» og alle tilhørende filer slettes permanent. Dette kan ikke angres.`}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setDeleting(null)}
+      />
+
+      <ConfirmDialog
+        open={deletingFolder !== null}
+        title="Slette mappen?"
+        message={`Mappen «${deletingFolder?.name ?? ''}» slettes. Presentasjonene i den blir liggende, men uten mappe.`}
+        onConfirm={() => {
+          if (!deletingFolder) return
+          void repository.deleteFolder(deletingFolder.id).then(() => {
+            setDeletingFolder(null)
+            setActiveFolder(null)
+            refresh()
+          })
+        }}
+        onCancel={() => setDeletingFolder(null)}
+      />
+    </div>
+  )
+}

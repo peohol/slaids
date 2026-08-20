@@ -1,0 +1,418 @@
+/**
+ * Layout templates.
+ *
+ * Templates carry structure only — never content. The template editor runs the
+ * exact same domain commands as the slide editor by operating on a scratch
+ * presentation, so a template can never encode an illegal layout.
+ */
+
+import { useCallback, useEffect, useState } from 'react'
+import {
+  clearLayoutNode,
+  deleteLayoutNode,
+  splitLeaf,
+  updateSplit,
+} from '../../domain/commands'
+import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
+import { computeSlideGeometry, hitTestLayout } from '../../domain/geometry'
+import { collectNodes, findNode, stripContent } from '../../domain/layout'
+import { newTemplateId } from '../../domain/ids'
+import { createPresentation, createSlide } from '../../domain/presentation'
+import { repository } from '../../persistence/dexieRepository'
+import { notify } from '../../state/toast'
+import type { LayoutNode, LayoutTemplate, Slide } from '../../domain/types'
+import { Modal } from '../components/Modal'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Icon } from '../components/Icon'
+import { SplitModal, type SplitModalResult } from './SplitModal'
+import { absoluteStyle } from '../slide/SlideView'
+
+const PREVIEW_WIDTH = 560
+
+/** A throwaway presentation so template edits can reuse the real commands. */
+function scratchFor(root: LayoutNode, hasTitle: boolean) {
+  const base = createPresentation({ title: 'Mal' })
+  const slide: Slide = { ...createSlide({ hasTitle }), root }
+  return { ...base, slides: [slide] }
+}
+
+function LayoutPreview({
+  root,
+  hasTitle,
+  selectedId,
+  onSelect,
+}: {
+  root: LayoutNode
+  hasTitle: boolean
+  selectedId: string | null
+  onSelect?: (id: string) => void
+}) {
+  const slide: Slide = { ...createSlide({ hasTitle }), root }
+  const geometry = computeSlideGeometry(slide)
+  const scale = PREVIEW_WIDTH / SLIDE_WIDTH
+
+  return (
+    <div
+      className="template-preview"
+      style={{ width: PREVIEW_WIDTH, height: SLIDE_HEIGHT * scale }}
+      data-testid="template-preview"
+      onClick={(event) => {
+        if (!onSelect) return
+        const bounds = event.currentTarget.getBoundingClientRect()
+        const x = (event.clientX - bounds.left) / scale
+        const y = (event.clientY - bounds.top) / scale
+        const hit = hitTestLayout(root, geometry.rects, x, y)
+        if (hit) onSelect(hit)
+      }}
+    >
+      {geometry.titleRect && (
+        <div
+          className="template-preview__title"
+          style={{
+            left: geometry.titleRect.x * scale,
+            top: geometry.titleRect.y * scale,
+            width: geometry.titleRect.width * scale,
+            height: geometry.titleRect.height * scale,
+          }}
+        />
+      )}
+      {collectNodes(root).map((node) => {
+        const rect = geometry.rects.get(node.id)
+        if (!rect) return null
+        return (
+          <div
+            key={node.id}
+            className={[
+              'template-preview__cell',
+              node.kind === 'split' ? 'template-preview__cell--split' : '',
+              node.id === selectedId ? 'template-preview__cell--selected' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={{
+              ...absoluteStyle({
+                x: rect.x * scale,
+                y: rect.y * scale,
+                width: rect.width * scale,
+                height: rect.height * scale,
+              }),
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+export function TemplateModal({
+  open,
+  onOpenChange,
+  currentSlide,
+  onApplyTemplate,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  currentSlide: Slide | null
+  onApplyTemplate: (template: LayoutTemplate) => void
+}) {
+  const [templates, setTemplates] = useState<LayoutTemplate[]>([])
+  const [editing, setEditing] = useState<LayoutTemplate | null>(null)
+  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [splitOpen, setSplitOpen] = useState(false)
+  const [deleting, setDeleting] = useState<LayoutTemplate | null>(null)
+
+  const [reloadToken, setReloadToken] = useState(0)
+  const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    repository.listTemplates().then((list) => {
+      if (!cancelled) setTemplates(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, reloadToken])
+
+  const saveCurrent = async (): Promise<void> => {
+    if (!currentSlide) return
+    const name = window.prompt('Navn på malen')
+    if (!name?.trim()) return
+    const template: LayoutTemplate = {
+      id: newTemplateId(),
+      name: name.trim(),
+      hasTitle: currentSlide.title !== null,
+      root: stripContent(currentSlide.root),
+      createdAt: new Date().toISOString(),
+    }
+    await repository.saveTemplate(template)
+    refresh()
+    notify.success('Malen ble lagret.')
+  }
+
+  const applyEdit = (
+    mutate: (scratch: ReturnType<typeof scratchFor>, slideId: string, nodeId: string) => LayoutNode | null,
+  ): void => {
+    if (!editing || !selectedNode) return
+    const scratch = scratchFor(editing.root, editing.hasTitle)
+    const next = mutate(scratch, scratch.slides[0].id, selectedNode)
+    if (!next) return
+    setEditing({ ...editing, root: next })
+  }
+
+  const selectedTemplateNode = editing && selectedNode ? findNode(editing.root, selectedNode) : null
+
+  const handleSplitApply = (result: SplitModalResult): void => {
+    if (!editing || !selectedNode) return
+    const scratch = scratchFor(editing.root, editing.hasTitle)
+    const slideId = scratch.slides[0].id
+    const isSplit = selectedTemplateNode?.kind === 'split'
+    const outcome = isSplit
+      ? updateSplit(scratch, {
+          slideId,
+          nodeId: selectedNode,
+          axis: result.axis,
+          weights: result.weights,
+          childCount: result.weights.length,
+          removedDisposition: 'delete',
+        })
+      : splitLeaf(scratch, {
+          slideId,
+          nodeId: selectedNode,
+          axis: result.axis,
+          weights: result.weights,
+        })
+    if (!outcome.ok) {
+      notify.error(outcome.error.message)
+      return
+    }
+    setEditing({ ...editing, root: outcome.value.presentation.slides[0].root })
+    setSplitOpen(false)
+  }
+
+  const editingGeometry = editing
+    ? computeSlideGeometry({ ...createSlide({ hasTitle: editing.hasTitle }), root: editing.root })
+    : null
+  const selectedRect =
+    editingGeometry && selectedNode ? editingGeometry.rects.get(selectedNode) : undefined
+
+  return (
+    <>
+      <Modal
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Maler"
+        description="Maler inneholder bare soneinndeling, aldri innhold."
+        testId="template-modal"
+        width={680}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void saveCurrent()}
+              disabled={!currentSlide}
+              data-testid="save-template"
+            >
+              <Icon name="plus" /> Lagre gjeldende layout
+            </button>
+            <button type="button" className="btn" onClick={() => onOpenChange(false)}>
+              Lukk
+            </button>
+          </>
+        }
+      >
+        {templates.length === 0 ? (
+          <p className="hint">Ingen maler ennå. Lagre layoutet til gjeldende slide for å komme i gang.</p>
+        ) : (
+          <ul className="template-list">
+            {templates.map((template) => (
+              <li key={template.id} className="template-list__item" data-testid="template-item">
+                <div className="template-list__preview">
+                  <LayoutPreview root={template.root} hasTitle={template.hasTitle} selectedId={null} />
+                </div>
+                <div className="template-list__meta">
+                  <strong>{template.name}</strong>
+                  <span className="hint">
+                    {template.hasTitle ? 'Med overskrift' : 'Uten overskrift'}
+                  </span>
+                  <div className="template-list__tools">
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--primary"
+                      data-testid="use-template"
+                      onClick={() => {
+                        onApplyTemplate(template)
+                        onOpenChange(false)
+                      }}
+                    >
+                      Ny slide fra mal
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => {
+                        setEditing(template)
+                        setSelectedNode(template.root.id)
+                      }}
+                    >
+                      <Icon name="edit" size={14} /> Rediger
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--icon"
+                      aria-label="Slett mal"
+                      onClick={() => setDeleting(template)}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
+
+      <Modal
+        open={editing !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditing(null)
+        }}
+        title={`Rediger mal: ${editing?.name ?? ''}`}
+        description="Klikk en sone for å velge den."
+        testId="template-editor"
+        width={640}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setEditing(null)}>
+              Avbryt
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              data-testid="template-save"
+              onClick={() => {
+                if (!editing) return
+                void repository.saveTemplate(editing).then(() => {
+                  setEditing(null)
+                  refresh()
+                  notify.success('Malen ble oppdatert.')
+                })
+              }}
+            >
+              Lagre mal
+            </button>
+          </>
+        }
+      >
+        {editing && (
+          <>
+            <LayoutPreview
+              root={editing.root}
+              hasTitle={editing.hasTitle}
+              selectedId={selectedNode}
+              onSelect={setSelectedNode}
+            />
+            <div className="template-editor__tools">
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={!selectedTemplateNode}
+                data-testid="template-split"
+                onClick={() => setSplitOpen(true)}
+              >
+                <Icon name={selectedTemplateNode?.kind === 'split' ? 'edit' : 'split-x'} size={14} />
+                {selectedTemplateNode?.kind === 'split' ? ' Rediger splitting' : ' Splitt sone'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={!selectedTemplateNode || selectedNode === editing.root.id}
+                onClick={() =>
+                  applyEdit((scratch, slideId, nodeId) => {
+                    const outcome = deleteLayoutNode(scratch, {
+                      slideId,
+                      nodeId,
+                      contentDisposition: 'delete',
+                    })
+                    if (!outcome.ok) {
+                      notify.error(outcome.error.message)
+                      return null
+                    }
+                    setSelectedNode(null)
+                    return outcome.value.presentation.slides[0].root
+                  })
+                }
+              >
+                <Icon name="trash" size={14} /> Slett sone
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={!selectedTemplateNode}
+                onClick={() =>
+                  applyEdit((scratch, slideId, nodeId) => {
+                    const outcome = clearLayoutNode(scratch, {
+                      slideId,
+                      nodeId,
+                      contentDisposition: 'delete',
+                    })
+                    if (!outcome.ok) {
+                      notify.error(outcome.error.message)
+                      return null
+                    }
+                    return outcome.value.presentation.slides[0].root
+                  })
+                }
+              >
+                <Icon name="eraser" size={14} /> Tøm sone
+              </button>
+              <label className="template-editor__title-toggle">
+                <input
+                  type="checkbox"
+                  checked={editing.hasTitle}
+                  onChange={(event) => setEditing({ ...editing, hasTitle: event.target.checked })}
+                />
+                Overskriftssone
+              </label>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {splitOpen && editing && selectedRect && (
+        <SplitModal
+          key={`template-split-${selectedNode}`}
+          open={splitOpen}
+          onOpenChange={setSplitOpen}
+          targetRect={selectedRect}
+          mode={selectedTemplateNode?.kind === 'split' ? 'edit' : 'create'}
+          existingChildren={
+            selectedTemplateNode?.kind === 'split' ? selectedTemplateNode.children : undefined
+          }
+          existingAxis={selectedTemplateNode?.kind === 'split' ? selectedTemplateNode.axis : undefined}
+          existingWeights={
+            selectedTemplateNode?.kind === 'split' ? selectedTemplateNode.weights : undefined
+          }
+          onApply={handleSplitApply}
+        />
+      )}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Slette malen?"
+        message={`Malen «${deleting?.name ?? ''}» slettes permanent.`}
+        onConfirm={() => {
+          if (!deleting) return
+          void repository.deleteTemplate(deleting.id).then(() => {
+            setDeleting(null)
+            refresh()
+          })
+        }}
+        onCancel={() => setDeleting(null)}
+      />
+    </>
+  )
+}
