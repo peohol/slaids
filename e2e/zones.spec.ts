@@ -3,6 +3,7 @@ import {
   G,
   addContentToZone,
   clickSlide,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
@@ -33,7 +34,7 @@ test.describe('zone editing', () => {
     await splitSelected(page, [2, 3], 'x')
 
     const [left, right] = await zoneRects(page)
-    await clickSlide(page, right.x + 40, right.y + 40)
+    await clickZone(page, right)
     await splitSelected(page, [1, 2], 'y')
 
     const zones = await zoneRects(page)
@@ -52,7 +53,7 @@ test.describe('zone editing', () => {
     await splitSelected(page, [1, 1], 'x')
 
     const zones = await zoneRects(page)
-    await clickSlide(page, zones[0].x + 20, zones[0].y + 20)
+    await clickZone(page, zones[0])
     await expect(page.getByTestId('status-breadcrumb')).toHaveText('Rot › 1')
 
     const gapCentre = zones[0].x + zones[0].w + G / 2
@@ -121,7 +122,7 @@ test.describe('zone editing', () => {
     await splitSelected(page, [1, 1], 'x')
 
     const before = await zoneRects(page)
-    await clickSlide(page, before[1].x + 40, before[1].y + 40)
+    await clickZone(page, before[1])
     await page.getByTestId('inspector-action-delete').click()
     await page.getByTestId('confirm-accept').click()
 
@@ -177,7 +178,7 @@ test.describe('zone editing', () => {
     await page.keyboard.type('Innhold som skal reddes')
 
     await enterZoneMode(page)
-    await clickSlide(page, zones[0].x + 40, zones[0].y + 40)
+    await clickZone(page, zones[0])
     await page.getByTestId('inspector-action-sandbox').click()
     await expect(page.getByTestId('sandbox-window')).toBeVisible()
     await expect(page.getByTestId('sandbox-item')).toHaveCount(1)

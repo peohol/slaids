@@ -71,6 +71,15 @@
   flex: 0 0 auto;
 }
 
+.text-toolbar__table {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 10px;
+  margin-left: 6px;
+  border-left: 1px solid var(--chrome-border);
+}
+
 .text-toolbar--empty {
   color: var(--chrome-text-dim);
 }

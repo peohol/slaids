@@ -11,7 +11,6 @@ export interface WindowGeometry {
   y: number
   width: number
   height: number
-  open: boolean
 }
 
 export function readPref<T>(key: string, fallback: T): T {
@@ -32,18 +31,12 @@ export function writePref<T>(key: string, value: T): void {
   }
 }
 
-export const DEFAULT_IDEAS_GEOMETRY: WindowGeometry = {
-  x: 80,
-  y: 120,
-  width: 360,
-  height: 460,
-  open: false,
-}
+export const DEFAULT_IDEAS_GEOMETRY: WindowGeometry = { x: 80, y: 120, width: 360, height: 460 }
 
 export const DEFAULT_SANDBOX_GEOMETRY: WindowGeometry = {
   x: 480,
   y: 160,
   width: 380,
   height: 420,
-  open: false,
 }
+

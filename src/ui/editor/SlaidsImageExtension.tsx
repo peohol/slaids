@@ -12,19 +12,22 @@ import { AssetImage } from '../slide/AssetImage'
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     slaidsImage: {
-      insertSlaidsImage: (attrs: { assetId: string; alt?: string; displayWidth?: number }) => ReturnType
+      insertSlaidsImage: (attrs: { assetId: string; alt?: string; widthPercent?: number }) => ReturnType
+      setSlaidsImageWidth: (widthPercent: number) => ReturnType
     }
   }
 }
 
+export const IMAGE_WIDTH_PRESETS = [25, 50, 75, 100] as const
+
 function ImageNodeView({ node }: NodeViewProps) {
   const assetId = typeof node.attrs.assetId === 'string' ? node.attrs.assetId : null
-  const width = Number(node.attrs.displayWidth)
+  const percent = Number(node.attrs.widthPercent)
   return (
     <NodeViewWrapper
       as="div"
       className="rd-image-wrapper"
-      style={Number.isFinite(width) && width > 0 ? { width } : undefined}
+      style={{ width: `${Number.isFinite(percent) && percent > 0 ? percent : 100}%` }}
     >
       {assetId ? (
         <AssetImage assetId={assetId} fit="contain" alt={String(node.attrs.alt ?? '')} />
@@ -45,8 +48,7 @@ export const SlaidsImageExtension = Node.create({
     return {
       assetId: { default: null },
       alt: { default: '' },
-      displayWidth: { default: null },
-      displayHeight: { default: null },
+      widthPercent: { default: 100 },
     }
   },
 
@@ -67,7 +69,11 @@ export const SlaidsImageExtension = Node.create({
       insertSlaidsImage:
         (attrs) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs }),
+          commands.insertContent({ type: this.name, attrs: { widthPercent: 100, ...attrs } }),
+      setSlaidsImageWidth:
+        (widthPercent: number) =>
+        ({ commands }) =>
+          commands.updateAttributes(this.name, { widthPercent }),
     }
   },
 })

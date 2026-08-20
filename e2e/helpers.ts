@@ -59,6 +59,15 @@ export async function clickSlide(page: Page, x: number, y: number): Promise<void
   await page.waitForTimeout(120)
 }
 
+/**
+ * Click the centre of a zone. Use this rather than a corner: in zone mode the
+ * selected node's action toolbar sits at its top-left and deliberately swallows
+ * clicks so it cannot re-select what is underneath it.
+ */
+export async function clickZone(page: Page, zone: ZoneRect): Promise<void> {
+  await clickSlide(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
+}
+
 /** All leaf-zone rects on the stage, in slide coordinates, measured from the DOM. */
 export async function zoneRects(page: Page): Promise<ZoneRect[]> {
   const rects = await page.evaluate(() => {

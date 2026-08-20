@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   addContentToZone,
-  clickSlide,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
@@ -28,7 +28,7 @@ test.describe('visual regression', () => {
     await enterZoneMode(page)
     await splitSelected(page, [2, 3], 'x')
     const afterFirst = await zoneRects(page)
-    await clickSlide(page, afterFirst[1].x + 40, afterFirst[1].y + 40)
+    await clickZone(page, afterFirst[1])
     await splitSelected(page, [1, 2], 'y')
 
     await expect(stage(page)).toHaveScreenshot('zone-mode.png', { maxDiffPixelRatio: 0.02 })

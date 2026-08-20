@@ -101,7 +101,7 @@ export function NewPresentationModal({
             onChange={(event) => setHeadingFontFamily(event.target.value)}
           >
             {FONT_OPTIONS.map((font) => (
-              <option key={font.id} value={font.stack}>
+              <option key={font.id} value={font.stack} style={{ fontFamily: font.stack }}>
                 {font.label}
               </option>
             ))}
@@ -117,7 +117,7 @@ export function NewPresentationModal({
             onChange={(event) => setBodyFontFamily(event.target.value)}
           >
             {FONT_OPTIONS.map((font) => (
-              <option key={font.id} value={font.stack}>
+              <option key={font.id} value={font.stack} style={{ fontFamily: font.stack }}>
                 {font.label}
               </option>
             ))}

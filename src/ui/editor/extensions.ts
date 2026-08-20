@@ -14,6 +14,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import type { Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
+import { PlainPasteExtension } from './PlainPasteExtension'
 
 /** Tags we accept from an external paste. Everything else is unwrapped. */
 const ALLOWED_TAGS = new Set([
@@ -130,6 +131,7 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     SlaidsHeading,
     CitationExtension,
     SlaidsImageExtension,
+    PlainPasteExtension,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),
   ]
   if (options.enableTables !== false) {

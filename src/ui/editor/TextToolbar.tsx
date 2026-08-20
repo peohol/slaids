@@ -11,6 +11,7 @@ import { useEditorStore } from '../../state/store'
 import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
+import { IMAGE_WIDTH_PRESETS } from './SlaidsImageExtension'
 
 interface MarkButton {
   id: string
@@ -169,6 +170,55 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           testId="heading-color"
           onChange={(color) => editor.chain().focus().updateAttributes('heading', { color }).run()}
         />
+      )}
+
+      {editor.isActive('slaidsImage') && (
+        <div className="text-toolbar__table" data-testid="image-tools">
+          <span className="hint">Bredde:</span>
+          {IMAGE_WIDTH_PRESETS.map((percent) => (
+            <button
+              key={percent}
+              type="button"
+              className={
+                editor.getAttributes('slaidsImage').widthPercent === percent
+                  ? 'btn btn--sm btn--active'
+                  : 'btn btn--sm'
+              }
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => editor.chain().focus().setSlaidsImageWidth(percent).run()}
+              data-testid={`image-width-${percent}`}
+            >
+              {percent}%
+            </button>
+          ))}
+        </div>
+      )}
+
+      {editor.isActive('table') && (
+        <div className="text-toolbar__table" data-testid="table-tools">
+          <span className="hint">Tabell:</span>
+          {(
+            [
+              ['add-row', 'Rad under', () => editor.chain().focus().addRowAfter().run()],
+              ['del-row', 'Slett rad', () => editor.chain().focus().deleteRow().run()],
+              ['add-col', 'Kolonne etter', () => editor.chain().focus().addColumnAfter().run()],
+              ['del-col', 'Slett kolonne', () => editor.chain().focus().deleteColumn().run()],
+              ['header', 'Headerrad', () => editor.chain().focus().toggleHeaderRow().run()],
+              ['del-table', 'Slett tabell', () => editor.chain().focus().deleteTable().run()],
+            ] as const
+          ).map(([id, label, action]) => (
+            <button
+              key={id}
+              type="button"
+              className="btn btn--sm"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={action}
+              data-testid={`table-${id}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       )}
 
       <div className="text-toolbar__spacer" />

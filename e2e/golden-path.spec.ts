@@ -4,7 +4,7 @@ import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   addContentToZone,
-  clickSlide,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
@@ -32,7 +32,7 @@ test('golden path slide keeps exactly one gap everywhere', async ({ page }, test
   await enterZoneMode(page)
   await splitSelected(page, [2, 3], 'x')
   const afterFirst = await zoneRects(page)
-  await clickSlide(page, afterFirst[1].x + 40, afterFirst[1].y + 40)
+  await clickZone(page, afterFirst[1])
   await splitSelected(page, [1, 2], 'y')
 
   const [left, topRight, bottomRight] = await zoneRects(page)
@@ -44,12 +44,12 @@ test('golden path slide keeps exactly one gap everywhere', async ({ page }, test
 
   // Two subfields in the left card.
   await enterZoneMode(page)
-  await clickSlide(page, left.x + 40, left.y + 40)
+  await clickZone(page, left)
   await page.getByTestId('subfield-count').fill('2')
   await page.waitForTimeout(200)
 
   // A vector shape in the transparent top-right container.
-  await clickSlide(page, topRight.x + 40, topRight.y + 40)
+  await clickZone(page, topRight)
   await page.getByTestId('container-payload-shape').click()
   await expect(stage(page).locator('.shape-view')).toBeVisible()
 

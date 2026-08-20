@@ -60,15 +60,16 @@ function SlaidsImage({ node }: { node: RichNode }) {
   const assetId = typeof node.attrs?.assetId === 'string' ? node.attrs.assetId : null
   const url = useAssetUrl(assetId)
   const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : ''
-  const width = Number(node.attrs?.displayWidth)
-  if (!url) return <span className="rd-image rd-image--pending" aria-label={alt} />
+  const percent = Number(node.attrs?.widthPercent)
+  const width = `${Number.isFinite(percent) && percent > 0 ? percent : 100}%`
   return (
-    <img
-      className="rd-image"
-      src={url}
-      alt={alt}
-      style={Number.isFinite(width) && width > 0 ? { width } : undefined}
-    />
+    <div className="rd-image-wrapper" style={{ width }}>
+      {url ? (
+        <img className="rd-image" src={url} alt={alt} />
+      ) : (
+        <span className="rd-image rd-image--pending" aria-label={alt} />
+      )}
+    </div>
   )
 }
 

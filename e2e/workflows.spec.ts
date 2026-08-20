@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test'
 import {
   addContentToZone,
-  clickSlide,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
   splitSelected,
   stage,
+  waitForSaved,
   watchForErrors,
   zoneRects,
 } from './helpers'
@@ -25,7 +26,7 @@ test.describe('sandbox drag and drop', () => {
     await page.keyboard.type('Flyttbart innhold')
 
     await enterZoneMode(page)
-    await clickSlide(page, zones[0].x + 40, zones[0].y + 40)
+    await clickZone(page, zones[0])
     await page.getByTestId('inspector-action-sandbox').click()
     await expect(page.getByTestId('sandbox-item')).toHaveCount(1)
 
@@ -68,9 +69,9 @@ test.describe('structural clipboard', () => {
     await page.keyboard.type('Kopiert innhold')
 
     await enterZoneMode(page)
-    await clickSlide(page, zones[0].x + 40, zones[0].y + 40)
+    await clickZone(page, zones[0])
     await page.keyboard.press('Control+c')
-    await clickSlide(page, zones[1].x + 40, zones[1].y + 40)
+    await clickZone(page, zones[1])
     await page.keyboard.press('Control+v')
     await page.waitForTimeout(300)
 
@@ -112,10 +113,12 @@ test.describe('ideas', () => {
     await page.getByTestId('idea-input').first().fill('Husk å nevne geometrien')
     await page.getByTestId('idea-input').first().press('Enter')
     await expect(page.getByTestId('idea')).toHaveCount(1)
+    await waitForSaved(page)
 
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
-    await page.getByTestId('open-ideas').click()
+    // The window's open state is a local UI preference, so it comes back too.
+    await expect(page.getByTestId('ideas-window')).toBeVisible()
     await expect(page.getByTestId('idea-text').first()).toHaveValue('Husk å nevne geometrien')
   })
 })

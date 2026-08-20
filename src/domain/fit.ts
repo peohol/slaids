@@ -87,8 +87,10 @@ function estimateNodeHeight(node: RichNode, width: number): number {
       return lines * BODY_FONT_SIZE * BODY_LINE_HEIGHT + BLOCK_SPACING * 2
     }
     case 'slaidsImage': {
-      const height = Number(node.attrs?.displayHeight)
-      return Number.isFinite(height) && height > 0 ? height + BLOCK_SPACING : width * 0.5
+      const percent = Number(node.attrs?.widthPercent)
+      const share = Number.isFinite(percent) && percent > 0 ? percent / 100 : 1
+      // Assume a 4:3 figure; the browser measurer refines this in the app.
+      return (width * share * 3) / 4 + BLOCK_SPACING
     }
     case 'table': {
       const rows = node.content?.length ?? 0

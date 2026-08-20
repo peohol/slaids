@@ -30,6 +30,7 @@ import { computeSlideGeometry } from '../../domain/geometry'
 import { cloneSubtreeWithNewIds, findLeaf, findNode } from '../../domain/layout'
 import { repository } from '../../persistence/dexieRepository'
 import { startAutosave } from '../../state/autosave'
+import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { fitCheckerFor } from '../../state/measure'
@@ -90,8 +91,8 @@ export function EditorView({
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
-  const [ideasOpen, setIdeasOpen] = useState(false)
-  const [sandboxOpen, setSandboxOpen] = useState(false)
+  const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
+  const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
@@ -140,6 +141,14 @@ export function EditorView({
       useEditorStore.getState().setPresentation(null)
     }
   }, [])
+
+  useEffect(() => {
+    writePref('ideasOpen', ideasOpen)
+  }, [ideasOpen])
+
+  useEffect(() => {
+    writePref('sandboxOpen', sandboxOpen)
+  }, [sandboxOpen])
 
   const themeFonts = presentation
     ? `${presentation.theme.headingFontFamily}|${presentation.theme.bodyFontFamily}`
