@@ -57,7 +57,7 @@ test.describe('presentation library', () => {
     const folder = page.getByTestId('folder-item')
     await expect(folder).toHaveText(/Kundemøter \(0\)/)
 
-    await page.getByLabel('Mappe').selectOption({ label: 'Kundemøter' })
+    await page.getByTestId('folder-select').selectOption({ label: 'Kundemøter' })
     await expect(folder).toHaveText(/Kundemøter \(1\)/)
 
     await folder.click()

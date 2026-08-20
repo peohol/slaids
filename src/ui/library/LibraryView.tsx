@@ -316,7 +316,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                   <select
                     className="select select--inline"
                     value={summary.folderId ?? ''}
-                    aria-label="Mappe"
+                    aria-label={`Mappe for ${summary.title}`}
+                    data-testid="folder-select"
                     onChange={(event) => {
                       void movePresentationToFolder(summary.id, event.target.value || null).then(() => refresh())
                     }}
