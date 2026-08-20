@@ -63,6 +63,7 @@ import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
+import { ShortcutsModal } from './ShortcutsModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
 import { TextToolbar } from './TextToolbar'
@@ -111,6 +112,7 @@ export function EditorView({
   const [dragItemId, setDragItemId] = useState<string | null>(null)
   const [derivedView, setDerivedView] = useState<{ id: string; from: string } | null>(null)
   const [removingTitle, setRemovingTitle] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   /** Titles removed in this session, so toggling the zone back on restores the text. */
   const removedTitles = useRef(new Map<string, TitleDoc>())
   const [dropTargets, setDropTargets] = useState<ReadonlySet<string>>(() => new Set())
@@ -499,9 +501,29 @@ export function EditorView({
 
     if (data?.kind === 'idea') {
       const overId = String(over.id)
-      if (!overId.startsWith('category:')) return
-      run('idea-move', (current) =>
-        moveIdea(current, String(data.ideaId), overId.slice('category:'.length), Number.MAX_SAFE_INTEGER),
+      const ideaId = String(data.ideaId)
+      const current = useEditorStore.getState().presentation
+      if (!current) return
+
+      // Dropping on a category appends; dropping on another idea inserts at
+      // that idea's position, so the list can be ordered by dragging.
+      let categoryId: string | null = null
+      let index = Number.MAX_SAFE_INTEGER
+      if (overId.startsWith('category:')) {
+        categoryId = overId.slice('category:'.length)
+      } else if (overId.startsWith('idea:')) {
+        const targetId = overId.slice('idea:'.length)
+        const target = current.ideas.find((idea) => idea.id === targetId)
+        if (!target) return
+        categoryId = target.categoryId
+        index = current.ideas
+          .filter((idea) => idea.categoryId === categoryId && idea.id !== ideaId)
+          .findIndex((idea) => idea.id === targetId)
+        if (index < 0) index = Number.MAX_SAFE_INTEGER
+      }
+      if (!categoryId) return
+      run('idea-move', (presentationState) =>
+        moveIdea(presentationState, ideaId, categoryId, index),
       )
       return
     }
@@ -711,7 +733,7 @@ export function EditorView({
             )}
           </div>
 
-          <StatusBar presentation={presentation} />
+          <StatusBar presentation={presentation} onShowShortcuts={() => setShortcutsOpen(true)} />
         </div>
 
         <DragOverlay dropAnimation={null}>
@@ -768,6 +790,7 @@ export function EditorView({
         onApplyTemplate={createSlideFromTemplate}
       />
       <ThemeModal open={themeOpen} onOpenChange={setThemeOpen} />
+      <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <ImageUploadModal
         open={imageOpen}
         onOpenChange={setImageOpen}

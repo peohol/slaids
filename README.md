@@ -8,6 +8,7 @@ layoutet er nestet.
 
 > `IMPLEMENTATION_PLAN.md` er normativ spesifikasjon.
 > `docs/archive/VISION.original-2026-08-20.md` er den opprinnelige visjonen, bevart som historikk.
+> Idé-panelet er portert konseptuelt fra `peohol/mdeditz` – samme prinsipper, egen typed implementasjon.
 
 ## Kjerneidé
 
@@ -58,8 +59,9 @@ layoutet er nestet.
 - sandkasse for innhold som midlertidig er utenfor en sone, med fit-bevisst DnD
 - strukturell utklippstavle (Ctrl+C/X/V i sonemodus), normalisert ekstern paste
   og Ctrl+Shift+V for ren tekst
-- idé-panel og layout-maler
-- angre/gjør om, autosave med eksplisitt status
+- idé-panel (én linje per idé, ett kategorinivå, dra for å sortere) og layout-maler
+- angre/gjør om, autosave med eksplisitt status, oversikt over hurtigtaster
+- lagringsbruk vises i biblioteket, og forlatte filer ryddes bort automatisk
 
 **Innholdsgrense**
 

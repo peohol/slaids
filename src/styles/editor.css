@@ -901,6 +901,40 @@
   color: var(--chrome-success);
 }
 
+.shortcuts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shortcuts__row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.shortcuts dt {
+  margin: 0;
+}
+
+.shortcuts dd {
+  margin: 0;
+  color: var(--chrome-text-dim);
+}
+
+.shortcuts kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--chrome-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--chrome-bg-inset);
+  font-family: inherit;
+  font-size: 12px;
+}
+
 .dropzone {
   display: flex;
   flex-direction: column;

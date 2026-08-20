@@ -95,8 +95,14 @@ test.describe('rich text', () => {
       .poll(ratio, { message: 'image width follows the chosen percentage' })
       .toBeCloseTo(0.25, 1)
 
+    await page.getByTestId('image-width-50').click()
+    await expect.poll(ratio).toBeCloseTo(0.5, 1)
+
+    // Full width would make the figure taller than the card has room for, so
+    // the content-fit guard rejects it and the width stays where it was.
     await page.getByTestId('image-width-100').click()
-    await expect.poll(ratio).toBeCloseTo(1, 1)
+    await expect(page.getByTestId('toast')).toBeVisible()
+    await expect.poll(ratio).toBeCloseTo(0.5, 1)
   })
 
   test('inserts a citation into a card title', async ({ page }) => {

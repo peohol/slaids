@@ -1,9 +1,23 @@
 /**
  * Ideas panel commands.
  *
- * The idea *data* belongs to the presentation; the window's position and size
- * are local UI state and live in localStorage, never here.
+ * Ported conceptually from mdeditz: an idea is a one-line note, categories group
+ * them at exactly one level, and the list is ordered so notes can be dragged
+ * into the order that makes sense. The idea *data* belongs to the presentation;
+ * the window's position and size are local UI state and live in localStorage.
  */
+
+/** Same limits as the sibling app, so a note stays a note. */
+export const MAX_IDEAS = 200
+export const MAX_IDEA_LENGTH = 280
+
+/** One line, cut where an idea stops being a note. */
+export function oneLine(text: string): string {
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_IDEA_LENGTH)
+}
 
 import { newIdeaCategoryId, newIdeaId } from '../ids'
 import { touch } from '../presentation'
@@ -18,12 +32,12 @@ export function addIdea(
   if (!presentation.ideaCategories.some((category) => category.id === input.categoryId)) {
     return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
   }
-  const idea: Idea = {
-    id: newIdeaId(),
-    categoryId: input.categoryId,
-    text: input.text,
-    done: false,
+  if (presentation.ideas.length >= MAX_IDEAS) {
+    return err('INVALID_ARGUMENT', `Det er plass til maksimalt ${MAX_IDEAS} idéer.`)
   }
+  const text = oneLine(input.text)
+  if (!text) return err('INVALID_ARGUMENT', 'Idéen kan ikke være tom.')
+  const idea: Idea = { id: newIdeaId(), categoryId: input.categoryId, text, done: false }
   return ok(touch({ ...presentation, ideas: [...presentation.ideas, idea] }))
 }
 
@@ -41,7 +55,11 @@ export function updateIdea(
     return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
   }
   const ideas = [...presentation.ideas]
-  ideas[index] = { ...ideas[index], ...patch }
+  ideas[index] = {
+    ...ideas[index],
+    ...patch,
+    ...(patch.text !== undefined ? { text: oneLine(patch.text) } : {}),
+  }
   return ok(touch({ ...presentation, ideas }))
 }
 

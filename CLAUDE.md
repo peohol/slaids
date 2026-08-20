@@ -37,6 +37,9 @@ npm run build        # produksjonsbuild
 npm run e2e          # Playwright (bygger og serverer selv)
 ```
 
+Playwright laster ned egen nettleser. Finnes det allerede en Chromium i miljøet:
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e`
+
 ## Verifikasjon
 
 En UI-endring er ikke ferdig før den er kjørt i browser: start appen, klikk gjennom flyten,

@@ -4,7 +4,9 @@
  */
 
 import { useState } from 'react'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   addIdea,
   addIdeaCategory,
@@ -23,21 +25,23 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 
 function IdeaCard({ idea }: { idea: Idea }) {
   const run = useEditorStore((state) => state.run)
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `idea:${idea.id}`,
-    data: { kind: 'idea', ideaId: idea.id },
+    data: { kind: 'idea', ideaId: idea.id, categoryId: idea.categoryId },
   })
 
   return (
-    <div className="idea" data-testid="idea" style={{ opacity: isDragging ? 0.4 : 1 }}>
-      <button
-        type="button"
-        className="idea__grip"
-        ref={setNodeRef}
-        aria-label="Flytt idé"
-        {...attributes}
-        {...listeners}
-      >
+    <div
+      className="idea"
+      data-testid="idea"
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      }}
+    >
+      <button type="button" className="idea__grip" aria-label="Flytt idé" {...attributes} {...listeners}>
         <Icon name="grip" size={13} />
       </button>
       <input
@@ -113,9 +117,14 @@ function CategoryColumn({
         </button>
       </header>
       <div className="idea-category__list">
-        {ideas.map((idea) => (
-          <IdeaCard key={idea.id} idea={idea} />
-        ))}
+        <SortableContext
+          items={ideas.map((idea) => `idea:${idea.id}`)}
+          strategy={verticalListSortingStrategy}
+        >
+          {ideas.map((idea) => (
+            <IdeaCard key={idea.id} idea={idea} />
+          ))}
+        </SortableContext>
       </div>
       <form
         className="idea-category__add"

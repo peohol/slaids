@@ -11,7 +11,13 @@ const SAVE_LABELS: Record<string, string> = {
   error: 'Lagring feilet',
 }
 
-export function StatusBar({ presentation }: { presentation: Presentation }) {
+export function StatusBar({
+  presentation,
+  onShowShortcuts,
+}: {
+  presentation: Presentation
+  onShowShortcuts: () => void
+}) {
   const saveStatus = useEditorStore((state) => state.saveStatus)
   const mode = useEditorStore((state) => state.mode)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
@@ -41,6 +47,14 @@ export function StatusBar({ presentation }: { presentation: Presentation }) {
           ? 'Piltaster navigerer hierarkiet · Ctrl+E bytter modus'
           : 'Ctrl+E for soneredigering'}
       </span>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm"
+        onClick={onShowShortcuts}
+        data-testid="show-shortcuts"
+      >
+        Hurtigtaster
+      </button>
     </footer>
   )
 }
