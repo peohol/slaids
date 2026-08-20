@@ -48,6 +48,28 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('presentation-title')).toHaveText('Husk meg')
   })
 
+  test('organises presentations in folders', async ({ page }) => {
+    await createPresentation(page, 'I mappe')
+    await page.getByTestId('back-to-library').click()
+
+    page.once('dialog', (dialog) => void dialog.accept('Kundemøter'))
+    await page.getByTestId('new-folder').click()
+    const folder = page.getByTestId('folder-item')
+    await expect(folder).toHaveText(/Kundemøter \(0\)/)
+
+    await page.getByLabel('Mappe').selectOption({ label: 'Kundemøter' })
+    await expect(folder).toHaveText(/Kundemøter \(1\)/)
+
+    await folder.click()
+    await expect(page.getByTestId('presentation-card')).toHaveCount(1)
+
+    // Deleting the folder keeps the presentation, just without a folder.
+    await page.getByLabel('Slett mappen Kundemøter').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('presentation-card')).toHaveCount(1)
+    await expect(page.getByTestId('folder-item')).toHaveCount(0)
+  })
+
   test('exports a presentation to a .slaids file', async ({ page }) => {
     await createPresentation(page, 'Eksport')
     await page.getByTestId('back-to-library').click()

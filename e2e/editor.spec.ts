@@ -34,6 +34,26 @@ test.describe('slides and content', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('switches between slides from the filmstrip', async ({ page }) => {
+    await createPresentation(page, 'Navigasjon')
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Første slide')
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Andre slide')
+    await expect(stage(page)).toContainText('Andre slide')
+
+    await page.getByTestId('filmstrip-thumb').first().click()
+    await expect(stage(page)).toContainText('Første slide')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+
+    await page.getByTestId('filmstrip-thumb').nth(1).click()
+    await expect(stage(page)).toContainText('Andre slide')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 2')
+  })
+
   test('toggles the title zone and restores the main area', async ({ page }) => {
     await createPresentation(page, 'Overskrift')
     await expect(page.getByTestId('slide-title')).toBeVisible()

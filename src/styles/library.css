@@ -64,8 +64,18 @@
   gap: 2px;
 }
 
-.folder-item {
+/* Only inside a row does the label take the remaining width; as a direct child
+   of the column it would otherwise stretch to fill the whole sidebar. */
+.folder-row > .folder-item {
   flex: 1;
+  min-width: 0;
+}
+
+.library__folders > .folder-item {
+  flex: 0 0 auto;
+}
+
+.folder-item {
   display: flex;
   align-items: center;
   gap: 8px;

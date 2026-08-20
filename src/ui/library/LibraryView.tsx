@@ -222,6 +222,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                 type="button"
                 className={activeFolder === folder.id ? 'folder-item folder-item--active' : 'folder-item'}
                 onClick={() => setActiveFolder(folder.id)}
+                data-testid="folder-item"
+                data-folder-name={folder.name}
               >
                 <Icon name="folder" size={15} /> {folder.name} (
                 {summaries.filter((summary) => summary.folderId === folder.id).length})
