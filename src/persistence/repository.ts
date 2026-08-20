@@ -36,6 +36,12 @@ export interface SlaidsRepository {
   putAsset(presentationId: string, ref: AssetRef, blob: Blob): Promise<void>
   getAsset(id: string): Promise<StoredAsset | null>
   listAssets(presentationId: string): Promise<AssetRef[]>
+  /**
+   * Which of these asset ids are already stored, no matter which presentation
+   * owns them. Asset rows are keyed by id alone, so an importer has to know
+   * this before writing, or it would overwrite someone else's file.
+   */
+  existingAssetIds(ids: readonly string[]): Promise<string[]>
   deleteAsset(id: string): Promise<void>
   deleteAssetsForPresentation(presentationId: string): Promise<void>
   /** Remove asset rows whose owning presentation no longer exists. */

@@ -76,7 +76,17 @@ export function PresentView({
   const slide = slides[index]
 
   return (
-    <div className="present" data-testid="present-view" ref={hostRef} onClick={() => go(1)}>
+    <div
+      className="present"
+      data-testid="present-view"
+      ref={hostRef}
+      onClick={(event) => {
+        // Links and buttons inside a slide (reference URLs, rich-text links)
+        // must not also advance the deck.
+        if ((event.target as Element).closest('a, button, [role="button"]')) return
+        go(1)
+      }}
+    >
       <SlideRenderProvider value={{ theme: presentation.theme, numbering, isStatic: true }}>
         <div
           className="present__slide"

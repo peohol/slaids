@@ -1,16 +1,25 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
+  SLAIDS_CLIPBOARD_FORMAT,
   hasStructuralClipboard,
   instantiateClipboardContent,
+  readStructuralClipboard,
   readStructuralClipboardSync,
   writeStructuralClipboard,
 } from './clipboard'
 import { validateClipboardPayload } from '../domain/schema'
 import { createTitledCard } from '../domain/content'
 
-beforeEach(() => {
-  // A fresh module-level clipboard for each test is not possible, so tests build
-  // on each other's writes deliberately.
+/** jsdom has no clipboard, so the system half of the API is stubbed. */
+function stubSystemClipboard(readText: () => Promise<string>): void {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { readText, writeText: async () => undefined },
+    configurable: true,
+  })
+}
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
 })
 
 describe('structural clipboard', () => {
@@ -61,5 +70,40 @@ describe('structural clipboard', () => {
       expect(copy.payload.assetId).toBe('asset-9')
     }
     expect(payload.assets[0].id).toBe('asset-9')
+  })
+
+  it('prefers a valid payload from the system clipboard, so a copy survives a reload', async () => {
+    writeStructuralClipboard(createTitledCard('I minnet'), [])
+    const fromSystem = {
+      format: SLAIDS_CLIPBOARD_FORMAT,
+      version: 1,
+      content: createTitledCard('Fra systemet'),
+      assets: [],
+    }
+    stubSystemClipboard(async () => JSON.stringify(fromSystem))
+
+    const payload = await readStructuralClipboard()
+    expect(payload?.content.id).toBe(fromSystem.content.id)
+  })
+
+  it('falls back to the in-memory payload when the system clipboard is unusable', async () => {
+    const card = createTitledCard('Bare i minnet')
+    writeStructuralClipboard(card, [])
+
+    stubSystemClipboard(async () => 'et helt vanlig avsnitt kopiert fra en nettside')
+    expect((await readStructuralClipboard())?.content.id).toBe(card.id)
+
+    stubSystemClipboard(async () => {
+      throw new Error('nektet')
+    })
+    expect((await readStructuralClipboard())?.content.id).toBe(card.id)
+  })
+
+  it('gives up on a system clipboard that never answers, rather than hanging', async () => {
+    const card = createTitledCard('Minnet redder pastingen')
+    writeStructuralClipboard(card, [])
+    // A permission prompt nobody answers leaves the promise pending forever.
+    stubSystemClipboard(() => new Promise<string>(() => {}))
+    expect((await readStructuralClipboard())?.content.id).toBe(card.id)
   })
 })

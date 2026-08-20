@@ -37,20 +37,51 @@ export function writeStructuralClipboard(content: ZoneContent, assets: AssetRef[
   }
 }
 
-/** Returns a fresh copy with new ids, ready to be placed into a zone. */
+/** How long to wait for the system clipboard when memory can answer instead. */
+const SYSTEM_READ_TIMEOUT_MS = 500
+/** With nothing in memory the system clipboard is the only source worth waiting for. */
+const SYSTEM_READ_TIMEOUT_EMPTY_MS = 3000
+
+/**
+ * The system clipboard first, so a copy survives a reload or reaches another
+ * tab, then the in-memory payload. Foreign text simply fails validation.
+ */
 export async function readStructuralClipboard(): Promise<ClipboardPayload | null> {
-  try {
-    const text = await navigator.clipboard?.readText()
-    if (text) {
+  const text = await readSystemText(
+    memory ? SYSTEM_READ_TIMEOUT_MS : SYSTEM_READ_TIMEOUT_EMPTY_MS,
+  )
+  if (text) {
+    try {
       const parsed = validateClipboardPayload(JSON.parse(text))
       if (parsed.ok && parsed.value) return parsed.value as ClipboardPayload
+    } catch {
+      // Ordinary text copied from somewhere else; not our payload.
     }
-  } catch {
-    // Fall through to the in-memory clipboard.
   }
   return memory
 }
 
+/**
+ * Reading the system clipboard can wait on a permission prompt the user never
+ * answers, and that promise then never settles. Racing it against a deadline
+ * keeps paste responsive instead of silently doing nothing.
+ */
+async function readSystemText(timeoutMs: number): Promise<string | null> {
+  try {
+    const read = navigator.clipboard?.readText()
+    if (!read) return null
+    return await Promise.race([
+      read.catch(() => null),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs)
+      }),
+    ])
+  } catch {
+    return null
+  }
+}
+
+/** The in-memory payload only — no permission prompt, no await. */
 export function readStructuralClipboardSync(): ClipboardPayload | null {
   return memory
 }

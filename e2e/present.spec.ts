@@ -79,6 +79,66 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('present-view')).toContainText('En viktig kilde')
   })
 
+  test('leaves the derived slide when an authored slide is selected again', async ({ page }) => {
+    await createPresentation(page, 'Tilbake til egen slide')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Påstand med kilde')
+
+    await page.getByTestId('insert-reference').click()
+    await page.getByTestId('reference-title').fill('Kilde')
+    await page.getByTestId('save-reference').click()
+    await page.getByRole('button', { name: 'Lukk' }).click()
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(2)
+
+    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
+
+    // Away to the first slide, then back to the one the derived view was opened
+    // from: it must stay closed rather than reappear.
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
+    await expect(page.getByTestId('stage-note')).toBeHidden()
+  })
+
+  test('follows a link in a slide without advancing the deck', async ({ page }) => {
+    await createPresentation(page, 'Lenker i visning')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Kilden ligger her')
+    await page.keyboard.press('Control+a')
+    page.once('dialog', (dialog) => dialog.accept('https://example.invalid/kilde'))
+    await page.getByTestId('format-link').click()
+    await expect(stage(page).locator('.rd-link, a')).toHaveCount(1)
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+
+    await page.getByTestId('present').click()
+    await page.keyboard.press('Home')
+    await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
+
+    const link = page.getByTestId('present-view').locator('a').first()
+    await expect(link).toBeVisible()
+    const popup = page.context().waitForEvent('page').catch(() => null)
+    await link.click()
+    // The click belonged to the link, not to the deck.
+    await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
+    const opened = await popup
+    if (opened) await opened.close()
+
+    // A click on the slide itself still advances.
+    await page.getByTestId('present-view').click({ position: { x: 5, y: 5 } })
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 2')
+  })
+
   test('removes the derived slide when the last citation goes away', async ({ page }) => {
     await createPresentation(page, 'Uten kilder')
     const zones = await zoneRects(page)

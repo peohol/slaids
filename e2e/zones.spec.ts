@@ -166,6 +166,35 @@ test.describe('zone editing', () => {
     expectGap(after[1].x - (after[0].x + after[0].w), 'gap after drag')
   })
 
+  test('never replaces container content by re-picking the active type', async ({ page }) => {
+    await createPresentation(page, 'Beholdertype')
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).click()
+    await page.keyboard.type('Tekst som ikke skal forsvinne')
+
+    await enterZoneMode(page)
+    await clickZone(page, zones[0])
+
+    // The already-active type is a no-op, not a reset.
+    await page.getByTestId('container-payload-richdoc').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+    await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
+
+    // Switching type asks first, and cancelling keeps the text.
+    await page.getByTestId('container-payload-shape').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await page.getByRole('button', { name: 'Avbryt' }).click()
+    await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
+
+    // Confirming goes through.
+    await page.getByTestId('container-payload-shape').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(stage(page).locator('.shape-view')).toBeVisible()
+    await expect(stage(page)).not.toContainText('Tekst som ikke skal forsvinne')
+  })
+
   test('moves content to the sandbox and places it back', async ({ page }) => {
     await createPresentation(page, 'Sandkasse')
     await enterZoneMode(page)

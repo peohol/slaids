@@ -46,7 +46,7 @@ import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { fitCheckerFor } from '../../state/measure'
 import { loadWebFonts } from '../fonts'
-import { readStructuralClipboardSync, writeStructuralClipboard } from '../../state/clipboard'
+import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
@@ -190,9 +190,10 @@ export function EditorView({
   )
 
   /**
-   * Derived by construction rather than synchronised: remembering which
-   * authored slide the view was opened from means selecting another slide, or
-   * losing the last citation, closes it without an effect.
+   * Derived by construction rather than synchronised. Selecting an authored
+   * slide clears the view outright; remembering which slide it was opened from
+   * additionally closes it when the selection moves for some other reason —
+   * an undo, or the slide it belonged to being deleted.
    */
   const viewedDerivedSlide =
     derivedView && derivedView.from === currentSlideId
@@ -308,7 +309,10 @@ export function EditorView({
       )
       if (!created) return
       const next = useEditorStore.getState().presentation?.slides[insertAt]
-      if (next) useEditorStore.getState().selectSlide(next.id)
+      if (next) {
+        setDerivedView(null)
+        useEditorStore.getState().selectSlide(next.id)
+      }
     },
     [currentSlideId, run],
   )
@@ -416,15 +420,19 @@ export function EditorView({
       }
       if (event.key.toLowerCase() === 'v' && leaf && !leaf.content) {
         event.preventDefault()
-        const payload = readStructuralClipboardSync()
-        if (!payload) {
-          notify.warning('Utklippstavlen er tom.')
-          return
-        }
         const targetNodeId = state.selectedNodeId
-        // Copy any referenced assets into this presentation first, so a paste
-        // across presentations does not depend on the source surviving.
-        void materializeClipboardContent(payload, current).then(({ content, refs }) => {
+        // The system clipboard is read first so a copy survives a reload or
+        // reaches another tab; it falls back to the in-memory payload.
+        void readStructuralClipboard().then(async (payload) => {
+          if (!payload) {
+            notify.warning('Utklippstavlen er tom.')
+            return
+          }
+          const live = useEditorStore.getState().presentation
+          if (!live || live.id !== current.id) return
+          // Copy any referenced assets into this presentation first, so a paste
+          // across presentations does not depend on the source surviving.
+          const { content, refs } = await materializeClipboardContent(payload, live)
           const placed = useEditorStore
             .getState()
             .runStructural('paste-content', (presentationState) =>
@@ -702,6 +710,7 @@ export function EditorView({
               onSelectDerived={(slideId) =>
                 setDerivedView(currentSlideId ? { id: slideId, from: currentSlideId } : null)
               }
+              onSelectAuthored={() => setDerivedView(null)}
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
             />
@@ -729,7 +738,14 @@ export function EditorView({
                 </section>
               </aside>
             ) : (
-              <Inspector slide={slide} actions={zoneActions} onAddContent={addContentTo} />
+              <Inspector
+                // Remounting per selection drops any half-finished panel
+                // state, so a dialog can never apply to the wrong zone.
+                key={selectedNodeId ?? 'none'}
+                slide={slide}
+                actions={zoneActions}
+                onAddContent={addContentTo}
+              />
             )}
           </div>
 

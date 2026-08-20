@@ -120,6 +120,13 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     return records.map(({ blob: _blob, presentationId: _pid, ...ref }) => ref)
   }
 
+  async existingAssetIds(ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    // `primaryKeys()` answers this without pulling any blobs into memory.
+    const keys = await this.database.assets.where('id').anyOf([...ids]).primaryKeys()
+    return keys as string[]
+  }
+
   async deleteAsset(id: string): Promise<void> {
     await this.database.assets.delete(id)
   }

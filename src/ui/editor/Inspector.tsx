@@ -5,6 +5,7 @@
  * split, clear, delete, content type, colours, subfields and container payload.
  */
 
+import { useState } from 'react'
 import {
   setBodyAxis,
   setBodyWeights,
@@ -14,12 +15,13 @@ import {
   setSubfieldCount,
 } from '../../domain/commands'
 import { CONTENT_KIND_LABELS, defaultShape } from '../../domain/content'
-import { emptyDoc } from '../../domain/richdoc'
+import { emptyDoc, isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { useEditorStore } from '../../state/store'
-import type { Axis, ShapeKind, Slide, ZoneContentKind } from '../../domain/types'
+import type { Axis, ContainerPayload, ShapeKind, Slide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon, type IconName } from '../components/Icon'
 import type { ZoneAction } from './ZoneOverlay'
 
@@ -27,6 +29,21 @@ const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
   container: 'container',
   'untitled-card': 'card',
   'titled-card': 'card-titled',
+}
+
+/** Does replacing this payload throw away something the user made? */
+function payloadHasWork(payload: ContainerPayload): boolean {
+  if (payload.type === 'richdoc') return !isDocEmpty(payload.doc)
+  if (payload.type === 'shape') {
+    const fallback = defaultShape()
+    return (
+      payload.shape.kind !== fallback.kind ||
+      payload.shape.fill !== fallback.fill ||
+      payload.shape.stroke !== fallback.stroke ||
+      payload.shape.strokeWidth !== fallback.strokeWidth
+    )
+  }
+  return true
 }
 
 const SHAPE_LABELS: Record<ShapeKind, string> = {
@@ -48,6 +65,11 @@ export function Inspector({
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const run = useEditorStore((state) => state.run)
+  /** A payload switch that would destroy content, waiting for confirmation. */
+  const [pendingPayload, setPendingPayload] = useState<{
+    nodeId: string
+    payload: ContainerPayload
+  } | null>(null)
 
   const node = selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const leaf = selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
@@ -62,6 +84,27 @@ export function Inspector({
         <p className="hint">Ingen sone er valgt.</p>
       </aside>
     )
+  }
+
+  const applyPayload = (nodeId: string, payload: ContainerPayload): void => {
+    run('container-payload', (current) =>
+      setContainerPayload(current, { slideId: slide.id, nodeId, payload }),
+    )
+  }
+
+  /**
+   * Picking the type that is already active must not wipe the container: an
+   * extra click on the highlighted button is the easiest mistake to make. A
+   * real switch away from authored content asks first.
+   */
+  const requestPayload = (payload: ContainerPayload): void => {
+    if (!content || content.kind !== 'container') return
+    if (content.payload.type === payload.type) return
+    if (payloadHasWork(content.payload)) {
+      setPendingPayload({ nodeId: selectedNodeId, payload })
+      return
+    }
+    applyPayload(selectedNodeId, payload)
   }
 
   return (
@@ -247,15 +290,7 @@ export function Inspector({
               type="button"
               className={content.payload.type === 'richdoc' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
               data-testid="container-payload-richdoc"
-              onClick={() =>
-                run('container-payload', (current) =>
-                  setContainerPayload(current, {
-                    slideId: slide.id,
-                    nodeId: selectedNodeId,
-                    payload: { type: 'richdoc', doc: emptyDoc() },
-                  }),
-                )
-              }
+              onClick={() => requestPayload({ type: 'richdoc', doc: emptyDoc() })}
             >
               <Icon name="text" size={14} /> Tekst
             </button>
@@ -263,15 +298,7 @@ export function Inspector({
               type="button"
               className={content.payload.type === 'shape' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
               data-testid="container-payload-shape"
-              onClick={() =>
-                run('container-payload', (current) =>
-                  setContainerPayload(current, {
-                    slideId: slide.id,
-                    nodeId: selectedNodeId,
-                    payload: { type: 'shape', shape: defaultShape() },
-                  }),
-                )
-              }
+              onClick={() => requestPayload({ type: 'shape', shape: defaultShape() })}
             >
               <Icon name="shapes" size={14} /> Figur
             </button>
@@ -363,6 +390,18 @@ export function Inspector({
           )}
         </section>
       )}
+
+      <ConfirmDialog
+        open={pendingPayload !== null}
+        title="Bytt innholdstype"
+        message="Beholderen inneholder noe allerede. Bytter du type, erstattes det. Du kan angre med Ctrl+Z."
+        confirmLabel="Erstatt"
+        onConfirm={() => {
+          if (pendingPayload) applyPayload(pendingPayload.nodeId, pendingPayload.payload)
+          setPendingPayload(null)
+        }}
+        onCancel={() => setPendingPayload(null)}
+      />
     </aside>
   )
 }

@@ -155,18 +155,32 @@ export async function importSlaidsArchive(
     let presentation: Presentation = migrated.value
     const originalId = presentation.id
     const assetMap = new Map<string, string>()
+    const owned = assetIndex.filter((entry) => entry.presentationId === originalId)
 
-    if (existing.has(presentation.id)) {
+    const isCopy = existing.has(presentation.id)
+    if (isCopy) {
       presentation = {
         ...presentation,
         id: newPresentationId(),
         title: `${presentation.title} (importert)`,
       }
-      for (const ref of migrated.value.assets) assetMap.set(ref.id, newAssetId())
-      presentation = remapAssetIds(presentation, assetMap)
     }
 
-    const owned = assetIndex.filter((entry) => entry.presentationId === originalId)
+    // Asset rows are keyed by asset id alone, so a taken id has to be remapped
+    // even when the presentation itself is new — writing it would otherwise
+    // overwrite another presentation's file and hand ownership of it to this
+    // import, so deleting the import later would take that file with it.
+    const incomingAssetIds = [
+      ...new Set([...migrated.value.assets.map((ref) => ref.id), ...owned.map((entry) => entry.id)]),
+    ]
+    const taken = isCopy
+      ? new Set(incomingAssetIds)
+      : new Set(await repository.existingAssetIds(incomingAssetIds))
+    for (const id of incomingAssetIds) {
+      if (taken.has(id)) assetMap.set(id, newAssetId())
+    }
+    if (assetMap.size > 0) presentation = remapAssetIds(presentation, assetMap)
+
     for (const entry of owned) {
       const bytesForAsset = entries[entry.file]
       if (!bytesForAsset) {

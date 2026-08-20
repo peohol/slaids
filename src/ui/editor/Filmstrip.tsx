@@ -114,6 +114,7 @@ export function Filmstrip({
   derivedSlides,
   viewingDerivedId,
   onSelectDerived,
+  onSelectAuthored,
   onRequestDelete,
   onRequestNewSlide,
 }: {
@@ -122,18 +123,23 @@ export function Filmstrip({
   derivedSlides: Slide[]
   viewingDerivedId: string | null
   onSelectDerived: (slideId: string) => void
+  /** Selecting an authored slide closes the derived view for good. */
+  onSelectAuthored: () => void
   onRequestDelete: (slide: Slide) => void
   onRequestNewSlide: () => void
 }) {
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const selectSlide = useEditorStore((state) => state.selectSlide)
-  const selectAuthored = (slideId: string): void => selectSlide(slideId)
+  const selectAuthored = (slideId: string): void => {
+    onSelectAuthored()
+    selectSlide(slideId)
+  }
   const run = useEditorStore((state) => state.run)
 
   const duplicate = (slideId: string, index: number): void => {
     if (!run('duplicate-slide', (current) => duplicateSlide(current, slideId))) return
     const copy = useEditorStore.getState().presentation?.slides[index + 1]
-    if (copy) selectSlide(copy.id)
+    if (copy) selectAuthored(copy.id)
   }
 
   return (

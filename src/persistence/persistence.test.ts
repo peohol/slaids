@@ -207,6 +207,48 @@ describe('.slaids backup', () => {
     expect(await repository.getAsset(copy.assets[0].id)).not.toBeNull()
   })
 
+  it('remaps an asset id that is already taken by another presentation', async () => {
+    // Asset rows are keyed by asset id alone, so an archive from elsewhere that
+    // happens to reuse an id must not overwrite the local file.
+    const withAsset = (presentation: Presentation): Presentation => ({
+      ...presentation,
+      assets: [assetRef],
+      slides: [
+        {
+          ...presentation.slides[0],
+          root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+        },
+      ],
+    })
+
+    const local = freshRepository()
+    const mine = withAsset(samplePresentation())
+    await local.savePresentation(mine)
+    await local.putAsset(mine.id, assetRef, new Blob(['<svg id="mine" />'], { type: 'image/svg+xml' }))
+
+    const other = freshRepository()
+    const theirs = withAsset(createPresentation({ title: 'Fra en annen maskin' }))
+    await other.savePresentation(theirs)
+    await other.putAsset(theirs.id, assetRef, new Blob(['<svg id="theirs" />'], { type: 'image/svg+xml' }))
+    const archive = await exportSlaidsArchive(other, { presentationIds: [theirs.id] })
+
+    const report = await importSlaidsArchive(local, archive)
+    expect(report.errors).toEqual([])
+    expect(report.importedPresentations).toEqual([theirs.id])
+
+    // The local file is untouched, and still owned by the local presentation.
+    const kept = await local.getAsset(assetRef.id)
+    expect(await kept?.blob.text()).toBe('<svg id="mine" />')
+    expect((await local.listAssets(mine.id)).map((ref) => ref.id)).toEqual([assetRef.id])
+
+    // The imported one got a fresh id, with its own bytes.
+    const imported = await local.loadPresentation(theirs.id)
+    expect(imported.assets[0].id).not.toBe(assetRef.id)
+    expect(JSON.stringify(imported.slides[0].root)).not.toContain(assetRef.id)
+    const copy = await local.getAsset(imported.assets[0].id)
+    expect(await copy?.blob.text()).toBe('<svg id="theirs" />')
+  })
+
   it('reports a corrupt archive instead of throwing', async () => {
     const repository = freshRepository()
     const report = await importSlaidsArchive(repository, new Blob(['ikke en zip']))
