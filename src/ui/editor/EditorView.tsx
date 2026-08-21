@@ -82,7 +82,6 @@ export function EditorView({
   const presentation = useEditorStore((state) => state.presentation)
   const loading = useEditorStore((state) => state.loading)
   const loadError = useEditorStore((state) => state.loadError)
-  const mode = useEditorStore((state) => state.mode)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const setPresentation = useEditorStore((state) => state.setPresentation)
@@ -685,7 +684,7 @@ export function EditorView({
       },
       {
         id: 'image',
-        label: 'Sett inn bilde eller figur',
+        label: 'Sett inn bilde',
         icon: 'image',
         disabled: !isLeaf,
         onSelect: () => setImageOpen(true),
@@ -902,11 +901,12 @@ export function EditorView({
       />
       <ThemeModal open={themeOpen} onOpenChange={setThemeOpen} />
       <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-      <ImageUploadModal
-        open={imageOpen}
-        onOpenChange={setImageOpen}
-        targetNodeId={mode === 'zone' && selectedNode?.kind === 'leaf' ? selectedNodeId : null}
-      />
+      {imageOpen && (
+        <ImageUploadModal
+          onOpenChange={setImageOpen}
+          zoneNodeId={selectedNode?.kind === 'leaf' ? selectedNodeId : null}
+        />
+      )}
 
       <Modal
         open={renameOpen}

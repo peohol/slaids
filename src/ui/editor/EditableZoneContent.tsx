@@ -15,7 +15,6 @@ import { useEditorStore, type ActiveField } from '../../state/store'
 import type { RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { AssetImage } from '../slide/AssetImage'
-import { ShapeView } from '../slide/ShapeView'
 import { RichTextEditor } from './RichTextEditor'
 
 export function EditableZoneContent({
@@ -88,9 +87,6 @@ export function EditableZoneContent({
         renderContainer={(container) => {
           if (container.payload.type === 'asset') {
             return <AssetImage assetId={container.payload.assetId} fit={container.payload.fit} />
-          }
-          if (container.payload.type === 'shape') {
-            return <ShapeView shape={container.payload.shape} />
           }
           return (
             <FieldEditor

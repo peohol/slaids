@@ -6,14 +6,10 @@
  * numbering pass alike.
  */
 
-import type { RichDoc, RichNode, ShapeSpec, TitleDoc } from './types'
+import type { RichDoc, RichNode, TitleDoc } from './types'
 
 export const CITATION_NODE = 'citation'
 export const IMAGE_NODE = 'slaidsImage'
-export const SHAPE_NODE = 'slaidsShape'
-
-/** Default height of an inline figure, in logical slide pixels. */
-export const DEFAULT_SHAPE_HEIGHT = 160
 
 export function emptyDoc(): RichDoc {
   return { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -33,35 +29,6 @@ export function titleDoc(text: string): TitleDoc {
 
 export function imageNode(assetId: string, alt = '', widthPercent = 100): RichNode {
   return { type: IMAGE_NODE, attrs: { assetId, alt, widthPercent } }
-}
-
-export function shapeNode(shape: ShapeSpec, height = DEFAULT_SHAPE_HEIGHT): RichNode {
-  return {
-    type: SHAPE_NODE,
-    attrs: {
-      kind: shape.kind,
-      fill: shape.fill,
-      stroke: shape.stroke,
-      strokeWidth: shape.strokeWidth,
-      height,
-    },
-  }
-}
-
-/** Read a shape back out of a stored node, falling back to safe defaults. */
-export function shapeFromNode(node: RichNode): ShapeSpec {
-  const attrs = node.attrs ?? {}
-  const kind = typeof attrs.kind === 'string' ? attrs.kind : 'rectangle'
-  return {
-    kind: (['rectangle', 'ellipse', 'triangle', 'line', 'arrow'] as const).includes(
-      kind as ShapeSpec['kind'],
-    )
-      ? (kind as ShapeSpec['kind'])
-      : 'rectangle',
-    fill: typeof attrs.fill === 'string' ? attrs.fill : '#bfccd9',
-    stroke: typeof attrs.stroke === 'string' ? attrs.stroke : '#263340',
-    strokeWidth: Number.isFinite(Number(attrs.strokeWidth)) ? Number(attrs.strokeWidth) : 3,
-  }
 }
 
 export function walkRichNodes(doc: RichDoc, visit: (node: RichNode) => void): void {
@@ -108,9 +75,7 @@ export function isDocEmpty(doc: RichDoc | null | undefined): boolean {
   let hasAnything = false
   walkRichNodes(doc, (node) => {
     if (node.type === 'text' && node.text && node.text.trim().length > 0) hasAnything = true
-    if (node.type === CITATION_NODE || node.type === IMAGE_NODE || node.type === SHAPE_NODE) {
-      hasAnything = true
-    }
+    if (node.type === CITATION_NODE || node.type === IMAGE_NODE) hasAnything = true
     if (node.type === 'table') hasAnything = true
   })
   return !hasAnything

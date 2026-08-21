@@ -12,8 +12,6 @@ import { bestTextColor } from '../../domain/color'
 import type { RichDoc, RichMark, RichNode } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
-import { ShapeView } from './ShapeView'
-import { DEFAULT_SHAPE_HEIGHT, shapeFromNode } from '../../domain/richdoc'
 
 const DEFAULT_HEADING_PILL = '#33475b'
 
@@ -94,18 +92,6 @@ function SlaidsImage({ node }: { node: RichNode }) {
   )
 }
 
-function SlaidsShape({ node }: { node: RichNode }) {
-  const height = Number(node.attrs?.height)
-  return (
-    <div
-      className="rd-shape-wrapper"
-      style={{ height: Number.isFinite(height) && height > 0 ? height : DEFAULT_SHAPE_HEIGHT }}
-    >
-      <ShapeView shape={shapeFromNode(node)} />
-    </div>
-  )
-}
-
 /**
  * The stored alignment, as the same inline style Tiptap writes.
  *
@@ -167,8 +153,6 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
       return <Citation node={node} />
     case 'slaidsImage':
       return <SlaidsImage node={node} />
-    case 'slaidsShape':
-      return <SlaidsShape node={node} />
     case 'table':
       return (
         <table className="rd-table">

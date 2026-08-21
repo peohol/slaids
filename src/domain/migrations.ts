@@ -10,7 +10,7 @@ import { DEFAULT_BACKGROUND_COLOR } from './constants'
 import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
-import { mergeAdjacentCitations } from './richdoc'
+import { emptyDoc, mergeAdjacentCitations } from './richdoc'
 import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 
@@ -91,10 +91,49 @@ function mergeCitationsInRaw(value: unknown): unknown {
   return out
 }
 
+/**
+ * Vector figures are gone.
+ *
+ * The drawing primitives were never what this editor is for — a picture goes in
+ * as an image — so both homes for them are removed: a container whose payload
+ * was a shape becomes an empty text container, and an inline `slaidsShape` node
+ * is dropped from the document it sat in. A shape carried no text, so nothing
+ * the author wrote is lost.
+ */
+const migrate2to3: MigrationFn = (data) => ({
+  ...(dropShapesInRaw(data) as Raw),
+  schemaVersion: 3,
+})
+
+/** True for a container payload of the removed `shape` type. */
+function isShapePayload(record: Raw): boolean {
+  return record.type === 'shape' && 'shape' in record
+}
+
+function dropShapesInRaw(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => !isRawNodeOfType(entry, 'slaidsShape'))
+      .map(dropShapesInRaw)
+  }
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  if (isShapePayload(record)) return { type: 'richdoc', doc: emptyDoc() }
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = dropShapesInRaw(entry)
+  return out
+}
+
+function isRawNodeOfType(value: unknown, type: string): boolean {
+  return Boolean(value) && typeof value === 'object' && (value as Raw).type === type
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
   1: migrate1to2,
+  2: migrate2to3,
 }
 
 /**

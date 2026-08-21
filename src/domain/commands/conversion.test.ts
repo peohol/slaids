@@ -58,16 +58,6 @@ describe('convertContentKind never loses content', () => {
     expect(JSON.stringify(converted)).toContain('slaidsImage')
   })
 
-  it('carries a figure from a container into a card body', () => {
-    const container = createContainer({
-      type: 'shape',
-      shape: { kind: 'ellipse', fill: '#bfccd9', stroke: '#263340', strokeWidth: 3 },
-    })
-    const converted = convertContentKind(container, 'titled-card')
-    expect(JSON.stringify(converted)).toContain('slaidsShape')
-    expect(JSON.stringify(converted)).toContain('ellipse')
-  })
-
   it('keeps every subfield when converting between card kinds', () => {
     const card = createUntitledCard()
     const withThree = {

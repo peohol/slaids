@@ -14,6 +14,8 @@ import {
   zoneRects,
 } from './helpers'
 
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
+
 test.describe('zone editing', () => {
   test('splits the main zone and keeps exactly one gap', async ({ page }) => {
     const guard = watchForErrors(page)
@@ -182,17 +184,20 @@ test.describe('zone editing', () => {
     await expect(page.getByTestId('confirm-dialog')).toBeHidden()
     await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
 
-    // Switching type asks first, and cancelling keeps the text.
-    await page.getByTestId('container-payload-shape').click()
-    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
-    await page.getByRole('button', { name: 'Avbryt' }).click()
-    await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
-
-    // Confirming goes through.
-    await page.getByTestId('container-payload-shape').click()
-    await page.getByTestId('confirm-accept').click()
-    await expect(stage(page).locator('.shape-view')).toBeVisible()
+    // Filling the zone with a picture instead is a real replacement, and the
+    // text it displaces lands in the sandbox rather than being thrown away.
+    await page.getByTestId('inspector-action-image').click()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'figur.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    await expect(stage(page).locator('img.asset-image')).toBeVisible()
     await expect(stage(page)).not.toContainText('Tekst som ikke skal forsvinne')
+    await page.getByTestId('open-sandbox').click()
+    await expect(
+      page.getByTestId('sandbox-window').getByText('Tekst som ikke skal forsvinne'),
+    ).toHaveCount(1)
   })
 
   test('follows the zone being edited in content mode', async ({ page }) => {

@@ -15,7 +15,6 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import type { Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
-import { SlaidsShapeExtension } from './SlaidsShapeExtension'
 import { PlainPasteExtension } from './PlainPasteExtension'
 
 /** Tags we accept from an external paste. Everything else is unwrapped. */
@@ -140,7 +139,6 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     TextAlign.configure({ types: ['paragraph', 'heading'], alignments: [...ALIGNMENTS] }),
     CitationExtension,
     SlaidsImageExtension,
-    SlaidsShapeExtension,
     PlainPasteExtension,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),
   ]

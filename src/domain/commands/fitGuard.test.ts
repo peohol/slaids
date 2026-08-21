@@ -16,7 +16,6 @@ import { createContainer, createUntitledCard } from '../content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
-import { defaultShape } from '../content'
 import type { CardBody, Presentation, RichDoc, ZoneContent } from '../types'
 import {
   setBodyAxis,
@@ -218,9 +217,10 @@ describe('setContentKind', () => {
 
   it('refuses a container payload that no longer fits', () => {
     const presentation = deckWith(
-      createContainer({ type: 'shape', shape: defaultShape() }),
+      createContainer({ type: 'asset', assetId: 'asset-1', fit: 'contain' }),
     )
-    // A figure is as tall as the zone is wide; the zone is far wider than tall.
+    // An inline image is as tall as the zone is wide; the zone is far wider
+    // than it is tall, so the same picture stops fitting once it is inline.
     expectRefused(
       setContainerPayload(presentation, {
         ...target(presentation),

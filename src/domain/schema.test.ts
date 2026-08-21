@@ -4,7 +4,7 @@ import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
 import { createUntitledCard } from './content'
 import { createLeaf, createSplit } from './layout'
-import type { Presentation } from './types'
+import type { Presentation, RichDoc } from './types'
 
 function sample(): Presentation {
   const presentation = createPresentation({ title: 'Prøve' })
@@ -118,6 +118,56 @@ describe('migrations', () => {
     const result = migratePresentation({ ...sample(), schemaVersion: 99 })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.message).toContain('nyere format')
+  })
+
+  it('turns a stored figure into an empty text container', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 2
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    root.children[1] = {
+      ...root.children[1],
+      content: {
+        id: 'content-figure',
+        kind: 'container',
+        payload: { type: 'shape', shape: { kind: 'ellipse', fill: '#bfccd9' } },
+      },
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const leaf = migrated.children[1]
+    if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
+      throw new Error('expected a container leaf')
+    }
+    expect(leaf.content.payload.type).toBe('richdoc')
+  })
+
+  it('drops an inline figure from a stored document', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 2
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    const leaf = root.children[0] as { content: Record<string, unknown> }
+    const body = leaf.content.body as { subfields: Array<{ doc: RichDoc }> }
+    body.subfields[0].doc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Beholdes' }] },
+        { type: 'slaidsShape', attrs: { kind: 'ellipse', height: 160 } },
+      ],
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(JSON.stringify(result.value)).not.toContain('slaidsShape')
+    expect(JSON.stringify(result.value)).toContain('Beholdes')
   })
 
   it('reports invalid data instead of throwing', () => {

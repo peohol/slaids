@@ -1,8 +1,13 @@
 /**
- * Upload dialog for images and vector graphics.
+ * Upload dialog for images.
  *
  * SVG is kept as a vector asset and displayed through an `<img>` pointing at a
  * Blob URL, so no foreign markup is ever injected into the document.
+ *
+ * Where the picture lands is asked, not inferred. It used to depend on which
+ * mode the editor happened to be in, so the same click either put the image in
+ * the text field or replaced the whole zone with it — and "insert a picture
+ * next to my text" quietly did the wrong one.
  */
 
 import { useRef, useState } from 'react'
@@ -18,27 +23,39 @@ import { notify } from '../../state/toast'
 import type { AssetRef } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
+import { fittingImageWidthPercent } from './SlaidsImageExtension'
 
 const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
 const MAX_BYTES = 25 * 1024 * 1024
 
+type Placement = 'inline' | 'zone'
+
 export function ImageUploadModal({
-  open,
   onOpenChange,
-  targetNodeId,
+  zoneNodeId,
 }: {
-  open: boolean
   onOpenChange: (open: boolean) => void
-  targetNodeId: string | null
+  /** The selected leaf zone, when there is one — the target for 'zone'. */
+  zoneNodeId: string | null
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
   const runStructural = useEditorStore((state) => state.runStructural)
   const editor = useActiveEditor((state) => state.editor)
+  const activeField = useEditorStore((state) => state.activeField)
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // The dialog takes focus the moment it opens, so the field that had it is
+  // captured on mount — the parent only renders this while it is open. Zone
+  // mode has no field being edited, so there is nowhere inline to go.
+  const [target] = useState(() => (activeField ? editor : null))
+  const canInline = Boolean(target)
+  const canFillZone = Boolean(zoneNodeId && slideId)
+  const [placement, setPlacement] = useState<Placement>(canInline ? 'inline' : 'zone')
+  const effective: Placement = placement === 'inline' && !canInline ? 'zone' : placement
 
   const handleFile = async (file: File): Promise<void> => {
     if (!presentation) return
@@ -67,21 +84,26 @@ export function ImageUploadModal({
       await repository.putAsset(presentation.id, ref, file)
       run('asset-register', (current) => registerAsset(current, ref))
 
-      if (editor && !targetNodeId) {
-        editor
+      if (effective === 'inline' && target) {
+        const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : undefined
+        // Sized to the room that is actually left in the field, so the picture
+        // arrives next to the text instead of being rolled back for overflow.
+        const widthPercent = fittingImageWidthPercent(target, aspect ?? 16 / 9)
+        if (widthPercent === null) {
+          notify.warning('Feltet har ikke plass til et bilde. Gjør sonen større eller kort ned teksten.')
+          onOpenChange(false)
+          return
+        }
+        target
           .chain()
           .focus()
-          .insertSlaidsImage({
-            assetId: ref.id,
-            alt: file.name,
-            aspect: size.width > 0 && size.height > 0 ? size.width / size.height : undefined,
-          })
+          .insertSlaidsImage({ assetId: ref.id, alt: file.name, aspect, widthPercent })
           .run()
-      } else if (targetNodeId && slideId) {
+      } else if (zoneNodeId && slideId) {
         runStructural('place-asset', (current) =>
           setZoneContent(current, {
             slideId,
-            nodeId: targetNodeId,
+            nodeId: zoneNodeId,
             content: createContainer({ type: 'asset', assetId: ref.id, fit: 'contain' }),
             replace: true,
             ...domFitCheckers,
@@ -100,9 +122,9 @@ export function ImageUploadModal({
 
   return (
     <Modal
-      open={open}
+      open
       onOpenChange={onOpenChange}
-      title="Sett inn bilde eller figur"
+      title="Sett inn bilde"
       description="Rasterbilder og SVG lagres som filer i presentasjonen."
       testId="image-modal"
       width={520}
@@ -124,6 +146,35 @@ export function ImageUploadModal({
           if (file) void handleFile(file)
         }}
       />
+      <div className="placement-choice" data-testid="image-placement">
+        <span className="hint">Plassering:</span>
+        <button
+          type="button"
+          className={effective === 'inline' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+          disabled={!canInline}
+          onClick={() => setPlacement('inline')}
+          data-testid="image-placement-inline"
+          aria-pressed={effective === 'inline'}
+        >
+          I tekstfeltet
+        </button>
+        <button
+          type="button"
+          className={effective === 'zone' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+          disabled={!canFillZone}
+          onClick={() => setPlacement('zone')}
+          data-testid="image-placement-zone"
+          aria-pressed={effective === 'zone'}
+        >
+          Fyll sonen
+        </button>
+      </div>
+      <p className="hint">
+        {effective === 'inline'
+          ? 'Bildet settes inn der markøren står, sammen med teksten.'
+          : 'Bildet fyller hele sonen. Innhold som ligger der fra før flyttes til sandkassen.'}
+      </p>
+
       <div
         className={dragOver ? 'dropzone dropzone--over' : 'dropzone'}
         onDragOver={(event) => {

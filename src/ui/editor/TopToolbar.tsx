@@ -104,7 +104,7 @@ export function TopToolbar(props: TopToolbarProps) {
             </button>
           </Tooltip>
         ))}
-        <Tooltip label="Sett inn bilde eller figur">
+        <Tooltip label="Sett inn bilde">
           <button
             type="button"
             className="btn btn--sm btn--icon"

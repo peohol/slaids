@@ -16,15 +16,6 @@ import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
 import { IMAGE_WIDTH_PRESETS } from './SlaidsImageExtension'
-import { SHAPE_HEIGHT_PRESETS } from './SlaidsShapeExtension'
-
-const SHAPE_LABELS = {
-  rectangle: 'Rektangel',
-  ellipse: 'Ellipse',
-  triangle: 'Trekant',
-  line: 'Linje',
-  arrow: 'Pil',
-} as const
 
 interface MarkButton {
   id: string
@@ -168,13 +159,6 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
       run: () =>
         editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
-    {
-      id: 'shape',
-      label: 'Sett inn figur',
-      icon: 'shapes',
-      isActive: () => editor.isActive('slaidsShape'),
-      run: () => editor.chain().focus().insertSlaidsShape().run(),
-    },
   ]
 
   const verticalButtons = slideId ? (
@@ -268,50 +252,6 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           testId="heading-color"
           onChange={(color) => editor.chain().focus().updateAttributes('heading', { color }).run()}
         />
-      )}
-
-      {editor.isActive('slaidsShape') && (
-        <div className="text-toolbar__table" data-testid="shape-tools">
-          <span className="hint">Figur:</span>
-          {(['rectangle', 'ellipse', 'triangle', 'line', 'arrow'] as const).map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              className={
-                editor.getAttributes('slaidsShape').kind === kind
-                  ? 'btn btn--sm btn--active'
-                  : 'btn btn--sm'
-              }
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().updateSlaidsShape({ kind }).focus().run()}
-              data-testid={`shape-node-${kind}`}
-            >
-              {SHAPE_LABELS[kind]}
-            </button>
-          ))}
-          {SHAPE_HEIGHT_PRESETS.map((height) => (
-            <button
-              key={height}
-              type="button"
-              className={
-                editor.getAttributes('slaidsShape').height === height
-                  ? 'btn btn--sm btn--active'
-                  : 'btn btn--sm'
-              }
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().updateSlaidsShape({ height }).focus().run()}
-              data-testid={`shape-height-${height}`}
-            >
-              {height}
-            </button>
-          ))}
-          <ColorPickerButton
-            label="Fyll"
-            value={String(editor.getAttributes('slaidsShape').fill ?? '#bfccd9')}
-            testId="shape-fill"
-            onChange={(fill) => editor.chain().updateSlaidsShape({ fill }).focus().run()}
-          />
-        </div>
       )}
 
       {editor.isActive('slaidsImage') && (

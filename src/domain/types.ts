@@ -51,20 +51,10 @@ export type TitleDoc = RichDoc
  * Zone content
  * ------------------------------------------------------------------ */
 
-export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'line' | 'arrow'
-
-export interface ShapeSpec {
-  kind: ShapeKind
-  fill: string
-  stroke: string
-  strokeWidth: number
-}
-
 /** What lives inside a transparent container zone. */
 export type ContainerPayload =
   | { type: 'richdoc'; doc: RichDoc }
   | { type: 'asset'; assetId: string; fit: 'contain' | 'cover' }
-  | { type: 'shape'; shape: ShapeSpec }
 
 /** Where content sits when it does not fill the height it is given. */
 export type VerticalAlign = 'top' | 'middle' | 'bottom'

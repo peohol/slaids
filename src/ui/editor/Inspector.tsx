@@ -14,13 +14,13 @@ import {
   setContentKind,
   setSubfieldCount,
 } from '../../domain/commands'
-import { CONTENT_KIND_LABELS, defaultShape } from '../../domain/content'
+import { CONTENT_KIND_LABELS } from '../../domain/content'
 import { emptyDoc, isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
-import type { Axis, ContainerPayload, ShapeKind, Slide, ZoneContentKind } from '../../domain/types'
+import type { Axis, ContainerPayload, Slide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon, type IconName } from '../components/Icon'
@@ -35,24 +35,7 @@ const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
 /** Does replacing this payload throw away something the user made? */
 function payloadHasWork(payload: ContainerPayload): boolean {
   if (payload.type === 'richdoc') return !isDocEmpty(payload.doc)
-  if (payload.type === 'shape') {
-    const fallback = defaultShape()
-    return (
-      payload.shape.kind !== fallback.kind ||
-      payload.shape.fill !== fallback.fill ||
-      payload.shape.stroke !== fallback.stroke ||
-      payload.shape.strokeWidth !== fallback.strokeWidth
-    )
-  }
   return true
-}
-
-const SHAPE_LABELS: Record<ShapeKind, string> = {
-  rectangle: 'Rektangel',
-  ellipse: 'Ellipse',
-  triangle: 'Trekant',
-  line: 'Linje',
-  arrow: 'Pil',
 }
 
 export function Inspector({
@@ -307,72 +290,7 @@ export function Inspector({
             >
               <Icon name="text" size={14} /> Tekst
             </button>
-            <button
-              type="button"
-              className={content.payload.type === 'shape' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-              data-testid="container-payload-shape"
-              onClick={() => requestPayload({ type: 'shape', shape: defaultShape() })}
-            >
-              <Icon name="shapes" size={14} /> Figur
-            </button>
           </div>
-
-          {content.payload.type === 'shape' && (
-            <>
-              <div className="inspector__actions">
-                {(Object.keys(SHAPE_LABELS) as ShapeKind[]).map((kind) => {
-                  const shape = content.payload.type === 'shape' ? content.payload.shape : defaultShape()
-                  return (
-                    <button
-                      key={kind}
-                      type="button"
-                      className={shape.kind === kind ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-                      data-testid={`shape-${kind}`}
-                      onClick={() =>
-                        run('shape-kind', (current) =>
-                          setContainerPayload(current, {
-                            slideId: slide.id,
-                            nodeId: selectedNodeId,
-                            payload: { type: 'shape', shape: { ...shape, kind } },
-                          }),
-                        )
-                      }
-                    >
-                      {SHAPE_LABELS[kind]}
-                    </button>
-                  )
-                })}
-              </div>
-              <h3 className="inspector__subheading">Fyllfarge</h3>
-              <ColorSwatchGrid
-                value={content.payload.shape.fill}
-                onSelect={(fill) => {
-                  const shape = content.payload.type === 'shape' ? content.payload.shape : defaultShape()
-                  run('shape-fill', (current) =>
-                    setContainerPayload(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      payload: { type: 'shape', shape: { ...shape, fill } },
-                    }),
-                  )
-                }}
-              />
-              <h3 className="inspector__subheading">Strekfarge</h3>
-              <ColorSwatchGrid
-                value={content.payload.shape.stroke}
-                onSelect={(stroke) => {
-                  const shape = content.payload.type === 'shape' ? content.payload.shape : defaultShape()
-                  run('shape-stroke', (current) =>
-                    setContainerPayload(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      payload: { type: 'shape', shape: { ...shape, stroke } },
-                    }),
-                  )
-                }}
-              />
-            </>
-          )}
 
           {content.payload.type === 'asset' && (
             <div className="inspector__actions">

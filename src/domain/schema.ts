@@ -11,7 +11,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 3
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -36,13 +36,6 @@ export const richDocSchema = z.object({
   content: z.array(richNodeSchema).optional(),
 })
 
-export const shapeSchema = z.object({
-  kind: z.enum(['rectangle', 'ellipse', 'triangle', 'line', 'arrow']),
-  fill: z.string(),
-  stroke: z.string(),
-  strokeWidth: z.number().finite().nonnegative(),
-})
-
 export const containerPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('richdoc'), doc: richDocSchema }),
   z.object({
@@ -50,7 +43,6 @@ export const containerPayloadSchema = z.discriminatedUnion('type', [
     assetId: z.string().min(1),
     fit: z.enum(['contain', 'cover']),
   }),
-  z.object({ type: z.literal('shape'), shape: shapeSchema }),
 ])
 
 export const verticalAlignSchema = z.enum(['top', 'middle', 'bottom'])

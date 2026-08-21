@@ -2,7 +2,7 @@
  * Factories and pure helpers for zone content.
  */
 
-import { PALETTE_SATURATION, WHITE, hslToHex } from './color'
+import { WHITE } from './color'
 import { newContentId, newSubfieldId } from './ids'
 import { collectCitationIds, collectDocAssetIds, emptyDoc, titleDoc } from './richdoc'
 import type {
@@ -11,7 +11,6 @@ import type {
   ContainerContent,
   ContainerPayload,
   RichDoc,
-  ShapeSpec,
   Subfield,
   TitledCardContent,
   UntitledCardContent,
@@ -159,11 +158,3 @@ export function contentAssetIds(content: ZoneContent): string[] {
   return ids
 }
 
-export function defaultShape(): ShapeSpec {
-  return {
-    kind: 'rectangle',
-    fill: hslToHex(210, PALETTE_SATURATION, 80),
-    stroke: hslToHex(210, PALETTE_SATURATION, 20),
-    strokeWidth: 3,
-  }
-}

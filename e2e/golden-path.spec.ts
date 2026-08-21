@@ -19,8 +19,8 @@ import {
 
 /**
  * The golden path from the implementation plan: title, main x-split 2:3, right
- * column y-split 1:2, titled card with two subfields on the left, a figure in a
- * transparent container top-right and an untitled card bottom-right.
+ * column y-split 1:2, titled card with two subfields on the left, free text in
+ * a transparent container top-right and an untitled card bottom-right.
  */
 test('golden path slide keeps exactly one gap everywhere', async ({ page }, testInfo) => {
   const guard = watchForErrors(page)
@@ -48,12 +48,9 @@ test('golden path slide keeps exactly one gap everywhere', async ({ page }, test
   await page.getByTestId('subfield-count').fill('2')
   await page.waitForTimeout(200)
 
-  // A vector shape in the transparent top-right container.
-  await clickZone(page, topRight)
-  await page.getByTestId('container-payload-shape').click()
-  await expect(stage(page).locator('.shape-view')).toBeVisible()
-
   await enterContentMode(page)
+  await stage(page).locator(`.slide-zone[data-node-id="${topRight.id}"] .tiptap`).click()
+  await page.keyboard.type('Fritekst i beholderen.')
   await stage(page).locator(`.slide-zone[data-node-id="${left.id}"] .card-header .tiptap`).click()
   await page.keyboard.type('Venstre kort')
   const subfields = stage(page).locator(`.slide-zone[data-node-id="${left.id}"] .subfield .tiptap`)
@@ -65,7 +62,7 @@ test('golden path slide keeps exactly one gap everywhere', async ({ page }, test
   await stage(page)
     .locator(`.slide-zone[data-node-id="${bottomRight.id}"] .subfield .tiptap`)
     .click()
-  await page.keyboard.type('Beskrivelse av figuren.')
+  await page.keyboard.type('Beskrivelse av innholdet.')
 
   // Geometry asserts against the real DOM.
   const title = await titleRect(page)

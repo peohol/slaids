@@ -15,7 +15,7 @@ import {
   withSubfieldCount,
   withSubfieldDoc,
 } from '../content'
-import { imageNode, shapeNode } from '../richdoc'
+import { imageNode } from '../richdoc'
 import { areWeightsValid } from '../geometry'
 import { findLeaf, findNode, replaceNode } from '../layout'
 import { emptyDoc, isDocEmpty } from '../richdoc'
@@ -339,8 +339,6 @@ function containerBlocks(content: Extract<ZoneContent, { kind: 'container' }>): 
       return content.payload.doc.content ?? []
     case 'asset':
       return [imageNode(content.payload.assetId)]
-    case 'shape':
-      return [shapeNode(content.payload.shape)]
   }
 }
 
