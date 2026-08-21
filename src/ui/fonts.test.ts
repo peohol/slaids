@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FONT_OPTIONS } from '../domain/fonts'
 import { ensureWebFonts, resetWebFontsForTest, webFontsReady } from './fonts'
 
-const SYSTEM = FONT_OPTIONS[0].stack
+const SYSTEM = FONT_OPTIONS.find((font) => font.id === 'system')?.stack ?? ''
 const INTER = FONT_OPTIONS.find((font) => font.webFont === 'Inter')?.stack ?? ''
 
 function stubFontFaceSet(check = true): { loaded: string[] } {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { createPresentation, splitSelected, watchForErrors, zoneRects } from './helpers'
 
 test.describe('keyboard shortcuts', () => {

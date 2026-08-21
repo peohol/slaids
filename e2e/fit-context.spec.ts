@@ -12,7 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, familiesFrom, localFaceCss, test, type Page } from './fixtures'
 import {
   addContentToZone,
   createPresentation,
@@ -40,9 +40,17 @@ import {
  */
 const WIDE_FACE = readFileSync('/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf')
 
-function faceCss(family: string): string {
+/**
+ * A monospace face, served under the name of the font a test is switching *to*.
+ *
+ * Every other family — including the deck's defaults — keeps the proportional
+ * face the shared fixture serves, so the two measurements a test compares are
+ * genuinely different: one before the wide face exists, one after. Serving mono
+ * for everything would make them identical and the test vacuous.
+ */
+function wideFaceCss(family: string): string {
   const data = WIDE_FACE.toString('base64')
-  return [400, 600, 700]
+  return [400, 500, 600, 700]
     .map(
       (weight) => `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};` +
         `font-display:swap;src:url(data:font/ttf;base64,${data}) format('truetype');}`,
@@ -58,14 +66,14 @@ interface FontRoute {
 }
 
 /**
- * Serve Google Fonts locally.
+ * Serve Google Fonts locally, with `wideFor` arriving as the monospace face.
  *
  * `hold` keeps the response back until `release()` is called, which is how a
  * test can look at the app while the font is still on its way.
  */
 async function routeFonts(
   page: Page,
-  options: { hold?: boolean; fail?: boolean } = {},
+  options: { hold?: boolean; fail?: boolean; wideFor?: string } = {},
 ): Promise<FontRoute> {
   let release = (): void => {}
   const held = new Promise<void>((resolve) => {
@@ -80,15 +88,15 @@ async function routeFonts(
       await route.abort('failed')
       return
     }
-    const family = new URL(route.request().url()).searchParams.get('family') ?? ''
+    const families = familiesFrom(route.request().url())
     await route.fulfill({
       status: 200,
       contentType: 'text/css',
-      body: faceCss(family.split(':')[0].replace(/\+/g, ' ')),
+      body: families
+        .map((family) => (family === options.wideFor ? wideFaceCss(family) : localFaceCss(family)))
+        .join('\n'),
     })
   })
-  // The preconnect never carries data; letting it hit the network would just
-  // make the test wait for a machine that may not be reachable.
   await page.route('https://fonts.gstatic.com/**', (route) => route.abort())
 
   return { release, requests: () => requests }
@@ -96,7 +104,7 @@ async function routeFonts(
 
 test.describe('fit measurement and web fonts', () => {
   test('judges a font change by the web font, not by the fallback', async ({ page }) => {
-    await routeFonts(page)
+    await routeFonts(page, { wideFor: 'Inter' })
     await createPresentation(page, 'Fontmåling')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
@@ -155,7 +163,7 @@ test.describe('fit measurement and web fonts', () => {
     // A deck that already uses a web font renders with the fallback first and
     // swaps when the real face arrives. No command can be blamed for that, and
     // nothing can be rolled back — but it must not pass unnoticed.
-    const route = await routeFonts(page, { hold: true })
+    const route = await routeFonts(page, { hold: true, wideFor: 'Inter' })
     await page.goto('/')
     await page.getByTestId('new-presentation').click()
     await page.getByTestId('presentation-title-input').fill('Fontbytte')
@@ -305,9 +313,9 @@ test.describe('citation numbering and fit', () => {
     await page.getByTestId('open-references').click()
     await page.getByTestId('reference-title').fill('Kilden på slide 1')
     await page.getByTestId('save-reference').click()
-    for (let i = 0; i < 29; i += 1) await page.getByTestId('insert-citation').first().click()
+    for (let i = 0; i < 59; i += 1) await page.getByTestId('insert-citation').first().click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
-    await expect(stage(page).locator('.rd-citation')).toHaveCount(30)
+    await expect(stage(page).locator('.rd-citation')).toHaveCount(60)
 
     await fillZoneToCapacity(page, zones[0].id)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)

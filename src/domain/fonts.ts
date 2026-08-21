@@ -27,6 +27,27 @@ export const DEFAULT_ADVANCE_RATIO = 0.5
 
 export const FONT_OPTIONS: FontOption[] = [
   {
+    id: 'quicksand',
+    label: 'Quicksand',
+    stack: "'Quicksand', 'Segoe UI', system-ui, sans-serif",
+    webFont: 'Quicksand',
+    advance: 0.52,
+  },
+  {
+    id: 'atkinson',
+    label: 'Atkinson Hyperlegible Next',
+    stack: "'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif",
+    webFont: 'Atkinson Hyperlegible Next',
+    advance: 0.52,
+  },
+  {
+    id: 'open-sans',
+    label: 'Open Sans',
+    stack: "'Open Sans', 'Segoe UI', system-ui, sans-serif",
+    webFont: 'Open Sans',
+    advance: 0.51,
+  },
+  {
     id: 'system',
     label: 'System',
     stack: "system-ui, 'Segoe UI', Roboto, Arial, sans-serif",
@@ -71,8 +92,15 @@ export const FONT_OPTIONS: FontOption[] = [
   },
 ]
 
-export const DEFAULT_HEADING_FONT = FONT_OPTIONS[0].stack
-export const DEFAULT_BODY_FONT = FONT_OPTIONS[0].stack
+function stackFor(id: string): string {
+  const font = FONT_OPTIONS.find((option) => option.id === id)
+  if (!font) throw new Error(`unknown font: ${id}`)
+  return font.stack
+}
+
+/** Titles and headings default to Quicksand, body text to Atkinson Hyperlegible Next. */
+export const DEFAULT_HEADING_FONT = stackFor('quicksand')
+export const DEFAULT_BODY_FONT = stackFor('atkinson')
 
 export function findFontByStack(stack: string): FontOption | undefined {
   return FONT_OPTIONS.find((font) => font.stack === stack)

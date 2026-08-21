@@ -193,20 +193,21 @@ describe('card body layout', () => {
  * ------------------------------------------------------------------ */
 
 describe('setContentKind', () => {
-  // Fits a container, which gives the whole zone to content; a titled card
-  // spends CARD_HEADER_HEIGHT + 2 * CARD_PADDING of it on chrome.
-  const filled = (): Presentation =>
-    deckWith(createContainer({ type: 'richdoc', doc: paragraphDoc(words(3700)) }))
+  // A container gives the whole zone to content; an untitled card spends
+  // 2 * CARD_PADDING on chrome and a titled card another CARD_HEADER_HEIGHT on
+  // top. The two lengths sit on either side of that difference.
+  const filled = (chars: number): Presentation =>
+    deckWith(createContainer({ type: 'richdoc', doc: paragraphDoc(words(chars)) }))
 
   it('refuses a conversion that adds chrome the content cannot afford', () => {
-    const presentation = filled()
+    const presentation = filled(3600)
     expectRefused(
       setContentKind(presentation, { ...target(presentation), kind: 'titled-card', ...checkers }),
     )
   })
 
   it('accepts a conversion the content still fits', () => {
-    const presentation = filled()
+    const presentation = filled(3400)
     const result = setContentKind(presentation, {
       ...target(presentation),
       kind: 'untitled-card',

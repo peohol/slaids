@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { createPresentation, watchForErrors } from './helpers'
 
 test.describe('presentation library', () => {

@@ -14,8 +14,9 @@
  * unavailable and forgotten, so a later attempt can try again rather than
  * inheriting a false "loaded" flag.
  *
- * Only families a presentation actually uses are requested, so the default
- * (system) theme makes no network request at all.
+ * Only families a presentation actually uses are requested: a deck set in the
+ * system stack asks for nothing, and one set in Quicksand asks for Quicksand
+ * and nothing else.
  */
 
 import { webFontsFor } from '../domain/fonts'
