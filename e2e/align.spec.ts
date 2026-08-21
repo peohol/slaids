@@ -19,13 +19,28 @@ test.describe('alignment', () => {
     await stage(page).locator('.card-header .tiptap').click()
     await page.keyboard.type('Korttittel')
 
-    for (const selector of ['[data-testid="slide-title"] p', '.card-header p']) {
-      const align = await stage(page)
-        .locator(selector)
-        .first()
-        .evaluate((element) => getComputedStyle(element).textAlign)
-      expect(align).toBe('center')
-    }
+    // `text-align: center` on a box only as wide as its own text centres
+    // nothing, so what is asserted is where the text actually sits: the
+    // editor's wrapper has to fill the header for the rule to mean anything.
+    const offsets = async (): Promise<number[]> =>
+      Promise.all(
+        ['[data-testid="slide-title"]', '.card-header'].map((host) =>
+          stage(page)
+            .locator(`${host} p`)
+            .first()
+            .evaluate((element, hostSelector) => {
+              const box = element.getBoundingClientRect()
+              const around = (element.closest(hostSelector) as HTMLElement).getBoundingClientRect()
+              return Math.abs((box.left + box.right) / 2 - (around.left + around.right) / 2)
+            }, host),
+        ),
+      )
+    for (const offset of await offsets()) expect(offset).toBeLessThan(2)
+
+    // And the static renderer agrees, which is what the offscreen fit
+    // measurement sees.
+    await page.getByTestId('mode-zone').click()
+    for (const offset of await offsets()) expect(offset).toBeLessThan(2)
   })
 
   test('aligns one paragraph at a time, and a selection all at once', async ({ page }) => {
