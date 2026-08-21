@@ -42,6 +42,7 @@ import { repository } from '../../persistence/dexieRepository'
 import { startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'
+import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
 import { domFitCheckers, overflowingZoneCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
@@ -491,23 +492,33 @@ export function EditorView({
           if (!live || live.id !== current.id) return
           // Copy any referenced assets into this presentation first, so a paste
           // across presentations does not depend on the source surviving.
-          const { content, refs } = await materializeClipboardContent(payload, live)
-          const placed = useEditorStore
-            .getState()
-            .runStructural('paste-content', (presentationState) =>
-              setZoneContent(presentationState, {
-                slideId: activeSlide.id,
-                nodeId: targetNodeId,
-                content,
-                ...domFitCheckers,
-              }),
+          const { content, refs, missing } = await materializeClipboardContent(payload, live)
+          if (missing.length > 0) {
+            notify.warning(
+              missing.length === 1
+                ? `Filen «${missing[0].name}» finnes ikke lenger, så den ble ikke med.`
+                : `${missing.length} filer finnes ikke lenger, så de ble ikke med.`,
             )
-          if (!placed) return
-          for (const ref of refs) {
-            useEditorStore
-              .getState()
-              .run('asset-register', (presentationState) => registerAsset(presentationState, ref))
           }
+          // Content and the metadata for the files it points at are one commit:
+          // undone separately, the document would reference assets the
+          // presentation no longer lists, and export would quietly drop them.
+          useEditorStore.getState().runStructural('paste-content', (presentationState) => {
+            const placed = setZoneContent(presentationState, {
+              slideId: activeSlide.id,
+              nodeId: targetNodeId,
+              content,
+              ...domFitCheckers,
+            })
+            if (!placed.ok) return placed
+            let next = placed.value.presentation
+            for (const ref of refs) {
+              const registered = registerAsset(next, ref)
+              if (!registered.ok) return registered
+              next = registered.value
+            }
+            return ok({ ...placed.value, presentation: next })
+          })
         })
       }
     }

@@ -180,8 +180,13 @@ export interface ReferencePaginationOptions {
   maxColumns?: number
   fontSize?: number
   lineHeight?: number
-  /** Injected estimator so this stays pure and testable. */
-  measureEntryHeight?: (text: string, columnWidth: number) => number
+  /**
+   * Injected estimator so this stays pure and testable.
+   *
+   * The entry id comes along so a caller can measure the node it is actually
+   * going to render rather than a reconstruction of it.
+   */
+  measureEntryHeight?: (text: string, columnWidth: number, entryId: string) => number
 }
 
 export interface ReferencePlan {
@@ -199,6 +204,11 @@ function defaultEntryHeight(text: string, columnWidth: number, fontSize: number)
 /**
  * Use as few columns as possible, add columns before adding slides, and never
  * shrink the font below the configured minimum — add another slide instead.
+ *
+ * `measureEntryHeight` is what makes the plan match the page: the caller that
+ * renders these entries measures the node it is going to draw, with the
+ * typography it will draw it in. The built-in estimate below is a fallback for
+ * callers that have neither.
  */
 export function planReferenceSlides(
   entries: ReferenceEntry[],
@@ -226,7 +236,7 @@ function fill(
   columns: number,
   columnWidth: number,
   columnHeight: number,
-  measure: (text: string, width: number) => number,
+  measure: (text: string, width: number, entryId: string) => number,
 ): ReferenceEntry[][][] {
   const slides: ReferenceEntry[][][] = []
   let currentSlide: ReferenceEntry[][] = [[]]
@@ -234,7 +244,7 @@ function fill(
   let used = 0
 
   for (const entry of entries) {
-    const height = measure(entry.text, columnWidth)
+    const height = measure(entry.text, columnWidth, entry.id)
     if (used + height > columnHeight && currentSlide[currentColumn].length > 0) {
       currentColumn += 1
       used = 0

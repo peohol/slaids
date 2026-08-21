@@ -40,12 +40,25 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
   // asset row whose presentation does not exist can never be cleaned up.
   await repository.savePresentation(copy)
 
-  for (const asset of source.assets) {
-    const stored = await repository.getAsset(asset.id)
-    if (!stored) continue
-    const targetId = assetMap.get(asset.id)
-    if (!targetId) continue
-    await repository.putAsset(copy.id, { ...stored.ref, id: targetId }, stored.blob)
+  try {
+    for (const asset of source.assets) {
+      const stored = await repository.getAsset(asset.id)
+      if (!stored) continue
+      const targetId = assetMap.get(asset.id)
+      if (!targetId) continue
+      await repository.putAsset(copy.id, { ...stored.ref, id: targetId }, stored.blob)
+    }
+  } catch (error) {
+    // A copy whose files did not all make it is worse than no copy: the library
+    // says the duplication failed while a half-copied presentation shows up on
+    // the next refresh. Take it back out, files first.
+    try {
+      await repository.deleteAssetsForPresentation(copy.id)
+      await repository.deletePresentation(copy.id)
+    } catch {
+      // Nothing more to try; the original error is the one worth reporting.
+    }
+    throw error
   }
 
   return copy

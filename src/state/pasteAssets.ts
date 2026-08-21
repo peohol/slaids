@@ -17,6 +17,13 @@ export interface PreparedClipboardContent {
   content: ZoneContent
   /** Asset metadata that must be registered on the target presentation. */
   refs: AssetRef[]
+  /**
+   * Assets the payload names but whose bytes are gone — the source presentation
+   * was deleted, or the copy came from another browser. Their references are
+   * left pointing at the original id rather than at a new id with nothing
+   * behind it, and the caller is expected to say so.
+   */
+  missing: AssetRef[]
 }
 
 export async function materializeClipboardContent(
@@ -29,19 +36,26 @@ export async function materializeClipboardContent(
 
   const map = new Map<string, string>()
   const refs: AssetRef[] = []
+  const missing: AssetRef[] = []
 
   for (const assetId of referenced) {
     if (owned.has(assetId)) continue
     const stored = await repository.getAsset(assetId)
-    const sourceRef = stored?.ref ?? payload.assets.find((asset) => asset.id === assetId)
-    if (!sourceRef) continue
+    if (!stored) {
+      // Metadata without bytes cannot be copied. Minting a new id for it would
+      // register an asset this presentation claims to own and can never show,
+      // and export and duplication would carry the lie forward.
+      const known = payload.assets.find((asset) => asset.id === assetId)
+      if (known) missing.push(known)
+      continue
+    }
 
     const copyId = newAssetId()
     map.set(assetId, copyId)
-    const ref: AssetRef = { ...sourceRef, id: copyId }
+    const ref: AssetRef = { ...stored.ref, id: copyId }
     refs.push(ref)
-    if (stored) await repository.putAsset(target.id, ref, stored.blob)
+    await repository.putAsset(target.id, ref, stored.blob)
   }
 
-  return { content: map.size > 0 ? remapContentAssetIds(content, map) : content, refs }
+  return { content: map.size > 0 ? remapContentAssetIds(content, map) : content, refs, missing }
 }

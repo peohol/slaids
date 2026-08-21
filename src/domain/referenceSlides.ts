@@ -7,6 +7,7 @@
  */
 
 import { computeMainRect } from './geometry'
+import { estimateDocHeight } from './fit'
 import { titleDoc } from './richdoc'
 import {
   REFERENCE_SLIDE_ID_PREFIX,
@@ -14,24 +15,33 @@ import {
   referenceEntries,
   type ReferenceEntry,
 } from './references'
-import { REFERENCE_FONT_SIZE } from './constants'
 import type { LayoutNode, Presentation, RichDoc, RichNode, Slide } from './types'
 
+/**
+ * One entry, as the renderer will draw it.
+ *
+ * The planner measures exactly this node — not an idea of it. A pagination
+ * that assumes one font size while the slide renders another packs a column
+ * fuller than it can hold, and `overflow: hidden` then eats the tail of the
+ * bibliography with nothing to show for it.
+ */
+function entryParagraph(entry: ReferenceEntry): RichNode {
+  const children: RichNode[] = [{ type: 'text', text: `${entry.number}. ` }]
+  if (entry.url) {
+    const label = entry.text || entry.url
+    children.push({
+      type: 'text',
+      text: label,
+      marks: [{ type: 'link', attrs: { href: entry.url, target: '_blank' } }],
+    })
+  } else {
+    children.push({ type: 'text', text: entry.text })
+  }
+  return { type: 'paragraph', content: children }
+}
+
 function entriesToDoc(entries: ReferenceEntry[]): RichDoc {
-  const content: RichNode[] = entries.map((entry) => {
-    const children: RichNode[] = [{ type: 'text', text: `${entry.number}. ` }]
-    if (entry.url) {
-      const label = entry.text || entry.url
-      children.push({
-        type: 'text',
-        text: label,
-        marks: [{ type: 'link', attrs: { href: entry.url, target: '_blank' } }],
-      })
-    } else {
-      children.push({ type: 'text', text: entry.text })
-    }
-    return { type: 'paragraph', content: children }
-  })
+  const content: RichNode[] = entries.map(entryParagraph)
   return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] }
 }
 
@@ -56,10 +66,19 @@ export function buildReferenceSlides(presentation: Presentation): Slide[] {
   if (entries.length === 0) return []
 
   const mainRect = computeMainRect(true)
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const plan = planReferenceSlides(entries, {
     width: mainRect.width,
     height: mainRect.height,
-    fontSize: REFERENCE_FONT_SIZE,
+    // Measured with the deck's own typography, through the same estimator every
+    // other zone is measured with, on the same paragraph the column will hold.
+    measureEntryHeight: (_text, columnWidth, entryId) => {
+      const entry = byId.get(entryId)
+      if (!entry) return 0
+      return estimateDocHeight({ type: 'doc', content: [entryParagraph(entry)] }, columnWidth, {
+        theme: presentation.theme,
+      })
+    },
   })
 
   return plan.slides.map((columns, slideIndex) => {

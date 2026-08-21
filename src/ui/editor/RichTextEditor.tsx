@@ -60,6 +60,7 @@ export function RichTextEditor({
   /** Overflow of the last accepted document, so an edit that improves it is allowed. */
   const lastOverflow = useRef(0)
   const deferredRef = useRef<number | null>(null)
+  const rebaselineRef = useRef<number | null>(null)
   const initialised = useRef(false)
   const lastEmitted = useRef<string>(JSON.stringify(doc))
   const measureRef = useRef(measureOverflow)
@@ -152,9 +153,46 @@ export function RichTextEditor({
     [validate],
   )
 
+  /**
+   * Accept the current document as the baseline, whatever it measures.
+   *
+   * Some things change how much room the text needs without anyone editing it:
+   * a web font arriving, an image finishing its download, the zone being
+   * resized around it. The overflow that follows is not something to roll back
+   * — there is no edit to undo — but it *must* be recorded, because
+   * `lastOverflow` is what lets the next edit count as a repair. Left at zero,
+   * an edit that removes half the excess reads as "still overflowing, and not
+   * better than before" and gets rolled back, so the zone can never be fixed.
+   */
+  const rebaseline = useCallback((editor: Editor): void => {
+    const measure = measureRef.current
+    if (!measure || editor.isDestroyed || editor.view.composing) return
+    const overflow = measure()
+    lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
+    lastValid.current = {
+      doc: editor.getJSON() as RichDoc,
+      anchor: editor.state.selection.anchor,
+    }
+  }, [])
+
+  const scheduleRebaseline = useCallback(
+    (editor: Editor) => {
+      if (rebaselineRef.current !== null) cancelAnimationFrame(rebaselineRef.current)
+      rebaselineRef.current = requestAnimationFrame(() => {
+        rebaselineRef.current = null
+        // An edit is being validated in the same frame; that measurement is the
+        // more specific one and owns the outcome.
+        if (deferredRef.current !== null) return
+        rebaseline(editor)
+      })
+    },
+    [rebaseline],
+  )
+
   useEffect(() => {
     return () => {
       if (deferredRef.current !== null) cancelAnimationFrame(deferredRef.current)
+      if (rebaselineRef.current !== null) cancelAnimationFrame(rebaselineRef.current)
     }
   }, [])
 
@@ -210,6 +248,42 @@ export function RichTextEditor({
     dom.addEventListener('compositionend', handler)
     return () => dom.removeEventListener('compositionend', handler)
   }, [editor, scheduleValidate])
+
+  // Layout changes nobody typed: an image that finished loading, a zone that
+  // was resized, a web font that swapped in. Each of them moves the baseline.
+  useEffect(() => {
+    if (!editor) return
+    const dom = editor.view.dom
+    const onLoad = (): void => scheduleRebaseline(editor)
+    dom.addEventListener('load', onLoad, true)
+
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => scheduleRebaseline(editor))
+    observer?.observe(dom)
+
+    let cancelled = false
+    const fonts = typeof document === 'undefined' ? undefined : document.fonts
+    if (fonts) {
+      const onFonts = (): void => scheduleRebaseline(editor)
+      fonts.addEventListener('loadingdone', onFonts)
+      void fonts.ready.then(() => {
+        if (!cancelled) scheduleRebaseline(editor)
+      })
+      return () => {
+        cancelled = true
+        fonts.removeEventListener('loadingdone', onFonts)
+        dom.removeEventListener('load', onLoad, true)
+        observer?.disconnect()
+      }
+    }
+    return () => {
+      cancelled = true
+      dom.removeEventListener('load', onLoad, true)
+      observer?.disconnect()
+    }
+  }, [editor, scheduleRebaseline])
 
   useEffect(() => {
     onEditorReady?.(editor ?? null)
