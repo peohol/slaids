@@ -135,8 +135,13 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     }),
     SlaidsHeading,
     // Alignment is per block, so a selection spanning three paragraphs aligns
-    // three paragraphs and a caret in one aligns that one.
-    TextAlign.configure({ types: ['paragraph', 'heading'], alignments: [...ALIGNMENTS] }),
+    // three paragraphs and a caret in one aligns that one. An image is a block
+    // among the others, and is aligned the same way — it is narrower than the
+    // column it sits in, so where it sits is a decision to make.
+    TextAlign.configure({
+      types: ['paragraph', 'heading', 'slaidsImage'],
+      alignments: [...ALIGNMENTS],
+    }),
     CitationExtension,
     SlaidsImageExtension,
     PlainPasteExtension,

@@ -131,12 +131,55 @@ test.describe('content fit', () => {
     await createPresentation(page, 'Klipping')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
-    const clipped = await page.evaluate(() => {
-      const zone = document.querySelector(
-        '[data-testid="stage-slide"] .slide-zone',
-      ) as HTMLElement
-      return getComputedStyle(zone).overflow
+
+    // The clip is on the content box rather than on the zone element, so a
+    // card can cast a shadow into the gap. That only preserves containment if
+    // the box that clips is exactly the zone's box — assert both halves.
+    const containment = await page.evaluate(() => {
+      const zone = document.querySelector('[data-testid="stage-slide"] .slide-zone') as HTMLElement
+      const content = zone.querySelector('.zone-content') as HTMLElement
+      const outer = zone.getBoundingClientRect()
+      const inner = content.getBoundingClientRect()
+      return {
+        clips: getComputedStyle(content).overflow,
+        drift: Math.max(
+          Math.abs(inner.left - outer.left),
+          Math.abs(inner.top - outer.top),
+          Math.abs(inner.right - outer.right),
+          Math.abs(inner.bottom - outer.bottom),
+        ),
+      }
     })
-    expect(clipped).toBe('hidden')
+    expect(containment.clips).toBe('hidden')
+    expect(containment.drift).toBeLessThanOrEqual(0.5)
+  })
+
+  test('lets a card cast its shadow into the gap', async ({ page }) => {
+    await createPresentation(page, 'Skygge')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+
+    // An outer shadow, not an inset one: an inset light edge is drawn *over* a
+    // titled card's header and reads as a hairline around the colour panel.
+    const shadow = await page
+      .locator('[data-testid="stage-slide"] .zone-content--card')
+      .first()
+      .evaluate((element) => getComputedStyle(element).boxShadow)
+    expect(shadow).not.toBe('none')
+    expect(shadow).not.toContain('inset')
+
+    // And nothing between the card and the slide clips it away. The slide
+    // itself does clip — a shadow may fall in the gap, never off the slide.
+    const clipped = await page.evaluate(() => {
+      const card = document.querySelector(
+        '[data-testid="stage-slide"] .zone-content--card',
+      ) as HTMLElement
+      const slide = card.closest('.slide') as HTMLElement
+      for (let node = card.parentElement; node && node !== slide; node = node.parentElement) {
+        if (getComputedStyle(node).overflow !== 'visible') return node.className
+      }
+      return getComputedStyle(slide).overflow === 'hidden' ? null : 'slide does not clip'
+    })
+    expect(clipped).toBeNull()
   })
 })

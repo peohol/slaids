@@ -84,6 +84,7 @@ function SlaidsImage({ node }: { node: RichNode }) {
         {
           width,
           '--slaids-image-aspect': Number.isFinite(aspect) && aspect > 0 ? String(aspect) : undefined,
+          ...alignStyle(node),
         } as React.CSSProperties
       }
     >

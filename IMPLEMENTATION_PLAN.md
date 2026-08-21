@@ -415,16 +415,18 @@ skillelinje er struktur, ikke dekorasjon.
 Kort uten separat header:
 
 - avrundede hjørner;
-- dybde tegnet **inni** kortet;
+- box shadow;
 - bakgrunnsfarge;
 - intern padding;
 - RichDoc i body.
 
-Dybden er en innoverrettet skygge, ikke en `box-shadow` utenfor kortet: en
-sone klipper alt som males utenfor den (§17), og et kort fyller sonen sin
-nøyaktig, så en ytre skygge har ingen steder å lande. Å trekke kortet inn i
-stedet ville lagt to forskjellige avstander mellom to kort og brutt
-ett-gap-invarianten.
+Skyggen er en helt vanlig ytre `box-shadow` som faller ned i gapet rundt
+kortet. Inneslutningsregelen (§17) handler om *innhold*, og klippingen hører
+derfor hjemme på innholdsboksen, som er nøyaktig sonens boks — ikke på
+sone-elementet. Da er sonen selv uklippet, og skyggen har plass. Det koster
+ingen layout: en skygge er maling, så kortet fyller fortsatt sonen nøyaktig
+og det er fortsatt én avstand mellom to kort. Skyggen holdes innenfor `G`,
+slik at to naboskygger møtes i gapet i stedet for å nå hverandres kort.
 
 ### 13.3 Titled card
 
@@ -525,7 +527,8 @@ Støtt minst:
 - ordered lists;
 - links;
 - line breaks;
-- justering (venstre/midt/høyre) per blokk;
+- justering (venstre/midt/høyre) per blokk, også for et bilde som står
+  mellom teksten;
 - senere citations og tabeller.
 
 Titler – både slidetittel og korttittel – er midtstilt som standard: en
@@ -561,7 +564,10 @@ Vi skiller mellom:
 
 ### Visuell containment
 
-Alt rendres med clip/hidden slik at ingenting males utenfor sonen.
+Alt *innhold* rendres med clip/hidden slik at ingenting en sone holder males
+utenfor den. Klippet ligger på innholdsboksen, som har nøyaktig sonens
+størrelse; sone-elementet selv klipper ikke, slik at et korts skygge kan falle
+i gapet. Sliden klipper: en skygge kan havne i gapet, aldri utenfor sliden.
 
 ### Semantisk fit
 

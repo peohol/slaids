@@ -132,6 +132,7 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
   const assetId = typeof node.attrs.assetId === 'string' ? node.attrs.assetId : null
   const stored = Number(node.attrs.widthPercent)
   const aspect = Number(node.attrs.aspect)
+  const align = node.attrs.textAlign
   const wrapperRef = useRef<HTMLDivElement>(null)
   /** Width while a drag is in flight; the document only learns about it on release. */
   const [dragPercent, setDragPercent] = useState<number | null>(null)
@@ -183,6 +184,11 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
         {
           width: `${width}%`,
           '--slaids-image-aspect': Number.isFinite(aspect) && aspect > 0 ? String(aspect) : undefined,
+          // The same inline style the static renderer writes, so one stylesheet
+          // positions the picture in both.
+          ...(align === 'center' || align === 'right' || align === 'left'
+            ? { textAlign: align as 'center' | 'right' | 'left' }
+            : {}),
         } as React.CSSProperties
       }
     >

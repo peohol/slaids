@@ -31,11 +31,14 @@
   width: 100%;
 }
 
-/* Visual containment: nothing is ever painted outside its zone. */
-.slide-zone {
-  overflow: hidden;
-}
-
+/*
+ * Visual containment: nothing a zone holds is ever painted outside it.
+ *
+ * The clip lives on `.zone-content`, not on the zone element, and the two boxes
+ * are the same size — so containment is unchanged while the zone itself stays
+ * unclipped. That is what lets a card cast an ordinary drop shadow into the gap
+ * around it: a shadow is paint, not content, and it changes no geometry.
+ */
 .zone-content {
   width: 100%;
   height: 100%;
@@ -164,6 +167,21 @@
 
 .rich-doc :is(h1, .rd-heading)[style*='text-align: right'],
 .rich-doc :is(h1, .rd-heading)[style*='text-align:right'] {
+  margin-inline: auto 0;
+}
+
+/*
+ * A picture among the text is the same case as the heading pill: it is
+ * narrower than the column, so aligning it is a question of margins. The
+ * selectors match the inline style both renderers write.
+ */
+.rich-doc .rd-image-wrapper[style*='text-align: center'],
+.rich-doc .rd-image-wrapper[style*='text-align:center'] {
+  margin-inline: auto;
+}
+
+.rich-doc .rd-image-wrapper[style*='text-align: right'],
+.rich-doc .rd-image-wrapper[style*='text-align:right'] {
   margin-inline: auto 0;
 }
 
@@ -298,8 +316,14 @@
  */
 .rd-image-handle {
   position: absolute;
-  right: -6px;
-  bottom: -6px;
+  /*
+   * Inside the picture's own box, not hanging off it: the handle is editor
+   * chrome, and a handle that stuck out to the right made a right-aligned
+   * image measure wider than its field — enough for the fit guard to roll the
+   * alignment back, and enough to make the editor disagree with the slide.
+   */
+  right: 3px;
+  bottom: 3px;
   width: 14px;
   height: 14px;
   padding: 0;

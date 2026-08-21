@@ -6,7 +6,17 @@
  */
 
 import { expect, test } from './fixtures'
-import { addContentToZone, createPresentation, stage, zoneRects } from './helpers'
+import {
+  addContentToZone,
+  createPresentation,
+  stage,
+  waitForSaved,
+  watchForErrors,
+  worstOverflow,
+  zoneRects,
+} from './helpers'
+
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/><circle cx="50" cy="30" r="20" fill="#d9ccbf"/></svg>`
 
 test.describe('alignment', () => {
   test('centres slide titles and card titles by default', async ({ page }) => {
@@ -41,6 +51,66 @@ test.describe('alignment', () => {
     // measurement sees.
     await page.getByTestId('mode-zone').click()
     for (const offset of await offsets()) expect(offset).toBeLessThan(2)
+  })
+
+  test('aligns a picture that sits among the text', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Bildejustering')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Tekst over bildet.')
+    await page.getByTestId('open-image').click()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'bilde.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    const wrapper = stage(page).locator('.rd-image-wrapper').first()
+    await expect(wrapper).toBeVisible()
+
+    /** Distance from the column's left and right edge to the picture. */
+    const margins = async (): Promise<{ left: number; right: number }> =>
+      page.evaluate(() => {
+        const element = document.querySelector(
+          '[data-testid="stage-slide"] .rd-image-wrapper',
+        ) as HTMLElement
+        const box = element.getBoundingClientRect()
+        const column = (element.parentElement as HTMLElement).getBoundingClientRect()
+        // `Math.abs` before rounding: a hair of sub-pixel drift the wrong way
+        // rounds to `-0`, which is a needlessly surprising thing to assert on.
+        return {
+          left: Math.round(Math.abs(box.left - column.left)),
+          right: Math.round(Math.abs(column.right - box.right)),
+        }
+      })
+
+    // A picture is narrower than the column, so it starts at the left edge.
+    const start = await margins()
+    expect(start.left).toBe(0)
+    expect(start.right).toBeGreaterThan(0)
+
+    await wrapper.click()
+    await page.getByTestId('align-center').click()
+    await expect.poll(async () => (await margins()).left).toBeGreaterThan(0)
+    const centred = await margins()
+    expect(Math.abs(centred.left - centred.right)).toBeLessThanOrEqual(1)
+
+    await wrapper.click()
+    await page.getByTestId('align-right').click()
+    await expect.poll(async () => (await margins()).right).toBe(0)
+    expect((await margins()).left).toBeGreaterThan(0)
+
+    // Moving a picture sideways cannot make it stop fitting.
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+
+    // The static renderer puts it in the same place, and it survives a reload.
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(stage(page).locator('.rd-image-wrapper')).toBeVisible()
+    expect((await margins()).right).toBe(0)
+    expect(guard.errors).toEqual([])
   })
 
   test('aligns one paragraph at a time, and a selection all at once', async ({ page }) => {

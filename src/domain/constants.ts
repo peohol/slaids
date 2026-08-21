@@ -38,17 +38,20 @@ export const CARD_PADDING = 16
 export const CARD_HEADER_HEIGHT = 52
 export const CARD_HEADER_FONT_SIZE = 26
 /**
- * Card depth, drawn inside the card.
+ * Card depth: an ordinary drop shadow, falling into the gap around the card.
  *
- * A zone clips everything painted outside it — that is the containment rule —
- * and a card fills its zone exactly, so an outer drop shadow has nowhere to
- * land: it is cut off on every side. Insetting the card instead would put two
- * different distances between two cards and break the single-gap invariant.
- * So the depth is drawn within the card's own box: a light top edge and a
- * darker foot, which reads as a raised surface at slide scale.
+ * The containment rule is about *content* — nothing a zone holds may be painted
+ * outside it — and that clip lives on `.zone-content`, which is exactly the
+ * zone's box. The zone element itself therefore does not need to clip, and a
+ * shadow painted outside the card's border box has the gap to fall into. It
+ * costs no layout: a shadow is paint, so the card still fills its zone exactly
+ * and there is still one distance between two cards.
+ *
+ * Kept inside `G` so two neighbouring shadows meet in the gap rather than
+ * reaching each other's cards, and so a card at the slide edge keeps its shadow
+ * within the slide inset.
  */
-export const CARD_SHADOW =
-  'inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 10px rgba(0, 0, 0, 0.22)'
+export const CARD_SHADOW = '0 5px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.20)'
 
 /**
  * Dividers between subfields inside a card.
