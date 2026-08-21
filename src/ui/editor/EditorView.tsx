@@ -98,6 +98,8 @@ export function EditorView({
   const [splitOpen, setSplitOpen] = useState(false)
   const [newSlideOpen, setNewSlideOpen] = useState(false)
   const [referencesOpen, setReferencesOpen] = useState(false)
+  /** Reference to scroll to and highlight when the list is opened from a pill. */
+  const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
@@ -729,7 +731,19 @@ export function EditorView({
     : null
 
   return (
-    <SlideRenderProvider value={{ theme: presentation.theme, numbering, isStatic: false }}>
+    <SlideRenderProvider
+      value={{
+        theme: presentation.theme,
+        numbering,
+        isStatic: false,
+        // A citation is the shortest path to the source it stands for: one
+        // reference opens on that reference, several open the list.
+        onCitationClick: (referenceIds) => {
+          setFocusedReference(referenceIds.length === 1 ? referenceIds[0] : null)
+          setReferencesOpen(true)
+        },
+      }}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -872,7 +886,14 @@ export function EditorView({
         }}
       />
 
-      <ReferenceModal open={referencesOpen} onOpenChange={setReferencesOpen} />
+      <ReferenceModal
+        open={referencesOpen}
+        focusReferenceId={focusedReference}
+        onOpenChange={(open) => {
+          setReferencesOpen(open)
+          if (!open) setFocusedReference(null)
+        }}
+      />
       <TemplateModal
         open={templatesOpen}
         onOpenChange={setTemplatesOpen}

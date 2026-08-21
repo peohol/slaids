@@ -668,6 +668,12 @@
   border-radius: var(--radius-sm);
 }
 
+/* Opened from a citation: say which reference the click meant. */
+.reference-row--focused {
+  border-color: var(--chrome-accent);
+  background: var(--chrome-accent-soft);
+}
+
 .reference-row__number {
   min-width: 22px;
   height: 22px;

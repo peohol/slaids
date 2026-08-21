@@ -139,6 +139,48 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('present-counter')).toHaveText('2 / 2')
   })
 
+  test('shows several sources cited together as one citation', async ({ page }) => {
+    await createPresentation(page, 'Sammenslåtte kilder')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Påstand med flere kilder')
+
+    await page.getByTestId('open-references').click()
+    for (const title of ['Kilde A', 'Kilde B', 'Kilde C']) {
+      await page.getByTestId('reference-title').fill(title)
+      await page.getByTestId('save-reference').click()
+      await page.waitForTimeout(120)
+    }
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+
+    // Three references, one pill, one compressed label.
+    await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1–3')
+  })
+
+  test('opens the reference list from a citation', async ({ page }) => {
+    await createPresentation(page, 'Klikkbar kilde')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Påstand')
+
+    await page.getByTestId('open-references').click()
+    await page.getByTestId('reference-title').fill('Kilden bak påstanden')
+    await page.getByTestId('save-reference').click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await expect(page.getByTestId('reference-modal')).toBeHidden()
+
+    await stage(page).locator('.rd-citation').first().click()
+    await expect(page.getByTestId('reference-modal')).toBeVisible()
+    // A single citation lands on its own reference.
+    await expect(page.getByTestId('reference-row').filter({ hasText: 'Kilden bak påstanden' })).toHaveAttribute(
+      'data-focused',
+      '',
+    )
+  })
+
   test('removes the derived slide when the last citation goes away', async ({ page }) => {
     await createPresentation(page, 'Uten kilder')
     const zones = await zoneRects(page)

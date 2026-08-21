@@ -10,7 +10,8 @@ import { DEFAULT_BACKGROUND_COLOR } from './constants'
 import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
-import type { Presentation } from './types'
+import { mergeAdjacentCitations } from './richdoc'
+import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 
 type Raw = Record<string, unknown>
@@ -55,9 +56,45 @@ const migrate0to1: MigrationFn = (data) => {
   }
 }
 
+/**
+ * Citations that sit next to each other become one citation.
+ *
+ * Until now each inserted reference made its own node, so a passage citing four
+ * sources drew four separate pills where the format calls for one — `1–4`.
+ * Merging is done to the stored document rather than at render time, so the
+ * editor and the slide agree about what is there.
+ */
+const migrate1to2: MigrationFn = (data) => ({
+  ...(mergeCitationsInRaw(data) as Raw),
+  schemaVersion: 2,
+})
+
+/**
+ * Apply `mergeAdjacentCitations` wherever a document lives in the raw data.
+ *
+ * Migrations run before validation, so the shape cannot be trusted; this walks
+ * the whole tree and merges any `content` array that holds citations, which
+ * covers slide titles, card titles, subfields, containers and the sandbox
+ * without needing to know where any of them are.
+ */
+function mergeCitationsInRaw(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(mergeCitationsInRaw)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  if (record.type === 'doc' && Array.isArray(record.content)) {
+    const merged = mergeAdjacentCitations(record as unknown as RichDoc)
+    return { ...(merged as unknown as Raw) }
+  }
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = mergeCitationsInRaw(entry)
+  return out
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
+  1: migrate1to2,
 }
 
 /**

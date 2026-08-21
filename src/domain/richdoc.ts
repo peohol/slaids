@@ -167,6 +167,69 @@ export function removeCitations(doc: RichDoc, removed: ReadonlySet<string>): Ric
   return content ? { ...doc, content } : doc
 }
 
+/** Reference ids on a citation node, in order, ignoring anything malformed. */
+export function citationIdsOf(node: RichNode): string[] {
+  return Array.isArray(node.attrs?.referenceIds)
+    ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
+    : []
+}
+
+/**
+ * Collapse citations that stand next to each other into one.
+ *
+ * `[1][2][3]` is three separate references but one *reference* in the reader's
+ * eye, and three pills in a row is noise where `1–3` is a citation. Whitespace
+ * between them counts as adjacency — a space typed between two citations is a
+ * typing artefact, not a sentence — and is removed along with the merge.
+ *
+ * Ids keep first-appearance order and are deduplicated, so merging is
+ * idempotent and can be run on load, after an insertion, or on a paste.
+ */
+export function mergeAdjacentCitations(doc: RichDoc): RichDoc {
+  let changed = false
+
+  const isWhitespace = (node: RichNode): boolean =>
+    node.type === 'text' && typeof node.text === 'string' && node.text.trim() === ''
+
+  const mergeNodes = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
+    if (!nodes) return undefined
+    const out: RichNode[] = []
+
+    for (let i = 0; i < nodes.length; i += 1) {
+      const node = nodes[i]
+      if (node.type !== CITATION_NODE) {
+        const content = mergeNodes(node.content)
+        out.push(content ? { ...node, content } : node)
+        continue
+      }
+
+      const ids: string[] = [...citationIdsOf(node)]
+      let last = i
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const candidate = nodes[j]
+        if (isWhitespace(candidate)) continue
+        if (candidate.type !== CITATION_NODE) break
+        for (const id of citationIdsOf(candidate)) if (!ids.includes(id)) ids.push(id)
+        last = j
+      }
+
+      if (last > i) {
+        changed = true
+        out.push({ ...node, attrs: { ...node.attrs, referenceIds: ids } })
+        i = last
+        continue
+      }
+      out.push(node)
+    }
+    return out
+  }
+
+  const content = mergeNodes(doc.content)
+  // Unchanged documents come back identical, so callers can compare by
+  // reference and skip the work that follows a real change.
+  return changed && content ? { ...doc, content } : doc
+}
+
 /** Approximate character count, used by the size estimator fallback. */
 export function docCharacterCount(doc: RichDoc | null | undefined): number {
   if (!doc) return 0

@@ -26,9 +26,12 @@ const EMPTY: Omit<Reference, 'id'> = { title: '', authors: '', url: '', year: ''
 export function ReferenceModal({
   open,
   onOpenChange,
+  focusReferenceId = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opened from a single citation: bring that reference into view. */
+  focusReferenceId?: string | null
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
@@ -50,6 +53,8 @@ export function ReferenceModal({
       return
     }
     editor.chain().focus().insertCitation([reference.id]).run()
+    // A separate call, so the merge sees the document the insert produced.
+    editor.commands.mergeCitations()
   }
 
   const submit = (): void => {
@@ -73,7 +78,19 @@ export function ReferenceModal({
   }
 
   const renderRow = (reference: Reference, isUsed: boolean) => (
-    <li key={reference.id} className="reference-row" data-testid="reference-row">
+    <li
+      key={reference.id}
+      className={
+        reference.id === focusReferenceId ? 'reference-row reference-row--focused' : 'reference-row'
+      }
+      data-testid="reference-row"
+      data-focused={reference.id === focusReferenceId ? '' : undefined}
+      ref={
+        reference.id === focusReferenceId
+          ? (element) => element?.scrollIntoView({ block: 'nearest' })
+          : undefined
+      }
+    >
       {isUsed && <span className="reference-row__number">{numbering.get(reference.id)}</span>}
       <span className="reference-row__text">{formatReference(reference) || '(tom referanse)'}</span>
       <button

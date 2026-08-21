@@ -37,7 +37,26 @@ export const CARD_RADIUS = 14
 export const CARD_PADDING = 16
 export const CARD_HEADER_HEIGHT = 52
 export const CARD_HEADER_FONT_SIZE = 26
-export const CARD_SHADOW = '0 6px 18px rgba(0, 0, 0, 0.28)'
+/**
+ * Card depth, drawn inside the card.
+ *
+ * A zone clips everything painted outside it — that is the containment rule —
+ * and a card fills its zone exactly, so an outer drop shadow has nowhere to
+ * land: it is cut off on every side. Insetting the card instead would put two
+ * different distances between two cards and break the single-gap invariant.
+ * So the depth is drawn within the card's own box: a light top edge and a
+ * darker foot, which reads as a raised surface at slide scale.
+ */
+export const CARD_SHADOW =
+  'inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 10px rgba(0, 0, 0, 0.22)'
+
+/**
+ * Dividers between subfields inside a card.
+ *
+ * Deliberately independent of the card's header colour: a divider is structure,
+ * not decoration, and tinting it made every card read as a different component.
+ */
+export const CARD_DIVIDER_COLOR = 'rgba(0, 0, 0, 0.14)'
 
 /** Body typography inside cards and containers. */
 export const BODY_FONT_SIZE = 21

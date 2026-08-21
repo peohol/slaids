@@ -46,15 +46,30 @@ function applyMarks(node: RichNode, children: ReactNode): ReactNode {
 }
 
 function Citation({ node }: { node: RichNode }) {
-  const { numbering } = useSlideRender()
+  const { numbering, onCitationClick } = useSlideRender()
   const ids = Array.isArray(node.attrs?.referenceIds)
     ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : []
   const label = citationLabel(ids, numbering)
   if (!label) return null
   const isRange = label.length > 2
+  const classes = [isRange ? 'rd-citation rd-citation--pill' : 'rd-citation']
+  if (onCitationClick) classes.push('rd-citation--clickable')
   return (
-    <sup className={isRange ? 'rd-citation rd-citation--pill' : 'rd-citation'}>{label}</sup>
+    <sup
+      className={classes.join(' ')}
+      title={onCitationClick ? 'Åpne referansen' : undefined}
+      onClick={
+        onCitationClick
+          ? (event) => {
+              event.stopPropagation()
+              onCitationClick(ids)
+            }
+          : undefined
+      }
+    >
+      {label}
+    </sup>
   )
 }
 

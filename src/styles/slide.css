@@ -152,10 +152,15 @@
   margin: 0;
 }
 
+/*
+ * The quote marks are absolutely positioned, so they have to be positioned
+ * *inside* the block: a zone clips anything that reaches past its edge, and a
+ * quote at the bottom of a field had its closing mark cut in half.
+ */
 .rich-doc :is(blockquote, .rd-quote) {
   position: relative;
   margin: 6px 0;
-  padding: 6px 26px;
+  padding: 6px 30px 10px;
   font-style: italic;
 }
 
@@ -171,13 +176,13 @@
 .rich-doc :is(blockquote, .rd-quote)::before {
   content: '\201C';
   left: 0;
-  top: -2px;
+  top: 0;
 }
 
 .rich-doc :is(blockquote, .rd-quote)::after {
   content: '\201D';
   right: 0;
-  bottom: -14px;
+  bottom: 0;
 }
 
 .rich-doc :is(pre, .rd-pre) {
@@ -249,6 +254,17 @@
 
 .rd-image--pending {
   min-height: 24px;
+}
+
+/* A citation is a way in to its source, so it advertises the click. */
+.rich-doc .rd-citation--clickable,
+.rd-citation--clickable {
+  cursor: pointer;
+}
+
+.rich-doc .rd-citation--clickable:hover,
+.rd-citation--clickable:hover {
+  background: rgba(128, 128, 128, 0.62);
 }
 
 .rich-doc :is(sup.rd-citation, .rd-citation) {

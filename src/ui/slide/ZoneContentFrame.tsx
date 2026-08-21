@@ -8,6 +8,7 @@
 
 import { Fragment, type ReactNode } from 'react'
 import {
+  CARD_DIVIDER_COLOR,
   CARD_HEADER_HEIGHT,
   CARD_PADDING,
   CARD_RADIUS,
@@ -15,7 +16,7 @@ import {
   SUBFIELD_DIVIDER_THICKNESS,
   SUBFIELD_GAP,
 } from '../../domain/constants'
-import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
+import { bestTextColor, textShadowFor, WHITE } from '../../domain/color'
 import type { CardBody, Subfield, ZoneContent } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 
@@ -111,7 +112,7 @@ export function ZoneContentFrame({
       >
         <SubfieldStack
           body={content.body}
-          dividerColor={dividerColorFor(content.backgroundColor)}
+          dividerColor={CARD_DIVIDER_COLOR}
           renderField={renderField}
         />
       </div>
@@ -123,7 +124,14 @@ export function ZoneContentFrame({
     <div
       className="zone-content zone-content--card zone-content--titled"
       data-content-kind="titled-card"
-      style={{ borderRadius: CARD_RADIUS, boxShadow: CARD_SHADOW, background: WHITE }}
+      // `overflow: hidden` is what keeps the white card from showing as a
+      // hairline outside the header's own rounded corners.
+      style={{
+        borderRadius: CARD_RADIUS,
+        boxShadow: CARD_SHADOW,
+        background: WHITE,
+        overflow: 'hidden',
+      }}
     >
       <div
         className="card-header"
@@ -133,8 +141,6 @@ export function ZoneContentFrame({
           color: headerText,
           height: CARD_HEADER_HEIGHT,
           padding: `0 ${CARD_PADDING}px`,
-          borderTopLeftRadius: CARD_RADIUS,
-          borderTopRightRadius: CARD_RADIUS,
           textShadow: textShadowFor(content.headerColor),
           fontFamily: theme.headingFontFamily,
         }}
@@ -144,7 +150,7 @@ export function ZoneContentFrame({
       <div className="card-body" style={{ padding: CARD_PADDING, color: '#000' }}>
         <SubfieldStack
           body={content.body}
-          dividerColor={content.headerColor}
+          dividerColor={CARD_DIVIDER_COLOR}
           renderField={renderField}
         />
       </div>

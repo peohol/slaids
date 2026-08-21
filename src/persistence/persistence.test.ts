@@ -3,6 +3,7 @@ import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from './backup'
 import { createPresentation } from '../domain/presentation'
+import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
 import { createContainer, createUntitledCard } from '../domain/content'
 import { newAssetId, newTemplateId } from '../domain/ids'
@@ -81,7 +82,7 @@ describe('DexieSlaidsRepository', () => {
     delete legacy.sandbox
     await repository.savePresentation(legacy as unknown as Presentation)
     const loaded = await repository.loadPresentation(presentation.id)
-    expect(loaded.schemaVersion).toBe(1)
+    expect(loaded.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(loaded.sandbox).toEqual([])
   })
 

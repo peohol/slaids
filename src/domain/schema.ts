@@ -11,7 +11,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 1
+export const CURRENT_SCHEMA_VERSION = 2
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
