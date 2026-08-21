@@ -17,7 +17,7 @@ import {
   SUBFIELD_GAP,
 } from '../../domain/constants'
 import { bestTextColor, textShadowFor, WHITE } from '../../domain/color'
-import type { CardBody, Subfield, ZoneContent } from '../../domain/types'
+import type { CardBody, Subfield, VerticalAlign, ZoneContent } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 
 export interface ZoneContentFrameProps {
@@ -25,6 +25,13 @@ export interface ZoneContentFrameProps {
   renderTitle: (content: Extract<ZoneContent, { kind: 'titled-card' }>) => ReactNode
   renderField: (field: Subfield, index: number) => ReactNode
   renderContainer: (content: Extract<ZoneContent, { kind: 'container' }>) => ReactNode
+}
+
+/** Flexbox placement for a vertical alignment, defaulting to the top. */
+export function justifyFor(align: VerticalAlign | undefined): string {
+  if (align === 'middle') return 'center'
+  if (align === 'bottom') return 'flex-end'
+  return 'flex-start'
 }
 
 function SubfieldStack({
@@ -63,7 +70,12 @@ function SubfieldStack({
             className="subfield"
             data-fit-scroll=""
             data-subfield-id={field.id}
-            style={{ flexGrow: (body.weights[index] ?? 1) / total, flexBasis: 0 }}
+            data-align={field.verticalAlign ?? 'top'}
+            style={{
+              flexGrow: (body.weights[index] ?? 1) / total,
+              flexBasis: 0,
+              justifyContent: justifyFor(field.verticalAlign),
+            }}
           >
             {renderField(field, index)}
           </div>
@@ -88,7 +100,12 @@ export function ZoneContentFrame({
         className="zone-content zone-content--container"
         data-content-kind="container"
         data-fit-scroll=""
-        style={{ color, textShadow: textShadowFor(theme.backgroundColor) }}
+        data-align={content.verticalAlign ?? 'top'}
+        style={{
+          color,
+          textShadow: textShadowFor(theme.backgroundColor),
+          justifyContent: justifyFor(content.verticalAlign),
+        }}
       >
         {renderContainer(content)}
       </div>

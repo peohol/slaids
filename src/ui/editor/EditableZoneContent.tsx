@@ -148,6 +148,7 @@ function FieldEditor({
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const setActiveField = useEditorStore((state) => state.setActiveField)
+  const selectNode = useEditorStore((state) => state.selectNode)
   const editorRef = useRef<Editor | null>(null)
   const { nodeId, subfieldId, kind } = field
 
@@ -163,7 +164,11 @@ function FieldEditor({
   const handleFocus = useCallback(() => {
     setActiveEditor(editorRef.current)
     setActiveField({ nodeId, subfieldId, kind })
-  }, [kind, nodeId, setActiveEditor, setActiveField, subfieldId])
+    // The zone panel follows what is being edited. Without this it kept showing
+    // whichever zone was last selected in zone mode, so the split, colour and
+    // subfield controls applied to a zone the user was not looking at.
+    selectNode(nodeId)
+  }, [kind, nodeId, selectNode, setActiveEditor, setActiveField, subfieldId])
 
   const handleReady = useCallback((editor: Editor | null) => {
     editorRef.current = editor

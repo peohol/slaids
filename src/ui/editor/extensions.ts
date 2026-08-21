@@ -8,6 +8,7 @@
 
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
+import TextAlign from '@tiptap/extension-text-align'
 import { Placeholder } from '@tiptap/extensions'
 import { bestTextColor } from '../../domain/color'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
@@ -90,6 +91,10 @@ export function normalizePastedHtml(html: string): string {
 
 export const DEFAULT_HEADING_PILL_COLOR = '#33475b'
 
+/** The alignments a Slaids document can store. */
+export const ALIGNMENTS = ['left', 'center', 'right'] as const
+export type Alignment = (typeof ALIGNMENTS)[number]
+
 /**
  * Headings are pills. There is exactly one heading level; the only thing the
  * author picks is the pill colour, and the text colour follows from contrast.
@@ -130,6 +135,9 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
       dropcursor: { color: '#4f8ef7', width: 2 },
     }),
     SlaidsHeading,
+    // Alignment is per block, so a selection spanning three paragraphs aligns
+    // three paragraphs and a caret in one aligns that one.
+    TextAlign.configure({ types: ['paragraph', 'heading'], alignments: [...ALIGNMENTS] }),
     CitationExtension,
     SlaidsImageExtension,
     SlaidsShapeExtension,
@@ -154,6 +162,9 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
 export function titleExtensions(placeholder?: string): Extensions {
   return [
     Placeholder.configure({ placeholder: placeholder ?? '' }),
+    // A title is one paragraph, but it is still a paragraph: the same alignment
+    // attribute, so a title reads the same in the editor and on the slide.
+    TextAlign.configure({ types: ['paragraph'], alignments: [...ALIGNMENTS] }),
     StarterKit.configure({
       heading: false,
       bold: false,

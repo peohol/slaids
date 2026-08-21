@@ -31,6 +31,7 @@ import type {
   Presentation,
   RichDoc,
   RichNode,
+  VerticalAlign,
   ZoneContent,
   ZoneContentKind,
 } from '../types'
@@ -163,6 +164,40 @@ export function setSubfieldCount(
       return ok({ ...content, body: withSubfieldCount(content.body, input.count) })
     },
     'Innholdet får ikke plass når subfeltene deler sonen på nytt.',
+  )
+}
+
+/**
+ * Where content sits inside the height it is given.
+ *
+ * Purely presentational — moving text within a box it already fits in cannot
+ * make it stop fitting — but it goes through a command like everything else so
+ * a headless caller has the same vocabulary as the toolbar.
+ *
+ * `subfieldId: null` targets a container's own field.
+ */
+export function setVerticalAlign(
+  presentation: Presentation,
+  input: { subfieldId: string | null; align: VerticalAlign } & ZoneContentTarget,
+): Result<Presentation> {
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (input.subfieldId === null) {
+        if (content.kind !== 'container') {
+          return err('INVALID_CONTENT', 'Sonen har ingen beholder å justere.')
+        }
+        return ok({ ...content, verticalAlign: input.align })
+      }
+      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      const index = content.body.subfields.findIndex((field) => field.id === input.subfieldId)
+      if (index < 0) return err('SUBFIELD_NOT_FOUND', 'Fant ikke subfeltet.')
+      const subfields = [...content.body.subfields]
+      subfields[index] = { ...subfields[index], verticalAlign: input.align }
+      return ok({ ...content, body: { ...content.body, subfields } })
+    },
+    'Justeringen får ikke plass.',
   )
 }
 

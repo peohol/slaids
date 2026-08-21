@@ -195,6 +195,27 @@ test.describe('zone editing', () => {
     await expect(stage(page)).not.toContainText('Tekst som ikke skal forsvinne')
   })
 
+  test('follows the zone being edited in content mode', async ({ page }) => {
+    await createPresentation(page, 'Sonepanel')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await addContentToZone(page, zones[1].id, 'untitled-card')
+
+    // Select the right zone in zone mode, then edit the left one.
+    await enterZoneMode(page)
+    await clickZone(page, zones[1])
+    await enterContentMode(page)
+    await stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).first().click()
+
+    // The panel is about the zone the caret is in, not the one selected before.
+    await expect(page.getByTestId('inspector')).toContainText(
+      `${Math.round(zones[0].w)} × ${Math.round(zones[0].h)} px`,
+    )
+  })
+
   test('moves content to the sandbox and places it back', async ({ page }) => {
     await createPresentation(page, 'Sandkasse')
     await enterZoneMode(page)

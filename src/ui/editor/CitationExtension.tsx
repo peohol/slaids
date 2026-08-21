@@ -102,8 +102,24 @@ export const CitationExtension = Node.create({
           if (merged === current) return true
           const anchor = editor.state.selection.anchor
           editor.commands.setContent(merged, { emitUpdate: true })
+
+          // Put the caret after the citation the merge produced, not at the old
+          // offset: the document is shorter now, and a clamped offset lands
+          // *before* the pill — where the next thing typed, or the next
+          // citation inserted, ends up on the wrong side of it.
+          let target: number | null = null
+          let best = Number.POSITIVE_INFINITY
+          editor.state.doc.descendants((node, pos) => {
+            if (node.type.name !== this.name) return
+            const end = pos + node.nodeSize
+            const distance = Math.abs(end - anchor)
+            if (distance < best) {
+              best = distance
+              target = end
+            }
+          })
           const size = editor.state.doc.content.size
-          editor.commands.setTextSelection(Math.max(1, Math.min(anchor, size - 1)))
+          editor.commands.setTextSelection(Math.max(1, Math.min(target ?? anchor, size - 1)))
           return true
         },
     }

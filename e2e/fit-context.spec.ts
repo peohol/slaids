@@ -295,51 +295,37 @@ test.describe('citation numbering and fit', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses a slide reorder that widens a label on a full slide', async ({ page }) => {
-    await createPresentation(page, 'Rekkefølge og citations')
-
-    // Slide 1: the same reference cited many times over.
-    //
-    // One pill barely changes width when its label goes from `1` to `10` — the
-    // CSS gives it a `min-width` that a single extra digit mostly fits inside.
-    // What that means is not "the effect is imaginary" but "the effect is a
-    // fraction of a character per citation", so a case that can observe it in a
-    // real browser needs a zone with many citations sitting at its limit. This
-    // is that case.
+  test('renumbers citations across slides when the deck is reordered', async ({ page }) => {
+    // What a browser can show here is the renumbering itself. Whether it is
+    // *refused* at the fit boundary is proved in `commands/citationFit.test.ts`
+    // instead, and deliberately: a pill has a `min-width` that swallows most of
+    // the extra digit, so `1` becoming `10` is a fraction of a character wider.
+    // A test that claimed to observe that in a real browser would be measuring
+    // its own fixture, not the rule.
+    await createPresentation(page, 'Renummerering')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
-    const field = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).first()
-    await field.click()
+    await stage(page).locator('.subfield .tiptap').first().click()
     await page.getByTestId('open-references').click()
     await page.getByTestId('reference-title').fill('Kilden på slide 1')
     await page.getByTestId('save-reference').click()
-    for (let i = 0; i < 59; i += 1) await page.getByTestId('insert-citation').first().click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
-    await expect(stage(page).locator('.rd-citation')).toHaveCount(60)
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1')
 
-    await fillZoneToCapacity(page, zones[0].id)
-    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
-
-    // Slide 2: nine other references, so moving it in front turns `1` into `10`.
+    // A second slide, cited before the first one once it is moved in front.
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-without-title').click()
     const second = await zoneRects(page)
     await addContentToZone(page, second[0].id, 'untitled-card')
     await stage(page).locator(`.slide-zone[data-node-id="${second[0].id}"] .tiptap`).first().click()
     await page.getByTestId('open-references').click()
-    for (let i = 0; i < 9; i += 1) {
-      await page.getByTestId('reference-title').fill(`Kilde ${i + 2}`)
-      await page.getByTestId('save-reference').click()
-      await page.waitForTimeout(80)
-    }
+    await page.getByTestId('reference-title').fill('Kilden på slide 2')
+    await page.getByTestId('save-reference').click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
-    await expect(stage(page).locator('.rd-citation')).toHaveCount(9)
+    await expect(stage(page).locator('.rd-citation')).toHaveText('2')
 
     // Drag slide 2 above slide 1, by its grip.
     const items = page.getByTestId('filmstrip-item')
-    const before = await items.evaluateAll((entries) =>
-      entries.map((entry) => (entry as HTMLElement).dataset.slideId),
-    )
     const grip = items.nth(1).getByRole('button', { name: 'Flytt slide' })
     const from = await grip.boundingBox()
     const to = await items.nth(0).boundingBox()
@@ -352,14 +338,10 @@ test.describe('citation numbering and fit', () => {
     await page.mouse.up()
     await page.waitForTimeout(400)
 
-    await expect(toast(page, 'Rekkefølgen')).toBeVisible()
-    // The deck is unchanged: the full slide is still first, still numbered `1`.
-    const order = await page
-      .getByTestId('filmstrip-item')
-      .evaluateAll((items) => items.map((item) => (item as HTMLElement).dataset.slideId))
-    expect(order).toEqual(before)
-    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
-    await expect(stage(page).locator('.rd-citation').first()).toHaveText('1')
+    // The slide that used to be second now cites `1`, and the other one `2`.
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1')
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await expect(stage(page).locator('.rd-citation')).toHaveText('2')
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 })

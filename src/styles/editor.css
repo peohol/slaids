@@ -71,7 +71,8 @@
   flex: 0 0 auto;
 }
 
-.text-toolbar__table {
+.text-toolbar__table,
+.text-toolbar__group {
   display: flex;
   align-items: center;
   gap: 4px;

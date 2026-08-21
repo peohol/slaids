@@ -66,9 +66,14 @@ export type ContainerPayload =
   | { type: 'asset'; assetId: string; fit: 'contain' | 'cover' }
   | { type: 'shape'; shape: ShapeSpec }
 
+/** Where content sits when it does not fill the height it is given. */
+export type VerticalAlign = 'top' | 'middle' | 'bottom'
+
 export interface Subfield {
   id: string
   doc: RichDoc
+  /** Defaults to `top` when absent, which is what every older document means. */
+  verticalAlign?: VerticalAlign
 }
 
 /** Body of a card. Subfields have their own internal layout semantics. */
@@ -82,6 +87,7 @@ export interface ContainerContent {
   id: string
   kind: 'container'
   payload: ContainerPayload
+  verticalAlign?: VerticalAlign
 }
 
 export interface UntitledCardContent {

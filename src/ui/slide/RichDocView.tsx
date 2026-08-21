@@ -106,6 +106,19 @@ function SlaidsShape({ node }: { node: RichNode }) {
   )
 }
 
+/**
+ * The stored alignment, as the same inline style Tiptap writes.
+ *
+ * Identical markup from both renderers is what lets one stylesheet position a
+ * heading pill (which is `max-content` wide and needs margins, not text-align)
+ * without knowing which renderer drew it.
+ */
+function alignStyle(node: RichNode): React.CSSProperties | undefined {
+  const align = node.attrs?.textAlign
+  if (align !== 'center' && align !== 'right' && align !== 'left') return undefined
+  return { textAlign: align }
+}
+
 function renderNodes(nodes: RichNode[] | undefined): ReactNode {
   if (!nodes) return null
   return nodes.map((node, index) => <RichNodeView key={index} node={node} />)
@@ -118,11 +131,18 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
     case 'hardBreak':
       return <br />
     case 'paragraph':
-      return <p className="rd-p">{renderNodes(node.content) ?? <br />}</p>
+      return (
+        <p className="rd-p" style={alignStyle(node)}>
+          {renderNodes(node.content) ?? <br />}
+        </p>
+      )
     case 'heading': {
       const color = typeof node.attrs?.color === 'string' ? node.attrs.color : DEFAULT_HEADING_PILL
       return (
-        <h1 className="rd-heading" style={{ background: color, color: bestTextColor(color) }}>
+        <h1
+          className="rd-heading"
+          style={{ background: color, color: bestTextColor(color), ...alignStyle(node) }}
+        >
           {renderNodes(node.content)}
         </h1>
       )

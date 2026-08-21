@@ -184,11 +184,13 @@ export async function fillZoneToCapacity(page: Page, nodeId: string): Promise<vo
  * to observe. This closes that gap to a character or two. The small pause is
  * what lets the deferred validation run between attempts.
  */
-export async function topUpToCapacity(page: Page, field: Locator, attempts = 30): Promise<void> {
+export async function topUpToCapacity(page: Page, field: Locator, attempts = 40): Promise<void> {
   await field.click()
+  // A narrow glyph on purpose: the slack this leaves behind is the smallest
+  // effect a test can hope to observe afterwards, and 'i' is a third of 'm'.
   for (let i = 0; i < attempts; i += 1) {
-    await page.keyboard.insertText('m')
-    await page.waitForTimeout(25)
+    await page.keyboard.insertText('i')
+    await page.waitForTimeout(20)
   }
   await page.waitForTimeout(250)
 }

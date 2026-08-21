@@ -6,8 +6,12 @@
  */
 
 import { useEffect } from 'react'
+import { setVerticalAlign } from '../../domain/commands'
+import type { VerticalAlign } from '../../domain/types'
+import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore } from '../../state/store'
+import type { Alignment } from './extensions'
 import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
@@ -35,6 +39,8 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
   const version = useActiveEditor((state) => state.version)
   const bump = useActiveEditor((state) => state.bump)
   const activeField = useEditorStore((state) => state.activeField)
+  const slideId = useEditorStore((state) => state.currentSlideId)
+  const run = useEditorStore((state) => state.run)
 
   useEffect(() => {
     if (!editor) return
@@ -47,14 +53,52 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     }
   }, [editor, bump])
 
-  if (!editor || !activeField || activeField.kind !== 'body') {
+  if (!editor || !activeField) {
     return (
       <div className="text-toolbar text-toolbar--empty" data-testid="text-toolbar-empty">
-        <span className="hint">
-          {activeField && activeField.kind !== 'body'
-            ? 'Titler kan ikke formateres.'
-            : 'Klikk i et innholdsfelt for å redigere tekst.'}
-        </span>
+        <span className="hint">Klikk i et innholdsfelt for å redigere tekst.</span>
+      </div>
+    )
+  }
+
+  const alignButtons = (
+    <div className="text-toolbar__group" data-testid="align-tools">
+      {(
+        [
+          ['left', 'Venstrestill', 'align-left'],
+          ['center', 'Midtstill', 'align-center'],
+          ['right', 'Høyrestill', 'align-right'],
+        ] as [Alignment, string, IconName][]
+      ).map(([value, label, icon]) => (
+        <Tooltip key={value} label={label}>
+          <button
+            type="button"
+            className={
+              editor.isActive({ textAlign: value })
+                ? 'btn btn--sm btn--icon btn--active'
+                : 'btn btn--sm btn--icon'
+            }
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => editor.chain().focus().setTextAlign(value).run()}
+            data-testid={`align-${value}`}
+            aria-label={label}
+            aria-pressed={editor.isActive({ textAlign: value })}
+          >
+            <Icon name={icon} size={15} />
+          </button>
+        </Tooltip>
+      ))}
+    </div>
+  )
+
+  // A title carries no formatting — that is what keeps the title zone
+  // geometrically predictable — but it is still text on a slide, and where it
+  // sits on the line is a layout decision the author gets to make.
+  if (activeField.kind !== 'body') {
+    return (
+      <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
+        <span className="hint">Overskrift</span>
+        {alignButtons}
       </div>
     )
   }
@@ -133,6 +177,41 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     },
   ]
 
+  const verticalButtons = slideId ? (
+    <div className="text-toolbar__group" data-testid="vertical-align-tools">
+      {(
+        [
+          ['top', 'Toppjuster innholdet', 'align-top-v'],
+          ['middle', 'Midtjuster innholdet', 'align-middle-v'],
+          ['bottom', 'Bunnjuster innholdet', 'align-bottom-v'],
+        ] as [VerticalAlign, string, IconName][]
+      ).map(([value, label, icon]) => (
+        <Tooltip key={value} label={label}>
+          <button
+            type="button"
+            className="btn btn--sm btn--icon"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() =>
+              run('vertical-align', (presentation) =>
+                setVerticalAlign(presentation, {
+                  slideId,
+                  nodeId: activeField.nodeId,
+                  subfieldId: activeField.subfieldId,
+                  align: value,
+                  ...domFitCheckers,
+                }),
+              )
+            }
+            data-testid={`valign-${value}`}
+            aria-label={label}
+          >
+            <Icon name={icon} size={15} />
+          </button>
+        </Tooltip>
+      ))}
+    </div>
+  ) : null
+
   const headingActive = editor.isActive('heading')
   const headingColor =
     typeof editor.getAttributes('heading').color === 'string'
@@ -156,6 +235,9 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           </button>
         </Tooltip>
       ))}
+
+      {alignButtons}
+      {verticalButtons}
 
       <Tooltip label="Lenke">
         <button

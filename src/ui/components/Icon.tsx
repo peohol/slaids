@@ -44,6 +44,12 @@ export type IconName =
   | 'heading'
   | 'move'
   | 'code'
+  | 'align-left'
+  | 'align-center'
+  | 'align-right'
+  | 'align-top-v'
+  | 'align-middle-v'
+  | 'align-bottom-v'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -89,6 +95,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
   heading: <path d="M6 5v14M18 5v14M6 12h12" />,
   move: <path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />,
   code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />,
+  'align-left': <path d="M4 6h16M4 12h10M4 18h13" />,
+  'align-center': <path d="M4 6h16M7 12h10M6 18h12" />,
+  'align-right': <path d="M4 6h16M10 12h10M7 18h13" />,
+  'align-top-v': <path d="M4 4h16M8 8v12M12 8v8M16 8v12" />,
+  'align-middle-v': <path d="M4 12h16M8 5v4M8 15v4M12 3v6M12 15v6M16 5v4M16 15v4" />,
+  'align-bottom-v': <path d="M4 20h16M8 4v12M12 8v8M16 4v12" />,
 }
 
 export function Icon({

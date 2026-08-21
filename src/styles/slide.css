@@ -16,8 +16,19 @@
 .slide-title {
   display: flex;
   align-items: center;
+  justify-content: center;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/*
+ * Titles are centred by default — a slide title and a card title are labels,
+ * not paragraphs. An explicit alignment is an inline style and wins over this.
+ */
+.slide-title :is(p, .rd-p),
+.card-header :is(p, .rd-p) {
+  text-align: center;
+  width: 100%;
 }
 
 /* Visual containment: nothing is ever painted outside its zone. */
@@ -69,6 +80,14 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  /* A column, so vertical alignment is a matter of where the flow sits. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* The editor fills the field so a click anywhere in it lands in the text. */
+.subfield > * {
+  width: 100%;
 }
 
 .subfield-divider {
@@ -124,6 +143,22 @@
 
 .rich-doc :is(p, .rd-p) {
   margin: 0 0 6px;
+}
+
+/*
+ * A heading is a pill: it is only as wide as its text, so aligning it is a
+ * question of margins rather than of `text-align`. The selectors match the
+ * inline style both renderers write, so one rule covers the editor and the
+ * slide.
+ */
+.rich-doc :is(h1, .rd-heading)[style*='text-align: center'],
+.rich-doc :is(h1, .rd-heading)[style*='text-align:center'] {
+  margin-inline: auto;
+}
+
+.rich-doc :is(h1, .rd-heading)[style*='text-align: right'],
+.rich-doc :is(h1, .rd-heading)[style*='text-align:right'] {
+  margin-inline: auto 0;
 }
 
 .rich-doc :is(h1, .rd-heading) {

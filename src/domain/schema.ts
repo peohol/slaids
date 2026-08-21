@@ -53,9 +53,12 @@ export const containerPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('shape'), shape: shapeSchema }),
 ])
 
+export const verticalAlignSchema = z.enum(['top', 'middle', 'bottom'])
+
 export const subfieldSchema = z.object({
   id: z.string().min(1),
   doc: richDocSchema,
+  verticalAlign: verticalAlignSchema.optional(),
 })
 
 export const cardBodySchema = z
@@ -73,6 +76,7 @@ export const zoneContentSchema = z.discriminatedUnion('kind', [
     id: z.string().min(1),
     kind: z.literal('container'),
     payload: containerPayloadSchema,
+    verticalAlign: verticalAlignSchema.optional(),
   }),
   z.object({
     id: z.string().min(1),
