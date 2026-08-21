@@ -22,8 +22,6 @@ import {
   clearLayoutNode,
   deleteLayoutNode,
   deleteSlide,
-  moveIdea,
-  moveIdeaCategory,
   moveSlide,
   moveZoneContentToSandbox,
   placeSandboxItem,
@@ -58,13 +56,7 @@ import { domFitCheckers, overflowingZoneCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
-import type {
-  LayoutTemplate,
-  Presentation,
-  Slide,
-  TitleDoc,
-  ZoneContentKind,
-} from '../../domain/types'
+import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -74,12 +66,7 @@ import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
 import { ImageUploadModal } from './ImageUploadModal'
-import {
-  CATEGORY_PREFIX,
-  IDEA_PREFIX,
-  IdeasWindow,
-  categoryFromDropId,
-} from './IdeasWindow'
+import { IdeasWindow } from './IdeasWindow'
 import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
@@ -96,48 +83,13 @@ import type { ZoneAction } from './ZoneOverlay'
 /**
  * Where the pointer is beats where the boxes overlap.
  *
- * The ideas window nests sortable lists inside droppable lists, and a purely
- * geometric strategy picks whichever centre happens to be closest — often a
- * list the pointer is nowhere near. Asking what is under the pointer first is
- * what makes a drop land where it looks like it will; the geometric fallback
- * covers keyboard dragging and pointers outside every droppable.
+ * Asking what is under the pointer first is what makes a drop land where it
+ * looks like it will; the geometric fallback covers keyboard dragging and
+ * pointers outside every droppable.
  */
 const dropTargetUnderPointer: CollisionDetection = (args) => {
   const pointer = pointerWithin(args)
   return pointer.length > 0 ? pointer : closestCenter(args)
-}
-
-/**
- * The list a drop id belongs to: a category id, `null` for the uncategorised
- * list, or `undefined` when the id names nothing droppable in this window.
- *
- * A drop rarely lands on a heading — the pointer is over an idea or over the
- * list around it — so every id inside a category has to resolve back to it.
- */
-function categoryOwning(overId: string, presentation: Presentation): string | null | undefined {
-  if (overId.startsWith(`${CATEGORY_PREFIX}sort:`)) {
-    return overId.slice(`${CATEGORY_PREFIX}sort:`.length)
-  }
-  const list = categoryFromDropId(overId)
-  if (list !== undefined) return list
-  if (overId.startsWith(IDEA_PREFIX)) {
-    const idea = presentation.ideas.find((entry) => entry.id === overId.slice(IDEA_PREFIX.length))
-    return idea ? idea.categoryId : undefined
-  }
-  return undefined
-}
-
-/**
- * Did the drag end below the middle of what it ended over?
- *
- * That is the difference between "insert before this one" and "insert after
- * it", which is the whole of what makes dragging downwards behave.
- */
-function isBelow(event: DragEndEvent): boolean {
-  const dragged = event.active.rect.current.translated
-  const target = event.over?.rect
-  if (!dragged || !target) return false
-  return dragged.top + dragged.height / 2 > target.top + target.height / 2
 }
 
 export function EditorView({
@@ -649,62 +601,6 @@ export function EditorView({
       // other change that can shrink what a zone has room for.
       run('reorder-slide', (current) =>
         moveSlide(current, String(active.id), targetIndex, domFitCheckers),
-      )
-      return
-    }
-
-    if (data?.kind === 'idea-category') {
-      const current = useEditorStore.getState().presentation
-      if (!current) return
-      const categoryId = String(data.categoryId)
-      // A category dropped anywhere inside another one lands next to it: the
-      // pointer is usually over an idea or a list, not over the heading.
-      const targetId = categoryOwning(String(over.id), current)
-      if (targetId === undefined || targetId === categoryId) return
-      // The uncategorised list is drawn above every category, so dropping on it
-      // means "first".
-      const index =
-        targetId === null
-          ? 0
-          : current.ideaCategories
-              .filter((category) => category.id !== categoryId)
-              .findIndex((category) => category.id === targetId) + (isBelow(event) ? 1 : 0)
-      if (index < 0) return
-      run('idea-category-move', (presentationState) =>
-        moveIdeaCategory(presentationState, categoryId, index),
-      )
-      return
-    }
-
-    if (data?.kind === 'idea') {
-      const overId = String(over.id)
-      const ideaId = String(data.ideaId)
-      const current = useEditorStore.getState().presentation
-      if (!current) return
-
-      // Dropping on a list appends to it; dropping on another idea inserts
-      // before or after it depending on which half of it the drag ended over.
-      // Both the index and the "without the dragged idea" list are what
-      // `moveIdea` reads, so the drop lands where the gap opened up.
-      const onList = categoryFromDropId(overId)
-      if (onList !== undefined) {
-        run('idea-move', (presentationState) =>
-          moveIdea(presentationState, ideaId, onList, Number.MAX_SAFE_INTEGER),
-        )
-        return
-      }
-      if (!overId.startsWith(IDEA_PREFIX)) return
-      const targetId = overId.slice(IDEA_PREFIX.length)
-      if (targetId === ideaId) return
-      const target = current.ideas.find((idea) => idea.id === targetId)
-      if (!target) return
-      const categoryId = target.categoryId
-      const index = current.ideas
-        .filter((idea) => idea.categoryId === categoryId && idea.id !== ideaId)
-        .findIndex((idea) => idea.id === targetId)
-      if (index < 0) return
-      run('idea-move', (presentationState) =>
-        moveIdea(presentationState, ideaId, categoryId, index + (isBelow(event) ? 1 : 0)),
       )
       return
     }

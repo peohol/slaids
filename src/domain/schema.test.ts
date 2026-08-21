@@ -110,6 +110,123 @@ describe('migrations', () => {
     }
   })
 
+  it('folds a v6 ideas list into one ordered list', () => {
+    const legacy = {
+      ...sample(),
+      schemaVersion: 6,
+      ideas: [
+        { id: 'i1', categoryId: null, text: 'løs', done: false },
+        { id: 'i2', categoryId: 'c1', text: 'under kilder', done: true },
+        { id: 'i3', categoryId: 'c1', text: 'også under kilder', done: false },
+        { id: 'i4', categoryId: 'c2', text: 'under å gjøre', done: false },
+      ],
+      ideaCategories: [
+        { id: 'c1', name: 'Kilder', color: '#4d6b8c' },
+        { id: 'c2', name: 'Å gjøre', color: '#8c6b4d' },
+      ],
+    }
+
+    const result = migratePresentation(legacy)
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.value) return
+
+    // The loose ideas came first on screen, and they still do; each category
+    // then carries the notes that named it, in the order they had.
+    expect(result.value.ideas.map((row) => row.text)).toEqual(['løs', 'Kilder', 'Å gjøre'])
+    expect(result.value.ideas.map((row) => row.kind)).toEqual(['idea', 'category', 'category'])
+    const kilder = result.value.ideas[1]
+    expect(kilder.kind === 'category' ? kilder.ideas.map((idea) => idea.text) : null).toEqual([
+      'under kilder',
+      'også under kilder',
+    ])
+    // The colour comes along: it is what tells two lists apart, and a list that
+    // changed shape should still look like the one the author left.
+    expect(result.value.ideas.filter((row) => row.kind === 'category').map((row) => row.color)).toEqual([
+      '#4d6b8c',
+      '#8c6b4d',
+    ])
+    // Nothing that was written is lost, and the old pair of arrays is gone.
+    expect((result.value as unknown as Record<string, unknown>).ideaCategories).toBeUndefined()
+  })
+
+  it('keeps an idea whose category is not there, rather than dropping it', () => {
+    const result = migratePresentation({
+      ...sample(),
+      schemaVersion: 6,
+      ideas: [
+        { id: 'i1', categoryId: 'gone', text: 'kategorien finnes ikke', done: false },
+        { id: 'i2', categoryId: 'c1', text: 'under kilder', done: false },
+        { id: 'i3', categoryId: null, text: 'løs', done: false },
+      ],
+      ideaCategories: [{ id: 'c1', name: 'Kilder', color: '#4d6b8c' }],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.value) return
+    // A dangling category id means uncategorised, exactly as v5 to v6 decided.
+    // Losing the note instead would lose the one thing the list is for.
+    expect(result.value.ideas.map((row) => row.text)).toEqual([
+      'kategorien finnes ikke',
+      'løs',
+      'Kilder',
+    ])
+    const kilder = result.value.ideas[2]
+    expect(kilder.kind === 'category' ? kilder.ideas.map((idea) => idea.text) : null).toEqual([
+      'under kilder',
+    ])
+  })
+
+  it('repairs a current-version ideas list instead of refusing the presentation', () => {
+    // Already at the current version, so no migration runs: this is `repairPresentation`
+    // alone, on the shapes the schema would otherwise reject outright.
+    const result = migratePresentation({
+      ...sample(),
+      ideas: [
+        {
+          id: 'k1',
+          kind: 'category',
+          text: 'Ytre',
+          color: '#402626',
+          ideas: [
+            { id: 'i1', kind: 'idea', text: '  flere    mellomrom  ' },
+            { id: 'k2', kind: 'category', text: 'Indre', ideas: [{ id: 'i2', kind: 'idea', text: 'b' }] },
+          ],
+        },
+        { id: 'i1', kind: 'idea', text: 'samme id som over' },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.value) return
+
+    const outer = result.value.ideas[0]
+    expect(outer.kind).toBe('category')
+    // A category inside a category is flattened rather than rejected, and no
+    // text goes missing on the way down.
+    expect(outer.kind === 'category' ? outer.ideas.map((idea) => idea.text) : null).toEqual([
+      'flere mellomrom',
+      'Indre',
+      'b',
+    ])
+    expect(outer.kind === 'category' ? outer.color : null).toBe('#402626')
+    // Two rows cannot share one id.
+    const ids = result.value.ideas.flatMap((row) =>
+      row.kind === 'category' ? [row.id, ...row.ideas.map((idea) => idea.id)] : [row.id],
+    )
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('gives a category without a usable colour one, rather than refusing to open', () => {
+    const category = { id: 'k1', kind: 'category', text: 'Kilder', ideas: [] }
+    for (const broken of [category, { ...category, color: 'papayawhip' }]) {
+      const result = migratePresentation({ ...sample(), ideas: [broken] })
+      expect(result.ok).toBe(true)
+      if (!result.ok || !result.value) continue
+      const repaired = result.value.ideas[0]
+      expect(repaired.kind === 'category' ? repaired.color : null).toMatch(/^#[0-9a-f]{6}$/)
+      // The note the heading stood over is untouched by the repair.
+      expect(repaired.text).toBe('Kilder')
+    }
+  })
+
   it('passes a current-version document straight through', () => {
     const result = migratePresentation(sample())
     expect(result.ok).toBe(true)

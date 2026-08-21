@@ -70,3 +70,47 @@ export function ColorPickerButton({
     </Popover.Root>
   )
 }
+
+/**
+ * The swatch that is both the colour and the way to change it.
+ *
+ * Where a label would only repeat what the colour already says — a category
+ * heading in the ideas window — the chip stands alone and carries the press
+ * itself. `className` is the caller's, because the button also has to be
+ * nameable by whatever it sits inside: the ideas window excludes it from the
+ * drag zone by class, so a press on the colour opens the palette instead of
+ * lifting the row it sits in.
+ */
+export function ColorSwatchButton({
+  value,
+  onChange,
+  label,
+  className,
+  testId,
+}: {
+  value: string
+  onChange: (color: string) => void
+  label: string
+  className: string
+  testId?: string
+}) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className={className}
+          style={{ background: value }}
+          aria-label={label}
+          data-testid={testId}
+          data-color={value}
+        />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className="popover" sideOffset={6}>
+          <ColorSwatchGrid value={value} onSelect={onChange} />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}

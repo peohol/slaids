@@ -897,21 +897,69 @@ Templates persisteres separat fra presentasjoner.
 
 ## 30\. Ideas
 
-Ideas-panelet kan porteres konseptuelt fra `peohol/mdeditz`.
+Idévinduet **er** mdeditz' idévindu. Det ble først portert konseptuelt, med egen
+modell, farger og dnd-kit; det er nå en tro port av atferden i `peohol/mdeditz`
+(`public/js/ideas.js`). Dette er en bevisst reversering: panelet finnes for det
+man kommer på mens man jobber, og der er det gesten som avgjør om notatet blir
+skrevet ned eller ikke.
 
-Bevar prinsippet:
+Modellen:
 
-- innholdsdata eies av presentasjonen;
-- vindusgeometri/posisjon er lokal UI-state;
-- ett tydelig kategorinivå;
-- kategorier har en rekkefølge og kan dras om;
-- en idé trenger ingen kategori;
+- **én ordnet liste**, ett nivå dypt. En kategori er en rad ved siden av de løse
+  idéene og holder idéer, aldri andre kategorier. At kategorien ligger *i* lista
+  er hele poenget: en løs idé kan stå mellom to kategorier, ikke bare over dem;
+- en idé er én linje, klippet på `MAX_IDEA_LENGTH`; lista tar `MAX_IDEAS` rader,
+  kategorier medregnet;
 - en kategori er en overskrift, ikke en beholder som eier det den står over:
-  sletter man den, blir idéene liggende – ukategorisert;
-- fargekoding som skiller kategoriene, og som følger idéene under dem;
-- DnD der det er nyttig.
+  sletter man den, blir idéene liggende der overskriften stod;
+- alt som kommer utenfra repareres ned til ettnivåsregelen i stedet for å
+  avvises, så en liste som er blitt til noe annet ikke tar vinduet med seg;
+- innholdsdata eies av presentasjonen; vindusgeometri/posisjon er lokal UI-state.
 
-Ikke kopier mdeditz-arkitekturen blindt; portér ønsket UX og atferd inn i Slaids' typed domene.
+Atferden:
+
+- **inline redigering**: klikk på teksten åpner et felt som vokser med den.
+  Enter lagrer, Escape avbryter, klikk et annet sted lagrer. Tom tekst er ingen
+  endring;
+- **dra og slipp er håndskrevet, ikke dnd-kit**: trykk-og-hold på berøring, noen
+  piksler med knappen nede på mus, placeholder som viser gapet, løftet kort som
+  følger pekeren fritt (og derfor `position: fixed`), kantrulling og Escape som
+  avbryter. Et fullført drag svelger klikket som ellers ville åpnet redigereren;
+- **tastatur**: `Alt` + pil opp/ned flytter raden i beholderen sin, `Alt` +
+  høyre/venstre tar en idé inn i og ut av kategorien over den;
+- **vinduet** flyttes i overskriften og strekkes i åtte håndtak, holder seg
+  innenfor `.editor__body` og skiller mellom ønsket og mulig størrelse, slik at
+  en midlertidig klemt flate ikke overskriver valget.
+
+Fargekoding er beholdt, og er det ene stedet Slaids går ut over mdeditz. Farge
+gir mening her fordi lista skal leses på skrå mens man bygger, og den må da
+koste ingenting i draget. Derfor:
+
+- fargen ligger på **kategorien**, aldri på idéene. En idé hører til en liste,
+  og lista eier fargen; å farge om en liste er én skriving som ikke rører et
+  eneste notat;
+- den arves ned som en CSS-variabel på kategoriraden. Idéene får den uten å
+  bære den, og et løftet kort beholder den i lufta – `position: fixed` flytter
+  hvor en rad **tegnes**, aldri hvor den står i treet;
+- den males med `::before`, ikke med `background`, `border-color` eller
+  `box-shadow`. Dra-tilstandene setter nettopp de tre på kortet, og en farge
+  båret av noen av dem ville blitt visket ut i det man tok kortet opp – altså
+  akkurat når det betyr noe å se hvor det kom fra;
+- fargebrikka i overskriften er både fargen og måten å endre den på, og står i
+  dra-sonens unntaksliste, slik at et trykk på den åpner paletten i stedet for
+  å løfte kategorien.
+
+Nye kategorier får den første fargen ingen andre bruker, i en rekkefølge som går
+rundt fargesirkelen i sprang – ellers ville de tre første lista blitt rød,
+oransje og gul: forskjellige, men ikke til å skille.
+
+Avkryssing (`done`) er borte, som i mdeditz. En idé er et notat som står der til
+det er brukt, og da slettes det.
+
+Arkitekturen er fortsatt Slaids': modellen er rene funksjoner i
+`src/domain/ideas.ts`, endringene går gjennom typed kommandoer i
+`src/domain/commands/ideas.ts`, og `schemaVersion` 7 folder det gamle paret
+`ideas`/`ideaCategories` sammen til den ene lista – med fargene i behold.
 
 ---
 

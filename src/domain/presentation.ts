@@ -5,12 +5,11 @@
 import { DEFAULT_BACKGROUND_COLOR } from './constants'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from './metrics'
-import { newIdeaCategoryId, newPresentationId, newSlideId } from './ids'
+import { newPresentationId, newSlideId } from './ids'
 import { createLeaf } from './layout'
 import { titleDoc } from './richdoc'
 import { CURRENT_SCHEMA_VERSION } from './schema'
 import type {
-  IdeaCategory,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -26,13 +25,6 @@ export function defaultTheme(): PresentationTheme {
     spacing: DEFAULT_SPACING,
     fontScale: DEFAULT_FONT_SCALE,
   }
-}
-
-export function defaultIdeaCategories(): IdeaCategory[] {
-  return [
-    { id: newIdeaCategoryId(), name: 'Idéer', color: '#4d6b8c' },
-    { id: newIdeaCategoryId(), name: 'Å gjøre', color: '#8c6b4d' },
-  ]
 }
 
 export function createSlide(options: { hasTitle?: boolean; root?: LayoutNode; title?: string } = {}): Slide {
@@ -62,8 +54,9 @@ export function createPresentation(input: CreatePresentationInput): Presentation
     slides: [createSlide({ hasTitle: input.firstSlideHasTitle ?? true })],
     references: [],
     sandbox: [],
+    // No seeded categories: an empty list says what it is for, and a category
+    // is something you make when you have enough notes to want one.
     ideas: [],
-    ideaCategories: defaultIdeaCategories(),
     assets: [],
     createdAt: now,
     updatedAt: now,

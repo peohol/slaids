@@ -1,49 +1,48 @@
+/**
+ * The command layer over the ideas list.
+ *
+ * The arithmetic is tested in `src/domain/ideas.test.ts`; what is checked here
+ * is the wrapping: that a real edit reaches the presentation, that a no-op
+ * hands the very same presentation back — so the store knows not to make an
+ * undo step of it — and that a bad argument comes back as an error rather than
+ * a silently ignored call.
+ */
+
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_IDEAS,
-  MAX_IDEA_LENGTH,
   addIdea,
   addIdeaCategory,
-  deleteIdea,
-  deleteIdeaCategory,
-  moveIdea,
-  moveIdeaCategory,
-  oneLine,
-  renameIdeaCategory,
-  updateIdea,
+  moveIdeaRow,
+  removeIdeaRow,
+  setIdeaCategoryColor,
+  setIdeaText,
 } from './ideas'
+import { CATEGORY_COLORS, MAX_IDEAS, isCategory } from '../ideas'
 import { createPresentation } from '../presentation'
-import type { Presentation } from '../types'
-
-function base(): Presentation {
-  return createPresentation({ title: 'Idéer' })
-}
+import type { IdeaRow, Presentation } from '../types'
 
 function unwrap(result: { ok: boolean; value?: Presentation; error?: unknown }): Presentation {
-  if (!result.ok || !result.value) throw new Error(`Expected ok, got ${JSON.stringify(result.error)}`)
+  if (!result.ok || !result.value) {
+    throw new Error(`Expected ok, got ${JSON.stringify(result.error)}`)
+  }
   return result.value
 }
 
-describe('oneLine', () => {
-  it('collapses whitespace and trims', () => {
-    expect(oneLine('  en   idé\n  til  ')).toBe('en idé til')
-  })
+function withRows(rows: IdeaRow[]): Presentation {
+  return { ...createPresentation({ title: 'Idéer' }), ideas: rows }
+}
 
-  it('caps the length', () => {
-    expect(oneLine('a'.repeat(400))).toHaveLength(MAX_IDEA_LENGTH)
-  })
+/** A presentation holding one category and one loose idea. */
+function seeded(): Presentation {
+  const one = unwrap(addIdea(createPresentation({ title: 'Idéer' }), { categoryId: null, text: 'løs' }))
+  return unwrap(addIdeaCategory(one, 'Kapittel'))
+}
 
-  it('handles empty input', () => {
-    expect(oneLine('   ')).toBe('')
-  })
-})
-
-describe('idea commands', () => {
+describe('adding', () => {
   it('adds an idea as a single line', () => {
-    const presentation = base()
     const next = unwrap(
-      addIdea(presentation, {
-        categoryId: presentation.ideaCategories[0].id,
+      addIdea(createPresentation({ title: 'Idéer' }), {
+        categoryId: null,
         text: '  husk\n  geometrien ',
       }),
     )
@@ -51,118 +50,141 @@ describe('idea commands', () => {
     expect(next.ideas[0].text).toBe('husk geometrien')
   })
 
+  it('adds an idea into a category', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    const next = unwrap(addIdea(presentation, { categoryId: category.id, text: 'under' }))
+    const filed = next.ideas.find(isCategory)!
+    expect(filed.ideas.map((idea) => idea.text)).toEqual(['under'])
+    // The loose idea stays where it was, above the category.
+    expect(next.ideas[0].text).toBe('løs')
+  })
+
   it('refuses an empty idea and an unknown category', () => {
-    const presentation = base()
-    expect(addIdea(presentation, { categoryId: presentation.ideaCategories[0].id, text: '  ' }).ok).toBe(false)
+    const presentation = seeded()
+    expect(addIdea(presentation, { categoryId: null, text: '  ' }).ok).toBe(false)
     expect(addIdea(presentation, { categoryId: 'nope', text: 'noe' }).ok).toBe(false)
   })
 
-  it('caps the number of ideas', () => {
-    let presentation = base()
-    const categoryId = presentation.ideaCategories[0].id
-    presentation = {
-      ...presentation,
-      ideas: Array.from({ length: MAX_IDEAS }, (_, index) => ({
-        id: `i${index}`,
-        categoryId,
-        text: `idé ${index}`,
-        done: false,
-      })),
-    }
-    const result = addIdea(presentation, { categoryId, text: 'én til' })
-    expect(result.ok).toBe(false)
+  it('refuses to pass the limit', () => {
+    const rows: IdeaRow[] = Array.from({ length: MAX_IDEAS }, (_, index) => ({
+      id: `i${index}`,
+      kind: 'idea' as const,
+      text: `idé ${index}`,
+    }))
+    const presentation = withRows(rows)
+    expect(addIdea(presentation, { categoryId: null, text: 'én til' }).ok).toBe(false)
+    expect(addIdeaCategory(presentation, 'én til').ok).toBe(false)
   })
 
-  it('normalises text on update too', () => {
-    const presentation = base()
-    const added = unwrap(
-      addIdea(presentation, { categoryId: presentation.ideaCategories[0].id, text: 'start' }),
+  it('gives a category a colour, and validates one it is handed', () => {
+    const blank = createPresentation({ title: 'x' })
+    const colorOf = (presentation: Presentation): string =>
+      presentation.ideas.find(isCategory)!.color
+
+    expect(CATEGORY_COLORS).toContain(colorOf(unwrap(addIdeaCategory(blank, 'Kilder'))))
+    expect(colorOf(unwrap(addIdeaCategory(blank, 'Kilder', '#402626')))).toBe('#402626')
+    expect(addIdeaCategory(blank, 'Kilder', 'papayawhip').ok).toBe(false)
+  })
+
+  it('names a category, and falls back to a name when none is given', () => {
+    expect(unwrap(addIdeaCategory(createPresentation({ title: 'x' }), ' Kilder ')).ideas[0].text).toBe(
+      'Kilder',
     )
-    const next = unwrap(updateIdea(added, added.ideas[0].id, { text: 'linje\nen\n\nto' }))
-    expect(next.ideas[0].text).toBe('linje en to')
+    expect(unwrap(addIdeaCategory(createPresentation({ title: 'x' }), '   ')).ideas[0].text).toBe(
+      'Kategori',
+    )
+  })
+})
+
+describe('editing', () => {
+  it('renames an idea and a category with the same command', () => {
+    const presentation = seeded()
+    const [idea, category] = presentation.ideas
+    expect(unwrap(setIdeaText(presentation, idea.id, ' ny  tekst ')).ideas[0].text).toBe('ny tekst')
+    expect(unwrap(setIdeaText(presentation, category.id, 'Kilder')).ideas[1].text).toBe('Kilder')
   })
 
-  it('moves an idea to another category', () => {
-    const presentation = base()
-    const [first, second] = presentation.ideaCategories
-    const added = unwrap(addIdea(presentation, { categoryId: first.id, text: 'flytt meg' }))
-    const moved = unwrap(moveIdea(added, added.ideas[0].id, second.id, 0))
-    expect(moved.ideas[0].categoryId).toBe(second.id)
+  it('hands back the same presentation when nothing changed', () => {
+    const presentation = seeded()
+    const id = presentation.ideas[0].id
+    // Empty text is an abandoned edit, and unchanged text is not an edit at all.
+    expect(unwrap(setIdeaText(presentation, id, '   '))).toBe(presentation)
+    expect(unwrap(setIdeaText(presentation, id, 'løs'))).toBe(presentation)
   })
 
-  it('reorders ideas inside a category', () => {
-    let presentation = base()
-    const categoryId = presentation.ideaCategories[0].id
-    for (const text of ['en', 'to', 'tre']) {
-      presentation = unwrap(addIdea(presentation, { categoryId, text }))
-    }
-    const last = presentation.ideas[2]
-    const reordered = unwrap(moveIdea(presentation, last.id, categoryId, 0))
-    expect(reordered.ideas.filter((idea) => idea.categoryId === categoryId).map((idea) => idea.text)).toEqual([
-      'tre',
-      'en',
-      'to',
-    ])
+  it('refuses an unknown row', () => {
+    const presentation = seeded()
+    expect(setIdeaText(presentation, 'nope', 'noe').ok).toBe(false)
+    expect(removeIdeaRow(presentation, 'nope').ok).toBe(false)
+    expect(moveIdeaRow(presentation, 'nope', null, 0).ok).toBe(false)
+  })
+})
+
+describe('colouring', () => {
+  it('recolours a category', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    const next = unwrap(setIdeaCategoryColor(presentation, category.id, '#402626'))
+    expect(next.ideas.find(isCategory)!.color).toBe('#402626')
   })
 
+  it('refuses a bad colour, an unknown row and an idea', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    expect(setIdeaCategoryColor(presentation, category.id, 'papayawhip').ok).toBe(false)
+    expect(setIdeaCategoryColor(presentation, 'nope', '#402626').ok).toBe(false)
+    // An idea has no colour of its own — it is drawn in the one its list has.
+    expect(setIdeaCategoryColor(presentation, presentation.ideas[0].id, '#402626').ok).toBe(false)
+  })
+
+  it('hands back the same presentation for the colour it already has', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    expect(unwrap(setIdeaCategoryColor(presentation, category.id, category.color))).toBe(presentation)
+  })
+})
+
+describe('deleting', () => {
   it('deletes an idea', () => {
-    const presentation = base()
-    const added = unwrap(
-      addIdea(presentation, { categoryId: presentation.ideaCategories[0].id, text: 'bort' }),
-    )
-    expect(unwrap(deleteIdea(added, added.ideas[0].id)).ideas).toHaveLength(0)
-    expect(deleteIdea(added, 'nope').ok).toBe(false)
+    const presentation = seeded()
+    expect(unwrap(removeIdeaRow(presentation, presentation.ideas[0].id)).ideas).toHaveLength(1)
   })
 
-  it('renames a category and refuses an empty name', () => {
-    const presentation = base()
-    const id = presentation.ideaCategories[0].id
-    expect(unwrap(renameIdeaCategory(presentation, id, ' Nytt ')).ideaCategories[0].name).toBe('Nytt')
-    expect(renameIdeaCategory(presentation, id, '   ').ok).toBe(false)
-  })
-
-  it('keeps the ideas when a category is deleted', () => {
-    const presentation = base()
-    const [first] = presentation.ideaCategories
-    const added = unwrap(addIdea(presentation, { categoryId: first.id, text: 'blir liggende' }))
-    const next = unwrap(deleteIdeaCategory(added, first.id))
-    expect(next.ideaCategories).toHaveLength(1)
+  it('keeps the ideas when a category goes', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    const filled = unwrap(addIdea(presentation, { categoryId: category.id, text: 'blir liggende' }))
+    const next = unwrap(removeIdeaRow(filled, category.id))
     // The heading is gone; the note it stood above is not.
-    expect(next.ideas).toHaveLength(1)
-    expect(next.ideas[0].categoryId).toBeNull()
+    expect(next.ideas.map((row) => row.text)).toEqual(['løs', 'blir liggende'])
+    expect(next.ideas.some(isCategory)).toBe(false)
+  })
+})
 
-    // With uncategorised ideas there is nothing special about the last category.
-    expect(deleteIdeaCategory(next, next.ideaCategories[0].id).ok).toBe(true)
-    expect(deleteIdeaCategory(next, 'nope').ok).toBe(false)
+describe('moving', () => {
+  it('files an idea and takes it out again', () => {
+    const presentation = seeded()
+    const idea = presentation.ideas[0]
+    const category = presentation.ideas.find(isCategory)!
+
+    const filed = unwrap(moveIdeaRow(presentation, idea.id, category.id, 0))
+    expect(filed.ideas.find(isCategory)!.ideas.map((entry) => entry.text)).toEqual(['løs'])
+
+    const loose = unwrap(moveIdeaRow(filed, idea.id, null, 1))
+    expect(loose.ideas.map((row) => row.text)).toEqual(['Kapittel', 'løs'])
   })
 
-  it('notes an idea without a category', () => {
-    const presentation = base()
-    const next = unwrap(addIdea(presentation, { categoryId: null, text: 'uten hjem' }))
-    expect(next.ideas[0].categoryId).toBeNull()
-    // ... and it can be filed later, and taken out again.
-    const filed = unwrap(
-      moveIdea(next, next.ideas[0].id, presentation.ideaCategories[0].id, 0),
-    )
-    expect(filed.ideas[0].categoryId).toBe(presentation.ideaCategories[0].id)
-    expect(unwrap(moveIdea(filed, filed.ideas[0].id, null, 0)).ideas[0].categoryId).toBeNull()
-    expect(moveIdea(next, next.ideas[0].id, 'nope', 0).ok).toBe(false)
+  it('refuses an unknown category', () => {
+    const presentation = seeded()
+    expect(moveIdeaRow(presentation, presentation.ideas[0].id, 'nope', 0).ok).toBe(false)
   })
 
-  it('reorders categories', () => {
-    const presentation = base()
-    const [first, second] = presentation.ideaCategories
-    const moved = unwrap(moveIdeaCategory(presentation, second.id, 0))
-    expect(moved.ideaCategories.map((category) => category.id)).toEqual([second.id, first.id])
-    // Out of range clamps rather than dropping the category.
-    expect(unwrap(moveIdeaCategory(moved, second.id, 99)).ideaCategories.at(-1)?.id).toBe(second.id)
-    expect(moveIdeaCategory(presentation, 'nope', 0).ok).toBe(false)
-  })
-
-  it('adds a category with a validated colour', () => {
-    const presentation = base()
-    expect(unwrap(addIdeaCategory(presentation, 'Ny', '#402626')).ideaCategories).toHaveLength(3)
-    expect(addIdeaCategory(presentation, 'Ny', 'papayawhip').ok).toBe(false)
-    expect(addIdeaCategory(presentation, '  ', '#402626').ok).toBe(false)
+  it('hands back the same presentation for a drag that changed nothing', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    // A category cannot go inside a category, so the model refuses and nothing
+    // is written — the drag simply ends where it began.
+    expect(unwrap(moveIdeaRow(presentation, category.id, category.id, 0))).toBe(presentation)
   })
 })

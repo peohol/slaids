@@ -12,6 +12,7 @@ import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import { emptyDoc, mergeAdjacentCitations } from './richdoc'
 import { newSubfieldId } from './ids'
+import { normalizeIdeas } from './ideas'
 import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import {
@@ -236,6 +237,61 @@ const migrate5to6: MigrationFn = (data) => {
   }
 }
 
+/**
+ * The ideas list becomes one ordered list.
+ *
+ * Categories used to live in a list of their own, with each idea naming the
+ * category it belonged to. Now a category is a row among the ideas and holds
+ * the ones filed under it, which is what lets a loose idea sit between two
+ * categories instead of always above them. Reading order is preserved: the
+ * uncategorised ideas came first on screen, and they still do.
+ *
+ * The category colour comes along — it is what tells two lists apart, and a
+ * list that changed shape should still look like the one the author left.
+ * `done` is the one thing that goes: an idea is a one-line note again, and a
+ * note is either still there or deleted. No text is lost.
+ *
+ * `normalizeIdeas` has the last word, so whatever the old pair of arrays held
+ * arrives as a list the schema will accept: one level deep, unique ids, a
+ * colour on every category.
+ */
+const migrate6to7: MigrationFn = (data) => {
+  const ideas = asArray(data.ideas).map((entry) => (entry ?? {}) as Raw)
+  const row = (idea: Raw): Raw => ({
+    id: asString(idea.id, ''),
+    kind: 'idea',
+    text: asString(idea.text, ''),
+  })
+  /* An idea naming a category that is not there is loose, not gone. The v6
+     schema took any string as a `categoryId`, so an imported document can carry
+     one that points nowhere; matching on "is a string" would drop it, since no
+     category below collects it either. v5→v6 treated a missing category as
+     uncategorised, and so does this. */
+  const known = new Set(
+    asArray(data.ideaCategories)
+      .map((entry) => ((entry ?? {}) as Raw).id)
+      .filter((id): id is string => typeof id === 'string'),
+  )
+  const loose = ideas
+    .filter((idea) => typeof idea.categoryId !== 'string' || !known.has(idea.categoryId))
+    .map(row)
+  const categories = asArray(data.ideaCategories).map((entry) => {
+    const category = (entry ?? {}) as Raw
+    const id = asString(category.id, '')
+    return {
+      id,
+      kind: 'category',
+      text: asString(category.name, 'Kategori'),
+      color: asString(category.color, ''),
+      ideas: ideas.filter((idea) => idea.categoryId === id).map(row),
+    }
+  })
+
+  const { ideaCategories, ...rest } = data
+  void ideaCategories
+  return { ...rest, schemaVersion: 7, ideas: normalizeIdeas([...loose, ...categories]) }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -244,16 +300,25 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   3: migrate3to4,
   4: migrate4to5,
   5: migrate5to6,
+  6: migrate6to7,
 }
 
 /**
  * Repair the small set of defects that would otherwise make a whole
  * presentation unopenable.
  *
- * Deliberately narrow: only colour and font fields are coerced, because those
- * are single values that the schema rejects outright while the rest of the
- * document is perfectly readable. Structural corruption is *not* repaired — it
- * should surface as a validation error rather than be silently rewritten.
+ * Deliberately narrow: colour and font fields are coerced, because those are
+ * single values that the schema rejects outright while the rest of the document
+ * is perfectly readable. Structural corruption in the *layout tree* is not
+ * repaired — it should surface as a validation error rather than be silently
+ * rewritten, because a slide quietly rebuilt is a slide the author no longer
+ * recognises.
+ *
+ * The ideas list is the one exception, and deliberately so: it is a side list
+ * of one-line notes, not the document, and the rule it is held to — one level
+ * of categories — is one every reader can restore without guessing. Letting a
+ * malformed note list make a presentation unopenable would trade something
+ * worth keeping for something that is not.
  */
 export function repairPresentation(data: Raw): Raw {
   const theme = (data.theme ?? {}) as Raw
@@ -281,6 +346,14 @@ export function repairPresentation(data: Raw): Raw {
 
   return {
     ...(repairColors(data) as Raw),
+    /* The ideas list repairs rather than refuses — that is the contract
+       `src/domain/ideas.ts` states, and this is the only place it can be kept.
+       A document already at the current version runs no migration, so without
+       this a category nested in a category would fail validation and take the
+       whole presentation with it, and duplicate ids, multi-line text and a list
+       past `MAX_IDEAS` would pass straight through. `normalizeIdeas` keeps every
+       id it can, so nothing that was readable moves. */
+    ideas: normalizeIdeas(data.ideas),
     theme: repairedTheme,
   }
 }

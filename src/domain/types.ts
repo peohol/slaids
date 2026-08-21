@@ -8,6 +8,8 @@
  *  - a split has 2..10 children and all weights are finite and > 0
  */
 
+import type { IdeaRow } from './ideas'
+
 export type NodeId = string
 
 export interface Rect {
@@ -161,19 +163,12 @@ export interface SandboxItem {
   note: string
 }
 
-export interface Idea {
-  id: string
-  /** `null` means uncategorised — an idea does not need a home to be worth noting. */
-  categoryId: string | null
-  text: string
-  done: boolean
-}
-
-export interface IdeaCategory {
-  id: string
-  name: string
-  color: string
-}
+/**
+ * The ideas list is one ordered tree, one level deep: see `src/domain/ideas.ts`.
+ * A category is a row in the same list as the loose ideas, so an idea that
+ * belongs to nothing can sit between two categories.
+ */
+export type { Idea, IdeaCategory, IdeaRow } from './ideas'
 
 /** Asset metadata. Binary data lives in the asset store, never in the JSON. */
 export interface AssetRef {
@@ -195,8 +190,7 @@ export interface Presentation {
   slides: Slide[]
   references: Reference[]
   sandbox: SandboxItem[]
-  ideas: Idea[]
-  ideaCategories: IdeaCategory[]
+  ideas: IdeaRow[]
   assets: AssetRef[]
   createdAt: string
   updatedAt: string
