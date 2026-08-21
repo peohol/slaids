@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { FIT_TOLERANCE } from '../../domain/constants'
 import type { RichDoc } from '../../domain/types'
 import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
@@ -34,8 +35,6 @@ export interface RichTextEditorProps {
   measureOverflow?: () => number
   overflowMessage?: string
 }
-
-const OVERFLOW_TOLERANCE = 0.75
 
 export function RichTextEditor({
   doc,
@@ -84,14 +83,14 @@ export function RichTextEditor({
       initialised.current = true
 
       const accept = (): void => {
-        lastOverflow.current = overflow <= OVERFLOW_TOLERANCE ? 0 : overflow
+        lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
         lastValid.current = {
           doc: editor.getJSON() as RichDoc,
           anchor: editor.state.selection.anchor,
         }
       }
 
-      if (overflow <= OVERFLOW_TOLERANCE) {
+      if (overflow <= FIT_TOLERANCE) {
         accept()
         return
       }
@@ -103,7 +102,7 @@ export function RichTextEditor({
       }
       // Any edit that reduces the overflow is allowed, otherwise an overflowing
       // document could never be repaired.
-      if (overflow < lastOverflow.current - OVERFLOW_TOLERANCE) {
+      if (overflow < lastOverflow.current - FIT_TOLERANCE) {
         accept()
         return
       }

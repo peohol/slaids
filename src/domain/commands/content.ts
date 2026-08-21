@@ -22,6 +22,8 @@ import { emptyDoc, isDocEmpty } from '../richdoc'
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
+import { guardFit } from './fitGuard'
+import type { StructuralOptions } from './types'
 import type {
   Axis,
   CardBody,
@@ -35,18 +37,35 @@ import type {
 
 type ContentUpdater = (content: ZoneContent) => Result<ZoneContent>
 
-/** Shared plumbing: find the leaf, run the updater, write the result back. */
+/** Everything a content command needs to address one zone. */
+export interface ZoneContentTarget extends StructuralOptions {
+  slideId: string
+  nodeId: string
+}
+
+/**
+ * Shared plumbing: find the leaf, run the updater, write the result back — and
+ * refuse to commit a result that hides content the zone was showing.
+ *
+ * The fit gate lives here rather than in each command so that no content
+ * command can be added later that quietly skips it. Whether it runs at all is
+ * still the caller's choice (see `StructuralOptions`): the editor deliberately
+ * omits the checkers while typing, because rolling a keystroke back has to
+ * happen against the live DOM and must never interrupt an IME composition —
+ * `RichTextEditor` owns that. Every non-typing caller, and any headless caller,
+ * passes the checkers and gets validated here.
+ */
 export function updateZoneContent(
   presentation: Presentation,
-  slideId: string,
-  nodeId: string,
+  target: ZoneContentTarget,
   updater: ContentUpdater,
+  fitMessage = 'Innholdet får ikke plass i sonen etter endringen.',
 ): Result<Presentation> {
-  const slide = findSlide(presentation, slideId)
+  const slide = findSlide(presentation, target.slideId)
   if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
-  const leaf = findLeaf(slide.root, nodeId)
+  const leaf = findLeaf(slide.root, target.nodeId)
   if (!leaf) {
-    return findNode(slide.root, nodeId)
+    return findNode(slide.root, target.nodeId)
       ? err('NODE_NOT_LEAF', 'Delte soner har ikke innhold direkte.')
       : err('NODE_NOT_FOUND', 'Fant ikke sonen.')
   }
@@ -57,14 +76,15 @@ export function updateZoneContent(
   if (updated.value === leaf.content) return ok(presentation)
 
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: updated.value })
-  return ok(touch(withSlide(presentation, { ...slide, root })))
+  const next = touch(withSlide(presentation, { ...slide, root }))
+  return guardFit(presentation, next, target, fitMessage)
 }
 
 export function setSubfieldDoc(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; subfieldId: string; doc: RichDoc },
+  input: { subfieldId: string; doc: RichDoc } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
+  return updateZoneContent(presentation, input, (content) => {
     if (content.kind === 'container') {
       if (content.payload.type !== 'richdoc') {
         return err('INVALID_CONTENT', 'Beholderen inneholder ikke tekst.')
@@ -80,9 +100,9 @@ export function setSubfieldDoc(
 
 export function setContainerDoc(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; doc: RichDoc },
+  input: { doc: RichDoc } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
+  return updateZoneContent(presentation, input, (content) => {
     if (content.kind !== 'container' || content.payload.type !== 'richdoc') {
       return err('INVALID_CONTENT', 'Sonen inneholder ikke en tekstbeholder.')
     }
@@ -92,78 +112,104 @@ export function setContainerDoc(
 
 export function setContainerPayload(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; payload: ContainerPayload },
+  input: { payload: ContainerPayload } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
-    if (content.kind !== 'container') {
-      return err('INVALID_CONTENT', 'Sonen inneholder ikke en beholder.')
-    }
-    return ok({ ...content, payload: input.payload })
-  })
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (content.kind !== 'container') {
+        return err('INVALID_CONTENT', 'Sonen inneholder ikke en beholder.')
+      }
+      return ok({ ...content, payload: input.payload })
+    },
+    'Det nye innholdet får ikke plass i sonen.',
+  )
 }
 
 export function setCardTitle(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; doc: RichDoc },
+  input: { doc: RichDoc } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
-    if (content.kind !== 'titled-card') {
-      return err('INVALID_CONTENT', 'Innholdet har ingen tittel.')
-    }
-    return ok({ ...content, title: input.doc })
-  })
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (content.kind !== 'titled-card') {
+        return err('INVALID_CONTENT', 'Innholdet har ingen tittel.')
+      }
+      return ok({ ...content, title: input.doc })
+    },
+    'Korttittelen får ikke plass i kortet.',
+  )
 }
 
 export function setSubfieldCount(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; count: number },
+  input: { count: number } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
-    if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-    if (!Number.isInteger(input.count) || input.count < 1 || input.count > 6) {
-      return err('INVALID_ARGUMENT', 'Antall subfelt må være mellom 1 og 6.')
-    }
-    const removed = content.body.subfields.slice(input.count)
-    if (removed.some((field) => !isDocEmpty(field.doc))) {
-      return err('INVALID_ARGUMENT', 'Subfeltene som fjernes har innhold. Tøm dem først.')
-    }
-    return ok({ ...content, body: withSubfieldCount(content.body, input.count) })
-  })
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      if (!Number.isInteger(input.count) || input.count < 1 || input.count > 6) {
+        return err('INVALID_ARGUMENT', 'Antall subfelt må være mellom 1 og 6.')
+      }
+      const removed = content.body.subfields.slice(input.count)
+      if (removed.some((field) => !isDocEmpty(field.doc))) {
+        return err('INVALID_ARGUMENT', 'Subfeltene som fjernes har innhold. Tøm dem først.')
+      }
+      return ok({ ...content, body: withSubfieldCount(content.body, input.count) })
+    },
+    'Innholdet får ikke plass når subfeltene deler sonen på nytt.',
+  )
 }
 
 export function setBodyAxis(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; axis: Axis },
+  input: { axis: Axis } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
-    if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-    return ok({ ...content, body: withBodyAxis(content.body, input.axis) })
-  })
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      return ok({ ...content, body: withBodyAxis(content.body, input.axis) })
+    },
+    'Innholdet får ikke plass med denne orienteringen.',
+  )
 }
 
 export function setBodyWeights(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; weights: number[] },
+  input: { weights: number[] } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
-    if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-    if (input.weights.length !== content.body.subfields.length) {
-      return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subfelt.')
-    }
-    if (!areWeightsValid(input.weights)) {
-      return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
-    }
-    return ok({ ...content, body: { ...content.body, weights: [...input.weights] } })
-  })
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      if (input.weights.length !== content.body.subfields.length) {
+        return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subfelt.')
+      }
+      if (!areWeightsValid(input.weights)) {
+        return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
+      }
+      return ok({ ...content, body: { ...content.body, weights: [...input.weights] } })
+    },
+    'Innholdet får ikke plass med disse forholdstallene.',
+  )
 }
 
+/** Colour is the one content property that cannot change how much space content needs. */
 export function setCardColor(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; color: string },
+  input: { color: string } & ZoneContentTarget,
 ): Result<Presentation> {
   const color = normalizeHex(input.color)
   if (!color) return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) => {
+  return updateZoneContent(presentation, input, (content) => {
     if (content.kind === 'untitled-card') return ok({ ...content, backgroundColor: color })
     if (content.kind === 'titled-card') return ok({ ...content, headerColor: color })
     return err('INVALID_CONTENT', 'Beholdere har ingen bakgrunnsfarge.')
@@ -263,11 +309,20 @@ function containerBlocks(content: Extract<ZoneContent, { kind: 'container' }>): 
   }
 }
 
+/**
+ * Converting between content kinds changes the chrome around the text: a titled
+ * card spends `CARD_HEADER_HEIGHT + CARD_PADDING * 2` of the zone that a
+ * container gives entirely to content. The gate in `updateZoneContent` is what
+ * stops a conversion from pushing text out of sight.
+ */
 export function setContentKind(
   presentation: Presentation,
-  input: { slideId: string; nodeId: string; kind: ZoneContentKind },
+  input: { kind: ZoneContentKind } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(presentation, input.slideId, input.nodeId, (content) =>
-    ok(convertContentKind(content, input.kind)),
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => ok(convertContentKind(content, input.kind)),
+    'Innholdet får ikke plass i denne innholdstypen.',
   )
 }

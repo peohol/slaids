@@ -22,7 +22,8 @@ import {
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
-import { findFitFailures, rectForNode } from './internal'
+import { guardFit } from './fitGuard'
+import { rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
 
@@ -106,7 +107,7 @@ export function splitLeaf(
       return err('INVALID_ARGUMENT', 'Ugyldig målsone for eksisterende innhold.')
     }
     const targetRect = preview.childRects[targetIndex]
-    const fit = input.fits?.(leaf.content, targetRect)
+    const fit = input.fits?.(leaf.content, targetRect, presentation.theme)
     if (!fit || fit.fits) {
       children[targetIndex] = { ...children[targetIndex], content: leaf.content }
     } else {
@@ -194,18 +195,6 @@ export function updateSplit(
     })
   }
 
-  // Ratio, axis and child-count changes are content-fit consumers too: a zone
-  // that shrinks must still be able to show everything inside it.
-  for (let i = 0; i < children.length; i += 1) {
-    const failures = findFitFailures(children[i], preview.childRects[i], input.fits, input.geometry)
-    if (failures.length > 0) {
-      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass med disse forholdstallene.', {
-        childIndex: i,
-        overflow: failures[0].overflow,
-      })
-    }
-  }
-
   const removedChildren = split.children.slice(targetCount)
   const removedContent = removedChildren.flatMap(collectContent)
   const disposed = disposeContents(
@@ -217,13 +206,21 @@ export function updateSplit(
 
   const nextSplit: LayoutNode = { ...split, axis, weights, children }
   const root = normalizeTree(replaceNode(slide.root, split.id, nextSplit))
-  return ok(
-    outcome(
-      touch(withSlide(disposed.presentation, { ...slide, root })),
-      disposed.movedToSandbox,
-      disposed.discarded,
-    ),
+  const next = touch(withSlide(disposed.presentation, { ...slide, root }))
+
+  // Ratio, axis and child-count changes are content-fit consumers too: a zone
+  // that shrinks must still show everything inside it. Measured against the
+  // state before the change, so dragging a boundary in a direction that
+  // *relieves* an existing overflow stays possible.
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Innholdet får ikke plass med disse forholdstallene.',
   )
+  if (!guarded.ok) return guarded
+
+  return ok(outcome(guarded.value, disposed.movedToSandbox, disposed.discarded))
 }
 
 /** Convenience wrapper for direct ratio drag handles. */
@@ -336,7 +333,7 @@ export function setZoneContent(
   if (input.content) {
     const area = rectForNode(slide, input.nodeId, input.geometry)
     if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
-    const fit = input.fits?.(input.content, area)
+    const fit = input.fits?.(input.content, area, presentation.theme)
     if (fit && !fit.fits) {
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i sonen.', {
         overflow: fit.overflow,
@@ -393,7 +390,7 @@ export function moveZoneContent(
 
   const area = rectForNode(targetSlide, input.toNodeId, input.geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.')
-  const fit = input.fits?.(from.content, area)
+  const fit = input.fits?.(from.content, area, presentation.theme)
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
       overflow: fit.overflow,
@@ -427,6 +424,6 @@ export function canAcceptContent(
   const area = rectForNode(slide, input.nodeId, input.geometry)
   if (!area) return false
   if (!subtreeFitsInRect(leaf, area, input.geometry)) return false
-  const fit = input.fits?.(input.content, area)
+  const fit = input.fits?.(input.content, area, presentation.theme)
   return !fit || fit.fits
 }

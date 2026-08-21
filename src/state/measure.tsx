@@ -12,20 +12,21 @@
 
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { estimateFit, type ContentFitChecker, type FitResult } from '../domain/fit'
 import {
-  SLIDE_WIDTH,
-  TITLE_FONT_SIZE,
-  TITLE_LINE_HEIGHT,
-  SLIDE_INSET,
-} from '../domain/constants'
-import type { PresentationTheme, Rect, RichDoc, ZoneContent } from '../domain/types'
+  estimateFit,
+  estimateTitleFit,
+  fitResult,
+  type ContentFitChecker,
+  type FitResult,
+  type TitleFitChecker,
+} from '../domain/fit'
+import type { StructuralOptions } from '../domain/commands'
+import { TITLE_FONT_SIZE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import type { PresentationTheme, Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
 import { ZoneContentView } from '../ui/slide/ZoneContentView'
 import { RichDocView } from '../ui/slide/RichDocView'
 import { slideTokenStyle } from '../ui/slide/SlideView'
-
-const OVERFLOW_TOLERANCE = 0.75
 
 let host: HTMLDivElement | null = null
 let root: Root | null = null
@@ -78,7 +79,7 @@ export function measureContentFit(
   rect: Rect,
   theme: PresentationTheme,
 ): FitResult {
-  if (typeof document === 'undefined') return estimateFit(content, rect)
+  if (typeof document === 'undefined') return estimateFit(content, rect, theme)
   if (rect.width <= 0 || rect.height <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
 
   const overflow = withHost(
@@ -95,25 +96,25 @@ export function measureContentFit(
     ),
     measureElementOverflow,
   )
-  const rounded = Math.max(0, Math.round(overflow * 100) / 100)
-  return { fits: rounded <= OVERFLOW_TOLERANCE, overflow: rounded }
+  return fitResult(overflow)
 }
 
 /**
  * A slide title is one line at a fixed size. It fits only if it does not need
  * to scroll horizontally.
  */
-export function measureTitleFit(doc: RichDoc, theme: PresentationTheme, width?: number): FitResult {
-  if (typeof document === 'undefined') {
-    return estimateFit(
-      { id: 'title', kind: 'container', payload: { type: 'richdoc', doc } },
-      { x: 0, y: 0, width: width ?? SLIDE_WIDTH - SLIDE_INSET * 2, height: 1000 },
-    )
-  }
+export function measureTitleFit(
+  doc: TitleDoc,
+  titleRect: Rect,
+  theme: PresentationTheme,
+): FitResult {
+  if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, theme)
+  // The zone's own height is chrome; the title is one line, so only the width
+  // decides whether it fits.
   const rect: Rect = {
     x: 0,
     y: 0,
-    width: width ?? SLIDE_WIDTH - SLIDE_INSET * 2,
+    width: titleRect.width,
     height: TITLE_FONT_SIZE * TITLE_LINE_HEIGHT,
   }
   const overflow = withHost(
@@ -138,10 +139,18 @@ export function measureTitleFit(doc: RichDoc, theme: PresentationTheme, width?: 
     ),
     (element) => Math.max(0, element.scrollWidth - element.clientWidth),
   )
-  return { fits: overflow <= OVERFLOW_TOLERANCE, overflow }
+  return fitResult(overflow)
 }
 
-/** Fit checker bound to a theme, for passing into domain commands. */
-export function fitCheckerFor(theme: PresentationTheme): ContentFitChecker {
-  return (content, rect) => measureContentFit(content, rect, theme)
+/**
+ * The checkers every editor command is given.
+ *
+ * One bundle rather than two loose arguments, so no call site can validate zone
+ * content but silently skip slide titles. The domain commands close over
+ * nothing: they are handed the prospective theme at call time, which is what
+ * lets a font change be validated before it is committed.
+ */
+export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle'>> = {
+  fits: measureContentFit satisfies ContentFitChecker,
+  fitsTitle: measureTitleFit satisfies TitleFitChecker,
 }

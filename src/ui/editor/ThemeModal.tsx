@@ -3,6 +3,7 @@
 import { setTheme } from '../../domain/commands'
 import { FONT_OPTIONS } from '../../domain/fonts'
 import { bestTextColor } from '../../domain/color'
+import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
 import { Modal } from '../components/Modal'
 import { ColorSwatchGrid } from '../components/ColorPicker'
@@ -51,8 +52,11 @@ export function ThemeModal({
             value={theme.headingFontFamily}
             data-testid="theme-heading-font"
             onChange={(event) =>
+              // A wider heading font can push slide titles and card headers out
+              // of their fixed-height zones, so the command validates the whole
+              // deck against the prospective theme before it is committed.
               run('theme-heading-font', (current) =>
-                setTheme(current, { headingFontFamily: event.target.value }),
+                setTheme(current, { headingFontFamily: event.target.value }, domFitCheckers),
               )
             }
           >
@@ -72,7 +76,7 @@ export function ThemeModal({
             data-testid="theme-body-font"
             onChange={(event) =>
               run('theme-body-font', (current) =>
-                setTheme(current, { bodyFontFamily: event.target.value }),
+                setTheme(current, { bodyFontFamily: event.target.value }, domFitCheckers),
               )
             }
           >

@@ -6,8 +6,9 @@ av fri plassering: innhold tvinges inn i et rekursivt sonetre der **avstanden
 mellom alt synlig innhold alltid er nøyaktig den samme**, uansett hvor dypt
 layoutet er nestet.
 
-> `IMPLEMENTATION_PLAN.md` er normativ spesifikasjon.
-> `docs/archive/VISION.original-2026-08-20.md` er den opprinnelige visjonen, bevart som historikk.
+> `IMPLEMENTATION_PLAN.md` er den gjeldende normative spesifikasjonen.
+> `docs/archive/VISION.original-2026-08-20.md` er den opprinnelige visjonen, bevart som historikk – ikke normativ.
+> `VISION.md` i roten peker bare videre til de to; den inneholder ingen krav.
 > Idé-panelet er portert konseptuelt fra `peohol/mdeditz` – samme prinsipper, egen typed implementasjon.
 
 ## Kjerneidé
@@ -65,16 +66,34 @@ layoutet er nestet.
 
 **Innholdsgrense**
 
-Innhold som ikke får plass i sonen sin blir avvist: redigeringen rulles tilbake til
-siste gyldige dokument (aldri midt i en IME-komposisjon), og strukturelle
-operasjoner som ikke har plass til innholdet blokkeres eller flytter innholdet til
-sandkassen. Det samme gjelder geometriske endringer: forholdstall kan ikke dras
-forbi punktet der innholdet slutter å få plass, og overskriftssonen kan ikke legges
-til hvis hovedsonen da blir for liten for innholdet.
+`overflow: hidden` er siste visuelle sikkerhetsnett, ikke regelen. Regelen er at
+en lovlig redigeringsoperasjon aldri skal ende med at innhold som var synlig blir
+skjult. Det håndheves i to former, begge i domenelaget:
+
+- **Plassering** – kan dette innholdet ligge i den sonen? Absolutt sjekk, brukt av
+  kommandoene som plasserer innhold (`setZoneContent`, `moveZoneContent`,
+  `placeSandboxItem`, `splitLeaf`, `addSlide`).
+- **Regresjon** – gjør denne endringen at innhold som allerede ligger på sliden får
+  *dårligere* plass? Det er hva en global fontendring, en forholdstallsendring, et
+  nytt antall subfelt, en orienteringsendring eller en konvertering mellom
+  innholdstyper kan gjøre. `src/domain/commands/fitGuard.ts` måler den
+  prospektive tilstanden før commit og avviser den hvis noen sone viser mindre
+  enn før.
+
+Regresjon, ikke absolutt fit, er riktig test for den andre formen: innhold kan
+allerede være i overflow – etter import, migrasjon eller en fontendring gjort før
+regelen fantes – og en sone som ikke kan endres i det hele tatt kan heller aldri
+repareres. Derfor er «ikke verre enn før» tillatt, «verre» ikke.
+
+Under aktiv skriving håndheves grensen i stedet mot den levende DOM-en i
+`RichTextEditor`, som ruller tilbake til siste gyldige dokument – aldri midt i en
+IME-komposisjon. Kommandoene tar fit-sjekkerne som argument, så et senere
+REST/MCP-API får nøyaktig de samme reglene uten å gå veien om UI-et.
 
 Målingen skjer med de samme komponentene som brukes til visning: innholdet rendres
-utenfor skjermen i nøyaktig målsonens størrelse, slik at svaret er det brukeren
-faktisk vil se.
+utenfor skjermen i nøyaktig målsonens størrelse og med den prospektive fonten,
+slik at svaret er det brukeren faktisk vil se. Utenfor nettleseren brukes en ren,
+font-bevisst estimator (`src/domain/fit.ts`).
 
 ## Kom i gang
 

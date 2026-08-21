@@ -44,7 +44,7 @@ import { startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
-import { fitCheckerFor } from '../../state/measure'
+import { domFitCheckers } from '../../state/measure'
 import { loadWebFonts } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
@@ -205,11 +205,6 @@ export function EditorView({
     [presentation],
   )
 
-  const fits = useMemo(
-    () => (presentation ? fitCheckerFor(presentation.theme) : undefined),
-    [presentation],
-  )
-
   const selectedNode = slide && selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const selectedLeaf = slide && selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
   const geometry = slide ? computeSlideGeometry(slide) : null
@@ -227,13 +222,13 @@ export function EditorView({
           slideId: slide.id,
           nodeId,
           content: createContentOfKind(kind),
-          fits,
+          ...domFitCheckers,
         }),
       )
       useEditorStore.getState().selectNode(nodeId)
       setMode('content')
     },
-    [fits, runStructural, setMode, slide],
+    [runStructural, setMode, slide],
   )
 
   const applyContentKind = useCallback(
@@ -246,7 +241,12 @@ export function EditorView({
       }
       if (leaf.content) {
         run('content-kind', (current) =>
-          setContentKind(current, { slideId: slide.id, nodeId: selectedNodeId, kind }),
+          setContentKind(current, {
+            slideId: slide.id,
+            nodeId: selectedNodeId,
+            kind,
+            ...domFitCheckers,
+          }),
         )
         return
       }
@@ -255,12 +255,12 @@ export function EditorView({
           slideId: slide.id,
           nodeId: selectedNodeId,
           content: createContentOfKind(kind),
-          fits,
+          ...domFitCheckers,
         }),
       )
       setMode('content')
     },
-    [fits, run, runStructural, selectedNodeId, setMode, slide],
+    [run, runStructural, selectedNodeId, setMode, slide],
   )
 
   const handleSplitApply = useCallback(
@@ -276,7 +276,7 @@ export function EditorView({
               weights: result.weights,
               childCount: result.weights.length,
               removedDisposition: result.removedDisposition,
-              fits,
+              ...domFitCheckers,
             }),
           )
         : runStructural('split-leaf', (current) =>
@@ -286,12 +286,12 @@ export function EditorView({
               axis: result.axis,
               weights: result.weights,
               contentTargetIndex: result.contentTargetIndex,
-              fits,
+              ...domFitCheckers,
             }),
           )
       if (ok) setSplitOpen(false)
     },
-    [fits, runStructural, selectedNode, selectedNodeId, slide],
+    [runStructural, selectedNode, selectedNodeId, slide],
   )
 
   /**
@@ -327,12 +327,12 @@ export function EditorView({
   const restoreTitle = useCallback(() => {
     if (!slide) return
     const added = run('toggle-title', (current) =>
-      setSlideHasTitle(current, slide.id, true, { fits }),
+      setSlideHasTitle(current, slide.id, true, domFitCheckers),
     )
     if (!added) return
     const remembered = removedTitles.current.get(slide.id)
     if (remembered) run('restore-title', (current) => setSlideTitle(current, slide.id, remembered))
-  }, [fits, run, slide])
+  }, [run, slide])
 
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {
@@ -440,7 +440,7 @@ export function EditorView({
                 slideId: activeSlide.id,
                 nodeId: targetNodeId,
                 content,
-                fits,
+                ...domFitCheckers,
               }),
             )
           if (!placed) return
@@ -455,7 +455,7 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [fits, presenting, redo, runStructural, toggleMode, undo])
+  }, [presenting, redo, runStructural, toggleMode, undo])
 
   /* -------------------------------------------------------------- *
    * Drag and drop
@@ -484,7 +484,7 @@ export function EditorView({
           slideId: activeSlide.id,
           nodeId: leaf.id,
           content: item.content,
-          fits,
+          ...domFitCheckers,
         })
       ) {
         targets.add(leaf.id)
@@ -544,7 +544,7 @@ export function EditorView({
           itemId: String(data.itemId),
           slideId: slide.id,
           nodeId: overId.slice('zone:'.length),
-          fits,
+          ...domFitCheckers,
         }),
       )
     }

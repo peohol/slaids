@@ -60,7 +60,7 @@ export function placeSandboxItem(
 
   const area = rectForNode(slide, input.nodeId, input.geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
-  const fit = input.fits?.(item.content, area)
+  const fit = input.fits?.(item.content, area, presentation.theme)
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i denne sonen.', {
       overflow: fit.overflow,

@@ -4,8 +4,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 
 ## Normative kilder
 
-- `IMPLEMENTATION_PLAN.md` er normativ spesifikasjon. Les den før strukturelle endringer.
+- `IMPLEMENTATION_PLAN.md` er **eneste** normative spesifikasjon. Les den før strukturelle endringer.
 - `docs/archive/VISION.original-2026-08-20.md` er historisk kontekst, **ikke** normativ.
+- `VISION.md` i repo-roten er bare en peker til de to over, og har ikke krav i seg.
 
 ## Kjerneinvariants
 

@@ -6,6 +6,7 @@
  */
 
 export * from './types'
+export * from './fitGuard'
 export * from './slides'
 export * from './layout'
 export * from './content'

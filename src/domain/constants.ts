@@ -57,5 +57,14 @@ export const REFERENCE_MAX_COLUMNS = 3
 /** Tolerance used for floating point geometry comparisons. */
 export const GEOMETRY_EPSILON = 1e-6
 
+/**
+ * How many logical pixels of overflow count as "still fits".
+ *
+ * Sub-pixel rounding in the browser makes an exact zero unreachable, so every
+ * fit consumer — the estimator, the DOM measurer and the regression guard —
+ * shares this one tolerance rather than inventing its own.
+ */
+export const FIT_TOLERANCE = 0.75
+
 /** Default presentation background (from the original vision: #678). */
 export const DEFAULT_BACKGROUND_COLOR = '#667788'

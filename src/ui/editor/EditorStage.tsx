@@ -23,10 +23,14 @@ import {
   splitRect,
   viewportToSlide,
 } from '../../domain/geometry'
-import { findFitFailures } from '../../domain/commands/internal'
 import { findSplit, updateNode } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
-import { setSlideTitle, setSplitWeights } from '../../domain/commands'
+import {
+  overflowRegressions,
+  setSlideTitle,
+  setSplitWeights,
+  subtreeOverflow,
+} from '../../domain/commands'
 import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { Editor } from '@tiptap/react'
@@ -34,7 +38,7 @@ import type { LayoutNode, NodeId, Rect, Slide, ZoneContentKind } from '../../dom
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
-import { fitCheckerFor } from '../../state/measure'
+import { domFitCheckers } from '../../state/measure'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
@@ -54,6 +58,14 @@ interface DragState {
   /** Captured so the drag can be fit-validated without re-reading the tree. */
   parentRect: Rect
   children: LayoutNode[]
+  /**
+   * Overflow of the two zones on either side of the boundary before the drag
+   * started. The handle is allowed to move as long as neither gets worse, which
+   * is the same rule `setSplitWeights` applies on release — so the handle never
+   * stops somewhere the commit would refuse, and a zone that already overflows
+   * can still be dragged wider to repair it.
+   */
+  baseline: Map<NodeId, number>
 }
 
 export interface EditorStageProps {
@@ -136,6 +148,21 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       return (need / usable) * total
     })
 
+    const startRects = splitRect(parentRect, split.axis, split.weights, G)
+    const baseline = new Map<NodeId, number>()
+    for (const index of [boundary, boundary + 1]) {
+      const child = split.children[index]
+      if (!child) continue
+      for (const [nodeId, overflow] of subtreeOverflow(
+        child,
+        startRects[index],
+        theme,
+        domFitCheckers,
+      )) {
+        baseline.set(nodeId, overflow)
+      }
+    }
+
     dragRef.current = {
       splitId,
       boundary,
@@ -146,6 +173,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       minShare,
       parentRect,
       children: split.children,
+      baseline,
     }
     selectNode(splitId)
   }
@@ -175,9 +203,14 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       // The handle stops where the content stops fitting, rather than letting
       // the user drag into an invalid state and snapping back on release.
       const childRects = splitRect(drag.parentRect, drag.axis, weights, G)
-      const checker = fitCheckerFor(theme)
       for (const index of [i, i + 1]) {
-        if (findFitFailures(drag.children[index], childRects[index], checker).length > 0) return
+        const next = subtreeOverflow(
+          drag.children[index],
+          childRects[index],
+          theme,
+          domFitCheckers,
+        )
+        if (overflowRegressions(next, (nodeId) => drag.baseline.get(nodeId) ?? 0).length > 0) return
       }
       setPreview({ nodeId: drag.splitId, weights })
     }
@@ -194,7 +227,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
           nodeId: pending.nodeId,
           weights: pending.weights,
           // A ratio change may not shrink a zone past what its content needs.
-          fits: fitCheckerFor(theme),
+          ...domFitCheckers,
         }),
       )
     }

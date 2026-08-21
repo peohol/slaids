@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import {
   addContentToZone,
   createPresentation,
@@ -51,6 +51,124 @@ test.describe('content fit', () => {
       return worst
     })
     expect(overflow).toBeLessThanOrEqual(1)
+  })
+
+  /**
+   * Fill a zone's body field until the editor stops accepting more — the text
+   * is then close to the zone's capacity for the current font.
+   *
+   * The chunks are deliberately small: each rejected chunk is the slack left
+   * between the stored text and the real limit, and a test that a 18 % wider
+   * font no longer fits only means something if that slack is smaller than 18 %.
+   */
+  async function fillZoneToCapacity(page: Page, nodeId: string): Promise<void> {
+    // `.tiptap` matches both a card's subfield and a container's single field.
+    const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
+    await field.click()
+    for (let i = 0; i < 40; i += 1) {
+      await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
+    }
+    await page.waitForTimeout(300)
+  }
+
+  /** The body font the slide content is actually rendered with right now. */
+  async function renderedBodyFont(page: Page): Promise<string> {
+    return page.evaluate(
+      () =>
+        getComputedStyle(
+          document.querySelector('[data-testid="stage-slide"] .slide') as HTMLElement,
+        ).fontFamily,
+    )
+  }
+
+  /** A toast carrying this text. The store can show several at once. */
+  function toast(page: Page, text: string) {
+    return page.getByTestId('toast').filter({ hasText: text })
+  }
+
+  async function worstOverflow(page: Page): Promise<number> {
+    return page.evaluate(() => {
+      const slide = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
+      let worst = 0
+      for (const element of slide.querySelectorAll<HTMLElement>('[data-fit-scroll]')) {
+        worst = Math.max(
+          worst,
+          element.scrollHeight - element.clientHeight,
+          element.scrollWidth - element.clientWidth,
+        )
+      }
+      return worst
+    })
+  }
+
+  test('refuses a global font change that would hide existing text', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Fontgrense')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await fillZoneToCapacity(page, zones[0].id)
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+
+    // Monospace is wider than the default proportional font in every font
+    // configuration, so this is the same text in a font it no longer fits.
+    const before = await renderedBodyFont(page)
+    await page.getByTestId('open-theme').click()
+    await page.getByTestId('theme-body-font').selectOption({ label: 'Consolas' })
+
+    await expect(toast(page, 'Denne fonten')).toBeVisible()
+    // The select is a controlled input, but React does not re-render when the
+    // command is refused, so the DOM value is not evidence either way. What the
+    // slide is actually rendered with is.
+    expect(await renderedBodyFont(page)).toBe(before)
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    expect(guard.errors).toEqual([])
+  })
+
+  test('accepts a global font change the content still fits', async ({ page }) => {
+    await createPresentation(page, 'Fontplass')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    const field = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .subfield .tiptap`)
+    await field.click()
+    await page.keyboard.insertText('Kort tekst.')
+    await page.waitForTimeout(200)
+
+    await page.getByTestId('open-theme').click()
+    await page.getByTestId('theme-body-font').selectOption({ label: 'Consolas' })
+    await expect
+      .poll(() => renderedBodyFont(page))
+      .toContain('Consolas')
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+  })
+
+  test('refuses a subfield split that would hide existing text', async ({ page }) => {
+    await createPresentation(page, 'Subfeltgrense')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await fillZoneToCapacity(page, zones[0].id)
+
+    await enterZoneMode(page)
+    const count = page.getByTestId('subfield-count')
+    await count.fill('2')
+    await expect(toast(page, 'subfeltene deler sonen')).toBeVisible()
+    await expect(stage(page).locator('.slide-zone .subfield')).toHaveCount(1)
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+  })
+
+  test('refuses a content-kind conversion that would hide existing text', async ({ page }) => {
+    await createPresentation(page, 'Konvertering')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await fillZoneToCapacity(page, zones[0].id)
+
+    await enterZoneMode(page)
+    // A titled card spends the header height and the card padding on chrome.
+    await page.getByTestId('inspector-kind-titled-card').click()
+    await expect(toast(page, 'innholdstypen')).toBeVisible()
+    await expect(
+      stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] [data-content-kind]`),
+    ).toHaveAttribute('data-content-kind', 'container')
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
   test('never paints content outside its zone', async ({ page }) => {

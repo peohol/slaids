@@ -8,6 +8,7 @@
 import { useRef, useState } from 'react'
 import { newAssetId } from '../../domain/ids'
 import { registerAsset, setZoneContent } from '../../domain/commands'
+import { domFitCheckers } from '../../state/measure'
 import { createContainer } from '../../domain/content'
 import { repository } from '../../persistence/dexieRepository'
 import { readImageSize } from '../../state/assets'
@@ -83,6 +84,7 @@ export function ImageUploadModal({
             nodeId: targetNodeId,
             content: createContainer({ type: 'asset', assetId: ref.id, fit: 'contain' }),
             replace: true,
+            ...domFitCheckers,
           }),
         )
       } else {

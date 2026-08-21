@@ -18,6 +18,7 @@ import { CONTENT_KIND_LABELS, defaultShape } from '../../domain/content'
 import { emptyDoc, isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
+import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
 import type { Axis, ContainerPayload, ShapeKind, Slide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
@@ -88,7 +89,7 @@ export function Inspector({
 
   const applyPayload = (nodeId: string, payload: ContainerPayload): void => {
     run('container-payload', (current) =>
-      setContainerPayload(current, { slideId: slide.id, nodeId, payload }),
+      setContainerPayload(current, { slideId: slide.id, nodeId, payload, ...domFitCheckers }),
     )
   }
 
@@ -183,7 +184,12 @@ export function Inspector({
                 data-testid={`inspector-kind-${kind}`}
                 onClick={() =>
                   run('content-kind', (current) =>
-                    setContentKind(current, { slideId: slide.id, nodeId: selectedNodeId, kind }),
+                    setContentKind(current, {
+                      slideId: slide.id,
+                      nodeId: selectedNodeId,
+                      kind,
+                      ...domFitCheckers,
+                    }),
                   )
                 }
               >
@@ -229,6 +235,7 @@ export function Inspector({
                     slideId: slide.id,
                     nodeId: selectedNodeId,
                     count: Number(event.target.value),
+                    ...domFitCheckers,
                   }),
                 )
               }
@@ -243,7 +250,12 @@ export function Inspector({
                 data-testid={`subfield-axis-${axis}`}
                 onClick={() =>
                   run('subfield-axis', (current) =>
-                    setBodyAxis(current, { slideId: slide.id, nodeId: selectedNodeId, axis }),
+                    setBodyAxis(current, {
+                      slideId: slide.id,
+                      nodeId: selectedNodeId,
+                      axis,
+                      ...domFitCheckers,
+                    }),
                   )
                 }
               >
@@ -272,6 +284,7 @@ export function Inspector({
                         slideId: slide.id,
                         nodeId: selectedNodeId,
                         weights,
+                        ...domFitCheckers,
                       }),
                     )
                   }}
