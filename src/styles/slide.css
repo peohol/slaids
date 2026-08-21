@@ -1,0 +1,431 @@
+/*
+ * Slide rendering.
+ *
+ * Sizes here read from custom properties set by `SlideView`, so the design
+ * tokens stay in `src/domain/constants.ts`. Nothing in this file may introduce
+ * margins or padding on structural elements — that would break the global gap
+ * invariant.
+ */
+
+.slide {
+  position: relative;
+  overflow: hidden;
+  transform-origin: top left;
+}
+
+.slide-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/*
+ * Titles are centred by default — a slide title and a card title are labels,
+ * not paragraphs. An explicit alignment is an inline style and wins over this.
+ */
+.slide-title :is(p, .rd-p),
+.card-header :is(p, .rd-p) {
+  text-align: center;
+  width: 100%;
+}
+
+/*
+ * Visual containment: nothing a zone holds is ever painted outside it.
+ *
+ * The clip lives on `.zone-content`, not on the zone element, and the two boxes
+ * are the same size — so containment is unchanged while the zone itself stays
+ * unclipped. That is what lets a card cast an ordinary drop shadow into the gap
+ * around it: a shadow is paint, not content, and it changes no geometry.
+ */
+.zone-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: var(--slaids-body-font-size);
+  line-height: var(--slaids-body-line-height);
+}
+
+.zone-content--container {
+  min-height: 0;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--slaids-card-header-font-size);
+  font-weight: 600;
+}
+
+/*
+ * The header is a flex row, and the editor wraps its content in a div of its
+ * own. Left to itself that wrapper shrinks to the width of the text, and a
+ * centred title then centres inside its own width — which is no centring at
+ * all, and made the editor disagree with the static renderer about where a card
+ * title sits.
+ */
+.card-header > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.subfields {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.subfield {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  /* A column, so vertical alignment is a matter of where the flow sits. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* The editor fills the field so a click anywhere in it lands in the text. */
+.subfield > * {
+  width: 100%;
+}
+
+.subfield-divider {
+  flex: 0 0 auto;
+}
+
+.asset-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.asset-image--pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  font-size: 14px;
+}
+
+/* ----------------------------------------------------------------- *
+ * Rich text
+ *
+ * Selectors cover both the static renderer's class names and the plain tags
+ * ProseMirror produces, so an edited field and a presented field lay out
+ * identically — which is what makes offscreen fit measurement trustworthy.
+ * ----------------------------------------------------------------- */
+
+.rich-doc {
+  height: 100%;
+}
+
+.rich-doc.tiptap,
+.rich-doc .ProseMirror {
+  outline: none;
+  min-height: 100%;
+}
+
+.rich-doc > :first-child {
+  margin-top: 0;
+}
+
+.rich-doc > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-doc :is(p, .rd-p) {
+  margin: 0 0 var(--slaids-block-spacing, 6px);
+}
+
+/*
+ * A heading is a pill: it is only as wide as its text, so aligning it is a
+ * question of margins rather than of `text-align`. The selectors match the
+ * inline style both renderers write, so one rule covers the editor and the
+ * slide.
+ */
+.rich-doc :is(h1, .rd-heading)[style*='text-align: center'],
+.rich-doc :is(h1, .rd-heading)[style*='text-align:center'] {
+  margin-inline: auto;
+}
+
+.rich-doc :is(h1, .rd-heading)[style*='text-align: right'],
+.rich-doc :is(h1, .rd-heading)[style*='text-align:right'] {
+  margin-inline: auto 0;
+}
+
+/*
+ * A picture among the text is the same case as the heading pill: it is
+ * narrower than the column, so aligning it is a question of margins. The
+ * selectors match the inline style both renderers write.
+ */
+.rich-doc .rd-image-wrapper[style*='text-align: center'],
+.rich-doc .rd-image-wrapper[style*='text-align:center'] {
+  margin-inline: auto;
+}
+
+.rich-doc .rd-image-wrapper[style*='text-align: right'],
+.rich-doc .rd-image-wrapper[style*='text-align:right'] {
+  margin-inline: auto 0;
+}
+
+.rich-doc :is(h1, .rd-heading) {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 var(--slaids-heading-spacing, 10px);
+  padding: 2px 14px;
+  border-radius: 999px;
+  font-size: var(--slaids-heading-font-size);
+  font-weight: 600;
+  font-family: var(--slaids-heading-font-family);
+  line-height: 1.3;
+}
+
+.rich-doc :is(ul, ol, .rd-ul, .rd-ol) {
+  margin: 0 0 var(--slaids-block-spacing, 6px);
+  padding-left: var(--slaids-list-indent, 24px);
+}
+
+.rich-doc :is(li, .rd-li) {
+  margin: 0 0 2px;
+}
+
+.rich-doc :is(li, .rd-li) > p {
+  margin: 0;
+}
+
+/*
+ * The quote marks are absolutely positioned, so they have to be positioned
+ * *inside* the block: a zone clips anything that reaches past its edge, and a
+ * quote at the bottom of a field had its closing mark cut in half.
+ */
+.rich-doc :is(blockquote, .rd-quote) {
+  position: relative;
+  margin: var(--slaids-block-spacing, 6px) 0;
+  padding: 6px 32px 10px;
+  font-style: italic;
+}
+
+/*
+ * The quotation marks sit inside the padding rather than against the box edge.
+ * A blockquote is as wide as the field, so a mark flush with the edge has its
+ * outer half cut off by the zone's clipping — which is exactly what the
+ * containment rule is supposed to guarantee never happens to visible content.
+ */
+.rich-doc :is(blockquote, .rd-quote)::before,
+.rich-doc :is(blockquote, .rd-quote)::after {
+  position: absolute;
+  font-size: 2.2em;
+  line-height: 1;
+  color: rgba(128, 128, 128, 0.45);
+  font-family: Georgia, serif;
+}
+
+.rich-doc :is(blockquote, .rd-quote)::before {
+  content: '\201C';
+  left: 4px;
+  top: 0;
+}
+
+.rich-doc :is(blockquote, .rd-quote)::after {
+  content: '\201D';
+  right: 6px;
+  bottom: 0;
+}
+
+.rich-doc :is(pre, .rd-pre) {
+  margin: 0 0 var(--slaids-block-spacing, 6px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.16);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.86em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rich-doc :is(code, .rd-code) {
+  border-radius: 5px;
+  background: rgba(128, 128, 128, 0.2);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.9em;
+  padding: 1px 5px;
+}
+
+.rich-doc :is(pre, .rd-pre) code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+}
+
+.rich-doc :is(a, .rd-link) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rich-doc :is(hr, .rd-hr) {
+  border: none;
+  border-top: 2px solid rgba(128, 128, 128, 0.35);
+  margin: 8px 0;
+}
+
+/*
+ * A figure can never be the cause of an overflow: it fills the width it is
+ * given but is always contained by the height of its field.
+ */
+.rich-doc :is(img, .rd-image) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: left top;
+}
+
+.rd-image-wrapper {
+  position: relative;
+  margin: 0 0 var(--slaids-block-spacing, 6px);
+  max-width: 100%;
+  max-height: 100%;
+  /* Without an explicit ratio the box would collapse until the file loads. */
+  aspect-ratio: var(--slaids-image-aspect, 16 / 9);
+}
+
+/*
+ * Resize handle. Only the width is draggable — the height comes from the
+ * aspect ratio — so the picture cannot be squashed, and 100 % is the field.
+ */
+.rd-image-handle {
+  position: absolute;
+  /*
+   * Inside the picture's own box, not hanging off it: the handle is editor
+   * chrome, and a handle that stuck out to the right made a right-aligned
+   * image measure wider than its field — enough for the fit guard to roll the
+   * alignment back, and enough to make the editor disagree with the slide.
+   */
+  right: 3px;
+  bottom: 3px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  background: #2f6feb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.rd-image-wrapper:hover .rd-image-handle,
+.rd-image-handle:focus-visible,
+.rd-image-wrapper--resizing .rd-image-handle {
+  opacity: 1;
+}
+
+.rd-image-wrapper--resizing {
+  outline: 1px dashed rgba(47, 111, 235, 0.8);
+}
+
+.rd-image--pending {
+  min-height: 24px;
+}
+
+/* A citation is a way in to its source, so it advertises the click. */
+.rich-doc .rd-citation--clickable,
+.rd-citation--clickable {
+  cursor: pointer;
+}
+
+.rich-doc .rd-citation--clickable:hover,
+.rd-citation--clickable:hover {
+  background: rgba(128, 128, 128, 0.62);
+}
+
+.rich-doc :is(sup.rd-citation, .rd-citation) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55em;
+  height: 1.55em;
+  padding: 0 0.35em;
+  margin-left: 0.12em;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.42);
+  color: inherit;
+  font-size: 0.58em;
+  line-height: 1;
+  vertical-align: super;
+  font-weight: 600;
+  user-select: none;
+}
+
+.rich-doc :is(table, .rd-table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 6px;
+  font-size: 0.92em;
+  table-layout: fixed;
+}
+
+.rich-doc :is(th, td, .rd-th, .rd-td) {
+  border: 1px solid rgba(128, 128, 128, 0.45);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.rich-doc :is(th, .rd-th) {
+  background: rgba(128, 128, 128, 0.18);
+  font-weight: 600;
+}
+
+.rich-doc--title {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rich-doc--title :is(p, .rd-p) {
+  margin: 0;
+  overflow: visible;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.rich-doc--title.tiptap,
+.rich-doc--title .ProseMirror {
+  min-height: 0;
+}
+
+/* Placeholder text for empty fields (Tiptap's Placeholder extension). */
+.rich-doc.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: currentColor;
+  opacity: 0.42;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

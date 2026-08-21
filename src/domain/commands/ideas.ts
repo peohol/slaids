@@ -1,0 +1,188 @@
+/**
+ * Ideas panel commands.
+ *
+ * Ported conceptually from mdeditz: an idea is a one-line note, categories group
+ * them at exactly one level, and the list is ordered so notes can be dragged
+ * into the order that makes sense. The idea *data* belongs to the presentation;
+ * the window's position and size are local UI state and live in localStorage.
+ */
+
+/** Same limits as the sibling app, so a note stays a note. */
+export const MAX_IDEAS = 200
+export const MAX_IDEA_LENGTH = 280
+
+/** One line, cut where an idea stops being a note. */
+export function oneLine(text: string): string {
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_IDEA_LENGTH)
+}
+
+import { newIdeaCategoryId, newIdeaId } from '../ids'
+import { touch } from '../presentation'
+import { normalizeHex } from '../color'
+import { err, ok, type Result } from '../result'
+import type { Idea, Presentation } from '../types'
+
+export function addIdea(
+  presentation: Presentation,
+  input: { categoryId: string | null; text: string },
+): Result<Presentation> {
+  if (!knownCategory(presentation, input.categoryId)) {
+    return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  }
+  if (presentation.ideas.length >= MAX_IDEAS) {
+    return err('INVALID_ARGUMENT', `Det er plass til maksimalt ${MAX_IDEAS} idéer.`)
+  }
+  const text = oneLine(input.text)
+  if (!text) return err('INVALID_ARGUMENT', 'Idéen kan ikke være tom.')
+  const idea: Idea = { id: newIdeaId(), categoryId: input.categoryId, text, done: false }
+  return ok(touch({ ...presentation, ideas: [...presentation.ideas, idea] }))
+}
+
+export function updateIdea(
+  presentation: Presentation,
+  id: string,
+  patch: Partial<Pick<Idea, 'text' | 'done' | 'categoryId'>>,
+): Result<Presentation> {
+  const index = presentation.ideas.findIndex((idea) => idea.id === id)
+  if (index < 0) return err('INVALID_ARGUMENT', 'Fant ikke idéen.')
+  if (patch.categoryId !== undefined && !knownCategory(presentation, patch.categoryId)) {
+    return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  }
+  const ideas = [...presentation.ideas]
+  ideas[index] = {
+    ...ideas[index],
+    ...patch,
+    ...(patch.text !== undefined ? { text: oneLine(patch.text) } : {}),
+  }
+  return ok(touch({ ...presentation, ideas }))
+}
+
+export function deleteIdea(presentation: Presentation, id: string): Result<Presentation> {
+  if (!presentation.ideas.some((idea) => idea.id === id)) {
+    return err('INVALID_ARGUMENT', 'Fant ikke idéen.')
+  }
+  return ok(touch({ ...presentation, ideas: presentation.ideas.filter((idea) => idea.id !== id) }))
+}
+
+/**
+ * Move an idea to another category and/or another position within it.
+ *
+ * `targetCategoryId` is `null` for the uncategorised list. The index is read in
+ * the target list *without* the moved idea in it, which is exactly the position
+ * the drop indicator shows during a drag.
+ */
+export function moveIdea(
+  presentation: Presentation,
+  id: string,
+  targetCategoryId: string | null,
+  targetIndex: number,
+): Result<Presentation> {
+  const idea = presentation.ideas.find((entry) => entry.id === id)
+  if (!idea) return err('INVALID_ARGUMENT', 'Fant ikke idéen.')
+  if (!knownCategory(presentation, targetCategoryId)) {
+    return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  }
+  const others = presentation.ideas.filter((entry) => entry.id !== id)
+  const inCategory = others.filter((entry) => entry.categoryId === targetCategoryId)
+  const clamped = Math.max(0, Math.min(targetIndex, inCategory.length))
+  const moved: Idea = { ...idea, categoryId: targetCategoryId }
+
+  const rebuilt: Idea[] = []
+  let inserted = false
+  let seenInCategory = 0
+  for (const entry of others) {
+    if (entry.categoryId === targetCategoryId) {
+      if (seenInCategory === clamped && !inserted) {
+        rebuilt.push(moved)
+        inserted = true
+      }
+      seenInCategory += 1
+    }
+    rebuilt.push(entry)
+  }
+  if (!inserted) rebuilt.push(moved)
+  return ok(touch({ ...presentation, ideas: rebuilt }))
+}
+
+export function addIdeaCategory(
+  presentation: Presentation,
+  name: string,
+  color: string,
+): Result<Presentation> {
+  const hex = normalizeHex(color)
+  if (!hex) return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
+  const trimmed = name.trim()
+  if (!trimmed) return err('INVALID_ARGUMENT', 'Kategorien må ha et navn.')
+  return ok(
+    touch({
+      ...presentation,
+      ideaCategories: [
+        ...presentation.ideaCategories,
+        { id: newIdeaCategoryId(), name: trimmed, color: hex },
+      ],
+    }),
+  )
+}
+
+export function renameIdeaCategory(
+  presentation: Presentation,
+  id: string,
+  name: string,
+): Result<Presentation> {
+  const index = presentation.ideaCategories.findIndex((category) => category.id === id)
+  if (index < 0) return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  const trimmed = name.trim()
+  if (!trimmed) return err('INVALID_ARGUMENT', 'Kategorien må ha et navn.')
+  const ideaCategories = [...presentation.ideaCategories]
+  ideaCategories[index] = { ...ideaCategories[index], name: trimmed }
+  return ok(touch({ ...presentation, ideaCategories }))
+}
+
+/**
+ * Delete a category without taking its ideas with it.
+ *
+ * A category is a heading, not a container that owns what it holds: an idea
+ * that has not been used yet must not disappear because someone tidied up the
+ * heading above it. The ideas become uncategorised, in the order they had.
+ */
+export function deleteIdeaCategory(presentation: Presentation, id: string): Result<Presentation> {
+  if (!presentation.ideaCategories.some((category) => category.id === id)) {
+    return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  }
+  return ok(
+    touch({
+      ...presentation,
+      ideaCategories: presentation.ideaCategories.filter((category) => category.id !== id),
+      ideas: presentation.ideas.map((idea) =>
+        idea.categoryId === id ? { ...idea, categoryId: null } : idea,
+      ),
+    }),
+  )
+}
+
+/** Categories are shown in their stored order, so reordering is a move. */
+export function moveIdeaCategory(
+  presentation: Presentation,
+  id: string,
+  toIndex: number,
+): Result<Presentation> {
+  const from = presentation.ideaCategories.findIndex((category) => category.id === id)
+  if (from < 0) return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  const rest = presentation.ideaCategories.filter((category) => category.id !== id)
+  const clamped = Math.max(0, Math.min(Math.round(toIndex), rest.length))
+  if (clamped === from) return ok(presentation)
+  const ideaCategories = [
+    ...rest.slice(0, clamped),
+    presentation.ideaCategories[from],
+    ...rest.slice(clamped),
+  ]
+  return ok(touch({ ...presentation, ideaCategories }))
+}
+
+/** `null` is the uncategorised list, which always exists. */
+function knownCategory(presentation: Presentation, id: string | null): boolean {
+  return id === null || presentation.ideaCategories.some((category) => category.id === id)
+}
