@@ -399,19 +399,32 @@ Usynlig wrapper:
 - ingen box shadow;
 - ingen visuell kortflate;
 - ingen ytre padding som påvirker layoutgap;
-- kan inneholde RichDoc, bilde eller SVG etter hvert.
+- kan inneholde subfelt med RichDoc, eller ett bilde/SVG som fyller sonen.
 
 Tekstfarge velges automatisk mot slidebakgrunn.
+
+En beholder er et gjennomsiktig kort: tekstsiden bruker den samme
+`CardBody`-en et kort bruker, med de samme kommandoene og de samme
+skillelinjene. Ett subfelt er det en beholder var før. Skillelinjene følger
+tekstfargen bakgrunnen tilsier (hvit eller svart, delvis gjennomsiktig),
+mens et korts skillelinjer er nøytralt grå uansett headerfarge – en
+skillelinje er struktur, ikke dekorasjon.
 
 ### 13.2 Untitled card
 
 Kort uten separat header:
 
 - avrundede hjørner;
-- box shadow;
+- dybde tegnet **inni** kortet;
 - bakgrunnsfarge;
 - intern padding;
 - RichDoc i body.
+
+Dybden er en innoverrettet skygge, ikke en `box-shadow` utenfor kortet: en
+sone klipper alt som males utenfor den (§17), og et kort fyller sonen sin
+nøyaktig, så en ytre skygge har ingen steder å lande. Å trekke kortet inn i
+stedet ville lagt to forskjellige avstander mellom to kort og brutt
+ett-gap-invarianten.
 
 ### 13.3 Titled card
 
@@ -465,10 +478,33 @@ type PresentationTheme = {
   backgroundColor: string
   headingFontFamily: string
   bodyFontFamily: string
+  /** Luft: én multiplikator på alle avstander. */
+  spacing: number
+  /** Skriftstørrelse: én multiplikator på all typografi. */
+  fontScale: number
 }
 ```
 
 Fontvalg bør starte med et kontrollert sett vanlige system-/Windowsfonter og et begrenset sett webfonter. Unngå å gjøre fontsystemet til et stort prosjekt i første PR.
+
+**Luft** og **skriftstørrelse** er to skalaer, ikke to lister med tall.
+`spacing` ganger opp alle avstander samlet – det globale gapet, slide-
+innrykket, kortpolstringen, avstanden mellom subfelt og mellom tekstblokker.
+At de flyttes samlet er det som holder ett-gap-invarianten sann på hvert
+trinn: gapet er fortsatt én avstand, bare en annen. `fontScale` ganger opp
+all typografi, inkludert boksene hvis høyde er diktert av typografi
+(tittelsonen og kortheaderen), så større tekst aldri havner i en boks bygget
+for mindre.
+
+Utledningen fra basistokens hører hjemme ett sted (`src/domain/metrics.ts`),
+og geometrimotoren, DOM-en og den hodeløse estimatoren leser alle den samme
+utledningen – ellers glir de fra hverandre. Begge skalaene er derfor
+fit-relevante: en temaendring som ikke er en font må måle decket på nytt på
+samme måte som en font gjør.
+
+Temaet kan lagres som standard for nye presentasjoner. Det er en lokal
+preferanse (localStorage, som vindusgeometri), ikke presentasjonsdata, og
+valideres på vei ut igjen.
 
 ---
 
@@ -489,7 +525,16 @@ Støtt minst:
 - ordered lists;
 - links;
 - line breaks;
+- justering (venstre/midt/høyre) per blokk;
 - senere citations og tabeller.
+
+Titler – både slidetittel og korttittel – er midtstilt som standard: en
+tittel er en etikett, ikke et avsnitt. Justering lagres på dokumentet som
+den samme inline-stilen begge rendringene skriver, så editoren og sliden
+ikke kan bli uenige.
+
+Innhold justeres også loddrett (topp/midt/bunn) i feltet det står i. Det er
+en egenskap ved feltet, ikke ved teksten.
 
 ### Ekstern paste
 
@@ -523,8 +568,12 @@ Alt rendres med clip/hidden slik at ingenting males utenfor sonen.
 En sentral funksjon:
 
 ```ts
-canFit(content, rect, theme): FitResult
+canFit(content, rect, context): FitResult
 ```
+
+`context` er den **prospektive** rendringskonteksten: temaet som skal gjelde
+etter commit, og siteringsnummereringen decket får etter commit. Den
+tilstanden som skal vises etter commit, er den som måles før commit.
 
 skal etter hvert brukes av:
 
@@ -740,6 +789,15 @@ SVG skal beholdes vektorbasert, men vises som asset via `<img>`/Blob URL som sik
 
 Innhold refererer til `assetId`, ikke store base64-strenger i presentasjons-JSON.
 
+Et bilde kan settes inn enten i et tekstfelt, sammen med teksten, eller som
+innhold som fyller hele sonen. Hvor det havner spørres om, det utledes ikke
+av hvilken modus editoren tilfeldigvis står i.
+
+Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
+størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
+bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i
+sonen. Fit-vakten har fortsatt siste ord.
+
 ---
 
 ## 27\. Intern clipboard
@@ -835,6 +893,11 @@ Bevar prinsippet:
 - innholdsdata eies av presentasjonen;
 - vindusgeometri/posisjon er lokal UI-state;
 - ett tydelig kategorinivå;
+- kategorier har en rekkefølge og kan dras om;
+- en idé trenger ingen kategori;
+- en kategori er en overskrift, ikke en beholder som eier det den står over:
+  sletter man den, blir idéene liggende – ukategorisert;
+- fargekoding som skiller kategoriene, og som følger idéene under dem;
 - DnD der det er nyttig.
 
 Ikke kopier mdeditz-arkitekturen blindt; portér ønsket UX og atferd inn i Slaids' typed domene.
@@ -972,7 +1035,7 @@ Struktur:
 - høyre leaf y-split `1:2`;
 - venstre titled card;
 - to subfields i venstre body;
-- SVG i transparent top-right container;
+- fritekst i transparent top-right container;
 - untitled bottom-right card.
 
 Automatiserte geometriasserts:
@@ -1053,10 +1116,15 @@ Når minimum er nådd, fortsett i denne rekkefølgen:
 11. lokal `.slaids` backup/import;
 12. font-polish;
 13. direct ratio drag handles;
-14. simple shapes;
-15. undo/redo dersom ikke allerede implementert;
-16. mer E2E/geometri/visuell regresjon;
-17. generell UX-polish.
+14. undo/redo dersom ikke allerede implementert;
+15. mer E2E/geometri/visuell regresjon;
+16. generell UX-polish.
+
+«Simple shapes» stod på denne listen og er tatt ut igjen etter fysisk
+testing: en figur er ikke det denne editoren er til for – et bilde settes
+inn som et bilde – og verktøyet kostet mer i modell, migrasjon og UI enn det
+ga. Skulle det komme tilbake, kommer det som en asset-type, ikke som en egen
+payload og en egen inline-node.
 
 Agenten skal bare stoppe når:
 

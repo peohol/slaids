@@ -12,9 +12,14 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 
 - Fast logisk designrom: `1600 × 900`. Skaleres uniformt til viewport.
 - Layout er et rekursivt tre: `split` har `children` og aldri `content`; `leaf` har `content` og aldri `children`.
+- Kort og beholdere deler den samme `CardBody`: en beholder er et gjennomsiktig kort.
 - `children.length === weights.length`; 2–10 barn; alle weights er endelige tall `> 0`.
 - Nøyaktig ett globalt gap `G` mellom alt synlig innhold. Nesting skal aldri doble gap.
   Strukturelle noder har aldri egen margin/padding som påvirker layoutgeometri.
+  Temaet skalerer `G` sammen med alle andre avstander (`spacing`) – det er
+  fortsatt én avstand, bare en annen. `src/domain/metrics.ts` er eneste
+  utledning av tema-skalerte tokens; geometrimotoren, DOM-en og estimatoren
+  leser alle den samme.
 - `src/domain/geometry.ts` er eneste sannhetskilde for rects – både rendering og hit-testing.
 - Persistens: IndexedDB via Dexie. Aldri `localStorage` for presentasjoner/assets.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
