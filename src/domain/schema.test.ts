@@ -139,8 +139,27 @@ describe('migrations', () => {
       'under kilder',
       'også under kilder',
     ])
+    // The colour comes along: it is what tells two lists apart, and a list that
+    // changed shape should still look like the one the author left.
+    expect(result.value.ideas.filter((row) => row.kind === 'category').map((row) => row.color)).toEqual([
+      '#4d6b8c',
+      '#8c6b4d',
+    ])
     // Nothing that was written is lost, and the old pair of arrays is gone.
     expect((result.value as unknown as Record<string, unknown>).ideaCategories).toBeUndefined()
+  })
+
+  it('gives a category without a usable colour one, rather than refusing to open', () => {
+    const category = { id: 'k1', kind: 'category', text: 'Kilder', ideas: [] }
+    for (const broken of [category, { ...category, color: 'papayawhip' }]) {
+      const result = migratePresentation({ ...sample(), ideas: [broken] })
+      expect(result.ok).toBe(true)
+      if (!result.ok || !result.value) continue
+      const repaired = result.value.ideas[0]
+      expect(repaired.kind === 'category' ? repaired.color : null).toMatch(/^#[0-9a-f]{6}$/)
+      // The note the heading stood over is untouched by the repair.
+      expect(repaired.text).toBe('Kilder')
+    }
   })
 
   it('passes a current-version document straight through', () => {

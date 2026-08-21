@@ -218,6 +218,62 @@ test.describe('ideas', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('colours a category without the swatch hijacking the drag', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Idéfarger')
+    await page.getByTestId('open-ideas').click()
+    await addCategory(page, 'Kilder')
+    await addCategory(page, 'Å gjøre')
+    await addIdeaTo(page, 0, 'Finn artikkelen')
+
+    // Two new categories never start out looking the same.
+    const swatches = page.getByTestId('idea-category-color')
+    const first = await swatches.nth(0).getAttribute('data-color')
+    const second = await swatches.nth(1).getAttribute('data-color')
+    expect(first).not.toBe(second)
+
+    // Pressing the swatch opens the palette. It sits inside the drag zone, so
+    // the press must reach the button instead of lifting the category.
+    await swatches.nth(0).click()
+    await expect(page.getByTestId('palette')).toBeVisible()
+    expect(await rowTexts(page)).toEqual(['Kilder', 'Finn artikkelen', 'Å gjøre'])
+    await page.locator('.palette__swatch[data-color="#402626"]').click()
+    await expect(swatches.nth(0)).toHaveAttribute('data-color', '#402626')
+    await page.keyboard.press('Escape')
+
+    // The idea filed under it is drawn in its list's colour, and keeps it while
+    // it is in the air — that is the whole point of the colour.
+    const stripe = (nth: number): Promise<string> =>
+      page
+        .getByTestId('idea')
+        .nth(nth)
+        .evaluate((node) => getComputedStyle(node, '::before').backgroundColor)
+    expect(await stripe(0)).toBe('rgb(64, 38, 38)')
+
+    const card = page.getByTestId('idea').nth(0)
+    const box = await card.boundingBox()
+    if (!box) throw new Error('missing card geometry')
+    await page.mouse.move(box.x + 40, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 40, box.y + box.height / 2 + 10, { steps: 3 })
+    await page.mouse.move(box.x - 120, box.y + 120, { steps: 10 })
+    await expect(card).toHaveClass(/is-dragging/)
+    // The drag paints background, border and shadow on the lifted card; the
+    // colour rides on a pseudo-element none of them can reach.
+    expect(await stripe(0)).toBe('rgb(64, 38, 38)')
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('ideas-window')).toBeVisible()
+    await expect(page.getByTestId('idea-category-color').first()).toHaveAttribute(
+      'data-color',
+      '#402626',
+    )
+    expect(guard.errors).toEqual([])
+  })
+
   test('moves a row with the keyboard', async ({ page }) => {
     await createPresentation(page, 'Idétastatur')
     await page.getByTestId('open-ideas').click()

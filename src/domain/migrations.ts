@@ -12,6 +12,7 @@ import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import { emptyDoc, mergeAdjacentCitations } from './richdoc'
 import { newSubfieldId } from './ids'
+import { CATEGORY_COLORS, normalizeIdeas } from './ideas'
 import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import {
@@ -245,9 +246,14 @@ const migrate5to6: MigrationFn = (data) => {
  * categories instead of always above them. Reading order is preserved: the
  * uncategorised ideas came first on screen, and they still do.
  *
- * `done` and the category colour go. Neither survives in the model an idea is
- * a one-line note again, and a note is either still there or crossed off by
- * being deleted. No text is lost.
+ * The category colour comes along — it is what tells two lists apart, and a
+ * list that changed shape should still look like the one the author left.
+ * `done` is the one thing that goes: an idea is a one-line note again, and a
+ * note is either still there or deleted. No text is lost.
+ *
+ * `normalizeIdeas` has the last word, so whatever the old pair of arrays held
+ * arrives as a list the schema will accept: one level deep, unique ids, a
+ * colour on every category.
  */
 const migrate6to7: MigrationFn = (data) => {
   const ideas = asArray(data.ideas).map((entry) => (entry ?? {}) as Raw)
@@ -264,13 +270,14 @@ const migrate6to7: MigrationFn = (data) => {
       id,
       kind: 'category',
       text: asString(category.name, 'Kategori'),
+      color: asString(category.color, ''),
       ideas: ideas.filter((idea) => idea.categoryId === id).map(row),
     }
   })
 
   const { ideaCategories, ...rest } = data
   void ideaCategories
-  return { ...rest, schemaVersion: 7, ideas: [...loose, ...categories] }
+  return { ...rest, schemaVersion: 7, ideas: normalizeIdeas([...loose, ...categories]) }
 }
 
 /** Keyed by the version the migration upgrades *from*. */
@@ -317,10 +324,33 @@ export function repairPresentation(data: Raw): Raw {
     return Object.fromEntries(entries)
   }
 
+  /* A category whose colour is missing or unusable would fail validation on its
+     own, while every note in the list is perfectly readable. That is the same
+     single-value defect as a bad background colour, so it is coerced here
+     rather than allowed to make the presentation unopenable. */
+  const repaired: Raw[] = []
+  const usedColors = new Set<string>()
+  for (const entry of asArray(data.ideas)) {
+    const row = (entry ?? {}) as Raw
+    if (row.kind !== 'category') {
+      repaired.push(row)
+      continue
+    }
+    const color = normalizeHex(asString(row.color, '')) ?? freeCategoryColor(usedColors)
+    usedColors.add(color)
+    repaired.push({ ...row, color })
+  }
+
   return {
     ...(repairColors(data) as Raw),
+    ideas: repaired,
     theme: repairedTheme,
   }
+}
+
+/** The first category colour nobody in the list has taken yet. */
+function freeCategoryColor(used: Set<string>): string {
+  return CATEGORY_COLORS.find((color) => !used.has(color)) ?? CATEGORY_COLORS[used.size % CATEGORY_COLORS.length]
 }
 
 function clampScale(

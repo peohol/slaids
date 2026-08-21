@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  CATEGORY_COLORS,
   MAX_IDEAS,
   MAX_IDEA_LENGTH,
   addCategory,
@@ -22,10 +23,12 @@ import {
   findRow,
   isCategory,
   moveRow,
+  nextCategoryColor,
   normalizeIdeas,
   oneLine,
   removeRow,
   rowLocation,
+  setCategoryColor,
   setText,
   type IdeaRow,
 } from './ideas'
@@ -157,6 +160,75 @@ describe('the categories', () => {
     expect(findRow(rows, category.ideas[0].id)?.text).toBe('b')
     expect(findRow(rows, 'nope')).toBeNull()
     expect(rowLocation(rows, 'nope')).toBeNull()
+  })
+})
+
+describe('the colour', () => {
+  const colorsIn = (rows: IdeaRow[]): string[] => rows.filter(isCategory).map((row) => row.color)
+
+  it('gives every new category a colour nobody else is using', () => {
+    let rows: IdeaRow[] = []
+    for (let index = 0; index < CATEGORY_COLORS.length; index += 1) {
+      rows = addCategory(rows, `K${index}`)
+    }
+    const colors = colorsIn(rows)
+    expect(colors).toHaveLength(CATEGORY_COLORS.length)
+    expect(new Set(colors).size).toBe(CATEGORY_COLORS.length)
+  })
+
+  it('reuses a colour once the palette is spent, rather than running out', () => {
+    let rows: IdeaRow[] = []
+    for (let index = 0; index <= CATEGORY_COLORS.length; index += 1) {
+      rows = addCategory(rows, `K${index}`)
+    }
+    expect(CATEGORY_COLORS).toContain(colorsIn(rows).at(-1))
+  })
+
+  it('takes a colour it is handed, and falls back when it is not usable', () => {
+    expect(colorsIn(addCategory([], 'K', '#402626'))).toEqual(['#402626'])
+    // Short form is expanded, not rejected.
+    expect(colorsIn(addCategory([], 'K', '#abc'))).toEqual(['#aabbcc'])
+    expect(CATEGORY_COLORS).toContain(colorsIn(addCategory([], 'K', 'papayawhip'))[0])
+  })
+
+  it('frees a colour again when the category using it goes', () => {
+    const rows = addCategory(addCategory([], 'Første'), 'Andre')
+    const [first] = colorsIn(rows)
+    expect(nextCategoryColor(rows)).not.toBe(first)
+    expect(nextCategoryColor(removeRow(rows, rows[0].id))).toBe(first)
+  })
+
+  it('recolours a category, and treats a no-op as no change', () => {
+    const rows = addCategory([], 'Kilder')
+    const id = rows[0].id
+    expect(colorsIn(setCategoryColor(rows, id, '#402626'))).toEqual(['#402626'])
+    // An unusable colour and the colour it already has are both nothing to write.
+    expect(setCategoryColor(rows, id, 'papayawhip')).toBe(rows)
+    expect(setCategoryColor(rows, id, colorsIn(rows)[0])).toBe(rows)
+    // An idea has no colour of its own to set.
+    const withIdea = addIdea(rows, 'notat', id)
+    const ideaId = (withIdea[0] as { ideas: IdeaRow[] }).ideas[0].id
+    expect(setCategoryColor(withIdea, ideaId, '#402626')).toBe(withIdea)
+  })
+
+  it('leaves the ideas alone when the list around them is recoloured', () => {
+    const rows = build('[K: a, b]')
+    const next = setCategoryColor(rows, rows[0].id, '#402626')
+    // The colour is the list's; the notes filed in it are untouched.
+    expect(shape(next)).toBe(shape(rows))
+  })
+
+  it('gives a repaired category a colour, keeping the one it had', () => {
+    const rows = normalizeIdeas([
+      { id: 'k1', kind: 'category', text: 'Beholdt', color: '#402626', ideas: [] },
+      { id: 'k2', kind: 'category', text: 'Manglet', ideas: [] },
+      { id: 'k3', kind: 'category', text: 'Ubrukelig', color: 'papayawhip', ideas: [] },
+    ])
+    const colors = colorsIn(rows)
+    expect(colors[0]).toBe('#402626')
+    expect(CATEGORY_COLORS).toContain(colors[1])
+    expect(CATEGORY_COLORS).toContain(colors[2])
+    expect(new Set(colors).size).toBe(3)
   })
 })
 

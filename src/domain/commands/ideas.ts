@@ -21,8 +21,10 @@ import {
   moveRow,
   oneLine,
   removeRow,
+  setCategoryColor,
   setText,
 } from '../ideas'
+import { normalizeHex } from '../color'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
 import type { IdeaRow, Presentation } from '../types'
@@ -46,11 +48,37 @@ export function addIdea(
   return ok(withIdeas(presentation, addIdeaRow(presentation.ideas, input.text, input.categoryId)))
 }
 
-export function addIdeaCategory(presentation: Presentation, name: string): Result<Presentation> {
+/** A category. Without a colour it gets the first one no other category uses. */
+export function addIdeaCategory(
+  presentation: Presentation,
+  name: string,
+  color?: string,
+): Result<Presentation> {
   if (countRows(presentation.ideas) >= MAX_IDEAS) {
     return err('INVALID_ARGUMENT', `Det er plass til maksimalt ${MAX_IDEAS} rader.`)
   }
-  return ok(withIdeas(presentation, addCategory(presentation.ideas, name)))
+  if (color !== undefined && !normalizeHex(color)) {
+    return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
+  }
+  return ok(withIdeas(presentation, addCategory(presentation.ideas, name, color)))
+}
+
+/**
+ * A new colour on a category.
+ *
+ * The colour lives on the category alone; the ideas under it are drawn in it
+ * without carrying it, so recolouring a list is one write and never touches the
+ * notes filed in it.
+ */
+export function setIdeaCategoryColor(
+  presentation: Presentation,
+  id: string,
+  color: string,
+): Result<Presentation> {
+  const row = findRow(presentation.ideas, id)
+  if (!row || row.kind !== 'category') return err('INVALID_ARGUMENT', 'Fant ikke kategorien.')
+  if (!normalizeHex(color)) return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
+  return ok(withIdeas(presentation, setCategoryColor(presentation.ideas, id, color)))
 }
 
 /**

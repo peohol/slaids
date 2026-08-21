@@ -931,13 +931,35 @@ Atferden:
   innenfor `.editor__body` og skiller mellom ønsket og mulig størrelse, slik at
   en midlertidig klemt flate ikke overskriver valget.
 
-Farge per kategori og avkryssing (`done`) er borte: mdeditz har ingen av delene.
-En idé er et notat som står der til det er brukt, og da slettes det.
+Fargekoding er beholdt, og er det ene stedet Slaids går ut over mdeditz. Farge
+gir mening her fordi lista skal leses på skrå mens man bygger, og den må da
+koste ingenting i draget. Derfor:
+
+- fargen ligger på **kategorien**, aldri på idéene. En idé hører til en liste,
+  og lista eier fargen; å farge om en liste er én skriving som ikke rører et
+  eneste notat;
+- den arves ned som en CSS-variabel på kategoriraden. Idéene får den uten å
+  bære den, og et løftet kort beholder den i lufta – `position: fixed` flytter
+  hvor en rad **tegnes**, aldri hvor den står i treet;
+- den males med `::before`, ikke med `background`, `border-color` eller
+  `box-shadow`. Dra-tilstandene setter nettopp de tre på kortet, og en farge
+  båret av noen av dem ville blitt visket ut i det man tok kortet opp – altså
+  akkurat når det betyr noe å se hvor det kom fra;
+- fargebrikka i overskriften er både fargen og måten å endre den på, og står i
+  dra-sonens unntaksliste, slik at et trykk på den åpner paletten i stedet for
+  å løfte kategorien.
+
+Nye kategorier får den første fargen ingen andre bruker, i en rekkefølge som går
+rundt fargesirkelen i sprang – ellers ville de tre første lista blitt rød,
+oransje og gul: forskjellige, men ikke til å skille.
+
+Avkryssing (`done`) er borte, som i mdeditz. En idé er et notat som står der til
+det er brukt, og da slettes det.
 
 Arkitekturen er fortsatt Slaids': modellen er rene funksjoner i
 `src/domain/ideas.ts`, endringene går gjennom typed kommandoer i
 `src/domain/commands/ideas.ts`, og `schemaVersion` 7 folder det gamle paret
-`ideas`/`ideaCategories` sammen til den ene lista.
+`ideas`/`ideaCategories` sammen til den ene lista – med fargene i behold.
 
 ---
 

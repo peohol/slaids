@@ -30,7 +30,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { addIdea, addIdeaCategory, moveIdeaRow, removeIdeaRow, setIdeaText } from '../../domain/commands'
+import {
+  addIdea,
+  addIdeaCategory,
+  moveIdeaRow,
+  removeIdeaRow,
+  setIdeaCategoryColor,
+  setIdeaText,
+} from '../../domain/commands'
 import {
   MAX_IDEAS,
   MAX_IDEA_LENGTH,
@@ -45,6 +52,7 @@ import {
 import type { IdeaCategory, IdeaRow, Idea as IdeaRowData } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { DEFAULT_IDEAS_GEOMETRY } from '../../state/prefs'
+import { ColorSwatchButton } from '../components/ColorPicker'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { Icon } from '../components/Icon'
 
@@ -647,7 +655,21 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
   )
 
   const renderCategory = (category: IdeaCategory): React.ReactNode => (
-    <li key={category.id} className="idea-cat" data-id={category.id} data-testid="idea-category">
+    <li
+      key={category.id}
+      className="idea-cat"
+      data-id={category.id}
+      data-testid="idea-category"
+      /*
+       * The colour is handed down as a custom property rather than painted onto
+       * each row. Two things fall out of that, and both matter for the drag:
+       * the ideas inherit it without carrying it, and a lifted card keeps it
+       * while it is in the air — `position: fixed` moves where a row is drawn,
+       * never where it sits in the tree. Nothing here writes `style.left`,
+       * `top` or `width`, which is what the drag writes by hand.
+       */
+      style={{ '--idea-color': category.color } as React.CSSProperties}
+    >
       <div
         className="idea-cat-head"
         tabIndex={0}
@@ -660,13 +682,24 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
             event,
             category.id,
             event.currentTarget.closest<HTMLElement>('.idea-cat'),
-            '.idea-cat-add, .idea-remove',
+            '.idea-cat-color, .idea-cat-add, .idea-remove',
           )
         }
         onClickCapture={swallowClick}
         onClick={focusOnClick}
       >
         <Icon name="grip" size={13} className="idea-grip" />
+        <ColorSwatchButton
+          className="idea-cat-color"
+          value={category.color}
+          label={`Farge på «${category.text}»`}
+          testId="idea-category-color"
+          onChange={(color) =>
+            run('idea-category-color', (state) =>
+              setIdeaCategoryColor(state, category.id, color),
+            )
+          }
+        />
         {renderText(category, 'idea-cat-title')}
         <button
           type="button"

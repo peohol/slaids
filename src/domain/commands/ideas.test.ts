@@ -14,9 +14,10 @@ import {
   addIdeaCategory,
   moveIdeaRow,
   removeIdeaRow,
+  setIdeaCategoryColor,
   setIdeaText,
 } from './ideas'
-import { MAX_IDEAS, isCategory } from '../ideas'
+import { CATEGORY_COLORS, MAX_IDEAS, isCategory } from '../ideas'
 import { createPresentation } from '../presentation'
 import type { IdeaRow, Presentation } from '../types'
 
@@ -76,6 +77,16 @@ describe('adding', () => {
     expect(addIdeaCategory(presentation, 'én til').ok).toBe(false)
   })
 
+  it('gives a category a colour, and validates one it is handed', () => {
+    const blank = createPresentation({ title: 'x' })
+    const colorOf = (presentation: Presentation): string =>
+      presentation.ideas.find(isCategory)!.color
+
+    expect(CATEGORY_COLORS).toContain(colorOf(unwrap(addIdeaCategory(blank, 'Kilder'))))
+    expect(colorOf(unwrap(addIdeaCategory(blank, 'Kilder', '#402626')))).toBe('#402626')
+    expect(addIdeaCategory(blank, 'Kilder', 'papayawhip').ok).toBe(false)
+  })
+
   it('names a category, and falls back to a name when none is given', () => {
     expect(unwrap(addIdeaCategory(createPresentation({ title: 'x' }), ' Kilder ')).ideas[0].text).toBe(
       'Kilder',
@@ -107,6 +118,30 @@ describe('editing', () => {
     expect(setIdeaText(presentation, 'nope', 'noe').ok).toBe(false)
     expect(removeIdeaRow(presentation, 'nope').ok).toBe(false)
     expect(moveIdeaRow(presentation, 'nope', null, 0).ok).toBe(false)
+  })
+})
+
+describe('colouring', () => {
+  it('recolours a category', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    const next = unwrap(setIdeaCategoryColor(presentation, category.id, '#402626'))
+    expect(next.ideas.find(isCategory)!.color).toBe('#402626')
+  })
+
+  it('refuses a bad colour, an unknown row and an idea', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    expect(setIdeaCategoryColor(presentation, category.id, 'papayawhip').ok).toBe(false)
+    expect(setIdeaCategoryColor(presentation, 'nope', '#402626').ok).toBe(false)
+    // An idea has no colour of its own — it is drawn in the one its list has.
+    expect(setIdeaCategoryColor(presentation, presentation.ideas[0].id, '#402626').ok).toBe(false)
+  })
+
+  it('hands back the same presentation for the colour it already has', () => {
+    const presentation = seeded()
+    const category = presentation.ideas.find(isCategory)!
+    expect(unwrap(setIdeaCategoryColor(presentation, category.id, category.color))).toBe(presentation)
   })
 })
 

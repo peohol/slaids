@@ -19,6 +19,7 @@
  * started.
  */
 
+import { PALETTE, normalizeHex } from './color'
 import { newIdeaCategoryId, newIdeaId } from './ids'
 
 /** Same limits as the sibling app, so a note stays a note. */
@@ -35,10 +36,44 @@ export interface IdeaCategory {
   id: string
   kind: 'category'
   text: string
+  /**
+   * What tells two categories apart at a glance, and what follows the ideas
+   * filed under them. It is carried as a plain value on the category and never
+   * on the ideas: an idea belongs to a list, and the list owns the colour.
+   */
+  color: string
   ideas: Idea[]
 }
 
 export type IdeaRow = Idea | IdeaCategory
+
+/**
+ * The colours a new category may get: one row of the shared palette, which is
+ * muted enough to sit behind text without shouting.
+ *
+ * Reordered by a stride around the hue circle rather than taken in order. The
+ * colours are handed out first-free, and in hue order the first three lists
+ * would come out red, orange, yellow — all different, none *telling* apart.
+ * A stride of 5 over 12 hues visits every one of them exactly once and starts
+ * red, green, magenta, so the categories you actually make look distinct.
+ */
+export const CATEGORY_COLORS = PALETTE[1].map(
+  (_, index) => PALETTE[1][(index * 5) % PALETTE[1].length],
+)
+
+/**
+ * A colour for a new category: the first one nobody is using.
+ *
+ * Distinct beats pretty here — the colour exists to tell two lists apart, and
+ * two categories that happen to look the same tell you nothing. Deleting a
+ * category frees its colour again. Past twelve lists it wraps around, because
+ * a repeated colour is better than none.
+ */
+export function nextCategoryColor(rows: IdeaRow[]): string {
+  const used = new Set(rows.filter(isCategory).map((row) => row.color))
+  const free = CATEGORY_COLORS.find((color) => !used.has(color))
+  return free ?? CATEGORY_COLORS[used.size % CATEGORY_COLORS.length]
+}
 
 export function isCategory(row: IdeaRow | null | undefined): row is IdeaCategory {
   return row?.kind === 'category'
@@ -102,6 +137,9 @@ export function normalizeIdeas(raw: unknown): IdeaRow[] {
         id: idFor(row.id, newIdeaCategoryId),
         kind: 'category',
         text: oneLine(row.text) || 'Kategori',
+        // A category without a usable colour gets one that is still free, so a
+        // repaired list still tells its lists apart.
+        color: normalizeHex(String(row.color ?? '')) ?? nextCategoryColor(rows),
         ideas: ideasIn(row.ideas),
       })
       continue
@@ -177,10 +215,33 @@ export function addIdea(rows: IdeaRow[], text: string, categoryId: string | null
   return next
 }
 
-export function addCategory(rows: IdeaRow[], text: string): IdeaRow[] {
+export function addCategory(rows: IdeaRow[], text: string, color?: string): IdeaRow[] {
   const clean = oneLine(text) || 'Kategori'
   if (countRows(rows) >= MAX_IDEAS) return rows
-  return [...cloneRows(rows), { id: newIdeaCategoryId(), kind: 'category', text: clean, ideas: [] }]
+  return [
+    ...cloneRows(rows),
+    {
+      id: newIdeaCategoryId(),
+      kind: 'category',
+      text: clean,
+      color: (color && normalizeHex(color)) || nextCategoryColor(rows),
+      ideas: [],
+    },
+  ]
+}
+
+/**
+ * A new colour on a category. An unusable one is no change, like empty text on
+ * a row — the colour it already had still stands.
+ */
+export function setCategoryColor(rows: IdeaRow[], id: string, color: string): IdeaRow[] {
+  const hex = normalizeHex(color)
+  if (!hex) return rows
+  const next = cloneRows(rows)
+  const row = findRow(next, id)
+  if (!isCategory(row) || row.color === hex) return rows
+  row.color = hex
+  return next
 }
 
 /** New text on a row. Empty text is no change — like an edit that was abandoned. */

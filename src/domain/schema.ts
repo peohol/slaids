@@ -150,6 +150,7 @@ export const ideaCategorySchema = z.object({
   id: z.string().min(1),
   kind: z.literal('category'),
   text: z.string(),
+  color: hexColor,
   ideas: z.array(ideaSchema),
 })
 

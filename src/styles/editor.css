@@ -929,6 +929,9 @@
   --idea-surface-hover: rgba(255, 255, 255, 0.075);
   --idea-surface-raised: rgba(255, 255, 255, 0.11);
   --idea-danger-soft: rgba(229, 72, 77, 0.16);
+  /* A loose idea belongs to no list, so it is handed no colour. Categories
+     override this on themselves, and everything under them inherits it. */
+  --idea-color: transparent;
 
   display: flex;
   flex-direction: column;
@@ -961,14 +964,37 @@
 /* One card per idea. The grip on the left, the cross on the right, the text
    between them. */
 .idea {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  padding: 4px 4px 4px 8px;
+  padding: 4px 4px 4px 11px;
   border: 1px solid var(--chrome-border);
   border-radius: var(--radius-sm);
   background: var(--idea-surface);
   transition: background 120ms ease, border-color 120ms ease;
+}
+
+/*
+ * The colour of the list a card belongs to.
+ *
+ * A pseudo-element on purpose, and not a border or a box-shadow: the drag
+ * states below set `background`, `border-color` and `box-shadow` on the card
+ * itself, and a colour carried by any of those would be wiped the moment the
+ * card was picked up — exactly when knowing where it came from matters most.
+ * Nothing styles `::before`, so the stripe survives every state the drag puts
+ * the card through.
+ */
+.idea::before,
+.idea-cat-head::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  background: var(--idea-color);
 }
 
 .idea:hover {
@@ -1055,12 +1081,33 @@
 }
 
 .idea-cat-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px 2px 8px;
+  padding: 2px 4px 2px 11px;
   border-radius: var(--radius-sm);
   cursor: grab;
+}
+
+/* The swatch is both the colour and the way to change it. It sits in the drag
+   zone, so `IdeasWindow` names this class in the drag's exception list — a
+   press here opens the palette instead of lifting the category. */
+.idea-cat-color {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.idea-cat-color:hover,
+.idea-cat-color:focus-visible {
+  transform: scale(1.18);
+  border-color: var(--chrome-text);
 }
 
 .idea-cat-head:hover {
@@ -1122,6 +1169,9 @@
 .idea-cat-items {
   margin-left: 12px;
   padding-left: 8px;
+  /* Structure, not colour: the cards inside already carry the list's colour on
+     their own edge, and a coloured line here too drew two parallel bars beside
+     every note. This one just says "these hang under that heading". */
   border-left: 2px solid var(--chrome-border);
   /* An empty category has to be somewhere you can drop, too. */
   min-height: 22px;
