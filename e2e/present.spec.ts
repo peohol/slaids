@@ -140,6 +140,11 @@ test.describe('presentation mode', () => {
   })
 
   test('shows several sources cited together as one citation', async ({ page }) => {
+    // The merge rewrites the whole document from inside a command, which is
+    // exactly where a nested dispatch leaves ProseMirror holding a transaction
+    // built on a state that no longer exists. That surfaces as a page error and
+    // nothing else, so the guard is the test.
+    const guard = watchForErrors(page)
     await createPresentation(page, 'Sammenslåtte kilder')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
@@ -157,6 +162,7 @@ test.describe('presentation mode', () => {
     // Three references, one pill, one compressed label.
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
     await expect(stage(page).locator('.rd-citation')).toHaveText('1–3')
+    expect(guard.errors).toEqual([])
   })
 
   test('opens the reference list from a citation', async ({ page }) => {

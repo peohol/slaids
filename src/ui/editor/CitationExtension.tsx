@@ -7,6 +7,7 @@
  */
 
 import { Node, mergeAttributes } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
 import { citationLabel } from '../../domain/references'
 import { mergeAdjacentCitations } from '../../domain/richdoc'
@@ -93,15 +94,22 @@ export const CitationExtension = Node.create({
        * Runs as its own command, after the insertion has been applied: read
        * from inside the inserting command, the document would still be the one
        * from before the insert, and writing that back would undo it.
+       *
+       * The rewrite goes on the transaction this command is handed, not through
+       * `editor.commands`. Dispatching from inside a command leaves the command
+       * that called it holding a transaction built on the state before the
+       * dispatch, and ProseMirror rejects that one as mismatched.
        */
       mergeCitations:
         () =>
-        ({ editor }) => {
-          const current = editor.getJSON() as RichDoc
+        ({ state, tr, dispatch }) => {
+          const current = state.doc.toJSON() as RichDoc
           const merged = mergeAdjacentCitations(current)
           if (merged === current) return true
-          const anchor = editor.state.selection.anchor
-          editor.commands.setContent(merged, { emitUpdate: true })
+          if (!dispatch) return true
+
+          const anchor = state.selection.anchor
+          tr.replaceWith(0, state.doc.content.size, state.schema.nodeFromJSON(merged).content)
 
           // Put the caret after the citation the merge produced, not at the old
           // offset: the document is shorter now, and a clamped offset lands
@@ -109,7 +117,7 @@ export const CitationExtension = Node.create({
           // citation inserted, ends up on the wrong side of it.
           let target: number | null = null
           let best = Number.POSITIVE_INFINITY
-          editor.state.doc.descendants((node, pos) => {
+          tr.doc.descendants((node, pos) => {
             if (node.type.name !== this.name) return
             const end = pos + node.nodeSize
             const distance = Math.abs(end - anchor)
@@ -118,8 +126,10 @@ export const CitationExtension = Node.create({
               target = end
             }
           })
-          const size = editor.state.doc.content.size
-          editor.commands.setTextSelection(Math.max(1, Math.min(target ?? anchor, size - 1)))
+          const size = tr.doc.content.size
+          tr.setSelection(
+            TextSelection.create(tr.doc, Math.max(1, Math.min(target ?? anchor, size - 1))),
+          )
           return true
         },
     }
