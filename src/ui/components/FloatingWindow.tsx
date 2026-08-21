@@ -44,18 +44,8 @@ interface Bounds {
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max)
 
-/**
- * The area a floating window may use: the editor body, between the toolbars and
- * the status bar. Falls back to the visible viewport before the editor is laid
- * out — on a phone that is `visualViewport`, which is the only thing that knows
- * how much of the window the keyboard is covering.
- */
-function editorBounds(): Bounds {
-  const body = document.querySelector('.editor__body')
-  if (body) {
-    const rect = body.getBoundingClientRect()
-    if (rect.width > 0 && rect.height > 0) return rect
-  }
+/** The part of the window that is actually on screen right now. */
+function visibleBounds(): Bounds {
   const view = window.visualViewport
   if (!view) return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
   return {
@@ -64,6 +54,36 @@ function editorBounds(): Bounds {
     right: view.offsetLeft + view.width,
     bottom: view.offsetTop + view.height,
   }
+}
+
+/** The overlap of two areas. Empty when they do not meet at all. */
+export function intersectBounds(a: Bounds, b: Bounds): Bounds {
+  return {
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+  }
+}
+
+/**
+ * The area a floating window may use.
+ *
+ * Two limits, and the window has to respect both, so it is their overlap. The
+ * editor body says which part of the *app* may be covered — never the toolbars
+ * or the status bar, or the app's own buttons would go out of reach. The visual
+ * viewport says which part of that is on screen at all: a phone keyboard shrinks
+ * it without touching the layout, so the editor body stays its full height while
+ * the bottom of it sits behind the keyboard. Taking the body alone would make
+ * the keyboard listeners below inert, which is the whole reason they are there.
+ */
+function editorBounds(): Bounds {
+  const visible = visibleBounds()
+  const body = document.querySelector('.editor__body')
+  if (!body) return visible
+  const rect = body.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return visible
+  return intersectBounds(rect, visible)
 }
 
 /** The room available, or `null` when there is nothing laid out to measure against. */
