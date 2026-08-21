@@ -163,7 +163,8 @@ export interface SandboxItem {
 
 export interface Idea {
   id: string
-  categoryId: string
+  /** `null` means uncategorised — an idea does not need a home to be worth noting. */
+  categoryId: string | null
   text: string
   done: boolean
 }

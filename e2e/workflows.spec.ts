@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { expect, test, type Locator, type Page } from './fixtures'
 import {
   addContentToZone,
   clickZone,
@@ -121,4 +121,94 @@ test.describe('ideas', () => {
     await expect(page.getByTestId('ideas-window')).toBeVisible()
     await expect(page.getByTestId('idea-text').first()).toHaveValue('Husk å nevne geometrien')
   })
+
+  test('files ideas by dragging, and keeps them when a category goes', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Idéflytting')
+    await page.getByTestId('open-ideas').click()
+    await expect(page.getByTestId('ideas-window')).toBeVisible()
+
+    // The first list is the uncategorised one, which is always there.
+    const lists = page.getByTestId('idea-input')
+    await lists.nth(0).fill('Uten kategori')
+    await lists.nth(0).press('Enter')
+    await lists.nth(1).fill('Første')
+    await lists.nth(1).press('Enter')
+    await lists.nth(1).fill('Andre')
+    await lists.nth(1).press('Enter')
+    await expect(page.getByTestId('idea')).toHaveCount(3)
+
+    const inFirstCategory = async (): Promise<string[]> =>
+      page.getByTestId('idea-category').nth(0).getByTestId('idea-text').evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLInputElement).value),
+      )
+    const uncategorised = async (): Promise<string[]> =>
+      page.getByTestId('idea-uncategorised').getByTestId('idea-text').evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLInputElement).value),
+      )
+
+    expect(await inFirstCategory()).toEqual(['Første', 'Andre'])
+
+    // Dragging an idea below another one puts it after it, not before.
+    const cards = page.getByTestId('idea-category').nth(0).getByTestId('idea')
+    await dragTo(page, cards.nth(0).getByRole('button', { name: 'Flytt idé' }), cards.nth(1), 8)
+    expect(await inFirstCategory()).toEqual(['Andre', 'Første'])
+
+    // An idea can leave its category entirely.
+    await dragTo(
+      page,
+      page.getByTestId('idea-category').nth(0).getByTestId('idea').nth(0)
+        .getByRole('button', { name: 'Flytt idé' }),
+      page.getByTestId('idea-uncategorised').getByTestId('idea').nth(0),
+      8,
+    )
+    expect(await uncategorised()).toEqual(['Uten kategori', 'Andre'])
+
+    // Categories are ordered, and dragging one past another reorders them.
+    const names = async (): Promise<string[]> =>
+      page.locator('.idea-category__name').evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLInputElement).value),
+      )
+    const before = await names()
+    await dragTo(
+      page,
+      page.getByTestId('idea-category-grip').nth(1),
+      page.getByTestId('idea-category').nth(0),
+      6,
+      'top',
+    )
+    expect(await names()).toEqual([before[1], before[0]])
+
+    // Deleting a category is not a way to lose an idea: it only takes the
+    // heading, and what was under it becomes uncategorised.
+    await page.getByTestId('delete-idea-category').nth(1).click()
+    await expect(page.getByTestId('idea-category')).toHaveCount(1)
+    expect(await uncategorised()).toContain('Første')
+    await expect(page.getByTestId('idea')).toHaveCount(3)
+    expect(guard.errors).toEqual([])
+  })
 })
+
+/**
+ * A dnd-kit drag: press, nudge past the activation distance, then move.
+ * `dy` offsets from the target's middle (or its top edge in 'top' mode), which
+ * is what decides whether the drop lands before or after it.
+ */
+async function dragTo(
+  page: Page,
+  grip: Locator,
+  target: Locator,
+  dy = 0,
+  from: 'middle' | 'top' = 'middle',
+): Promise<void> {
+  const source = await grip.boundingBox()
+  const box = await target.boundingBox()
+  if (!source || !box) throw new Error('missing drag geometry')
+  const y = from === 'top' ? box.y + dy : box.y + box.height / 2 + dy
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2 + 6, { steps: 3 })
+  await page.mouse.move(box.x + box.width / 2, y, { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+}

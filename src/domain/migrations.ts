@@ -208,6 +208,34 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+/**
+ * An idea may be uncategorised.
+ *
+ * Deleting a category no longer deletes what was under it, so `categoryId` can
+ * be `null`. Anything already stored keeps its category — except an idea whose
+ * category is gone, which used to be unreachable and is now simply
+ * uncategorised.
+ */
+const migrate5to6: MigrationFn = (data) => {
+  const known = new Set(
+    asArray(data.ideaCategories)
+      .map((category) => (category as Raw)?.id)
+      .filter((id): id is string => typeof id === 'string'),
+  )
+  return {
+    ...data,
+    schemaVersion: 6,
+    ideas: asArray(data.ideas).map((entry) => {
+      const idea = (entry ?? {}) as Raw
+      const categoryId = idea.categoryId
+      return {
+        ...idea,
+        categoryId: typeof categoryId === 'string' && known.has(categoryId) ? categoryId : null,
+      }
+    }),
+  }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -215,6 +243,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   2: migrate2to3,
   3: migrate3to4,
   4: migrate4to5,
+  5: migrate5to6,
 }
 
 /**

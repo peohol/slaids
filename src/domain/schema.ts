@@ -12,7 +12,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 5
+export const CURRENT_SCHEMA_VERSION = 6
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -137,7 +137,7 @@ export const sandboxItemSchema = z.object({
 
 export const ideaSchema = z.object({
   id: z.string().min(1),
-  categoryId: z.string().min(1),
+  categoryId: z.string().min(1).nullable(),
   text: z.string(),
   done: z.boolean(),
 })

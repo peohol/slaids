@@ -821,12 +821,20 @@
   background: var(--chrome-accent-soft);
 }
 
+.idea-category--loose {
+  border-style: dashed;
+}
+
 .idea-category__head {
   display: flex;
   align-items: center;
   gap: 6px;
   border-left: 4px solid;
   padding-left: 8px;
+}
+
+.idea-category--loose .idea-category__head {
+  border-left-color: var(--chrome-border);
 }
 
 .idea-category__name {
@@ -844,10 +852,14 @@
   min-height: 20px;
 }
 
+/* The colour is what tells two categories apart at a glance, so it follows the
+   ideas filed under them rather than stopping at the heading. */
 .idea {
   display: flex;
   align-items: center;
   gap: 6px;
+  border-left: 3px solid transparent;
+  padding-left: 3px;
 }
 
 .idea__grip {

@@ -7,6 +7,7 @@ import {
   deleteIdea,
   deleteIdeaCategory,
   moveIdea,
+  moveIdeaCategory,
   oneLine,
   renameIdeaCategory,
   updateIdea,
@@ -120,16 +121,42 @@ describe('idea commands', () => {
     expect(renameIdeaCategory(presentation, id, '   ').ok).toBe(false)
   })
 
-  it('deletes a category with its ideas, but never the last one', () => {
+  it('keeps the ideas when a category is deleted', () => {
     const presentation = base()
     const [first] = presentation.ideaCategories
-    const added = unwrap(addIdea(presentation, { categoryId: first.id, text: 'forsvinner' }))
+    const added = unwrap(addIdea(presentation, { categoryId: first.id, text: 'blir liggende' }))
     const next = unwrap(deleteIdeaCategory(added, first.id))
     expect(next.ideaCategories).toHaveLength(1)
-    expect(next.ideas).toHaveLength(0)
+    // The heading is gone; the note it stood above is not.
+    expect(next.ideas).toHaveLength(1)
+    expect(next.ideas[0].categoryId).toBeNull()
 
-    // The last remaining category cannot be deleted.
-    expect(deleteIdeaCategory(next, next.ideaCategories[0].id).ok).toBe(false)
+    // With uncategorised ideas there is nothing special about the last category.
+    expect(deleteIdeaCategory(next, next.ideaCategories[0].id).ok).toBe(true)
+    expect(deleteIdeaCategory(next, 'nope').ok).toBe(false)
+  })
+
+  it('notes an idea without a category', () => {
+    const presentation = base()
+    const next = unwrap(addIdea(presentation, { categoryId: null, text: 'uten hjem' }))
+    expect(next.ideas[0].categoryId).toBeNull()
+    // ... and it can be filed later, and taken out again.
+    const filed = unwrap(
+      moveIdea(next, next.ideas[0].id, presentation.ideaCategories[0].id, 0),
+    )
+    expect(filed.ideas[0].categoryId).toBe(presentation.ideaCategories[0].id)
+    expect(unwrap(moveIdea(filed, filed.ideas[0].id, null, 0)).ideas[0].categoryId).toBeNull()
+    expect(moveIdea(next, next.ideas[0].id, 'nope', 0).ok).toBe(false)
+  })
+
+  it('reorders categories', () => {
+    const presentation = base()
+    const [first, second] = presentation.ideaCategories
+    const moved = unwrap(moveIdeaCategory(presentation, second.id, 0))
+    expect(moved.ideaCategories.map((category) => category.id)).toEqual([second.id, first.id])
+    // Out of range clamps rather than dropping the category.
+    expect(unwrap(moveIdeaCategory(moved, second.id, 99)).ideaCategories.at(-1)?.id).toBe(second.id)
+    expect(moveIdeaCategory(presentation, 'nope', 0).ok).toBe(false)
   })
 
   it('adds a category with a validated colour', () => {

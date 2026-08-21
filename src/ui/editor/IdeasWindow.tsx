@@ -1,6 +1,16 @@
 /**
- * Ideas panel, ported conceptually from mdeditz: one level of categories, quick
- * capture, drag between categories. The data belongs to the presentation.
+ * Ideas panel, ported conceptually from mdeditz.
+ *
+ * The model is that app's: categories group ideas at exactly one level, an idea
+ * does not need a category to be worth noting, and a category is a heading
+ * rather than a container that owns what it holds — deleting one leaves its
+ * ideas behind, uncategorised. Categories are ordered, and both they and the
+ * ideas are dragged into the order that makes sense.
+ *
+ * Colour coding stays: the colour is what tells two categories apart at a
+ * glance, and it follows the ideas filed under them.
+ *
+ * The data belongs to the presentation; the window's position is local UI state.
  */
 
 import { useState } from 'react'
@@ -21,12 +31,28 @@ import { DEFAULT_IDEAS_GEOMETRY } from '../../state/prefs'
 import type { Idea, IdeaCategory } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { Icon } from '../components/Icon'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 
-function IdeaCard({ idea }: { idea: Idea }) {
+/** dnd-kit ids. The prefix is what tells the drop handler what it is holding. */
+export const IDEA_PREFIX = 'idea:'
+export const CATEGORY_PREFIX = 'category:'
+/** The list of ideas that have no category. */
+export const UNCATEGORISED_ID = `${CATEGORY_PREFIX}none`
+
+export function categoryDropId(categoryId: string | null): string {
+  return categoryId === null ? UNCATEGORISED_ID : `${CATEGORY_PREFIX}${categoryId}`
+}
+
+/** The category a drop id names, or `undefined` if it is not a category at all. */
+export function categoryFromDropId(id: string): string | null | undefined {
+  if (id === UNCATEGORISED_ID) return null
+  if (id.startsWith(CATEGORY_PREFIX)) return id.slice(CATEGORY_PREFIX.length)
+  return undefined
+}
+
+function IdeaCard({ idea, color }: { idea: Idea; color: string | null }) {
   const run = useEditorStore((state) => state.run)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `idea:${idea.id}`,
+    id: `${IDEA_PREFIX}${idea.id}`,
     data: { kind: 'idea', ideaId: idea.id, categoryId: idea.categoryId },
   })
 
@@ -39,9 +65,18 @@ function IdeaCard({ idea }: { idea: Idea }) {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.4 : 1,
+        // The colour follows the idea, so a card says which list it belongs to
+        // even while it is in the air above another one.
+        borderLeftColor: color ?? 'transparent',
       }}
     >
-      <button type="button" className="idea__grip" aria-label="Flytt idé" {...attributes} {...listeners}>
+      <button
+        type="button"
+        className="idea__grip"
+        aria-label="Flytt idé"
+        {...attributes}
+        {...listeners}
+      >
         <Icon name="grip" size={13} />
       </button>
       <input
@@ -76,53 +111,28 @@ function IdeaCard({ idea }: { idea: Idea }) {
   )
 }
 
-function CategoryColumn({
-  category,
+/** The shared body of a list: its ideas, and the field that adds one. */
+function IdeaList({
+  categoryId,
   ideas,
-  onRequestDelete,
+  color,
 }: {
-  category: IdeaCategory
+  categoryId: string | null
   ideas: Idea[]
-  onRequestDelete: (category: IdeaCategory) => void
+  color: string | null
 }) {
   const run = useEditorStore((state) => state.run)
   const [draft, setDraft] = useState('')
-  const { setNodeRef, isOver } = useDroppable({ id: `category:${category.id}` })
 
   return (
-    <section
-      className={isOver ? 'idea-category idea-category--over' : 'idea-category'}
-      ref={setNodeRef}
-      data-testid="idea-category"
-    >
-      <header className="idea-category__head" style={{ borderColor: category.color }}>
-        <input
-          className="idea-category__name"
-          value={category.name}
-          aria-label="Kategorinavn"
-          onChange={(event) =>
-            run('idea-category-rename', (presentation) =>
-              renameIdeaCategory(presentation, category.id, event.target.value),
-            )
-          }
-        />
-        <button
-          type="button"
-          className="btn btn--ghost btn--icon btn--sm"
-          aria-label={`Slett kategorien ${category.name}`}
-          data-testid="delete-idea-category"
-          onClick={() => onRequestDelete(category)}
-        >
-          <Icon name="trash" size={13} />
-        </button>
-      </header>
+    <>
       <div className="idea-category__list">
         <SortableContext
-          items={ideas.map((idea) => `idea:${idea.id}`)}
+          items={ideas.map((idea) => `${IDEA_PREFIX}${idea.id}`)}
           strategy={verticalListSortingStrategy}
         >
           {ideas.map((idea) => (
-            <IdeaCard key={idea.id} idea={idea} />
+            <IdeaCard key={idea.id} idea={idea} color={color} />
           ))}
         </SortableContext>
       </div>
@@ -132,7 +142,7 @@ function CategoryColumn({
           event.preventDefault()
           if (!draft.trim()) return
           run('idea-add', (presentation) =>
-            addIdea(presentation, { categoryId: category.id, text: draft.trim() }),
+            addIdea(presentation, { categoryId, text: draft.trim() }),
           )
           setDraft('')
         }}
@@ -148,6 +158,97 @@ function CategoryColumn({
           <Icon name="plus" size={14} />
         </button>
       </form>
+    </>
+  )
+}
+
+function CategoryColumn({ category, ideas }: { category: IdeaCategory; ideas: Idea[] }) {
+  const run = useEditorStore((state) => state.run)
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: categoryDropId(category.id) })
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setSortRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `${CATEGORY_PREFIX}sort:${category.id}`,
+    data: { kind: 'idea-category', categoryId: category.id },
+  })
+
+  return (
+    <section
+      className={isOver ? 'idea-category idea-category--over' : 'idea-category'}
+      ref={setSortRef}
+      data-testid="idea-category"
+      data-category-id={category.id}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      }}
+    >
+      <header className="idea-category__head" style={{ borderColor: category.color }}>
+        <button
+          type="button"
+          className="idea__grip"
+          aria-label={`Flytt kategorien ${category.name}`}
+          data-testid="idea-category-grip"
+          {...attributes}
+          {...listeners}
+        >
+          <Icon name="grip" size={13} />
+        </button>
+        <input
+          className="idea-category__name"
+          value={category.name}
+          aria-label="Kategorinavn"
+          onChange={(event) =>
+            run('idea-category-rename', (presentation) =>
+              renameIdeaCategory(presentation, category.id, event.target.value),
+            )
+          }
+        />
+        <button
+          type="button"
+          className="btn btn--ghost btn--icon btn--sm"
+          aria-label={`Slett kategorien ${category.name}`}
+          data-testid="delete-idea-category"
+          // No confirmation: nothing is lost. The ideas stay, without a category.
+          onClick={() =>
+            run('idea-category-delete', (presentation) =>
+              deleteIdeaCategory(presentation, category.id),
+            )
+          }
+        >
+          <Icon name="trash" size={13} />
+        </button>
+      </header>
+      <div ref={setDropRef}>
+        <IdeaList categoryId={category.id} ideas={ideas} color={category.color} />
+      </div>
+    </section>
+  )
+}
+
+function UncategorisedColumn({ ideas }: { ideas: Idea[] }) {
+  const { setNodeRef, isOver } = useDroppable({ id: UNCATEGORISED_ID })
+
+  return (
+    <section
+      className={
+        isOver
+          ? 'idea-category idea-category--loose idea-category--over'
+          : 'idea-category idea-category--loose'
+      }
+      ref={setNodeRef}
+      data-testid="idea-uncategorised"
+    >
+      <header className="idea-category__head">
+        <span className="hint">Uten kategori</span>
+      </header>
+      <IdeaList categoryId={null} ideas={ideas} color={null} />
     </section>
   )
 }
@@ -155,13 +256,10 @@ function CategoryColumn({
 export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => void }) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
-  const [deleting, setDeleting] = useState<IdeaCategory | null>(null)
 
   if (!presentation) return null
 
-  const doomedIdeas = deleting
-    ? presentation.ideas.filter((idea) => idea.categoryId === deleting.id).length
-    : 0
+  const loose = presentation.ideas.filter((idea) => idea.categoryId === null)
 
   return (
     <FloatingWindow
@@ -174,14 +272,21 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
       testId="ideas-window"
     >
       <div className="idea-categories">
+        <UncategorisedColumn ideas={loose} />
+        <SortableContext
+          items={presentation.ideaCategories.map(
+            (category) => `${CATEGORY_PREFIX}sort:${category.id}`,
+          )}
+          strategy={verticalListSortingStrategy}
+        >
           {presentation.ideaCategories.map((category) => (
             <CategoryColumn
               key={category.id}
               category={category}
               ideas={presentation.ideas.filter((idea) => idea.categoryId === category.id)}
-              onRequestDelete={setDeleting}
             />
           ))}
+        </SortableContext>
       </div>
       <button
         type="button"
@@ -199,22 +304,6 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
       >
         <Icon name="plus" size={14} /> Ny kategori
       </button>
-
-      <ConfirmDialog
-        open={deleting !== null}
-        title="Slette kategorien?"
-        message={
-          doomedIdeas > 0
-            ? `Kategorien «${deleting?.name ?? ''}» og ${doomedIdeas} idé(er) i den slettes.`
-            : `Kategorien «${deleting?.name ?? ''}» slettes.`
-        }
-        onConfirm={() => {
-          if (!deleting) return
-          run('idea-category-delete', (current) => deleteIdeaCategory(current, deleting.id))
-          setDeleting(null)
-        }}
-        onCancel={() => setDeleting(null)}
-      />
     </FloatingWindow>
   )
 }
