@@ -167,13 +167,19 @@ export function expectGap(actual: number, message: string): void {
  * fits" means nothing unless the zone was actually full first, and hard-coded
  * text lengths stop being full the moment a token changes.
  */
-export async function fillZoneToCapacity(page: Page, nodeId: string): Promise<void> {
+export async function fillZoneToCapacity(
+  page: Page,
+  nodeId: string,
+  options: { chunks?: number; topUp?: boolean } = {},
+): Promise<void> {
   const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
   await field.click()
-  for (let i = 0; i < 40; i += 1) {
+  for (let i = 0; i < (options.chunks ?? 40); i += 1) {
     await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
   }
-  await topUpToCapacity(page, field)
+  // A test that has to finish inside a deadline the app is counting can trade
+  // the last few characters of slack for the seconds the top-up costs.
+  if (options.topUp !== false) await topUpToCapacity(page, field)
 }
 
 /**

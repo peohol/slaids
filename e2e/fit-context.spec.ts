@@ -172,14 +172,22 @@ test.describe('fit measurement and web fonts', () => {
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(page.getByTestId('editor')).toHaveAttribute('data-fonts', 'pending')
 
-    // Filled while the browser is still drawing the fallback.
+    // Filled while the browser is still drawing the fallback. The app gives a
+    // web font a deadline of its own, and everything between opening the deck
+    // and releasing the route is spent against it — so this fills coarsely
+    // rather than to the last character. The face the fixture serves for Inter
+    // is far wider than the fallback, so a zone this full still overflows when
+    // it swaps in.
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
-    await fillZoneToCapacity(page, zones[0].id)
+    await fillZoneToCapacity(page, zones[0].id, { chunks: 30, topUp: false })
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
 
+    // What is under test is that the swap does not pass unnoticed. Whether the
+    // app had already given up waiting by then is a different behaviour with a
+    // test of its own — and it is decided by how long this test's own setup
+    // took, which is not something to assert on.
     route.release()
-    await expect(page.getByTestId('editor')).toHaveAttribute('data-fonts', 'ready')
     await expect(toast(page, 'etter at fonten ble lastet ferdig')).toBeVisible({ timeout: 15_000 })
   })
 })
