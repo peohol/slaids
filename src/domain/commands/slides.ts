@@ -281,16 +281,28 @@ export function setTheme(
   // the slides the change can affect and only reports zones that got worse, so
   // a change that *reduces* overflow stays available as a repair.
   const updated = touch({ ...presentation, theme: next })
-  return guardFit(
-    presentation,
-    updated,
-    options,
-    'Denne endringen gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en mindre endring.',
-  )
+  return guardFit(presentation, updated, options, refusalMessage(theme))
 }
 
 function inRange(value: number, range: { min: number; max: number }): boolean {
   return Number.isFinite(value) && value >= range.min && value <= range.max
+}
+
+/** Name the setting that would hide something, and how to get around it. */
+function refusalMessage(patch: Partial<PresentationTheme>): string {
+  const fonts = patch.headingFontFamily !== undefined || patch.bodyFontFamily !== undefined
+  const spacing = patch.spacing !== undefined
+  const size = patch.fontScale !== undefined
+  if (fonts && !spacing && !size) {
+    return 'Denne fonten gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en smalere font.'
+  }
+  if (spacing && !fonts && !size) {
+    return 'Så mye luft gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg mindre luft.'
+  }
+  if (size && !fonts && !spacing) {
+    return 'Denne skriftstørrelsen gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en mindre størrelse.'
+  }
+  return 'Denne endringen gjør at innhold ikke lenger får plass. Kort ned innholdet først.'
 }
 
 export function setFolder(
