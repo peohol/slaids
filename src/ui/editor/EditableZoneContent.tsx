@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { setCardTitle, setContainerDoc, setSubfieldDoc } from '../../domain/commands'
 import { measureElementOverflow } from '../../state/measure'
+import { docEditRenumberProblem } from '../../state/citationFit'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import type { RichDoc, ZoneContent } from '../../domain/types'
@@ -46,6 +47,14 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             measureOverflow={measureOverflow}
             overflowMessage="Tittelen får ikke plass i kortet."
+            validateDoc={(next) =>
+              docEditRenumberProblem({
+                nodeId,
+                currentDoc: card.title,
+                nextDoc: next,
+                commit: (presentation, doc) => setCardTitle(presentation, { slideId, nodeId, doc }),
+              })
+            }
             onChange={(doc) =>
               run(`typing:${nodeId}:title`, (presentation) =>
                 setCardTitle(presentation, { slideId, nodeId, doc }),
@@ -60,6 +69,15 @@ export function EditableZoneContent({
             placeholder="Skriv innhold …"
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             measureOverflow={measureOverflow}
+            validateDoc={(next) =>
+              docEditRenumberProblem({
+                nodeId,
+                currentDoc: field.doc,
+                nextDoc: next,
+                commit: (presentation, doc) =>
+                  setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
+              })
+            }
             onChange={(doc) =>
               run(`typing:${nodeId}:${field.id}`, (presentation) =>
                 setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
@@ -81,6 +99,15 @@ export function EditableZoneContent({
               placeholder="Skriv innhold …"
               field={{ nodeId, subfieldId: null, kind: 'body' }}
               measureOverflow={measureOverflow}
+              validateDoc={(next) =>
+                docEditRenumberProblem({
+                  nodeId,
+                  currentDoc: container.payload.type === 'richdoc' ? container.payload.doc : next,
+                  nextDoc: next,
+                  commit: (presentation, doc) =>
+                    setContainerDoc(presentation, { slideId, nodeId, doc }),
+                })
+              }
               onChange={(doc) =>
                 run(`typing:${nodeId}:container`, (presentation) =>
                   setContainerDoc(presentation, { slideId, nodeId, doc }),
@@ -108,6 +135,7 @@ function FieldEditor({
   onChange,
   measureOverflow,
   overflowMessage,
+  validateDoc,
 }: {
   doc: RichDoc
   variant: 'body' | 'title'
@@ -116,6 +144,7 @@ function FieldEditor({
   onChange: (doc: RichDoc) => void
   measureOverflow: () => number
   overflowMessage?: string
+  validateDoc?: (doc: RichDoc) => string | null
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -150,6 +179,7 @@ function FieldEditor({
       onEditorReady={handleReady}
       measureOverflow={measureOverflow}
       overflowMessage={overflowMessage}
+      validateDoc={validateDoc}
     />
   )
 }

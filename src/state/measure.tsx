@@ -17,12 +17,13 @@ import {
   estimateTitleFit,
   fitResult,
   type ContentFitChecker,
+  type FitContext,
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
-import type { StructuralOptions } from '../domain/commands'
-import { TITLE_FONT_SIZE, TITLE_LINE_HEIGHT } from '../domain/constants'
-import type { PresentationTheme, Rect, TitleDoc, ZoneContent } from '../domain/types'
+import { fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
+import { FIT_TOLERANCE, TITLE_FONT_SIZE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
 import { ZoneContentView } from '../ui/slide/ZoneContentView'
 import { RichDocView } from '../ui/slide/RichDocView'
@@ -73,19 +74,28 @@ function withHost<T>(rect: Rect, render: () => React.ReactNode, read: (host: HTM
   }
 }
 
-/** Measure whether content fits a rect, using the real renderer. */
+/**
+ * Measure whether content fits a rect, using the real renderer.
+ *
+ * The render context is the caller's, not an empty one: a citation renders the
+ * number it will actually show, so the offscreen copy is the same pixels as the
+ * slide. Measuring with an empty numbering would silently drop every citation
+ * pill from the measurement — the label is derived, so no numbering means no
+ * label at all.
+ */
 export function measureContentFit(
   content: ZoneContent,
   rect: Rect,
-  theme: PresentationTheme,
+  context: FitContext,
 ): FitResult {
-  if (typeof document === 'undefined') return estimateFit(content, rect, theme)
+  if (typeof document === 'undefined') return estimateFit(content, rect, context)
   if (rect.width <= 0 || rect.height <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
+  const { theme } = context
 
   const overflow = withHost(
     rect,
     () => (
-      <SlideRenderProvider value={{ theme, numbering: new Map(), isStatic: true }}>
+      <SlideRenderProvider value={{ theme, numbering: context.numbering, isStatic: true }}>
         <div
           className="slide-zone"
           style={{ ...slideTokenStyle(theme), width: rect.width, height: rect.height }}
@@ -100,34 +110,34 @@ export function measureContentFit(
 }
 
 /**
- * A slide title is one line at a fixed size. It fits only if it does not need
- * to scroll horizontally.
+ * A slide title is one line at a fixed size. It fits only if the text it draws
+ * is no wider than the zone.
+ *
+ * Measured as a natural width rather than as scroll overflow: `.slide-title`
+ * clips its own content and so does the visible stage, and asking a clipping
+ * box how much stuck out is exactly the question it exists not to answer. So
+ * the same markup is laid out at `max-content` — its width is then the width
+ * the title wants — and compared against the width it will get.
  */
 export function measureTitleFit(
   doc: TitleDoc,
   titleRect: Rect,
-  theme: PresentationTheme,
+  context: FitContext,
 ): FitResult {
-  if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, theme)
-  // The zone's own height is chrome; the title is one line, so only the width
-  // decides whether it fits.
-  const rect: Rect = {
-    x: 0,
-    y: 0,
-    width: titleRect.width,
-    height: TITLE_FONT_SIZE * TITLE_LINE_HEIGHT,
-  }
-  const overflow = withHost(
-    rect,
+  if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, context)
+  const { theme } = context
+  const height = TITLE_FONT_SIZE * TITLE_LINE_HEIGHT
+  const needed = withHost(
+    { x: 0, y: 0, width: titleRect.width, height },
     () => (
-      <SlideRenderProvider value={{ theme, numbering: new Map(), isStatic: true }}>
+      <SlideRenderProvider value={{ theme, numbering: context.numbering, isStatic: true }}>
         <div
           className="slide-title"
-          data-fit-scroll=""
+          data-measure-title=""
           style={{
             ...slideTokenStyle(theme),
-            width: rect.width,
-            height: rect.height,
+            width: 'max-content',
+            height,
             fontFamily: theme.headingFontFamily,
             fontSize: TITLE_FONT_SIZE,
             lineHeight: TITLE_LINE_HEIGHT,
@@ -137,9 +147,12 @@ export function measureTitleFit(
         </div>
       </SlideRenderProvider>
     ),
-    (element) => Math.max(0, element.scrollWidth - element.clientWidth),
+    (element) => {
+      const title = element.querySelector<HTMLElement>('[data-measure-title]')
+      return title ? title.getBoundingClientRect().width : 0
+    },
   )
-  return fitResult(overflow)
+  return fitResult(needed - titleRect.width)
 }
 
 /**
@@ -147,10 +160,31 @@ export function measureTitleFit(
  *
  * One bundle rather than two loose arguments, so no call site can validate zone
  * content but silently skip slide titles. The domain commands close over
- * nothing: they are handed the prospective theme at call time, which is what
- * lets a font change be validated before it is committed.
+ * nothing: they are handed the prospective render context at call time, which
+ * is what lets a font change or a renumbering be validated before it is
+ * committed.
  */
 export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle'>> = {
   fits: measureContentFit satisfies ContentFitChecker,
   fitsTitle: measureTitleFit satisfies TitleFitChecker,
+}
+
+/**
+ * How many zones in the whole deck currently overflow, measured for real.
+ *
+ * This is the after-the-fact half of the fit rule: commands refuse changes that
+ * would hide content, but some things — a web font swapping in, an image
+ * finishing its download, a document written before the rule existed — are not
+ * commands at all. One offscreen render per zone, so it is used deliberately
+ * rather than on every keystroke.
+ */
+export function overflowingZoneCount(presentation: Presentation): number {
+  const context = fitContextFor(presentation)
+  let count = 0
+  for (const slide of presentation.slides) {
+    for (const overflow of slideOverflow(slide, context, domFitCheckers).values()) {
+      if (overflow > FIT_TOLERANCE) count += 1
+    }
+  }
+  return count
 }

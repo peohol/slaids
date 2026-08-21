@@ -34,6 +34,12 @@ export interface RichTextEditorProps {
    */
   measureOverflow?: () => number
   overflowMessage?: string
+  /**
+   * A second opinion on the document, for consequences this zone cannot
+   * measure — a citation whose number changes what *other* zones need. Returns
+   * a message to roll the edit back, or `null` to let it stand.
+   */
+  validateDoc?: (doc: RichDoc) => string | null
 }
 
 export function RichTextEditor({
@@ -48,6 +54,7 @@ export function RichTextEditor({
   onEditorReady,
   measureOverflow,
   overflowMessage = 'Innholdet får ikke plass i sonen.',
+  validateDoc,
 }: RichTextEditorProps) {
   const lastValid = useRef<{ doc: RichDoc; anchor: number }>({ doc, anchor: 1 })
   /** Overflow of the last accepted document, so an edit that improves it is allowed. */
@@ -57,11 +64,13 @@ export function RichTextEditor({
   const lastEmitted = useRef<string>(JSON.stringify(doc))
   const measureRef = useRef(measureOverflow)
   const onChangeRef = useRef(onChange)
+  const validateDocRef = useRef(validateDoc)
 
   useEffect(() => {
     measureRef.current = measureOverflow
     onChangeRef.current = onChange
-  }, [measureOverflow, onChange])
+    validateDocRef.current = validateDoc
+  }, [measureOverflow, onChange, validateDoc])
 
   /**
    * Decide whether the current document may stand.
@@ -90,10 +99,22 @@ export function RichTextEditor({
         }
       }
 
-      if (overflow <= FIT_TOLERANCE) {
-        accept()
-        return
+      const rollBack = (message: string): void => {
+        const restore = lastValid.current
+        editor.commands.setContent(restore.doc, { emitUpdate: false })
+        const size = editor.state.doc.content.size
+        editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
+        lastOverflow.current = measure()
+
+        const restored = editor.getJSON() as RichDoc
+        const serialized = JSON.stringify(restored)
+        if (serialized !== lastEmitted.current) {
+          lastEmitted.current = serialized
+          onChangeRef.current(restored)
+        }
+        notify.warning(message)
       }
+
       // Content can arrive overflowing — a theme change, a smaller zone, a file
       // that finished loading. Record it rather than fighting the user.
       if (isFirst) {
@@ -102,24 +123,20 @@ export function RichTextEditor({
       }
       // Any edit that reduces the overflow is allowed, otherwise an overflowing
       // document could never be repaired.
-      if (overflow < lastOverflow.current - FIT_TOLERANCE) {
-        accept()
+      const fitsHere = overflow <= FIT_TOLERANCE || overflow < lastOverflow.current - FIT_TOLERANCE
+      if (!fitsHere) {
+        rollBack(overflowMessage)
         return
       }
 
-      const restore = lastValid.current
-      editor.commands.setContent(restore.doc, { emitUpdate: false })
-      const size = editor.state.doc.content.size
-      editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
-      lastOverflow.current = measure()
-
-      const restored = editor.getJSON() as RichDoc
-      const serialized = JSON.stringify(restored)
-      if (serialized !== lastEmitted.current) {
-        lastEmitted.current = serialized
-        onChangeRef.current(restored)
+      // Fits here, but this document is not the only thing it decides: a
+      // citation added or moved renumbers labels across the deck.
+      const elsewhere = validateDocRef.current?.(editor.getJSON() as RichDoc) ?? null
+      if (elsewhere) {
+        rollBack(elsewhere)
+        return
       }
-      notify.warning(overflowMessage)
+      accept()
     },
     [overflowMessage],
   )

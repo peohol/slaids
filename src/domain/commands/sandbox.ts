@@ -9,6 +9,7 @@ import { newSandboxId } from '../ids'
 import { cloneContentWithNewIds, findLeaf, replaceNode } from '../layout'
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
+import { fitContextFor, guardFit } from './fitGuard'
 import { rectForNode } from './internal'
 import { outcome, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Presentation, SandboxItem, ZoneContent } from '../types'
@@ -60,12 +61,6 @@ export function placeSandboxItem(
 
   const area = rectForNode(slide, input.nodeId, input.geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
-  const fit = input.fits?.(item.content, area, presentation.theme)
-  if (fit && !fit.fits) {
-    return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i denne sonen.', {
-      overflow: fit.overflow,
-    })
-  }
 
   const displaced = leaf.content
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: item.content })
@@ -74,7 +69,24 @@ export function placeSandboxItem(
     sandbox: presentation.sandbox.filter((entry) => entry.id !== input.itemId),
   }
   if (displaced) next = appendToSandbox(next, [displaced], 'Erstattet innhold')
-  return ok(outcome(touch(next), displaced ? [displaced] : []))
+  next = touch(next)
+
+  // Sandbox content keeps its citations, so putting it back on a slide gives
+  // those references a number again — measured against the document it lands in.
+  const fit = input.fits?.(item.content, area, fitContextFor(next))
+  if (fit && !fit.fits) {
+    return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i denne sonen.', {
+      overflow: fit.overflow,
+    })
+  }
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Innholdet endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+  )
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value, displaced ? [displaced] : []))
 }
 
 export function deleteSandboxItem(

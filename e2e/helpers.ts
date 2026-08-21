@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 export const SLIDE_WIDTH = 1600
 export const SLIDE_HEIGHT = 900
@@ -157,4 +157,76 @@ export async function addContentToZone(
 export function expectGap(actual: number, message: string): void {
   expect(actual, message).toBeGreaterThan(G - 0.2)
   expect(actual, message).toBeLessThan(G + 0.2)
+}
+
+/**
+ * Fill a zone's body field until the editor stops accepting more — the text is
+ * then close to the zone's capacity for the current font and numbering.
+ *
+ * Self-calibrating on purpose: a test that says "one more character no longer
+ * fits" means nothing unless the zone was actually full first, and hard-coded
+ * text lengths stop being full the moment a token changes.
+ */
+export async function fillZoneToCapacity(page: Page, nodeId: string): Promise<void> {
+  const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
+  await field.click()
+  for (let i = 0; i < 40; i += 1) {
+    await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
+  }
+  await topUpToCapacity(page, field)
+}
+
+/**
+ * Insert one character at a time until the editor stops accepting them.
+ *
+ * The coarse fill above leaves as much slack as its last rejected chunk, which
+ * can be a hundred characters — enough to swallow the effect a test is trying
+ * to observe. This closes that gap to a character or two. The small pause is
+ * what lets the deferred validation run between attempts.
+ */
+export async function topUpToCapacity(page: Page, field: Locator, attempts = 30): Promise<void> {
+  await field.click()
+  for (let i = 0; i < attempts; i += 1) {
+    await page.keyboard.insertText('m')
+    await page.waitForTimeout(25)
+  }
+  await page.waitForTimeout(250)
+}
+
+/** The body font the slide content is actually rendered with right now. */
+export async function renderedBodyFont(page: Page): Promise<string> {
+  return page.evaluate(
+    () =>
+      getComputedStyle(document.querySelector('[data-testid="stage-slide"] .slide') as HTMLElement)
+        .fontFamily,
+  )
+}
+
+/** The heading font the slide is actually rendered with right now. */
+export async function renderedHeadingFont(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const element = document.querySelector('[data-testid="stage-slide"] .slide') as HTMLElement
+    return getComputedStyle(element).getPropertyValue('--slaids-heading-font-family')
+  })
+}
+
+/** A toast carrying this text. Several can be on screen at once. */
+export function toast(page: Page, text: string) {
+  return page.getByTestId('toast').filter({ hasText: text })
+}
+
+/** The worst clipped overflow anywhere on the stage, in logical pixels. */
+export async function worstOverflow(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const slide = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
+    let worst = 0
+    for (const element of slide.querySelectorAll<HTMLElement>('[data-fit-scroll]')) {
+      worst = Math.max(
+        worst,
+        element.scrollHeight - element.clientHeight,
+        element.scrollWidth - element.clientWidth,
+      )
+    }
+    return worst
+  })
 }

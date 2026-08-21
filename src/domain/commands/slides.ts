@@ -2,11 +2,11 @@
  * Slide-level domain commands.
  */
 
-import { computeMainRect } from '../geometry'
+import { computeMainRect, computeTitleRect } from '../geometry'
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, subtreeFitsHelper } from './internal'
-import { guardFit, subtreeOverflow } from './fitGuard'
+import { fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
 import { FIT_TOLERANCE } from '../constants'
 import type { StructuralOptions } from './types'
 import { createSlide, findSlide, slideIndexOf, touch, withSlide } from '../presentation'
@@ -38,25 +38,43 @@ export function addSlide(
     title: input.title,
   })
 
+  const slides = [...presentation.slides]
+  slides.splice(index, 0, slide)
+  const next = touch({ ...presentation, slides })
+  const context = fitContextFor(next)
+
   // Editor templates are layout-only, but the command is also the API surface:
   // a caller that supplies a root with content in it gets the same placement
   // check as any other way of putting content on a slide. There is no baseline
   // to regress from on a brand new slide, so this one is absolute.
   const mainRect = computeMainRect(hasTitle, input.geometry)
-  for (const overflow of subtreeOverflow(
-    slide.root,
-    mainRect,
-    presentation.theme,
-    input,
-  ).values()) {
+  for (const overflow of subtreeOverflow(slide.root, mainRect, context, input).values()) {
     if (overflow > FIT_TOLERANCE) {
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass på den nye sliden.', { overflow })
     }
   }
 
-  const slides = [...presentation.slides]
-  slides.splice(index, 0, slide)
-  return ok(touch({ ...presentation, slides }))
+  // The UI only ever creates slides with an empty title, which is exactly why
+  // this is checked here: a headless caller that supplies one must not get a
+  // weaker rule than a caller that types the same text afterwards.
+  const titleRect = slide.title ? computeTitleRect(true, input.geometry) : null
+  if (slide.title && titleRect && input.fitsTitle) {
+    const fit = input.fitsTitle(slide.title, titleRect, context)
+    if (!fit.fits) {
+      return err('CONTENT_DOES_NOT_FIT', 'Overskriften får ikke plass i tittelsonen.', {
+        overflow: fit.overflow,
+      })
+    }
+  }
+
+  // A new slide inserted before existing citations shifts their numbers up, so
+  // `[9]` can become `[10]` on a slide the caller never mentioned.
+  return guardFit(
+    presentation,
+    next,
+    input,
+    'Den nye sliden endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+  )
 }
 
 export function deleteSlide(presentation: Presentation, slideId: string): Result<Presentation> {
@@ -85,10 +103,16 @@ export function duplicateSlide(presentation: Presentation, slideId: string): Res
   return ok(touch({ ...presentation, slides }))
 }
 
+/**
+ * Reordering slides is not a neutral operation: citation numbers come from
+ * first-occurrence order across the deck, so moving a slide can widen a label
+ * (`9` → `10`, or `1–3` → `1, 2`) on slides that were not touched at all.
+ */
 export function moveSlide(
   presentation: Presentation,
   slideId: string,
   toIndex: number,
+  options: StructuralOptions = {},
 ): Result<Presentation> {
   const from = slideIndexOf(presentation, slideId)
   if (from < 0) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
@@ -99,7 +123,12 @@ export function moveSlide(
   const slides = [...presentation.slides]
   const [moved] = slides.splice(from, 1)
   slides.splice(toIndex, 0, moved)
-  return ok(touch({ ...presentation, slides }))
+  return guardFit(
+    presentation,
+    touch({ ...presentation, slides }),
+    options,
+    'Rekkefølgen endrer citation-nummereringen slik at innhold ikke lenger får plass.',
+  )
 }
 
 /**
@@ -134,6 +163,16 @@ export interface SetSlideHasTitleOptions extends StructuralOptions {
    * accident.
    */
   force?: boolean
+  /**
+   * Text to put back into the zone in the same step, when adding one.
+   *
+   * Restoring a removed title is one operation, not two. Split into "add the
+   * zone" followed by "set the text", the text is validated against a document
+   * that already has the zone — and if that second step fails there is a bare
+   * title zone left behind and a remembered title with nowhere to go. Passed
+   * here, the whole thing either commits or leaves the presentation untouched.
+   */
+  title?: TitleDoc
 }
 
 export function setSlideHasTitle(
@@ -153,6 +192,9 @@ export function setSlideHasTitle(
   }
 
   if (!hasTitle) {
+    if (options.title) {
+      return err('INVALID_ARGUMENT', 'Kan ikke sette tekst på en overskrift som fjernes.')
+    }
     if (slide.title && !isDocEmpty(slide.title) && !options.force) {
       return err(
         'INVALID_ARGUMENT',
@@ -171,12 +213,18 @@ export function setSlideHasTitle(
       'Layoutet får ikke plass når overskriftssonen legges til. Forenkle soneinndelingen først.',
     )
   }
-  const next = withSlide(presentation, { ...slide, title: titleDoc('') })
+  const next = withSlide(presentation, { ...slide, title: options.title ?? titleDoc('') })
+  // One guard for both halves: the main area has to keep fitting its content,
+  // and a restored title has to fit the zone it is going back into — under the
+  // typography in force *now*, which may not be the typography it was written
+  // under.
   return guardFit(
     presentation,
     next,
     options,
-    'Innholdet får ikke plass når overskriftssonen legges til.',
+    options.title
+      ? 'Overskriften får ikke plass i tittelsonen med gjeldende font.'
+      : 'Innholdet får ikke plass når overskriftssonen legges til.',
   )
 }
 

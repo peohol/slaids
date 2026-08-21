@@ -13,7 +13,7 @@ import type { Presentation } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { SlideView } from '../slide/SlideView'
 import { useFitScale } from '../slide/useFitScale'
-import { loadWebFonts } from '../fonts'
+import { ensureWebFonts } from '../fonts'
 
 export function PresentView({
   presentation,
@@ -31,7 +31,7 @@ export function PresentView({
   const numbering = computeReferenceNumbering(presentation)
 
   useEffect(() => {
-    loadWebFonts([presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
+    void ensureWebFonts([presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
   }, [presentation.theme.headingFontFamily, presentation.theme.bodyFontFamily])
 
   const go = useCallback(

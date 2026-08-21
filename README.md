@@ -95,6 +95,17 @@ utenfor skjermen i nøyaktig målsonens størrelse og med den prospektive fonten
 slik at svaret er det brukeren faktisk vil se. Utenfor nettleseren brukes en ren,
 font-bevisst estimator (`src/domain/fit.ts`).
 
+Tre ting utenfor selve sonen bestemmer hvor mye plass innholdet trenger, og alle
+tre måles i den tilstanden som faktisk kommer til å vises:
+
+- **geometrien** sonen ligger i,
+- **typografien** – en fontendring committes først når webfonten er lastet, så
+  målingen gjøres aldri mot reservefonten, og
+- **citation-nummereringen** – tallene utledes av rekkefølgen referansene først
+  brukes i, så en endring på én slide kan gjøre en etikett bredere på en annen.
+  Kommandoer som endrer den rekkefølgen valideres mot konsekvensene i hele
+  presentasjonen, ikke bare i sonen som ble redigert.
+
 ## Kom i gang
 
 ```bash

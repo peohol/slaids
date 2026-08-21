@@ -22,7 +22,7 @@ import {
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
-import { guardFit } from './fitGuard'
+import { fitContextFor, guardFit } from './fitGuard'
 import { rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
@@ -107,7 +107,7 @@ export function splitLeaf(
       return err('INVALID_ARGUMENT', 'Ugyldig målsone for eksisterende innhold.')
     }
     const targetRect = preview.childRects[targetIndex]
-    const fit = input.fits?.(leaf.content, targetRect, presentation.theme)
+    const fit = input.fits?.(leaf.content, targetRect, fitContextFor(presentation))
     if (!fit || fit.fits) {
       children[targetIndex] = { ...children[targetIndex], content: leaf.content }
     } else {
@@ -330,17 +330,6 @@ export function setZoneContent(
     return err('TARGET_OCCUPIED', 'Sonen har allerede innhold.')
   }
 
-  if (input.content) {
-    const area = rectForNode(slide, input.nodeId, input.geometry)
-    if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
-    const fit = input.fits?.(input.content, area, presentation.theme)
-    if (fit && !fit.fits) {
-      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i sonen.', {
-        overflow: fit.overflow,
-      })
-    }
-  }
-
   const displaced = leaf.content && input.content !== leaf.content ? leaf.content : null
   const disposed = displaced
     ? disposeContents(
@@ -352,13 +341,31 @@ export function setZoneContent(
     : { presentation, movedToSandbox: [], discarded: [] }
 
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: input.content })
-  return ok(
-    outcome(
-      touch(withSlide(disposed.presentation, { ...slide, root })),
-      disposed.movedToSandbox,
-      disposed.discarded,
-    ),
+  const next = touch(withSlide(disposed.presentation, { ...slide, root }))
+
+  if (input.content) {
+    const area = rectForNode(slide, input.nodeId, input.geometry)
+    if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+    // Measured against the document as it will be *after* the placement:
+    // content arriving with citations in it can renumber itself.
+    const fit = input.fits?.(input.content, area, fitContextFor(next))
+    if (fit && !fit.fits) {
+      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i sonen.', {
+        overflow: fit.overflow,
+      })
+    }
+  }
+
+  // Placing or removing citations renumbers every citation after it, so zones
+  // on other slides can lose room without being touched.
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Innholdet endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
   )
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value, disposed.movedToSandbox, disposed.discarded))
 }
 
 export interface MoveContentInput extends StructuralOptions {
@@ -390,12 +397,6 @@ export function moveZoneContent(
 
   const area = rectForNode(targetSlide, input.toNodeId, input.geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.')
-  const fit = input.fits?.(from.content, area, presentation.theme)
-  if (fit && !fit.fits) {
-    return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
-      overflow: fit.overflow,
-    })
-  }
 
   let next = presentation
   // A copy gets fresh ids; sharing them would put the same content id on two
@@ -408,11 +409,36 @@ export function moveZoneContent(
   const refreshedTarget = findSlide(next, targetSlideId)
   if (!refreshedTarget) return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.')
   const targetRoot = replaceNode(refreshedTarget.root, to.id, { ...to, content: placed })
-  next = withSlide(next, { ...refreshedTarget, root: targetRoot })
-  return ok(outcome(touch(next)))
+  next = touch(withSlide(next, { ...refreshedTarget, root: targetRoot }))
+
+  // Moving citation-bearing content between slides changes first-occurrence
+  // order, so the label this very content renders can differ before and after.
+  const fit = input.fits?.(placed, area, fitContextFor(next))
+  if (fit && !fit.fits) {
+    return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
+      overflow: fit.overflow,
+    })
+  }
+
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Flyttingen endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+  )
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value))
 }
 
-/** Whether a zone can currently accept content of a given size. Used by DnD. */
+/**
+ * Whether a zone can currently accept content of a given size. Used by DnD.
+ *
+ * Measured against the document as it would be *with* the content in place, so
+ * a drop target agrees with the command that runs when the pointer is released
+ * — content carrying citations can renumber itself on arrival, and a target
+ * that lights up green only to be refused a moment later is worse than one that
+ * never lit up.
+ */
 export function canAcceptContent(
   presentation: Presentation,
   input: { slideId: string; nodeId: NodeId; content: ZoneContent } & StructuralOptions,
@@ -424,6 +450,8 @@ export function canAcceptContent(
   const area = rectForNode(slide, input.nodeId, input.geometry)
   if (!area) return false
   if (!subtreeFitsInRect(leaf, area, input.geometry)) return false
-  const fit = input.fits?.(input.content, area, presentation.theme)
-  return !fit || fit.fits
+  if (!input.fits) return true
+  const root = replaceNode(slide.root, leaf.id, { ...leaf, content: input.content })
+  const prospective = withSlide(presentation, { ...slide, root })
+  return input.fits(input.content, area, fitContextFor(prospective)).fits
 }

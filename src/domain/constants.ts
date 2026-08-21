@@ -54,6 +54,19 @@ export const REFERENCE_LINE_HEIGHT = 1.35
 export const REFERENCE_ENTRY_GAP = 10
 export const REFERENCE_MAX_COLUMNS = 3
 
+/**
+ * The rendered citation pill, in `em` of the surrounding body text.
+ *
+ * These mirror `.rd-citation` in `styles/slide.css` and exist so the headless
+ * estimator can model a citation label the same way the browser draws it —
+ * a citation that renders as `10` is wider than one that renders as `9`, and
+ * the fit gate has to see that. Keep the two in sync.
+ */
+export const CITATION_FONT_SCALE = 0.58
+export const CITATION_MIN_WIDTH_EM = CITATION_FONT_SCALE * 1.55
+export const CITATION_PADDING_EM = CITATION_FONT_SCALE * 0.7
+export const CITATION_MARGIN_EM = 0.12
+
 /** Tolerance used for floating point geometry comparisons. */
 export const GEOMETRY_EPSILON = 1e-6
 

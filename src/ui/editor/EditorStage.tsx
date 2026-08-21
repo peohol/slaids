@@ -7,7 +7,7 @@
  * than overlapping DOM elements.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
@@ -39,6 +39,7 @@ import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
 import { domFitCheckers } from '../../state/measure'
+import { docEditRenumberProblem } from '../../state/citationFit'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
@@ -93,7 +94,10 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
   const setActiveField = useEditorStore((state) => state.setActiveField)
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const titleEditorRef = useRef<Editor | null>(null)
-  const { theme } = useSlideRender()
+  const { theme, numbering } = useSlideRender()
+  // A ratio drag changes geometry, never the deck's citation numbers, so the
+  // same context serves as both baseline and prospective state.
+  const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
 
   const displaySlide: Slide = preview
     ? {
@@ -156,7 +160,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       for (const [nodeId, overflow] of subtreeOverflow(
         child,
         startRects[index],
-        theme,
+        fitContext,
         domFitCheckers,
       )) {
         baseline.set(nodeId, overflow)
@@ -207,7 +211,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
         const next = subtreeOverflow(
           drag.children[index],
           childRects[index],
-          theme,
+          fitContext,
           domFitCheckers,
         )
         if (overflowRegressions(next, (nodeId) => drag.baseline.get(nodeId) ?? 0).length > 0) return
@@ -249,7 +253,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
     }
-  }, [preview, runStructural, scale, slide.id, theme])
+  }, [fitContext, preview, runStructural, scale, slide.id])
 
   const titleColor = bestTextColor(theme.backgroundColor)
 
@@ -322,6 +326,14 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                       setActiveEditor(titleEditorRef.current)
                       setActiveField({ nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' })
                     }}
+                    validateDoc={(next) =>
+                      docEditRenumberProblem({
+                        nodeId: TITLE_NODE_ID,
+                        currentDoc: slide.title ?? next,
+                        nextDoc: next,
+                        commit: (presentation, doc) => setSlideTitle(presentation, slide.id, doc),
+                      })
+                    }
                     onChange={(doc) =>
                       run(`typing:${slide.id}:slide-title`, (presentation) =>
                         setSlideTitle(presentation, slide.id, doc),

@@ -24,6 +24,13 @@
  * Everything here is headless and takes the checkers as arguments, so a REST or
  * MCP caller gets exactly the same rules without going through the UI.
  *
+ * There are three things above a single zone that decide what it renders, and
+ * all three are part of the prospective state a command is measured against:
+ * the geometry it sits in, the global typography, and the citation numbers
+ * derived from first-occurrence order across the whole deck. The third is the
+ * reason a command that never touches slide 9 can still be refused because of
+ * slide 9.
+ *
  * Which command is in which category — the full list, so a new command is added
  * to it deliberately rather than by omission:
  *
@@ -31,31 +38,107 @@
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
  *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
  *    `setSubfieldDoc`, `setContainerDoc`, `setCardColor`), plus `setTheme`,
- *    `setSlideTitle`, `setSlideHasTitle`, `updateSplit` / `setSplitWeights`.
- *  - **Placement-gated** (calls the checker directly): `setZoneContent`,
- *    `moveZoneContent`, `canAcceptContent`, `splitLeaf`, `placeSandboxItem`,
- *    `addSlide`.
- *  - **Cannot shrink anything, deliberately ungated**: `deleteSlide`,
- *    `duplicateSlide` (same content, same geometry), `moveSlide`,
- *    `setPresentationTitle`, `setFolder`, `deleteLayoutNode`,
- *    `clearLayoutNode`, every sandbox command that only removes content from a
- *    slide, every idea command, and every asset command. Gating these would
- *    only make an already-overflowing document harder to repair.
- *  - **Knowingly out of scope**: `addReference` / `updateReference` change the
- *    derived citation numbers, so a zone's text can grow by a character or two
- *    when a citation goes from `[9]` to `[10]`. Refusing to add a reference for
- *    that would be worse than the clipping it prevents, and the derived
- *    reference slides repaginate themselves. `deleteReference` only removes
- *    text, so it is safe by construction.
+ *    `setSlideTitle`, `setSlideHasTitle`, `updateSplit` / `setSplitWeights`,
+ *    and — because they change first-occurrence order — `addSlide`,
+ *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.
+ *  - **Placement-gated as well** (calls the checker directly, absolutely,
+ *    against the prospective document): `setZoneContent`, `moveZoneContent`,
+ *    `canAcceptContent`, `splitLeaf`, `placeSandboxItem`, `addSlide`. Placement
+ *    cannot be expressed as a regression: replacing content that already
+ *    overflowed must not license content that overflows slightly less.
+ *  - **Cannot shrink anything, deliberately ungated**: `duplicateSlide` (a copy
+ *    lands after its original, so no earlier first occurrence moves),
+ *    `setPresentationTitle`, `setFolder`, every idea command, and every asset
+ *    command.
+ *  - **Deliberate exception — removals**: `deleteSlide`, `deleteLayoutNode`,
+ *    `clearLayoutNode`, `moveContentToSandbox` and `deleteReference` take
+ *    content off the deck. They cannot shrink a zone, but they *can* renumber
+ *    citations elsewhere, and renumbering is not purely shrinking: dropping the
+ *    middle of a run turns `1–3` back into `1, 2`, which is wider. They are
+ *    still ungated, deliberately: a removal is how an over-full deck gets
+ *    repaired, and a rule that refuses to delete a slide until some other slide
+ *    has been shortened would make an imported document unfixable. The bounded
+ *    cost is a few characters in a citation pill; the cost of the alternative
+ *    is a document you cannot edit your way out of.
+ *
+ * What is *not* gated here, deliberately, and why:
+ *
+ *  - **Undo and redo** restore a state the document has already been in. There
+ *    is nothing to validate; refusing would strand the user in the state they
+ *    are trying to leave.
+ *  - **Loading, migrating and importing** a document must never be blocked by a
+ *    rule about how much text fits — see `commands/types.ts`. A document that
+ *    arrives overflowing is repaired by editing it, which is gated.
+ *  - **Derived reference slides** are recomputed on every render and repaginate
+ *    themselves: they add a column, then a slide, rather than clipping.
+ *  - **A font that is still downloading.** Nothing here can see that; it is the
+ *    caller's job to wait for readiness before asking, which is what
+ *    `ui/fonts.ts` and the theme picker do.
+ *
+ * A note on what actually renumbers, because it is easy to get backwards:
+ * `addReference` and `updateReference` do *not*. A reference gets a number by
+ * being *cited*, so the numbering changes when a citation node is inserted or
+ * removed (a document edit, already gated), when slides or citation-bearing
+ * content move relative to each other, or when `deleteReference` strips
+ * citations. Editing a reference's title only changes the derived reference
+ * slides, which repaginate themselves.
  */
 
 import { computeLayoutRects, computeSlideGeometry, TITLE_NODE_ID } from '../geometry'
-import { collectLeaves } from '../layout'
+import { collectContent, collectLeaves } from '../layout'
+import { contentDocs } from '../content'
 import { FIT_TOLERANCE, G } from '../constants'
-import { sameFitRelevantTheme } from '../fit'
+import { sameFitRelevantTheme, type FitContext } from '../fit'
+import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
+import { walkRichNodes } from '../richdoc'
 import { err, ok, type Result } from '../result'
-import type { LayoutNode, NodeId, Presentation, PresentationTheme, Rect, Slide } from '../types'
+import type { LayoutNode, NodeId, Presentation, Rect, RichDoc, Slide } from '../types'
 import type { StructuralOptions } from './types'
+
+/**
+ * The render context a presentation implies.
+ *
+ * Both halves are derived from the whole document: typography from the theme,
+ * citation labels from first-occurrence order across every slide. Commands
+ * build this from the presentation they are about to commit, so what is
+ * measured is what will be rendered.
+ */
+export function fitContextFor(presentation: Presentation): FitContext {
+  return { theme: presentation.theme, numbering: computeReferenceNumbering(presentation) }
+}
+
+/** Every document rendered on a slide, including its title zone. */
+function slideDocs(slide: Slide): RichDoc[] {
+  const docs: RichDoc[] = slide.title ? [slide.title] : []
+  for (const content of collectContent(slide.root)) docs.push(...contentDocs(content))
+  return docs
+}
+
+/**
+ * Whether every citation on this slide renders exactly the same label under
+ * both numberings.
+ *
+ * This is what decides if a renumbering somewhere else in the deck can affect
+ * this slide at all — comparing the maps wholesale would re-measure the entire
+ * document every time any citation moved.
+ */
+function sameCitationLabels(
+  slide: Slide,
+  before: ReferenceNumbering,
+  after: ReferenceNumbering,
+): boolean {
+  let same = true
+  for (const doc of slideDocs(slide)) {
+    walkRichNodes(doc, (node) => {
+      if (!same || node.type !== 'citation') return
+      const ids = Array.isArray(node.attrs?.referenceIds)
+        ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
+        : []
+      if (citationLabel(ids, before) !== citationLabel(ids, after)) same = false
+    })
+  }
+  return same
+}
 
 export interface OverflowEntry {
   nodeId: NodeId
@@ -75,7 +158,7 @@ export interface FitRegression extends OverflowEntry {
 export function subtreeOverflow(
   node: LayoutNode,
   area: Rect,
-  theme: PresentationTheme,
+  context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
   const overflow = new Map<NodeId, number>()
@@ -85,7 +168,7 @@ export function subtreeOverflow(
     if (!leaf.content) continue
     const rect = rects.get(leaf.id)
     if (!rect) continue
-    overflow.set(leaf.id, options.fits(leaf.content, rect, theme).overflow)
+    overflow.set(leaf.id, options.fits(leaf.content, rect, context).overflow)
   }
   return overflow
 }
@@ -93,13 +176,13 @@ export function subtreeOverflow(
 /** Overflow per node for a whole slide, including its deterministic title zone. */
 export function slideOverflow(
   slide: Slide,
-  theme: PresentationTheme,
+  context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
   const geometry = computeSlideGeometry(slide, options.geometry)
-  const overflow = subtreeOverflow(slide.root, geometry.mainRect, theme, options)
+  const overflow = subtreeOverflow(slide.root, geometry.mainRect, context, options)
   if (options.fitsTitle && slide.title && geometry.titleRect) {
-    overflow.set(TITLE_NODE_ID, options.fitsTitle(slide.title, geometry.titleRect, theme).overflow)
+    overflow.set(TITLE_NODE_ID, options.fitsTitle(slide.title, geometry.titleRect, context).overflow)
   }
   return overflow
 }
@@ -127,11 +210,14 @@ export function overflowRegressions(
 /**
  * Every zone in `after` that shows less of its content than it did in `before`.
  *
- * Slides that are reference-equal and unaffected by a typography change are
- * skipped outright, and a slide's "before" overflow is only measured once
- * something in it actually overflows — measuring is an offscreen render per
- * zone in the app, so this keeps a global font change proportional to the
- * damage rather than to the size of the deck.
+ * A slide is skipped only when nothing that decides its rendering changed: the
+ * slide object itself, the typography, and the labels its citations resolve to.
+ * That last one is why a renumbering caused by an edit on slide 1 is caught on
+ * slide 9 — the zone the user touched is not the only zone a command can break.
+ *
+ * A slide's "before" overflow is only measured once something in it actually
+ * overflows: measuring is an offscreen render per zone in the app, so this
+ * keeps the cost proportional to the damage rather than to the size of the deck.
  */
 export function findFitRegressions(
   before: Presentation,
@@ -139,6 +225,8 @@ export function findFitRegressions(
   options: StructuralOptions = {},
 ): FitRegression[] {
   if (!options.fits && !options.fitsTitle) return []
+  const beforeContext = fitContextFor(before)
+  const afterContext = fitContextFor(after)
   const typographyUnchanged = sameFitRelevantTheme(before.theme, after.theme)
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
   const regressions: FitRegression[] = []
@@ -148,12 +236,18 @@ export function findFitRegressions(
     // A slide that is new in `after` has no baseline: its content was placed by
     // a command that already checked it absolutely.
     if (!previous) continue
-    if (previous === slide && typographyUnchanged) continue
+    if (
+      previous === slide &&
+      typographyUnchanged &&
+      sameCitationLabels(slide, beforeContext.numbering, afterContext.numbering)
+    ) {
+      continue
+    }
 
-    const next = slideOverflow(slide, after.theme, options)
+    const next = slideOverflow(slide, afterContext, options)
     let baseline: Map<NodeId, number> | null = null
     const entries = overflowRegressions(next, (nodeId) => {
-      baseline ??= slideOverflow(previous, before.theme, options)
+      baseline ??= slideOverflow(previous, beforeContext, options)
       return baseline.get(nodeId) ?? 0
     })
     for (const entry of entries) regressions.push({ slideId: slide.id, ...entry })

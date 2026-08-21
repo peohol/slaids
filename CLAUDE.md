@@ -19,6 +19,10 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Persistens: IndexedDB via Dexie. Aldri `localStorage` for presentasjoner/assets.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
+- Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
+  Den tilstanden som skal vises etter commit, er den som måles før commit – inkludert
+  prospektiv geometri, prospektiv font (vent på webfont-readiness) og prospektiv
+  citation-nummerering. Unntak hører hjemme i `src/domain/commands/fitGuard.ts`, med begrunnelse.
 
 ## Arkitekturregler
 

@@ -22,7 +22,6 @@ import {
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
-  setSlideTitle,
   setZoneContent,
   splitLeaf,
   updateSplit,
@@ -44,8 +43,8 @@ import { startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
-import { domFitCheckers } from '../../state/measure'
-import { loadWebFonts } from '../fonts'
+import { domFitCheckers, overflowingZoneCount } from '../../state/measure'
+import { ensureWebFonts, webFontsReady } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
@@ -113,6 +112,8 @@ export function EditorView({
   const [derivedView, setDerivedView] = useState<{ id: string; from: string } | null>(null)
   const [removingTitle, setRemovingTitle] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  /** Settled web font loads, keyed by the theme they belong to. */
+  const [fontLoad, setFontLoad] = useState<{ fonts: string; failed: number } | null>(null)
   /** Titles removed in this session, so toggling the zone back on restores the text. */
   const removedTitles = useRef(new Map<string, TitleDoc>())
   const [dropTargets, setDropTargets] = useState<ReadonlySet<string>>(() => new Set())
@@ -170,10 +171,56 @@ export function EditorView({
     ? `${presentation.theme.headingFontFamily}|${presentation.theme.bodyFontFamily}`
     : ''
 
+  /**
+   * Web fonts are loaded, waited for, and then the deck is re-measured.
+   *
+   * A presentation that already uses a web font renders with the fallback for
+   * the first frames and swaps when the real faces arrive — which changes the
+   * metrics under content that was written, and validated, against the real
+   * font. Nothing can be rolled back here (the document is simply what it is),
+   * but it must not pass unnoticed, so the swap is followed by one pass over
+   * the deck and a warning naming how many zones no longer fit.
+   */
   useEffect(() => {
     if (!themeFonts) return
-    loadWebFonts(themeFonts.split('|'))
+    let cancelled = false
+    void ensureWebFonts(themeFonts.split('|')).then((loaded) => {
+      if (cancelled) return
+      setFontLoad({ fonts: themeFonts, failed: loaded.failed.length })
+      if (loaded.failed.length > 0) {
+        notify.warning(
+          `Fonten «${loaded.failed.join('», «')}» kunne ikke lastes. Slidene vises med reservefonten.`,
+        )
+      }
+      if (loaded.ready.length === 0) return
+      const deck = useEditorStore.getState().presentation
+      if (!deck) return
+      const zones = overflowingZoneCount(deck)
+      if (zones > 0) {
+        notify.warning(
+          zones === 1
+            ? 'Én sone får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.'
+            : `${zones} soner får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.`,
+        )
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [themeFonts])
+
+  /**
+   * Derived rather than synchronised: a theme change makes the previous load
+   * irrelevant the moment it renders, without an effect to reset it.
+   */
+  const fontState =
+    fontLoad?.fonts === themeFonts
+      ? fontLoad.failed > 0
+        ? 'failed'
+        : 'ready'
+      : webFontsReady(themeFonts.split('|'))
+        ? 'ready'
+        : 'pending'
 
   const slide = useMemo(
     () => presentation?.slides.find((entry) => entry.id === currentSlideId) ?? null,
@@ -319,19 +366,31 @@ export function EditorView({
 
   const removeTitle = useCallback(() => {
     if (!slide?.title) return
-    removedTitles.current.set(slide.id, slide.title)
+    const removed = slide.title
     // `force` is the user's confirmation; the command refuses without it.
-    run('toggle-title', (current) => setSlideHasTitle(current, slide.id, false, { force: true }))
+    const done = run('toggle-title', (current) =>
+      setSlideHasTitle(current, slide.id, false, { force: true }),
+    )
+    if (done) removedTitles.current.set(slide.id, removed)
   }, [run, slide])
 
+  /**
+   * Put the zone and the remembered text back in one command.
+   *
+   * The text was written under whatever font was in force then; the zone it is
+   * going back into is measured under the font in force now. Doing it in two
+   * steps would validate the zone but not the text, and a failure halfway would
+   * leave an empty title zone behind — so the command takes both and either
+   * commits both or changes nothing. The remembered title is kept until it has
+   * actually been restored.
+   */
   const restoreTitle = useCallback(() => {
     if (!slide) return
-    const added = run('toggle-title', (current) =>
-      setSlideHasTitle(current, slide.id, true, domFitCheckers),
-    )
-    if (!added) return
     const remembered = removedTitles.current.get(slide.id)
-    if (remembered) run('restore-title', (current) => setSlideTitle(current, slide.id, remembered))
+    const restored = run('toggle-title', (current) =>
+      setSlideHasTitle(current, slide.id, true, { ...domFitCheckers, title: remembered }),
+    )
+    if (restored) removedTitles.current.delete(slide.id)
   }, [run, slide])
 
   const createSlideFromTemplate = useCallback(
@@ -503,7 +562,11 @@ export function EditorView({
     if (data?.kind === 'slide') {
       const targetIndex = presentation?.slides.findIndex((entry) => entry.id === over.id) ?? -1
       if (targetIndex < 0 || active.id === over.id) return
-      run('reorder-slide', (current) => moveSlide(current, String(active.id), targetIndex))
+      // Reordering renumbers citations, so this is fit-validated like any
+      // other change that can shrink what a zone has room for.
+      run('reorder-slide', (current) =>
+        moveSlide(current, String(active.id), targetIndex, domFitCheckers),
+      )
       return
     }
 
@@ -666,7 +729,7 @@ export function EditorView({
           setDropTargets(new Set())
         }}
       >
-        <div className="editor" data-testid="editor">
+        <div className="editor" data-testid="editor" data-fonts={fontState}>
           <TopToolbar
             title={presentation.title}
             hasTitleZone={slide.title !== null}

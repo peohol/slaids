@@ -1,11 +1,15 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import {
   addContentToZone,
   createPresentation,
   enterZoneMode,
+  fillZoneToCapacity,
+  renderedBodyFont,
   splitSelected,
   stage,
+  toast,
   watchForErrors,
+  worstOverflow,
   zoneRects,
 } from './helpers'
 
@@ -52,54 +56,6 @@ test.describe('content fit', () => {
     })
     expect(overflow).toBeLessThanOrEqual(1)
   })
-
-  /**
-   * Fill a zone's body field until the editor stops accepting more — the text
-   * is then close to the zone's capacity for the current font.
-   *
-   * The chunks are deliberately small: each rejected chunk is the slack left
-   * between the stored text and the real limit, and a test that a 18 % wider
-   * font no longer fits only means something if that slack is smaller than 18 %.
-   */
-  async function fillZoneToCapacity(page: Page, nodeId: string): Promise<void> {
-    // `.tiptap` matches both a card's subfield and a container's single field.
-    const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
-    await field.click()
-    for (let i = 0; i < 40; i += 1) {
-      await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
-    }
-    await page.waitForTimeout(300)
-  }
-
-  /** The body font the slide content is actually rendered with right now. */
-  async function renderedBodyFont(page: Page): Promise<string> {
-    return page.evaluate(
-      () =>
-        getComputedStyle(
-          document.querySelector('[data-testid="stage-slide"] .slide') as HTMLElement,
-        ).fontFamily,
-    )
-  }
-
-  /** A toast carrying this text. The store can show several at once. */
-  function toast(page: Page, text: string) {
-    return page.getByTestId('toast').filter({ hasText: text })
-  }
-
-  async function worstOverflow(page: Page): Promise<number> {
-    return page.evaluate(() => {
-      const slide = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
-      let worst = 0
-      for (const element of slide.querySelectorAll<HTMLElement>('[data-fit-scroll]')) {
-        worst = Math.max(
-          worst,
-          element.scrollHeight - element.clientHeight,
-          element.scrollWidth - element.clientWidth,
-        )
-      }
-      return worst
-    })
-  }
 
   test('refuses a global font change that would hide existing text', async ({ page }) => {
     const guard = watchForErrors(page)

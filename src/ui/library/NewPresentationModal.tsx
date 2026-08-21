@@ -9,7 +9,7 @@ import { ColorSwatchGrid } from '../components/ColorPicker'
 import { DEFAULT_BACKGROUND_COLOR } from '../../domain/constants'
 import { FONT_OPTIONS } from '../../domain/fonts'
 import { bestTextColor } from '../../domain/color'
-import { loadWebFonts } from '../fonts'
+import { ensureWebFonts } from '../fonts'
 import type { PresentationTheme } from '../../domain/types'
 
 export interface NewPresentationResult {
@@ -32,7 +32,7 @@ export function NewPresentationModal({
   const [bodyFontFamily, setBodyFontFamily] = useState(FONT_OPTIONS[0].stack)
 
   useEffect(() => {
-    loadWebFonts([headingFontFamily, bodyFontFamily])
+    void ensureWebFonts([headingFontFamily, bodyFontFamily])
   }, [headingFontFamily, bodyFontFamily])
 
   const trimmed = title.trim()
