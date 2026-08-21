@@ -160,15 +160,26 @@ export function ZoneContentFrame({
 
   const headerText = bestTextColor(content.headerColor)
   return (
+    /*
+     * The card paints nothing itself: the header and the body each carry their
+     * own colour and their own corners.
+     *
+     * A white card behind a coloured header is what put a pale hairline along
+     * the top of the header. The header is clipped to the card's rounded
+     * corner, and the clip is antialiased — so along that edge the header
+     * colour was blended with the white *underneath* it, and the slide is drawn
+     * at a fractional scale, which lands the straight top edge on a half pixel
+     * and shows the same white the whole way across. With nothing painted
+     * behind the header, the only thing left to blend with is the slide
+     * background, which is what an edge is supposed to blend with.
+     */
     <div
       className="zone-content zone-content--card zone-content--titled"
       data-content-kind="titled-card"
-      // `overflow: hidden` is what keeps the white card from showing as a
-      // hairline outside the header's own rounded corners.
       style={{
         borderRadius: CARD_RADIUS,
         boxShadow: CARD_SHADOW,
-        background: WHITE,
+        background: 'transparent',
         overflow: 'hidden',
       }}
     >
@@ -180,13 +191,22 @@ export function ZoneContentFrame({
           color: headerText,
           height: tokens.cardHeaderHeight,
           padding: `0 ${tokens.cardPadding}px`,
+          borderRadius: `${CARD_RADIUS}px ${CARD_RADIUS}px 0 0`,
           textShadow: textShadowFor(content.headerColor),
           fontFamily: theme.headingFontFamily,
         }}
       >
         {renderTitle(content)}
       </div>
-      <div className="card-body" style={{ padding: tokens.cardPadding, color: '#000' }}>
+      <div
+        className="card-body"
+        style={{
+          background: WHITE,
+          padding: tokens.cardPadding,
+          borderRadius: `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px`,
+          color: '#000',
+        }}
+      >
         <SubfieldStack
           body={content.body}
           dividerColor={CARD_DIVIDER_COLOR}

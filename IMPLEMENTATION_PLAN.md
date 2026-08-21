@@ -434,6 +434,11 @@ Kort med:
 
 - headerområde;
 - bodyområde;
+- ingen egen kortflate under de to: header og body bærer hver sin farge og
+  sine egne hjørner, ellers blandes den underliggende flaten inn i den
+  antialiaserte kanten mellom dem og legger seg som en lys strek langs
+  fargepanelet — særlig fordi sliden tegnes i en brøkdels skala, som lander
+  den rette overkanten på en halv piksel;
 - kontrollert typografi;
 - støtte for flere body-subfields.
 
