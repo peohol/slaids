@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
-import { setCardTitle, setContainerDoc, setSubfieldDoc } from '../../domain/commands'
+import { setCardTitle, setSubfieldDoc } from '../../domain/commands'
 import { measureElementOverflow } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -84,34 +84,7 @@ export function EditableZoneContent({
             }
           />
         )}
-        renderContainer={(container) => {
-          if (container.payload.type === 'asset') {
-            return <AssetImage assetId={container.payload.assetId} fit={container.payload.fit} />
-          }
-          return (
-            <FieldEditor
-              doc={container.payload.doc}
-              variant="body"
-              placeholder="Skriv innhold …"
-              field={{ nodeId, subfieldId: null, kind: 'body' }}
-              measureOverflow={measureOverflow}
-              validateDoc={(next) =>
-                docEditRenumberProblem({
-                  nodeId,
-                  currentDoc: container.payload.type === 'richdoc' ? container.payload.doc : next,
-                  nextDoc: next,
-                  commit: (presentation, doc) =>
-                    setContainerDoc(presentation, { slideId, nodeId, doc }),
-                })
-              }
-              onChange={(doc) =>
-                run(`typing:${nodeId}:container`, (presentation) =>
-                  setContainerDoc(presentation, { slideId, nodeId, doc }),
-                )
-              }
-            />
-          )
-        }}
+        renderAsset={(payload) => <AssetImage assetId={payload.assetId} fit={payload.fit} />}
       />
     </div>
   )

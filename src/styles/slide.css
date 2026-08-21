@@ -189,14 +189,20 @@
 .rich-doc :is(blockquote, .rd-quote) {
   position: relative;
   margin: 6px 0;
-  padding: 6px 30px 10px;
+  padding: 6px 32px 10px;
   font-style: italic;
 }
 
+/*
+ * The quotation marks sit inside the padding rather than against the box edge.
+ * A blockquote is as wide as the field, so a mark flush with the edge has its
+ * outer half cut off by the zone's clipping — which is exactly what the
+ * containment rule is supposed to guarantee never happens to visible content.
+ */
 .rich-doc :is(blockquote, .rd-quote)::before,
 .rich-doc :is(blockquote, .rd-quote)::after {
   position: absolute;
-  font-size: 2.4em;
+  font-size: 2.2em;
   line-height: 1;
   color: rgba(128, 128, 128, 0.45);
   font-family: Georgia, serif;
@@ -204,13 +210,13 @@
 
 .rich-doc :is(blockquote, .rd-quote)::before {
   content: '\201C';
-  left: 0;
+  left: 4px;
   top: 0;
 }
 
 .rich-doc :is(blockquote, .rd-quote)::after {
   content: '\201D';
-  right: 0;
+  right: 6px;
   bottom: 0;
 }
 

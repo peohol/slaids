@@ -14,8 +14,8 @@ import {
   setContentKind,
   setSubfieldCount,
 } from '../../domain/commands'
-import { CONTENT_KIND_LABELS } from '../../domain/content'
-import { emptyDoc, isDocEmpty } from '../../domain/richdoc'
+import { bodyOf, CONTENT_KIND_LABELS, createCardBody } from '../../domain/content'
+import { isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { domFitCheckers } from '../../state/measure'
@@ -34,8 +34,8 @@ const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
 
 /** Does replacing this payload throw away something the user made? */
 function payloadHasWork(payload: ContainerPayload): boolean {
-  if (payload.type === 'richdoc') return !isDocEmpty(payload.doc)
-  return true
+  if (payload.type === 'asset') return true
+  return payload.body.subfields.some((field) => !isDocEmpty(field.doc))
 }
 
 export function Inspector({
@@ -58,6 +58,7 @@ export function Inspector({
   const node = selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const leaf = selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
   const content = leaf?.content ?? null
+  const body = content ? bodyOf(content) : null
   const geometry = computeSlideGeometry(slide)
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
@@ -199,7 +200,7 @@ export function Inspector({
         </section>
       )}
 
-      {content && content.kind !== 'container' && (
+      {body && (
         <section className="inspector__section">
           <h2 className="inspector__heading">Subfelt</h2>
           <div className="inspector__row">
@@ -210,7 +211,7 @@ export function Inspector({
               type="number"
               min={1}
               max={6}
-              value={content.body.subfields.length}
+              value={body.subfields.length}
               data-testid="subfield-count"
               onChange={(event) =>
                 run('subfield-count', (current) =>
@@ -229,7 +230,7 @@ export function Inspector({
               <button
                 key={axis}
                 type="button"
-                className={content.body.axis === axis ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+                className={body.axis === axis ? 'btn btn--sm btn--active' : 'btn btn--sm'}
                 data-testid={`subfield-axis-${axis}`}
                 onClick={() =>
                   run('subfield-axis', (current) =>
@@ -247,11 +248,11 @@ export function Inspector({
               </button>
             ))}
           </div>
-          {content.body.subfields.length > 1 && (
+          {body.subfields.length > 1 && (
             <div className="inspector__weights">
-              {content.body.weights.map((weight, index) => (
+              {body.weights.map((weight, index) => (
                 <input
-                  key={content.body.subfields[index].id}
+                  key={body.subfields[index].id}
                   className="input"
                   value={round(weight)}
                   inputMode="decimal"
@@ -260,7 +261,7 @@ export function Inspector({
                   onChange={(event) => {
                     const parsed = Number(event.target.value.replace(',', '.'))
                     if (!Number.isFinite(parsed) || parsed <= 0) return
-                    const weights = [...content.body.weights]
+                    const weights = [...body.weights]
                     weights[index] = parsed
                     run('subfield-weights', (current) =>
                       setBodyWeights(current, {
@@ -284,9 +285,9 @@ export function Inspector({
           <div className="inspector__actions">
             <button
               type="button"
-              className={content.payload.type === 'richdoc' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+              className={content.payload.type === 'fields' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
               data-testid="container-payload-richdoc"
-              onClick={() => requestPayload({ type: 'richdoc', doc: emptyDoc() })}
+              onClick={() => requestPayload({ type: 'fields', body: createCardBody(1) })}
             >
               <Icon name="text" size={14} /> Tekst
             </button>

@@ -53,7 +53,12 @@ export type TitleDoc = RichDoc
 
 /** What lives inside a transparent container zone. */
 export type ContainerPayload =
-  | { type: 'richdoc'; doc: RichDoc }
+  /**
+   * A container divides into subfields exactly like a card body does — same
+   * type, same commands, same dividers — because "a transparent card" is what
+   * a container is. One subfield is the ordinary case.
+   */
+  | { type: 'fields'; body: CardBody }
   | { type: 'asset'; assetId: string; fit: 'contain' | 'cover' }
 
 /** Where content sits when it does not fill the height it is given. */
@@ -77,6 +82,7 @@ export interface ContainerContent {
   id: string
   kind: 'container'
   payload: ContainerPayload
+  /** Only meaningful for an `asset` payload; text aligns per subfield. */
   verticalAlign?: VerticalAlign
 }
 

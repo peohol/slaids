@@ -4,42 +4,41 @@
  */
 
 import { walkNodes } from './layout'
-import type { LayoutNode, Presentation, RichDoc, RichNode, ZoneContent } from './types'
+import type { CardBody, LayoutNode, Presentation, RichDoc, RichNode, ZoneContent } from './types'
 
 export type DocTransform = (doc: RichDoc) => RichDoc
 
 export function mapContentDocs(content: ZoneContent, transform: DocTransform): ZoneContent {
   switch (content.kind) {
     case 'container': {
-      if (content.payload.type !== 'richdoc') return content
-      const doc = transform(content.payload.doc)
-      return doc === content.payload.doc ? content : { ...content, payload: { type: 'richdoc', doc } }
+      if (content.payload.type !== 'fields') return content
+      const body = mapBodyDocs(content.payload.body, transform)
+      return body === content.payload.body
+        ? content
+        : { ...content, payload: { type: 'fields', body } }
     }
     case 'untitled-card': {
-      const body = mapBodyDocs(content, transform)
+      const body = mapBodyDocs(content.body, transform)
       return body === content.body ? content : { ...content, body }
     }
     case 'titled-card': {
       const title = transform(content.title)
-      const body = mapBodyDocs(content, transform)
+      const body = mapBodyDocs(content.body, transform)
       if (title === content.title && body === content.body) return content
       return { ...content, title, body }
     }
   }
 }
 
-function mapBodyDocs(
-  content: Extract<ZoneContent, { body: unknown }>,
-  transform: DocTransform,
-): (typeof content)['body'] {
+function mapBodyDocs(body: CardBody, transform: DocTransform): CardBody {
   let changed = false
-  const subfields = content.body.subfields.map((field) => {
+  const subfields = body.subfields.map((field) => {
     const doc = transform(field.doc)
     if (doc === field.doc) return field
     changed = true
     return { ...field, doc }
   })
-  return changed ? { ...content.body, subfields } : content.body
+  return changed ? { ...body, subfields } : body
 }
 
 function mapTreeDocs(node: LayoutNode, transform: DocTransform): LayoutNode {

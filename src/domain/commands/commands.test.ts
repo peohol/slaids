@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
 import { createLeaf, createSplit, findLeaf, findNode, findSplit } from '../layout'
-import { createTitledCard, createUntitledCard } from '../content'
+import { containerWithDoc, createTitledCard, createUntitledCard } from '../content'
 import { estimateFitChecker } from '../fit'
 import { paragraphDoc, titleDoc } from '../richdoc'
 import type { Presentation, SplitNode } from '../types'
@@ -18,10 +18,12 @@ import {
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
+  setBodyAxis,
   setBodyWeights,
   setContentKind,
   setSlideHasTitle,
   setSlideTitle,
+  setSubfieldCount,
   setSubfieldDoc,
   setTheme,
   setZoneContent,
@@ -482,11 +484,7 @@ describe('content placement', () => {
       setZoneContent(presentation, {
         slideId: slide.id,
         nodeId: slide.root.id,
-        content: {
-          id: 'c1',
-          kind: 'container',
-          payload: { type: 'richdoc', doc: paragraphDoc('Hei verden') },
-        },
+        content: containerWithDoc(paragraphDoc('Hei verden')),
       }),
     ).presentation
     const converted = unwrap(
@@ -531,6 +529,52 @@ describe('content placement', () => {
     )
     const content = findLeaf(next.slides[0].root, slide.root.id)?.content
     expect(JSON.stringify(content)).toContain('Innhold')
+  })
+
+  it('divides a container into subfields like a card', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: containerWithDoc(paragraphDoc('Første')),
+      }),
+    ).presentation
+
+    const split = unwrap(
+      setSubfieldCount(filled, { slideId: slide.id, nodeId: slide.root.id, count: 3 }),
+    )
+    const content = findLeaf(split.slides[0].root, slide.root.id)?.content
+    if (content?.kind !== 'container' || content.payload.type !== 'fields') {
+      throw new Error('expected a text container')
+    }
+    expect(content.payload.body.subfields).toHaveLength(3)
+    expect(content.payload.body.weights).toEqual([1, 1, 1])
+    // The text that was already there stays in the first field.
+    expect(JSON.stringify(content.payload.body.subfields[0].doc)).toContain('Første')
+
+    const sideways = unwrap(
+      setBodyAxis(split, { slideId: slide.id, nodeId: slide.root.id, axis: 'x' }),
+    )
+    const after = findLeaf(sideways.slides[0].root, slide.root.id)?.content
+    if (after?.kind !== 'container' || after.payload.type !== 'fields') {
+      throw new Error('expected a text container')
+    }
+    expect(after.payload.body.axis).toBe('x')
+
+    // A field with text in it is not silently dropped by shrinking the count.
+    const withText = unwrap(
+      setSubfieldDoc(sideways, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        subfieldId: after.payload.body.subfields[2].id,
+        doc: paragraphDoc('Tredje'),
+      }),
+    )
+    expect(
+      setSubfieldCount(withText, { slideId: slide.id, nodeId: slide.root.id, count: 2 }).ok,
+    ).toBe(false)
   })
 })
 

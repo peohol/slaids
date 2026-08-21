@@ -3,6 +3,7 @@ import { CURRENT_SCHEMA_VERSION, validateClipboardPayload, validatePresentation 
 import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
 import { createUntitledCard } from './content'
+import { paragraphDoc } from './richdoc'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
 
@@ -144,7 +145,7 @@ describe('migrations', () => {
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
       throw new Error('expected a container leaf')
     }
-    expect(leaf.content.payload.type).toBe('richdoc')
+    expect(leaf.content.payload.type).toBe('fields')
   })
 
   it('drops an inline figure from a stored document', () => {
@@ -168,6 +169,40 @@ describe('migrations', () => {
     if (!result.ok) return
     expect(JSON.stringify(result.value)).not.toContain('slaidsShape')
     expect(JSON.stringify(result.value)).toContain('Beholdes')
+  })
+
+  it("turns a container's document into a single subfield", () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 3
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    root.children[1] = {
+      ...root.children[1],
+      content: {
+        id: 'content-text',
+        kind: 'container',
+        verticalAlign: 'middle',
+        payload: { type: 'richdoc', doc: paragraphDoc('Beholdertekst') },
+      },
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const leaf = migrated.children[1]
+    if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
+      throw new Error('expected a container leaf')
+    }
+    const payload = leaf.content.payload
+    if (payload.type !== 'fields') throw new Error('expected a fields payload')
+    expect(payload.body.subfields).toHaveLength(1)
+    expect(JSON.stringify(payload.body.subfields[0].doc)).toContain('Beholdertekst')
+    // The container's own alignment belongs to the field it became.
+    expect(payload.body.subfields[0].verticalAlign).toBe('middle')
+    expect(leaf.content.verticalAlign).toBeUndefined()
   })
 
   it('reports invalid data instead of throwing', () => {

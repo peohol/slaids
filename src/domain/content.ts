@@ -38,8 +38,17 @@ export function createContainer(payload?: ContainerPayload): ContainerContent {
   return {
     id: newContentId(),
     kind: 'container',
-    payload: payload ?? { type: 'richdoc', doc: emptyDoc() },
+    payload: payload ?? { type: 'fields', body: createCardBody(1) },
   }
+}
+
+/** A container holding one field with this document. */
+export function containerWithDoc(doc: RichDoc): ContainerContent {
+  const body = createCardBody(1)
+  return createContainer({
+    type: 'fields',
+    body: { ...body, subfields: [{ ...body.subfields[0], doc }] },
+  })
 }
 
 export function createUntitledCard(backgroundColor = DEFAULT_CARD_BACKGROUND): UntitledCardContent {
@@ -92,6 +101,26 @@ export function hasCardBody(
   return content.kind === 'untitled-card' || content.kind === 'titled-card'
 }
 
+/**
+ * The subfield body of any content that has one — a card always, a container
+ * whenever it holds text rather than a picture.
+ */
+export function bodyOf(content: ZoneContent): CardBody | null {
+  if (content.kind === 'container') {
+    return content.payload.type === 'fields' ? content.payload.body : null
+  }
+  return content.body
+}
+
+/** The same content with a new body, whichever kind it is. */
+export function withBody<T extends ZoneContent>(content: T, body: CardBody): T {
+  if (content.kind === 'container') {
+    if (content.payload.type !== 'fields') return content
+    return { ...content, payload: { type: 'fields', body } }
+  }
+  return { ...content, body }
+}
+
 /* ------------------------------------------------------------------ *
  * Subfield editing (pure)
  * ------------------------------------------------------------------ */
@@ -135,7 +164,9 @@ export function withBodyAxis(body: CardBody, axis: Axis): CardBody {
 export function contentDocs(content: ZoneContent): RichDoc[] {
   switch (content.kind) {
     case 'container':
-      return content.payload.type === 'richdoc' ? [content.payload.doc] : []
+      return content.payload.type === 'fields'
+        ? content.payload.body.subfields.map((field) => field.doc)
+        : []
     case 'untitled-card':
       return content.body.subfields.map((field) => field.doc)
     case 'titled-card':

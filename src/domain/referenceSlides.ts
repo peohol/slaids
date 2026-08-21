@@ -52,7 +52,16 @@ function columnLeaf(id: string, entries: ReferenceEntry[]): LayoutNode {
     content: {
       id: `${id}-content`,
       kind: 'container',
-      payload: { type: 'richdoc', doc: entriesToDoc(entries) },
+      // Ids are derived from the column rather than minted, so React reconciles
+      // the same field across renders instead of remounting the editor.
+      payload: {
+        type: 'fields',
+        body: {
+          axis: 'y',
+          weights: [1],
+          subfields: [{ id: `${id}-field`, doc: entriesToDoc(entries) }],
+        },
+      },
     },
   }
 }

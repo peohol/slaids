@@ -16,7 +16,7 @@ import {
   SUBFIELD_DIVIDER_THICKNESS,
   SUBFIELD_GAP,
 } from '../../domain/constants'
-import { bestTextColor, textShadowFor, WHITE } from '../../domain/color'
+import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
 import type { CardBody, Subfield, VerticalAlign, ZoneContent } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 
@@ -24,7 +24,8 @@ export interface ZoneContentFrameProps {
   content: ZoneContent
   renderTitle: (content: Extract<ZoneContent, { kind: 'titled-card' }>) => ReactNode
   renderField: (field: Subfield, index: number) => ReactNode
-  renderContainer: (content: Extract<ZoneContent, { kind: 'container' }>) => ReactNode
+  /** Only for a container filled with a picture; its text goes through `renderField`. */
+  renderAsset: (payload: { assetId: string; fit: 'contain' | 'cover' }) => ReactNode
 }
 
 /** Flexbox placement for a vertical alignment, defaulting to the top. */
@@ -89,25 +90,43 @@ export function ZoneContentFrame({
   content,
   renderTitle,
   renderField,
-  renderContainer,
+  renderAsset,
 }: ZoneContentFrameProps) {
   const { theme } = useSlideRender()
 
   if (content.kind === 'container') {
     const color = bestTextColor(theme.backgroundColor)
+    if (content.payload.type === 'asset') {
+      return (
+        <div
+          className="zone-content zone-content--container"
+          data-content-kind="container"
+          data-fit-scroll=""
+          data-align={content.verticalAlign ?? 'top'}
+          style={{
+            color,
+            textShadow: textShadowFor(theme.backgroundColor),
+            justifyContent: justifyFor(content.verticalAlign),
+          }}
+        >
+          {renderAsset(content.payload)}
+        </div>
+      )
+    }
+    // A container is a card without the card: same subfields, same dividers,
+    // but drawn on the slide background, so the divider follows the text colour
+    // the background dictates rather than a card's own palette.
     return (
       <div
         className="zone-content zone-content--container"
         data-content-kind="container"
-        data-fit-scroll=""
-        data-align={content.verticalAlign ?? 'top'}
-        style={{
-          color,
-          textShadow: textShadowFor(theme.backgroundColor),
-          justifyContent: justifyFor(content.verticalAlign),
-        }}
+        style={{ color, textShadow: textShadowFor(theme.backgroundColor) }}
       >
-        {renderContainer(content)}
+        <SubfieldStack
+          body={content.payload.body}
+          dividerColor={dividerColorFor(theme.backgroundColor)}
+          renderField={renderField}
+        />
       </div>
     )
   }

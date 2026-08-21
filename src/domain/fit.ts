@@ -282,12 +282,10 @@ export function estimateFit(
   let overflow = 0
   switch (content.kind) {
     case 'container': {
-      if (content.payload.type === 'richdoc') {
-        const needed = (content.payload.doc.content ?? []).reduce(
-          (total, node) => total + estimateNodeHeight(node, rect.width, estimate),
-          0,
-        )
-        overflow = needed - rect.height
+      // A container is a transparent card without the padding: its subfields
+      // divide the zone exactly as a card body divides the space inside one.
+      if (content.payload.type === 'fields') {
+        overflow = estimateBodyOverflow(content.payload.body, rect, estimate)
       }
       break
     }

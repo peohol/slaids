@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { allContent, mapPresentationDocs, remapAssetIds } from './docs'
 import { createPresentation } from './presentation'
 import { createLeaf, createSplit } from './layout'
-import { createContainer, createTitledCard, createUntitledCard } from './content'
+import { containerWithDoc, createContainer, createTitledCard, createUntitledCard } from './content'
 import { paragraphDoc, plainTextToDoc } from './richdoc'
 import type { Presentation } from './types'
 
@@ -73,12 +73,9 @@ describe('remapAssetIds', () => {
         {
           ...base.slides[0],
           root: createLeaf(
-            createContainer({
-              type: 'richdoc',
-              doc: {
-                type: 'doc',
-                content: [{ type: 'slaidsImage', attrs: { assetId: 'old', alt: '' } }],
-              },
+            containerWithDoc({
+              type: 'doc',
+              content: [{ type: 'slaidsImage', attrs: { assetId: 'old', alt: '' } }],
             }),
           ),
         },

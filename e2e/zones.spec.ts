@@ -10,6 +10,7 @@ import {
   expectGap,
   splitSelected,
   stage,
+  waitForSaved,
   watchForErrors,
   zoneRects,
 } from './helpers'
@@ -198,6 +199,41 @@ test.describe('zone editing', () => {
     await expect(
       page.getByTestId('sandbox-window').getByText('Tekst som ikke skal forsvinne'),
     ).toHaveCount(1)
+  })
+
+  test('divides a container into subfields with its own dividers', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Beholder med subfelt')
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Første felt')
+
+    await enterZoneMode(page)
+    await clickZone(page, zones[0])
+    await page.getByTestId('subfield-count').fill('3')
+    await expect(stage(page).locator('.subfield')).toHaveCount(3)
+    await expect(stage(page).locator('.subfield-divider')).toHaveCount(2)
+
+    // The divider follows the text the background dictates, not a card palette.
+    const divider = await stage(page)
+      .locator('.subfield-divider')
+      .first()
+      .evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(divider).toBe('rgba(255, 255, 255, 0.28)')
+
+    await enterContentMode(page)
+    const fields = stage(page).locator('.subfield .tiptap')
+    await fields.nth(2).click()
+    await page.keyboard.type('Tredje felt')
+
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(stage(page)).toContainText('Første felt')
+    await expect(stage(page)).toContainText('Tredje felt')
+    expect(guard.errors).toEqual([])
   })
 
   test('follows the zone being edited in content mode', async ({ page }) => {

@@ -12,11 +12,22 @@
 
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
-import { createContainer, createUntitledCard } from '../content'
+import {
+  containerWithDoc,
+  createCardBody,
+  createContainer,
+  createUntitledCard,
+} from '../content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
-import type { CardBody, Presentation, RichDoc, ZoneContent } from '../types'
+import type { CardBody, ContainerPayload, Presentation, RichDoc, ZoneContent } from '../types'
+
+/** A container payload holding one field with this document. */
+function fieldsPayload(doc: RichDoc): ContainerPayload {
+  const body = createCardBody(1)
+  return { type: 'fields', body: { ...body, subfields: [{ ...body.subfields[0], doc }] } }
+}
 import {
   setBodyAxis,
   setBodyWeights,
@@ -196,7 +207,7 @@ describe('setContentKind', () => {
   // 2 * CARD_PADDING on chrome and a titled card another CARD_HEADER_HEIGHT on
   // top. The two lengths sit on either side of that difference.
   const filled = (chars: number): Presentation =>
-    deckWith(createContainer({ type: 'richdoc', doc: paragraphDoc(words(chars)) }))
+    deckWith(containerWithDoc(paragraphDoc(words(chars))))
 
   it('refuses a conversion that adds chrome the content cannot afford', () => {
     const presentation = filled(3600)
@@ -224,14 +235,14 @@ describe('setContentKind', () => {
     expectRefused(
       setContainerPayload(presentation, {
         ...target(presentation),
-        payload: { type: 'richdoc', doc: { type: 'doc', content: [imageNode('asset-1')] } },
+        payload: fieldsPayload({ type: 'doc', content: [imageNode('asset-1')] }),
         ...checkers,
       }),
     )
     expect(
       setContainerPayload(presentation, {
         ...target(presentation),
-        payload: { type: 'richdoc', doc: paragraphDoc(words(200)) },
+        payload: fieldsPayload(paragraphDoc(words(200))),
         ...checkers,
       }).ok,
     ).toBe(true)

@@ -11,7 +11,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 3
+export const CURRENT_SCHEMA_VERSION = 4
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -36,15 +36,6 @@ export const richDocSchema = z.object({
   content: z.array(richNodeSchema).optional(),
 })
 
-export const containerPayloadSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('richdoc'), doc: richDocSchema }),
-  z.object({
-    type: z.literal('asset'),
-    assetId: z.string().min(1),
-    fit: z.enum(['contain', 'cover']),
-  }),
-])
-
 export const verticalAlignSchema = z.enum(['top', 'middle', 'bottom'])
 
 export const subfieldSchema = z.object({
@@ -62,6 +53,15 @@ export const cardBodySchema = z
   .refine((body) => body.weights.length === body.subfields.length, {
     message: 'Antall vekter må matche antall subfelt',
   })
+
+export const containerPayloadSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('fields'), body: cardBodySchema }),
+  z.object({
+    type: z.literal('asset'),
+    assetId: z.string().min(1),
+    fit: z.enum(['contain', 'cover']),
+  }),
+])
 
 export const zoneContentSchema = z.discriminatedUnion('kind', [
   z.object({

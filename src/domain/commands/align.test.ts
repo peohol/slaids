@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
-import { createContainer, createUntitledCard } from '../content'
+import { containerWithDoc, createUntitledCard } from '../content'
 import { emptyDoc } from '../richdoc'
 import { validatePresentation } from '../schema'
 import type { Presentation, ZoneContent } from '../types'
@@ -57,7 +57,7 @@ describe('setVerticalAlign', () => {
   })
 
   it('aligns a container through its own field', () => {
-    const presentation = deckWith(createContainer({ type: 'richdoc', doc: emptyDoc() }))
+    const presentation = deckWith(containerWithDoc(emptyDoc()))
     const slide = presentation.slides[0]
     const aligned = unwrap(
       setVerticalAlign(presentation, {

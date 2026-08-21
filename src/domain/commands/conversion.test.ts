@@ -7,7 +7,9 @@ import type { ZoneContent } from '../types'
 function textOf(content: ZoneContent): string {
   switch (content.kind) {
     case 'container':
-      return content.payload.type === 'richdoc' ? docToPlainText(content.payload.doc) : ''
+      return content.payload.type === 'fields'
+        ? content.payload.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')
+        : ''
     case 'untitled-card':
       return content.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')
     case 'titled-card':

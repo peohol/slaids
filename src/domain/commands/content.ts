@@ -6,11 +6,12 @@
  */
 
 import {
+  bodyOf,
   createCardBody,
   createContainer,
   createTitledCard,
   createUntitledCard,
-  hasCardBody,
+  withBody,
   withBodyAxis,
   withSubfieldCount,
   withSubfieldDoc,
@@ -27,6 +28,7 @@ import type { StructuralOptions } from './types'
 import type {
   Axis,
   CardBody,
+  ContainerContent,
   ContainerPayload,
   Presentation,
   RichDoc,
@@ -86,28 +88,12 @@ export function setSubfieldDoc(
   input: { subfieldId: string; doc: RichDoc } & ZoneContentTarget,
 ): Result<Presentation> {
   return updateZoneContent(presentation, input, (content) => {
-    if (content.kind === 'container') {
-      if (content.payload.type !== 'richdoc') {
-        return err('INVALID_CONTENT', 'Beholderen inneholder ikke tekst.')
-      }
-      return ok({ ...content, payload: { type: 'richdoc', doc: input.doc } })
-    }
-    if (!content.body.subfields.some((field) => field.id === input.subfieldId)) {
+    const body = bodyOf(content)
+    if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen tekstfelt.')
+    if (!body.subfields.some((field) => field.id === input.subfieldId)) {
       return err('SUBFIELD_NOT_FOUND', 'Fant ikke subfeltet.')
     }
-    return ok({ ...content, body: withSubfieldDoc(content.body, input.subfieldId, input.doc) })
-  })
-}
-
-export function setContainerDoc(
-  presentation: Presentation,
-  input: { doc: RichDoc } & ZoneContentTarget,
-): Result<Presentation> {
-  return updateZoneContent(presentation, input, (content) => {
-    if (content.kind !== 'container' || content.payload.type !== 'richdoc') {
-      return err('INVALID_CONTENT', 'Sonen inneholder ikke en tekstbeholder.')
-    }
-    return ok({ ...content, payload: { type: 'richdoc', doc: input.doc } })
+    return ok(withBody(content, withSubfieldDoc(body, input.subfieldId, input.doc)))
   })
 }
 
@@ -153,15 +139,16 @@ export function setSubfieldCount(
     presentation,
     input,
     (content) => {
-      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      const body = bodyOf(content)
+      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
       if (!Number.isInteger(input.count) || input.count < 1 || input.count > 6) {
         return err('INVALID_ARGUMENT', 'Antall subfelt må være mellom 1 og 6.')
       }
-      const removed = content.body.subfields.slice(input.count)
+      const removed = body.subfields.slice(input.count)
       if (removed.some((field) => !isDocEmpty(field.doc))) {
         return err('INVALID_ARGUMENT', 'Subfeltene som fjernes har innhold. Tøm dem først.')
       }
-      return ok({ ...content, body: withSubfieldCount(content.body, input.count) })
+      return ok(withBody(content, withSubfieldCount(body, input.count)))
     },
     'Innholdet får ikke plass når subfeltene deler sonen på nytt.',
   )
@@ -190,12 +177,13 @@ export function setVerticalAlign(
         }
         return ok({ ...content, verticalAlign: input.align })
       }
-      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      const index = content.body.subfields.findIndex((field) => field.id === input.subfieldId)
+      const body = bodyOf(content)
+      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      const index = body.subfields.findIndex((field) => field.id === input.subfieldId)
       if (index < 0) return err('SUBFIELD_NOT_FOUND', 'Fant ikke subfeltet.')
-      const subfields = [...content.body.subfields]
+      const subfields = [...body.subfields]
       subfields[index] = { ...subfields[index], verticalAlign: input.align }
-      return ok({ ...content, body: { ...content.body, subfields } })
+      return ok(withBody(content, { ...body, subfields }))
     },
     'Justeringen får ikke plass.',
   )
@@ -209,8 +197,9 @@ export function setBodyAxis(
     presentation,
     input,
     (content) => {
-      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      return ok({ ...content, body: withBodyAxis(content.body, input.axis) })
+      const body = bodyOf(content)
+      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      return ok(withBody(content, withBodyAxis(body, input.axis)))
     },
     'Innholdet får ikke plass med denne orienteringen.',
   )
@@ -224,14 +213,15 @@ export function setBodyWeights(
     presentation,
     input,
     (content) => {
-      if (!hasCardBody(content)) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      if (input.weights.length !== content.body.subfields.length) {
+      const body = bodyOf(content)
+      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
+      if (input.weights.length !== body.subfields.length) {
         return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subfelt.')
       }
       if (!areWeightsValid(input.weights)) {
         return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
       }
-      return ok({ ...content, body: { ...content.body, weights: [...input.weights] } })
+      return ok(withBody(content, { ...body, weights: [...input.weights] }))
     },
     'Innholdet får ikke plass med disse forholdstallene.',
   )
@@ -261,43 +251,30 @@ export function setCardColor(
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
-  if (kind === 'container') {
-    const blocks: RichNode[] = []
-    if (content.kind === 'titled-card') {
-      const heading = titleAsHeading(content.title)
-      if (heading) blocks.push(heading)
-    }
-    if (content.kind !== 'container') {
-      for (const field of content.body.subfields) blocks.push(...(field.doc.content ?? []))
-    }
-    return createContainer({
-      type: 'richdoc',
-      doc: blocks.length > 0 ? { type: 'doc', content: blocks } : emptyDoc(),
-    })
-  }
-
+  // Every kind now divides into the same subfields, so a conversion carries the
+  // whole body across instead of flattening it into a single document.
   let docs: RichDoc[]
   let axis: CardBody['axis'] = 'y'
   let weights: number[] | null = null
   let carriedTitle: RichDoc | null = null
 
-  if (content.kind === 'container') {
-    docs = [{ type: 'doc', content: containerBlocks(content) }]
+  const source = bodyOf(content)
+  if (source) {
+    docs = source.subfields.map((field) => field.doc)
+    axis = source.axis
+    weights = [...source.weights]
   } else {
-    docs = content.body.subfields.map((field) => field.doc)
-    axis = content.body.axis
-    weights = [...content.body.weights]
-    if (content.kind === 'titled-card') {
-      if (kind === 'titled-card') {
-        carriedTitle = content.title
-      } else {
-        const heading = titleAsHeading(content.title)
-        if (heading) {
-          docs = [
-            { type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] },
-            ...docs.slice(1),
-          ]
-        }
+    // A picture-filled container: the picture becomes an inline image.
+    docs = [{ type: 'doc', content: containerBlocks(content as ContainerContent) }]
+  }
+
+  if (content.kind === 'titled-card') {
+    if (kind === 'titled-card') {
+      carriedTitle = content.title
+    } else {
+      const heading = titleAsHeading(content.title)
+      if (heading) {
+        docs = [{ type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] }, ...docs.slice(1)]
       }
     }
   }
@@ -306,8 +283,16 @@ export function convertContentKind(content: ZoneContent, kind: ZoneContentKind):
   const body: CardBody = {
     axis,
     weights: weights && weights.length === base.subfields.length ? weights : base.weights,
-    subfields: base.subfields.map((field, index) => ({ ...field, doc: docs[index] ?? emptyDoc() })),
+    subfields: base.subfields.map((field, index) => ({
+      ...field,
+      doc: docs[index] ?? emptyDoc(),
+      ...(source?.subfields[index]?.verticalAlign
+        ? { verticalAlign: source.subfields[index].verticalAlign }
+        : {}),
+    })),
   }
+
+  if (kind === 'container') return createContainer({ type: 'fields', body })
 
   if (kind === 'untitled-card') {
     const card = createUntitledCard(
@@ -332,14 +317,9 @@ function titleAsHeading(title: RichDoc): RichNode | null {
   return { type: 'heading', attrs: { level: 1 }, content: inline }
 }
 
-/** A container's payload as body blocks, so images and figures are carried over. */
-function containerBlocks(content: Extract<ZoneContent, { kind: 'container' }>): RichNode[] {
-  switch (content.payload.type) {
-    case 'richdoc':
-      return content.payload.doc.content ?? []
-    case 'asset':
-      return [imageNode(content.payload.assetId)]
-  }
+/** A picture-filled container as body blocks, so the picture is carried over. */
+function containerBlocks(content: ContainerContent): RichNode[] {
+  return content.payload.type === 'asset' ? [imageNode(content.payload.assetId)] : []
 }
 
 /**

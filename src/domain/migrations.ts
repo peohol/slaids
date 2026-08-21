@@ -11,6 +11,7 @@ import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import { emptyDoc, mergeAdjacentCitations } from './richdoc'
+import { newSubfieldId } from './ids'
 import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 
@@ -119,7 +120,7 @@ function dropShapesInRaw(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
 
   const record = value as Raw
-  if (isShapePayload(record)) return { type: 'richdoc', doc: emptyDoc() }
+  if (isShapePayload(record)) return { type: 'richdoc', doc: emptyDoc() }  // v3 shape; v4 converts it
   const out: Raw = {}
   for (const [key, entry] of Object.entries(record)) out[key] = dropShapesInRaw(entry)
   return out
@@ -129,11 +130,61 @@ function isRawNodeOfType(value: unknown, type: string): boolean {
   return Boolean(value) && typeof value === 'object' && (value as Raw).type === type
 }
 
+/**
+ * A container's text becomes a one-subfield body.
+ *
+ * Containers can be divided into subfields like a card, so the payload that
+ * used to hold a single document now holds the same `CardBody` a card does.
+ * One subfield is exactly what a container was before, and the container's own
+ * vertical alignment moves onto that subfield, which is where alignment lives
+ * now.
+ */
+const migrate3to4: MigrationFn = (data) => ({
+  ...(fieldsInRaw(data) as Raw),
+  schemaVersion: 4,
+})
+
+function fieldsInRaw(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(fieldsInRaw)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  if (record.kind === 'container' && isRichdocPayload(record.payload)) {
+    const payload = record.payload as Raw
+    const { verticalAlign, ...rest } = record
+    return {
+      ...rest,
+      payload: {
+        type: 'fields',
+        body: {
+          axis: 'y',
+          weights: [1],
+          subfields: [
+            {
+              id: newSubfieldId(),
+              doc: payload.doc,
+              ...(typeof verticalAlign === 'string' ? { verticalAlign } : {}),
+            },
+          ],
+        },
+      },
+    }
+  }
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = fieldsInRaw(entry)
+  return out
+}
+
+function isRichdocPayload(value: unknown): boolean {
+  return Boolean(value) && typeof value === 'object' && (value as Raw).type === 'richdoc'
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
   1: migrate1to2,
   2: migrate2to3,
+  3: migrate3to4,
 }
 
 /**

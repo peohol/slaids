@@ -37,7 +37,7 @@
  *  - **Regression-gated** (calls `guardFit`): every command that funnels through
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
  *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
- *    `setSubfieldDoc`, `setContainerDoc`, `setCardColor`), plus `setTheme`,
+ *    `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
  *    `setSlideTitle`, `setSlideHasTitle`, `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.
