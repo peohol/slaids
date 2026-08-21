@@ -7,11 +7,12 @@
  */
 
 import { z } from 'zod'
+import { FONT_SCALE_RANGE, SPACING_RANGE } from './metrics'
 import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 4
+export const CURRENT_SCHEMA_VERSION = 5
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -115,6 +116,8 @@ export const themeSchema = z.object({
   backgroundColor: hexColor,
   headingFontFamily: z.string().min(1),
   bodyFontFamily: z.string().min(1),
+  spacing: z.number().finite().min(SPACING_RANGE.min).max(SPACING_RANGE.max),
+  fontScale: z.number().finite().min(FONT_SCALE_RANGE.min).max(FONT_SCALE_RANGE.max),
 })
 
 export const referenceSchema = z.object({

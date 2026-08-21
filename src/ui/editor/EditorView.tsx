@@ -30,6 +30,7 @@ import { CONTENT_KIND_LABELS, createContentOfKind } from '../../domain/content'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
+import { geometryForTheme } from '../../domain/metrics'
 import { buildReferenceSlides } from '../../domain/referenceSlides'
 import {
   cloneSubtreeWithNewIds,
@@ -256,7 +257,10 @@ export function EditorView({
 
   const selectedNode = slide && selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const selectedLeaf = slide && selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
-  const geometry = slide ? computeSlideGeometry(slide) : null
+  const geometry =
+    slide && presentation
+      ? computeSlideGeometry(slide, geometryForTheme(presentation.theme))
+      : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
 
   /* -------------------------------------------------------------- *

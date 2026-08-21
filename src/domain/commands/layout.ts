@@ -23,7 +23,7 @@ import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
 import { fitContextFor, guardFit } from './fitGuard'
-import { rectForNode } from './internal'
+import { geometryFor, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
 
@@ -86,7 +86,7 @@ export function splitLeaf(
     return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
   }
 
-  const area = rectForNode(slide, input.nodeId, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
   const preview = previewSplit(area, input.axis, input.weights, input.geometry)
@@ -178,7 +178,7 @@ export function updateSplit(
   }
 
   const axis = input.axis ?? split.axis
-  const area = rectForNode(slide, input.nodeId, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
   const keptChildren = split.children.slice(0, targetCount)
@@ -344,7 +344,7 @@ export function setZoneContent(
   const next = touch(withSlide(disposed.presentation, { ...slide, root }))
 
   if (input.content) {
-    const area = rectForNode(slide, input.nodeId, input.geometry)
+    const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
     if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
     // Measured against the document as it will be *after* the placement:
     // content arriving with citations in it can renumber itself.
@@ -395,7 +395,7 @@ export function moveZoneContent(
   if (to.id === from.id && targetSlideId === input.slideId) return ok(outcome(presentation))
   if (to.content) return err('TARGET_OCCUPIED', 'Målsonen har allerede innhold.')
 
-  const area = rectForNode(targetSlide, input.toNodeId, input.geometry)
+  const area = rectForNode(targetSlide, input.toNodeId, geometryFor(presentation, input.geometry))
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.')
 
   let next = presentation
@@ -447,7 +447,7 @@ export function canAcceptContent(
   if (!slide) return false
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf || leaf.content) return false
-  const area = rectForNode(slide, input.nodeId, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
   if (!area) return false
   if (!subtreeFitsInRect(leaf, area, input.geometry)) return false
   if (!input.fits) return true

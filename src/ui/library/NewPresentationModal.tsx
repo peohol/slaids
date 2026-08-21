@@ -6,8 +6,8 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '../components/Modal'
 import { ColorSwatchGrid } from '../components/ColorPicker'
-import { DEFAULT_BACKGROUND_COLOR } from '../../domain/constants'
 import { FONT_OPTIONS } from '../../domain/fonts'
+import { readDefaultTheme } from '../../state/defaultTheme'
 import { bestTextColor } from '../../domain/color'
 import { ensureWebFonts } from '../fonts'
 import type { PresentationTheme } from '../../domain/types'
@@ -26,10 +26,12 @@ export function NewPresentationModal({
   onOpenChange: (open: boolean) => void
   onCreate: (result: NewPresentationResult) => void
 }) {
+  // Whatever the author last saved as their default is where a new deck starts.
+  const [seed] = useState(readDefaultTheme)
   const [title, setTitle] = useState('')
-  const [backgroundColor, setBackgroundColor] = useState(DEFAULT_BACKGROUND_COLOR)
-  const [headingFontFamily, setHeadingFontFamily] = useState(FONT_OPTIONS[0].stack)
-  const [bodyFontFamily, setBodyFontFamily] = useState(FONT_OPTIONS[0].stack)
+  const [backgroundColor, setBackgroundColor] = useState(seed.backgroundColor)
+  const [headingFontFamily, setHeadingFontFamily] = useState(seed.headingFontFamily)
+  const [bodyFontFamily, setBodyFontFamily] = useState(seed.bodyFontFamily)
 
   useEffect(() => {
     void ensureWebFonts([headingFontFamily, bodyFontFamily])
@@ -40,9 +42,12 @@ export function NewPresentationModal({
 
   const submit = (): void => {
     if (!valid) return
-    onCreate({ title: trimmed, theme: { backgroundColor, headingFontFamily, bodyFontFamily } })
+    onCreate({
+      title: trimmed,
+      theme: { ...seed, backgroundColor, headingFontFamily, bodyFontFamily },
+    })
     setTitle('')
-    setBackgroundColor(DEFAULT_BACKGROUND_COLOR)
+    setBackgroundColor(seed.backgroundColor)
   }
 
   return (
@@ -50,7 +55,7 @@ export function NewPresentationModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Ny presentasjon"
-      description="Bakgrunn og fonter gjelder hele presentasjonen."
+      description="Bakgrunn og fonter gjelder hele presentasjonen. Luft og skriftstørrelse settes i temaet."
       testId="new-presentation-modal"
       footer={
         <>

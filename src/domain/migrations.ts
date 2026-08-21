@@ -14,6 +14,12 @@ import { emptyDoc, mergeAdjacentCitations } from './richdoc'
 import { newSubfieldId } from './ids'
 import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
+import {
+  DEFAULT_FONT_SCALE,
+  DEFAULT_SPACING,
+  FONT_SCALE_RANGE,
+  SPACING_RANGE,
+} from './metrics'
 
 type Raw = Record<string, unknown>
 
@@ -179,12 +185,36 @@ function isRichdocPayload(value: unknown): boolean {
   return Boolean(value) && typeof value === 'object' && (value as Raw).type === 'richdoc'
 }
 
+/**
+ * A theme gains its two scales.
+ *
+ * Luft and skriftstørrelse are multipliers, so `1` is exactly what every
+ * existing presentation already looks like.
+ */
+const migrate4to5: MigrationFn = (data) => {
+  const theme = (data.theme ?? {}) as Raw
+  return {
+    ...data,
+    schemaVersion: 5,
+    theme: {
+      ...theme,
+      spacing: asNumber(theme.spacing, DEFAULT_SPACING),
+      fontScale: asNumber(theme.fontScale, DEFAULT_FONT_SCALE),
+    },
+  }
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
   1: migrate1to2,
   2: migrate2to3,
   3: migrate3to4,
+  4: migrate4to5,
 }
 
 /**
@@ -204,6 +234,8 @@ export function repairPresentation(data: Raw): Raw {
       normalizeHex(asString(theme.backgroundColor, '')) ?? DEFAULT_BACKGROUND_COLOR,
     headingFontFamily: asString(theme.headingFontFamily, '').trim() || DEFAULT_HEADING_FONT,
     bodyFontFamily: asString(theme.bodyFontFamily, '').trim() || DEFAULT_BODY_FONT,
+    spacing: clampScale(theme.spacing, SPACING_RANGE, DEFAULT_SPACING),
+    fontScale: clampScale(theme.fontScale, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE),
   }
 
   const repairColors = (value: unknown): unknown => {
@@ -222,6 +254,15 @@ export function repairPresentation(data: Raw): Raw {
     ...(repairColors(data) as Raw),
     theme: repairedTheme,
   }
+}
+
+function clampScale(
+  value: unknown,
+  range: { min: number; max: number },
+  fallback: number,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(range.max, Math.max(range.min, value))
 }
 
 export function detectSchemaVersion(input: unknown): number {

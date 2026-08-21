@@ -8,7 +8,9 @@
 
 import { useMemo, useState } from 'react'
 import * as ToggleGroup from '@radix-ui/react-toggle-group'
-import { G, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../../domain/constants'
+import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../../domain/constants'
+import { themeMetrics } from '../../domain/metrics'
+import { useEditorStore } from '../../state/store'
 import { computeLayoutRects, previewSplit } from '../../domain/geometry'
 import { collectNodes, countContent, createLeaf } from '../../domain/layout'
 import type { Axis, LayoutNode, Rect } from '../../domain/types'
@@ -59,6 +61,8 @@ export function SplitModal({
   hasContent = false,
   onApply,
 }: SplitModalProps) {
+  const theme = useEditorStore((state) => state.presentation?.theme)
+  const gap = themeMetrics(theme).gap
   const defaultAxis: Axis =
     existingAxis ?? (targetRect.width >= targetRect.height ? 'x' : 'y')
   const [axis, setAxis] = useState<Axis>(defaultAxis)
@@ -103,7 +107,11 @@ export function SplitModal({
   const previewHeight = targetRect.height * previewScale
   const previewRects =
     previewNode && preview?.valid
-      ? computeLayoutRects(previewNode, { x: 0, y: 0, width: targetRect.width, height: targetRect.height }, G)
+      ? computeLayoutRects(
+          previewNode,
+          { x: 0, y: 0, width: targetRect.width, height: targetRect.height },
+          gap,
+        )
       : null
 
   const canApply = Boolean(weightsValid && preview?.valid)

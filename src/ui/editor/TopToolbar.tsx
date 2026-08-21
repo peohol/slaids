@@ -167,7 +167,7 @@ export function TopToolbar(props: TopToolbarProps) {
             <Icon name="sandbox" size={15} /> {props.sandboxCount > 0 ? props.sandboxCount : ''}
           </button>
         </Tooltip>
-        <Tooltip label="Bakgrunn og fonter">
+        <Tooltip label="Tema: bakgrunn, fonter, luft og skriftstørrelse">
           <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenTheme} data-testid="open-theme" aria-label="Tema">
             <Icon name="palette" size={15} />
           </button>

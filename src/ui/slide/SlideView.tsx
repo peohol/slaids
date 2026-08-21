@@ -8,18 +8,14 @@
 
 import type { ReactNode } from 'react'
 import {
-  BODY_FONT_SIZE,
   BODY_LINE_HEIGHT,
-  CARD_HEADER_FONT_SIZE,
-  CARD_PADDING,
   CARD_RADIUS,
-  HEADING_FONT_SIZE,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
-  TITLE_FONT_SIZE,
   TITLE_LINE_HEIGHT,
 } from '../../domain/constants'
 import { computeSlideGeometry, type GeometryOptions } from '../../domain/geometry'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { collectLeaves } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import type { LeafNode, PresentationTheme, Rect, Slide } from '../../domain/types'
@@ -27,16 +23,26 @@ import { useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
 import { ZoneContentView } from './ZoneContentView'
 
-/** Typography tokens exposed to CSS. Kept here so `constants.ts` stays the source. */
+/**
+ * Typography and spacing tokens exposed to CSS.
+ *
+ * `constants.ts` holds the base values and `metrics.ts` scales them by the
+ * theme, so the stylesheet, the React styles and the headless estimator are all
+ * reading the same numbers.
+ */
 export function slideTokenStyle(theme: PresentationTheme): React.CSSProperties {
+  const tokens = themeMetrics(theme)
   return {
     fontFamily: theme.bodyFontFamily,
-    '--slaids-body-font-size': `${BODY_FONT_SIZE}px`,
+    '--slaids-body-font-size': `${tokens.bodyFontSize}px`,
     '--slaids-body-line-height': String(BODY_LINE_HEIGHT),
-    '--slaids-heading-font-size': `${HEADING_FONT_SIZE}px`,
-    '--slaids-card-header-font-size': `${CARD_HEADER_FONT_SIZE}px`,
+    '--slaids-heading-font-size': `${tokens.headingFontSize}px`,
+    '--slaids-card-header-font-size': `${tokens.cardHeaderFontSize}px`,
     '--slaids-card-radius': `${CARD_RADIUS}px`,
-    '--slaids-card-padding': `${CARD_PADDING}px`,
+    '--slaids-card-padding': `${tokens.cardPadding}px`,
+    '--slaids-block-spacing': `${tokens.blockSpacing}px`,
+    '--slaids-heading-spacing': `${tokens.headingSpacing}px`,
+    '--slaids-list-indent': `${tokens.listIndent}px`,
     '--slaids-heading-font-family': theme.headingFontFamily,
   } as React.CSSProperties
 }
@@ -65,7 +71,10 @@ export function SlideView({
   className,
 }: SlideViewProps) {
   const { theme } = useSlideRender()
-  const geometry = computeSlideGeometry(slide, geometryOptions)
+  const geometry = computeSlideGeometry(slide, {
+    ...geometryForTheme(theme),
+    ...geometryOptions,
+  })
   const leaves = collectLeaves(slide.root)
   const titleColor = bestTextColor(theme.backgroundColor)
 
@@ -90,7 +99,7 @@ export function SlideView({
               ...absoluteStyle(geometry.titleRect),
               color: titleColor,
               fontFamily: theme.headingFontFamily,
-              fontSize: TITLE_FONT_SIZE,
+              fontSize: themeMetrics(theme).titleFontSize,
               lineHeight: TITLE_LINE_HEIGHT,
               textShadow: textShadowFor(theme.backgroundColor),
             }}

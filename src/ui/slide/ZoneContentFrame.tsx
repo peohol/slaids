@@ -9,13 +9,11 @@
 import { Fragment, type ReactNode } from 'react'
 import {
   CARD_DIVIDER_COLOR,
-  CARD_HEADER_HEIGHT,
-  CARD_PADDING,
   CARD_RADIUS,
   CARD_SHADOW,
   SUBFIELD_DIVIDER_THICKNESS,
-  SUBFIELD_GAP,
 } from '../../domain/constants'
+import { themeMetrics } from '../../domain/metrics'
 import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
 import type { CardBody, Subfield, VerticalAlign, ZoneContent } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
@@ -38,10 +36,12 @@ export function justifyFor(align: VerticalAlign | undefined): string {
 function SubfieldStack({
   body,
   dividerColor,
+  gap,
   renderField,
 }: {
   body: CardBody
   dividerColor: string
+  gap: number
   renderField: (field: Subfield, index: number) => ReactNode
 }) {
   const total = body.weights.reduce((sum, weight) => sum + weight, 0) || body.subfields.length
@@ -50,7 +50,7 @@ function SubfieldStack({
       className="subfields"
       style={{
         flexDirection: body.axis === 'x' ? 'row' : 'column',
-        gap: SUBFIELD_GAP,
+        gap,
       }}
     >
       {body.subfields.map((field, index) => (
@@ -93,6 +93,7 @@ export function ZoneContentFrame({
   renderAsset,
 }: ZoneContentFrameProps) {
   const { theme } = useSlideRender()
+  const tokens = themeMetrics(theme)
 
   if (content.kind === 'container') {
     const color = bestTextColor(theme.backgroundColor)
@@ -125,6 +126,7 @@ export function ZoneContentFrame({
         <SubfieldStack
           body={content.payload.body}
           dividerColor={dividerColorFor(theme.backgroundColor)}
+          gap={tokens.subfieldGap}
           renderField={renderField}
         />
       </div>
@@ -142,13 +144,14 @@ export function ZoneContentFrame({
           color,
           borderRadius: CARD_RADIUS,
           boxShadow: CARD_SHADOW,
-          padding: CARD_PADDING,
+          padding: tokens.cardPadding,
           textShadow: textShadowFor(content.backgroundColor),
         }}
       >
         <SubfieldStack
           body={content.body}
           dividerColor={CARD_DIVIDER_COLOR}
+          gap={tokens.subfieldGap}
           renderField={renderField}
         />
       </div>
@@ -175,18 +178,19 @@ export function ZoneContentFrame({
         style={{
           background: content.headerColor,
           color: headerText,
-          height: CARD_HEADER_HEIGHT,
-          padding: `0 ${CARD_PADDING}px`,
+          height: tokens.cardHeaderHeight,
+          padding: `0 ${tokens.cardPadding}px`,
           textShadow: textShadowFor(content.headerColor),
           fontFamily: theme.headingFontFamily,
         }}
       >
         {renderTitle(content)}
       </div>
-      <div className="card-body" style={{ padding: CARD_PADDING, color: '#000' }}>
+      <div className="card-body" style={{ padding: tokens.cardPadding, color: '#000' }}>
         <SubfieldStack
           body={content.body}
           dividerColor={CARD_DIVIDER_COLOR}
+          gap={tokens.subfieldGap}
           renderField={renderField}
         />
       </div>

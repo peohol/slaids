@@ -87,7 +87,8 @@
 import { computeLayoutRects, computeSlideGeometry, TITLE_NODE_ID } from '../geometry'
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
-import { FIT_TOLERANCE, G } from '../constants'
+import { FIT_TOLERANCE } from '../constants'
+import { geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
 import { walkRichNodes } from '../richdoc'
@@ -163,7 +164,7 @@ export function subtreeOverflow(
 ): Map<NodeId, number> {
   const overflow = new Map<NodeId, number>()
   if (!options.fits) return overflow
-  const rects = computeLayoutRects(node, area, options.geometry?.gap ?? G)
+  const rects = computeLayoutRects(node, area, options.geometry?.gap ?? themeMetrics(context.theme).gap)
   for (const leaf of collectLeaves(node)) {
     if (!leaf.content) continue
     const rect = rects.get(leaf.id)
@@ -179,7 +180,12 @@ export function slideOverflow(
   context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
-  const geometry = computeSlideGeometry(slide, options.geometry)
+  // The prospective theme decides the gap and the title zone, so the rects the
+  // fit is judged against are the ones the slide will actually have.
+  const geometry = computeSlideGeometry(slide, {
+    ...geometryForTheme(context.theme),
+    ...options.geometry,
+  })
   const overflow = subtreeOverflow(slide.root, geometry.mainRect, context, options)
   if (options.fitsTitle && slide.title && geometry.titleRect) {
     overflow.set(TITLE_NODE_ID, options.fitsTitle(slide.title, geometry.titleRect, context).overflow)

@@ -20,21 +20,15 @@
  */
 
 import {
-  BODY_FONT_SIZE,
   BODY_LINE_HEIGHT,
-  CARD_HEADER_FONT_SIZE,
-  CARD_HEADER_HEIGHT,
-  CARD_PADDING,
   CITATION_FONT_SCALE,
   CITATION_MARGIN_EM,
   CITATION_MIN_WIDTH_EM,
   CITATION_PADDING_EM,
   FIT_TOLERANCE,
-  HEADING_FONT_SIZE,
-  SUBFIELD_GAP,
-  TITLE_FONT_SIZE,
 } from './constants'
 import { advanceRatioFor, DEFAULT_ADVANCE_RATIO } from './fonts'
+import { themeMetrics, type ThemeMetrics } from './metrics'
 import { citationLabel, type ReferenceNumbering } from './references'
 import type {
   CardBody,
@@ -84,19 +78,22 @@ export function fitResult(overflow: number): FitResult {
 /**
  * Theme fields that can change how much space content needs.
  *
- * Colours cannot, so a background change must not trigger a full re-measure of
- * the deck.
+ * The fonts, the air and the type size all can — each of them changes either
+ * how wide a glyph is, how much room is left for glyphs, or both. Colours
+ * cannot, so a background change must not trigger a full re-measure of the deck.
  */
 export function sameFitRelevantTheme(a: PresentationTheme, b: PresentationTheme): boolean {
-  return a.headingFontFamily === b.headingFontFamily && a.bodyFontFamily === b.bodyFontFamily
+  return (
+    a.headingFontFamily === b.headingFontFamily &&
+    a.bodyFontFamily === b.bodyFontFamily &&
+    a.spacing === b.spacing &&
+    a.fontScale === b.fontScale
+  )
 }
 
 /* ------------------------------------------------------------------ *
  * Deterministic estimation
  * ------------------------------------------------------------------ */
-
-const LIST_INDENT = 24
-const BLOCK_SPACING = 6
 
 /** Average glyph advances for the fonts a theme selects. */
 interface FitMetrics {
@@ -107,6 +104,8 @@ interface FitMetrics {
 /** What the estimator needs to turn a document into a height. */
 interface EstimateContext {
   metrics: FitMetrics
+  /** Sizes and spacing the theme dictates — see `domain/metrics.ts`. */
+  tokens: ThemeMetrics
   numbering: ReferenceNumbering
 }
 
@@ -126,6 +125,7 @@ function metricsFor(theme?: PresentationTheme): FitMetrics {
 function estimateContext(context?: Partial<FitContext>): EstimateContext {
   return {
     metrics: metricsFor(context?.theme),
+    tokens: themeMetrics(context?.theme),
     numbering: context?.numbering ?? EMPTY_NUMBERING,
   }
 }
@@ -174,29 +174,32 @@ function countDocChars(doc: RichDoc, context: EstimateContext): number {
 }
 
 function estimateNodeHeight(node: RichNode, width: number, context: EstimateContext): number {
-  const { metrics } = context
+  const { metrics, tokens } = context
+  const indent = tokens.listIndent
   switch (node.type) {
     case 'heading': {
       const chars = countChars(node, context)
-      const lines = Math.ceil(chars / charsPerLine(width, HEADING_FONT_SIZE, metrics.heading)) || 1
-      return lines * HEADING_FONT_SIZE * BODY_LINE_HEIGHT + BLOCK_SPACING
+      const size = tokens.headingFontSize
+      const lines = Math.ceil(chars / charsPerLine(width, size, metrics.heading)) || 1
+      return lines * size * BODY_LINE_HEIGHT + tokens.headingSpacing
     }
     case 'paragraph': {
       const chars = countChars(node, context)
-      const lines = Math.ceil(chars / charsPerLine(width, BODY_FONT_SIZE, metrics.body)) || 1
-      return lines * BODY_FONT_SIZE * BODY_LINE_HEIGHT + BLOCK_SPACING
+      const size = tokens.bodyFontSize
+      const lines = Math.ceil(chars / charsPerLine(width, size, metrics.body)) || 1
+      return lines * size * BODY_LINE_HEIGHT + tokens.blockSpacing
     }
     case 'blockquote': {
       const inner = (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width - LIST_INDENT, context),
+        (total, child) => total + estimateNodeHeight(child, width - indent, context),
         0,
       )
-      return inner + BLOCK_SPACING * 2
+      return inner + tokens.blockSpacing * 2
     }
     case 'bulletList':
     case 'orderedList': {
       return (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width - LIST_INDENT, context),
+        (total, child) => total + estimateNodeHeight(child, width - indent, context),
         0,
       )
     }
@@ -208,18 +211,19 @@ function estimateNodeHeight(node: RichNode, width: number, context: EstimateCont
     }
     case 'codeBlock': {
       const chars = countChars(node, context)
-      const lines = Math.ceil(chars / charsPerLine(width, BODY_FONT_SIZE, metrics.body)) || 1
-      return lines * BODY_FONT_SIZE * BODY_LINE_HEIGHT + BLOCK_SPACING * 2
+      const size = tokens.bodyFontSize
+      const lines = Math.ceil(chars / charsPerLine(width, size, metrics.body)) || 1
+      return lines * size * BODY_LINE_HEIGHT + tokens.blockSpacing * 2
     }
     case 'slaidsImage': {
       const percent = Number(node.attrs?.widthPercent)
       const share = Number.isFinite(percent) && percent > 0 ? percent / 100 : 1
       // Assume a 4:3 figure; the browser measurer refines this in the app.
-      return (width * share * 3) / 4 + BLOCK_SPACING
+      return (width * share * 3) / 4 + tokens.blockSpacing
     }
     case 'table': {
       const rows = node.content?.length ?? 0
-      return rows * (BODY_FONT_SIZE * BODY_LINE_HEIGHT + 12) + BLOCK_SPACING
+      return rows * (tokens.bodyFontSize * BODY_LINE_HEIGHT + 12) + tokens.blockSpacing
     }
     default:
       return 0
@@ -243,7 +247,7 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
   const count = body.subfields.length
   const total = body.weights.reduce((sum, w) => sum + w, 0) || count
   const along = body.axis === 'x' ? area.width : area.height
-  const usable = along - SUBFIELD_GAP * (count - 1)
+  const usable = along - context.tokens.subfieldGap * (count - 1)
   let worst = 0
   for (let i = 0; i < count; i += 1) {
     const share = (usable * body.weights[i]) / total
@@ -264,9 +268,10 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
  * the estimator has to model it explicitly.
  */
 function estimateHeaderOverflow(title: TitleDoc, rect: Rect, context: EstimateContext): number {
-  const available = rect.width - CARD_PADDING * 2
+  const available = rect.width - context.tokens.cardPadding * 2
   if (available <= 0) return Number.MAX_SAFE_INTEGER
-  const needed = countDocChars(title, context) * CARD_HEADER_FONT_SIZE * context.metrics.heading
+  const needed =
+    countDocChars(title, context) * context.tokens.cardHeaderFontSize * context.metrics.heading
   return needed - available
 }
 
@@ -290,21 +295,24 @@ export function estimateFit(
       break
     }
     case 'untitled-card': {
+      const pad = estimate.tokens.cardPadding
       const inner = {
-        x: rect.x + CARD_PADDING,
-        y: rect.y + CARD_PADDING,
-        width: rect.width - CARD_PADDING * 2,
-        height: rect.height - CARD_PADDING * 2,
+        x: rect.x + pad,
+        y: rect.y + pad,
+        width: rect.width - pad * 2,
+        height: rect.height - pad * 2,
       }
       overflow = estimateBodyOverflow(content.body, inner, estimate)
       break
     }
     case 'titled-card': {
+      const pad = estimate.tokens.cardPadding
+      const header = estimate.tokens.cardHeaderHeight
       const inner = {
-        x: rect.x + CARD_PADDING,
-        y: rect.y + CARD_HEADER_HEIGHT + CARD_PADDING,
-        width: rect.width - CARD_PADDING * 2,
-        height: rect.height - CARD_HEADER_HEIGHT - CARD_PADDING * 2,
+        x: rect.x + pad,
+        y: rect.y + header + pad,
+        width: rect.width - pad * 2,
+        height: rect.height - header - pad * 2,
       }
       overflow = Math.max(
         estimateBodyOverflow(content.body, inner, estimate),
@@ -324,7 +332,8 @@ export function estimateTitleFit(
 ): FitResult {
   if (rect.width <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
   const estimate = estimateContext(context)
-  const needed = countDocChars(doc, estimate) * TITLE_FONT_SIZE * estimate.metrics.heading
+  const needed =
+    countDocChars(doc, estimate) * estimate.tokens.titleFontSize * estimate.metrics.heading
   return fitResult(needed - rect.width)
 }
 

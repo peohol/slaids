@@ -140,6 +140,10 @@ export interface PresentationTheme {
   backgroundColor: string
   headingFontFamily: string
   bodyFontFamily: string
+  /** Luft: one multiplier on every distance. See `domain/metrics.ts`. */
+  spacing: number
+  /** Skriftstørrelse: one multiplier on every type size. */
+  fontScale: number
 }
 
 export interface Reference {

@@ -139,6 +139,35 @@ describe('setTheme', () => {
     expectRefused(setTheme(overflowing, { bodyFontFamily: stack('verdana') }, checkers))
   })
 
+  it('refuses more air than the content can afford', () => {
+    // More air takes room from the same text twice over: a wider gap shrinks
+    // every zone, and more card padding shrinks what is left inside it.
+    expectRefused(setTheme(filled(), { spacing: 1.6 }, checkers))
+    expect(setTheme(filled(), { spacing: 0.75 }, checkers).ok).toBe(true)
+  })
+
+  it('refuses type larger than the content can afford', () => {
+    expectRefused(setTheme(filled(), { fontScale: 1.3 }, checkers))
+    expect(setTheme(filled(), { fontScale: 0.85 }, checkers).ok).toBe(true)
+  })
+
+  it('refuses a scale outside the supported range outright', () => {
+    expect(setTheme(filled(), { spacing: 12 }, checkers).ok).toBe(false)
+    expect(setTheme(filled(), { fontScale: 0 }, checkers).ok).toBe(false)
+    expect(setTheme(filled(), { spacing: Number.NaN }, checkers).ok).toBe(false)
+  })
+
+  it('measures a title against the zone the new type size gives it', () => {
+    const blank = createPresentation({ title: 'Fit' })
+    const slideId = blank.slides[0].id
+    const presentation = unwrap(
+      setSlideTitle(blank, slideId, titleDoc('A'.repeat(62)), checkers),
+    )
+    // The title zone grows with the type, but not as fast as the glyphs do.
+    expectRefused(setTheme(presentation, { fontScale: 1.3 }, checkers))
+    expect(setTheme(presentation, { fontScale: 0.85 }, checkers).ok).toBe(true)
+  })
+
   it('does not re-measure the deck for a colour-only change', () => {
     let measured = 0
     const counting = {

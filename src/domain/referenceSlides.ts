@@ -9,6 +9,7 @@
 import { computeMainRect } from './geometry'
 import { estimateDocHeight } from './fit'
 import { titleDoc } from './richdoc'
+import { geometryForTheme } from './metrics'
 import {
   REFERENCE_SLIDE_ID_PREFIX,
   planReferenceSlides,
@@ -74,11 +75,13 @@ export function buildReferenceSlides(presentation: Presentation): Slide[] {
   const entries = referenceEntries(presentation)
   if (entries.length === 0) return []
 
-  const mainRect = computeMainRect(true)
+  const geometry = geometryForTheme(presentation.theme)
+  const mainRect = computeMainRect(true, geometry)
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const plan = planReferenceSlides(entries, {
     width: mainRect.width,
     height: mainRect.height,
+    gap: geometry.gap,
     // Measured with the deck's own typography, through the same estimator every
     // other zone is measured with, on the same paragraph the column will hold.
     measureEntryHeight: (_text, columnWidth, entryId) => {

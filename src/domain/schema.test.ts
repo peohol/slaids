@@ -205,6 +205,34 @@ describe('migrations', () => {
     expect(leaf.content.verticalAlign).toBeUndefined()
   })
 
+  it('gives an older theme the two scales at their neutral value', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 4
+    const theme = stored.theme as Record<string, unknown>
+    delete theme.spacing
+    delete theme.fontScale
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // `1` is exactly what the deck already looked like.
+    expect(result.value.theme.spacing).toBe(1)
+    expect(result.value.theme.fontScale).toBe(1)
+  })
+
+  it('repairs a theme scale that is out of range rather than refusing the file', () => {
+    const presentation = sample()
+    const result = migratePresentation({
+      ...presentation,
+      theme: { ...presentation.theme, spacing: 99, fontScale: -1 },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.theme.spacing).toBeLessThanOrEqual(2)
+    expect(result.value.theme.fontScale).toBeGreaterThan(0)
+  })
+
   it('reports invalid data instead of throwing', () => {
     expect(migratePresentation(null).ok).toBe(false)
     expect(migratePresentation('nope').ok).toBe(false)

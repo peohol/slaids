@@ -22,7 +22,8 @@ import {
   type TitleFitChecker,
 } from '../domain/fit'
 import { fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
-import { FIT_TOLERANCE, TITLE_FONT_SIZE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
 import { ZoneContentView } from '../ui/slide/ZoneContentView'
@@ -126,7 +127,8 @@ export function measureTitleFit(
 ): FitResult {
   if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, context)
   const { theme } = context
-  const height = TITLE_FONT_SIZE * TITLE_LINE_HEIGHT
+  const fontSize = themeMetrics(theme).titleFontSize
+  const height = fontSize * TITLE_LINE_HEIGHT
   const needed = withHost(
     { x: 0, y: 0, width: titleRect.width, height },
     () => (
@@ -139,7 +141,7 @@ export function measureTitleFit(
             width: 'max-content',
             height,
             fontFamily: theme.headingFontFamily,
-            fontSize: TITLE_FONT_SIZE,
+            fontSize,
             lineHeight: TITLE_LINE_HEIGHT,
           }}
         >

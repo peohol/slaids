@@ -11,10 +11,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
-  TITLE_FONT_SIZE,
   TITLE_LINE_HEIGHT,
-  G,
 } from '../../domain/constants'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import {
   TITLE_NODE_ID,
   computeSlideGeometry,
@@ -98,6 +97,8 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
   // A ratio drag changes geometry, never the deck's citation numbers, so the
   // same context serves as both baseline and prospective state.
   const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
+  // The gap the author set is the gap a ratio drag works in.
+  const tokens = themeMetrics(theme)
 
   const displaySlide: Slide = preview
     ? {
@@ -108,7 +109,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       }
     : slide
 
-  const geometry = computeSlideGeometry(displaySlide)
+  const geometry = computeSlideGeometry(displaySlide, geometryForTheme(theme))
 
   const toSlidePoint = useCallback(
     (clientX: number, clientY: number) => {
@@ -144,7 +145,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
 
     const along = split.axis === 'x' ? parentRect.width : parentRect.height
-    const usable = along - G * (split.children.length - 1)
+    const usable = along - tokens.gap * (split.children.length - 1)
     const total = split.weights.reduce((sum, weight) => sum + weight, 0)
     const minShare = split.children.map((child) => {
       const min = minimumSizeFor(child)
@@ -152,7 +153,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       return (need / usable) * total
     })
 
-    const startRects = splitRect(parentRect, split.axis, split.weights, G)
+    const startRects = splitRect(parentRect, split.axis, split.weights, tokens.gap)
     const baseline = new Map<NodeId, number>()
     for (const index of [boundary, boundary + 1]) {
       const child = split.children[index]
@@ -206,7 +207,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
 
       // The handle stops where the content stops fitting, rather than letting
       // the user drag into an invalid state and snapping back on release.
-      const childRects = splitRect(drag.parentRect, drag.axis, weights, G)
+      const childRects = splitRect(drag.parentRect, drag.axis, weights, tokens.gap)
       for (const index of [i, i + 1]) {
         const next = subtreeOverflow(
           drag.children[index],
@@ -253,7 +254,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
     }
-  }, [fitContext, preview, runStructural, scale, slide.id])
+  }, [fitContext, preview, runStructural, scale, slide.id, tokens.gap])
 
   const titleColor = bestTextColor(theme.backgroundColor)
 
@@ -294,7 +295,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                   ...absoluteStyle(rect),
                   color: titleColor,
                   fontFamily: theme.headingFontFamily,
-                  fontSize: TITLE_FONT_SIZE,
+                  fontSize: tokens.titleFontSize,
                   lineHeight: TITLE_LINE_HEIGHT,
                   textShadow: textShadowFor(theme.backgroundColor),
                 }}
@@ -367,7 +368,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                 actions={actions}
                 onBreadcrumb={selectNode}
                 onHandleDown={beginHandleDrag}
-                handleGap={G}
+                handleGap={tokens.gap}
               />
             )}
           </SlideView>

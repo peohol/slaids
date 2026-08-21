@@ -68,6 +68,17 @@ export const SUBFIELD_GAP = 14
 export const SUBFIELD_DIVIDER_THICKNESS = 2
 
 /**
+ * Space below a block of text, and the wider space below a heading.
+ *
+ * Both are scaled by the theme's `spacing`; `metrics.ts` owns the derivation and
+ * the stylesheet reads the result as a custom property, so the estimator and
+ * the DOM always agree about how much room a paragraph takes.
+ */
+export const BLOCK_SPACING = 6
+export const HEADING_SPACING = 10
+export const LIST_INDENT = 24
+
+/**
  * Fallback typography for paginating reference slides.
  *
  * Only used when no measurer is supplied. The app always supplies one — a

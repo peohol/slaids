@@ -18,6 +18,7 @@ import { bodyOf, CONTENT_KIND_LABELS, createCardBody } from '../../domain/conten
 import { isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
+import { geometryForTheme } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
 import type { Axis, ContainerPayload, Slide, ZoneContentKind } from '../../domain/types'
@@ -48,6 +49,7 @@ export function Inspector({
   onAddContent: (nodeId: string, kind: ZoneContentKind) => void
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
+  const theme = useEditorStore((state) => state.presentation?.theme)
   const run = useEditorStore((state) => state.run)
   /** A payload switch that would destroy content, waiting for confirmation. */
   const [pendingPayload, setPendingPayload] = useState<{
@@ -59,7 +61,7 @@ export function Inspector({
   const leaf = selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
   const content = leaf?.content ?? null
   const body = content ? bodyOf(content) : null
-  const geometry = computeSlideGeometry(slide)
+  const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
 

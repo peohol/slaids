@@ -4,6 +4,7 @@
 
 import { DEFAULT_BACKGROUND_COLOR } from './constants'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
+import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from './metrics'
 import { newIdeaCategoryId, newPresentationId, newSlideId } from './ids'
 import { createLeaf } from './layout'
 import { titleDoc } from './richdoc'
@@ -22,6 +23,8 @@ export function defaultTheme(): PresentationTheme {
     backgroundColor: DEFAULT_BACKGROUND_COLOR,
     headingFontFamily: DEFAULT_HEADING_FONT,
     bodyFontFamily: DEFAULT_BODY_FONT,
+    spacing: DEFAULT_SPACING,
+    fontScale: DEFAULT_FONT_SCALE,
   }
 }
 

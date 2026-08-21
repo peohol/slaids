@@ -1,0 +1,102 @@
+/**
+ * Theme-derived design tokens.
+ *
+ * `constants.ts` holds the base values; a theme scales them. Two dials are
+ * exposed to the author:
+ *
+ *  - **Luft** (`spacing`) — one multiplier on every distance between things:
+ *    the global gap, the slide inset, card padding, the space between
+ *    subfields and the space between blocks of text. Scaling them together is
+ *    what keeps the single-gap invariant true at any setting: the gap stays one
+ *    distance, it is just a different one.
+ *  - **Skriftstørrelse** (`fontScale`) — one multiplier on every type size,
+ *    including the boxes whose height is dictated by type (the title zone and a
+ *    card's header), so bigger text never lands in a box built for smaller text.
+ *
+ * Everything that measures, renders or validates layout reads its numbers from
+ * here, so the estimator, the DOM and the geometry engine cannot drift apart.
+ */
+
+import {
+  BODY_FONT_SIZE,
+  BLOCK_SPACING,
+  CARD_HEADER_FONT_SIZE,
+  CARD_HEADER_HEIGHT,
+  CARD_PADDING,
+  G,
+  HEADING_FONT_SIZE,
+  HEADING_SPACING,
+  LIST_INDENT,
+  SUBFIELD_GAP,
+  TITLE_FONT_SIZE,
+  TITLE_ZONE_HEIGHT,
+} from './constants'
+import type { PresentationTheme } from './types'
+
+export interface ThemeMetrics {
+  /** The single global gap, and the slide inset that equals it by definition. */
+  gap: number
+  cardPadding: number
+  subfieldGap: number
+  /** Space below a paragraph, list or quote. */
+  blockSpacing: number
+  /** Space below a heading — the distance from a heading to the text it heads. */
+  headingSpacing: number
+  listIndent: number
+  bodyFontSize: number
+  headingFontSize: number
+  titleFontSize: number
+  cardHeaderFontSize: number
+  cardHeaderHeight: number
+  titleZoneHeight: number
+}
+
+export const SPACING_RANGE = { min: 0.6, max: 2 } as const
+export const FONT_SCALE_RANGE = { min: 0.7, max: 1.6 } as const
+
+export const DEFAULT_SPACING = 1
+export const DEFAULT_FONT_SCALE = 1
+
+function clamp(value: number, range: { min: number; max: number }, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(range.max, Math.max(range.min, value))
+}
+
+/** Distances stay whole numbers: a fractional gap would drift under rounding. */
+function scaled(base: number, factor: number): number {
+  return Math.round(base * factor)
+}
+
+export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
+  const spacing = clamp(theme?.spacing ?? DEFAULT_SPACING, SPACING_RANGE, DEFAULT_SPACING)
+  const font = clamp(theme?.fontScale ?? DEFAULT_FONT_SCALE, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE)
+  return {
+    gap: Math.max(4, scaled(G, spacing)),
+    cardPadding: Math.max(4, scaled(CARD_PADDING, spacing)),
+    subfieldGap: Math.max(4, scaled(SUBFIELD_GAP, spacing)),
+    blockSpacing: Math.max(2, scaled(BLOCK_SPACING, spacing)),
+    headingSpacing: Math.max(2, scaled(HEADING_SPACING, spacing)),
+    listIndent: Math.max(8, scaled(LIST_INDENT, spacing)),
+    bodyFontSize: scaled(BODY_FONT_SIZE, font),
+    headingFontSize: scaled(HEADING_FONT_SIZE, font),
+    titleFontSize: scaled(TITLE_FONT_SIZE, font),
+    cardHeaderFontSize: scaled(CARD_HEADER_FONT_SIZE, font),
+    cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
+    titleZoneHeight: scaled(TITLE_ZONE_HEIGHT, font),
+  }
+}
+
+/**
+ * Geometry options for a theme.
+ *
+ * The gap and the title zone are the two parts of the geometry a theme moves;
+ * everything else about the design space is fixed.
+ */
+export function geometryForTheme(theme?: Partial<PresentationTheme>): {
+  gap: number
+  inset: number
+  titleHeight: number
+} {
+  const metrics = themeMetrics(theme)
+  return { gap: metrics.gap, inset: metrics.gap, titleHeight: metrics.titleZoneHeight }
+}

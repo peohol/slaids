@@ -5,9 +5,10 @@
 import { computeMainRect, computeTitleRect } from '../geometry'
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
-import { cloneSubtreeWithNewIds, createLeaf, subtreeFitsHelper } from './internal'
+import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
 import { fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
 import { FIT_TOLERANCE } from '../constants'
+import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
 import { createSlide, findSlide, slideIndexOf, touch, withSlide } from '../presentation'
 import { titleDoc } from '../richdoc'
@@ -47,7 +48,7 @@ export function addSlide(
   // a caller that supplies a root with content in it gets the same placement
   // check as any other way of putting content on a slide. There is no baseline
   // to regress from on a brand new slide, so this one is absolute.
-  const mainRect = computeMainRect(hasTitle, input.geometry)
+  const mainRect = computeMainRect(hasTitle, geometryFor(presentation, input.geometry))
   for (const overflow of subtreeOverflow(slide.root, mainRect, context, input).values()) {
     if (overflow > FIT_TOLERANCE) {
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass på den nye sliden.', { overflow })
@@ -57,7 +58,7 @@ export function addSlide(
   // The UI only ever creates slides with an empty title, which is exactly why
   // this is checked here: a headless caller that supplies one must not get a
   // weaker rule than a caller that types the same text afterwards.
-  const titleRect = slide.title ? computeTitleRect(true, input.geometry) : null
+  const titleRect = slide.title ? computeTitleRect(true, geometryFor(presentation, input.geometry)) : null
   if (slide.title && titleRect && input.fitsTitle) {
     const fit = input.fitsTitle(slide.title, titleRect, context)
     if (!fit.fits) {
@@ -206,8 +207,8 @@ export function setSlideHasTitle(
 
   // Adding a title shrinks the main area by TITLE_ZONE_HEIGHT + G, so both the
   // structural minimum and the content itself must still fit.
-  const mainRect = computeMainRect(true, options.geometry)
-  if (!subtreeFitsHelper(slide.root, mainRect, options.geometry)) {
+  const mainRect = computeMainRect(true, geometryFor(presentation, options.geometry))
+  if (!subtreeFitsHelper(slide.root, mainRect, geometryFor(presentation, options.geometry))) {
     return err(
       'ZONE_TOO_SMALL',
       'Layoutet får ikke plass når overskriftssonen legges til. Forenkle soneinndelingen først.',
@@ -262,18 +263,34 @@ export function setTheme(
     if (!theme.bodyFontFamily.trim()) return err('INVALID_ARGUMENT', 'Fonten kan ikke være tom.')
     next.bodyFontFamily = theme.bodyFontFamily
   }
+  if (theme.spacing !== undefined) {
+    if (!inRange(theme.spacing, SPACING_RANGE)) {
+      return err('INVALID_ARGUMENT', 'Ugyldig luftverdi.')
+    }
+    next.spacing = theme.spacing
+  }
+  if (theme.fontScale !== undefined) {
+    if (!inRange(theme.fontScale, FONT_SCALE_RANGE)) {
+      return err('INVALID_ARGUMENT', 'Ugyldig skriftstørrelse.')
+    }
+    next.fontScale = theme.fontScale
+  }
 
-  // Fonts are global, so a wider font can push text out of every zone in the
-  // deck at once. The guard measures only the slides a font change can affect
-  // and only reports zones that got worse, so a font that *reduces* overflow
-  // stays available as a repair.
+  // Every part of a theme is global: a wider font, more air or larger type can
+  // push text out of every zone in the deck at once. The guard measures only
+  // the slides the change can affect and only reports zones that got worse, so
+  // a change that *reduces* overflow stays available as a repair.
   const updated = touch({ ...presentation, theme: next })
   return guardFit(
     presentation,
     updated,
     options,
-    'Denne fonten gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en smalere font.',
+    'Denne endringen gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en mindre endring.',
   )
+}
+
+function inRange(value: number, range: { min: number; max: number }): boolean {
+  return Number.isFinite(value) && value >= range.min && value <= range.max
 }
 
 export function setFolder(
