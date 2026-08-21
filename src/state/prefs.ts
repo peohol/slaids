@@ -31,7 +31,12 @@ export function writePref<T>(key: string, value: T): void {
   }
 }
 
-export const DEFAULT_IDEAS_GEOMETRY: WindowGeometry = { x: 80, y: 120, width: 360, height: 460 }
+/**
+ * The size a window prefers. Where it first appears is worked out from the room
+ * available — in from the right edge, halfway down — so `x`/`y` here only carry
+ * it through the first frame, before the editor body has been measured.
+ */
+export const DEFAULT_IDEAS_GEOMETRY: WindowGeometry = { x: 80, y: 120, width: 320, height: 400 }
 
 export const DEFAULT_SANDBOX_GEOMETRY: WindowGeometry = {
   x: 480,

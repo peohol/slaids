@@ -22,6 +22,7 @@ export type IconName =
   | 'table'
   | 'reference'
   | 'ideas'
+  | 'category'
   | 'sandbox'
   | 'play'
   | 'undo'
@@ -72,6 +73,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   table: <path d="M4 5h16v14H4zM4 10h16M4 15h16M10 5v14" />,
   reference: <path d="M6 4h9l4 4v12H6zM15 4v4h4M9 13h7M9 16h5" />,
   ideas: <path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5V16h8v-2.5A6 6 0 0012 3z" />,
+  category: <path d="M8 4.5H6.5a2 2 0 00-2 2v11a2 2 0 002 2H8M12 8h7.5M12 12h7.5M12 16h7.5" />,
   sandbox: <path d="M4 8l8-4 8 4-8 4zM4 8v8l8 4 8-4V8" />,
   play: <path d="M8 5l11 7-11 7z" />,
   undo: <path d="M9 7L4 12l5 5M4 12h9a6 6 0 010 12h-2" />,

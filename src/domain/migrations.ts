@@ -236,6 +236,43 @@ const migrate5to6: MigrationFn = (data) => {
   }
 }
 
+/**
+ * The ideas list becomes one ordered list.
+ *
+ * Categories used to live in a list of their own, with each idea naming the
+ * category it belonged to. Now a category is a row among the ideas and holds
+ * the ones filed under it, which is what lets a loose idea sit between two
+ * categories instead of always above them. Reading order is preserved: the
+ * uncategorised ideas came first on screen, and they still do.
+ *
+ * `done` and the category colour go. Neither survives in the model an idea is
+ * a one-line note again, and a note is either still there or crossed off by
+ * being deleted. No text is lost.
+ */
+const migrate6to7: MigrationFn = (data) => {
+  const ideas = asArray(data.ideas).map((entry) => (entry ?? {}) as Raw)
+  const row = (idea: Raw): Raw => ({
+    id: asString(idea.id, ''),
+    kind: 'idea',
+    text: asString(idea.text, ''),
+  })
+  const loose = ideas.filter((idea) => typeof idea.categoryId !== 'string').map(row)
+  const categories = asArray(data.ideaCategories).map((entry) => {
+    const category = (entry ?? {}) as Raw
+    const id = asString(category.id, '')
+    return {
+      id,
+      kind: 'category',
+      text: asString(category.name, 'Kategori'),
+      ideas: ideas.filter((idea) => idea.categoryId === id).map(row),
+    }
+  })
+
+  const { ideaCategories, ...rest } = data
+  void ideaCategories
+  return { ...rest, schemaVersion: 7, ideas: [...loose, ...categories] }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -244,6 +281,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   3: migrate3to4,
   4: migrate4to5,
   5: migrate5to6,
+  6: migrate6to7,
 }
 
 /**

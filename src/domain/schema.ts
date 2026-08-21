@@ -12,7 +12,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 6
+export const CURRENT_SCHEMA_VERSION = 7
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -135,18 +135,25 @@ export const sandboxItemSchema = z.object({
   note: z.string(),
 })
 
+/**
+ * One ordered list, one level deep: a category is a row beside the loose ideas
+ * and holds ideas only. The nesting rule is in the shape rather than in a
+ * separate check, so a category holding a category cannot validate.
+ */
 export const ideaSchema = z.object({
   id: z.string().min(1),
-  categoryId: z.string().min(1).nullable(),
+  kind: z.literal('idea'),
   text: z.string(),
-  done: z.boolean(),
 })
 
 export const ideaCategorySchema = z.object({
   id: z.string().min(1),
-  name: z.string(),
-  color: hexColor,
+  kind: z.literal('category'),
+  text: z.string(),
+  ideas: z.array(ideaSchema),
 })
+
+export const ideaRowSchema = z.union([ideaSchema, ideaCategorySchema])
 
 export const assetRefSchema = z.object({
   id: z.string().min(1),
@@ -167,8 +174,7 @@ export const presentationSchema = z.object({
   slides: z.array(slideSchema).min(1),
   references: z.array(referenceSchema),
   sandbox: z.array(sandboxItemSchema),
-  ideas: z.array(ideaSchema),
-  ideaCategories: z.array(ideaCategorySchema),
+  ideas: z.array(ideaRowSchema),
   assets: z.array(assetRefSchema),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -706,7 +706,20 @@
  * Floating windows
  * ----------------------------------------------------------------- */
 
+/*
+ * `position: fixed` is the whole point: the window stands still in the viewport
+ * while the slide is worked on underneath it.
+ *
+ * NO `transform`, `filter`, `backdrop-filter`, `contain` or
+ * `will-change: transform` here or on anything inside — such properties make
+ * the element a containing block for `position: fixed` descendants, and then
+ * the lifted row during a drag starts measuring itself from the window instead
+ * of from the viewport (and gets clipped by the scroll area).
+ */
 .floating-window {
+  --window-corner: 14px;
+  --window-edge: 6px;
+
   position: fixed;
   z-index: 40;
   display: flex;
@@ -718,41 +731,134 @@
   overflow: hidden;
 }
 
+.floating-window.is-moving {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The header is the handle the window is moved by. */
 .floating-window__bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 7px 11px;
+  flex: none;
+  height: 40px;
+  padding: 0 var(--window-corner) 0 11px;
   background: var(--chrome-bg-inset);
   border-bottom: 1px solid var(--chrome-border);
-  cursor: move;
+  cursor: grab;
+  touch-action: none;
   user-select: none;
 }
 
+.floating-window.is-moving .floating-window__bar {
+  cursor: grabbing;
+}
+
 .floating-window__title {
-  flex: 1;
   font-weight: 600;
   font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--chrome-text-dim);
+}
+
+.floating-window__badge {
+  flex: 1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--chrome-text-dim);
+  opacity: 0.7;
 }
 
 .floating-window__body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  overscroll-behavior: contain;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.floating-window__resize {
+/* ------------------------------------------------- edges and corners */
+
+/*
+ * The window is stretched in eight directions: four edges that change one
+ * length, and four corners that change both.
+ *
+ * The edges stop where the corners begin. Then they never fight over the same
+ * press, and which one is on top is nothing to keep track of: every point along
+ * the rim belongs to exactly one handle.
+ *
+ * The edges are deliberately narrower than the corners. They lie on top of the
+ * header and the list, and a wide strip would eat into the surface the window
+ * is moved by and into the scrollbar. The corners have nothing under them, and
+ * get to be big enough to hit without aiming.
+ */
+.floating-window__handle {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--chrome-border-strong) 50%);
+  z-index: 2;
+  touch-action: none;
+}
+
+.floating-window__handle[data-side='n'],
+.floating-window__handle[data-side='s'] {
+  left: var(--window-corner);
+  right: var(--window-corner);
+  height: var(--window-edge);
+  cursor: ns-resize;
+}
+
+.floating-window__handle[data-side='w'],
+.floating-window__handle[data-side='e'] {
+  top: var(--window-corner);
+  bottom: var(--window-corner);
+  width: var(--window-edge);
+  cursor: ew-resize;
+}
+
+.floating-window__handle[data-side='n'] { top: 0; }
+.floating-window__handle[data-side='s'] { bottom: 0; }
+.floating-window__handle[data-side='w'] { left: 0; }
+.floating-window__handle[data-side='e'] { right: 0; }
+
+.floating-window__handle[data-side='nw'],
+.floating-window__handle[data-side='ne'],
+.floating-window__handle[data-side='sw'],
+.floating-window__handle[data-side='se'] {
+  width: var(--window-corner);
+  height: var(--window-corner);
+}
+
+.floating-window__handle[data-side='nw'] { top: 0; left: 0; cursor: nwse-resize; }
+.floating-window__handle[data-side='ne'] { top: 0; right: 0; cursor: nesw-resize; }
+.floating-window__handle[data-side='sw'] { bottom: 0; left: 0; cursor: nesw-resize; }
+.floating-window__handle[data-side='se'] { bottom: 0; right: 0; cursor: nwse-resize; }
+
+/* A small mark in the corner you most often take hold of. */
+.floating-window__handle[data-side='se']::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--chrome-border-strong);
+  border-bottom: 2px solid var(--chrome-border-strong);
+  border-bottom-right-radius: 3px;
+}
+
+/* The buttons and fields in the header and the foot lie OVER the strips. There
+   is room to keep the corners clear — which is what `--window-corner` in their
+   padding is for — but the edges run the whole side, and a finger on top of the
+   cross should close the window, not start stretching it. */
+.floating-window__close,
+.ideas-add-cat,
+.ideas-new {
+  position: relative;
+  z-index: 3;
 }
 
 .sandbox-list {
@@ -808,95 +914,347 @@
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
 }
 
-.idea-categories {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* ----------------------------------------------------------------- *
+ * Ideas window
+ * ----------------------------------------------------------------- */
 
-.idea-category {
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/*
+ * Ported from mdeditz. The cards, the indent under a category, the lifted row
+ * and the gap it would drop into are that app's, translated to the chrome
+ * tokens here. See `src/ui/editor/IdeasWindow.tsx` for why the dragging is
+ * hand-written rather than dnd-kit.
+ */
+.ideas-inner {
+  --idea-surface: rgba(255, 255, 255, 0.045);
+  --idea-surface-hover: rgba(255, 255, 255, 0.075);
+  --idea-surface-raised: rgba(255, 255, 255, 0.11);
+  --idea-danger-soft: rgba(229, 72, 77, 0.16);
 
-.idea-category--over {
-  border-color: var(--chrome-accent);
-  background: var(--chrome-accent-soft);
-}
-
-.idea-category--loose {
-  border-style: dashed;
-}
-
-.idea-category__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-left: 4px solid;
-  padding-left: 8px;
-}
-
-.idea-category--loose .idea-category__head {
-  border-left-color: var(--chrome-border);
-}
-
-.idea-category__name {
-  flex: 1;
-  border: none;
-  background: transparent;
-  font-weight: 600;
-  padding: 2px;
-}
-
-.idea-category__list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 20px;
 }
 
-/* The colour is what tells two categories apart at a glance, so it follows the
-   ideas filed under them rather than stopping at the heading. */
+.ideas-inner.is-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ideas-empty {
+  margin: 12px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--chrome-text-dim);
+  opacity: 0.8;
+}
+
+.ideas-list,
+.idea-cat-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+/* One card per idea. The grip on the left, the cross on the right, the text
+   between them. */
 .idea {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  border-left: 3px solid transparent;
-  padding-left: 3px;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  background: var(--idea-surface);
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
-.idea__grip {
-  border: none;
-  background: transparent;
-  color: var(--chrome-text-dim);
+.idea:hover {
+  background: var(--idea-surface-hover);
+}
+
+.idea-grip {
+  flex: none;
+  margin-top: 5px;
+  opacity: 0.3;
   cursor: grab;
-  padding: 2px;
-  display: flex;
 }
 
-.idea__text {
+.idea:hover .idea-grip,
+.idea-cat-head:hover .idea-grip {
+  opacity: 0.6;
+}
+
+.idea-text {
   flex: 1;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 4px;
-  padding: 3px 5px;
   min-width: 0;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  cursor: text;
 }
 
-.idea__text:focus {
+.idea-text:hover {
+  background: var(--chrome-accent-soft);
+}
+
+/* The cross: muted at rest, red when it is what you are aiming at. */
+.idea-remove {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--chrome-text-dim);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+/* The muting sits on the button, not on the icon in it: two layers of opacity
+   made the cross nearly invisible at rest. */
+.idea-remove svg,
+.idea-cat-add svg {
+  opacity: 1;
+}
+
+.idea:hover .idea-remove,
+.idea-cat-head:hover .idea-remove,
+.idea:focus-within .idea-remove,
+.idea-cat-head:focus-within .idea-remove {
+  opacity: 1;
+}
+
+.idea-remove:hover {
+  color: var(--chrome-danger);
+  background: var(--idea-danger-soft);
+}
+
+/* --------------------------------------------------------- categories */
+
+/* A little more air above a category than between two ideas: it is a break in
+   the list, not just the next row. */
+.idea-cat {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.idea-cat:first-child {
+  margin-top: 0;
+}
+
+.idea-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: var(--radius-sm);
+  cursor: grab;
+}
+
+.idea-cat-head:hover {
+  background: var(--idea-surface);
+}
+
+.idea-cat-title {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--chrome-text-dim);
+  overflow-wrap: break-word;
+  cursor: text;
+}
+
+.idea-cat-title:hover {
+  background: var(--chrome-accent-soft);
+}
+
+.idea-cat-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--chrome-text-dim);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.idea-cat-head:hover .idea-cat-add,
+.idea-cat-head:focus-within .idea-cat-add {
+  opacity: 1;
+}
+
+.idea-cat-add:hover {
+  color: var(--chrome-accent);
+  background: var(--chrome-accent-soft);
+}
+
+.idea-cat-add:disabled,
+.ideas-add-cat:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* The ideas in a category stand one step in, with a line showing who they
+   belong to. */
+.idea-cat-items {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--chrome-border);
+  /* An empty category has to be somewhere you can drop, too. */
+  min-height: 22px;
+}
+
+/* ------------------------------------------------------------ dragging */
+
+/*
+ * The lifted row. `fixed` is chosen for the same reason as for the window: it
+ * has to follow the pointer freely, without being clipped by the scroll area it
+ * came from. `pointer-events: none` lets the hit test see the rows UNDER it.
+ */
+.idea.is-dragging,
+.idea-cat.is-dragging {
+  position: fixed;
+  z-index: 45;
+  margin: 0;
+  pointer-events: none;
+  cursor: grabbing;
+  background: var(--chrome-bg-raised);
   border-color: var(--chrome-border-strong);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  /* A transform on the lifted row itself is safe — it is the window and the
+     row's ANCESTORS that must stay untransformed, or `position: fixed` here
+     would start measuring from them. */
+  transform: rotate(-1.2deg);
+  will-change: left, top;
+}
+
+.idea-cat.is-dragging {
+  padding: 4px;
+  border: 1px solid var(--chrome-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* Press-and-hold on touch: the countdown should be visible. */
+.idea.is-pressed,
+.idea-cat.is-pressed {
+  background: var(--idea-surface-raised);
+}
+
+/* The place the row gets if you let go now. */
+.idea-ph {
+  list-style: none;
+  border: 1px dashed var(--chrome-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-accent-soft);
+}
+
+/* ---------------------------------------------------------------- foot */
+
+.ideas-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+  /* The same inset on both sides: the button in the foot must not sit on top of
+     the corner handle at bottom left. */
+  padding: 8px var(--window-corner);
+  border-top: 1px solid var(--chrome-border);
   background: var(--chrome-bg-inset);
+}
+
+.ideas-add-cat {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--chrome-text-dim);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.ideas-add-cat:hover:not(:disabled) {
+  color: var(--chrome-accent);
+  background: var(--chrome-accent-soft);
+}
+
+.ideas-new {
+  flex: 1;
+  min-width: 0;
+  max-height: 96px;
+  padding: 8px;
+  border: 1px solid var(--chrome-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+  color: var(--chrome-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
+}
+
+.ideas-new:focus {
+  outline: none;
+  border-color: var(--chrome-accent);
+  box-shadow: 0 0 0 3px var(--chrome-accent-soft);
+}
+
+.ideas-new:disabled {
+  opacity: 0.6;
+}
+
+/* Editing in place, in the same shape as the text it replaced. */
+.idea-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 3px;
+  border: 1px solid var(--chrome-accent);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+  color: var(--chrome-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+}
+
+.idea-cat-head .idea-edit {
+  font-size: 12px;
+}
+
+.idea-edit:focus {
   outline: none;
 }
 
-.idea-category__add {
-  display: flex;
-  gap: 6px;
-}
 
 /* ----------------------------------------------------------------- *
  * Status bar, dropzone, new slide, present

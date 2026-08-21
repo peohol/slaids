@@ -9,7 +9,8 @@ layoutet er nestet.
 > `IMPLEMENTATION_PLAN.md` er den gjeldende normative spesifikasjonen.
 > `docs/archive/VISION.original-2026-08-20.md` er den opprinnelige visjonen, bevart som historikk – ikke normativ.
 > `VISION.md` i roten peker bare videre til de to; den inneholder ingen krav.
-> Idé-panelet er portert konseptuelt fra `peohol/mdeditz` – samme prinsipper, egen typed implementasjon.
+> Idévinduet er en tro port av idévinduet i `peohol/mdeditz` – samme modell, samme
+> gest, samme vindu – lagt inn i Slaids' typed domene.
 
 ## Kjerneidé
 
@@ -60,7 +61,7 @@ layoutet er nestet.
 - sandkasse for innhold som midlertidig er utenfor en sone, med fit-bevisst DnD
 - strukturell utklippstavle (Ctrl+C/X/V i sonemodus), normalisert ekstern paste
   og Ctrl+Shift+V for ren tekst
-- idé-panel (én linje per idé, ett kategorinivå, dra for å sortere) og layout-maler
+- idévindu (én linje per idé, ett kategorinivå, dra for å sortere) og layout-maler
 - angre/gjør om, autosave med eksplisitt status, oversikt over hurtigtaster
 - lagringsbruk vises i biblioteket, og forlatte filer ryddes bort automatisk
 

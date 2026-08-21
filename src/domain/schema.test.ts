@@ -110,6 +110,39 @@ describe('migrations', () => {
     }
   })
 
+  it('folds a v6 ideas list into one ordered list', () => {
+    const legacy = {
+      ...sample(),
+      schemaVersion: 6,
+      ideas: [
+        { id: 'i1', categoryId: null, text: 'løs', done: false },
+        { id: 'i2', categoryId: 'c1', text: 'under kilder', done: true },
+        { id: 'i3', categoryId: 'c1', text: 'også under kilder', done: false },
+        { id: 'i4', categoryId: 'c2', text: 'under å gjøre', done: false },
+      ],
+      ideaCategories: [
+        { id: 'c1', name: 'Kilder', color: '#4d6b8c' },
+        { id: 'c2', name: 'Å gjøre', color: '#8c6b4d' },
+      ],
+    }
+
+    const result = migratePresentation(legacy)
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.value) return
+
+    // The loose ideas came first on screen, and they still do; each category
+    // then carries the notes that named it, in the order they had.
+    expect(result.value.ideas.map((row) => row.text)).toEqual(['løs', 'Kilder', 'Å gjøre'])
+    expect(result.value.ideas.map((row) => row.kind)).toEqual(['idea', 'category', 'category'])
+    const kilder = result.value.ideas[1]
+    expect(kilder.kind === 'category' ? kilder.ideas.map((idea) => idea.text) : null).toEqual([
+      'under kilder',
+      'også under kilder',
+    ])
+    // Nothing that was written is lost, and the old pair of arrays is gone.
+    expect((result.value as unknown as Record<string, unknown>).ideaCategories).toBeUndefined()
+  })
+
   it('passes a current-version document straight through', () => {
     const result = migratePresentation(sample())
     expect(result.ok).toBe(true)
