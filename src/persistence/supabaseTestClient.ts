@@ -28,9 +28,15 @@ export interface QueryOutcome {
 export type QueryResolver = (record: QueryRecord) => QueryOutcome
 
 export interface StorageCall {
-  op: 'upload' | 'download' | 'remove'
+  op: 'upload' | 'download' | 'remove' | 'list'
   bucket: string
   paths: string[]
+}
+
+/** What one `storage.list` entry looks like; a prefix has no `id`. */
+export interface StorageEntry {
+  name: string
+  id?: string | null
 }
 
 class FakeQuery implements PromiseLike<QueryOutcome> {
@@ -111,6 +117,7 @@ export interface FakeSupabaseOptions {
   upload?: (path: string) => QueryOutcome
   download?: (path: string) => QueryOutcome
   remove?: (paths: string[]) => QueryOutcome
+  list?: (prefix: string) => QueryOutcome
 }
 
 export const TEST_OWNER_ID = '11111111-2222-4333-8444-555555555555'
@@ -153,6 +160,11 @@ export function createFakeSupabase(options: FakeSupabaseOptions = {}): FakeSupab
         remove: (paths: string[]) => {
           storageCalls.push({ op: 'remove', bucket, paths })
           const outcome = options.remove?.(paths) ?? { data: [], error: null }
+          return Promise.resolve({ data: outcome.data ?? null, error: outcome.error ?? null })
+        },
+        list: (prefix: string) => {
+          storageCalls.push({ op: 'list', bucket, paths: [prefix] })
+          const outcome = options.list?.(prefix) ?? { data: [], error: null }
           return Promise.resolve({ data: outcome.data ?? null, error: outcome.error ?? null })
         },
       }),

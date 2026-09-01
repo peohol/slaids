@@ -45,6 +45,12 @@ export const ASSETS_BUCKET = 'slaids-assets'
 /** Postgres `unique_violation`, i.e. the row already exists. */
 const UNIQUE_VIOLATION = '23505'
 
+/** How much of one Storage prefix a single `list` call is asked for. */
+const STORAGE_LIST_LIMIT = 1000
+
+/** How many ids one `in` filter carries; the filter travels in the URL. */
+const ID_FILTER_BATCH = 200
+
 const EPOCH = new Date(0).toISOString()
 
 interface PresentationListRow {
@@ -85,6 +91,16 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
    * race instead of quietly overwriting the newer one.
    */
   private readonly versions = new Map<string, number>()
+
+  /**
+   * Storage paths whose removal failed after their row was already gone.
+   * Nothing points at them any more, so they are retried in the background
+   * rather than surfaced as an error on a delete that did succeed.
+   */
+  private readonly pendingObjectRemovals = new Set<string>()
+
+  /** The full sweep costs two requests; once per sign-in is enough. */
+  private sweptStorage = false
 
   /**
    * The client is resolved per call rather than stored, so constructing the
@@ -211,14 +227,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
   }
 
   async deletePresentation(id: string): Promise<void> {
-    // Files first. A failure here leaves the presentation whole and the delete
-    // simply retryable, where the other order would leave objects in Storage
-    // that nothing points at any more.
-    await this.removeAssetObjects(await this.assetPaths(id))
+    // The row goes first, and the files after it. Removing the files first
+    // would, if the row delete then failed, leave a presentation that is still
+    // listed and still opens — with its pictures permanently gone. Losing data
+    // something still points at is worse than leaving data nothing points at,
+    // and the latter is what `deleteOrphanAssets` reclaims.
+    const paths = await this.assetPaths(id)
     // The asset rows go with the presentation through the foreign key.
     const { error } = await this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id)
     if (error) fail('Kunne ikke slette presentasjonen', error)
     this.versions.delete(id)
+    await this.reclaimObjects(paths)
   }
 
   /* ---------------------------------------------------------------- *
@@ -357,13 +376,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     if (error) {
       // The file is up but nothing can reach it without its row, so take it
       // back out rather than leave it behind in the bucket.
-      try {
-        await this.client.storage.from(ASSETS_BUCKET).remove([objectPath])
-      } catch {
-        // The upload error below is the one worth reporting.
-      }
+      await this.reclaimObjects([objectPath])
       fail(`Kunne ikke lagre metadata for «${ref.name}»`, error)
     }
+    // This path is referenced again. A failed removal from an earlier attempt
+    // must not have it swept out from under the row that now points at it.
+    this.pendingObjectRemovals.delete(objectPath)
   }
 
   async getAsset(id: string): Promise<StoredAsset | null> {
@@ -419,29 +437,106 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     if (error) fail('Kunne ikke hente filen', error)
     if (!data) return
 
-    await this.removeAssetObjects([(data as { object_path: string }).object_path])
     const removed = await this.client.from(ASSETS_TABLE).delete().eq('id', id)
     if (removed.error) fail('Kunne ikke slette filen', removed.error)
+    await this.reclaimObjects([(data as { object_path: string }).object_path])
   }
 
   async deleteAssetsForPresentation(presentationId: string): Promise<void> {
-    await this.removeAssetObjects(await this.assetPaths(presentationId))
+    const paths = await this.assetPaths(presentationId)
     const { error } = await this.client
       .from(ASSETS_TABLE)
       .delete()
       .eq('presentation_id', presentationId)
     if (error) fail('Kunne ikke slette filene til presentasjonen', error)
+    await this.reclaimObjects(paths)
   }
 
   /**
-   * Nothing to reclaim remotely: an asset row cannot outlive its presentation
-   * (the foreign key removes it), and every delete in this repository takes the
-   * Storage object out *before* the row that points at it, so a half-finished
-   * delete leaves a reachable row rather than an unreachable file. The sweep
-   * that Dexie needs has no counterpart here.
+   * Reclaim Storage objects nothing points at any more.
+   *
+   * Rows cannot be orphaned — an asset row goes with its presentation through
+   * the foreign key — but objects can, precisely because every delete here
+   * takes the row out first. That is the safe direction: what is left behind is
+   * a file nothing references, not a reference to a file that is gone.
+   *
+   * Two passes, both cheap. The paths whose removal failed in this session are
+   * retried at no cost when there are none, and once per sign-in the
+   * presentation folders in the bucket are compared against the presentations
+   * that still exist — two requests when there is nothing to reclaim.
+   *
+   * Reclaiming is best effort by definition: it never fails a user action, and
+   * whatever it does not manage this time it can do next time.
    */
   async deleteOrphanAssets(): Promise<number> {
-    return 0
+    try {
+      let removed = await this.retryPendingRemovals()
+      if (!this.sweptStorage) {
+        this.sweptStorage = true
+        removed += await this.sweepOrphanedFolders()
+      }
+      return removed
+    } catch {
+      return 0
+    }
+  }
+
+  private async retryPendingRemovals(): Promise<number> {
+    if (this.pendingObjectRemovals.size === 0) return 0
+    const paths = [...this.pendingObjectRemovals]
+    const { error } = await this.client.storage.from(ASSETS_BUCKET).remove(paths)
+    if (error) return 0
+    for (const path of paths) this.pendingObjectRemovals.delete(path)
+    return paths.length
+  }
+
+  /**
+   * Every folder directly under the owner's prefix is one presentation. A
+   * folder whose presentation is gone is orphaned in full, which is exactly
+   * what an interrupted delete leaves behind.
+   */
+  private async sweepOrphanedFolders(): Promise<number> {
+    const ownerId = await this.ownerId()
+    const listed = await this.client.storage
+      .from(ASSETS_BUCKET)
+      .list(ownerId, { limit: STORAGE_LIST_LIMIT })
+    if (listed.error || !listed.data) return 0
+    // An entry without an id is a prefix rather than a file.
+    const folders = listed.data
+      .filter((entry) => !entry.id && typeof entry.name === 'string' && entry.name.length > 0)
+      .map((entry) => entry.name)
+    if (folders.length === 0) return 0
+
+    // A `?in=(...)` filter goes in the URL, so long lists are asked for in
+    // batches rather than in one request no proxy will accept.
+    const alive = new Set<string>()
+    for (let index = 0; index < folders.length; index += ID_FILTER_BATCH) {
+      const batch = folders.slice(index, index + ID_FILTER_BATCH)
+      const { data, error } = await this.client
+        .from(PRESENTATIONS_TABLE)
+        .select('id')
+        .in('id', batch)
+      if (error) return 0
+      for (const row of (data ?? []) as { id: string }[]) alive.add(row.id)
+    }
+
+    let removed = 0
+    for (const folder of folders) {
+      if (alive.has(folder)) continue
+      const contents = await this.client.storage
+        .from(ASSETS_BUCKET)
+        .list(`${ownerId}/${folder}`, { limit: STORAGE_LIST_LIMIT })
+      if (contents.error || !contents.data) continue
+      const paths = contents.data
+        .filter((entry) => entry.id)
+        .map((entry) => `${ownerId}/${folder}/${entry.name}`)
+      if (paths.length === 0) continue
+      const { error: removeError } = await this.client.storage
+        .from(ASSETS_BUCKET)
+        .remove(paths)
+      if (!removeError) removed += paths.length
+    }
+    return removed
   }
 
   private async assetPaths(presentationId: string): Promise<string[]> {
@@ -455,9 +550,20 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
       .filter((path): path is string => typeof path === 'string' && path.length > 0)
   }
 
-  private async removeAssetObjects(paths: readonly string[]): Promise<void> {
+  /**
+   * Take objects out of Storage once nothing points at them. A failure here is
+   * not the caller's problem — what it asked for has already happened — so the
+   * paths are remembered for `deleteOrphanAssets` instead of turning a delete
+   * that succeeded into an error the user cannot act on.
+   */
+  private async reclaimObjects(paths: readonly string[]): Promise<void> {
     if (paths.length === 0) return
-    const { error } = await this.client.storage.from(ASSETS_BUCKET).remove([...paths])
-    if (error) fail('Kunne ikke slette filene fra Supabase Storage', error)
+    try {
+      const { error } = await this.client.storage.from(ASSETS_BUCKET).remove([...paths])
+      if (!error) return
+    } catch {
+      // Same outcome as an error response: remember them and move on.
+    }
+    for (const path of paths) this.pendingObjectRemovals.add(path)
   }
 }

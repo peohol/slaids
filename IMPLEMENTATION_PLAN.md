@@ -1367,6 +1367,13 @@ nøyaktig det Storage-policyene sjekker. Sletting av en presentasjon må også r
 Storage: DB-metadata følger med via fremmednøkkelen, men Storage-objekter gjør det
 ikke.
 
+Rekkefølgen er ikke likegyldig. Raden slettes først, filene etterpå. Motsatt vei
+ville en feilet radsletting etterlatt en presentasjon som fortsatt vises og
+fortsatt åpnes, men med bildene borte for godt. Å miste data noe fortsatt peker
+på er verre enn å la ligge data ingenting peker på – og det siste ryddes av
+`deleteOrphanAssets()`, som sammenligner presentasjonsmappene i bucketen mot
+presentasjonene som finnes.
+
 `owner_id` settes alltid fra den autentiserte sesjonen, aldri fra brukerinput.
 
 ### Samtidighet

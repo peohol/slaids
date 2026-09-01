@@ -208,7 +208,7 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     )
   })
 
-  it('sletter Storage-objektene før raden de henger på', async () => {
+  it('sletter raden før filene den peker på', async () => {
     const { repository, fake } = repositoryFor({
       resolve: (record) =>
         record.op === 'select' ? { data: [{ object_path: `${TEST_OWNER_ID}/p1/a1` }] } : { data: null },
@@ -216,23 +216,32 @@ describe('SupabaseSlaidsRepository – skriving', () => {
 
     await repository.deletePresentation('p1')
 
+    // The other order would, if the row delete failed, leave a presentation
+    // that still opens with its pictures permanently gone.
+    const del = fake.queries.find((query) => query.op === 'delete')
+    expect(del?.table).toBe(PRESENTATIONS_TABLE)
     expect(fake.storageCalls).toEqual([
       { op: 'remove', bucket: ASSETS_BUCKET, paths: [`${TEST_OWNER_ID}/p1/a1`] },
     ])
-    const del = fake.queries.at(-1)
-    expect(del?.table).toBe(PRESENTATIONS_TABLE)
-    expect(del?.op).toBe('delete')
   })
 
-  it('stopper slettingen hvis filene ikke lot seg fjerne', async () => {
+  it('lar ikke en feilet filopprydding velte en sletting som gikk igjennom', async () => {
+    let storageDown = true
     const { repository, fake } = repositoryFor({
       resolve: (record) =>
         record.op === 'select' ? { data: [{ object_path: `${TEST_OWNER_ID}/p1/a1` }] } : { data: null },
-      remove: () => ({ error: { message: 'storage nede' } }),
+      remove: () => (storageDown ? { error: { message: 'storage nede' } } : { data: [] }),
+      list: () => ({ data: [] }),
     })
 
-    await expect(repository.deletePresentation('p1')).rejects.toThrow(/storage nede/)
-    expect(fake.queries.some((query) => query.op === 'delete')).toBe(false)
+    // The user asked for a delete and got one; the leftover file is nobody's
+    // problem but the sweep's.
+    await expect(repository.deletePresentation('p1')).resolves.toBeUndefined()
+    expect(fake.queries.some((query) => query.op === 'delete')).toBe(true)
+
+    storageDown = false
+    expect(await repository.deleteOrphanAssets()).toBe(1)
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toHaveLength(2)
   })
 })
 
@@ -293,9 +302,72 @@ describe('SupabaseSlaidsRepository – filer', () => {
     expect(await repository.getAsset('mangler')).toBeNull()
   })
 
-  it('har ingenting å rydde: rader kan ikke overleve presentasjonen sin', async () => {
-    const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
+  it('feier ikke bort en fil som har fått rad igjen', async () => {
+    const ref = sampleAsset()
+    let rowFails = true
+    const { repository, fake } = repositoryFor({
+      resolve: () => (rowFails ? { error: { message: 'rad avvist' } } : { data: null }),
+      remove: () => ({ error: { message: 'storage nede' } }),
+      list: () => ({ data: [] }),
+    })
+
+    // First attempt: the row is rejected and the file cannot be taken back out,
+    // so its path is queued for reclaiming.
+    await expect(repository.putAsset('p1', ref, new Blob(['bytes']))).rejects.toThrow(/rad avvist/)
+
+    // Second attempt succeeds. The queued path now points at a live file.
+    rowFails = false
+    await repository.putAsset('p1', ref, new Blob(['bytes']))
+
+    const before = fake.storageCalls.filter((call) => call.op === 'remove').length
     expect(await repository.deleteOrphanAssets()).toBe(0)
-    expect(fake.queries).toHaveLength(0)
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toHaveLength(before)
+  })
+
+  it('rydder mappen til en presentasjon som er borte', async () => {
+    const { repository, fake } = repositoryFor({
+      // `p1` finnes fortsatt; `p2` er slettet, men filene ble liggende igjen.
+      resolve: () => ({ data: [{ id: 'p1' }] }),
+      list: (prefix) => {
+        if (prefix === TEST_OWNER_ID) {
+          return { data: [{ name: 'p1', id: null }, { name: 'p2', id: null }] }
+        }
+        if (prefix === `${TEST_OWNER_ID}/p2`) {
+          return { data: [{ name: 'a1', id: 'o1' }, { name: 'a2', id: 'o2' }] }
+        }
+        return { data: [] }
+      },
+    })
+
+    expect(await repository.deleteOrphanAssets()).toBe(2)
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toEqual([
+      {
+        op: 'remove',
+        bucket: ASSETS_BUCKET,
+        paths: [`${TEST_OWNER_ID}/p2/a1`, `${TEST_OWNER_ID}/p2/a2`],
+      },
+    ])
+    // The live presentation's folder is never opened, let alone emptied.
+    expect(fake.storageCalls.some((call) => call.paths[0] === `${TEST_OWNER_ID}/p1`)).toBe(false)
+  })
+
+  it('feier bare én gang per innlogging, og koster to kall når det er tomt', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({ data: [] }),
+      list: () => ({ data: [] }),
+    })
+
+    expect(await repository.deleteOrphanAssets()).toBe(0)
+    const afterFirst = fake.storageCalls.length + fake.queries.length
+    expect(afterFirst).toBeLessThanOrEqual(2)
+
+    expect(await repository.deleteOrphanAssets()).toBe(0)
+    // The library refreshes often; a second sweep must not cost anything.
+    expect(fake.storageCalls.length + fake.queries.length).toBe(afterFirst)
+  })
+
+  it('feier ikke når ingen er logget inn', async () => {
+    const { repository } = repositoryFor({ session: null, list: () => ({ data: [] }) })
+    expect(await repository.deleteOrphanAssets()).toBe(0)
   })
 })
