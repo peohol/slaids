@@ -89,8 +89,21 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
    * The `version` each presentation was last seen at. Every update is written
    * against that version, so a tab holding a stale copy is told it lost the
    * race instead of quietly overwriting the newer one.
+   *
+   * Having an entry at all is the other half of the state: it says the row
+   * exists, and therefore that this presentation is saved with an UPDATE rather
+   * than an INSERT. That is why a conflict never removes one. "Nothing known"
+   * means "new", so forgetting a row after a lost race would turn the next
+   * autosave retry into an INSERT — and resurrect a presentation another tab
+   * had just deleted, references to assets that went with it and all. A stale
+   * entry keeps failing the guard instead, which stays true until the document
+   * is read again.
+   *
+   * Only two things add an entry: reading the row, or an insert that created
+   * it. Only one removes it: deleting the presentation through this repository,
+   * which is a local decision rather than a surprise from somewhere else.
    */
-  private readonly versions = new Map<string, number>()
+  private readonly knownVersions = new Map<string, number>()
 
   /**
    * Storage paths whose removal failed after their row was already gone.
@@ -112,9 +125,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     return this.resolveClient()
   }
 
-  /** Test seam: forget every cached version, as a fresh sign-in would. */
+  /** Test seam: forget every known row, as a fresh sign-in would. */
   forgetVersions(): void {
-    this.versions.clear()
+    this.knownVersions.clear()
   }
 
   private async ownerId(): Promise<string> {
@@ -139,7 +152,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     if (error) fail('Kunne ikke hente presentasjonene fra Supabase', error)
 
     return ((data ?? []) as PresentationListRow[]).map((row) => {
-      if (typeof row.version === 'number') this.versions.set(row.id, row.version)
+      // A listing establishes that a row exists, which is enough to save it
+      // with an update. It does not refresh a version a read gave us, though:
+      // that would hand a stale editor a fresh guard to overwrite with.
+      if (typeof row.version === 'number' && !this.knownVersions.has(row.id)) {
+        this.knownVersions.set(row.id, row.version)
+      }
       const createdAt = toIso(row.created_at, EPOCH)
       return {
         id: row.id,
@@ -164,9 +182,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     const migrated = migratePresentation((data as { document: unknown }).document)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message, migrated.error)
 
-    const version = (data as VersionRow).version
-    if (typeof version === 'number') this.versions.set(id, version)
-    else this.versions.delete(id)
+    // The row came back, so it exists. `0` never matches one (`version >= 1`),
+    // so a row whose version we could not read fails the guard rather than
+    // being inserted as if it were new.
+    this.knownVersions.set(id, numberOr((data as VersionRow).version, 0))
     return migrated.value
   }
 
@@ -184,7 +203,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
       slide_count: document.slides.length,
     }
 
-    const known = this.versions.get(document.id)
+    const known = this.knownVersions.get(document.id)
     if (known === undefined) {
       // Never seen: this is a new presentation, and an insert is what makes
       // "new" mean new — an upsert here would overwrite a row we never read.
@@ -202,7 +221,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
         }
         fail('Kunne ikke lagre presentasjonen', error)
       }
-      this.versions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
+      this.knownVersions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
       return
     }
 
@@ -216,14 +235,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
 
     const updated = (data ?? []) as VersionRow[]
     if (updated.length === 0) {
-      // Nothing matched: the row is either gone or has moved on since we read
-      // it. Drop the version so the next attempt has to re-read.
-      this.versions.delete(document.id)
+      // Nothing matched: the row has either moved on since we read it or is
+      // gone. The version stays exactly as it was — every retry keeps making
+      // the same guarded update and keeps failing, until the document is read
+      // again. Forgetting it here is what would turn the next attempt into an
+      // insert, and an insert of a row somebody deleted is not a save but a
+      // resurrection.
       throw new RepositoryConflictError(
-        `«${document.title}» er endret et annet sted (en annen fane eller enhet). Åpne den på nytt – lagring nå ville overskrevet den nyere versjonen.`,
+        `«${document.title}» er endret eller slettet et annet sted (en annen fane eller enhet). Åpne den på nytt – lagring nå ville overskrevet den nyere versjonen eller gjenopprettet en slettet presentasjon.`,
       )
     }
-    this.versions.set(document.id, numberOr(updated[0]?.version, known + 1))
+    this.knownVersions.set(document.id, numberOr(updated[0]?.version, known + 1))
   }
 
   async deletePresentation(id: string): Promise<void> {
@@ -236,7 +258,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     // The asset rows go with the presentation through the foreign key.
     const { error } = await this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id)
     if (error) fail('Kunne ikke slette presentasjonen', error)
-    this.versions.delete(id)
+    // Deleting through this repository is a local decision, so this is the one
+    // place the row may be forgotten: a later save of the same id really is new.
+    this.knownVersions.delete(id)
     await this.reclaimObjects(paths)
   }
 
@@ -292,12 +316,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
       if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
       const updated = (update.data ?? []) as VersionRow[]
       if (updated.length === 0) {
-        this.versions.delete(row.id)
+        // Same rule as above: a lost race never makes us forget the row.
         throw new RepositoryConflictError(
           'En presentasjon i mappen ble endret et annet sted. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
         )
       }
-      this.versions.set(row.id, numberOr(updated[0]?.version, known + 1))
+      this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
     }
 
     const removed = await this.client.from(FOLDERS_TABLE).delete().eq('id', id)

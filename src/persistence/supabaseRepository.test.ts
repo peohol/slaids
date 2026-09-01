@@ -199,6 +199,84 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     )
   })
 
+  it('gjenoppretter ikke en presentasjon som er slettet et annet sted', async () => {
+    const presentation = createPresentation({ title: 'Lest' })
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: 4 } }
+          : // Raden er borte: en annen fane slettet den, så ingen update matcher.
+            { data: [] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await expect(repository.savePresentation(presentation)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+
+    // Autosave beholder snapshotet og prøver igjen. Dette forsøket må fortsatt
+    // være en vaktet UPDATE: et INSERT ville gjenopprettet presentasjonen fra en
+    // gammel kopi, med AssetRef-er som peker på filer sletttingen tok med seg.
+    await expect(repository.savePresentation(presentation)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+
+    const writes = fake.queries.filter((query) => query.op !== 'select')
+    expect(writes.map((query) => query.op)).toEqual(['update', 'update'])
+    expect(writes.every((query) => filterValue(query, 'version') === 4)).toBe(true)
+  })
+
+  it('slipper gjennom igjen først når dokumentet er lest på nytt', async () => {
+    const presentation = createPresentation({ title: 'Lest' })
+    let remoteVersion = 4
+    let updateMatches = false
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: remoteVersion } }
+          : { data: updateMatches ? [{ version: remoteVersion + 1 }] : [] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    // Noen andre skrev versjon 5 i mellomtiden.
+    await expect(repository.savePresentation(presentation)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    // Uten en ny lesing er vi fortsatt låst til versjonen vi leste.
+    await expect(repository.savePresentation(presentation)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    expect(filterValue(fake.queries.at(-1) as QueryRecord, 'version')).toBe(4)
+
+    // Å åpne den på nytt er det som løser en vanlig versjonskonflikt.
+    remoteVersion = 5
+    updateMatches = true
+    await repository.loadPresentation(presentation.id)
+    await repository.savePresentation(presentation)
+
+    const write = fake.queries.at(-1)
+    expect(write?.op).toBe('update')
+    expect(filterValue(write as QueryRecord, 'version')).toBe(5)
+  })
+
+  it('behandler en presentasjon som ny igjen bare når vi selv slettet den', async () => {
+    const presentation = createPresentation({ title: 'Lest' })
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.table === ASSETS_TABLE) return { data: [] }
+        if (record.op === 'select') return { data: { document: presentation, version: 4 } }
+        return { data: { version: 1 } }
+      },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await repository.deletePresentation(presentation.id)
+    await repository.savePresentation(presentation)
+
+    // Vi slettet den selv, så det å lagre den igjen er å lage en ny.
+    expect(fake.queries.at(-1)?.op).toBe('insert')
+  })
+
   it('melder konflikt når en ny presentasjon allerede finnes', async () => {
     const { repository } = repositoryFor({
       resolve: () => ({ error: { message: 'duplicate key value', code: '23505' } }),

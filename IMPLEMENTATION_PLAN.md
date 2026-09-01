@@ -1395,6 +1395,13 @@ eller presentasjon.
 skriver mot den versjonen det leste, slik at en fane med en gammel kopi får en
 tydelig konfliktfeil i stedet for å overskrive en nyere versjon i stillhet.
 
+En konflikt gjør aldri at repositoryet glemmer raden. «Vet ingenting om den» betyr
+«ny», og en ny presentasjon settes inn – så å glemme den etter et tapt kappløp
+ville gjort neste autosave-forsøk til et `INSERT` og gjenopprettet en presentasjon
+en annen fane nettopp slettet, med referanser til filer slettingen tok med seg.
+Etter at en rad én gang er sett som eksisterende, er det bare en ny lesing av
+dokumentet som løser konflikten, og bare en sletting herfra som gjør den ny igjen.
+
 ### Deling
 
 `is_shared` og `share_token` er reservert for en kommende delingsfunksjon.

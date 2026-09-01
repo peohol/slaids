@@ -27,6 +27,18 @@ export function stage(page: Page) {
   return page.getByTestId('stage-slide')
 }
 
+/**
+ * Leave the editor and wait until the library is actually showing.
+ *
+ * Going back flushes autosave first, so the transition is asynchronous: a test
+ * that navigates straight afterwards would still be in the editor, and a reload
+ * would reopen the deck it thought it had left.
+ */
+export async function backToLibrary(page: Page): Promise<void> {
+  await page.getByTestId('back-to-library').click()
+  await expect(page.getByTestId('presentation-grid')).toBeVisible()
+}
+
 export async function createPresentation(page: Page, title: string): Promise<void> {
   await page.goto('/')
   await page.getByTestId('new-presentation').click()
