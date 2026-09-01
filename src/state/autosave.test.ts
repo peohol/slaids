@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { startAutosave } from './autosave'
+import { leaveWhenSaved, startAutosave } from './autosave'
 import { useEditorStore } from './store'
 import { useToasts } from './toast'
 import { createPresentation } from '../domain/presentation'
@@ -21,9 +21,11 @@ function fakeRepository() {
   const saved: Presentation[] = []
   const gates: Array<{ promise: Promise<void>; resolve: (value: void) => void; reject: (error: unknown) => void }> = []
   let manual = false
+  let failure: string | null = null
 
   const repository = {
     savePresentation: vi.fn(async (presentation: Presentation) => {
+      if (failure) throw new Error(failure)
       saved.push(presentation)
       if (!manual) return
       const gate = deferred<void>()
@@ -38,6 +40,10 @@ function fakeRepository() {
     gates,
     setManual: (value: boolean) => {
       manual = value
+    },
+    /** Make every write reject, as an unreachable Supabase would. */
+    setFailure: (message: string | null) => {
+      failure = message
     },
   }
 }
@@ -140,6 +146,95 @@ describe('autosave', () => {
     controller.stop()
   })
 
+  it('reports whether the flush actually landed', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+
+    expect(await controller.flush()).toBe(true)
+
+    fake.setFailure('Supabase svarer ikke')
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+    expect(await controller.flush()).toBe(false)
+
+    fake.setFailure(null)
+    expect(await controller.flush()).toBe(true)
+    controller.stop()
+  })
+})
+
+describe('å forlate editoren', () => {
+  it('går tilbake når endringen ble lagret', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+
+    const onLeave = vi.fn()
+    expect(await leaveWhenSaved(controller, onLeave)).toBe(true)
+
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(fake.saved.at(-1)?.title).toBe('B')
+    controller.stop()
+  })
+
+  it('blir stående når lagringen feilet', async () => {
+    const fake = fakeRepository()
+    fake.setFailure('Supabase svarer ikke')
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+
+    const onLeave = vi.fn()
+    // Leaving here would take the only copy of the change with it: the pending
+    // snapshot lives in the controller, and the controller dies with the view.
+    expect(await leaveWhenSaved(controller, onLeave)).toBe(false)
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(useEditorStore.getState().saveStatus).toBe('error')
+    controller.stop()
+  })
+
+  it('slipper oss ut når neste forsøk lykkes', async () => {
+    const fake = fakeRepository()
+    fake.setFailure('Supabase svarer ikke')
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+
+    const onLeave = vi.fn()
+    expect(await leaveWhenSaved(controller, onLeave)).toBe(false)
+
+    // Pressing Back again is the retry.
+    fake.setFailure(null)
+    expect(await leaveWhenSaved(controller, onLeave)).toBe(true)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(fake.saved.at(-1)?.title).toBe('B')
+    controller.stop()
+  })
+
+  it('skriver ikke snapshotet en gang til når kontrolleren stoppes etterpå', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+
+    const onLeave = vi.fn()
+    expect(await leaveWhenSaved(controller, onLeave)).toBe(true)
+
+    // What unmount does now: stop, and nothing else. One change, one write.
+    controller.stop()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(fake.saved).toHaveLength(1)
+  })
+
+  it('går tilbake uten videre når det ikke finnes noen autosave', async () => {
+    const onLeave = vi.fn()
+    expect(await leaveWhenSaved(null, onLeave)).toBe(true)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('autosave, forts.', () => {
   it('stops writing after stop()', async () => {
     const fake = fakeRepository()
     const controller = startAutosave(fake.repository, 1)

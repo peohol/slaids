@@ -10,6 +10,9 @@
 --
 -- This file describes the schema that is already applied remotely. It is what a
 -- fresh project is rebuilt from, not a change to make against an existing one.
+-- Constraints are therefore left unnamed: the names Postgres derives are the
+-- ones the applied migration produced, and spelling out our own would make
+-- `supabase db diff` want to drop and recreate every one of them.
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -22,7 +25,7 @@ create table if not exists public.slaids_folders (
   created_at timestamptz not null default now(),
   -- Redundant next to the primary key, and there for one reason: it lets the
   -- foreign keys below carry `owner_id` too.
-  constraint slaids_folders_id_owner_key unique (id, owner_id)
+  unique (id, owner_id)
 );
 
 create table if not exists public.slaids_presentations (
@@ -42,11 +45,10 @@ create table if not exists public.slaids_presentations (
   share_token uuid not null default gen_random_uuid() unique,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
-  constraint slaids_presentations_id_owner_key unique (id, owner_id),
+  unique (id, owner_id),
   -- The owner travels with the reference. Without it, knowing a folder id would
   -- be enough to file your presentation inside someone else's folder.
-  constraint slaids_presentations_folder_fkey
-    foreign key (folder_id, owner_id)
+  foreign key (folder_id, owner_id)
     references public.slaids_folders (id, owner_id)
     on delete set null (folder_id)
 );
@@ -57,7 +59,7 @@ create table if not exists public.slaids_templates (
   name       text not null,
   template   jsonb not null,
   created_at timestamptz not null default now(),
-  constraint slaids_templates_id_owner_key unique (id, owner_id)
+  unique (id, owner_id)
 );
 
 create table if not exists public.slaids_assets (
@@ -70,8 +72,7 @@ create table if not exists public.slaids_assets (
   created_at      timestamptz not null default now(),
   -- Assets belong to a presentation and go with it — the owner's presentation,
   -- never one that merely has the id you guessed.
-  constraint slaids_assets_presentation_fkey
-    foreign key (presentation_id, owner_id)
+  foreign key (presentation_id, owner_id)
     references public.slaids_presentations (id, owner_id)
     on delete cascade
 );

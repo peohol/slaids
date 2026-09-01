@@ -725,7 +725,12 @@ Krav:
   - `Saving…`
   - `Save failed`;
 - aldri markere «Saved» før repository-kallet faktisk er fullført;
-- reload-test skal være en del av E2E.
+- reload-test skal være en del av E2E;
+- å forlate editoren er et lagringspunkt. Det ventende snapshotet finnes bare i
+  autosave-kontrolleren, og den slutter å prøve på nytt når editoren unmountes –
+  så «Tilbake» flusher først og blir stående hvis skrivingen ikke gikk igjennom.
+  Dette gjelder Slaids' egen navigasjon, der vi faktisk kan garantere det; å
+  lukke fanen er fortsatt best effort via `pagehide`/`visibilitychange`.
 
 ---
 

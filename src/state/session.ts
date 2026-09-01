@@ -90,6 +90,19 @@ export const useSessionStore = create<SessionState>((set, get) => {
     })
   }
 
+  /** Take the SDK's own answer for which session, if any, is left. */
+  const adoptStoredSession = async (): Promise<void> => {
+    try {
+      const { data } = await getSupabaseClient().auth.getSession()
+      apply(data?.session ?? null)
+    } catch {
+      // If even that cannot be asked, signed-out is the safer reading: this SDK
+      // version removes the session locally on failure too, and claiming
+      // otherwise is the one thing a reload can prove wrong.
+      apply(null)
+    }
+  }
+
   return {
     status: readSupabaseConfigState().kind === 'absent' ? 'disabled' : 'loading',
     userId: null,
@@ -176,17 +189,22 @@ export const useSessionStore = create<SessionState>((set, get) => {
         error = (thrown ?? null) as AuthError | null
       }
 
-      if (error) {
-        // The SDK leaves the stored session in place when the call fails, so it
-        // is still there after a reload. Saying "signed out" would be a lie the
-        // next page load exposes: stay signed in and say what happened.
-        notify.error(
-          `Kunne ikke logge ut: ${describeAuthError(error)} Du er fortsatt innlogget.`,
-        )
-        return
-      }
+      // Follow the SDK, not the error. Since auth-js 2.110.2 it drops the
+      // stored session for every scope but `others` even when the revoke call
+      // fails, and it may already have emitted SIGNED_OUT before this line. So
+      // the question is never "did the call succeed" but "what session is
+      // left" — guessing would leave this store and the SDK disagreeing about
+      // who is logged in, and the next reload would settle it against us.
+      await adoptStoredSession()
 
-      apply(null)
+      if (error) {
+        // Which of the two it is, is what `adoptStoredSession` just settled.
+        notify.warning(
+          get().status === 'signed-in'
+            ? `Utloggingen feilet: ${describeAuthError(error)} Du er fortsatt innlogget.`
+            : `Du er logget ut her, men serveren bekreftet det ikke: ${describeAuthError(error)}`,
+        )
+      }
       set({ signInError: null })
     },
   }

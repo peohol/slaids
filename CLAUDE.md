@@ -35,6 +35,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   fra den autentiserte sesjonen, og secret/service-role-nøkler skal aldri finnes i frontend.
 - Utlogging bruker alltid `signOut({ scope: 'local' })`. Auth-prosjektet deles med Huskis, og
   global scope ville logget brukeren ut av Huskis på alle enheter.
+- Å forlate editoren er et lagringspunkt. Autosave holder det ventende snapshotet i minnet
+  og slutter å prøve på nytt når editoren unmountes, så «Tilbake» flusher først og blir
+  stående hvis skrivingen ikke gikk igjennom. Ingen parallell flush i cleanup som kan race.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
