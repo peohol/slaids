@@ -117,11 +117,14 @@ Slaids har to lagringsmoduser, og valget tas ett sted –
 | Modus                  | Når                                                              | Hva som skjer                                                       |
 | ---------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Supabase (produksjon)  | `VITE_SUPABASE_URL` **og** `VITE_SUPABASE_PUBLISHABLE_KEY` er satt | innlogging kreves; alt lagres i Supabase (Postgres + privat Storage) |
-| Lokal (utvikling/test) | ingen Supabase-konfigurasjon                                       | ingen innlogging; alt lagres i IndexedDB via Dexie                   |
+| Lokal (utvikling/test) | ingen av variablene er satt                                        | ingen innlogging; alt lagres i IndexedDB via Dexie                   |
+| Konfigurasjonsfeil     | nøyaktig én av variablene er satt                                  | appen stopper og sier hvilken som mangler                            |
 
 Dette er en **modus, ikke en fallback**. Er Supabase konfigurert men utilgjengelig,
 viser appen en feil – den begynner ikke å lagre lokalt og lage to konkurrerende
-sannhetskilder. Et bygg med bare én av variablene regnes som ukonfigurert.
+sannhetskilder. Et bygg med bare én av variablene er heller ikke lokal modus: det
+er en deploy-feil, og appen stopper i stedet for å skrive produksjonsdata til
+nettleseren.
 
 Bare den publiserbare (anon) nøkkelen hører hjemme i frontend. En
 service-role-nøkkel ville omgå RLS og skal aldri legges inn her.
@@ -134,7 +137,9 @@ VITE_SUPABASE_URL=https://<prosjekt>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<publishable/anon key>
 ```
 
-Kontoene er de samme som i Huskis; Slaids oppretter ikke brukere selv. Skjemaet
+Kontoene er de samme som i Huskis; Slaids oppretter ikke brukere selv. Utlogging
+bruker `scope: 'local'`, så den avslutter bare Slaids-sesjonen i denne nettleseren
+– ikke Huskis, og ikke andre enheter. Skjemaet
 ligger i `supabase/migrations/` og kan kjøres med `supabase db push` mot et tomt
 prosjekt:
 

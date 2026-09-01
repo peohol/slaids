@@ -14,7 +14,11 @@ interface AuthStub {
   session?: { user: { id: string; email?: string } } | null
   getSessionError?: unknown
   signInResult?: { data: { session: unknown }; error: unknown }
+  signOutError?: unknown
 }
+
+/** What the last `signOut` call was given, so the scope can be asserted on. */
+const signOutCalls: unknown[] = []
 
 function fakeClient(stub: AuthStub = {}): SupabaseClient {
   const session = stub.session === undefined ? null : stub.session
@@ -25,7 +29,10 @@ function fakeClient(stub: AuthStub = {}): SupabaseClient {
         Promise.resolve({ data: { session }, error: stub.getSessionError ?? null }),
       signInWithPassword: () =>
         Promise.resolve(stub.signInResult ?? { data: { session }, error: null }),
-      signOut: () => Promise.resolve({ error: null }),
+      signOut: (options?: unknown) => {
+        signOutCalls.push(options)
+        return Promise.resolve({ error: stub.signOutError ?? null })
+      },
     },
   } as unknown as SupabaseClient
 }
@@ -36,6 +43,7 @@ function configure(): void {
 }
 
 beforeEach(() => {
+  signOutCalls.length = 0
   stopSessionWatcher()
   useSessionStore.setState({
     status: 'loading',
@@ -170,7 +178,55 @@ describe('innlogging', () => {
   })
 })
 
+describe('konfigurasjonsfeil', () => {
+  it('stopper appen når bare halve Supabase-oppsettet finnes', async () => {
+    vi.stubEnv(URL_KEY, 'https://example.supabase.co')
+    vi.stubEnv(KEY_KEY, '')
+
+    await useSessionStore.getState().start()
+
+    const state = useSessionStore.getState()
+    // Not `disabled`: local mode here would mean production writing to
+    // IndexedDB because a deploy variable went missing.
+    expect(state.status).toBe('misconfigured')
+    expect(state.error).toMatch(/VITE_SUPABASE_PUBLISHABLE_KEY/)
+  })
+})
+
 describe('utlogging', () => {
+  it('logger bare ut av Slaids, ikke av Huskis på andre enheter', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ session: { user: USER } }))
+    await useSessionStore.getState().start()
+
+    await useSessionStore.getState().signOut()
+
+    // The default global scope would revoke every refresh token the user has.
+    expect(signOutCalls).toEqual([{ scope: 'local' }])
+    expect(useSessionStore.getState().status).toBe('signed-out')
+  })
+
+  it('hevder ikke at sesjonen er borte når utloggingen feilet', async () => {
+    configure()
+    setSupabaseClient(
+      fakeClient({
+        session: { user: USER },
+        signOutError: { name: 'AuthRetryableFetchError', message: 'Failed to fetch' },
+      }),
+    )
+    await useSessionStore.getState().start()
+    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+
+    await useSessionStore.getState().signOut()
+
+    // The SDK leaves the stored session in place on failure, so it comes back
+    // on the next reload. Showing the sign-in screen would be a lie.
+    const state = useSessionStore.getState()
+    expect(state.status).toBe('signed-in')
+    expect(state.userId).toBe(USER.id)
+    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBe('p1')
+  })
+
   it('lar ingenting fra forrige bruker bli liggende', async () => {
     configure()
     setSupabaseClient(fakeClient({ session: { user: USER } }))

@@ -11,7 +11,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useSessionStore, type SessionStatus } from '../../state/session'
 import { SignInView } from './SignInView'
 
-export type GateView = 'app' | 'loading' | 'sign-in' | 'unavailable'
+export type GateView = 'app' | 'loading' | 'sign-in' | 'unavailable' | 'misconfigured'
 
 /**
  * The whole rule, in one place: the app is reachable only in local mode or with
@@ -24,6 +24,8 @@ export function gateView(status: SessionStatus): GateView {
       return 'app'
     case 'unavailable':
       return 'unavailable'
+    case 'misconfigured':
+      return 'misconfigured'
     case 'loading':
       return 'loading'
     case 'signed-out':
@@ -43,6 +45,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const view = gateView(status)
 
   if (view === 'app') return <>{children}</>
+
+  if (view === 'misconfigured') {
+    // No retry: a missing build variable is not something this page can fix.
+    return (
+      <div className="auth" data-testid="auth-misconfigured">
+        <div className="auth__card">
+          <h1 className="auth__title">Slaids</h1>
+          <p className="error-text" role="alert">
+            {error ?? 'Supabase-oppsettet er ufullstendig.'}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (view === 'unavailable') {
     return (

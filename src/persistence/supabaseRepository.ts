@@ -329,14 +329,39 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     }
     const ownerId = await this.ownerId()
     const payload = JSON.parse(JSON.stringify(template)) as LayoutTemplate
-    const { error } = await this.client.from(TEMPLATES_TABLE).upsert({
+    const row = {
       id: payload.id,
       owner_id: ownerId,
       name: payload.name,
       template: payload,
-      created_at: payload.createdAt,
-    })
-    if (error) fail('Kunne ikke lagre malen', error)
+    }
+
+    // Update first, then insert — never a blind upsert. Template ids are unique
+    // across every account while RLS shows a user only their own rows, so an
+    // upsert on an id that belongs to somebody else would try to write over a
+    // row this user cannot see. Updating first keeps that impossible: an id
+    // that is ours matches and updates, and one that is not falls through to
+    // an insert whose unique violation is a conflict the caller can answer.
+    const updated = await this.client
+      .from(TEMPLATES_TABLE)
+      .update(row)
+      .eq('id', payload.id)
+      .select('id')
+    if (updated.error) fail('Kunne ikke lagre malen', updated.error)
+    if (((updated.data ?? []) as unknown[]).length > 0) return
+
+    const { error } = await this.client
+      .from(TEMPLATES_TABLE)
+      .insert({ ...row, created_at: payload.createdAt })
+    if (error) {
+      if (error.code === UNIQUE_VIOLATION) {
+        throw new RepositoryConflictError(
+          `Malen «${payload.name}» har en id som allerede er i bruk.`,
+          error,
+        )
+      }
+      fail('Kunne ikke lagre malen', error)
+    }
   }
 
   async deleteTemplate(id: string): Promise<void> {

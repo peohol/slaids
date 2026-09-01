@@ -245,6 +245,63 @@ describe('SupabaseSlaidsRepository – skriving', () => {
   })
 })
 
+describe('SupabaseSlaidsRepository – maler', () => {
+  const template = {
+    id: 't_1',
+    name: 'Todelt',
+    hasTitle: true,
+    root: { id: 'n1', kind: 'leaf' as const, content: null },
+    createdAt: '2026-08-01T09:00:00.000Z',
+  }
+
+  it('oppdaterer en mal som er vår, uten å sette inn på nytt', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => (record.op === 'update' ? { data: [{ id: 't_1' }] } : { data: null }),
+    })
+
+    await repository.saveTemplate(template)
+
+    // One request, and no insert to fall back on.
+    expect(fake.queries.map((query) => query.op)).toEqual(['update'])
+  })
+
+  it('setter inn når ingen egen rad matchet', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => (record.op === 'update' ? { data: [] } : { data: null }),
+    })
+
+    await repository.saveTemplate(template)
+
+    expect(fake.queries.map((query) => query.op)).toEqual(['update', 'insert'])
+    const values = fake.queries.at(-1)?.values as Record<string, unknown>
+    expect(values.owner_id).toBe(TEST_OWNER_ID)
+  })
+
+  it('melder konflikt når id-en tilhører en rad vi ikke ser', async () => {
+    // RLS hides the other account's row, so the update matches nothing and the
+    // insert is the first thing that can tell us the id is taken.
+    const { repository } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'update'
+          ? { data: [] }
+          : { error: { message: 'duplicate key value', code: '23505' } },
+    })
+
+    await expect(repository.saveTemplate(template)).rejects.toBeInstanceOf(RepositoryConflictError)
+  })
+
+  it('gjør ikke en nettverksfeil om til en konflikt', async () => {
+    const { repository } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'update' ? { data: [] } : { error: { message: 'network error', code: '' } },
+    })
+
+    const failure = await repository.saveTemplate(template).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(RepositoryError)
+    expect(failure).not.toBeInstanceOf(RepositoryConflictError)
+  })
+})
+
 describe('SupabaseSlaidsRepository – filer', () => {
   it('legger filen under brukerens UUID og knytter raden til presentasjonen', async () => {
     const ref = sampleAsset()

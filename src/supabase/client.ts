@@ -7,7 +7,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { readSupabaseConfig } from './config'
+import { SupabaseConfigurationError, readSupabaseConfigState } from './config'
 
 let client: SupabaseClient | null = null
 
@@ -20,8 +20,12 @@ export class SupabaseNotConfiguredError extends Error {
 
 export function getSupabaseClient(): SupabaseClient {
   if (client) return client
-  const config = readSupabaseConfig()
-  if (!config) throw new SupabaseNotConfiguredError()
+  const state = readSupabaseConfigState()
+  // A half-configured build is a mistake with a name; say which half is missing
+  // rather than "not set up".
+  if (state.kind === 'incomplete') throw new SupabaseConfigurationError(state.missing)
+  if (state.kind !== 'configured') throw new SupabaseNotConfiguredError()
+  const { config } = state
   client = createClient(config.url, config.publishableKey, {
     auth: {
       // The SDK keeps the session itself, which is what survives a reload.

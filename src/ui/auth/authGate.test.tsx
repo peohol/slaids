@@ -14,6 +14,10 @@ describe('gateView', () => {
     expect(gateView('loading')).toBe('loading')
     expect(gateView('unavailable')).toBe('unavailable')
   })
+
+  it('slipper ikke gjennom et halvkonfigurert bygg', () => {
+    expect(gateView('misconfigured')).toBe('misconfigured')
+  })
 })
 
 describe('innloggingsskjermen', () => {

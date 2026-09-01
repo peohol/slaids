@@ -1,11 +1,11 @@
--- Index the two foreign keys Slaids actually joins and filters on.
+-- Index the two composite foreign keys Slaids joins and filters on.
 --
--- Owner is the second column in both: every query is already scoped to one user
--- by RLS, so `(fk, owner_id)` serves both the foreign-key lookup and the
--- owner-scoped read from the same index.
+-- The owner-first indexes from the previous migration serve the library's own
+-- reads; these lead with the referencing column, which is what a foreign-key
+-- check and a cascade look up by.
 
-create index if not exists slaids_presentations_folder_id_owner_id_idx
+create index if not exists slaids_presentations_folder_owner_fk_idx
   on public.slaids_presentations (folder_id, owner_id);
 
-create index if not exists slaids_assets_presentation_id_owner_id_idx
+create index if not exists slaids_assets_presentation_owner_fk_idx
   on public.slaids_assets (presentation_id, owner_id);

@@ -12,11 +12,12 @@
 import { create } from 'zustand'
 import type { AuthError, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../supabase/client'
-import { isSupabaseConfigured } from '../supabase/config'
+import { describeIncompleteConfig, readSupabaseConfigState } from '../supabase/config'
 import { resetRepositoryCaches } from '../persistence/activeRepository'
 import { clearAssetCache } from './assets'
 import { LAST_OPEN_PRESENTATION_KEY, writePref } from './prefs'
 import { useEditorStore } from './store'
+import { notify } from './toast'
 
 export type SessionStatus =
   /** Still working out whether there is a session. */
@@ -27,6 +28,8 @@ export type SessionStatus =
   | 'signed-out'
   /** Configured, but Supabase could not be reached or answered with an error. */
   | 'unavailable'
+  /** The build got one Supabase variable but not the other. */
+  | 'misconfigured'
 
 interface SessionState {
   status: SessionStatus
@@ -88,7 +91,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
   }
 
   return {
-    status: isSupabaseConfigured() ? 'loading' : 'disabled',
+    status: readSupabaseConfigState().kind === 'absent' ? 'disabled' : 'loading',
     userId: null,
     email: null,
     error: null,
@@ -96,8 +99,14 @@ export const useSessionStore = create<SessionState>((set, get) => {
     signInError: null,
 
     start: async () => {
-      if (!isSupabaseConfigured()) {
+      const configState = readSupabaseConfigState()
+      if (configState.kind === 'absent') {
         set({ status: 'disabled' })
+        return
+      }
+      if (configState.kind === 'incomplete') {
+        // Neither mode. Nothing is mounted and nothing is written anywhere.
+        set({ status: 'misconfigured', error: describeIncompleteConfig(configState.missing) })
         return
       }
       set({ status: 'loading', error: null })
@@ -156,12 +165,27 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
 
     signOut: async () => {
+      // `local` scope, always. Slaids shares its Auth project with Huskis, and
+      // the default (`global`) revokes every refresh token the user has — which
+      // would sign them out of Huskis, on every device, because they closed
+      // Slaids.
+      let error: AuthError | null
       try {
-        await getSupabaseClient().auth.signOut()
-      } catch {
-        // Even a failed sign-out must leave nothing of this user behind
-        // locally; `apply` below takes care of that.
+        ;({ error } = await getSupabaseClient().auth.signOut({ scope: 'local' }))
+      } catch (thrown) {
+        error = (thrown ?? null) as AuthError | null
       }
+
+      if (error) {
+        // The SDK leaves the stored session in place when the call fails, so it
+        // is still there after a reload. Saying "signed out" would be a lie the
+        // next page load exposes: stay signed in and say what happened.
+        notify.error(
+          `Kunne ikke logge ut: ${describeAuthError(error)} Du er fortsatt innlogget.`,
+        )
+        return
+      }
+
       apply(null)
       set({ signInError: null })
     },

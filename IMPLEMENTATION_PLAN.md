@@ -625,16 +625,20 @@ Slaids har to lagringsmoduser. Valget tas **ett sted** –
 `src/persistence/activeRepository.ts` – og resten av appen ser bare
 `SlaidsRepository`.
 
-| Modus                | Når                                                            | Implementasjon              |
-| -------------------- | -------------------------------------------------------------- | --------------------------- |
-| Supabase (produksjon) | `VITE_SUPABASE_URL` **og** `VITE_SUPABASE_PUBLISHABLE_KEY` finnes | `SupabaseSlaidsRepository`  |
-| Lokal (utvikling/test) | Ingen Supabase-konfigurasjon                                    | `DexieSlaidsRepository`     |
+| Modus                  | Når                                                              | Implementasjon             |
+| ---------------------- | ---------------------------------------------------------------- | -------------------------- |
+| Supabase (produksjon)  | `VITE_SUPABASE_URL` **og** `VITE_SUPABASE_PUBLISHABLE_KEY` finnes  | `SupabaseSlaidsRepository` |
+| Lokal (utvikling/test) | Ingen av variablene finnes                                         | `DexieSlaidsRepository`    |
+| Konfigurasjonsfeil     | Nøyaktig én av variablene finnes                                   | ingen – appen stopper      |
 
 Dette er en **modus, ikke en fallback**. En konfigurert Supabase som er nede skal
 gi en forståelig feil; appen skal ikke begynne å skrive lokalt og lage to
-konkurrerende sannhetskilder. Et halvkonfigurert bygg (bare én av variablene)
-regnes som ukonfigurert, slik at feilen kommer ved oppstart og ikke midt i en
-lagring.
+konkurrerende sannhetskilder.
+
+Et halvkonfigurert bygg er ingen av delene. Det er en deploy-feil, og Dexie er
+aldri svaret på en deploy-feil: da ville produksjon stille skrevet til
+nettleseren fordi en variabel manglet i Vercel. Appen monterer verken bibliotek
+eller editor, og sier hvilken variabel som mangler.
 
 ### Lokal modus
 
@@ -1375,6 +1379,10 @@ på er verre enn å la ligge data ingenting peker på – og det siste ryddes av
 presentasjonene som finnes.
 
 `owner_id` settes alltid fra den autentiserte sesjonen, aldri fra brukerinput.
+Fremmednøklene er sammensatte – `(folder_id, owner_id)` og
+`(presentation_id, owner_id)` – slik at eieren følger med referansen. Å kjenne en
+id skal ikke være nok til å legge sin egen rad inn under en annen brukers mappe
+eller presentasjon.
 
 ### Samtidighet
 

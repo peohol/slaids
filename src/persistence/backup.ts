@@ -77,6 +77,11 @@ export async function exportSlaidsArchive(
   return new Blob([zipped as unknown as BlobPart], { type: SLAIDS_FILE_MIME })
 }
 
+/** The archive's template, renamed and re-identified as this library's copy. */
+function asImportedTemplate(template: LayoutTemplate): LayoutTemplate {
+  return { ...template, id: newTemplateId(), name: `${template.name} (importert)` }
+}
+
 interface PreparedImport {
   presentation: Presentation
   /** Archive asset id → the id it is stored under. */
@@ -142,6 +147,9 @@ export async function importSlaidsArchive(
   }
 
   const existing = new Set((await repository.listPresentations()).map((summary) => summary.id))
+  // The archive carries no folders, so a `folderId` in a document points at
+  // this library's folders or at nothing.
+  const existingFolders = new Set((await repository.listFolders()).map((folder) => folder.id))
 
   for (const [path, bytes] of Object.entries(entries)) {
     if (!path.startsWith('presentations/') || !path.endsWith('.json')) continue
@@ -158,7 +166,16 @@ export async function importSlaidsArchive(
       continue
     }
 
-    const source: Presentation = migrated.value
+    const archived: Presentation = migrated.value
+    // A folder from somebody else's library is not a folder here, and remotely
+    // the foreign key rejects the reference outright. Keep it only when the
+    // folder actually exists; otherwise the presentation lands in the root,
+    // where it can be filed by hand. Conjuring an empty folder to satisfy the
+    // constraint would invent something the user never made.
+    const folderId =
+      archived.folderId && existingFolders.has(archived.folderId) ? archived.folderId : null
+    const source: Presentation =
+      folderId === archived.folderId ? archived : { ...archived, folderId }
     const owned = assetIndex.filter((entry) => entry.presentationId === source.id)
     const incomingAssetIds = [
       ...new Set([...source.assets.map((ref) => ref.id), ...owned.map((entry) => entry.id)]),
@@ -260,11 +277,19 @@ export async function importSlaidsArchive(
         // A local template with the same id may have been edited since the
         // backup was taken, so it is never overwritten.
         const clash = existingTemplates.has(template.id)
-        const toSave = clash
-          ? { ...template, id: newTemplateId(), name: `${template.name} (importert)` }
-          : template
+        let toSave = clash ? asImportedTemplate(template) : template
         try {
-          await repository.saveTemplate(toSave)
+          try {
+            await repository.saveTemplate(toSave)
+          } catch (error) {
+            // The same hidden clash presentations have: an id can belong to an
+            // account whose rows this user cannot see, and only the write says
+            // so. A conflict and nothing else — treating a network failure as a
+            // clash would leave two copies of the same template.
+            if (clash || !(error instanceof RepositoryConflictError)) throw error
+            toSave = asImportedTemplate(template)
+            await repository.saveTemplate(toSave)
+          }
           existingTemplates.add(toSave.id)
           report.importedTemplates += 1
         } catch (error) {
