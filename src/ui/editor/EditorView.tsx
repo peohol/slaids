@@ -46,7 +46,7 @@ import {
   findLeaf,
   findNode,
 } from '../../domain/layout'
-import { repository } from '../../persistence/dexieRepository'
+import { repository } from '../../persistence/activeRepository'
 import { startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'

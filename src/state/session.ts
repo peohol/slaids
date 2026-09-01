@@ -1,0 +1,175 @@
+/**
+ * Supabase session state.
+ *
+ * Slaids has no user system of its own: accounts, passwords and tokens all
+ * belong to Supabase Auth, which Slaids shares with Huskis. This store only
+ * reflects what the SDK reports and makes it available to React.
+ *
+ * The SDK keeps the session itself, which is what survives a reload; nothing
+ * here writes tokens anywhere.
+ */
+
+import { create } from 'zustand'
+import type { AuthError, Session } from '@supabase/supabase-js'
+import { getSupabaseClient } from '../supabase/client'
+import { isSupabaseConfigured } from '../supabase/config'
+import { resetRepositoryCaches } from '../persistence/activeRepository'
+import { clearAssetCache } from './assets'
+import { LAST_OPEN_PRESENTATION_KEY, writePref } from './prefs'
+import { useEditorStore } from './store'
+
+export type SessionStatus =
+  /** Still working out whether there is a session. */
+  | 'loading'
+  /** Supabase is not configured: local mode, no sign-in. */
+  | 'disabled'
+  | 'signed-in'
+  | 'signed-out'
+  /** Configured, but Supabase could not be reached or answered with an error. */
+  | 'unavailable'
+
+interface SessionState {
+  status: SessionStatus
+  userId: string | null
+  email: string | null
+  /** Why the session could not be established, for `unavailable`. */
+  error: string | null
+  signingIn: boolean
+  signInError: string | null
+
+  start: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<void>
+  signOut: () => Promise<void>
+}
+
+export function describeAuthError(error: AuthError | null | undefined): string {
+  if (!error) return 'Ukjent feil.'
+  // No HTTP status means the request never got an answer.
+  if (error.name === 'AuthRetryableFetchError' || !error.status) {
+    return 'Fikk ikke kontakt med Supabase. Sjekk nettverket og prøv igjen.'
+  }
+  if (/invalid login credentials/i.test(error.message)) return 'Feil e-post eller passord.'
+  if (/email not confirmed/i.test(error.message)) return 'E-postadressen er ikke bekreftet.'
+  return error.message
+}
+
+/**
+ * Everything that belonged to the user who just left. The library and the
+ * editor are unmounted by the auth gate; this clears what lives outside React
+ * so nothing from the previous session is still on screen or in a cache.
+ */
+function clearUserScopedState(): void {
+  resetRepositoryCaches()
+  clearAssetCache()
+  const editor = useEditorStore.getState()
+  editor.setPresentation(null)
+  editor.setLoadError(null)
+  editor.setLoading(false)
+  writePref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)
+}
+
+let unsubscribe: (() => void) | null = null
+
+export const useSessionStore = create<SessionState>((set, get) => {
+  /** Reflect a session (or the lack of one), clearing caches when the user changes. */
+  const apply = (session: Session | null): void => {
+    const userId = session?.user?.id ?? null
+    const previous = get().userId
+    // Only when we are *leaving* a user. The first sign-in of a session has no
+    // predecessor to clear after, and clearing there would throw away the
+    // "reopen what was last open" preference on every reload.
+    if (previous !== null && previous !== userId) clearUserScopedState()
+    set({
+      status: userId ? 'signed-in' : 'signed-out',
+      userId,
+      email: session?.user?.email ?? null,
+      error: null,
+    })
+  }
+
+  return {
+    status: isSupabaseConfigured() ? 'loading' : 'disabled',
+    userId: null,
+    email: null,
+    error: null,
+    signingIn: false,
+    signInError: null,
+
+    start: async () => {
+      if (!isSupabaseConfigured()) {
+        set({ status: 'disabled' })
+        return
+      }
+      set({ status: 'loading', error: null })
+      let client
+      try {
+        client = getSupabaseClient()
+      } catch (error) {
+        set({
+          status: 'unavailable',
+          error: error instanceof Error ? error.message : 'Kunne ikke starte Supabase-klienten.',
+        })
+        return
+      }
+
+      if (!unsubscribe) {
+        const { data } = client.auth.onAuthStateChange((_event, session) => apply(session))
+        unsubscribe = () => data.subscription.unsubscribe()
+      }
+
+      try {
+        const { data, error } = await client.auth.getSession()
+        // A stored session is still usable even if the refresh call failed, so
+        // only a *sessionless* error means Slaids cannot be used at all.
+        if (error && !data?.session) {
+          set({ status: 'unavailable', error: describeAuthError(error) })
+          return
+        }
+        apply(data?.session ?? null)
+      } catch (error) {
+        set({
+          status: 'unavailable',
+          error: error instanceof Error ? error.message : 'Fikk ikke kontakt med Supabase.',
+        })
+      }
+    },
+
+    signIn: async (email, password) => {
+      set({ signingIn: true, signInError: null })
+      try {
+        const { data, error } = await getSupabaseClient().auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
+        if (error) {
+          set({ signingIn: false, signInError: describeAuthError(error) })
+          return
+        }
+        set({ signingIn: false, signInError: null })
+        apply(data.session)
+      } catch (error) {
+        set({
+          signingIn: false,
+          signInError: error instanceof Error ? error.message : 'Innloggingen feilet.',
+        })
+      }
+    },
+
+    signOut: async () => {
+      try {
+        await getSupabaseClient().auth.signOut()
+      } catch {
+        // Even a failed sign-out must leave nothing of this user behind
+        // locally; `apply` below takes care of that.
+      }
+      apply(null)
+      set({ signInError: null })
+    },
+  }
+})
+
+/** Test seam: drop the auth listener so a suite can start over. */
+export function stopSessionWatcher(): void {
+  unsubscribe?.()
+  unsubscribe = null
+}

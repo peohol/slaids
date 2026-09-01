@@ -2,6 +2,7 @@
 
 export type IconName =
   | 'plus'
+  | 'sign-out'
   | 'trash'
   | 'copy'
   | 'split-x'
@@ -101,6 +102,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'align-top-v': <path d="M4 4h16M8 8v12M12 8v8M16 8v12" />,
   'align-middle-v': <path d="M4 12h16M8 5v4M8 15v4M12 3v6M12 15v6M16 5v4M16 15v4" />,
   'align-bottom-v': <path d="M4 20h16M8 4v12M12 8v8M16 4v12" />,
+  'sign-out': <path d="M13 5H6v14h7M21 12H10m4-4l4 4-4 4" />,
 }
 
 export function Icon({

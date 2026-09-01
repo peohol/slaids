@@ -5,10 +5,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPresentation } from '../../domain/presentation'
 import { newFolderId } from '../../domain/ids'
-import { repository } from '../../persistence/dexieRepository'
+import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
 import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
 import { notify } from '../../state/toast'
+import { useSessionStore } from '../../state/session'
 import {
   downloadBlob,
   duplicatePresentation,
@@ -52,21 +53,33 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null)
   const [storage, setStorage] = useState<StorageEstimateInfo | null>(null)
   const [persisted, setPersisted] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const mode = storageMode()
+  const sessionEmail = useSessionStore((state) => state.email)
+  const signOut = useSessionStore((state) => state.signOut)
 
   const [reloadToken, setReloadToken] = useState(0)
   const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([repository.listPresentations(), repository.listFolders()]).then(
-      ([list, folderList]) => {
+    Promise.all([repository.listPresentations(), repository.listFolders()])
+      .then(([list, folderList]) => {
         if (cancelled) return
         setSummaries(list)
         setFolders(folderList)
+        setLoadError(null)
         setLoading(false)
-      },
-    )
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        // In Supabase mode there is nowhere else to read from: say so rather
+        // than showing an empty library that looks like lost work.
+        setLoadError(error instanceof Error ? error.message : 'Kunne ikke hente biblioteket.')
+        setLoading(false)
+      })
     return () => {
       cancelled = true
     }
@@ -74,18 +87,22 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   useEffect(() => {
     let cancelled = false
-    requestPersistentStorage().then((granted) => {
-      if (!cancelled) setPersisted(granted)
-    })
-    estimateStorage().then((info) => {
-      if (!cancelled) setStorage(info)
-    })
+    // Browser storage quota only means something when the browser *is* the
+    // storage.
+    if (mode === 'local') {
+      requestPersistentStorage().then((granted) => {
+        if (!cancelled) setPersisted(granted)
+      })
+      estimateStorage().then((info) => {
+        if (!cancelled) setStorage(info)
+      })
+    }
     // Reclaim any asset left behind by an interrupted import or duplicate.
     void repository.deleteOrphanAssets()
     return () => {
       cancelled = true
     }
-  }, [reloadToken])
+  }, [reloadToken, mode])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
     const presentation = createPresentation({
@@ -93,7 +110,12 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       theme: result.theme,
       folderId: activeFolder,
     })
-    await repository.savePresentation(presentation)
+    try {
+      await repository.savePresentation(presentation)
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke opprette presentasjonen.')
+      return
+    }
     setCreating(false)
     onOpen(presentation.id)
   }
@@ -110,10 +132,14 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   const handleDelete = async (): Promise<void> => {
     if (!deleting) return
-    await repository.deletePresentation(deleting.id)
+    try {
+      await repository.deletePresentation(deleting.id)
+      notify.info('Presentasjonen ble slettet.')
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke slette presentasjonen.')
+    }
     setDeleting(null)
     refresh()
-    notify.info('Presentasjonen ble slettet.')
   }
 
   const handleExport = async (summary: PresentationSummary): Promise<void> => {
@@ -147,11 +173,16 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const addFolder = async (): Promise<void> => {
     const name = window.prompt('Navn på mappen')
     if (!name?.trim()) return
-    await repository.saveFolder({
-      id: newFolderId(),
-      name: name.trim(),
-      createdAt: new Date().toISOString(),
-    })
+    try {
+      await repository.saveFolder({
+        id: newFolderId(),
+        name: name.trim(),
+        createdAt: new Date().toISOString(),
+      })
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke lage mappen.')
+      return
+    }
     refresh()
   }
 
@@ -167,6 +198,18 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           <p className="library__subtitle">Presentasjoner med matematisk stram soneinndeling.</p>
         </div>
         <div className="library__actions">
+          {mode === 'supabase' && (
+            <Tooltip label={sessionEmail ? `Logget inn som ${sessionEmail}` : 'Logg ut'}>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => void signOut()}
+                data-testid="sign-out"
+              >
+                <Icon name="sign-out" size={15} /> Logg ut
+              </button>
+            </Tooltip>
+          )}
           <input
             ref={fileInput}
             type="file"
@@ -242,7 +285,20 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
         <main className="library__grid" data-testid="presentation-grid">
           {loading && <p className="hint">Laster …</p>}
-          {!loading && visible.length === 0 && (
+          {!loading && loadError && (
+            <div className="library__empty" data-testid="library-error">
+              <p className="error-text">{loadError}</p>
+              <p className="hint">
+                {mode === 'supabase'
+                  ? 'Biblioteket ligger i Supabase. Ingenting lagres lokalt i mellomtiden.'
+                  : 'Nettleserlagringen svarte ikke.'}
+              </p>
+              <button type="button" className="btn" onClick={refresh}>
+                Prøv igjen
+              </button>
+            </div>
+          )}
+          {!loading && !loadError && visible.length === 0 && (
             <div className="library__empty">
               <p>Ingen presentasjoner her ennå.</p>
               <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
@@ -319,7 +375,13 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                     aria-label={`Mappe for ${summary.title}`}
                     data-testid="folder-select"
                     onChange={(event) => {
-                      void movePresentationToFolder(summary.id, event.target.value || null).then(() => refresh())
+                      void movePresentationToFolder(summary.id, event.target.value || null)
+                        .catch((error: unknown) => {
+                          notify.error(
+                            error instanceof Error ? error.message : 'Kunne ikke flytte presentasjonen.',
+                          )
+                        })
+                        .finally(() => refresh())
                     }}
                   >
                     <option value="">Ingen mappe</option>
@@ -337,17 +399,31 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
 
       <footer className="library__footer" data-testid="library-footer">
-        <span>
-          {storage
-            ? `Bruker ${formatBytes(storage.usage)}${
-                storage.quota > 0 ? ` av ${formatBytes(storage.quota)}` : ''
-              } lokalt`
-            : 'Lagres lokalt i nettleseren'}
-          {persisted ? ' · varig lagring innvilget' : ''}
-        </span>
-        <span className="hint">
-          Nettleserlagring kan bli tømt. Last ned en sikkerhetskopi av det du ikke vil miste.
-        </span>
+        {mode === 'supabase' ? (
+          <>
+            <span>
+              Lagres i Supabase{sessionEmail ? ` · ${sessionEmail}` : ''}
+            </span>
+            <span className="hint">
+              Presentasjonene følger kontoen din. Last gjerne ned en sikkerhetskopi før
+              store omskrivinger.
+            </span>
+          </>
+        ) : (
+          <>
+            <span>
+              {storage
+                ? `Bruker ${formatBytes(storage.usage)}${
+                    storage.quota > 0 ? ` av ${formatBytes(storage.quota)}` : ''
+                  } lokalt`
+                : 'Lagres lokalt i nettleseren'}
+              {persisted ? ' · varig lagring innvilget' : ''}
+            </span>
+            <span className="hint">
+              Nettleserlagring kan bli tømt. Last ned en sikkerhetskopi av det du ikke vil miste.
+            </span>
+          </>
+        )}
       </footer>
 
       <NewPresentationModal
@@ -374,10 +450,16 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
               data-testid="rename-confirm"
               onClick={() => {
                 if (!renaming) return
-                void renamePresentation(renaming.id, renameValue).then(() => {
-                  setRenaming(null)
-                  refresh()
-                })
+                void renamePresentation(renaming.id, renameValue)
+                  .catch((error: unknown) => {
+                    notify.error(
+                      error instanceof Error ? error.message : 'Kunne ikke gi nytt navn.',
+                    )
+                  })
+                  .finally(() => {
+                    setRenaming(null)
+                    refresh()
+                  })
               }}
             >
               Lagre
@@ -408,11 +490,16 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
         message={`Mappen «${deletingFolder?.name ?? ''}» slettes. Presentasjonene i den blir liggende, men uten mappe.`}
         onConfirm={() => {
           if (!deletingFolder) return
-          void repository.deleteFolder(deletingFolder.id).then(() => {
-            setDeletingFolder(null)
-            setActiveFolder(null)
-            refresh()
-          })
+          void repository
+            .deleteFolder(deletingFolder.id)
+            .catch((error: unknown) => {
+              notify.error(error instanceof Error ? error.message : 'Kunne ikke slette mappen.')
+            })
+            .finally(() => {
+              setDeletingFolder(null)
+              setActiveFolder(null)
+              refresh()
+            })
         }}
         onCancel={() => setDeletingFolder(null)}
       />

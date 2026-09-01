@@ -10,7 +10,7 @@ import { contentAssetIds } from '../domain/content'
 import { remapContentAssetIds } from '../domain/docs'
 import { newAssetId } from '../domain/ids'
 import { cloneContentWithNewIds } from '../domain/layout'
-import { repository } from '../persistence/dexieRepository'
+import { repository } from '../persistence/activeRepository'
 import type { AssetRef, Presentation, ZoneContent } from '../domain/types'
 
 export interface PreparedClipboardContent {

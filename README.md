@@ -27,6 +27,7 @@ layoutet er nestet.
 
 **Bibliotek**
 
+- innlogging med e-post og passord når Slaids kjører mot Supabase (se «Lagring»)
 - opprett presentasjon med tittel, global bakgrunnsfarge og globale fonter
 - åpne, gi nytt navn, dupliser (inkludert filer), slett med bekreftelse
 - mapper, og flytting av presentasjoner mellom dem
@@ -53,7 +54,7 @@ layoutet er nestet.
 - 1–6 subfelt per kort med egne forholdstall, orientering og skillelinjer
 - rik tekst via Tiptap: avsnitt, overskrift (pilledesign), fet/kursiv/understreket,
   punktlister, nummererte lister, sitat, kode, lenker og tabeller med rad-/kolonnekontroller
-- bilder og SVG som filer i IndexedDB, med breddevalg i prosent
+- bilder og SVG som filer i lagringen (Supabase Storage eller IndexedDB), med breddevalg i prosent
 - enkle vektorfigurer, både som hel sone og inline i tekst
 - 12 × 4-fargepalett med automatisk tekstfarge etter kontrast
 - referanser med avledet nummerering (`1–3, 5, 6, 8–10`) og automatisk genererte
@@ -107,6 +108,45 @@ tre måles i den tilstanden som faktisk kommer til å vises:
   Kommandoer som endrer den rekkefølgen valideres mot konsekvensene i hele
   presentasjonen, ikke bare i sonen som ble redigert.
 
+## Lagring
+
+Slaids har to lagringsmoduser, og valget tas ett sted –
+`src/persistence/activeRepository.ts`. Resten av appen ser bare
+`SlaidsRepository`.
+
+| Modus                  | Når                                                              | Hva som skjer                                                       |
+| ---------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Supabase (produksjon)  | `VITE_SUPABASE_URL` **og** `VITE_SUPABASE_PUBLISHABLE_KEY` er satt | innlogging kreves; alt lagres i Supabase (Postgres + privat Storage) |
+| Lokal (utvikling/test) | ingen Supabase-konfigurasjon                                       | ingen innlogging; alt lagres i IndexedDB via Dexie                   |
+
+Dette er en **modus, ikke en fallback**. Er Supabase konfigurert men utilgjengelig,
+viser appen en feil – den begynner ikke å lagre lokalt og lage to konkurrerende
+sannhetskilder. Et bygg med bare én av variablene regnes som ukonfigurert.
+
+Bare den publiserbare (anon) nøkkelen hører hjemme i frontend. En
+service-role-nøkkel ville omgå RLS og skal aldri legges inn her.
+
+### Supabase-oppsett
+
+```bash
+# .env.local – verdiene hentes fra Supabase-prosjektet
+VITE_SUPABASE_URL=https://<prosjekt>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<publishable/anon key>
+```
+
+Kontoene er de samme som i Huskis; Slaids oppretter ikke brukere selv. Skjemaet
+ligger i `supabase/migrations/` og kan kjøres med `supabase db push` mot et tomt
+prosjekt:
+
+- fire tabeller i `public` (`slaids_folders`, `slaids_presentations`,
+  `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som gir en
+  bruker kun egne rader;
+- en trigger som øker `version` og setter `updated_at` ved hver oppdatering, slik
+  at en gammel kopi fra en annen fane får en tydelig konfliktfeil i stedet for å
+  overskrive en nyere;
+- den private bucketen `slaids-assets` med policies som binder hver fil til
+  `<owner_id>/<presentation_id>/<asset_id>`.
+
 ## Kom i gang
 
 ```bash
@@ -139,7 +179,8 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e
 src/
   domain/        headless kjerne: typer, geometry engine, layouttre, kommandoer,
                  Zod-schema, migrasjoner, referanser, farger, fit
-  persistence/   SlaidsRepository + Dexie/IndexedDB, assets, .slaids-backup
+  persistence/   SlaidsRepository + Dexie/IndexedDB og Supabase, assets, .slaids-backup
+  supabase/      Supabase-klient, konfigurasjon og modusvalg
   state/         Zustand-store, autosave, DOM-måling, utklippstavle
   ui/            React-komponenter (bibliotek, editor, slide-renderer, visning)
 ```
@@ -154,6 +195,6 @@ Regler som gjelder overalt:
 
 ## Ikke bygget ennå
 
-Supabase, innlogging, REST-API, MCP-server og agenttokens er bevisst utenfor
+Deling av presentasjoner, REST-API, MCP-server og agenttokens er bevisst utenfor
 scope i denne fasen. Repository-abstraksjonen og kommandolaget er laget slik at
 de kan legges til uten å skrive om domenemodellen.

@@ -18,7 +18,7 @@ import { computeSlideGeometry, hitTestLayout } from '../../domain/geometry'
 import { collectNodes, findNode, stripContent } from '../../domain/layout'
 import { newTemplateId } from '../../domain/ids'
 import { createPresentation, createSlide } from '../../domain/presentation'
-import { repository } from '../../persistence/dexieRepository'
+import { repository } from '../../persistence/activeRepository'
 import { notify } from '../../state/toast'
 import type { LayoutNode, LayoutTemplate, Slide } from '../../domain/types'
 import { Modal } from '../components/Modal'
@@ -127,9 +127,16 @@ export function TemplateModal({
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    repository.listTemplates().then((list) => {
-      if (!cancelled) setTemplates(list)
-    })
+    repository
+      .listTemplates()
+      .then((list) => {
+        if (!cancelled) setTemplates(list)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          notify.error(error instanceof Error ? error.message : 'Kunne ikke hente malene.')
+        }
+      })
     return () => {
       cancelled = true
     }
@@ -146,7 +153,12 @@ export function TemplateModal({
       root: stripContent(currentSlide.root),
       createdAt: new Date().toISOString(),
     }
-    await repository.saveTemplate(template)
+    try {
+      await repository.saveTemplate(template)
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke lagre malen.')
+      return
+    }
     refresh()
     notify.success('Malen ble lagret.')
   }
@@ -295,11 +307,18 @@ export function TemplateModal({
               data-testid="template-save"
               onClick={() => {
                 if (!editing) return
-                void repository.saveTemplate(editing).then(() => {
-                  setEditing(null)
-                  refresh()
-                  notify.success('Malen ble oppdatert.')
-                })
+                void repository
+                  .saveTemplate(editing)
+                  .then(() => {
+                    setEditing(null)
+                    refresh()
+                    notify.success('Malen ble oppdatert.')
+                  })
+                  .catch((error: unknown) => {
+                    notify.error(
+                      error instanceof Error ? error.message : 'Kunne ikke lagre malen.',
+                    )
+                  })
               }}
             >
               Lagre mal
@@ -406,10 +425,15 @@ export function TemplateModal({
         message={`Malen «${deleting?.name ?? ''}» slettes permanent.`}
         onConfirm={() => {
           if (!deleting) return
-          void repository.deleteTemplate(deleting.id).then(() => {
-            setDeleting(null)
-            refresh()
-          })
+          void repository
+            .deleteTemplate(deleting.id)
+            .then(() => {
+              setDeleting(null)
+              refresh()
+            })
+            .catch((error: unknown) => {
+              notify.error(error instanceof Error ? error.message : 'Kunne ikke slette malen.')
+            })
         }}
         onCancel={() => setDeleting(null)}
       />

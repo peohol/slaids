@@ -21,7 +21,15 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   utledning av tema-skalerte tokens; geometrimotoren, DOM-en og estimatoren
   leser alle den samme.
 - `src/domain/geometry.ts` er eneste sannhetskilde for rects – både rendering og hit-testing.
-- Persistens: IndexedDB via Dexie. Aldri `localStorage` for presentasjoner/assets.
+- Persistens har to moduser, og valget tas ett sted: `src/persistence/activeRepository.ts`.
+  Finnes `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` er Supabase primærlagring;
+  ellers IndexedDB via Dexie (lokal utvikling og tester). Dette er en **modus, ikke en fallback**:
+  en konfigurert Supabase som er nede skal gi en forståelig feil, aldri stille lokal lagring –
+  to konkurrerende sannhetskilder er verre enn en synlig feil.
+  Aldri `localStorage` for presentasjoner/assets.
+- I Supabase-modus kreves innlogging før bibliotek/editor monteres. Auth er Supabase Auth
+  (delt prosjekt med Huskis) – aldri et eget bruker-/passordsystem. `owner_id` settes alltid
+  fra den autentiserte sesjonen, og secret/service-role-nøkler skal aldri finnes i frontend.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.

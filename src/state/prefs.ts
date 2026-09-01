@@ -6,6 +6,9 @@
 
 const PREFIX = 'slaids.ui.'
 
+/** Which presentation to reopen on startup. Cleared on sign-out. */
+export const LAST_OPEN_PRESENTATION_KEY = 'lastOpenPresentation'
+
 export interface WindowGeometry {
   x: number
   y: number

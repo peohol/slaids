@@ -2,6 +2,16 @@ import { expect, test } from './fixtures'
 import { createPresentation, watchForErrors } from './helpers'
 
 test.describe('presentation library', () => {
+  test('runs in local mode without a sign-in gate, and says so', async ({ page }) => {
+    // No Supabase configuration in this build: the library is reachable straight
+    // away, and the footer describes the browser storage it actually uses.
+    await page.goto('/')
+    await expect(page.getByTestId('presentation-grid')).toBeVisible()
+    await expect(page.getByTestId('sign-in')).toHaveCount(0)
+    await expect(page.getByTestId('sign-out')).toHaveCount(0)
+    await expect(page.getByTestId('library-footer')).toContainText(/lokalt|nettleseren/i)
+  })
+
   test('creates, opens and lists a presentation', async ({ page }) => {
     const guard = watchForErrors(page)
     await page.goto('/')
