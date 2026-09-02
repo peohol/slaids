@@ -1,27 +1,30 @@
 /**
- * Sign-in screen.
+ * Sign-in screen for Slaids' single personal account.
  *
- * Accounts live in the Supabase project Slaids shares with Huskis, so this is
- * a sign-in form and nothing else: no registration, no password reset, no
- * account state of Slaids' own.
+ * There is deliberately no account picker, registration or account-related
+ * product copy here. Slaids only asks for the password for its one allowed
+ * Supabase Auth user.
  */
 
 import { useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../state/session'
+import { SLAIDS_OWNER_EMAIL } from '../../supabase/access'
 
 export function SignInView() {
   const signIn = useSessionStore((state) => state.signIn)
   const signingIn = useSessionStore((state) => state.signingIn)
   const signInError = useSessionStore((state) => state.signInError)
 
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
-    if (signingIn || !email.trim() || !password) return
-    void signIn(email, password)
+    if (signingIn || !password) return
+    void signIn(SLAIDS_OWNER_EMAIL, password)
   }
+
+  const visibleError =
+    signInError === 'Feil e-post eller passord.' ? 'Feil passord.' : signInError
 
   return (
     <div className="auth" data-testid="sign-in">
@@ -30,27 +33,13 @@ export function SignInView() {
         <p className="auth__subtitle">Logg inn for å åpne biblioteket ditt.</p>
 
         <div className="field">
-          <label htmlFor="auth-email">E-post</label>
-          <input
-            id="auth-email"
-            className="input"
-            type="email"
-            autoComplete="email"
-            autoFocus
-            required
-            value={email}
-            data-testid="sign-in-email"
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </div>
-
-        <div className="field">
           <label htmlFor="auth-password">Passord</label>
           <input
             id="auth-password"
             className="input"
             type="password"
             autoComplete="current-password"
+            autoFocus
             required
             value={password}
             data-testid="sign-in-password"
@@ -58,9 +47,9 @@ export function SignInView() {
           />
         </div>
 
-        {signInError && (
+        {visibleError && (
           <p className="error-text" role="alert" data-testid="sign-in-error">
-            {signInError}
+            {visibleError}
           </p>
         )}
 
@@ -72,10 +61,6 @@ export function SignInView() {
         >
           {signingIn ? 'Logger inn …' : 'Logg inn'}
         </button>
-
-        <p className="hint">
-          Slaids bruker samme konto som Huskis. Kontoer opprettes ikke herfra.
-        </p>
       </form>
     </div>
   )

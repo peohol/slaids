@@ -2,20 +2,21 @@
  * Decides what the app is allowed to show.
  *
  * In Supabase mode nothing — not the library, not the editor — is mounted
- * before there is a session, so no request is ever made without one. In local
- * mode there is no gate at all and the app behaves exactly as it did before
- * Supabase existed.
+ * before there is an allowed session, so no Slaids request is ever made for a
+ * different Auth user. In local mode there is no gate at all and the app
+ * behaves exactly as it did before Supabase existed.
  */
 
 import { useEffect, type ReactNode } from 'react'
 import { useSessionStore, type SessionStatus } from '../../state/session'
+import { SLAIDS_OWNER_ID } from '../../supabase/access'
 import { SignInView } from './SignInView'
 
 export type GateView = 'app' | 'loading' | 'sign-in' | 'unavailable' | 'misconfigured'
 
 /**
- * The whole rule, in one place: the app is reachable only in local mode or with
- * a session. Every other state is a screen of its own.
+ * The whole session-state rule, in one place. The personal-user check is kept
+ * in the component because local mode deliberately has no user id at all.
  */
 export function gateView(status: SessionStatus): GateView {
   switch (status) {
@@ -35,6 +36,7 @@ export function gateView(status: SessionStatus): GateView {
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const status = useSessionStore((state) => state.status)
+  const userId = useSessionStore((state) => state.userId)
   const error = useSessionStore((state) => state.error)
   const start = useSessionStore((state) => state.start)
 
@@ -44,7 +46,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const view = gateView(status)
 
-  if (view === 'app') return <>{children}</>
+  if (view === 'app') {
+    if (status === 'signed-in' && userId !== SLAIDS_OWNER_ID) return <SignInView />
+    return <>{children}</>
+  }
 
   if (view === 'misconfigured') {
     // No retry: a missing build variable is not something this page can fix.

@@ -27,7 +27,7 @@ layoutet er nestet.
 
 **Bibliotek**
 
-- innlogging med e-post og passord når Slaids kjører mot Supabase (se «Lagring»)
+- passordinnlogging for Slaids' ene personlige bruker når appen kjører mot Supabase (se «Lagring»)
 - opprett presentasjon med tittel, global bakgrunnsfarge og globale fonter
 - åpne, gi nytt navn, dupliser (inkludert filer), slett med bekreftelse
 - mapper, og flytting av presentasjoner mellom dem
@@ -137,20 +137,24 @@ VITE_SUPABASE_URL=https://<prosjekt>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<publishable/anon key>
 ```
 
-Kontoene er de samme som i Huskis; Slaids oppretter ikke brukere selv. Utlogging
-bruker `scope: 'local'`, så den avslutter bare Slaids-sesjonen i denne nettleseren
-– ikke Huskis, og ikke andre enheter. Skjemaet
-ligger i `supabase/migrations/` og kan kjøres med `supabase db push` mot et tomt
-prosjekt:
+Slaids har ikke et flerbrukersystem: bare én bestemt Supabase Auth-bruker er
+tillatt. Innloggingsskjermen ber derfor bare om passord, og både app-gaten og RLS-
+policyene avviser alle andre Auth-brukere. Supabase-prosjektet er delt
+infrastruktur, men dette gir ingen konto- eller produktkobling til andre apper
+som bruker samme prosjekt. Utlogging bruker `scope: 'local'`, slik at den bare
+avslutter Slaids-sesjonen i denne nettleseren.
+
+Skjemaet ligger i `supabase/migrations/` og kan kjøres med `supabase db push` mot
+et tomt prosjekt:
 
 - fire tabeller i `public` (`slaids_folders`, `slaids_presentations`,
-  `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som gir en
-  bruker kun egne rader;
+  `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som både
+  håndhever eierskap og Slaids' ene tillatte Auth-bruker;
 - en trigger som øker `version` og setter `updated_at` ved hver oppdatering, slik
   at en gammel kopi fra en annen fane får en tydelig konfliktfeil i stedet for å
   overskrive en nyere;
 - den private bucketen `slaids-assets` med policies som binder hver fil til
-  `<owner_id>/<presentation_id>/<asset_id>`.
+  `<owner_id>/<presentation_id>/<asset_id>` og den samme tillatte brukeren.
 
 ## Kom i gang
 
