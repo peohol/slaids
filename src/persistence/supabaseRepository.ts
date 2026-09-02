@@ -34,6 +34,7 @@ import { getSupabaseClient } from '../supabase/client'
 import {
   RepositoryConflictError,
   RepositoryError,
+  RepositoryNotFoundError,
   type ShareState,
   type SharingRepository,
   type SlaidsRepository,
@@ -204,7 +205,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       .eq('id', id)
       .maybeSingle()
     if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
-    if (!data) throw new RepositoryError(`Fant ikke presentasjonen «${id}».`)
+    if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
 
     const migrated = migratePresentation((data as { document: unknown }).document)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message, migrated.error)
@@ -343,7 +344,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       .eq('id', presentationId)
       .maybeSingle()
     if (error) fail('Kunne ikke lese delingsstatusen', error)
-    if (!data) throw new RepositoryError(`Fant ikke presentasjonen «${presentationId}».`)
+    if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${presentationId}».`)
     return this.rememberShareState(presentationId, data as ShareRow)
   }
 

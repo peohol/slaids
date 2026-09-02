@@ -7,6 +7,8 @@
  * endpoint, and this module deliberately knows nothing about that choice.
  */
 
+import { readRasterImage } from '../domain/imageFile'
+import { blobToBytes } from '../persistence/blob'
 import { repository } from '../persistence/activeRepository'
 import type { AssetRef } from '../domain/types'
 
@@ -28,8 +30,18 @@ export function clearAssetCache(): void {
   blobCache.clear()
 }
 
-/** Intrinsic size of an image file, used when registering an asset. */
-export function readImageSize(blob: Blob): Promise<{ width: number; height: number }> {
+/**
+ * Intrinsic size of an image file, used when registering an asset.
+ *
+ * The bitstream says it for every raster format Slaids validates, and that is
+ * the same answer `domain/imageFile.ts` gives an agent — one truth for "how big
+ * is this picture", and one that only accepts a file that is actually complete.
+ * The browser's own decoder is the fallback for the rest (SVG, AVIF), which is
+ * something only it can do.
+ */
+export async function readImageSize(blob: Blob): Promise<{ width: number; height: number }> {
+  const raster = readRasterImage(await blobToBytes(blob))
+  if (raster.ok) return { width: raster.value.width, height: raster.value.height }
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob)
     const image = new Image()

@@ -388,12 +388,63 @@ er trukket tilbake blir derfor aldri gyldig igjen, og en ny deling er en ny
 adresse. Publisering venter alltid på at autosave har landet: går ikke lagringen
 igjennom, publiseres ingenting, og bryteren blir stående av.
 
+## Bilder, SVG og agenter
+
+**Slaids genererer ikke bilder.** Det finnes ingen bildegenerering i appen, og
+ingen kobling mot noen ekstern bildetjeneste – betalt eller gratis. Et bilde
+kommer alltid ferdig utenfra. Det er en produktgrense, ikke en manglende
+funksjon: Slaids er en layoutmotor.
+
+Et første, transportuavhengig agentlag ligger i `src/agent/` (Agent Core). Det
+gir en agent semantiske operasjoner over de samme domenekommandoene som UI-et
+bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
+
+| Operasjon          | Hva agenten sender                          | Hva den får      |
+| ------------------ | ------------------------------------------- | ---------------- |
+| `upload_asset`     | metadata + filinnhold (base64, bytes, blob) | `assetId`        |
+| `create_svg_asset` | `name` + `svgMarkup`                        | `assetId`        |
+| `set_zone_asset`   | `assetId` + slide og sone                   | plassert innhold |
+
+- **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
+  hva kalleren kaller filen – og hele filen gås gjennom, ikke bare filhodet: en
+  avkortet eller endret PNG, JPEG, GIF eller WEBP blir avvist i stedet for å bli
+  en slide som viser et ødelagt bilde. Størrelsen tas alltid fra bildedataene,
+  aldri fra noe kalleren oppgir. AVIF gjenkjennes, men lagres ikke i agentveien
+  ennå (editoren tar det fortsatt imot, der dekoder nettleseren det).
+- **Agenten kan lage SVG direkte.** SVG er et førsteklasses agentformat: markup
+  inn, vektorasset ut. Markupen valideres og saneres mot en allowlist og
+  serialiseres på nytt fra det parsede treet, så bare det Slaids faktisk forsto
+  blir lagret. Skript, hendelsesattributter, `foreignObject`, `javascript:`,
+  referanser ut av dokumentet og egne entiteter avvises med en egen feilkode i
+  stedet for å bli stille fjernet. `<style>` lagres ikke – et CSS-dokument kan
+  ikke valideres uten en ekte CSS-parser – men det fjernes og rapporteres i
+  stedet for å avvise hele filen, slik at en eksport fra Illustrator eller
+  matplotlib fortsatt kan lagres. `style`-attributtet virker, med en allowlist
+  av funksjoner og uten CSS-escapes. En SVG uten kjent
+  størrelsesforhold avvises også: uten `viewBox` eller `width`/`height` finnes
+  det ingen riktig måte å legge den ut på.
+- **Ingen bildegenererende operasjon** – ingen `generate_image(prompt)` som
+  sender prompten videre til en bildeleverandør. Skal Slaids noen gang generere
+  et bilde, er det en endring av `IMPLEMENTATION_PLAN.md` §44 først.
+- Uansett dør blir resultatet et helt vanlig asset: bytene i lagringen, en
+  `AssetRef` i dokumentet, `isVector: true` for SVG, og visning gjennom `<img>`
+  og en Blob-URL – aldri injisert markup.
+- Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
+  sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
+
+Dette er **fundamentet** for et senere REST/MCP-API, ikke nettverkseksponering:
+Agent Core kjører i samme prosess som resten av appen, har nøyaktig den tilgangen
+den innloggede brukeren har, og har ingen HTTP-inngang. Se `IMPLEMENTATION_PLAN.md`
+§44 for hele kontrakten.
+
 ## Arkitektur
 
 ```
 src/
   domain/        headless kjerne: typer, geometry engine, layouttre, kommandoer,
                  Zod-schema, migrasjoner, referanser, farger, fit
+  agent/         Agent Core: transportuavhengige, semantiske operasjoner over
+                 domenekommandoene (grunnlaget for senere REST/MCP)
   persistence/   SlaidsRepository + Dexie/IndexedDB og Supabase, assets, .slaids-backup
   sharing/       klienten mot den offentlige delings-funksjonen
   supabase/      Supabase-klient, konfigurasjon og modusvalg
@@ -419,9 +470,11 @@ Regler som gjelder overalt:
 
 ## Ikke bygget ennå
 
-REST-API, MCP-server og agenttokens er bevisst utenfor scope i denne fasen.
-Repository-abstraksjonen og kommandolaget er laget slik at de kan legges til uten
-å skrive om domenemodellen.
+REST-endepunkter, MCP-server og agenttokens er bevisst utenfor scope i denne
+fasen. Agent Core (`src/agent/`) er første steg og kjører bare i prosessen;
+transporten legges oppå den uten å endre domenemodellen. Resten av den
+semantiske operasjonslisten – nye slides, splitting av soner, referanser,
+validering – plugges inn i det samme registeret.
 
 Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller

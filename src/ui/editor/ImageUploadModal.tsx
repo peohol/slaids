@@ -11,6 +11,7 @@
  */
 
 import { useRef, useState } from 'react'
+import { MAX_ASSET_BYTES } from '../../domain/constants'
 import { newAssetId } from '../../domain/ids'
 import { registerAsset, setZoneContent } from '../../domain/commands'
 import { domFitCheckers } from '../../state/measure'
@@ -26,7 +27,7 @@ import { Icon } from '../components/Icon'
 import { fittingImageWidthPercent } from './SlaidsImageExtension'
 
 const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
-const MAX_BYTES = 25 * 1024 * 1024
+const MAX_MEGABYTES = Math.round(MAX_ASSET_BYTES / (1024 * 1024))
 
 type Placement = 'inline' | 'zone'
 
@@ -59,8 +60,8 @@ export function ImageUploadModal({
 
   const handleFile = async (file: File): Promise<void> => {
     if (!presentation) return
-    if (file.size > MAX_BYTES) {
-      notify.error('Filen er for stor (maks 25 MB).')
+    if (file.size > MAX_ASSET_BYTES) {
+      notify.error(`Filen er for stor (maks ${MAX_MEGABYTES} MB).`)
       return
     }
     const isVector = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
