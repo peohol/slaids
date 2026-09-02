@@ -464,8 +464,9 @@ Tre ting til er verdt å vite om hvordan laget oppfører seg:
   en `revision`, og hver mutasjon kan sende den tilbake som `expectedRevision`.
   Har presentasjonen endret seg i mellomtiden, blir kallet avvist med `CONFLICT`
   i stedet for å overskrive den nyere versjonen. Selve skrivingen er i tillegg
-  alltid låst mot den versjonen operasjonen leste, så to samtidige kall ikke kan
-  lande oppå hverandre.
+  alltid låst mot nøyaktig den lesingen operasjonen bygget på – ikke mot den
+  nyeste versjonen lagringslaget tilfeldigvis kjenner – så to samtidige kall
+  ikke kan lande oppå hverandre.
 
 Dette er **fundamentet** for et senere REST/MCP-API, ikke nettverkseksponering:
 Agent Core kjører i samme prosess som resten av appen, har nøyaktig den tilgangen

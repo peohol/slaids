@@ -9,10 +9,12 @@
  * It does **not** replace the optimistic lock in the repository layer, and is
  * not a second one beside it. They guard two different windows:
  *
- *  - the repository's `version` guard covers the moment between loading a
- *    document and writing it back, inside a single operation. That is the one
- *    that keeps a concurrent writer from being overwritten, and it is still the
- *    only thing that decides whether a write lands.
+ *  - the repository's own guard covers the moment between loading a document
+ *    and writing it back, inside a single operation. That is the one that keeps
+ *    a concurrent writer from being overwritten, and it is still the only thing
+ *    that decides whether a write lands. A revision is what identifies the
+ *    reading it is bound to: Supabase looks up the database version that
+ *    reading came from, and Dexie compares the stored document directly.
  *  - a revision covers the much longer window between a caller *reading* a
  *    presentation and *deciding* what to do with it. A headless caller can
  *    inspect a slide, think, and come back a minute later; the document it

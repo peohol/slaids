@@ -2501,13 +2501,26 @@ svarer med er den samme som neste lesing gir.
 Selve skrivingen er i tillegg alltid låst mot revisjonen operasjonen leste, ikke
 bare når kalleren ba om det: to samtidige agentkall kan begge passere sin egen
 forhåndssjekk, og da er det skrivingen som må hindre at den andre lander oppå den
-første. `SlaidsRepository.savePresentation` tar derfor en valgfri `SaveGuard`.
-Supabase-implementasjonen trenger den ikke – radens `version` låser det samme
-vinduet hardere – mens Dexie sammenligner mot det lagrede dokumentet inne i den
-samme `rw`-transaksjonen som skriver. Uten den transaksjonen er det ingen lås:
-begge kan lese, begge kan bli enige om at dokumentet er det de lastet, og den
-andre `put`-en vinner likevel. Editorens autosave skriver fortsatt ubetinget –
-den eier dokumentet den redigerer.
+første. `SlaidsRepository.savePresentation` tar derfor en valgfri `SaveGuard`,
+og begge implementasjonene måtte gjøre noe for å holde den:
+
+- **Dexie** har ingen versjon å låse mot og sammenligner i stedet mot det lagrede
+  dokumentet inne i den samme `rw`-transaksjonen som skriver. Uten transaksjonen
+  er det ingen lås: begge kan lese, begge kan bli enige om at dokumentet er det
+  de lastet, og den andre `put`-en vinner likevel.
+- **Supabase** har en versjon, men *hvilken* versjon er hele poenget. Raden har
+  én versjon, og `knownVersions` flytter seg framover på hver skriving. Det er
+  riktig for editorens autolagring, som eier dokumentet og alltid lagrer det
+  nyeste den har – og feil for en vaktet lagring: to operasjoner leser versjon 1,
+  den første lagrer og etterlater kartet på 2, og den andre ville da voktet sitt
+  versjon-1-dokument med versjon 2 og overskrevet den første. Guarden slås derfor
+  opp mot versjonen *den navngitte lesingen* kom fra. En vakt en senere skriving
+  kan friske opp, er ingen vakt.
+
+Begge veier er den samme atomiske betingede skrivingen i basen – `.eq('version',
+…)` i UPDATE-en, eller sammenligningen inne i IndexedDB-transaksjonen – aldri en
+ubevoktet les-så-skriv. Editorens autosave skriver fortsatt ubetinget: den eier
+dokumentet den redigerer.
 
 #### Fit-feil er handlingsbare
 

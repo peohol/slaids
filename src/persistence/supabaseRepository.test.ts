@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../domain/presentation'
+import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from '../domain/metrics'
 import { newAssetId } from '../domain/ids'
@@ -182,6 +183,82 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     // The next save must use the version the update returned, not the old one.
     await repository.savePresentation({ ...presentation, title: 'Endret igjen' })
     expect(filterValue(fake.queries.at(-1) as QueryRecord, 'version')).toBe(8)
+  })
+
+  it('lar ikke en vaktet lagring arve versjonen en annen lagring nettopp skaffet', async () => {
+    // The race this exists for, in order and without any timing:
+    //   A og B leser samme versjon → A lagrer → B lagrer.
+    // Versjonen B skriver mot må være den B *leste*, ikke den A etterlot seg i
+    // repositoryets delte tilstand. Ellers matcher B raden A nettopp skrev, og
+    // As endring forsvinner.
+    const presentation = createPresentation({ title: 'Start' })
+    let remoteVersion = 1
+    let stored: Presentation = presentation
+
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.op === 'select') {
+          return { data: { document: stored, version: remoteVersion, is_shared: false } }
+        }
+        if (record.op !== 'update') return { data: [] }
+        // The database's own compare-and-swap: the UPDATE touches nothing
+        // unless the row still has the version the statement asked for.
+        if (filterValue(record, 'version') !== remoteVersion) return { data: [] }
+        remoteVersion += 1
+        stored = (record.values as { document: Presentation }).document
+        return { data: [{ version: remoteVersion, is_shared: false }] }
+      },
+    })
+
+    const readByA = await repository.loadPresentation(presentation.id)
+    const readByB = await repository.loadPresentation(presentation.id)
+    const guardA = { expectedRevision: presentationRevision(readByA) }
+    const guardB = { expectedRevision: presentationRevision(readByB) }
+
+    await repository.savePresentation({ ...readByA, title: 'Skrevet av A' }, guardA)
+    await expect(
+      repository.savePresentation({ ...readByB, title: 'Skrevet av B' }, guardB),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // A's write is the one that stands, and B guarded on the version it read.
+    expect(stored.title).toBe('Skrevet av A')
+    expect(remoteVersion).toBe(2)
+    const writes = fake.queries.filter((query) => query.op === 'update')
+    expect(writes.map((query) => filterValue(query, 'version'))).toEqual([1, 1])
+  })
+
+  it('avviser en vaktet lagring av en lesing denne økten ikke har gjort', async () => {
+    // Nothing to look the version up by, so there is no version to guard with.
+    // Refusing is the only safe answer: guessing one is the overwrite the guard
+    // exists to prevent.
+    const presentation = createPresentation({ title: 'Ulest' })
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({ data: [{ version: 2, is_shared: false }] }),
+    })
+
+    await expect(
+      repository.savePresentation(presentation, { expectedRevision: 'en-revisjon-vi-aldri-leste' }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(fake.queries.filter((query) => query.op !== 'select')).toEqual([])
+  })
+
+  it('lar editorens autolagring skrive ubetinget, som før', async () => {
+    // No guard: the version is this repository's last known one, and each save
+    // builds on the one before it. That contract is unchanged.
+    const presentation = createPresentation({ title: 'Autosave' })
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: 5, is_shared: false } }
+          : { data: [{ version: 6, is_shared: false }] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await repository.savePresentation({ ...presentation, title: 'Endret' })
+    await repository.savePresentation({ ...presentation, title: 'Endret igjen' })
+
+    const writes = fake.queries.filter((query) => query.op === 'update')
+    expect(writes.map((query) => filterValue(query, 'version'))).toEqual([5, 6])
   })
 
   it('gir en tydelig konfliktfeil i stedet for å overskrive en nyere kopi', async () => {

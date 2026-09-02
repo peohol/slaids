@@ -92,9 +92,13 @@ export async function loadPresentation(
  * passed on every agent write — never only when the caller asked for it. The
  * caller's own `expectedRevision` covers the long window between *its* read and
  * its decision; this covers the short one between our load and our save, which
- * is a different race and the only one two concurrent agent calls can lose. In
- * Supabase mode the row's `version` already closes it; in local Dexie mode
- * nothing did until the repository grew a compare-and-swap for exactly this.
+ * is a different race and the only one two concurrent agent calls can lose.
+ *
+ * Both repositories honour it, and both had to grow something to do so: Dexie
+ * compares the stored document inside the transaction that writes, and Supabase
+ * looks up the database version *this reading* came from rather than the row's
+ * latest known one — a version that a concurrent save has already moved forward
+ * is not a guard, it is a licence to overwrite whoever moved it.
  */
 export async function savePresentation(
   context: AgentContext,

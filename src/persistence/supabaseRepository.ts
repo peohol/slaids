@@ -21,6 +21,7 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
 import { newShareToken } from '../domain/ids'
 import { migratePresentation } from '../domain/migrations'
+import { presentationRevision } from '../domain/revision'
 import { assetRefSchema, folderSchema, validateLayoutTemplate } from '../domain/schema'
 import { buildSharedSnapshot, type SharedPresentationSnapshot } from '../domain/sharing'
 import type {
@@ -98,6 +99,20 @@ function numberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+/**
+ * How many distinct readings to remember at once.
+ *
+ * A guarded save follows its own read immediately, so one entry is normally
+ * created and consumed in the same operation. The cap only exists so a
+ * long-lived repository cannot accumulate readings forever, and evicting the
+ * least recently used one costs at worst a conflict — never an overwrite.
+ */
+const MAX_REMEMBERED_READINGS = 64
+
+function readingKey(id: string, revision: string): string {
+  return `${id}@${revision}`
+}
+
 export class SupabaseSlaidsRepository implements SlaidsRepository, SharingRepository {
   /**
    * The `version` each presentation was last seen at. Every update is written
@@ -118,6 +133,8 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * which is a local decision rather than a surprise from somewhere else.
    */
   private readonly knownVersions = new Map<string, number>()
+  /** `"<id>@<revisjon>"` → the version that reading came from. */
+  private readonly versionOfReading = new Map<string, number>()
 
   /**
    * Whether each presentation was shared the last time this repository looked.
@@ -154,6 +171,32 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   forgetVersions(): void {
     this.knownVersions.clear()
     this.knownShared.clear()
+    this.versionOfReading.clear()
+  }
+
+  /**
+   * Which database version a particular *reading* came from.
+   *
+   * `knownVersions` cannot answer that. It holds one number per row and moves
+   * forward on every write, which is right for the editor — it owns the
+   * document it is editing and always saves the newest thing it has — and
+   * exactly wrong for a guarded save: two operations can read version 1, the
+   * first can save and leave the map at 2, and the second would then guard its
+   * version-1 document with version 2 and overwrite the first. The guard has to
+   * be bound to the read it belongs to, not to whatever the row has reached
+   * since, so it is keyed by the content that read returned.
+   */
+  private rememberReading(id: string, revision: string, version: number): void {
+    const key = readingKey(id, revision)
+    // Re-inserting moves the entry to the end, so the eviction below drops what
+    // has actually gone longest without being read.
+    this.versionOfReading.delete(key)
+    this.versionOfReading.set(key, version)
+    while (this.versionOfReading.size > MAX_REMEMBERED_READINGS) {
+      const oldest = this.versionOfReading.keys().next().value
+      if (oldest === undefined) break
+      this.versionOfReading.delete(oldest)
+    }
   }
 
   private async ownerId(): Promise<string> {
@@ -214,22 +257,38 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // The row came back, so it exists. `0` never matches one (`version >= 1`),
     // so a row whose version we could not read fails the guard rather than
     // being inserted as if it were new.
-    this.knownVersions.set(id, numberOr((data as VersionRow).version, 0))
+    const version = numberOr((data as VersionRow).version, 0)
+    this.knownVersions.set(id, version)
     this.knownShared.set(id, (data as SharedFlagRow).is_shared === true)
+    // Keyed by the document actually handed to the caller, so a guarded save of
+    // *this* reading can find the version it belongs to no matter what the row
+    // has moved on to since.
+    this.rememberReading(id, presentationRevision(migrated.value), version)
     return migrated.value
   }
 
   /**
-   * `guard` is accepted and deliberately not compared.
+   * Store the document, guarded by a version the database compares atomically.
    *
-   * The row's `version` already guards the same window, and guards it harder:
-   * the update below only matches the version this repository read, so *any*
-   * concurrent write loses — not only one that changed the document's content.
-   * Comparing a revision as well would cost a second round trip to answer a
-   * question the version has already answered. The Dexie repository does the
-   * comparison because it has no version to check.
+   * Which version depends on who is asking, and the difference matters:
+   *
+   *  - **Without a `guard`** — the editor's autosave — the version is the last
+   *    one this repository saw for the row. That is the right answer for a
+   *    caller that owns the document and saves it over and over: each save
+   *    builds on the one before it.
+   *  - **With a `guard`** the version is the one the *named reading* came from,
+   *    looked up by that reading's revision. Reading it from `knownVersions`
+   *    instead would be a lost update waiting to happen: two operations read
+   *    version 1, the first saves and leaves the map at 2, and the second would
+   *    then guard its version-1 document with version 2 — matching the row the
+   *    first one just wrote, and overwriting it. A guard that a later write can
+   *    refresh is not a guard.
+   *
+   * Either way the condition is `.eq('version', …)` inside the UPDATE, so the
+   * comparison and the write are one atomic statement in the database. Nothing
+   * here reads the row first and writes it after.
    */
-  async savePresentation(presentation: Presentation, _guard?: SaveGuard): Promise<void> {
+  async savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void> {
     const ownerId = await this.ownerId()
     // Same defensive round-trip as the Dexie repository: what goes on the wire
     // is plain JSON, never a live object with accidental extras.
@@ -241,6 +300,21 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       folder_id: document.folderId,
       document,
       slide_count: document.slides.length,
+    }
+
+    // A guarded save is pinned to its own reading and never falls back to the
+    // shared map. An unknown revision means this repository cannot prove which
+    // version the caller read, and refusing is the only safe answer left —
+    // guessing a version is how the overwrite this guard exists to stop happens.
+    if (guard) {
+      const version = this.versionOfReading.get(readingKey(document.id, guard.expectedRevision))
+      if (version === undefined) {
+        throw new RepositoryConflictError(
+          `«${document.title}» ble ikke lest av denne økten, eller lesingen er for gammel til å skrives mot. Les den på nytt før du lagrer.`,
+        )
+      }
+      await this.updateGuarded(document, row, version)
+      return
     }
 
     const known = this.knownVersions.get(document.id)
@@ -268,6 +342,23 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       return
     }
 
+    await this.updateGuarded(document, row, known)
+  }
+
+  /**
+   * The one conditional write, shared by both save paths.
+   *
+   * `expectedVersion` is the whole guard: the statement below only touches a
+   * row that still has it, so a concurrent writer cannot be overwritten — it
+   * either got there first, in which case nothing matches and this is a
+   * conflict, or it has not written yet, in which case it will meet the same
+   * condition and lose.
+   */
+  private async updateGuarded(
+    document: Presentation,
+    row: Record<string, unknown>,
+    expectedVersion: number,
+  ): Promise<void> {
     // A shared presentation is published by the same write that stores it, so a
     // save that succeeded can never leave the audience on an older version than
     // the owner just wrote. When the row turns out not to be shared, the
@@ -282,7 +373,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       .from(PRESENTATIONS_TABLE)
       .update(payload)
       .eq('id', document.id)
-      .eq('version', known)
+      .eq('version', expectedVersion)
       .select('version, is_shared')
     if (error) fail('Kunne ikke lagre presentasjonen', error)
 
@@ -298,7 +389,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         `«${document.title}» er endret eller slettet et annet sted (en annen fane eller enhet). Åpne den på nytt – lagring nå ville overskrevet den nyere versjonen eller gjenopprettet en slettet presentasjon.`,
       )
     }
-    const version = numberOr(updated[0]?.version, known + 1)
+    const version = numberOr(updated[0]?.version, expectedVersion + 1)
     this.knownVersions.set(document.id, version)
 
     // The row itself has the last word on whether it is shared.
