@@ -121,3 +121,12 @@ export const FIT_TOLERANCE = 0.75
 
 /** Default presentation background (from the original vision: #678). */
 export const DEFAULT_BACKGROUND_COLOR = '#667788'
+
+/**
+ * The largest file Slaids accepts as an asset.
+ *
+ * One number for every door into the asset store — the upload dialog and the
+ * agent operations — because "how big may a picture be" is a property of the
+ * product, not of whoever happens to be uploading.
+ */
+export const MAX_ASSET_BYTES = 25 * 1024 * 1024

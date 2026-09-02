@@ -24,6 +24,10 @@ export type DomainErrorCode =
   | 'REFERENCE_INVALID'
   | 'SANDBOX_ITEM_NOT_FOUND'
   | 'ASSET_NOT_FOUND'
+  | 'UNSUPPORTED_MEDIA_TYPE'
+  | 'ASSET_TOO_LARGE'
+  | 'INVALID_SVG'
+  | 'UNSAFE_SVG'
   | 'SUBFIELD_NOT_FOUND'
   | 'INVALID_ARGUMENT'
   | 'TITLE_ALREADY_PRESENT'
@@ -69,6 +73,10 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   REFERENCE_INVALID: 'Referansen må ha minst tittel, forfatter eller lenke.',
   SANDBOX_ITEM_NOT_FOUND: 'Fant ikke elementet i sandkassen.',
   ASSET_NOT_FOUND: 'Fant ikke filen.',
+  UNSUPPORTED_MEDIA_TYPE: 'Filtypen støttes ikke.',
+  ASSET_TOO_LARGE: 'Filen er for stor.',
+  INVALID_SVG: 'SVG-en er ugyldig.',
+  UNSAFE_SVG: 'SVG-en inneholder noe som ikke er trygt å lagre.',
   SUBFIELD_NOT_FOUND: 'Fant ikke subfeltet.',
   INVALID_ARGUMENT: 'Ugyldig verdi.',
   TITLE_ALREADY_PRESENT: 'Sliden har allerede en overskrift.',

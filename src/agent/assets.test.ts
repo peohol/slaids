@@ -1,0 +1,510 @@
+/**
+ * The agent asset contracts, end to end against a real repository.
+ *
+ * These use `DexieSlaidsRepository` rather than a stub because the contract is
+ * "the file is stored and the document points at it", and a stub could only
+ * confirm that the right method was called.
+ */
+
+import { afterEach, describe, expect, it } from 'vitest'
+import { MAX_ASSET_BYTES } from '../domain/constants'
+import { splitLeaf, unusedAssets, usedAssetIds } from '../domain/commands'
+import { createPresentation } from '../domain/presentation'
+import { blobToBytes } from '../persistence/blob'
+import { DexieSlaidsRepository } from '../persistence/dexieRepository'
+import { SlaidsDatabase } from '../persistence/db'
+import type { Presentation } from '../domain/types'
+import { createSvgAsset, listAssets, placeAsset, uploadAsset } from './operations/assets'
+import { describePresentation } from './operations/deck'
+import { runOperation } from './registry'
+import type { AgentContext, AgentResult } from './types'
+
+let counter = 0
+const databases: SlaidsDatabase[] = []
+
+function freshContext(): AgentContext {
+  counter += 1
+  const database = new SlaidsDatabase(`slaids-agent-${counter}`)
+  databases.push(database)
+  return { repository: new DexieSlaidsRepository(database) }
+}
+
+afterEach(async () => {
+  while (databases.length > 0) await databases.pop()?.delete()
+})
+
+async function seed(context: AgentContext): Promise<Presentation> {
+  const presentation = createPresentation({ title: 'Agenttest' })
+  await context.repository.savePresentation(presentation)
+  return presentation
+}
+
+/** A four-byte-wide PNG, built from its own header so the bytes are explicit. */
+function pngBytes(width = 4, height = 2): Uint8Array {
+  const be32 = (value: number) => [
+    (value >>> 24) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 8) & 0xff,
+    value & 0xff,
+  ]
+  return new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...be32(13),
+    ...[...'IHDR'].map((char) => char.charCodeAt(0)),
+    ...be32(width),
+    ...be32(height),
+    8, 6, 0, 0, 0,
+  ])
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+function expectOk<T>(result: AgentResult<T>): T {
+  if (!result.ok) throw new Error(`Forventet suksess, fikk ${result.error.code}: ${result.error.message}`)
+  return result.value
+}
+
+function expectErr(result: AgentResult<unknown>): { code: string; message: string } {
+  if (result.ok) throw new Error('Forventet en feil')
+  return result.error
+}
+
+const SQUARE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
+
+/* ------------------------------------------------------------------ *
+ * upload_asset
+ * ------------------------------------------------------------------ */
+
+describe('upload_asset', () => {
+  it('lagrer et rasterbilde og registrerer det i presentasjonen', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const bytes = pngBytes(1600, 900)
+
+    const stored = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'graf.png',
+        content: { encoding: 'bytes', data: bytes },
+      }),
+    )
+
+    expect(stored.assetId).toMatch(/^a_/)
+    expect(stored.ref).toMatchObject({
+      name: 'graf.png',
+      mimeType: 'image/png',
+      width: 1600,
+      height: 900,
+      isVector: false,
+      byteSize: bytes.byteLength,
+    })
+
+    const fromStore = await context.repository.getAsset(stored.assetId)
+    expect(fromStore).not.toBeNull()
+    expect(await blobToBytes(fromStore!.blob)).toEqual(bytes)
+
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    expect(reloaded.assets).toEqual([stored.ref])
+  })
+
+  it('tar imot base64 og data-URL, som er det et JSON-transport kan bære', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const bytes = pngBytes()
+
+    const plain = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'a.png',
+        content: { encoding: 'base64', data: base64(bytes) },
+      }),
+    )
+    const dataUrl = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'b.png',
+        content: { encoding: 'base64', data: `data:image/png;base64,${base64(bytes)}` },
+      }),
+    )
+
+    expect(plain.ref.byteSize).toBe(bytes.byteLength)
+    expect(dataUrl.ref.byteSize).toBe(bytes.byteLength)
+    expect(await blobToBytes((await context.repository.getAsset(dataUrl.assetId))!.blob)).toEqual(bytes)
+  })
+
+  it('holder binærdata utenfor presentasjonsdokumentet', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const bytes = pngBytes()
+    await uploadAsset.run(context, {
+      presentationId: presentation.id,
+      name: 'a.png',
+      content: { encoding: 'base64', data: base64(bytes) },
+    })
+
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    const json = JSON.stringify(reloaded)
+    expect(json).not.toContain(base64(bytes))
+    expect(json).not.toContain('blob')
+  })
+
+  it('avviser noe som ikke er et bilde, uansett hva kalleren kaller det', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'ondsinnet.png',
+        content: { encoding: 'text', data: '<html><script>alert(1)</script></html>' },
+      }),
+    )
+    expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE')
+
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    expect(reloaded.assets).toEqual([])
+  })
+
+  it('avviser en fil som er større enn grensen', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const oversized = new Uint8Array(MAX_ASSET_BYTES + 1)
+    oversized.set(pngBytes())
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'stor.png',
+        content: { encoding: 'bytes', data: oversized },
+      }),
+    )
+    expect(error.code).toBe('ASSET_TOO_LARGE')
+  })
+
+  it('avviser en ukjent presentasjon uten å lagre noe', async () => {
+    const context = freshContext()
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: 'finnes_ikke',
+        name: 'a.png',
+        content: { encoding: 'bytes', data: pngBytes() },
+      }),
+    )
+    expect(error.code).toBe('PRESENTATION_NOT_FOUND')
+    expect(await context.repository.deleteOrphanAssets()).toBe(0)
+  })
+
+  it('sanitiserer SVG som lastes opp som fil, ikke bare som markup', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const stored = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'figur.svg',
+        content: {
+          encoding: 'text',
+          data: `<svg viewBox="0 0 10 10"><rect width="10" height="10"/><blink/></svg>`,
+        },
+      }),
+    )
+    expect(stored.ref.isVector).toBe(true)
+    expect(stored.sanitized?.removedElements).toEqual(['blink'])
+
+    const markup = await (await context.repository.getAsset(stored.assetId))!.blob.text()
+    expect(markup).not.toContain('blink')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * create_svg_asset
+ * ------------------------------------------------------------------ */
+
+describe('create_svg_asset', () => {
+  it('lager et vektorasset direkte fra markup', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const stored = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'boks',
+        svgMarkup: SQUARE,
+      }),
+    )
+
+    expect(stored.ref).toMatchObject({
+      name: 'boks.svg',
+      mimeType: 'image/svg+xml',
+      isVector: true,
+      width: 120,
+      height: 60,
+    })
+
+    const markup = await (await context.repository.getAsset(stored.assetId))!.blob.text()
+    expect(markup).toContain('<rect')
+    expect(markup).toContain('xmlns="http://www.w3.org/2000/svg"')
+
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    expect(reloaded.assets.map((asset) => asset.id)).toEqual([stored.assetId])
+  })
+
+  it('avviser åpenbart utrygg markup og lagrer ingenting', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const error = expectErr(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'ond',
+        svgMarkup: `<svg viewBox="0 0 1 1"><script>fetch('https://example.com')</script></svg>`,
+      }),
+    )
+    expect(error.code).toBe('UNSAFE_SVG')
+
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    expect(reloaded.assets).toEqual([])
+    expect(await context.repository.listAssets(presentation.id)).toEqual([])
+  })
+
+  it('avviser markup som ikke er en gyldig SVG', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    expect(
+      expectErr(
+        await createSvgAsset.run(context, {
+          presentationId: presentation.id,
+          name: 'tekst',
+          svgMarkup: 'dette er ikke svg',
+        }),
+      ).code,
+    ).toBe('INVALID_SVG')
+
+    expect(
+      expectErr(
+        await createSvgAsset.run(context, {
+          presentationId: presentation.id,
+          name: 'uten-forhold',
+          svgMarkup: '<svg><rect width="1" height="1"/></svg>',
+        }),
+      ).code,
+    ).toBe('INVALID_SVG')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * place_asset
+ * ------------------------------------------------------------------ */
+
+describe('place_asset', () => {
+  async function seedWithAsset(context: AgentContext) {
+    const presentation = await seed(context)
+    const stored = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'figur',
+        svgMarkup: SQUARE,
+      }),
+    )
+    const slide = presentation.slides[0]
+    return { presentationId: presentation.id, slideId: slide.id, nodeId: slide.root.id, assetId: stored.assetId }
+  }
+
+  const placement = { fit: 'contain' as const, replace: false, replacedDisposition: 'sandbox' as const }
+
+  it('plasserer et eksisterende asset i en sone', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+
+    const placed = expectOk(await placeAsset.run(context, { ...seeded, ...placement }))
+    expect(placed).toMatchObject({ assetId: seeded.assetId, movedToSandbox: 0, discarded: 0 })
+
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    const root = reloaded.slides[0].root
+    expect(root.kind === 'leaf' && root.content).toMatchObject({
+      kind: 'container',
+      payload: { type: 'asset', assetId: seeded.assetId, fit: 'contain' },
+    })
+    expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(true)
+  })
+
+  it('avviser en assetId presentasjonen ikke har', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+
+    const error = expectErr(
+      await placeAsset.run(context, { ...seeded, ...placement, assetId: 'a_finnes_ikke' }),
+    )
+    expect(error.code).toBe('ASSET_NOT_FOUND')
+  })
+
+  it('nekter å overskrive en sone som har innhold, med mindre den blir bedt om det', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    await placeAsset.run(context, { ...seeded, ...placement })
+
+    expect(expectErr(await placeAsset.run(context, { ...seeded, ...placement })).code).toBe(
+      'TARGET_OCCUPIED',
+    )
+
+    const replaced = expectOk(
+      await placeAsset.run(context, { ...seeded, ...placement, replace: true }),
+    )
+    expect(replaced.movedToSandbox).toBe(1)
+
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    expect(reloaded.sandbox).toHaveLength(1)
+  })
+
+  it('avviser en sone som er delt opp', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    const presentation = await context.repository.loadPresentation(seeded.presentationId)
+    const split = splitLeaf(presentation, {
+      slideId: seeded.slideId,
+      nodeId: seeded.nodeId,
+      axis: 'x',
+      weights: [1, 1],
+    })
+    if (!split.ok) throw new Error('kunne ikke dele sonen')
+    await context.repository.savePresentation(split.value.presentation)
+
+    const error = expectErr(await placeAsset.run(context, { ...seeded, ...placement }))
+    expect(error.code).toBe('NODE_NOT_LEAF')
+  })
+
+  it('avviser en sone og en slide som ikke finnes', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+
+    expect(
+      expectErr(await placeAsset.run(context, { ...seeded, ...placement, nodeId: 'n_borte' })).code,
+    ).toBe('NODE_NOT_FOUND')
+    expect(
+      expectErr(await placeAsset.run(context, { ...seeded, ...placement, slideId: 's_borte' })).code,
+    ).toBe('SLIDE_NOT_FOUND')
+  })
+
+  it('lar en agent finne sone-id-en gjennom describe_presentation', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+
+    const outline = expectOk(
+      await describePresentation.run(context, { presentationId: seeded.presentationId }),
+    )
+    const [slide] = outline.slides
+    const empty = slide.zones.find((zone) => zone.kind === 'leaf' && zone.empty)
+    expect(empty?.nodeId).toBe(seeded.nodeId)
+    expect(empty?.rect.width).toBeGreaterThan(0)
+
+    expectOk(
+      await placeAsset.run(context, {
+        ...placement,
+        presentationId: seeded.presentationId,
+        slideId: slide.slideId,
+        nodeId: empty!.nodeId,
+        assetId: seeded.assetId,
+      }),
+    )
+
+    const after = expectOk(
+      await describePresentation.run(context, { presentationId: seeded.presentationId }),
+    )
+    expect(after.slides[0].zones[0]).toMatchObject({
+      empty: false,
+      contentKind: 'container',
+      assetIds: [seeded.assetId],
+    })
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * invariants
+ * ------------------------------------------------------------------ */
+
+describe('asset-invariants', () => {
+  it('rører ikke filene som allerede ligger der', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const first = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'en',
+        svgMarkup: SQUARE,
+      }),
+    )
+    const second = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'to.png',
+        content: { encoding: 'bytes', data: pngBytes() },
+      }),
+    )
+
+    expect(first.assetId).not.toBe(second.assetId)
+    const reloaded = await context.repository.loadPresentation(presentation.id)
+    expect(reloaded.assets.map((asset) => asset.id)).toEqual([first.assetId, second.assetId])
+    expect(await context.repository.getAsset(first.assetId)).not.toBeNull()
+  })
+
+  it('et asset som ikke er plassert er ubrukt, og blir brukt når det plasseres', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const stored = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'figur',
+        svgMarkup: SQUARE,
+      }),
+    )
+
+    const before = await context.repository.loadPresentation(presentation.id)
+    expect(unusedAssets(before).map((asset) => asset.id)).toEqual([stored.assetId])
+
+    expectOk(
+      await placeAsset.run(context, {
+        presentationId: presentation.id,
+        slideId: presentation.slides[0].id,
+        nodeId: presentation.slides[0].root.id,
+        assetId: stored.assetId,
+        fit: 'contain',
+        replace: false,
+        replacedDisposition: 'sandbox',
+      }),
+    )
+
+    const after = await context.repository.loadPresentation(presentation.id)
+    expect(unusedAssets(after)).toEqual([])
+  })
+
+  it('list_assets sier hvilke filer som faktisk vises', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const stored = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'figur',
+        svgMarkup: SQUARE,
+      }),
+    )
+
+    const listed = expectOk(await listAssets.run(context, { presentationId: presentation.id }))
+    expect(listed.assets).toEqual([{ ...stored.ref, used: false }])
+
+    await runOperation(context, 'place_asset', {
+      presentationId: presentation.id,
+      slideId: presentation.slides[0].id,
+      nodeId: presentation.slides[0].root.id,
+      assetId: stored.assetId,
+    })
+
+    const after = expectOk(await listAssets.run(context, { presentationId: presentation.id }))
+    expect(after.assets[0].used).toBe(true)
+  })
+})

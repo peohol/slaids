@@ -852,6 +852,10 @@ størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet �
 bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i
 sonen. Fit-vakten har fortsatt siste ord.
 
+Slaids lager ikke bilder selv, verken for et menneske eller for en agent. Hvor
+et bilde kan komme fra, og hvordan SVG-markup fra en agent valideres og saneres
+før den blir et asset, står i §44.2.
+
 ---
 
 ## 27\. Intern clipboard
@@ -1288,7 +1292,17 @@ Minst:
   lokal antakelse;
 - reglene i den offentlige lesefunksjonen: gyldig token og publisert fil gir
   tilgang, ugyldig token, deaktivert deling og en fil utenfor snapshotet gir det
-  ikke.
+  ikke;
+- SVG-sanitiseringen: gyldig markup overlever reserialisering, skript,
+  hendelsesattributter, eksterne referanser og egne entiteter avvises, ukjente
+  elementer og attributter fjernes og rapporteres;
+- formatgjenkjenning fra bytene: hvert støttet format med riktig størrelse, og
+  nei til alt som ikke er et bilde;
+- agent-asset-kontraktene: opplasting av et gyldig rasterasset, oppretting av et
+  gyldig SVG-asset, avvisning av ugyldig og utrygg SVG, plassering av et asset i
+  en sone, at eksisterende asset-invariants holder (binærdata utenfor
+  dokumentet, ubrukte assets er ubrukte, andre filer røres ikke), og at
+  resultater og feilkoder er stabile og maskinlesbare.
 
 ### E2E
 
@@ -1678,9 +1692,9 @@ forsøker derfor aldri den autentiserte veien.
 
 ---
 
-## 44\. Senere REST/MCP-agent-API
+## 44\. Agent-API: Agent Core, og senere REST/MCP
 
-Agent-API-et skal bygges **oppå de samme domenekommandoene som UI-et**.
+Agent-API-et bygges **oppå de samme domenekommandoene som UI-et**.
 
 Ikke la agenter simulere mouse clicks eller skrive vilkårlig intern JSON.
 
@@ -1691,10 +1705,44 @@ Ikke la agenter simulere mouse clicks eller skrive vilkårlig intern JSON.
                    │
                    ▼
             Domain commands
+                   ▲
+                   │
+              Agent Core          ← src/agent/, transportuavhengig
               ▲         ▲
               │         │
              REST      MCP
 ```
+
+### 44.1 Agent Core
+
+`src/agent/` er laget en agent snakker med, og det er bevisst uten transport:
+ingen HTTP, ingen MCP, ingen modell- eller leverandørspesifikk kode. Et
+REST-endepunkt eller en MCP-server er et tynt adapter som finner operasjonen,
+kaller `runOperation` og serialiserer svaret. Alt som *bestemmer* noe ligger i
+Agent Core og i domenekommandoene under.
+
+En operasjon er:
+
+- et navn i `snake_case` (`upload_asset`), som MCP-laget prefikser med `slaids_`;
+- en énlinjes beskrivelse en verktøyliste kan vise;
+- `mutates`, som sier om den skriver;
+- et Zod-skjema som både validerer inndata og genererer JSON Schema, slik at
+  validering og publisert kontrakt aldri kan sprike;
+- en implementasjon som bare ser inndata som allerede har matchet skjemaet.
+
+Svaret er alltid den samme konvolutten som domenet bruker:
+`{ ok: true, value }` eller `{ ok: false, error: { code, message, details? } }`.
+Feilkodene fra `domain/result.ts` går rett gjennom – en agent som legger for mye
+i en sone får nøyaktig den `CONTENT_DOES_NOT_FIT` editoren ville vist – og Agent
+Core legger bare til de kodene bare en headless kaller kan treffe:
+`UNKNOWN_OPERATION`, `INVALID_INPUT`, `PRESENTATION_NOT_FOUND`,
+`STORAGE_FAILED`, `CONFLICT` og `INTERNAL_ERROR`. Ingenting kastes ut av
+`runOperation`.
+
+Fit-sjekkerne injiseres, som i kommandolaget: en headless kaller får den rene
+estimatoren, en kaller med DOM kan sende inn den ekte måleren. De utelates aldri
+– poenget med å bygge agent-API-et på kommandoene er at en agent ikke skal kunne
+plassere innhold editoren ville avvist.
 
 Eksempler på semantiske agentoperasjoner:
 
@@ -1706,12 +1754,111 @@ slaids_adjust_split
 slaids_set_zone_content
 slaids_add_reference
 slaids_upload_asset
+slaids_create_svg_asset
+slaids_place_asset
 slaids_validate_presentation
 ```
 
 Ikke ha `slaids_write_arbitrary_json` som primær mekanisme.
 
-Senere autentisering for agenter bør bruke separate, revokerbare tokens med scopes, expiry/audit-metadata og bare hashed tokenrepresentation server-side.
+### 44.2 Bildepolicy for agenter
+
+**Slaids genererer ikke bilder.** Det finnes ingen bildegenerering i Slaids, og
+ingen integrasjon mot noen ekstern – betalt eller gratis – bildetjeneste.
+Rasterbilder oppstår ikke her; de kommer inn ferdige. Det er en produktgrense,
+ikke en manglende funksjon: Slaids er en layoutmotor, og en bildeleverandør i
+bunnen ville lagt både kostnad, leverandørbinding og en ny sikkerhetsflate inn i
+et produkt som ikke trenger noen av delene.
+
+Det finnes derfor nøyaktig to dører inn for bilder, og begge ender samme sted:
+
+```text
+agentgenerert rasterbilde  →  upload_asset      →  assetId
+agentgenerert SVG-markup   →  create_svg_asset  →  assetId
+                                    ↓
+                          place_asset (assetId → sone)
+```
+
+- **`upload_asset`** tar metadata og selve filen. Filinnholdet er en tagget
+  union – base64 (eller data-URL), rå bytes eller `Blob` – fordi et JSON-basert
+  MCP-kall bare kan bære base64, en REST-opplasting har bytes, og en kaller i
+  samme prosess allerede har en `Blob`. Alle tre normaliseres ett sted.
+- **`create_svg_asset`** tar `name` og `svgMarkup`. SVG er et førsteklasses
+  agentformat: en agent som vil ha en figur skriver vektormarkupen for den, i
+  stedet for å be noen andre tegne den.
+- **Ingen `generate_image_asset`.** Skulle noen legge den til senere, er det en
+  endring av denne planen først.
+
+Formatet avgjøres av innholdet, ikke av hva kalleren kaller det: bytene leses
+(`domain/imageBytes.ts`), og en fil som ikke er PNG, JPEG, GIF, WEBP, AVIF eller
+SVG avvises med `UNSUPPORTED_MEDIA_TYPE`. Størrelsen leses fra samme filhode,
+fordi `AssetRef` trenger den – det er størrelsesforholdet som avgjør hvordan
+bildet legges ut i sonen.
+
+SVG valideres og saneres i `domain/svg.ts`, uansett hvilken av de to dørene den
+kom inn gjennom:
+
+- **Allowlist, ikke blocklist.** Ukjente elementer og attributter fjernes og
+  rapporteres tilbake til kalleren, så ingenting overlever ved å være stavet på
+  en måte sanitiseringen ikke forutså.
+- **Reserialisering.** Det som lagres bygges fra det parsede treet, ikke fra
+  kallerens streng med biter klippet ut. Det parseren ikke forsto, kan ikke bli
+  med inn i filen.
+- **Avvisning, ikke stille fjerning, av det som prøver å kjøre eller hente
+  noe:** skript, hendelsesattributter, `foreignObject`, `javascript:`-verdier,
+  referanser ut av dokumentet og egne entiteter gir `UNSAFE_SVG`. En agent som
+  sendte et `<script>` skal få vite det, ikke stille få tilbake et annet bilde
+  enn det ba om.
+- En SVG uten `viewBox` eller `width`/`height` avvises: uten kjent
+  størrelsesforhold finnes det ingen riktig måte å legge den ut på.
+
+Sanitiseringen er dybdeforsvar, ikke eneste forsvar. Invarianten fra §26 står:
+et lagret SVG-asset vises fortsatt gjennom `<img>` og en Blob-URL, aldri
+injisert som markup.
+
+Resultatet av begge operasjonene er stabilt og maskinlesbart: `assetId` og den
+komplette `AssetRef` (navn, MIME-type, byte-størrelse, bredde, høyde,
+`isVector`). Et SVG-asset er `isVector: true` med MIME-type `image/svg+xml`, som
+et hvilket som helst annet vektorasset i Slaids – agentmarkup gir ikke en egen
+assettype.
+
+Binærdata kommer aldri inn i presentasjons-JSON-en. Bytene går til assetlageret
+gjennom `SlaidsRepository`, og dokumentet beholder en `AssetRef` som peker på
+dem – samme regel som §26, og derfor samme kode i begge lagringsmodusene.
+
+### 44.3 Plassering skjer semantisk
+
+Et asset som er lagret er ikke plassert. `place_asset` setter det inn i en sone
+via `setZoneContent`, med de samme reglene som editoren: sonen må være et blad,
+en opptatt sone krever `replace`, innholdet som fortrenges havner i sandkassen,
+og fit-vakten har siste ord. En agent skal aldri skrive `ZoneContent`-JSON
+direkte.
+
+For å kunne plassere noe må en agent kjenne id-ene, og de kommer fra
+`describe_presentation`: slides, soner, sone-id-er, geometry engine-ens egne
+rektangler og hva som ligger i hver sone. Det er en *beskrivelse*, ikke
+dokumentet – en agent får aldri utlevert rå JSON den kan redigere og sende
+tilbake.
+
+### 44.4 Første steg, og hva som kommer etterpå
+
+Første steg av agent-API-et er Agent Core med asset-kontraktene på plass:
+`list_presentations`, `describe_presentation`, `upload_asset`,
+`create_svg_asset`, `place_asset` og `list_assets`.
+
+Resten av den semantiske operasjonslisten (`add_slide`, `split_zone`,
+`set_zone_content`, `add_reference`, `validate_presentation` …) plugges inn i
+det samme registeret, med samme konvolutt og samme feilkoder.
+
+Fortsatt bevisst ikke bygget: REST-endepunkter, MCP-server og agenttokens.
+Agent Core er ikke nettverkseksponert – den kjører i samme prosess som resten av
+appen og har nøyaktig den tilgangen den innloggede brukeren har. Når transporten
+kommer, skal autentisering for agenter bruke separate, revokerbare tokens med
+scopes, expiry/audit-metadata og bare hashed tokenrepresentasjon server-side.
+
+Én kjent skjevhet å rette senere: opplastingsdialogen i editoren lagrer fortsatt
+en SVG en bruker velger uten å kjøre den gjennom `domain/svg.ts`. Dører inn til
+assetlageret bør på sikt være én dør.
 
 ---
 
