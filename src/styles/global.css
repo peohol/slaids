@@ -388,3 +388,40 @@ textarea {
   justify-content: center;
   margin-top: 4px;
 }
+
+/*
+ * The public shared view.
+ *
+ * Everything visible here is the deck itself; these rules only cover the states
+ * around it — loading, and the one message a link that does not work gets.
+ */
+.shared {
+  height: 100%;
+}
+
+.shared--message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--chrome-bg);
+}
+
+.shared__card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 26px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-lg);
+  background: var(--chrome-bg-raised);
+  text-align: center;
+}
+
+.shared__title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}

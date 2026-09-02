@@ -16,15 +16,22 @@ import {
 import { contentCitationIds } from './content'
 import { collectContent } from './layout'
 import { collectCitationIds } from './richdoc'
-import type { Presentation, Reference } from './types'
+import type { DeckSource, Presentation, Reference } from './types'
 
 export type ReferenceNumbering = ReadonlyMap<string, number>
 
-/** Reference ids in first-occurrence order across the whole presentation. */
-export function referenceOrder(presentation: Presentation): string[] {
+/**
+ * Reference ids in first-occurrence order across the deck.
+ *
+ * Everything about numbering is derived from the slides and the reference list,
+ * so this — and everything built on it — takes a `DeckSource` rather than a
+ * whole `Presentation`. A published snapshot is then numbered by exactly the
+ * same code as the private document it was cut from.
+ */
+export function referenceOrder(deck: DeckSource): string[] {
   const seen = new Set<string>()
   const order: string[] = []
-  const known = new Set(presentation.references.map((reference) => reference.id))
+  const known = new Set(deck.references.map((reference) => reference.id))
 
   const push = (id: string): void => {
     if (!known.has(id) || seen.has(id)) return
@@ -32,7 +39,7 @@ export function referenceOrder(presentation: Presentation): string[] {
     order.push(id)
   }
 
-  for (const slide of presentation.slides) {
+  for (const slide of deck.slides) {
     for (const id of collectCitationIds(slide.title)) push(id)
     for (const content of collectContent(slide.root)) {
       for (const id of contentCitationIds(content)) push(id)
@@ -41,9 +48,9 @@ export function referenceOrder(presentation: Presentation): string[] {
   return order
 }
 
-export function computeReferenceNumbering(presentation: Presentation): ReferenceNumbering {
+export function computeReferenceNumbering(deck: DeckSource): ReferenceNumbering {
   const numbering = new Map<string, number>()
-  referenceOrder(presentation).forEach((id, index) => numbering.set(id, index + 1))
+  referenceOrder(deck).forEach((id, index) => numbering.set(id, index + 1))
   return numbering
 }
 
@@ -71,19 +78,19 @@ export function sandboxCitedReferenceIds(presentation: Presentation): Set<string
 }
 
 /** Ids that currently appear on a slide, and therefore carry a number. */
-export function usedReferenceIds(presentation: Presentation): Set<string> {
-  return new Set(referenceOrder(presentation))
+export function usedReferenceIds(deck: DeckSource): Set<string> {
+  return new Set(referenceOrder(deck))
 }
 
-export function splitReferences(presentation: Presentation): {
+export function splitReferences(deck: DeckSource): {
   used: Reference[]
   unused: Reference[]
 } {
-  const numbering = computeReferenceNumbering(presentation)
-  const used = presentation.references
+  const numbering = computeReferenceNumbering(deck)
+  const used = deck.references
     .filter((reference) => numbering.has(reference.id))
     .sort((a, b) => (numbering.get(a.id) ?? 0) - (numbering.get(b.id) ?? 0))
-  const unused = presentation.references
+  const unused = deck.references
     .filter((reference) => !numbering.has(reference.id))
     .sort((a, b) => referenceSortKey(a).localeCompare(referenceSortKey(b), 'nb'))
   return { used, unused }
@@ -152,10 +159,10 @@ export interface ReferenceEntry {
   url: string
 }
 
-export function referenceEntries(presentation: Presentation): ReferenceEntry[] {
-  const numbering = computeReferenceNumbering(presentation)
-  const byId = new Map(presentation.references.map((reference) => [reference.id, reference]))
-  return referenceOrder(presentation).flatMap((id) => {
+export function referenceEntries(deck: DeckSource): ReferenceEntry[] {
+  const numbering = computeReferenceNumbering(deck)
+  const byId = new Map(deck.references.map((reference) => [reference.id, reference]))
+  return referenceOrder(deck).flatMap((id) => {
     const reference = byId.get(id)
     if (!reference) return []
     return [

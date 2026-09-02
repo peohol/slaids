@@ -42,8 +42,14 @@ Disse skal kunne legges til senere uten at domenemodellen må skrives om.
 > **Oppdatert:** Supabase og innlogging er ikke lenger ikke-mål. Den operative
 > editoren står, og Supabase er nå primær persistens i konfigurert produksjon –
 > se § 18 og § 43. Domenemodellen ble ikke skrevet om: byttet skjedde bak
-> `SlaidsRepository`, akkurat slik denne planen forutsatte. Flerbrukerfunksjoner,
-> REST-API, MCP-server og agenttokens er fortsatt ikke-mål.
+> `SlaidsRepository`, akkurat slik denne planen forutsatte. REST-API, MCP-server
+> og agenttokens er fortsatt ikke-mål.
+>
+> **Oppdatert:** deling er bygget – se § 43.5. Det er ikke en flerbrukerfunksjon,
+> og «flerbruker» er fortsatt et ikke-mål. Deling er publisering: en hemmelig
+> lenke til en skrivebeskyttet kopi. Det finnes ingen invitasjoner, ingen roller,
+> ingen skrivetilgang for andre enn eieren, og ingen katalog å finne delte
+> presentasjoner i.
 
 ---
 
@@ -794,6 +800,12 @@ Krav:
 - sliden skaleres uniformt til viewport;
 - ikke bygg separat «presentasjonslayout».
 
+> **Oppdatert:** presentasjonsmodus og den offentlige delte visningen er samme
+> komponent, `PresentationPlayer` (§ 43.5). Den lokale varianten har «Avslutt»;
+> den offentlige har ingen vei tilbake, fordi den ikke er montert i noe å gå
+> tilbake til. Sidelisten er felles og inkluderer de avledede referansesidene og,
+> når delingen er på, QR-siden.
+
 ---
 
 ## 25\. Sandbox
@@ -1210,6 +1222,10 @@ Når minimum er nådd, fortsett i denne rekkefølgen:
 15. mer E2E/geometri/visuell regresjon;
 16. generell UX-polish.
 
+Punktene over står. Etter dem – og etter Supabase (§ 43) – er deling bygget som
+en komplett vertikal skive: domene, migrasjon, repository, Edge Function, rute,
+renderer og UI (§ 43.5).
+
 «Simple shapes» stod på denne listen og er tatt ut igjen etter fysisk
 testing: en figur er ikke det denne editoren er til for – et bilde settes
 inn som et bilde – og verktøyet kostet mer i modell, migrasjon og UI enn det
@@ -1260,7 +1276,19 @@ Minst:
 - delete/collapse;
 - domain command errors;
 - schema validation;
-- migrations.
+- migrations;
+- sanitert delingssnapshot: bare publiserbart innhold, ingen private arbeidsdata,
+  bare nødvendige asset-metadata;
+- sidemodellen: QR-siden kommer etter referansesidene og bare når deling er
+  aktiv, og er avledet/skrivebeskyttet;
+- delings-repositoryet: lese status, aktivere med nytt token, deaktivere med
+  nullet snapshot og rotert token, reaktivere med et annet token, at lagring av
+  en delt presentasjon oppdaterer snapshotet, at en ren delingsendring ikke rører
+  dokumentversjonen, og at en Supabase-feil bobler opp i stedet for å bli en
+  lokal antakelse;
+- reglene i den offentlige lesefunksjonen: gyldig token og publisert fil gir
+  tilgang, ugyldig token, deaktivert deling og en fil utenfor snapshotet gir det
+  ikke.
 
 ### E2E
 
@@ -1276,7 +1304,11 @@ Minst:
 - skriv tekst;
 - slide navigation;
 - reload persistence;
-- presentasjonsmodus.
+- presentasjonsmodus;
+- `/s/<token>` går utenom `AuthGate`, mens arbeidsområdet fortsatt er portet;
+- delt visning uten editor-UI;
+- `Del`-bryterens tilstander, kopiering av lenken, og at den avledede QR-siden
+  kommer og går sammen med delingen.
 
 ### Visuell regresjon
 
@@ -1413,16 +1445,236 @@ en annen fane nettopp slettet, med referanser til filer slettingen tok med seg.
 Etter at en rad én gang er sett som eksisterende, er det bare en ny lesing av
 dokumentet som løser konflikten, og bare en sletting herfra som gjør den ny igjen.
 
-### Deling
-
-`is_shared` og `share_token` er reservert for en kommende delingsfunksjon.
-Ingenting leser dem ennå, og `anon` har bevisst **ingen** tilgang til
-`slaids_presentations`.
-
 ### Migrasjoner
 
 SQL-en for skjemaet ligger i `supabase/migrations/`, slik at en tom Supabase kan
-gjenskape dagens skjema fra bunnen.
+gjenskape dagens skjema fra bunnen. En anvendt migrasjon skrives aldri om:
+endringer kommer som en ny fil.
+
+Prosjektet er delt infrastruktur, og det avgjør hvordan migrasjoner deployes.
+Supabases egen historikk, `supabase_migrations.schema_migrations`, er
+**prosjektglobal**: den inneholder Huskis' og mdeditz' migrasjoner også, og de
+bor i andre repoer. `supabase db push` leser den som om den var historikken til
+repoet den kjøres fra, og stopper derfor herfra med «Remote migration versions
+not found in local migrations directory» – med to forslag som begge er feil for
+dette oppsettet: `migration repair` skriver om en annen apps historikk, og
+`db pull` drar en annen apps skjema inn i Slaids. Ingen flagg avgrenser
+`db push` til én app.
+
+Slaids fører derfor sin egen historikk, i sin egen tabell,
+`public.slaids_migrations`, og `scripts/deploy-migrations.sh` er hele
+mekanismen: hver ukjørte migrasjon, i filnavnrekkefølge, hver i én transaksjon
+sammen med sin egen historikkrad. Den delte tabellen leses aldri og skrives
+aldri, og en migrasjon som nevner den avvises før noe kjøres.
+
+`--dry-run` er read-only i streng forstand: den sender ingen setning som endrer
+noe. Historikktabellen bootstrappes først når kjøringen faktisk skal mutere,
+rett før den første migrasjonen – ikke mens den svarer på hva som ville skjedd.
+Finnes den ikke, regnes Slaids-historikken som tom, og alt gjenstår. En
+tørrkjøring som måtte opprette en tabell for å kunne svare, ville ikke vært en
+tørrkjøring.
+
+Det er trygt for de andre appene fordi ingenting i Slaids' deploy er globalt:
+
+- historikken Slaids skriver er `slaids_`-prefikset og bare Slaids';
+- migrasjonene lager bare `slaids_`-prefiksede objekter;
+- Edge Function-deploy rører ingen migrasjonshistorikk – men må kjøres **uten**
+  `--prune`, som ville slettet de andre appenes funksjoner.
+
+Migrasjonene skal være idempotente. Det er dét som gjør at en fil kan kjøres på
+nytt – i SQL Editor, eller mot en base der Slaids' historikk ikke er komplett –
+uten å gjøre skade.
+
+### Verifisert mot ekte backend
+
+Supabase-oppsettet er testet manuelt mot det ekte prosjektet, ikke bare mot
+stubber: innlogging, reload/session-persistens, filer, mapper, import/eksport,
+sletting, utlogging, samtidighetskonflikt mellom faner og enheter, nettverksbrudd
+og en InPrivate-sesjon. Alt fungerte.
+
+Den ene deploy-fella var Vercel-variablene, ikke koden: `VITE_SUPABASE_URL` og
+`VITE_SUPABASE_PUBLISHABLE_KEY` må være slått på for **både Production og
+Preview**. Er de bare satt for Production, får hver PR-preview ingen av dem – og
+det er ikke en feil, det er lokal modus. Previewen kjører da mot en tom
+Dexie-base og ser tom ut. Se § 18 for regelen: ingen variabler = bevisst lokal
+modus, begge = Supabase-modus, nøyaktig én = hard konfigurasjonsfeil.
+
+---
+
+## 43.5\. Deling
+
+Deling er **publisering, ikke samarbeid**. Det er skillet hele modellen hviler
+på, og det er verdt å si eksplisitt hva det utelukker: ingen invitasjoner, ingen
+roller, ingen skrivetilgang for andre, og ingen offentlig katalog. Man må kjenne
+den ugjettbare lenken.
+
+Det er også det som gjør deling forenlig med at Slaids er en énbruker-app
+(§ 43): en delt lenke gir ingen konto, ingen Auth-bruker og ingen tilgang til
+noe som helst annet – bare lesetilgang til én publisert kopi. `SLAIDS_OWNER_ID`
+er fortsatt den eneste som kan logge inn, og fortsatt den eneste som kan endre
+noe. Deling er den eneste veien noen andre ser noe i det hele tatt, og de ser en
+kopi.
+
+### To dokumenter
+
+| Dokument                       | Hvem ser det    | Hva det inneholder                                       |
+| ------------------------------ | --------------- | -------------------------------------------------------- |
+| `document` (arbeidskopien)     | bare eieren     | hele `Presentation`: sandkasse, idéer, mappe, alle filer  |
+| `shared_document` (snapshotet) | alle med lenken | tittel, tema, slides, siterte referanser, viste filer     |
+
+`SharedPresentationSnapshot` bygges i `src/domain/sharing.ts` ved å **liste opp
+hva som skal med**, aldri ved å slette felter fra arbeidskopien. Retningen er
+poenget: et nytt felt på `Presentation` er privat helt til noen med vilje
+publiserer det, i stedet for offentlig til noen husker å fjerne det.
+
+Ut av snapshotet holdes `sandbox`, `ideas`, `folderId`, `owner_id`, editorstate,
+maler, ubrukte assets og usiterte referanser. Traverseringen som avgjør hva som
+er «i bruk» er den samme som resten av appen bruker – `splitReferences` for
+siterte referanser, `slideAssetIds` for viste filer – ikke en andre
+implementasjon som kan drive fra den første.
+
+### Delingsstatus er ikke en del av domeneobjektet
+
+Den bor på raden i databasen. Det er dét som gjør at den ikke kan angres med
+Ctrl+Z, ikke er med i autosave-payloaden, ikke følger med `.slaids`-eksport eller
+-import, og ikke arves av en duplisering. En kopi starter alltid som ikke delt,
+og det følger av hvor tilstanden ligger – ikke av en regel noen må huske.
+
+### Kolonner og invariant
+
+`slaids_presentations` har `is_shared`, `share_token` og `shared_document`, med
+en CHECK som binder dem sammen:
+
+```text
+is_shared = true   →  shared_document finnes
+is_shared = false  →  shared_document er null
+```
+
+Delt og publisert er samme tilstand. Tilbakekalling er derfor én UPDATE, ikke en
+opprydding som kan bli avbrutt halvveis.
+
+`share_token` er en v4 UUID og roteres **både** ved aktivering og ved
+deaktivering. En lenke som er trukket tilbake blir aldri gyldig igjen, og en ny
+deling er alltid en ny adresse.
+
+### Version-triggeren
+
+`version` økes bare når selve det redigerbare dokumentet endres – `document`,
+`title`, `folder_id` eller `slide_count`. En ren endring av delingsmetadata rører
+verken `version` eller `updated_at`.
+
+Uten det ville publisering gjort den åpne editorens kjente versjon utdatert, og
+neste autosave ville meldt en samtidighetskonflikt for en endring brukeren nettopp
+gjorde selv, i samme fane. Den ekte optimistiske låsen står uendret for
+dokumentendringer.
+
+### Snapshotet følger lagringen
+
+Når en delt presentasjon lagres, skrives den private kopien og den saniterte
+kopien i **samme** UPDATE. En vellykket lagring kan derfor ikke etterlate
+publikum på en eldre versjon enn eieren nettopp skrev, og det finnes ikke noe
+sekundært autosave-system som kan komme ut av takt.
+
+Aktivering er et lagringspunkt: ventende autosave flushes først, og hvis den ikke
+går igjennom publiseres ingenting. Snapshotet bygges fra det som faktisk ble
+lagret, tokenet er nytt, og alt aktiveres i én skriving.
+
+### Offentlig lesetilgang
+
+`anon` har fortsatt **ingen** tilgang til `slaids_presentations`. Den eneste
+offentlige inngangen er Edge Function-en `slaids-share`, som kjører med service
+role på serversiden og svarer på nøyaktig to spørsmål:
+
+```text
+GET .../slaids-share?token=<token>              → det saniterte snapshotet
+GET .../slaids-share?token=<token>&asset=<id>   → én fil dekket faktisk viser
+```
+
+Det finnes ingen listeform og ingen skriveoperasjon. Ugyldig token, tilbakekalt
+deling, slettet presentasjon og en fil som ikke er i snapshotet gir alle den
+samme generelle 404-en – ellers ville endepunktet vært en informasjonskanal om
+hvilke tokens som er ekte. Svarene har `Cache-Control: no-store` og
+`X-Robots-Tag: noindex, nofollow`; en cachet kopi ville overlevd tilbakekallingen
+som skulle fjerne den.
+
+Filene forblir private. Bucketen gjøres ikke offentlig, og det lages ingen
+offentlig kopi: funksjonen henter fila selv, og bare når nøyaktig det publiserte
+snapshotet lister den. Service-role-nøkkelen finnes bare i funksjonens eget miljø
+– aldri i Vite, Vercel eller nettleseren.
+
+Reglene som avgjør tilgang ligger i `supabase/functions/slaids-share/access.ts`,
+adskilt fra Deno-inngangspunktet, slik at de kan testes som det de er.
+
+### Ruter
+
+```text
+/                     → AuthGate → bibliotek/editor        (privat)
+/s/<token>            → SharedPresentationView             (offentlig)
+```
+
+`src/Root.tsx` velger én gang, **over** `AuthGate`. Den delte visningen «hopper
+over» derfor ikke porten – den rendres av et tre porten aldri var med i. Ingen
+React Router: én grense er ikke nok til å rettferdiggjøre en ruter, men den er
+nok til å rettferdiggjøre én ren, testet funksjon (`src/routing.ts`).
+
+Grensen er **stien, ikke tokenet**. Alt under `/s/` blir på den offentlige siden,
+også når tokenet er ødelagt: en lenke som ble avkortet i en chat, eller skrevet
+av med et tegn for lite, tilhører den som fikk den, og de skal møte «Denne
+delingslenken er ikke aktiv» – ikke eierens innloggingsskjerm, som de uansett
+ikke kan komme forbi. Et token som umulig kan være riktig besvares lokalt, så en
+skrivefeil aldri blir en forespørsel som ser ut som en gjetning på noens lenke.
+
+`vercel.json` gjør to ting for den ruten: en SPA-rewrite, så en direkte
+forespørsel til `/s/<token>` ikke gir 404, og `X-Robots-Tag: noindex, nofollow`
+pluss `Referrer-Policy: no-referrer` som svarhoder. Hodene er poenget her:
+`<meta>`-taggene visningen setter selv virker først etter at JavaScript har
+kjørt, mens en crawler kan nøye seg med det første HTML-svaret.
+
+### Sidene i et dekk
+
+```text
+authored slides → avledede referansesider → avledet QR-side
+```
+
+Bare den første gruppen er lagret. QR-siden er ikke en `Slide` og ligger aldri i
+`presentation.slides`; den er et eget medlem av `DeckPage`-unionen i
+`src/domain/pages.ts`. Det authored slide-formatet forurenses ikke for å få plass
+til den, og ingen kommando kan nå den – derfor kan den verken slettes, flyttes,
+dupliseres eller redigeres. Den finnes så lenge delingen er på, og ikke lenger.
+
+I editoren vises den i filmstripen som en avledet, skrivebeskyttet side på samme
+måte som referansesidene, med en forklaring om at den styres av `Del`.
+
+### Én renderer
+
+```text
+PresentationPlayer          samme geometri, samme sidemodell
+├─ PresentView              lokalt, med «Avslutt»
+└─ SharedPresentationView   offentlig, uten vei tilbake
+```
+
+Den offentlige varianten skiller seg ved hva den *ikke* får: ingen `onExit`, og
+ingenting rundt seg. Editorkrom er ikke skjult der – det er aldri importert.
+
+Bilder løses gjennom `AssetSourceProvider`: privat editor og lokal visning bruker
+repositoryet, delt visning bruker det offentlige endepunktet. Valget tas av hvor
+komponenten er montert, ikke av en gren inne i rendereren, og en delt visning
+forsøker derfor aldri den autentiserte veien.
+
+### Sikkerhetsinvariants
+
+1. `anon` får aldri generell `SELECT` på `slaids_presentations`.
+2. Et share-token gir eksakt lesetilgang til én presentasjon.
+3. Det finnes ikke noe API for å liste delte presentasjoner.
+4. Privat `document` returneres aldri til `anon`.
+5. `sandbox`, `ideas`, mapper og annet privat finnes ikke i snapshotet.
+6. Asset-endepunktet serverer bare filer som er i akkurat det publiserte snapshotet.
+7. Deling gir aldri skrivetilgang.
+8. En deaktivert eller slettet presentasjon kan ikke leses via et gammelt token.
+9. Reaktivering gir nytt token; det gamle forblir dødt.
+10. Delingsmetadata utløser aldri en falsk dokumentversjonskonflikt.
+11. Import og duplisering arver aldri delingsstatus eller token.
+12. Ingen service-role-verdi havner i frontend-bundelen eller i Vercel.
 
 ---
 
@@ -1508,3 +1760,8 @@ Første fase er vellykket når Slaids er noe brukeren faktisk kan åpne og arbei
 Det skal være mulig å lage en reell presentasjon med flere slides og komplekse nestede layouts, skrive innhold, reloade uten å miste data og presentere resultatet – mens geometry engine garanterer at den sentrale «samme gap overalt»-ideen holder.
 
 Supabase-persistens og personlig innlogging er nå på plass. REST/MCP-agent-API kommer etter at selve editorparadigmet er bevist i praksis.
+
+> **Oppdatert:** første fase er nådd, og to skiver til er lagt oppå den uten at
+> domenemodellen ble skrevet om: Supabase som primær persistens (§ 43) og deling
+> som publisering av en skrivebeskyttet kopi (§ 43.5). Agent-API-et (§ 44) er det
+> som gjenstår.

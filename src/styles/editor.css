@@ -1468,3 +1468,34 @@
   flex-wrap: wrap;
   justify-content: center;
 }
+
+/*
+ * The Del toggle.
+ *
+ * The word beside it is the state, spelled out. An icon that changes shade is
+ * not enough for a switch whose off position is the difference between private
+ * and public.
+ */
+.share-toggle__state {
+  margin-left: 2px;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+  color: var(--chrome-text-dim);
+}
+
+.btn--active .share-toggle__state {
+  color: inherit;
+  opacity: 0.85;
+}
+
+/*
+ * The manual copy fallback.
+ *
+ * Shown only when the clipboard refused, and wide enough that a whole share
+ * link is selectable in one gesture — a link you cannot see is not a fallback.
+ */
+.share-toggle__manual {
+  width: 260px;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}

@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import { Root } from './Root'
 import './styles/global.css'
 import './styles/slide.css'
 import './styles/library.css'
@@ -11,6 +11,6 @@ if (!container) throw new Error('Fant ikke #root')
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>,
 )

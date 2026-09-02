@@ -7,6 +7,7 @@
  * one place that decides which of them is live.
  */
 
+import type { SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
   Folder,
@@ -47,6 +48,45 @@ export interface SlaidsRepository {
   deleteAssetsForPresentation(presentationId: string): Promise<void>
   /** Remove asset rows whose owning presentation no longer exists. */
   deleteOrphanAssets(): Promise<number>
+}
+
+/**
+ * What the editor needs to know about sharing, and nothing more.
+ *
+ * `token` is `null` whenever `shared` is false — a revoked token is not a link,
+ * and handing one out would let the UI show an address that cannot work.
+ */
+export interface ShareState {
+  shared: boolean
+  token: string | null
+}
+
+/**
+ * Publishing a presentation to a secret link.
+ *
+ * Deliberately a separate interface from `SlaidsRepository`: sharing needs a
+ * public backend, so it exists in Supabase mode and nowhere else. Local mode
+ * has no answer to "what does an anonymous visitor see", and a pretend local
+ * implementation would be worse than none — it would produce links that look
+ * shareable and are not. `activeRepository.ts` decides whether there is one.
+ */
+export interface SharingRepository {
+  /** The current state as stored, never as remembered. */
+  readShareState(presentationId: string): Promise<ShareState>
+  /**
+   * Publish this snapshot under a **new** token, atomically. Any token handed
+   * out before is dead from this moment, including one from an earlier share of
+   * the same presentation.
+   */
+  enableSharing(
+    presentationId: string,
+    snapshot: SharedPresentationSnapshot,
+  ): Promise<ShareState>
+  /**
+   * Stop sharing: the published copy is dropped and the token is rotated in the
+   * same statement, so the link that was in circulation can never be revived.
+   */
+  disableSharing(presentationId: string): Promise<ShareState>
 }
 
 export class RepositoryError extends Error {

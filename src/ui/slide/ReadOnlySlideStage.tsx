@@ -1,17 +1,18 @@
 /**
- * Read-only stage, used for derived reference slides.
+ * Read-only stage, for the derived pages.
  *
- * These slides are recomputed from the citation list on every render, so they
- * are shown but never edited.
+ * A derived page — a reference slide, or the QR page while sharing is on — is
+ * recomputed on every render and stored nowhere, so it is shown and never
+ * edited. The note underneath says which one it is and where it comes from.
  */
 
 import { useRef } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import type { Slide } from '../../domain/types'
-import { SlideView } from './SlideView'
+import type { DeckPage } from '../../domain/pages'
+import { DeckPageView } from './DeckPageView'
 import { useFitScale } from './useFitScale'
 
-export function ReadOnlySlideStage({ slide, note }: { slide: Slide; note: string }) {
+export function ReadOnlySlideStage({ page, note }: { page: DeckPage; note: string }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const scale = useFitScale(viewportRef)
 
@@ -30,7 +31,7 @@ export function ReadOnlySlideStage({ slide, note }: { slide: Slide; note: string
             transformOrigin: 'top left',
           }}
         >
-          <SlideView slide={slide} />
+          <DeckPageView page={page} />
         </div>
       </div>
       <p className="stage-note" data-testid="stage-note">

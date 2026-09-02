@@ -26,6 +26,8 @@ export type IconName =
   | 'category'
   | 'sandbox'
   | 'play'
+  | 'share'
+  | 'qr'
   | 'undo'
   | 'redo'
   | 'folder'
@@ -77,6 +79,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
   category: <path d="M8 4.5H6.5a2 2 0 00-2 2v11a2 2 0 002 2H8M12 8h7.5M12 12h7.5M12 16h7.5" />,
   sandbox: <path d="M4 8l8-4 8 4-8 4zM4 8v8l8 4 8-4V8" />,
   play: <path d="M8 5l11 7-11 7z" />,
+  share: (
+    <path d="M18 8a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM6 14.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM18 21a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1" />
+  ),
+  qr: (
+    <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM19.5 14H20v2.5M14 19.5V20h2.5M19.5 19.5H20" />
+  ),
   undo: <path d="M9 7L4 12l5 5M4 12h9a6 6 0 010 12h-2" />,
   redo: <path d="M15 7l5 5-5 5M20 12h-9a6 6 0 000 12h2" />,
   folder: <path d="M4 7h6l2 2h8v10H4z" />,

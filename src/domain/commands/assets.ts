@@ -3,11 +3,11 @@
  * lives in the asset store and is referenced by id.
  */
 
-import { allContent } from '../docs'
+import { allContent, slideContent } from '../docs'
 import { contentAssetIds } from '../content'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
-import type { AssetRef, Presentation } from '../types'
+import type { AssetRef, Presentation, Slide, ZoneContent } from '../types'
 
 export function registerAsset(presentation: Presentation, asset: AssetRef): Result<Presentation> {
   const existing = presentation.assets.findIndex((entry) => entry.id === asset.id)
@@ -17,10 +17,23 @@ export function registerAsset(presentation: Presentation, asset: AssetRef): Resu
   return ok(touch({ ...presentation, assets }))
 }
 
+/**
+ * Asset ids referenced from these slides. The sandbox is not consulted, which
+ * is what a publishable snapshot needs: a picture parked in the sandbox is not
+ * on any slide and has no business leaving the private document.
+ */
+export function slideAssetIds(slides: readonly Slide[]): Set<string> {
+  return collectAssetIds(slideContent(slides))
+}
+
 /** Asset ids actually referenced from slides or the sandbox. */
 export function usedAssetIds(presentation: Presentation): Set<string> {
+  return collectAssetIds(allContent(presentation))
+}
+
+function collectAssetIds(contents: readonly ZoneContent[]): Set<string> {
   const ids = new Set<string>()
-  for (const content of allContent(presentation)) {
+  for (const content of contents) {
     for (const id of contentAssetIds(content)) ids.add(id)
   }
   return ids

@@ -16,7 +16,7 @@ import {
   referenceEntries,
   type ReferenceEntry,
 } from './references'
-import type { LayoutNode, Presentation, RichDoc, RichNode, Slide } from './types'
+import type { DeckSource, LayoutNode, RichDoc, RichNode, Slide } from './types'
 
 /**
  * One entry, as the renderer will draw it.
@@ -68,14 +68,14 @@ function columnLeaf(id: string, entries: ReferenceEntry[]): LayoutNode {
 }
 
 /**
- * Reference slides for the whole presentation, or an empty list when nothing is
- * cited. Ids are deterministic so React can reconcile them across renders.
+ * Reference slides for the whole deck, or an empty list when nothing is cited.
+ * Ids are deterministic so React can reconcile them across renders.
  */
-export function buildReferenceSlides(presentation: Presentation): Slide[] {
-  const entries = referenceEntries(presentation)
+export function buildReferenceSlides(deck: DeckSource): Slide[] {
+  const entries = referenceEntries(deck)
   if (entries.length === 0) return []
 
-  const geometry = geometryForTheme(presentation.theme)
+  const geometry = geometryForTheme(deck.theme)
   const mainRect = computeMainRect(true, geometry)
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const plan = planReferenceSlides(entries, {
@@ -88,7 +88,7 @@ export function buildReferenceSlides(presentation: Presentation): Slide[] {
       const entry = byId.get(entryId)
       if (!entry) return 0
       return estimateDocHeight({ type: 'doc', content: [entryParagraph(entry)] }, columnWidth, {
-        theme: presentation.theme,
+        theme: deck.theme,
       })
     },
   })
@@ -118,6 +118,6 @@ export function buildReferenceSlides(presentation: Presentation): Slide[] {
 }
 
 /** The full deck as shown to an audience: authored slides plus derived ones. */
-export function presentationSlides(presentation: Presentation): Slide[] {
-  return [...presentation.slides, ...buildReferenceSlides(presentation)]
+export function presentationSlides(deck: DeckSource): Slide[] {
+  return [...deck.slides, ...buildReferenceSlides(deck)]
 }

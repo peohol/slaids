@@ -25,7 +25,13 @@ import { SupabaseConfigurationError, readSupabaseConfigState } from '../supabase
 import { getSupabaseClient } from '../supabase/client'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { SupabaseSlaidsRepository } from './supabaseRepository'
-import type { SlaidsRepository, StoredAsset } from './repository'
+import type {
+  ShareState,
+  SharingRepository,
+  SlaidsRepository,
+  StoredAsset,
+} from './repository'
+import type { SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
   Folder,
@@ -46,6 +52,7 @@ export function storageMode(): StorageMode {
 let dexieInstance: DexieSlaidsRepository | null = null
 let supabaseInstance: SupabaseSlaidsRepository | null = null
 let override: SlaidsRepository | null = null
+let sharingOverride: SharingRepository | null = null
 
 export function resolveRepository(): SlaidsRepository {
   if (override) return override
@@ -67,6 +74,39 @@ export function setRepositoryOverride(next: SlaidsRepository | null): void {
 }
 
 /**
+ * Sharing publishes to a public backend, which exists in Supabase mode only.
+ *
+ * Local mode is not a lesser version of it: there is no anonymous reader to
+ * publish *to*, so there is nothing to build. A local stand-in would hand out
+ * links that look shareable and are not, which is worse than the honest answer
+ * the UI gives instead — the toggle is there, disabled, and says why.
+ */
+export function isSharingSupported(): boolean {
+  return sharingOverride !== null || storageMode() === 'supabase'
+}
+
+export class SharingUnavailableError extends Error {
+  constructor() {
+    super('Deling krever at Slaids er satt opp mot Supabase.')
+    this.name = 'SharingUnavailableError'
+  }
+}
+
+export function resolveSharing(): SharingRepository {
+  if (sharingOverride) return sharingOverride
+  const state = readSupabaseConfigState()
+  if (state.kind === 'incomplete') throw new SupabaseConfigurationError(state.missing)
+  if (state.kind !== 'configured') throw new SharingUnavailableError()
+  supabaseInstance ??= new SupabaseSlaidsRepository(getSupabaseClient)
+  return supabaseInstance
+}
+
+/** Test seam: pin the sharing backend, or pass `null` to go back to the mode. */
+export function setSharingOverride(next: SharingRepository | null): void {
+  sharingOverride = next
+}
+
+/**
  * Drop everything the repositories remember about the current user. Called on
  * sign-out so the next session starts from the server, not from a cache that
  * belonged to somebody else.
@@ -84,6 +124,16 @@ function on<T>(call: (repository: SlaidsRepository) => Promise<T>): Promise<T> {
   let resolved: SlaidsRepository
   try {
     resolved = resolveRepository()
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+  }
+  return call(resolved)
+}
+
+function onSharing<T>(call: (repository: SharingRepository) => Promise<T>): Promise<T> {
+  let resolved: SharingRepository
+  try {
+    resolved = resolveSharing()
   } catch (error) {
     return Promise.reject(error instanceof Error ? error : new Error(String(error)))
   }
@@ -117,4 +167,15 @@ export const repository: SlaidsRepository = {
   deleteAssetsForPresentation: (presentationId: string): Promise<void> =>
     on((repo) => repo.deleteAssetsForPresentation(presentationId)),
   deleteOrphanAssets: (): Promise<number> => on((repo) => repo.deleteOrphanAssets()),
+}
+
+export const sharing: SharingRepository = {
+  readShareState: (presentationId: string): Promise<ShareState> =>
+    onSharing((repo) => repo.readShareState(presentationId)),
+  enableSharing: (
+    presentationId: string,
+    snapshot: SharedPresentationSnapshot,
+  ): Promise<ShareState> => onSharing((repo) => repo.enableSharing(presentationId, snapshot)),
+  disableSharing: (presentationId: string): Promise<ShareState> =>
+    onSharing((repo) => repo.disableSharing(presentationId)),
 }

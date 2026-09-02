@@ -13,6 +13,14 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // The Edge Function's rules are the public security model, so they are
+    // covered like everything else. Only the pure module is reachable from
+    // here; its Deno entry point is not, and does not need to be.
+    include: [
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx',
+      'supabase/functions/**/*.test.ts',
+      'scripts/**/*.test.ts',
+    ],
   },
 })

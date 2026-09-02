@@ -38,7 +38,7 @@ import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
-import { buildReferenceSlides } from '../../domain/referenceSlides'
+import { derivedPageNote, derivedPages } from '../../domain/pages'
 import {
   cloneSubtreeWithNewIds,
   collectLeaves,
@@ -49,6 +49,7 @@ import {
 import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
+import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
 import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
@@ -181,6 +182,44 @@ export function EditorView({
     }
   }, [])
 
+  /* -------------------------------------------------------------- *
+   * Sharing
+   *
+   * Deliberately not part of the presentation: it is a fact about the stored
+   * row, not about the document, so it is not undoable, not autosaved, and not
+   * carried along by a duplicate or a `.slaids` export.
+   * -------------------------------------------------------------- */
+
+  const shareUrl = useShareUrl()
+  const loadShareState = useSharingStore((state) => state.load)
+  const resetShareState = useSharingStore((state) => state.reset)
+
+  useEffect(() => {
+    void loadShareState(presentationId)
+    return () => resetShareState()
+  }, [presentationId, loadShareState, resetShareState])
+
+  /**
+   * Publishing is a save point of its own.
+   *
+   * The audience should see the last version the author saved, so the pending
+   * autosave is drained first and nothing is published if that write does not
+   * land — the store says so and the toggle stays off. Both directions are
+   * guarded against a second press while one is in flight.
+   */
+  const toggleShare = useCallback(() => {
+    const state = useSharingStore.getState()
+    if (state.busy || state.status !== 'ready') return
+    if (state.shared) {
+      void state.disable()
+      return
+    }
+    void state.enable(() => {
+      const controller = autosaveRef.current
+      return controller ? controller.flush() : Promise.resolve(true)
+    })
+  }, [])
+
   /**
    * Going back is a save point: the pending snapshot lives only in the autosave
    * controller, which stops retrying the moment this view unmounts. So the
@@ -268,12 +307,15 @@ export function EditorView({
   )
 
   /**
-   * Reference slides are derived on every render rather than stored, so they
-   * always match the citations. They are read-only in the editor.
+   * The generated pages, derived on every render rather than stored: the
+   * reference slides always match the citations, and the QR page is there for
+   * exactly as long as the share link is. Both are read-only in the editor —
+   * turning `Del` off makes the QR page disappear by itself, because nothing
+   * ever put it in `presentation.slides`.
    */
-  const derivedSlides = useMemo(
-    () => (presentation ? buildReferenceSlides(presentation) : []),
-    [presentation],
+  const derived = useMemo(
+    () => (presentation ? derivedPages(presentation, { shareUrl }) : []),
+    [presentation, shareUrl],
   )
 
   /**
@@ -282,9 +324,9 @@ export function EditorView({
    * additionally closes it when the selection moves for some other reason —
    * an undo, or the slide it belonged to being deleted.
    */
-  const viewedDerivedSlide =
+  const viewedDerivedPage =
     derivedView && derivedView.from === currentSlideId
-      ? (derivedSlides.find((entry) => entry.id === derivedView.id) ?? null)
+      ? (derived.find((entry) => entry.id === derivedView.id) ?? null)
       : null
 
   const numbering = useMemo(
@@ -726,6 +768,7 @@ export function EditorView({
       <PresentView
         presentation={presentation}
         startIndex={presentation.slides.findIndex((entry) => entry.id === currentSlideId)}
+        shareUrl={shareUrl}
         onExit={() => setPresenting(false)}
       />
     )
@@ -769,8 +812,8 @@ export function EditorView({
           <TopToolbar
             title={presentation.title}
             hasTitleZone={slide.title !== null}
-            canToggleTitle={viewedDerivedSlide === null}
-            selectionIsLeaf={viewedDerivedSlide === null && selectedNode?.kind === 'leaf'}
+            canToggleTitle={viewedDerivedPage === null}
+            selectionIsLeaf={viewedDerivedPage === null && selectedNode?.kind === 'leaf'}
             selectionHasContent={Boolean(selectedLeaf?.content)}
             sandboxCount={presentation.sandbox.length}
             onBack={() => void handleBack()}
@@ -798,6 +841,7 @@ export function EditorView({
             onToggleSandbox={() => setSandboxOpen((open) => !open)}
             onPresent={() => setPresenting(true)}
             onOpenTheme={() => setThemeOpen(true)}
+            onToggleShare={toggleShare}
           />
 
           <TextToolbar onInsertReference={() => setReferencesOpen(true)} />
@@ -805,19 +849,19 @@ export function EditorView({
           <div className="editor__body">
             <Filmstrip
               presentation={presentation}
-              derivedSlides={derivedSlides}
-              viewingDerivedId={viewedDerivedSlide?.id ?? null}
-              onSelectDerived={(slideId) =>
-                setDerivedView(currentSlideId ? { id: slideId, from: currentSlideId } : null)
+              derived={derived}
+              viewingDerivedId={viewedDerivedPage?.id ?? null}
+              onSelectDerived={(pageId) =>
+                setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
               }
               onSelectAuthored={() => setDerivedView(null)}
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
             />
-            {viewedDerivedSlide ? (
+            {viewedDerivedPage ? (
               <ReadOnlySlideStage
-                slide={viewedDerivedSlide}
-                note="Referanseslides genereres automatisk fra referansene og kan ikke redigeres."
+                page={viewedDerivedPage}
+                note={derivedPageNote(viewedDerivedPage)}
               />
             ) : (
               <EditorStage
@@ -827,13 +871,16 @@ export function EditorView({
                 dropTargets={dropTargets}
               />
             )}
-            {viewedDerivedSlide ? (
+            {viewedDerivedPage ? (
               <aside className="inspector" data-testid="inspector">
                 <section className="inspector__section">
-                  <h2 className="inspector__heading">Avledet slide</h2>
+                  <h2 className="inspector__heading">
+                    {viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
+                  </h2>
                   <p className="hint">
-                    Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger
-                    rekkefølgen de først nevnes i, og oppdateres automatisk.
+                    {viewedDerivedPage.kind === 'qr'
+                      ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
+                      : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
                   </p>
                 </section>
               </aside>
