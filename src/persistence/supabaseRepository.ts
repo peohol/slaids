@@ -286,7 +286,8 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         `«${document.title}» er endret eller slettet et annet sted (en annen fane eller enhet). Åpne den på nytt – lagring nå ville overskrevet den nyere versjonen eller gjenopprettet en slettet presentasjon.`,
       )
     }
-    this.knownVersions.set(document.id, numberOr(updated[0]?.version, known + 1))
+    const version = numberOr(updated[0]?.version, known + 1)
+    this.knownVersions.set(document.id, version)
 
     // The row itself has the last word on whether it is shared.
     const actuallyShared = updated[0]?.is_shared === true
@@ -295,9 +296,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       // Sharing was switched on elsewhere while this editor was open, so the
       // write that just landed carried no snapshot and the audience would be
       // looking at the version published at the time. Publish the one it should
-      // have carried; a share-only update does not move the document version,
-      // so this cannot turn into a conflict for the next autosave.
-      await this.publishSnapshot(document.id, buildSharedSnapshot(document))
+      // have carried, against the version it belongs to; a share-only update
+      // does not move the document version, so this cannot turn into a conflict
+      // for the next autosave.
+      await this.publishSnapshot(document.id, buildSharedSnapshot(document), version)
     }
   }
 
@@ -326,6 +328,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * writes, so publishing or revoking never makes an open editor's known
    * version stale — and therefore never turns the next autosave into a false
    * "changed somewhere else" conflict.
+   *
+   * Publishing still *reads* the version, though, for the opposite reason. A
+   * snapshot is a picture of one particular version of the document, so it may
+   * only be written while that is still the version stored. Revoking is not
+   * like that and is deliberately unguarded: taking a link out of circulation
+   * must work whatever the document has been doing.
    * ---------------------------------------------------------------- */
 
   async readShareState(presentationId: string): Promise<ShareState> {
@@ -346,20 +354,48 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // A new token on every activation, so a link that was revoked earlier stays
     // revoked forever rather than coming back to life on the next share.
     const token = newShareToken()
-    const { data, error } = await this.client
+    // The snapshot pictures the version this repository last saw. Publishing it
+    // over a document another tab has moved on from would hand the audience a
+    // deck the owner has already replaced — and, because the row would then be
+    // shared with a snapshot nobody is about to rewrite, leave it that way until
+    // somebody happens to save again. Guarded, that race turns into a conflict
+    // the user can answer instead.
+    const known = this.knownVersions.get(presentationId)
+    const guarded = this.client
       .from(PRESENTATIONS_TABLE)
       .update({ is_shared: true, share_token: token, shared_document: snapshot })
       .eq('id', presentationId)
-      .select('is_shared, share_token')
+    const { data, error } = await (known === undefined
+      ? guarded
+      : guarded.eq('version', known)
+    ).select('is_shared, share_token')
     if (error) fail('Kunne ikke dele presentasjonen', error)
 
     const rows = (data ?? []) as ShareRow[]
-    if (rows.length === 0) {
-      throw new RepositoryError(
+    if (rows.length === 0) throw await this.explainMissedShareWrite(presentationId)
+    return this.rememberShareState(presentationId, rows[0])
+  }
+
+  /**
+   * Why a guarded share write matched nothing: the row is gone, or it has moved
+   * on since we read it. One extra request, only on the failure path, so the
+   * message the user gets is true rather than a guess.
+   */
+  private async explainMissedShareWrite(presentationId: string): Promise<RepositoryError> {
+    const { data } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .select('id')
+      .eq('id', presentationId)
+      .maybeSingle()
+    if (!data) {
+      return new RepositoryError(
         'Fant ikke presentasjonen i Supabase. Den kan være slettet et annet sted.',
       )
     }
-    return this.rememberShareState(presentationId, rows[0])
+    return new RepositoryConflictError(
+      'Presentasjonen ble endret et annet sted (en annen fane eller enhet) mens den skulle deles. ' +
+        'Åpne den på nytt og prøv igjen – ellers ville lenken vist en eldre versjon enn den som er lagret.',
+    )
   }
 
   async disableSharing(presentationId: string): Promise<ShareState> {
@@ -389,17 +425,25 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return { shared, token: shared ? (row.share_token ?? null) : null }
   }
 
-  /** Refresh the published copy without touching the private document. */
+  /**
+   * Refresh the published copy without touching the private document.
+   *
+   * Guarded on the version the snapshot pictures, and on the row still being
+   * shared: publishing to an unshared row would violate the state invariant,
+   * and publishing over a newer document would put the audience behind. A guard
+   * that matches nothing is not an error here — it means somebody else's write
+   * got there first, and that write brings its own snapshot along.
+   */
   private async publishSnapshot(
     presentationId: string,
     snapshot: SharedPresentationSnapshot,
+    version: number,
   ): Promise<void> {
     const { error } = await this.client
       .from(PRESENTATIONS_TABLE)
       .update({ shared_document: snapshot })
       .eq('id', presentationId)
-      // Sharing may have been switched off again in the meantime; publishing to
-      // a row that is no longer shared would violate the state invariant.
+      .eq('version', version)
       .eq('is_shared', true)
     if (error) fail('Kunne ikke oppdatere den delte kopien', error)
   }

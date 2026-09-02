@@ -14,7 +14,7 @@ import { buildSharedSnapshot } from '../domain/sharing'
 import { imageNode } from '../domain/richdoc'
 import { newAssetId, newSandboxId } from '../domain/ids'
 import type { AssetRef, Presentation } from '../domain/types'
-import { RepositoryError } from './repository'
+import { RepositoryConflictError, RepositoryError } from './repository'
 import { PRESENTATIONS_TABLE, SupabaseSlaidsRepository } from './supabaseRepository'
 import {
   createFakeSupabase,
@@ -168,8 +168,9 @@ describe('deling – aktivering', () => {
     for (const column of ['document', 'title', 'folder_id', 'slide_count']) {
       expect(Object.keys(values(update))).not.toContain(column)
     }
-    // Og den skriver ikke mot en versjon: dette er ikke en dokumentendring.
-    expect(filterValue(update, 'version')).toBeUndefined()
+    // Versjonen *leses* riktignok — se testen under — men bare som vakt.
+    // Skrivingen legger ingenting inn i den.
+    expect(Object.keys(values(update))).not.toContain('version')
   })
 
   it('gir et nytt token ved hver aktivering, så en tilbakekalt lenke aldri gjenoppstår', async () => {
@@ -196,10 +197,53 @@ describe('deling – aktivering', () => {
 
   it('sier fra når raden ikke finnes i stedet for å påstå at den er delt', async () => {
     const presentation = presentationWithSecrets()
-    const { repository } = repositoryFor({ resolve: () => ({ data: [] }) })
+    const { repository } = repositoryFor({
+      // Ingen rad matchet, og oppfølgingslesingen finner heller ingen.
+      resolve: (record) => (record.op === 'update' ? { data: [] } : { data: null }),
+    })
     await expect(
       repository.enableSharing(presentation.id, buildSharedSnapshot(presentation)),
     ).rejects.toBeInstanceOf(RepositoryError)
+  })
+
+  it('publiserer bare mot versjonen snapshotet faktisk avbilder', async () => {
+    const presentation = presentationWithSecrets()
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: 7, is_shared: false } }
+          : { data: [{ is_shared: true, share_token: values(record).share_token }] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await repository.enableSharing(presentation.id, buildSharedSnapshot(presentation))
+
+    expect(filterValue(fake.queries.at(-1) as QueryRecord, 'version')).toBe(7)
+  })
+
+  it('publiserer ikke et snapshot over et dokument som er endret et annet sted', async () => {
+    // Kappløpet: en annen fane lagret mellom flush og delingsskrivingen. Da er
+    // snapshotet et bilde av en versjon som ikke lenger er lagret, og å
+    // publisere det ville gitt publikum en eldre presentasjon enn eieren har –
+    // og latt den bli stående slik til noen tilfeldigvis lagrer igjen.
+    const presentation = presentationWithSecrets()
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.op === 'update') return { data: [] }
+        // Raden finnes fortsatt; det er versjonen som har flyttet seg.
+        return record.columns === 'id'
+          ? { data: { id: presentation.id } }
+          : { data: { document: presentation, version: 7, is_shared: false } }
+      },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await expect(
+      repository.enableSharing(presentation.id, buildSharedSnapshot(presentation)),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // Og ingenting ble delt: den eneste skrivingen matchet ingen rad.
+    expect(fake.queries.filter((query) => query.op === 'update')).toHaveLength(1)
   })
 })
 
@@ -276,10 +320,10 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
     const writes = fake.queries.filter((query) => query.op === 'update')
     expect(writes).toHaveLength(2)
     const followUp = writes[1]
+    // Bare den delte kopien skrives — dokumentet er allerede lagret …
     expect(Object.keys(values(followUp))).toEqual(['shared_document'])
-    // En ren share-skriving: ingen versjonsvakt, og bare mot en rad som faktisk
-    // er delt.
-    expect(filterValue(followUp, 'version')).toBeUndefined()
+    // … mot den versjonen snapshotet avbilder, og bare på en rad som er delt.
+    expect(filterValue(followUp, 'version')).toBe(4)
     expect(filterValue(followUp, 'is_shared')).toBe(true)
   })
 
