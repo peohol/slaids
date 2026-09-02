@@ -12,7 +12,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { newShareToken } from '../domain/ids'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
-import { RepositoryError, type ShareState, type SharingRepository } from '../persistence/repository'
+import {
+  RepositoryError,
+  RepositoryNotFoundError,
+  type ShareState,
+  type SharingRepository,
+} from '../persistence/repository'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
@@ -103,6 +108,38 @@ describe('set_sharing', () => {
     expect(after.ok && after.value.token).toBeNull()
   })
 
+  it('trekker tilbake lenken selv når kalleren har en gammel revisjon', async () => {
+    // The asymmetry that matters: publishing is guarded because a snapshot
+    // pictures one version, and revoking is not, because a stale revision must
+    // never be able to keep a public link alive.
+    const sharing = new MemorySharing()
+    const context = freshContext(sharing)
+    const presentationId = await presentationIn(context)
+    await call(context, 'set_sharing', { presentationId, shared: true })
+
+    const off = await call<SharingView>(context, 'set_sharing', {
+      presentationId,
+      shared: false,
+      expectedRevision: 'noe-helt-annet',
+    })
+    expect(off.ok && off.value.shared).toBe(false)
+    expect((await sharing.readShareState(presentationId)).shared).toBe(false)
+  })
+
+  it('trekker tilbake lenken selv når dokumentet ikke kan leses', async () => {
+    // A document that cannot be loaded is exactly when revocation matters most.
+    const sharing = new MemorySharing()
+    const context = freshContext(sharing)
+    const presentationId = await presentationIn(context)
+    await call(context, 'set_sharing', { presentationId, shared: true })
+
+    context.repository.loadPresentation = () =>
+      Promise.reject(new RepositoryError('basen svarer ikke'))
+
+    const off = await call<SharingView>(context, 'set_sharing', { presentationId, shared: false })
+    expect(off.ok && off.value).toMatchObject({ shared: false, token: null })
+  })
+
   it('nekter å publisere en lesing som er blitt gammel', async () => {
     const context = freshContext(new MemorySharing())
     const presentationId = await presentationIn(context)
@@ -138,5 +175,25 @@ describe('set_sharing', () => {
     const context = freshContext(new MemorySharing())
     const result = await call(context, 'set_sharing', { presentationId: 'p_borte', shared: true })
     expect(result).toMatchObject({ ok: false, error: { code: 'PRESENTATION_NOT_FOUND' } })
+  })
+})
+
+describe('get_sharing', () => {
+  it('sier «finnes ikke», ikke «lagringen svarte ikke»', async () => {
+    // The difference decides what an agent does next: stop, or retry forever
+    // against a presentation that will never be there.
+    const missing: SharingRepository = {
+      readShareState: () => Promise.reject(new RepositoryNotFoundError('Fant ikke presentasjonen.')),
+      enableSharing: () => Promise.reject(new RepositoryNotFoundError('Fant ikke presentasjonen.')),
+      disableSharing: () => Promise.reject(new RepositoryNotFoundError('Fant ikke presentasjonen.')),
+    }
+    const context = freshContext(missing)
+    expect(await call(context, 'get_sharing', { presentationId: 'p_borte' })).toMatchObject({
+      ok: false,
+      error: { code: 'PRESENTATION_NOT_FOUND' },
+    })
+    expect(
+      await call(context, 'set_sharing', { presentationId: 'p_borte', shared: false }),
+    ).toMatchObject({ ok: false, error: { code: 'PRESENTATION_NOT_FOUND' } })
   })
 })

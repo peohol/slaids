@@ -116,14 +116,40 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
   }
   const principal = auth.principal
 
-  if (path === '') return index(request)
-  if (path === '/operations') return catalogue(request)
+  // Every authenticated request from here on goes through `finish`, which is
+  // what writes the audit row. One row per call means all of them, including
+  // the catalogue: a stolen token's first move is to ask what it can do, and
+  // that is the earliest thing an owner could notice.
+  const subject = auditSubject(principal)
+  const started = deps.now()
+
+  if (path === '') return finish(deps, { subject, started, operation: 'index', input: null, ...meta(request) })
+  if (path === '/operations') {
+    return finish(deps, { subject, started, operation: 'catalogue', input: null, ...listing(request) })
+  }
 
   const name = operationNameIn(path)
-  if (name === null) return errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
-  if (request.method !== 'POST') return methodNotAllowed('POST')
+  if (name === null) {
+    return finish(deps, {
+      subject,
+      started,
+      operation: 'unknown_route',
+      input: null,
+      error: { code: 'NOT_FOUND', message: 'Ukjent adresse.' },
+    })
+  }
+  if (request.method !== 'POST') {
+    return finish(deps, {
+      subject,
+      started,
+      operation: name,
+      input: null,
+      error: { code: 'METHOD_NOT_ALLOWED', message: 'Bruk POST på denne adressen.' },
+      headers: { Allow: 'POST, OPTIONS' },
+    })
+  }
 
-  return invoke(deps, request, url, principal, name)
+  return invoke(deps, request, url, principal, name, subject, started)
 }
 
 /**
@@ -214,26 +240,17 @@ async function recordRefusal(
   }
 }
 
-function methodNotAllowed(allow: string): Response {
-  return errorResponse(
-    { code: 'METHOD_NOT_ALLOWED', message: `Bruk ${allow} på denne adressen.` },
-    { extraHeaders: { Allow: `${allow}, OPTIONS` } },
-  )
-}
-
-function index(request: Request): Response {
-  if (request.method !== 'GET' && request.method !== 'HEAD') return methodNotAllowed('GET')
-  return jsonResponse(
-    {
-      ok: true,
-      data: {
-        api: 'slaids-agent',
-        version: AGENT_API_VERSION,
-        operations: `${AGENT_API_BASE_PATH}/operations`,
-      },
+/** What this API is, for a caller that guessed the base address. */
+function meta(request: Request): Answer {
+  const wrong = requireRead(request)
+  if (wrong) return wrong
+  return {
+    data: {
+      api: 'slaids-agent',
+      version: AGENT_API_VERSION,
+      operations: `${AGENT_API_BASE_PATH}/operations`,
     },
-    200,
-  )
+  }
 }
 
 /**
@@ -244,12 +261,19 @@ function index(request: Request): Response {
  * contract in the transport is a copy that goes stale, and the way it goes
  * stale is that an operation added later is missing from it.
  */
-function catalogue(request: Request): Response {
-  if (request.method !== 'GET' && request.method !== 'HEAD') return methodNotAllowed('GET')
-  return jsonResponse(
-    { ok: true, data: { version: AGENT_API_VERSION, operations: describeOperations() } },
-    200,
-  )
+function listing(request: Request): Answer {
+  const wrong = requireRead(request)
+  if (wrong) return wrong
+  return { data: { version: AGENT_API_VERSION, operations: describeOperations() } }
+}
+
+/** What a route that only reads answers to a verb that writes. */
+function requireRead(request: Request): Answer | null {
+  if (request.method === 'GET' || request.method === 'HEAD') return null
+  return {
+    error: { code: 'METHOD_NOT_ALLOWED', message: 'Bruk GET på denne adressen.' },
+    headers: { Allow: 'GET, OPTIONS' },
+  }
 }
 
 async function invoke(
@@ -258,14 +282,9 @@ async function invoke(
   url: URL,
   principal: AgentPrincipal,
   name: string,
+  subject: AuditSubject,
+  started: Date,
 ): Promise<Response> {
-  const subject: AuditSubject = {
-    ownerId: principal.ownerId,
-    tokenId: principal.tokenId,
-    tokenName: principal.tokenName,
-  }
-  const started = deps.now()
-
   const operation = findOperation(name)
   if (!operation) {
     // Agent Core's own answer, from the same catalogue, so an unknown name says
@@ -329,17 +348,31 @@ async function invoke(
   })
 }
 
+/** What a route produced: one of the two, never both. */
+interface Answer {
+  data?: unknown
+  error?: ApiError
+  /** Anything the status alone cannot say, such as `Allow`. */
+  headers?: Record<string, string>
+}
+
+function auditSubject(principal: AgentPrincipal): AuditSubject {
+  return {
+    ownerId: principal.ownerId,
+    tokenId: principal.tokenId,
+    tokenName: principal.tokenName,
+  }
+}
+
 /** Record the call and answer it. The audit is written for both outcomes. */
 async function finish(
   deps: AgentApiDeps,
-  outcome: {
+  outcome: Answer & {
     subject: AuditSubject
     started: Date
     operation: string
     input: unknown
-    data?: unknown
     revision?: string
-    error?: ApiError
   },
 ): Promise<Response> {
   const status = outcome.error ? statusFor(outcome.error.code) : 200
@@ -364,7 +397,12 @@ async function finish(
     console.error('slaids-agent: kunne ikke skrive auditrad', error)
   }
 
-  if (outcome.error) return errorResponse(outcome.error, { operation: outcome.operation })
+  if (outcome.error) {
+    return errorResponse(outcome.error, {
+      operation: outcome.operation,
+      ...(outcome.headers ? { extraHeaders: outcome.headers } : {}),
+    })
+  }
   return jsonResponse(
     {
       ok: true,
@@ -373,5 +411,6 @@ async function finish(
       data: outcome.data,
     },
     200,
+    outcome.headers ?? {},
   )
 }

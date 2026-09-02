@@ -102,7 +102,9 @@ export const setSharing = defineOperation({
   scopes: ['sharing:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
-    expectedRevision: expectedRevisionSchema,
+    expectedRevision: expectedRevisionSchema.describe(
+      'Revisjonen fra get_presentation eller inspect_slide. Gjelder bare publisering: å trekke tilbake en lenke skal virke uansett hva dokumentet har gjort siden, så den ignoreres når shared er false.',
+    ),
     shared: z
       .boolean()
       .describe(
@@ -112,30 +114,66 @@ export const setSharing = defineOperation({
   async run(context, input): Promise<AgentResult<SharingView>> {
     const sharing = requireSharing(context)
     if (!sharing) return unavailable(input.presentationId)
-
-    // Loading serves two purposes: it is what the snapshot is cut from, and it
-    // is what tells the repository which database version this publication
-    // belongs to — so a document another writer has moved on from is a conflict
-    // rather than an audience left on a version the owner has already replaced.
-    const loaded = await loadPresentation(context, input.presentationId)
-    if (!loaded.ok) return loaded
-
-    const conflict = revisionConflict(loaded.value, input.expectedRevision)
-    if (conflict) return conflict
-
-    try {
-      const state = input.shared
-        ? await sharing.enableSharing(input.presentationId, buildSharedSnapshot(loaded.value))
-        : await sharing.disableSharing(input.presentationId)
-      return agentOk(sharingView(input.presentationId, state))
-    } catch (error) {
-      return storageFailure(
-        error,
-        input.shared ? 'Kunne ikke dele presentasjonen.' : 'Kunne ikke slå av delingen.',
-        { presentationId: input.presentationId, revision: presentationRevision(loaded.value) },
-      )
-    }
+    return input.shared ? publish(context, sharing, input) : revoke(sharing, input.presentationId)
   },
 })
+
+/**
+ * Taking a link out of circulation, unconditionally.
+ *
+ * Deliberately asymmetric with publishing, and the asymmetry is the safety
+ * property. Revoking reads nothing and checks no revision: a document that
+ * cannot be loaded, or an `expectedRevision` that has gone stale while the agent
+ * was thinking, must not be able to keep a public link alive. The repository
+ * makes the same choice for the same reason — publishing is guarded because a
+ * snapshot pictures one particular version, and revoking is not because it has
+ * to work whatever the document has been doing since.
+ *
+ * `expectedRevision` is therefore accepted and ignored here, which is said out
+ * loud in the schema rather than left for someone to discover.
+ */
+async function revoke(
+  sharing: SharingRepository,
+  presentationId: string,
+): Promise<AgentResult<SharingView>> {
+  try {
+    return agentOk(sharingView(presentationId, await sharing.disableSharing(presentationId)))
+  } catch (error) {
+    return storageFailure(error, 'Kunne ikke slå av delingen.', { presentationId })
+  }
+}
+
+/**
+ * Publishing, guarded.
+ *
+ * Loading serves two purposes: it is what the snapshot is cut from, and it is
+ * what tells the repository which database version this publication belongs to —
+ * so a document another writer has moved on from is a conflict rather than an
+ * audience left on a version the owner has already replaced.
+ */
+async function publish(
+  context: AgentContext,
+  sharing: SharingRepository,
+  input: { presentationId: string; expectedRevision?: string },
+): Promise<AgentResult<SharingView>> {
+  const loaded = await loadPresentation(context, input.presentationId)
+  if (!loaded.ok) return loaded
+
+  const conflict = revisionConflict(loaded.value, input.expectedRevision)
+  if (conflict) return conflict
+
+  try {
+    const state = await sharing.enableSharing(
+      input.presentationId,
+      buildSharedSnapshot(loaded.value),
+    )
+    return agentOk(sharingView(input.presentationId, state))
+  } catch (error) {
+    return storageFailure(error, 'Kunne ikke dele presentasjonen.', {
+      presentationId: input.presentationId,
+      revision: presentationRevision(loaded.value),
+    })
+  }
+}
 
 export const sharingOperations = [getSharing, setSharing]

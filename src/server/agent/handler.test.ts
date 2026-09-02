@@ -714,6 +714,40 @@ describe('audit', () => {
     expect(api.audit.entries[0].operation.length).toBe(100)
   })
 
+  it('skriver en rad for hvert autentisert kall, også katalogoppslag', async () => {
+    // "One row per call" means all of them. A stolen token's first move is to
+    // ask what it can do, and that is the earliest thing an owner could notice.
+    const api = harness()
+    for (const path of ['', '/operations', '/finnes-ikke']) {
+      await handleAgentRequest(
+        api.deps,
+        new Request(url(path), { method: 'GET', headers: authorized() }),
+      )
+    }
+    expect(api.audit.entries.map((entry) => entry.operation)).toEqual([
+      'index',
+      'catalogue',
+      'unknown_route',
+    ])
+    expect(api.audit.entries[1]).toMatchObject({ success: true, status: 200 })
+    expect(api.audit.entries[2]).toMatchObject({ success: false, errorCode: 'NOT_FOUND' })
+  })
+
+  it('skriver en rad for feil metode, med operasjonen den gjaldt', async () => {
+    const api = harness()
+    const response = await handleAgentRequest(
+      api.deps,
+      new Request(url('/operations/list_presentations'), { method: 'GET', headers: authorized() }),
+    )
+    expect(response.status).toBe(405)
+    expect(response.headers.get('Allow')).toContain('POST')
+    expect(api.audit.entries[0]).toMatchObject({
+      operation: 'list_presentations',
+      errorCode: 'METHOD_NOT_ALLOWED',
+      status: 405,
+    })
+  })
+
   it('lagrer aldri tokenet selv', async () => {
     const api = harness()
     await call(api, 'list_presentations', {})

@@ -564,6 +564,10 @@ Hver lesing svarer med `revision`. Send den tilbake som `expectedRevision` på
 neste mutasjon, så blir kallet avvist med `409 CONFLICT` i stedet for å
 overskrive noen som skrev i mellomtiden.
 
+Ett unntak, med vilje: å *trekke tilbake* en delingslenke sjekker ingen revisjon
+og leser ikke dokumentet. En gammel revisjon – eller et dokument som ikke lar seg
+lese – skal aldri kunne holde en offentlig lenke i live.
+
 ### Filer
 
 En fil trenger ikke være base64 over REST. Det publiserte JSON Schema-et
@@ -612,9 +616,11 @@ eieren, og det er derfra `owner_id` kommer på hver skriving.
 
 ### Audit
 
-Hvert agentkall skriver én rad i `slaids_agent_audit`: hvilket token (id og
-navn, aldri tokenet selv), tidspunkt, operasjon, presentasjon, om det gikk, og
-feilkoden. Tabellen har ingen kolonne slideinnhold, filbytes eller hele
+Hvert autentisert kall skriver én rad i `slaids_agent_audit`: hvilket token (id
+og navn, aldri tokenet selv), tidspunkt, operasjon, presentasjon, om det gikk, og
+feilkoden. Også katalogoppslag (`index`, `catalogue`) og forespørsler til en
+ukjent adresse (`unknown_route`) – et stjålet tokens første trekk er å spørre hva
+det får lov til, og det er det tidligste en eier kunne legge merke til. Tabellen har ingen kolonne slideinnhold, filbytes eller hele
 forespørsler kan havne i. Et tilbakekalt token som brukes igjen skrives også
 ned – det er dét en audit er til for – mens et token ingen har sett før ikke
 gjør det, siden det ikke er noen å tilskrive raden.

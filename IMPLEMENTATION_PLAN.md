@@ -2574,6 +2574,13 @@ det er *lagret* – en agentmutasjon er lagret før den svarer, så det finnes i
 ulagret editor å komme foran. Uten en offentlig backend er svaret
 `SHARING_UNAVAILABLE`, aldri en lenke som ser levende ut.
 
+De to retningene er bevisst asymmetriske, og asymmetrien *er* sikkerheten.
+Publisering er vaktet, fordi et snapshot er et bilde av én bestemt versjon.
+Tilbaketrekking er det ikke: den leser ingenting og sjekker ingen revisjon, fordi
+verken en `expectedRevision` som er blitt gammel mens agenten tenkte, eller et
+dokument som ikke lar seg lese, skal kunne holde en offentlig lenke i live.
+Repositoryet tar det samme valget, av den samme grunnen.
+
 **Tokens.** 32 bytes fra plattformens CSPRNG, generert i eierens egen nettleser
 og vist én gang; det som lagres er SHA-256. Ingen server holder noen gang et
 brukbart token, heller ikke den som laget det. Oppslaget er en indeksert likhet
@@ -2588,8 +2595,11 @@ med den samme setningen. «Dette tokenet finnes, det er bare trukket tilbake» e
 noe bare eieren skal få vite, og et endepunkt som sier det svarer på spørsmål på
 vegne av den som stjal tokenet. Eieren får det i auditen i stedet.
 
-**Auditen** er én rad per kall, med en lukket form: `audit.ts` bygger den, og
-hvert felt er en skalar. Det finnes ingen vei fra en forespørselskropp til en
+**Auditen** er én rad per autentisert kall – alle, ikke bare operasjonene:
+katalogoppslag (`index`, `catalogue`) og forespørsler til en ukjent adresse
+(`unknown_route`) også, fordi et stjålet tokens første trekk er å spørre hva det
+får lov til. Formen er lukket: `audit.ts` bygger raden, og hvert felt er en
+skalar. Det finnes ingen vei fra en forespørselskropp til en
 lagret rad, fordi ingenting her tar imot en. Tabellen har ingen kolonne
 slideinnhold, filbytes eller payloads kan havne i – §44 ber om den
 tilbakeholdenheten, og et skjema uten et sted å putte dem er hvordan den
