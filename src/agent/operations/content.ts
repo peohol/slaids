@@ -98,6 +98,7 @@ export const setZoneText = defineOperation({
   summary:
     'Sett teksten i en sone. Er sonen tom, opprettes en beholder med teksten. Avvises hvis teksten ikke får plass.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -182,6 +183,7 @@ export const setZoneCard = defineOperation({
   summary:
     'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel eller kort med tittel. Tekst som ligger der beholdes.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -290,6 +292,7 @@ export const setVerticalAlignment = defineOperation({
   name: 'set_vertical_alignment',
   summary: 'Sett hvor innholdet ligger i høyden det har fått: øverst, midtstilt eller nederst.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,

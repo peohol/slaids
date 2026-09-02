@@ -66,6 +66,7 @@ export const uploadAsset = defineOperation({
   summary:
     'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv.',
   mutates: true,
+  scopes: ['assets:write'],
   input: uploadAssetInput,
   transportInput: uploadAssetTransportInput,
   async run(context, input): Promise<AgentResult<StoredAssetResult>> {
@@ -103,6 +104,7 @@ export const createSvgAsset = defineOperation({
   name: 'create_svg_asset',
   summary: 'Lag en vektorfil direkte fra SVG-markup og få tilbake en assetId.',
   mutates: true,
+  scopes: ['assets:write'],
   input: createSvgAssetInput,
   run(context, input): Promise<AgentResult<StoredAssetResult>> {
     // Sanitising, sizing and storing is `storeAsset`'s job; this operation only
@@ -158,6 +160,7 @@ export const setZoneAsset = defineOperation({
   name: 'set_zone_asset',
   summary: 'Plasser en eksisterende fil som innholdet i en sone.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: setZoneAssetInput,
   run(context, input): Promise<AgentResult<ZoneAssetPlacement>> {
     return mutatePresentation(context, input, (presentation) => {
@@ -209,6 +212,7 @@ export const listAssets = defineOperation({
   name: 'list_assets',
   summary: 'Filene som er registrert i en presentasjon.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: listAssetsInput,
   async run(context, input): Promise<AgentResult<{ assets: ListedAsset[] }>> {
     const loaded = await loadPresentation(context, input.presentationId)

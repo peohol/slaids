@@ -38,6 +38,7 @@ export const validateSlideOperation = defineOperation({
   summary:
     'Sjekk én slide mot domenets regler: struktur, geometri, innhold som ikke får plass, manglende filer og ugyldige referanser. Endrer ingenting.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema, slideId: slideIdSchema }),
   async run(context, input): Promise<AgentResult<ValidationReport>> {
     const loaded = await loadPresentation(context, input.presentationId)
@@ -70,6 +71,7 @@ export const validatePresentationOperation = defineOperation({
   summary:
     'Sjekk hele presentasjonen: lagret form, alle slides og innholdet som ligger i sandkassen. Endrer ingenting.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
   async run(context, input): Promise<AgentResult<ValidationReport>> {
     const loaded = await loadPresentation(context, input.presentationId)

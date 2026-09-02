@@ -15,9 +15,17 @@ import { contentOperations } from './operations/content'
 import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
 import { referenceOperations } from './operations/references'
+import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
 import { validationOperations } from './operations/validation'
-import { agentErr, type AgentContext, type AgentResult, type AnyAgentOperation } from './types'
+import {
+  agentErr,
+  type AgentContext,
+  type AgentError,
+  type AgentResult,
+  type AgentScope,
+  type AnyAgentOperation,
+} from './types'
 
 /**
  * What an MCP server prefixes its tool names with.
@@ -34,6 +42,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...layoutOperations,
   ...contentOperations,
   ...referenceOperations,
+  ...sharingOperations,
   ...assetOperations,
   ...validationOperations,
 ]
@@ -62,6 +71,14 @@ export interface OperationDescription {
    * accepts everything.
    */
   inputSchema: Record<string, unknown>
+  /**
+   * Every scope a caller must hold to run it, straight off the operation.
+   *
+   * Published so an agent can tell in advance which of its calls a token will
+   * refuse, and so the transport that enforces them and the catalogue that
+   * describes them can never disagree — they read the same field.
+   */
+  requiredScopes: AgentScope[]
 }
 
 export function describeOperations(): OperationDescription[] {
@@ -70,11 +87,27 @@ export function describeOperations(): OperationDescription[] {
     toolName: `${AGENT_TOOL_PREFIX}${operation.name}`,
     summary: operation.summary,
     mutates: operation.mutates,
+    requiredScopes: [...operation.scopes],
     inputSchema: z.toJSONSchema(operation.transportInput ?? operation.input, {
       io: 'input',
       unrepresentable: 'throw',
     }) as Record<string, unknown>,
   }))
+}
+
+/**
+ * What an unknown name is answered with.
+ *
+ * Exported because a transport needs the same answer before it has an operation
+ * to work with, and the useful half is the list: an agent that misspelled a name
+ * can see the real ones without a second request.
+ */
+export function unknownOperationError(name: string): AgentError {
+  return {
+    code: 'UNKNOWN_OPERATION',
+    message: `Slaids har ingen operasjon som heter «${name}».`,
+    details: { name, available: operations.map((entry) => entry.name) },
+  }
 }
 
 /**
@@ -91,12 +124,7 @@ export async function runOperation(
   input: unknown,
 ): Promise<AgentResult<unknown>> {
   const operation = findOperation(name)
-  if (!operation) {
-    return agentErr('UNKNOWN_OPERATION', `Slaids har ingen operasjon som heter «${name}».`, {
-      name,
-      available: operations.map((entry) => entry.name),
-    })
-  }
+  if (!operation) return { ok: false, error: unknownOperationError(name) }
 
   const parsed = operation.input.safeParse(input ?? {})
   if (!parsed.success) {

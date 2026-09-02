@@ -14,7 +14,7 @@ import { SlaidsDatabase } from '../persistence/db'
 import { RepositoryError } from '../persistence/repository'
 import type { PresentationSummary } from '../domain/types'
 import { AGENT_TOOL_PREFIX, describeOperations, findOperation, operations, runOperation } from './registry'
-import type { AgentContext } from './types'
+import { AGENT_SCOPES, type AgentContext } from './types'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -87,6 +87,35 @@ describe('operasjonskatalogen', () => {
         'validate_presentation',
       ]),
     )
+  })
+
+  it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
+    for (const operation of operations) {
+      expect(operation.scopes.length).toBeGreaterThan(0)
+      for (const scope of operation.scopes) expect(AGENT_SCOPES).toContain(scope)
+      const writes = operation.scopes.some((scope) => scope.endsWith(':write'))
+      // Both directions. A mutation that only asks for a read scope would be a
+      // write any token could make; a read that asks for a write scope would
+      // make a read-only token useless for the thing it exists for.
+      expect(writes).toBe(operation.mutates)
+    }
+  })
+
+  it('lar ikke vanlig redigering gi rett til å publisere', () => {
+    // §44's own words: "Vanlig presentasjonsredigering skal ikke automatisk gi
+    // rett til å publisere/dele presentasjoner." That is this assertion.
+    const publish = findOperation('set_sharing')
+    expect(publish?.scopes).toEqual(['sharing:write'])
+    for (const operation of operations) {
+      if (operation.name === 'set_sharing') continue
+      expect(operation.scopes).not.toContain('sharing:write')
+    }
+  })
+
+  it('publiserer scopene sammen med skjemaet, fra samme felt', () => {
+    for (const described of describeOperations()) {
+      expect(described.requiredScopes).toEqual([...(findOperation(described.name)?.scopes ?? [])])
+    }
   })
 
   it('lar enhver mutasjon oppgi revisjonen den skriver mot', () => {

@@ -53,6 +53,7 @@ export const listPresentations = defineOperation({
   name: 'list_presentations',
   summary: 'Presentasjonene som finnes, med id, tittel og antall slides.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: z.strictObject({}),
   async run(context): Promise<AgentResult<{ presentations: PresentationSummary[] }>> {
     return agentOk({ presentations: await context.repository.listPresentations() })
@@ -112,6 +113,7 @@ export const getPresentation = defineOperation({
   summary:
     'En presentasjon i agenttermer: tittel, revisjon, slides og hvor mange filer og referanser den har.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
     const loaded = await loadPresentation(context, input.presentationId)
@@ -128,6 +130,7 @@ export const createPresentationOperation = defineOperation({
   name: 'create_presentation',
   summary: 'Opprett en ny presentasjon med én tom slide.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     title: z.string().trim().min(1).max(200).describe('Tittelen på presentasjonen.'),
     folderId: z
@@ -207,6 +210,7 @@ export const inspectSlide = defineOperation({
   name: 'inspect_slide',
   summary: 'Strukturen i én slide: soner, sone-id-er, geometri, tekst og hva som ligger i dem.',
   mutates: false,
+  scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema, slideId: slideIdSchema }),
   async run(context, input): Promise<AgentResult<SlideInspection>> {
     const loaded = await loadPresentation(context, input.presentationId)

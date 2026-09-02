@@ -85,6 +85,7 @@ export const splitZone = defineOperation({
   name: 'split_zone',
   summary: 'Del en sone i 2–10 subsoner og få tilbake id-ene til de nye sonene.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -134,6 +135,7 @@ export const adjustSplit = defineOperation({
   name: 'adjust_split',
   summary: 'Endre retning, forholdstall eller antall subsoner i en sone som allerede er delt.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -185,6 +187,7 @@ export const deleteZone = defineOperation({
   summary:
     'Fjern en subsone. Søsknene fyller plassen. Hovedsonen kan ikke fjernes – bruk clear_zone.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -214,6 +217,7 @@ export const clearZone = defineOperation({
   name: 'clear_zone',
   summary: 'Tøm en sone: innholdet og eventuell oppdeling under den erstattes av én tom sone.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,

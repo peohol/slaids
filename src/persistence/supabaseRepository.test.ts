@@ -583,3 +583,80 @@ describe('SupabaseSlaidsRepository – filer', () => {
     expect(await repository.deleteOrphanAssets()).toBe(0)
   })
 })
+
+/**
+ * The server-side shape of the repository.
+ *
+ * The agent REST layer has no browser session to ask who is signed in — it
+ * authenticates an agent token and reads the owner off that token's row — and
+ * it holds a secret key, which bypasses row level security. Both halves of the
+ * pin are therefore load-bearing: the owner on a write comes from the pin, and
+ * the filter RLS would have applied is written out instead of assumed.
+ */
+describe('SupabaseSlaidsRepository – pinnet til én eier', () => {
+  const PINNED = '99999999-8888-4777-8666-555555555555'
+
+  function pinnedRepositoryFor(options: FakeSupabaseOptions) {
+    const fake = createFakeSupabase({ session: null, ...options })
+    return { repository: new SupabaseSlaidsRepository(() => fake.client, PINNED), fake }
+  }
+
+  it('skriver med eieren fra pinnen, uten en sesjon å spørre', async () => {
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) => (record.op === 'insert' ? { data: { version: 1 } } : { data: [] }),
+    })
+
+    await repository.savePresentation(createPresentation({ title: 'Fra agenten' }))
+
+    const insert = fake.queries.find((record) => record.op === 'insert')
+    expect((insert?.values as { owner_id?: string })?.owner_id).toBe(PINNED)
+  })
+
+  it('filtrerer lesing og skriving på eieren, siden RLS er omgått', async () => {
+    const presentation = createPresentation({ title: 'Eid' })
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) =>
+        record.table === PRESENTATIONS_TABLE && record.op === 'select' && record.single === 'maybe'
+          ? { data: { document: presentation, version: 2 } }
+          : { data: [] },
+    })
+
+    await repository.listPresentations()
+    await repository.loadPresentation(presentation.id)
+    await repository.listAssets(presentation.id)
+    await repository.listFolders()
+    await repository.listTemplates()
+
+    // Every one of them, not most of them: a single unfiltered read against a
+    // key that bypasses RLS is a read of somebody else's rows.
+    for (const record of fake.queries) {
+      expect(filterValue(record, 'owner_id')).toBe(PINNED)
+    }
+  })
+
+  it('holder den vaktede skrivingen bundet til eieren *og* versjonen', async () => {
+    const presentation = createPresentation({ title: 'Vaktet' })
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) =>
+        record.op === 'update' ? { data: [{ version: 4, is_shared: false }] } : { data: { document: presentation, version: 3 } },
+    })
+
+    const loaded = await repository.loadPresentation(presentation.id)
+    await repository.savePresentation(loaded, { expectedRevision: presentationRevision(loaded) })
+
+    const update = fake.queries.find((record) => record.op === 'update')
+    expect(filterValue(update as QueryRecord, 'owner_id')).toBe(PINNED)
+    expect(filterValue(update as QueryRecord, 'version')).toBe(3)
+  })
+
+  it('lar nettleseren være helt uendret: ingen eierfilter uten pin', async () => {
+    // The browser has RLS doing this, and adding a redundant filter there would
+    // be a second copy of the rule that can drift from the policy.
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [] }) })
+    await repository.listPresentations()
+    await repository.listFolders()
+    for (const record of fake.queries) {
+      expect(record.filters.some((filter) => filter.column === 'owner_id')).toBe(false)
+    }
+  })
+})

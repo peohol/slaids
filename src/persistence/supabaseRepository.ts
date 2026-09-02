@@ -160,11 +160,42 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   /**
    * The client is resolved per call rather than stored, so constructing the
    * repository never requires Supabase to be configured.
+   *
+   * `pinnedOwnerId` is for a caller that has no browser session to ask — the
+   * agent REST layer, which authenticates with an agent token and learns the
+   * owner from the token's own row. It changes two things, and both matter:
+   *
+   *  - `owner_id` on a write comes from the pin instead of from
+   *    `auth.getSession()`. The invariant is unchanged: the owner still comes
+   *    from the authenticated principal, never from a caller's payload.
+   *  - every query is filtered on that owner. A server-side client holds a
+   *    secret key, which bypasses row level security, so the filter RLS would
+   *    have applied has to be written down instead of assumed. In the browser
+   *    there is no pin, no filter is added, and RLS is still the only thing
+   *    deciding — exactly as before.
    */
-  constructor(private readonly resolveClient: () => SupabaseClient = getSupabaseClient) {}
+  constructor(
+    private readonly resolveClient: () => SupabaseClient = getSupabaseClient,
+    private readonly pinnedOwnerId?: string,
+  ) {}
 
   private get client(): SupabaseClient {
     return this.resolveClient()
+  }
+
+  /**
+   * Narrow a query to the pinned owner, or leave it alone.
+   *
+   * Unconstrained on purpose. Writing the constraint out — "something with an
+   * `eq` that returns itself" — makes the compiler expand PostgREST's whole
+   * recursive builder generic at every call site, which it refuses to do for
+   * the wider selects. What is left is one narrow cast in one place, and every
+   * filter builder does return itself.
+   */
+  private scoped<Q>(query: Q): Q {
+    if (!this.pinnedOwnerId) return query
+    const filterable = query as { eq(column: string, value: string): Q }
+    return filterable.eq('owner_id', this.pinnedOwnerId)
   }
 
   /** Test seam: forget every known row, as a fresh sign-in would. */
@@ -200,6 +231,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   private async ownerId(): Promise<string> {
+    if (this.pinnedOwnerId) return this.pinnedOwnerId
     const { data, error } = await this.client.auth.getSession()
     if (error) fail('Kunne ikke lese innloggingen', error)
     const id = data?.session?.user?.id
@@ -214,10 +246,11 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * ---------------------------------------------------------------- */
 
   async listPresentations(): Promise<PresentationSummary[]> {
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .select('id, title, folder_id, slide_count, version, created_at, updated_at')
-      .order('updated_at', { ascending: false })
+    const { data, error } = await this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .select('id, title, folder_id, slide_count, version, created_at, updated_at'),
+    ).order('updated_at', { ascending: false })
     if (error) fail('Kunne ikke hente presentasjonene fra Supabase', error)
 
     return ((data ?? []) as PresentationListRow[]).map((row) => {
@@ -240,14 +273,15 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async loadPresentation(id: string): Promise<Presentation> {
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      // `is_shared` comes along so a save knows whether it also has to publish,
-      // without a second round trip and without depending on the share UI
-      // having asked first.
-      .select('document, version, is_shared')
-      .eq('id', id)
-      .maybeSingle()
+    const { data, error } = await this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        // `is_shared` comes along so a save knows whether it also has to publish,
+        // without a second round trip and without depending on the share UI
+        // having asked first.
+        .select('document, version, is_shared')
+        .eq('id', id),
+    ).maybeSingle()
     if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
     if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
 
@@ -369,10 +403,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       ? { ...row, shared_document: buildSharedSnapshot(document) }
       : row
 
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .update(payload)
-      .eq('id', document.id)
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).update(payload).eq('id', document.id),
+    )
       .eq('version', expectedVersion)
       .select('version, is_shared')
     if (error) fail('Kunne ikke lagre presentasjonen', error)
@@ -414,7 +447,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // and the latter is what `deleteOrphanAssets` reclaims.
     const paths = await this.assetPaths(id)
     // The asset rows go with the presentation through the foreign key.
-    const { error } = await this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id)
+    const { error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
+    )
     if (error) fail('Kunne ikke slette presentasjonen', error)
     // Deleting through this repository is a local decision, so this is the one
     // place the row may be forgotten: a later save of the same id really is new.
@@ -440,11 +475,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * ---------------------------------------------------------------- */
 
   async readShareState(presentationId: string): Promise<ShareState> {
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .select('is_shared, share_token')
-      .eq('id', presentationId)
-      .maybeSingle()
+    const { data, error } = await this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .select('is_shared, share_token')
+        .eq('id', presentationId),
+    ).maybeSingle()
     if (error) fail('Kunne ikke lese delingsstatusen', error)
     if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${presentationId}».`)
     return this.rememberShareState(presentationId, data as ShareRow)
@@ -464,10 +500,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // somebody happens to save again. Guarded, that race turns into a conflict
     // the user can answer instead.
     const known = this.knownVersions.get(presentationId)
-    const guarded = this.client
-      .from(PRESENTATIONS_TABLE)
-      .update({ is_shared: true, share_token: token, shared_document: snapshot })
-      .eq('id', presentationId)
+    const guarded = this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .update({ is_shared: true, share_token: token, shared_document: snapshot })
+        .eq('id', presentationId),
+    )
     const { data, error } = await (known === undefined
       ? guarded
       : guarded.eq('version', known)
@@ -485,11 +523,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * message the user gets is true rather than a guess.
    */
   private async explainMissedShareWrite(presentationId: string): Promise<RepositoryError> {
-    const { data } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .select('id')
-      .eq('id', presentationId)
-      .maybeSingle()
+    const { data } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).select('id').eq('id', presentationId),
+    ).maybeSingle()
     if (!data) {
       return new RepositoryError(
         'Fant ikke presentasjonen i Supabase. Den kan være slettet et annet sted.',
@@ -505,11 +541,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // Rotated on the way out too: from here the address that was in circulation
     // is dead, whatever happens next.
     const token = newShareToken()
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .update({ is_shared: false, share_token: token, shared_document: null })
-      .eq('id', presentationId)
-      .select('is_shared, share_token')
+    const { data, error } = await this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .update({ is_shared: false, share_token: token, shared_document: null })
+        .eq('id', presentationId),
+    ).select('is_shared, share_token')
     if (error) fail('Kunne ikke slå av delingen', error)
 
     const rows = (data ?? []) as ShareRow[]
@@ -542,10 +579,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     snapshot: SharedPresentationSnapshot,
     version: number,
   ): Promise<void> {
-    const { error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .update({ shared_document: snapshot })
-      .eq('id', presentationId)
+    const { error } = await this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .update({ shared_document: snapshot })
+        .eq('id', presentationId),
+    )
       .eq('version', version)
       .eq('is_shared', true)
     if (error) fail('Kunne ikke oppdatere den delte kopien', error)
@@ -556,10 +595,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * ---------------------------------------------------------------- */
 
   async listFolders(): Promise<Folder[]> {
-    const { data, error } = await this.client
-      .from(FOLDERS_TABLE)
-      .select('id, name, created_at')
-      .order('name')
+    const { data, error } = await this.scoped(
+      this.client.from(FOLDERS_TABLE).select('id, name, created_at'),
+    ).order('name')
     if (error) fail('Kunne ikke hente mappene', error)
 
     const folders: Folder[] = []
@@ -583,10 +621,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
 
   /** Presentations in a deleted folder move back to the root rather than vanish. */
   async deleteFolder(id: string): Promise<void> {
-    const { data, error } = await this.client
-      .from(PRESENTATIONS_TABLE)
-      .select('id, document, version')
-      .eq('folder_id', id)
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('folder_id', id),
+    )
     if (error) fail('Kunne ikke hente presentasjonene i mappen', error)
 
     for (const row of (data ?? []) as { id: string; document: unknown; version: number | null }[]) {
@@ -594,10 +631,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       // and the document itself — so both have to move back to the root.
       const document = { ...(row.document as Presentation), folderId: null }
       const known = numberOr(row.version, 0)
-      const update = await this.client
-        .from(PRESENTATIONS_TABLE)
-        .update({ folder_id: null, document })
-        .eq('id', row.id)
+      const update = await this.scoped(
+        this.client
+          .from(PRESENTATIONS_TABLE)
+          .update({ folder_id: null, document })
+          .eq('id', row.id),
+      )
         .eq('version', known)
         .select('version')
       if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
@@ -611,7 +650,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
     }
 
-    const removed = await this.client.from(FOLDERS_TABLE).delete().eq('id', id)
+    const removed = await this.scoped(this.client.from(FOLDERS_TABLE).delete().eq('id', id))
     if (removed.error) fail('Kunne ikke slette mappen', removed.error)
   }
 
@@ -620,10 +659,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * ---------------------------------------------------------------- */
 
   async listTemplates(): Promise<LayoutTemplate[]> {
-    const { data, error } = await this.client
-      .from(TEMPLATES_TABLE)
-      .select('template, created_at')
-      .order('created_at')
+    const { data, error } = await this.scoped(
+      this.client.from(TEMPLATES_TABLE).select('template, created_at'),
+    ).order('created_at')
     if (error) fail('Kunne ikke hente malene', error)
 
     const templates: LayoutTemplate[] = []
@@ -653,11 +691,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // row this user cannot see. Updating first keeps that impossible: an id
     // that is ours matches and updates, and one that is not falls through to
     // an insert whose unique violation is a conflict the caller can answer.
-    const updated = await this.client
-      .from(TEMPLATES_TABLE)
-      .update(row)
-      .eq('id', payload.id)
-      .select('id')
+    const updated = await this.scoped(
+      this.client.from(TEMPLATES_TABLE).update(row).eq('id', payload.id),
+    ).select('id')
     if (updated.error) fail('Kunne ikke lagre malen', updated.error)
     if (((updated.data ?? []) as unknown[]).length > 0) return
 
@@ -676,7 +712,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async deleteTemplate(id: string): Promise<void> {
-    const { error } = await this.client.from(TEMPLATES_TABLE).delete().eq('id', id)
+    const { error } = await this.scoped(
+      this.client.from(TEMPLATES_TABLE).delete().eq('id', id),
+    )
     if (error) fail('Kunne ikke slette malen', error)
   }
 
@@ -721,11 +759,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async getAsset(id: string): Promise<StoredAsset | null> {
-    const { data, error } = await this.client
-      .from(ASSETS_TABLE)
-      .select('ref, object_path')
-      .eq('id', id)
-      .maybeSingle()
+    const { data, error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).select('ref, object_path').eq('id', id),
+    ).maybeSingle()
     if (error) fail('Kunne ikke hente filen', error)
     if (!data) return null
 
@@ -743,10 +779,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async listAssets(presentationId: string): Promise<AssetRef[]> {
-    const { data, error } = await this.client
-      .from(ASSETS_TABLE)
-      .select('ref')
-      .eq('presentation_id', presentationId)
+    const { data, error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).select('ref').eq('presentation_id', presentationId),
+    )
     if (error) fail('Kunne ikke hente filene til presentasjonen', error)
 
     const refs: AssetRef[] = []
@@ -759,31 +794,32 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
 
   async existingAssetIds(ids: readonly string[]): Promise<string[]> {
     if (ids.length === 0) return []
+    // Deliberately not scoped to the owner. The question is "does this id
+    // already name a stored file", and an id that belongs to somebody else is
+    // exactly the answer an importer must not miss — writing over it would take
+    // their picture away.
     const { data, error } = await this.client.from(ASSETS_TABLE).select('id').in('id', [...ids])
     if (error) fail('Kunne ikke sjekke hvilke filer som finnes fra før', error)
     return ((data ?? []) as { id: string }[]).map((row) => row.id)
   }
 
   async deleteAsset(id: string): Promise<void> {
-    const { data, error } = await this.client
-      .from(ASSETS_TABLE)
-      .select('object_path')
-      .eq('id', id)
-      .maybeSingle()
+    const { data, error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).select('object_path').eq('id', id),
+    ).maybeSingle()
     if (error) fail('Kunne ikke hente filen', error)
     if (!data) return
 
-    const removed = await this.client.from(ASSETS_TABLE).delete().eq('id', id)
+    const removed = await this.scoped(this.client.from(ASSETS_TABLE).delete().eq('id', id))
     if (removed.error) fail('Kunne ikke slette filen', removed.error)
     await this.reclaimObjects([(data as { object_path: string }).object_path])
   }
 
   async deleteAssetsForPresentation(presentationId: string): Promise<void> {
     const paths = await this.assetPaths(presentationId)
-    const { error } = await this.client
-      .from(ASSETS_TABLE)
-      .delete()
-      .eq('presentation_id', presentationId)
+    const { error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).delete().eq('presentation_id', presentationId),
+    )
     if (error) fail('Kunne ikke slette filene til presentasjonen', error)
     await this.reclaimObjects(paths)
   }
@@ -848,10 +884,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     const alive = new Set<string>()
     for (let index = 0; index < folders.length; index += ID_FILTER_BATCH) {
       const batch = folders.slice(index, index + ID_FILTER_BATCH)
-      const { data, error } = await this.client
-        .from(PRESENTATIONS_TABLE)
-        .select('id')
-        .in('id', batch)
+      const { data, error } = await this.scoped(
+        this.client.from(PRESENTATIONS_TABLE).select('id'),
+      ).in('id', batch)
       if (error) return 0
       for (const row of (data ?? []) as { id: string }[]) alive.add(row.id)
     }
@@ -876,10 +911,9 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   private async assetPaths(presentationId: string): Promise<string[]> {
-    const { data, error } = await this.client
-      .from(ASSETS_TABLE)
-      .select('object_path')
-      .eq('presentation_id', presentationId)
+    const { data, error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).select('object_path').eq('presentation_id', presentationId),
+    )
     if (error) fail('Kunne ikke hente filene til presentasjonen', error)
     return ((data ?? []) as { object_path: unknown }[])
       .map((row) => row.object_path)

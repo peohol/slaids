@@ -65,6 +65,7 @@ export const addSlideOperation = defineOperation({
   name: 'add_slide',
   summary: 'Legg til en ny, tom slide.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -102,6 +103,7 @@ export const duplicateSlideOperation = defineOperation({
   name: 'duplicate_slide',
   summary: 'Lag en kopi av en slide rett etter originalen.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -127,6 +129,7 @@ export const moveSlideOperation = defineOperation({
   name: 'move_slide',
   summary: 'Flytt en slide til en annen posisjon i dekket.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -152,6 +155,7 @@ export const deleteSlideOperation = defineOperation({
   name: 'delete_slide',
   summary: 'Slett en slide. Den siste sliden i en presentasjon kan ikke slettes.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -177,6 +181,7 @@ export const setSlideTitleOperation = defineOperation({
   name: 'set_slide_title',
   summary: 'Sett overskriften på en slide. Avvises hvis den ikke får plass på én linje.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
