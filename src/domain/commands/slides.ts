@@ -2,7 +2,7 @@
  * Slide-level domain commands.
  */
 
-import { computeMainRect, computeTitleRect } from '../geometry'
+import { computeMainRect, computeTitleRect, TITLE_NODE_ID } from '../geometry'
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
@@ -49,9 +49,13 @@ export function addSlide(
   // check as any other way of putting content on a slide. There is no baseline
   // to regress from on a brand new slide, so this one is absolute.
   const mainRect = computeMainRect(hasTitle, geometryFor(presentation, input.geometry))
-  for (const overflow of subtreeOverflow(slide.root, mainRect, context, input).values()) {
+  for (const [nodeId, overflow] of subtreeOverflow(slide.root, mainRect, context, input)) {
     if (overflow > FIT_TOLERANCE) {
-      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass på den nye sliden.', { overflow })
+      return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass på den nye sliden.', {
+        slideId: slide.id,
+        nodeId,
+        overflow,
+      })
     }
   }
 
@@ -63,6 +67,8 @@ export function addSlide(
     const fit = input.fitsTitle(slide.title, titleRect, context)
     if (!fit.fits) {
       return err('CONTENT_DOES_NOT_FIT', 'Overskriften får ikke plass i tittelsonen.', {
+        slideId: slide.id,
+        nodeId: TITLE_NODE_ID,
         overflow: fit.overflow,
       })
     }

@@ -92,6 +92,8 @@ export function splitLeaf(
   const preview = previewSplit(area, input.axis, input.weights, input.geometry)
   if (!preview.valid) {
     return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små.', {
+      slideId: input.slideId,
+      nodeId: input.nodeId,
       tooSmall: preview.tooSmall,
     })
   }
@@ -114,6 +116,9 @@ export function splitLeaf(
       const fallback = input.contentFallback ?? 'sandbox'
       if (fallback === 'delete') {
         return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i den valgte subsonen.', {
+          slideId: input.slideId,
+          nodeId: input.nodeId,
+          childIndex: targetIndex,
           overflow: fit.overflow,
         })
       }
@@ -191,6 +196,8 @@ export function updateSplit(
   const preview = previewSplit(area, axis, weights, input.geometry, children)
   if (!preview.valid) {
     return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små for innholdet sitt.', {
+      slideId: input.slideId,
+      nodeId: input.nodeId,
       tooSmall: preview.tooSmall,
     })
   }
@@ -351,6 +358,8 @@ export function setZoneContent(
     const fit = input.fits?.(input.content, area, fitContextFor(next))
     if (fit && !fit.fits) {
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i sonen.', {
+        slideId: input.slideId,
+        nodeId: input.nodeId,
         overflow: fit.overflow,
       })
     }
@@ -416,6 +425,8 @@ export function moveZoneContent(
   const fit = input.fits?.(placed, area, fitContextFor(next))
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
+      slideId: targetSlideId,
+      nodeId: input.toNodeId,
       overflow: fit.overflow,
     })
   }

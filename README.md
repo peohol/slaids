@@ -395,9 +395,25 @@ ingen kobling mot noen ekstern bildetjeneste – betalt eller gratis. Et bilde
 kommer alltid ferdig utenfra. Det er en produktgrense, ikke en manglende
 funksjon: Slaids er en layoutmotor.
 
-Et første, transportuavhengig agentlag ligger i `src/agent/` (Agent Core). Det
-gir en agent semantiske operasjoner over de samme domenekommandoene som UI-et
-bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
+Et transportuavhengig agentlag ligger i `src/agent/` (Agent Core). Det gir en
+agent semantiske operasjoner over de samme domenekommandoene som UI-et bruker –
+aldri rå JSON – og med nøyaktig de samme reglene: minstemål på soner, ett gap,
+innhold og overskrifter som må få plass, referanseintegritet.
+
+En agent kan opprette en presentasjon, legge til og flytte slides, dele soner,
+fylle dem med tekst, legge inn referanser og sitere dem, plassere bilder, og be
+om en eksplisitt sluttkontroll – uten React, museklikk eller databasetilgang:
+
+| Operasjon                                                              | Hva den gjør                                  |
+| ---------------------------------------------------------------------- | --------------------------------------------- |
+| `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`, `delete_slide` | bygger dekket                     |
+| `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst og revisjon     |
+| `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
+| `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title` | innholdet                              |
+| `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
+| `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
+
+For bilder finnes det nøyaktig to dører inn:
 
 | Operasjon          | Hva agenten sender                          | Hva den får      |
 | ------------------ | ------------------------------------------- | ---------------- |
@@ -432,6 +448,23 @@ bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
 - Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
   sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
+Tre ting til er verdt å vite om hvordan laget oppfører seg:
+
+- **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
+  avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
+  citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`
+  leser det tilbake i samme format. Innhold formatet ikke kan uttrykke (en
+  tabell, en kodeblokk) kommer tilbake som en `unsupported`-blokk med teksten
+  sin, slik at ingenting er usynlig, og kan ikke sendes inn igjen.
+- **En feil som ikke får plass er handlingsbar.** `CONTENT_DOES_NOT_FIT` bærer
+  slide, sone, hvor mye som ikke fikk plass og hvor stor sonen er, så en agent
+  kan forkorte og prøve igjen uten å gjette. Ingenting lagres når en operasjon
+  avvises – heller ikke halvveis gjennom en sammensatt operasjon.
+- **En agent som leste før noen andre skrev får beskjed.** Hver lesing svarer med
+  en `revision`, og hver mutasjon kan sende den tilbake som `expectedRevision`.
+  Har presentasjonen endret seg i mellomtiden, blir kallet avvist med `CONFLICT`
+  i stedet for å overskrive den nyere versjonen.
+
 Dette er **fundamentet** for et senere REST/MCP-API, ikke nettverkseksponering:
 Agent Core kjører i samme prosess som resten av appen, har nøyaktig den tilgangen
 den innloggede brukeren har, og har ingen HTTP-inngang. Se `IMPLEMENTATION_PLAN.md`
@@ -442,7 +475,8 @@ den innloggede brukeren har, og har ingen HTTP-inngang. Se `IMPLEMENTATION_PLAN.
 ```
 src/
   domain/        headless kjerne: typer, geometry engine, layouttre, kommandoer,
-                 Zod-schema, migrasjoner, referanser, farger, fit
+                 Zod-schema, migrasjoner, referanser, farger, fit, validering,
+                 revisjon
   agent/         Agent Core: transportuavhengige, semantiske operasjoner over
                  domenekommandoene (grunnlaget for senere REST/MCP)
   persistence/   SlaidsRepository + Dexie/IndexedDB og Supabase, assets, .slaids-backup
@@ -470,11 +504,10 @@ Regler som gjelder overalt:
 
 ## Ikke bygget ennå
 
-REST-endepunkter, MCP-server og agenttokens er bevisst utenfor scope i denne
-fasen. Agent Core (`src/agent/`) er første steg og kjører bare i prosessen;
-transporten legges oppå den uten å endre domenemodellen. Resten av den
-semantiske operasjonslisten – nye slides, splitting av soner, referanser,
-validering – plugges inn i det samme registeret.
+REST-endepunkter, MCP-server, agenttokens og rendret preview er bevisst utenfor
+scope i denne fasen. Agent Core (`src/agent/`) er ferdig og kjører bare i
+prosessen; transporten legges oppå den uten å endre domenemodellen, og henter
+operasjonsnavn og JSON Schema fra det samme registeret.
 
 Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller

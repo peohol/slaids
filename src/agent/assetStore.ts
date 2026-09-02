@@ -19,12 +19,13 @@
 import { registerAsset } from '../domain/commands'
 import { MAX_ASSET_BYTES } from '../domain/constants'
 import { newAssetId } from '../domain/ids'
+import { presentationRevision } from '../domain/revision'
 import { probeImageFormat } from '../domain/imageBytes'
 import { readRasterImage } from '../domain/imageFile'
 import { bytesToBlob } from '../persistence/blob'
 import { sanitizeSvg, SVG_MIME_TYPE, type SvgSanitizeReport } from '../domain/svg'
-import type { AssetRef } from '../domain/types'
-import { loadPresentation, savePresentation, storageFailure } from './presentation'
+import type { AssetRef, Presentation } from '../domain/types'
+import { loadPresentation, revisionConflict, savePresentation, storageFailure } from './presentation'
 import {
   agentErr,
   agentOk,
@@ -36,6 +37,8 @@ import {
 
 export interface StoreAssetInput {
   presentationId: string
+  /** The reading the caller wrote against; see `presentation.ts`. */
+  expectedRevision?: string
   name: string
   bytes: Uint8Array
   /**
@@ -50,6 +53,8 @@ export interface StoreAssetInput {
 export interface StoredAssetResult {
   assetId: string
   ref: AssetRef
+  /** The presentation's revision after the file was registered. */
+  revision: string
   /** Present when the file was SVG: what the sanitiser dropped, if anything. */
   sanitized?: SvgSanitizeReport
 }
@@ -107,6 +112,11 @@ export async function storeAsset(
   const loaded = await loadPresentation(context, input.presentationId)
   if (!loaded.ok) return loaded
 
+  // Checked before a single byte is written: a conflict that is discovered
+  // after the file is stored leaves an orphan to clean up for nothing.
+  const conflict = revisionConflict(loaded.value, input.expectedRevision)
+  if (conflict) return conflict
+
   const ref: AssetRef = {
     id: newAssetId(),
     name,
@@ -116,8 +126,16 @@ export async function storeAsset(
     height,
     isVector: format.isVector,
   }
-  const success = (): AgentResult<StoredAssetResult> =>
-    agentOk({ assetId: ref.id, ref, ...(sanitized ? { sanitized } : {}) })
+  // The revision reported is the one of the document that is actually stored,
+  // which in the ambiguous case below is the copy read back from the store
+  // rather than the one this process built.
+  const success = (stored: Presentation): AgentResult<StoredAssetResult> =>
+    agentOk({
+      assetId: ref.id,
+      ref,
+      revision: presentationRevision(stored),
+      ...(sanitized ? { sanitized } : {}),
+    })
 
   try {
     await context.repository.putAsset(input.presentationId, ref, bytesToBlob(bytes, ref.mimeType))
@@ -133,7 +151,7 @@ export async function storeAsset(
   }
 
   const saved = await savePresentation(context, registered.value)
-  if (saved.ok) return success()
+  if (saved.ok) return success(saved.value)
   return resolveAmbiguousRegistration(context, input.presentationId, ref, saved, success)
 }
 
@@ -164,12 +182,12 @@ async function resolveAmbiguousRegistration(
   presentationId: string,
   ref: AssetRef,
   failure: AgentFailure,
-  success: () => AgentResult<StoredAssetResult>,
+  success: (stored: Presentation) => AgentResult<StoredAssetResult>,
 ): Promise<AgentResult<StoredAssetResult>> {
   const stored = await loadPresentation(context, presentationId)
 
   if (stored.ok) {
-    if (stored.value.assets.some((asset) => asset.id === ref.id)) return success()
+    if (stored.value.assets.some((asset) => asset.id === ref.id)) return success(stored.value)
     await discard(context, ref.id)
     return failure
   }

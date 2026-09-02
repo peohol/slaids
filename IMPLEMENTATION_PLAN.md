@@ -2331,15 +2331,27 @@ uten:
 
 ### Status: hva som er bygget
 
-Fase 1 er påbegynt og fase 2 er på plass:
+Fase 1 og fase 2 er på plass:
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
   (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
-  feilkodene; `presentation.ts` er load → domenekommando → save, med
-  fit-sjekkerne som aldri utelates; `assetStore.ts` er den ene veien et asset
-  kommer inn; `operations/` er selve operasjonene.
-- Operasjoner: `list_presentations`, `get_presentation`, `inspect_slide`,
-  `upload_asset`, `create_svg_asset`, `set_zone_asset`, `list_assets`.
+  feilkodene; `presentation.ts` er load → revisjonssjekk → domenekommandoer →
+  save, med fit-sjekkerne som aldri utelates; `text.ts` er det agentvennlige
+  tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
+  `operations/` er selve operasjonene.
+- Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
+  `list_assets`, `validate_slide`, `validate_presentation`.
+- Skriving: `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`,
+  `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
+  `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
+  `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
+  `create_svg_asset`, `set_zone_asset`.
+- Ingen av dem inneholder domenelogikk. Manglet det en kommando, ble den laget i
+  `src/domain/` og brukes av begge: `src/domain/validation.ts` (read-only
+  invariantsjekk) og `src/domain/revision.ts` (revisjonen).
+- Inndataskjemaene er strenge (`z.strictObject`). Et felt som ikke finnes er en
+  feil, ikke noe som stille forsvinner – en skrivefeil i `expectedRevision` ville
+  ellers vært en samtidighetssjekk som stille ikke skjedde.
 - `src/domain/svg.ts` – en ekte parser, ikke regex, mot en allowlist, med
   reserialisering fra det parsede treet: det som lagres er bare det Slaids
   faktisk forsto. `UNSAFE_SVG` for det som prøver å kjøre eller hente noe,
@@ -2429,10 +2441,76 @@ kaller inn. Skjemaet genereres med `unrepresentable: 'throw'`, slik at en type
 som ikke lar seg uttrykke i JSON Schema stopper genereringen i stedet for å bli
 publisert som et tomt `{}` som lover ingenting og godtar alt.
 
-Fortsatt ikke bygget: resten av fase 1 (opprette presentasjon, slides, layout,
-tekstinnhold, referanser, validering) og fase 3–5 i sin helhet. Agent Core er
-ikke nettverkseksponert – den kjører i prosessen og har nøyaktig den tilgangen
-den innloggede brukeren har.
+#### Tekstformatet er en grense, ikke en oversettelse
+
+`src/agent/text.ts` er det eneste stedet ProseMirror/Tiptap-JSON møter
+agentkontrakten. En agent sender navngitte blokker – `paragraph`, `heading`,
+`quote`, `bullets`, `numbered` – med spans som er tekst, et linjeskift eller en
+citation med reference-ID-er. Alt er Zod-validert, og objektene er strenge, så
+en feilskrevet nøkkel er en avvisning og ikke et felt som ikke gjør noe.
+
+Bevisst ikke markdown: en markdown-parser er en andre, uformell grammatikk med
+egne kanttilfeller, og feilene den gjør er stille – feil struktur, ikke en feil.
+
+To ting formatet ikke kan uttrykke, og hva som skjer med dem:
+
+- **Struktur editoren kan lage og formatet ikke kan** – tabell, kodeblokk,
+  innfelt bilde, nøstet liste. Lesing gir en `unsupported`-blokk som navngir
+  noden og bærer teksten dens, slik at en agent ser at noe er der og at det ville
+  bli erstattet. Den er ikke en del av det en agent kan *sende*: å finne på en
+  skrivevei for en form formatet ikke modellerer er der stille ødeleggelse
+  begynner.
+- **Nummeret på en citation.** Citationen lagrer ID-er; nummeret utledes av
+  første forekomst gjennom hele dekket ved rendring. En agent skriver ID-er og
+  leser ID-er tilbake. Citationer som havner inntil hverandre slås sammen på vei
+  inn, akkurat som i editoren, slik at det som måles er det som tegnes.
+
+`href` er protokollbegrenset i selve skjemaet (http, https, mailto). Den statiske
+rendereren lager en ekte `<a href>` av en link-mark, så en `javascript:`-lenke må
+avvises før den blir et dokument – ikke etterpå.
+
+#### Revisjon er ikke en ny lås
+
+`src/domain/revision.ts` er en kort digest av dokumentet. `get_presentation`,
+`inspect_slide` og enhver mutasjon svarer med den, og enhver mutasjon kan ta imot
+den som `expectedRevision`.
+
+Den erstatter ikke den optimistiske låsen i repository-laget og er ikke en andre
+lås ved siden av den. De dekker to forskjellige vinduer:
+
+- repositoryets `version`-guard dekker øyeblikket mellom lasting og skriving inne
+  i én operasjon. Det er den som avgjør om en skriving lander.
+- revisjonen dekker det mye lengre vinduet mellom at en agent *leser* og
+  *bestemmer seg*. En agent kan inspisere en slide, tenke, og komme tilbake et
+  minutt senere; dokumentet den resonnerte om kan være borte da, og ingen
+  skrivetidssjekk kan se det, fordi selve skrivingen er utledet av en helt fersk
+  lesing.
+
+Derfor sammenlignes en oppgitt revisjon mot dokumentet som nettopp ble lastet,
+før noen kommando kjøres, og en mismatch er `CONFLICT` framfor en overskriving.
+Digesten regnes over dokumentet slik det *lagres* – nøkkelrekkefølge ignoreres,
+og `undefined` behandles som JSON behandler det – slik at revisjonen en mutasjon
+svarer med er den samme som neste lesing gir.
+
+#### Fit-feil er handlingsbare
+
+En avvisning bærer `slideId`, `nodeId`, `overflow`, sonens `rect` og `subject`
+(`zone-content` eller `slide-title`). Kommandoene fyller inn det de vet;
+agentlaget fyller inn det bare kalleren visste. Det er dét som gjør løkken
+`set_zone_text → CONTENT_DOES_NOT_FIT → kortere tekst → set_zone_text` mulig uten
+gjetting: overflow sier hvor mye som ikke fikk plass, rect hvor mye plass det var.
+
+#### Atomisitet uten transaksjon
+
+Domenekommandoer er rene: de tar en presentasjon og returnerer en ny. En
+sammensatt operasjon som `set_zone_card` (konverter, del i subfelt, sett
+korttittel, sett farge) kjeder dem i minnet med `applySteps` og lagrer én gang.
+Feiler et hvilket som helst steg, ble ingenting lagret – ikke fordi det rulles
+tilbake, men fordi det aldri ble skrevet.
+
+Fortsatt ikke bygget: fase 3–5 i sin helhet. Agent Core er ikke
+nettverkseksponert – den kjører i prosessen og har nøyaktig den tilgangen den
+innloggede brukeren har.
 
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
