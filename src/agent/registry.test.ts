@@ -7,6 +7,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { createPresentation } from '../domain/presentation'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
@@ -57,6 +58,63 @@ describe('operasjonskatalogen', () => {
     expect(names).toContain('create_svg_asset')
     expect(names).toContain('set_zone_asset')
     expect(names.some((name) => /generate.*image|image.*generate/.test(name))).toBe(false)
+  })
+
+  it('har hele fase 1-flaten fra §44', () => {
+    const names = operations.map((operation) => operation.name)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'list_presentations',
+        'get_presentation',
+        'create_presentation',
+        'inspect_slide',
+        'add_slide',
+        'duplicate_slide',
+        'move_slide',
+        'delete_slide',
+        'set_slide_title',
+        'split_zone',
+        'adjust_split',
+        'delete_zone',
+        'clear_zone',
+        'set_zone_text',
+        'set_zone_card',
+        'set_vertical_alignment',
+        'add_reference',
+        'update_reference',
+        'delete_reference',
+        'validate_slide',
+        'validate_presentation',
+      ]),
+    )
+  })
+
+  it('lar enhver mutasjon oppgi revisjonen den skriver mot', () => {
+    // Uniform on purpose: an agent must not have to know which writes can be
+    // guarded against a stale reading and which cannot.
+    for (const operation of operations.filter((entry) => entry.mutates)) {
+      const properties = (
+        z.toJSONSchema(operation.transportInput ?? operation.input, { io: 'input' }) as {
+          properties?: Record<string, unknown>
+        }
+      ).properties
+      if (operation.name === 'create_presentation') {
+        // Nothing exists yet, so there is no reading to be stale.
+        expect(properties).not.toHaveProperty('expectedRevision')
+        continue
+      }
+      expect(properties).toHaveProperty('expectedRevision')
+    }
+  })
+
+  it('avviser felter som ikke finnes i stedet for å ignorere dem stille', async () => {
+    // A misspelled `expectedRevision` that is silently dropped is a
+    // concurrency check that silently does not happen.
+    const result = await runOperation(freshContext(), 'get_presentation', {
+      presentationId: 'p1',
+      expectedRevison: 'abc',
+    })
+    expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } })
   })
 
   it('beskriver hver operasjon med et JSON Schema et MCP-lag kan publisere', () => {

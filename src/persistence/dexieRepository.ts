@@ -7,6 +7,7 @@
  */
 
 import { migratePresentation } from '../domain/migrations'
+import { presentationRevision } from '../domain/revision'
 import { validateLayoutTemplate } from '../domain/schema'
 import { summarize } from '../domain/presentation'
 import type {
@@ -16,10 +17,12 @@ import type {
   Presentation,
   PresentationSummary,
 } from '../domain/types'
-import { db, type SlaidsDatabase } from './db'
+import { db, type PresentationRecord, type SlaidsDatabase } from './db'
 import {
+  RepositoryConflictError,
   RepositoryError,
   RepositoryNotFoundError,
+  type SaveGuard,
   type SlaidsRepository,
   type StoredAsset,
 } from './repository'
@@ -51,16 +54,37 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     return migrated.value
   }
 
-  async savePresentation(presentation: Presentation): Promise<void> {
+  async savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void> {
     // Strip any accidental non-cloneable values and keep the record indexable.
     const data = JSON.parse(JSON.stringify(presentation)) as Presentation
-    await this.database.presentations.put({
+    const record: PresentationRecord = {
       id: data.id,
       title: data.title,
       folderId: data.folderId,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
       data,
+    }
+    if (!guard) {
+      await this.database.presentations.put(record)
+      return
+    }
+
+    // There is no version column here, so the comparison is against the stored
+    // document itself — and it has to happen in the same transaction as the
+    // write, or it is not a guard at all: two writers can both read, both agree
+    // the document is the one they loaded, and the second `put` still wins.
+    // IndexedDB serialises `rw` transactions on the same store, so this is the
+    // compare-and-swap that the Supabase `version` guard is over there.
+    await this.database.transaction('rw', this.database.presentations, async () => {
+      const stored = await this.database.presentations.get(data.id)
+      // No row means nothing to overwrite: an insert is not a lost update.
+      if (stored && presentationRevision(stored.data) !== guard.expectedRevision) {
+        throw new RepositoryConflictError(
+          `«${data.title}» er endret et annet sted siden den ble lest. Les den på nytt før du lagrer.`,
+        )
+      }
+      await this.database.presentations.put(record)
     })
   }
 

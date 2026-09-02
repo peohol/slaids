@@ -11,7 +11,12 @@
 import { z } from 'zod'
 import { RepositoryConflictError, RepositoryError } from '../persistence/repository'
 import { assetOperations } from './operations/assets'
+import { contentOperations } from './operations/content'
 import { deckOperations } from './operations/deck'
+import { layoutOperations } from './operations/layout'
+import { referenceOperations } from './operations/references'
+import { slideOperations } from './operations/slides'
+import { validationOperations } from './operations/validation'
 import { agentErr, type AgentContext, type AgentResult, type AnyAgentOperation } from './types'
 
 /**
@@ -23,7 +28,15 @@ import { agentErr, type AgentContext, type AgentResult, type AnyAgentOperation }
  */
 export const AGENT_TOOL_PREFIX = 'slaids_'
 
-export const operations: readonly AnyAgentOperation[] = [...deckOperations, ...assetOperations]
+export const operations: readonly AnyAgentOperation[] = [
+  ...deckOperations,
+  ...slideOperations,
+  ...layoutOperations,
+  ...contentOperations,
+  ...referenceOperations,
+  ...assetOperations,
+  ...validationOperations,
+]
 
 const byName = new Map<string, AnyAgentOperation>(
   operations.map((operation) => [operation.name, operation]),

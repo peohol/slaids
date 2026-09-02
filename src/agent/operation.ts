@@ -37,6 +37,33 @@ export const nodeIdSchema = z
   .min(1)
   .describe('Id-en til sonen i slidens layouttre. En sone med innhold er alltid et blad.')
 
+export const subfieldIdSchema = z
+  .string()
+  .min(1)
+  .describe('Id-en til tekstfeltet inne i innholdet, fra inspect_slide.')
+
+/**
+ * The reading a mutation is written against.
+ *
+ * Optional, because a caller that reads and writes in one go has nothing to be
+ * stale about. A caller that reads, thinks and comes back sends the revision it
+ * read: if the presentation moved on in the meantime it gets a `CONFLICT` and
+ * can read again, instead of quietly overwriting whoever wrote first.
+ */
+export const expectedRevisionSchema = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    'Revisjonen fra get_presentation eller inspect_slide. Er presentasjonen endret siden da, avvises kallet med CONFLICT i stedet for å overskrive.',
+  )
+
+/** What happens to content a structural change would otherwise destroy. */
+export const dispositionSchema = z
+  .enum(['sandbox', 'delete'])
+  .default('sandbox')
+  .describe('`sandbox` tar vare på innhold som fortrenges, `delete` forkaster det.')
+
 export const assetIdSchema = z.string().min(1).describe('Id-en til en fil i presentasjonen.')
 
 export const assetNameSchema = z

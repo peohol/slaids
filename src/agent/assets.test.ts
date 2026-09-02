@@ -424,7 +424,8 @@ describe('set_zone_asset', () => {
       contentKind: 'container',
       assetIds: [seeded.assetId],
       referenceIds: [],
-      subfieldIds: [],
+      payload: 'asset',
+      subfields: [],
       fits: true,
     })
   })

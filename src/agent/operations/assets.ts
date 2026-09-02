@@ -22,6 +22,8 @@ import {
   assetIdSchema,
   assetNameSchema,
   defineOperation,
+  dispositionSchema,
+  expectedRevisionSchema,
   nodeIdSchema,
   presentationIdSchema,
   slideIdSchema,
@@ -36,8 +38,9 @@ import { agentOk, fromDomainError, type AgentResult } from '../types'
 const CONTENT_DESCRIPTION =
   'Selve filen. Base64 (eller en data-URL) for et JSON-transport; ren tekst for SVG.'
 
-const uploadAssetInput = z.object({
+const uploadAssetInput = z.strictObject({
   presentationId: presentationIdSchema,
+  expectedRevision: expectedRevisionSchema,
   name: assetNameSchema,
   content: fileContentSchema.describe(
     `${CONTENT_DESCRIPTION} In-process kan en kaller også sende bytes eller en Blob.`,
@@ -51,8 +54,9 @@ const uploadAssetInput = z.object({
  * base64 before calling in; neither of them can put a `Blob` in a JSON payload,
  * so neither of them is told it may.
  */
-const uploadAssetTransportInput = z.object({
+const uploadAssetTransportInput = z.strictObject({
   presentationId: presentationIdSchema,
+  expectedRevision: expectedRevisionSchema,
   name: assetNameSchema,
   content: transportFileContentSchema.describe(CONTENT_DESCRIPTION),
 })
@@ -72,6 +76,7 @@ export const uploadAsset = defineOperation({
     // the file is not stored. A parameter would be a claim, not a measurement.
     return storeAsset(context, {
       presentationId: input.presentationId,
+      expectedRevision: input.expectedRevision,
       name: input.name,
       bytes: bytes.value,
     })
@@ -82,8 +87,9 @@ export const uploadAsset = defineOperation({
  * create_svg_asset
  * ------------------------------------------------------------------ */
 
-const createSvgAssetInput = z.object({
+const createSvgAssetInput = z.strictObject({
   presentationId: presentationIdSchema,
+  expectedRevision: expectedRevisionSchema,
   name: assetNameSchema,
   svgMarkup: z
     .string()
@@ -104,6 +110,7 @@ export const createSvgAsset = defineOperation({
     // a file", and an agent should not have to encode text as a file to say it.
     return storeAsset(context, {
       presentationId: input.presentationId,
+      expectedRevision: input.expectedRevision,
       name: ensureSvgName(input.name),
       bytes: new TextEncoder().encode(input.svgMarkup),
       declaredKind: 'svg',
@@ -120,8 +127,9 @@ function ensureSvgName(name: string): string {
  * set_zone_asset
  * ------------------------------------------------------------------ */
 
-const setZoneAssetInput = z.object({
+const setZoneAssetInput = z.strictObject({
   presentationId: presentationIdSchema,
+  expectedRevision: expectedRevisionSchema,
   slideId: slideIdSchema,
   nodeId: nodeIdSchema,
   assetId: assetIdSchema,
@@ -133,10 +141,7 @@ const setZoneAssetInput = z.object({
     .boolean()
     .default(false)
     .describe('Sett til true for å erstatte innhold som allerede ligger i sonen.'),
-  replacedDisposition: z
-    .enum(['sandbox', 'delete'])
-    .default('sandbox')
-    .describe('Hva som skjer med innholdet som erstattes.'),
+  replacedDisposition: dispositionSchema.describe('Hva som skjer med innholdet som erstattes.'),
 })
 
 export interface ZoneAssetPlacement {
@@ -155,7 +160,7 @@ export const setZoneAsset = defineOperation({
   mutates: true,
   input: setZoneAssetInput,
   run(context, input): Promise<AgentResult<ZoneAssetPlacement>> {
-    return mutatePresentation(context, input.presentationId, (presentation) => {
+    return mutatePresentation(context, input, (presentation) => {
       if (!presentation.assets.some((asset) => asset.id === input.assetId)) {
         // Checked here rather than left to the renderer: a zone pointing at a
         // file that does not exist is a broken slide, not a placement.
@@ -193,7 +198,7 @@ export const setZoneAsset = defineOperation({
  * list_assets
  * ------------------------------------------------------------------ */
 
-const listAssetsInput = z.object({ presentationId: presentationIdSchema })
+const listAssetsInput = z.strictObject({ presentationId: presentationIdSchema })
 
 export interface ListedAsset extends AssetRef {
   /** Whether any slide or sandbox item actually shows this file. */
