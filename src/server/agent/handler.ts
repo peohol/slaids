@@ -119,11 +119,29 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
   if (path === '') return index(request)
   if (path === '/operations') return catalogue(request)
 
-  const named = /^\/operations\/([^/]+)$/.exec(path)
-  if (!named) return errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
+  const name = operationNameIn(path)
+  if (name === null) return errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
   if (request.method !== 'POST') return methodNotAllowed('POST')
 
-  return invoke(deps, request, url, principal, decodeURIComponent(named[1]))
+  return invoke(deps, request, url, principal, name)
+}
+
+/**
+ * The operation a path names, or `null` when it names none.
+ *
+ * One function so the router and the audit cannot disagree about what a request
+ * was for — a refusal logged under a different name than the one that would
+ * have run is a log that reads wrong exactly when it matters.
+ */
+function operationNameIn(path: string): string | null {
+  const named = /^\/operations\/([^/]+)$/.exec(path)
+  if (!named) return null
+  try {
+    return decodeURIComponent(named[1])
+  } catch {
+    // A malformed escape is not a name; the raw segment is what was asked for.
+    return named[1]
+  }
 }
 
 /** The path under the versioned base, or `null` when the request is not ours. */
@@ -184,7 +202,7 @@ async function recordRefusal(
       auditRecord({
         at,
         subject: auth.identified,
-        operation: /^\/operations\/([^/]+)$/.exec(path)?.[1] ?? 'authenticate',
+        operation: operationNameIn(path) ?? 'authenticate',
         presentationId: null,
         status: statusFor('UNAUTHENTICATED'),
         errorCode: REFUSAL_CODES[auth.reason],

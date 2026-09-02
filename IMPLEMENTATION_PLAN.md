@@ -2331,7 +2331,7 @@ uten:
 
 ### Status: hva som er bygget
 
-Fase 1 og fase 2 er på plass:
+Fase 1, 2 og 3 er på plass:
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
   (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
@@ -2341,6 +2341,7 @@ Fase 1 og fase 2 er på plass:
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
   `list_assets`, `validate_slide`, `validate_presentation`.
+- Lesing (forts.): `get_sharing`.
 - Skriving: `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
   `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
@@ -2540,9 +2541,100 @@ korttittel, sett farge) kjeder dem i minnet med `applySteps` og lagrer én gang.
 Feiler et hvilket som helst steg, ble ingenting lagret – ikke fordi det rulles
 tilbake, men fordi det aldri ble skrevet.
 
-Fortsatt ikke bygget: fase 3–5 i sin helhet. Agent Core er ikke
-nettverkseksponert – den kjører i prosessen og har nøyaktig den tilgangen den
-innloggede brukeren har.
+#### Fase 3: REST, tokens, scopes og audit
+
+`src/server/agent/` er transportlaget, og `api/agent/v1/` er Vercel-inngangen
+til det – seks linjer som leser `process.env` og kaller inn. Alt som *bestemmer*
+ligger i `src/server/agent/`, injisert inn i `handleAgentRequest`, slik at «REST
+er tynt» er en egenskap ved koden: filen kan ikke nå en database, en klokke
+eller en miljøvariabel på egen hånd.
+
+```
+GET  /api/agent/v1                    hva dette er, og hvor katalogen ligger
+GET  /api/agent/v1/operations         katalogen, fra describeOperations()
+POST /api/agent/v1/operations/<navn>  én operasjon
+```
+
+Katalogen er ikke en andre, håndholdt kopi av kontrakten: navn, summary, JSON
+Schema og `requiredScopes` kommer alle ut av operasjonene selv. Alt er `POST`,
+også lesingene – argumentene er ett objekt med ett strengt skjema, og å dele dem
+mellom query-streng og kropp ville gjort kontrakten til to kontrakter.
+
+**Scopes ligger på operasjonen, ikke i transporten.** `defineOperation` krever
+feltet, så en operasjon lagt til senere kan ikke arve «det minst privilegerte
+tokenet har» ved å tie. `registry.test.ts` holder den andre halvdelen: en
+mutasjon må be om et skrivescope, en lesing må ikke, og `sharing:write` tilhører
+nøyaktig én operasjon. `handler.test.ts` genererer én test per operasjon per
+påkrevd scope, så flaten er dekket den dagen den vokser.
+
+`set_sharing` og `get_sharing` finnes fordi et scope som ikke gjelder noe ikke
+er håndhevet. Publisering går gjennom den samme `SharingRepository` editoren
+bruker, med den samme sanerte snapshotbyggeren, og publiserer dokumentet slik
+det er *lagret* – en agentmutasjon er lagret før den svarer, så det finnes ingen
+ulagret editor å komme foran. Uten en offentlig backend er svaret
+`SHARING_UNAVAILABLE`, aldri en lenke som ser levende ut.
+
+**Tokens.** 32 bytes fra plattformens CSPRNG, generert i eierens egen nettleser
+og vist én gang; det som lagres er SHA-256. Ingen server holder noen gang et
+brukbart token, heller ikke den som laget det. Oppslaget er en indeksert likhet
+på hashen, så det finnes ingen hemmelighetssammenligning i JavaScript å lese
+timing ut av — og ingen grunn til salt eller work factor, siden inndataene er
+256 bit uniform tilfeldighet. Modellen ligger i `src/persistence/agentTokens.ts`,
+delt mellom nettleseren som lager tokens og serveren som sjekker dem, fordi to
+kopier av «hva er et token» er én kopi for mye.
+
+Manglende, feilformet, ukjent, tilbakekalt og utløpt gir alle det samme 401-et
+med den samme setningen. «Dette tokenet finnes, det er bare trukket tilbake» er
+noe bare eieren skal få vite, og et endepunkt som sier det svarer på spørsmål på
+vegne av den som stjal tokenet. Eieren får det i auditen i stedet.
+
+**Auditen** er én rad per kall, med en lukket form: `audit.ts` bygger den, og
+hvert felt er en skalar. Det finnes ingen vei fra en forespørselskropp til en
+lagret rad, fordi ingenting her tar imot en. Tabellen har ingen kolonne
+slideinnhold, filbytes eller payloads kan havne i – §44 ber om den
+tilbakeholdenheten, og et skjema uten et sted å putte dem er hvordan den
+overlever at noen har dårlig tid. Et *gjenkjent* token som avvises skrives ned
+med grunnen (`TOKEN_REVOKED`, `TOKEN_EXPIRED`); et token ingen har sett før gjør
+det ikke, siden det ikke er noen å tilskrive raden og en uautentisert skriving
+er en måte å fylle noen andres tabell på.
+
+**Binærtransport.** `multipart/form-data` parses av plattformens egen parser
+(kroppen pakkes tilbake i en `Response` og `formData()` gjør jobben – en
+håndskrevet multipart-parser er et format med flere kanttilfeller enn det ser
+ut), og alt som ikke er JSON eller multipart er selve filen, med feltene i
+query-strengen. Begge ender i `{ encoding: 'bytes' }` før Agent Core kalles.
+Transportlaget har ingen liste over hvilke operasjoner som tar imot en fil:
+sender du bytes til en operasjon uten `content`-felt, er det det strenge skjemaet
+som sier nei.
+
+**Statuskodene** er en total `Record` over hver eneste feilkode. En ny kode
+stopper byggingen her til noen har bestemt hva den betyr over HTTP; en
+default-gren ville stille svart `500` på en ny fit-feil, som en agent leser som
+«serveren er ødelagt» i stedet for «forkort teksten». Skillet mellom `400` og
+`422` er dét den er til for: «du sendte tull» mot «Slaids sa nei».
+
+**Serverklienten holder en secret key og går forbi row level security.** Derfor
+gjør `SupabaseSlaidsRepository` to ting når den er pinnet til en eier: `owner_id`
+kommer fra pinnen i stedet for fra `auth.getSession()`, og hver spørring
+filtreres på den. Filteret RLS ville lagt på må skrives ned når RLS er omgått,
+ikke antas. I nettleseren finnes ingen pin, ingen filter legges til, og RLS er
+fortsatt det eneste som bestemmer.
+
+`readAgentApiConfig` nekter å starte hvis nøkkelen også finnes under et
+`VITE_`-navn. Da ligger den allerede i nettleserbundelen, og det eneste riktige
+svaret er å rotere den – ikke å starte som om den ikke gjorde det. Uten
+konfigurasjon svarer API-et `503` og navngir variabelen som mangler: en server
+har ingen IndexedDB å falle tilbake på, så det finnes ingen lokal modus å velge
+stille.
+
+`src/server/` importeres aldri fra resten av `src/`, og `boundary.test.ts`
+håndhever det. Feilen ville vært stille: en import fra en UI-fil ville kompilert,
+bestått hver test, og dratt hele operasjonsregisteret og statustabellen inn i
+bundelen alle besøkende laster ned.
+
+Fortsatt ikke bygget: fase 4 (MCP) og fase 5 (rendret preview). Begge legges
+oppå Agent Core uten å endre domenemodellen, og MCP henter navn, JSON Schema og
+scopes fra det samme registeret REST bruker.
 
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
