@@ -630,6 +630,12 @@ SLAIDS_SUPABASE_SECRET_KEY=sb_secret_…          # eller SUPABASE_SERVICE_ROLE_
 SLAIDS_AGENT_MAX_REQUEST_BYTES=4194304          # valgfri; standard 4 MB
 ```
 
+**Agenten må bruke Slaids' eget domene, ikke en `.vercel.app`-adresse.** Vercel
+Authentication er slått på for alt annet enn egne domener, så et kall til en
+preview- eller `.vercel.app`-adresse svarer med en omdirigering til Vercels
+innlogging i stedet for med API-et. Det gjelder hele deployen, ikke bare
+agent-API-et.
+
 Nøkkelen går forbi row level security, og hører derfor bare hjemme i
 servermiljøet. Alt som heter `VITE_*` bygges inn i nettleserbundelen – finner
 oppstarten den samme nøkkelen under et slikt navn, nekter den å starte i det
