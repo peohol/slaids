@@ -19,6 +19,8 @@ export interface TopToolbarProps {
   selectionIsLeaf: boolean
   selectionHasContent: boolean
   onBack: () => void
+  /** A save is being flushed before leaving; the button must not be pressed twice. */
+  backPending?: boolean
   onRename: () => void
   onToggleTitle: () => void
   onSetContentKind: (kind: ZoneContentKind) => void
@@ -42,8 +44,14 @@ export function TopToolbar(props: TopToolbarProps) {
 
   return (
     <header className="toolbar" data-testid="top-toolbar">
-      <Tooltip label="Tilbake til biblioteket">
-        <button type="button" className="btn btn--ghost btn--icon" onClick={props.onBack} data-testid="back-to-library">
+      <Tooltip label={props.backPending ? 'Lagrer før vi går …' : 'Tilbake til biblioteket'}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--icon"
+          onClick={props.onBack}
+          disabled={props.backPending}
+          data-testid="back-to-library"
+        >
           <Icon name="chevron-left" />
         </button>
       </Tooltip>

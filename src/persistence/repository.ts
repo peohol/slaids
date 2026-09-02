@@ -1,9 +1,10 @@
 /**
  * Storage abstraction.
  *
- * The UI depends on this interface only. Today the single implementation is
- * Dexie/IndexedDB; a Supabase implementation can be dropped in later without
- * touching the domain or the UI.
+ * The UI depends on this interface only. There are two implementations —
+ * `DexieSlaidsRepository` (IndexedDB, local/test mode) and
+ * `SupabaseSlaidsRepository` (production) — and `activeRepository.ts` is the
+ * one place that decides which of them is live.
  */
 
 import type {
@@ -55,5 +56,17 @@ export class RepositoryError extends Error {
     super(message)
     this.name = 'RepositoryError'
     this.detail = detail
+  }
+}
+
+/**
+ * A write lost a race: the stored copy has moved on since the one being saved
+ * was read, so writing it would silently discard whatever the other tab or
+ * device did. The caller is told rather than overwritten.
+ */
+export class RepositoryConflictError extends RepositoryError {
+  constructor(message: string, detail?: unknown) {
+    super(message, detail)
+    this.name = 'RepositoryConflictError'
   }
 }

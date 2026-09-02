@@ -155,5 +155,3 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     )
   }
 }
-
-export const repository: SlaidsRepository = new DexieSlaidsRepository()

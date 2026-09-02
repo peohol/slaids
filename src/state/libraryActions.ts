@@ -5,7 +5,7 @@
 import { cloneSubtreeWithNewIds } from '../domain/layout'
 import { newAssetId, newPresentationId, newSlideId } from '../domain/ids'
 import { remapAssetIds } from '../domain/docs'
-import { repository } from '../persistence/dexieRepository'
+import { repository } from '../persistence/activeRepository'
 import type { Presentation } from '../domain/types'
 
 /**

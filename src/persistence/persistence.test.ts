@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
+import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from './backup'
 import { createPresentation } from '../domain/presentation'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
 import { createContainer, createUntitledCard } from '../domain/content'
 import { newAssetId, newTemplateId } from '../domain/ids'
-import type { AssetRef, Presentation } from '../domain/types'
+import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -47,6 +48,97 @@ const assetRef: AssetRef = {
   width: 100,
   height: 80,
   isVector: true,
+}
+
+interface RemoteQuirks {
+  /** Ids owned by an account this user cannot see, as RLS would hide them. */
+  invisibleIds?: string[]
+  /** Template ids owned by an account this user cannot see. */
+  invisibleTemplateIds?: string[]
+  /** Make every asset write fail, as a full bucket or a dropped link would. */
+  failAssets?: boolean
+  /** Make every template write fail with something that is not a clash. */
+  failTemplates?: boolean
+}
+
+/**
+ * A repository that behaves the way the Supabase one has to.
+ *
+ * Three things separate it from Dexie: a row may only reference a parent that
+ * exists (the foreign keys on folder and presentation), and an id taken by
+ * another account comes back as a conflict rather than as a row this user could
+ * have seen beforehand.
+ */
+function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {}): SlaidsRepository {
+  const invisible = new Set(quirks.invisibleIds ?? [])
+  const invisibleTemplates = new Set(quirks.invisibleTemplateIds ?? [])
+  return {
+    listPresentations: () => inner.listPresentations(),
+    loadPresentation: (id) => inner.loadPresentation(id),
+    savePresentation: async (presentation) => {
+      if (invisible.has(presentation.id)) {
+        throw new RepositoryConflictError(`«${presentation.title}» finnes allerede.`)
+      }
+      if (presentation.folderId) {
+        const folders = await inner.listFolders()
+        if (!folders.some((folder) => folder.id === presentation.folderId)) {
+          throw new RepositoryError(`Ingen mappe «${presentation.folderId}» å legge den i.`)
+        }
+      }
+      await inner.savePresentation(presentation)
+    },
+    deletePresentation: (id) => inner.deletePresentation(id),
+    listFolders: () => inner.listFolders(),
+    saveFolder: (folder) => inner.saveFolder(folder),
+    deleteFolder: (id) => inner.deleteFolder(id),
+    listTemplates: () => inner.listTemplates(),
+    saveTemplate: async (template) => {
+      if (quirks.failTemplates) throw new RepositoryError('Malen ble avvist.')
+      if (invisibleTemplates.has(template.id)) {
+        throw new RepositoryConflictError(`Malen «${template.name}» har en id som er i bruk.`)
+      }
+      await inner.saveTemplate(template)
+    },
+    deleteTemplate: (id) => inner.deleteTemplate(id),
+    putAsset: async (presentationId, ref, blob) => {
+      if (quirks.failAssets) throw new RepositoryError('Filen ble avvist.')
+      const owners = await inner.listPresentations()
+      if (!owners.some((summary) => summary.id === presentationId)) {
+        throw new RepositoryError(`Ingen presentasjon «${presentationId}» å henge filen på.`)
+      }
+      await inner.putAsset(presentationId, ref, blob)
+    },
+    getAsset: (id) => inner.getAsset(id),
+    listAssets: (presentationId) => inner.listAssets(presentationId),
+    existingAssetIds: (ids) => inner.existingAssetIds(ids),
+    deleteAsset: (id) => inner.deleteAsset(id),
+    deleteAssetsForPresentation: (id) => inner.deleteAssetsForPresentation(id),
+    deleteOrphanAssets: () => inner.deleteOrphanAssets(),
+  }
+}
+
+function sampleTemplate(): LayoutTemplate {
+  return {
+    id: newTemplateId(),
+    name: 'Todelt',
+    hasTitle: true,
+    root: stripContent(createSplit('x', [1, 1], [createLeaf(), createLeaf()])),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+/** A presentation whose single zone shows `assetRef`. */
+function presentationWithAsset(base: Presentation): Presentation {
+  return {
+    ...base,
+    assets: [assetRef],
+    slides: [
+      {
+        ...base.slides[0],
+        root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+      },
+    ],
+  }
 }
 
 describe('DexieSlaidsRepository', () => {
@@ -248,6 +340,143 @@ describe('.slaids backup', () => {
     expect(JSON.stringify(imported.slides[0].root)).not.toContain(assetRef.id)
     const copy = await local.getAsset(imported.assets[0].id)
     expect(await copy?.blob.text()).toBe('<svg id="theirs" />')
+  })
+
+  it('lagrer presentasjonen før filene, slik en fremmednøkkel krever', async () => {
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(withRemoteQuirks(target), archive)
+
+    expect(report.errors).toEqual([])
+    expect(report.importedAssets).toBe(1)
+    expect(await target.getAsset(assetRef.id)).not.toBeNull()
+  })
+
+  it('importerer som kopi når id-en er tatt av en konto vi ikke ser', async () => {
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // The target's own library is empty, so nothing looks taken — until the
+    // write hits a row belonging to whoever the backup came from.
+    const target = freshRepository()
+    const report = await importSlaidsArchive(
+      withRemoteQuirks(target, { invisibleIds: [presentation.id] }),
+      archive,
+    )
+
+    expect(report.errors).toEqual([])
+    expect(report.importedPresentations).toHaveLength(1)
+    expect(report.importedPresentations[0]).not.toBe(presentation.id)
+
+    const imported = await target.loadPresentation(report.importedPresentations[0])
+    expect(imported.title).toBe(`${presentation.title} (importert)`)
+    // Its files got fresh ids too: they would have clashed the same way.
+    expect(imported.assets[0].id).not.toBe(assetRef.id)
+    expect(JSON.stringify(imported.slides[0].root)).toContain(imported.assets[0].id)
+    expect(await target.getAsset(imported.assets[0].id)).not.toBeNull()
+  })
+
+  it('tar en halvimportert presentasjon ut igjen når en fil ikke kom fram', async () => {
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    await expect(
+      importSlaidsArchive(withRemoteQuirks(target, { failAssets: true }), archive),
+    ).rejects.toThrow(/avvist/)
+
+    // A deck without its pictures must not turn up on the next refresh.
+    expect(await target.listPresentations()).toEqual([])
+  })
+
+  it('legger en presentasjon i roten når mappen ikke finnes hos mottakeren', async () => {
+    const source = freshRepository()
+    await source.saveFolder({ id: 'fl_kilde', name: 'Kilde', createdAt: new Date().toISOString() })
+    const presentation = { ...samplePresentation(), folderId: 'fl_kilde' }
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // The archive carries no folders, so the reference points at nothing here —
+    // and remotely the foreign key would reject it outright.
+    const target = freshRepository()
+    const report = await importSlaidsArchive(withRemoteQuirks(target), archive)
+
+    expect(report.errors).toEqual([])
+    expect(report.importedPresentations).toEqual([presentation.id])
+    expect((await target.loadPresentation(presentation.id)).folderId).toBeNull()
+    // No folder is invented to satisfy the constraint.
+    expect(await target.listFolders()).toEqual([])
+  })
+
+  it('beholder mappen når mottakeren faktisk har den', async () => {
+    const source = freshRepository()
+    await source.saveFolder({ id: 'fl_delt', name: 'Delt', createdAt: new Date().toISOString() })
+    const presentation = { ...samplePresentation(), folderId: 'fl_delt' }
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    await target.saveFolder({ id: 'fl_delt', name: 'Delt', createdAt: new Date().toISOString() })
+    const report = await importSlaidsArchive(withRemoteQuirks(target), archive)
+
+    expect(report.errors).toEqual([])
+    expect((await target.loadPresentation(presentation.id)).folderId).toBe('fl_delt')
+  })
+
+  it('importerer en mal som kopi når id-en er tatt av en konto vi ikke ser', async () => {
+    const source = freshRepository()
+    const template = sampleTemplate()
+    await source.saveTemplate(template)
+    const presentation = samplePresentation()
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // `listTemplates()` on the target says the id is free — RLS hides the row
+    // that has it — so only the write can tell us otherwise.
+    const target = freshRepository()
+    const report = await importSlaidsArchive(
+      withRemoteQuirks(target, { invisibleTemplateIds: [template.id] }),
+      archive,
+    )
+
+    expect(report.errors).toEqual([])
+    expect(report.importedTemplates).toBe(1)
+    const stored = await target.listTemplates()
+    expect(stored).toHaveLength(1)
+    expect(stored[0].id).not.toBe(template.id)
+    expect(stored[0].name).toBe(`${template.name} (importert)`)
+  })
+
+  it('lager ikke en ekstra kopi av malen når skrivingen feiler av andre grunner', async () => {
+    const source = freshRepository()
+    const template = sampleTemplate()
+    await source.saveTemplate(template)
+    const presentation = samplePresentation()
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(
+      withRemoteQuirks(target, { failTemplates: true }),
+      archive,
+    )
+
+    // A dropped connection is not a clash, and retrying it as a copy would
+    // leave two of the same template behind.
+    expect(report.importedTemplates).toBe(0)
+    expect(report.errors.some((error) => error.includes('avvist'))).toBe(true)
+    expect(await target.listTemplates()).toEqual([])
   })
 
   it('reports a corrupt archive instead of throwing', async () => {

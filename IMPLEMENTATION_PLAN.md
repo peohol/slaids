@@ -39,6 +39,12 @@ Følgende skal ikke forsinke en operativ editor:
 
 Disse skal kunne legges til senere uten at domenemodellen må skrives om.
 
+> **Oppdatert:** Supabase og innlogging er ikke lenger ikke-mål. Den operative
+> editoren står, og Supabase er nå primær persistens i konfigurert produksjon –
+> se § 18 og § 43. Domenemodellen ble ikke skrevet om: byttet skjedde bak
+> `SlaidsRepository`, akkurat slik denne planen forutsatte. Flerbrukerfunksjoner,
+> REST-API, MCP-server og agenttokens er fortsatt ikke-mål.
+
 ---
 
 ## 2\. Prioriteringsprinsipp
@@ -78,7 +84,9 @@ Anbefalt første stack:
 | Rich text         | Tiptap / ProseMirror      | Strukturert dokumentmodell, egne nodes, tabeller og citations |
 | UI-primitiver     | Radix Primitives          | Robuste dialoger, popovers, tooltips, slider osv.             |
 | Drag-and-drop     | dnd-kit                   | Kontrollerbar DnD, sensors og DragOverlay                     |
-| Lokal persistence | IndexedDB via Dexie       | Bedre enn localStorage for strukturert data og Blobs          |
+| Persistens (produksjon) | Supabase (Postgres + Storage) | Data følger kontoen, ikke nettleseren; RLS gir én bruker kun egne rader |
+| Persistens (lokal/test) | IndexedDB via Dexie | Bedre enn localStorage for strukturert data og Blobs          |
+| Auth              | Supabase Auth             | Delt konto med Huskis; aldri et hjemmelaget passordsystem      |
 | Unit tests        | Vitest                    | Domenelogikk og geometri                                      |
 | E2E/browser       | Playwright                | Reelle arbeidsflyter, browser-geometri og screenshots         |
 
@@ -611,7 +619,28 @@ Ved streng typing-validering kan «last valid document»-mønster brukes, men IM
 
 ---
 
-## 18\. Lokal lagring
+## 18\. Lagring
+
+Slaids har to lagringsmoduser. Valget tas **ett sted** –
+`src/persistence/activeRepository.ts` – og resten av appen ser bare
+`SlaidsRepository`.
+
+| Modus                  | Når                                                              | Implementasjon             |
+| ---------------------- | ---------------------------------------------------------------- | -------------------------- |
+| Supabase (produksjon)  | `VITE_SUPABASE_URL` **og** `VITE_SUPABASE_PUBLISHABLE_KEY` finnes  | `SupabaseSlaidsRepository` |
+| Lokal (utvikling/test) | Ingen av variablene finnes                                         | `DexieSlaidsRepository`    |
+| Konfigurasjonsfeil     | Nøyaktig én av variablene finnes                                   | ingen – appen stopper      |
+
+Dette er en **modus, ikke en fallback**. En konfigurert Supabase som er nede skal
+gi en forståelig feil; appen skal ikke begynne å skrive lokalt og lage to
+konkurrerende sannhetskilder.
+
+Et halvkonfigurert bygg er ingen av delene. Det er en deploy-feil, og Dexie er
+aldri svaret på en deploy-feil: da ville produksjon stille skrevet til
+nettleseren fordi en variabel manglet i Vercel. Appen monterer verken bibliotek
+eller editor, og sier hvilken variabel som mangler.
+
+### Lokal modus
 
 Ikke bruk `localStorage` som hoveddatabase for presentasjoner.
 
@@ -650,20 +679,17 @@ interface SlaidsRepository {
 }
 ```
 
-Først:
-
-```text
-SlaidsRepository
-  └─ DexieSlaidsRepository
-```
-
-Senere:
+Begge implementasjonene ligger bak det samme interfacet:
 
 ```text
 SlaidsRepository
   ├─ DexieSlaidsRepository
   └─ SupabaseSlaidsRepository
 ```
+
+Alt som leses fra en av dem kjøres gjennom den samme migrerings- og
+valideringskjeden før det når domenelaget. En utdatert eller håndredigert rad i
+Supabase skal gi en tydelig feil, ikke en ødelagt editor.
 
 ---
 
@@ -699,7 +725,12 @@ Krav:
   - `Saving…`
   - `Save failed`;
 - aldri markere «Saved» før repository-kallet faktisk er fullført;
-- reload-test skal være en del av E2E.
+- reload-test skal være en del av E2E;
+- å forlate editoren er et lagringspunkt. Det ventende snapshotet finnes bare i
+  autosave-kontrolleren, og den slutter å prøve på nytt når editoren unmountes –
+  så «Tilbake» flusher først og blir stående hvis skrivingen ikke gikk igjennom.
+  Dette gjelder Slaids' egen navigasjon, der vi faktisk kan garantere det; å
+  lukke fanen er fortsatt best effort via `pagehide`/`visibilitychange`.
 
 ---
 
@@ -1300,26 +1331,87 @@ Unngå en voksende «dagbok» i `CLAUDE.md`.
 
 ---
 
-## 43\. Senere Supabase
+## 43\. Supabase
 
-Supabase skal ikke bygges nå, men repository-abstraksjonen gjør byttet enkelt.
-
-Senere:
+Supabase er primær persistens i konfigurert produksjon. Byttet skjedde bak
+repository-abstraksjonen, uten endringer i domenemodellen:
 
 ```text
 UI/domain
    ↓
 SlaidsRepository
-   ├─ Dexie
-   └─ Supabase
+   ├─ Dexie      (lokal/test – ingen Supabase-konfigurasjon)
+   └─ Supabase   (produksjon – konfigurert og innlogget)
 ```
 
-Når Supabase kommer:
+Krav som gjelder:
 
 - bruk Supabase Auth, ikke et hjemmelaget passordsystem;
 - browser-eksponerte tabeller beskyttes med RLS;
-- service-role/secret keys skal aldri ligge i frontend;
+- service-role/secret keys skal aldri ligge i frontend – bare
+  `VITE_SUPABASE_PUBLISHABLE_KEY`;
 - assets legges i private Storage buckets med riktige policies.
+
+### Datamodell
+
+Fire tabeller i `public`, alle med `owner_id uuid → auth.users` og RLS som gir en
+autentisert bruker kun tilgang til egne rader:
+
+| Tabell                  | Innhold                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `slaids_folders`        | mapper                                                    |
+| `slaids_presentations`  | hele `Presentation` som `document jsonb`, pluss `title`, `folder_id`, `slide_count`, `version` |
+| `slaids_templates`      | hele `LayoutTemplate` som `template jsonb`                |
+| `slaids_assets`         | hele `AssetRef` som `ref jsonb` + `object_path` i Storage  |
+
+Slides, soner og referanser normaliseres **ikke** ut i egne tabeller. Dokumentet
+er domenemodellen Slaids allerede validerer og migrerer; en oppsplitting ville
+lagt en andre, svakere kopi av de invariantene i databasen. De indekserbare
+kolonnene finnes bare for at biblioteket skal kunne listes uten å laste ned hvert
+dokument.
+
+Binærdata ligger i den private bucketen `slaids-assets`, med sti
+`<owner_id>/<presentation_id>/<asset_id>` – første ledd er brukerens UUID, som er
+nøyaktig det Storage-policyene sjekker. Sletting av en presentasjon må også rydde
+Storage: DB-metadata følger med via fremmednøkkelen, men Storage-objekter gjør det
+ikke.
+
+Rekkefølgen er ikke likegyldig. Raden slettes først, filene etterpå. Motsatt vei
+ville en feilet radsletting etterlatt en presentasjon som fortsatt vises og
+fortsatt åpnes, men med bildene borte for godt. Å miste data noe fortsatt peker
+på er verre enn å la ligge data ingenting peker på – og det siste ryddes av
+`deleteOrphanAssets()`, som sammenligner presentasjonsmappene i bucketen mot
+presentasjonene som finnes.
+
+`owner_id` settes alltid fra den autentiserte sesjonen, aldri fra brukerinput.
+Fremmednøklene er sammensatte – `(folder_id, owner_id)` og
+`(presentation_id, owner_id)` – slik at eieren følger med referansen. Å kjenne en
+id skal ikke være nok til å legge sin egen rad inn under en annen brukers mappe
+eller presentasjon.
+
+### Samtidighet
+
+`slaids_presentations.version` økes av en trigger ved hver `UPDATE`. Repositoryet
+skriver mot den versjonen det leste, slik at en fane med en gammel kopi får en
+tydelig konfliktfeil i stedet for å overskrive en nyere versjon i stillhet.
+
+En konflikt gjør aldri at repositoryet glemmer raden. «Vet ingenting om den» betyr
+«ny», og en ny presentasjon settes inn – så å glemme den etter et tapt kappløp
+ville gjort neste autosave-forsøk til et `INSERT` og gjenopprettet en presentasjon
+en annen fane nettopp slettet, med referanser til filer slettingen tok med seg.
+Etter at en rad én gang er sett som eksisterende, er det bare en ny lesing av
+dokumentet som løser konflikten, og bare en sletting herfra som gjør den ny igjen.
+
+### Deling
+
+`is_shared` og `share_token` er reservert for en kommende delingsfunksjon.
+Ingenting leser dem ennå, og `anon` har bevisst **ingen** tilgang til
+`slaids_presentations`.
+
+### Migrasjoner
+
+SQL-en for skjemaet ligger i `supabase/migrations/`, slik at en tom Supabase kan
+gjenskape dagens skjema fra bunnen.
 
 ---
 

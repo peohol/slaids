@@ -46,8 +46,8 @@ import {
   findLeaf,
   findNode,
 } from '../../domain/layout'
-import { repository } from '../../persistence/dexieRepository'
-import { startAutosave } from '../../state/autosave'
+import { repository } from '../../persistence/activeRepository'
+import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { readPref, writePref } from '../../state/prefs'
 import { useEditorStore } from '../../state/store'
 import { ok } from '../../domain/result'
@@ -140,6 +140,7 @@ export function EditorView({
   const removedTitles = useRef(new Map<string, TitleDoc>())
   const [dropTargets, setDropTargets] = useState<ReadonlySet<string>>(() => new Set())
   const autosaveRef = useRef<ReturnType<typeof startAutosave> | null>(null)
+  const [leaving, setLeaving] = useState(false)
 
   /* -------------------------------------------------------------- *
    * Loading and autosave
@@ -170,10 +171,27 @@ export function EditorView({
     const controller = startAutosave(repository)
     autosaveRef.current = controller
     return () => {
-      void controller.flush().finally(() => controller.stop())
+      // No flush here. Leaving through the toolbar is what guarantees the last
+      // change is stored, and a second flush from unmount could only race it —
+      // by the time this runs the editor is gone and a failure would have
+      // nowhere to report to. Closing the tab is still covered by the
+      // controller's own pagehide and visibility handlers.
+      controller.stop()
       autosaveRef.current = null
     }
   }, [])
+
+  /**
+   * Going back is a save point: the pending snapshot lives only in the autosave
+   * controller, which stops retrying the moment this view unmounts. So the
+   * editor stays open until the write lands, and the save error already on
+   * screen explains why. Pressing again tries once more.
+   */
+  const handleBack = useCallback(async (): Promise<void> => {
+    setLeaving(true)
+    const saved = await leaveWhenSaved(autosaveRef.current, onClose)
+    if (!saved) setLeaving(false)
+  }, [onClose])
 
   useEffect(() => {
     return () => {
@@ -755,7 +773,8 @@ export function EditorView({
             selectionIsLeaf={viewedDerivedSlide === null && selectedNode?.kind === 'leaf'}
             selectionHasContent={Boolean(selectedLeaf?.content)}
             sandboxCount={presentation.sandbox.length}
-            onBack={onClose}
+            onBack={() => void handleBack()}
+            backPending={leaving}
             onRename={() => {
               setRenameValue(presentation.title)
               setRenameOpen(true)

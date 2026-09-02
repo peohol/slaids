@@ -17,7 +17,30 @@ export const AUTOSAVE_DEBOUNCE_MS = 600
 
 export interface AutosaveController {
   stop: () => void
-  flush: () => Promise<void>
+  /**
+   * Drain the queue. Resolves `true` when everything the store has produced is
+   * stored, `false` when a write failed or the controller was stopped with work
+   * still pending — the caller decides what to do about it.
+   */
+  flush: () => Promise<boolean>
+}
+
+/**
+ * Leave the editor only once the work is safely stored.
+ *
+ * Autosave retries a failed write for as long as the editor is mounted, and the
+ * pending snapshot lives nowhere else. Unmounting on a failed save would throw
+ * that change away, so leaving is a save point: flush first, and stay where we
+ * are if it did not land. The failure is already on screen, and pressing again
+ * simply tries once more.
+ */
+export async function leaveWhenSaved(
+  controller: AutosaveController | null,
+  onLeave: () => void,
+): Promise<boolean> {
+  const saved = controller ? await controller.flush() : true
+  if (saved) onLeave()
+  return saved
 }
 
 export function startAutosave(
@@ -79,7 +102,7 @@ export function startAutosave(
     schedule()
   })
 
-  const flush = async (): Promise<void> => {
+  const flush = async (): Promise<boolean> => {
     if (timer) {
       clearTimeout(timer)
       timer = null
@@ -87,6 +110,7 @@ export function startAutosave(
     await pump()
     // A change can land between the pump's last check and its teardown.
     if (pending && !stopped && !lastWriteFailed) await pump()
+    return pending === null && !lastWriteFailed
   }
 
   const onHide = (): void => {

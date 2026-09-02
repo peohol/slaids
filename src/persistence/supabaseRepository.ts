@@ -1,0 +1,618 @@
+/**
+ * Supabase implementation of `SlaidsRepository`.
+ *
+ * The remote schema deliberately mirrors the local one rather than normalising
+ * it: a presentation is one row with the whole document in a `jsonb` column,
+ * exactly the object the domain already knows. The indexable columns (`title`,
+ * `folder_id`, `slide_count`) exist only so the library grid can be listed
+ * without downloading every document.
+ *
+ * Two rules hold everywhere in this file:
+ *
+ *  - Nothing reaches the domain unvalidated. A document read back from Supabase
+ *    goes through the very same migration and validation chain as one read from
+ *    IndexedDB, so a stale or hand-edited row surfaces as a clear error instead
+ *    of a broken editor.
+ *  - `owner_id` is always taken from the authenticated session, never from the
+ *    caller. RLS enforces the same thing server-side; this keeps the client from
+ *    even trying to write someone else's row.
+ */
+
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
+import { migratePresentation } from '../domain/migrations'
+import { assetRefSchema, folderSchema, validateLayoutTemplate } from '../domain/schema'
+import type {
+  AssetRef,
+  Folder,
+  LayoutTemplate,
+  Presentation,
+  PresentationSummary,
+} from '../domain/types'
+import { getSupabaseClient } from '../supabase/client'
+import {
+  RepositoryConflictError,
+  RepositoryError,
+  type SlaidsRepository,
+  type StoredAsset,
+} from './repository'
+
+export const PRESENTATIONS_TABLE = 'slaids_presentations'
+export const FOLDERS_TABLE = 'slaids_folders'
+export const TEMPLATES_TABLE = 'slaids_templates'
+export const ASSETS_TABLE = 'slaids_assets'
+export const ASSETS_BUCKET = 'slaids-assets'
+
+/** Postgres `unique_violation`, i.e. the row already exists. */
+const UNIQUE_VIOLATION = '23505'
+
+/** How much of one Storage prefix a single `list` call is asked for. */
+const STORAGE_LIST_LIMIT = 1000
+
+/** How many ids one `in` filter carries; the filter travels in the URL. */
+const ID_FILTER_BATCH = 200
+
+const EPOCH = new Date(0).toISOString()
+
+interface PresentationListRow {
+  id: string
+  title: string
+  folder_id: string | null
+  slide_count: number | null
+  version: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+interface VersionRow {
+  version: number | null
+}
+
+type FailureDetail = PostgrestError | { message: string } | null | undefined
+
+function fail(what: string, error: FailureDetail): never {
+  throw new RepositoryError(`${what} (${error?.message ?? 'ukjent feil'}).`, error)
+}
+
+/** Postgres timestamps are not ISO strings; the domain only ever stores ISO. */
+function toIso(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? fallback : date.toISOString()
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+export class SupabaseSlaidsRepository implements SlaidsRepository {
+  /**
+   * The `version` each presentation was last seen at. Every update is written
+   * against that version, so a tab holding a stale copy is told it lost the
+   * race instead of quietly overwriting the newer one.
+   *
+   * Having an entry at all is the other half of the state: it says the row
+   * exists, and therefore that this presentation is saved with an UPDATE rather
+   * than an INSERT. That is why a conflict never removes one. "Nothing known"
+   * means "new", so forgetting a row after a lost race would turn the next
+   * autosave retry into an INSERT — and resurrect a presentation another tab
+   * had just deleted, references to assets that went with it and all. A stale
+   * entry keeps failing the guard instead, which stays true until the document
+   * is read again.
+   *
+   * Only two things add an entry: reading the row, or an insert that created
+   * it. Only one removes it: deleting the presentation through this repository,
+   * which is a local decision rather than a surprise from somewhere else.
+   */
+  private readonly knownVersions = new Map<string, number>()
+
+  /**
+   * Storage paths whose removal failed after their row was already gone.
+   * Nothing points at them any more, so they are retried in the background
+   * rather than surfaced as an error on a delete that did succeed.
+   */
+  private readonly pendingObjectRemovals = new Set<string>()
+
+  /** The full sweep costs two requests; once per sign-in is enough. */
+  private sweptStorage = false
+
+  /**
+   * The client is resolved per call rather than stored, so constructing the
+   * repository never requires Supabase to be configured.
+   */
+  constructor(private readonly resolveClient: () => SupabaseClient = getSupabaseClient) {}
+
+  private get client(): SupabaseClient {
+    return this.resolveClient()
+  }
+
+  /** Test seam: forget every known row, as a fresh sign-in would. */
+  forgetVersions(): void {
+    this.knownVersions.clear()
+  }
+
+  private async ownerId(): Promise<string> {
+    const { data, error } = await this.client.auth.getSession()
+    if (error) fail('Kunne ikke lese innloggingen', error)
+    const id = data?.session?.user?.id
+    if (!id) {
+      throw new RepositoryError('Du er ikke logget inn. Logg inn på nytt for å fortsette.')
+    }
+    return id
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Presentations
+   * ---------------------------------------------------------------- */
+
+  async listPresentations(): Promise<PresentationSummary[]> {
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .select('id, title, folder_id, slide_count, version, created_at, updated_at')
+      .order('updated_at', { ascending: false })
+    if (error) fail('Kunne ikke hente presentasjonene fra Supabase', error)
+
+    return ((data ?? []) as PresentationListRow[]).map((row) => {
+      // A listing establishes that a row exists, which is enough to save it
+      // with an update. It does not refresh a version a read gave us, though:
+      // that would hand a stale editor a fresh guard to overwrite with.
+      if (typeof row.version === 'number' && !this.knownVersions.has(row.id)) {
+        this.knownVersions.set(row.id, row.version)
+      }
+      const createdAt = toIso(row.created_at, EPOCH)
+      return {
+        id: row.id,
+        title: row.title,
+        folderId: row.folder_id ?? null,
+        slideCount: numberOr(row.slide_count, 0),
+        createdAt,
+        updatedAt: toIso(row.updated_at, createdAt),
+      }
+    })
+  }
+
+  async loadPresentation(id: string): Promise<Presentation> {
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .select('document, version')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
+    if (!data) throw new RepositoryError(`Fant ikke presentasjonen «${id}».`)
+
+    const migrated = migratePresentation((data as { document: unknown }).document)
+    if (!migrated.ok) throw new RepositoryError(migrated.error.message, migrated.error)
+
+    // The row came back, so it exists. `0` never matches one (`version >= 1`),
+    // so a row whose version we could not read fails the guard rather than
+    // being inserted as if it were new.
+    this.knownVersions.set(id, numberOr((data as VersionRow).version, 0))
+    return migrated.value
+  }
+
+  async savePresentation(presentation: Presentation): Promise<void> {
+    const ownerId = await this.ownerId()
+    // Same defensive round-trip as the Dexie repository: what goes on the wire
+    // is plain JSON, never a live object with accidental extras.
+    const document = JSON.parse(JSON.stringify(presentation)) as Presentation
+    const row = {
+      id: document.id,
+      owner_id: ownerId,
+      title: document.title,
+      folder_id: document.folderId,
+      document,
+      slide_count: document.slides.length,
+    }
+
+    const known = this.knownVersions.get(document.id)
+    if (known === undefined) {
+      // Never seen: this is a new presentation, and an insert is what makes
+      // "new" mean new — an upsert here would overwrite a row we never read.
+      const { data, error } = await this.client
+        .from(PRESENTATIONS_TABLE)
+        .insert({ ...row, created_at: document.createdAt, updated_at: document.updatedAt })
+        .select('version')
+        .single()
+      if (error) {
+        if (error.code === UNIQUE_VIOLATION) {
+          throw new RepositoryConflictError(
+            `Presentasjonen «${document.title}» finnes allerede i Supabase. Åpne den på nytt før du lagrer.`,
+            error,
+          )
+        }
+        fail('Kunne ikke lagre presentasjonen', error)
+      }
+      this.knownVersions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
+      return
+    }
+
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .update(row)
+      .eq('id', document.id)
+      .eq('version', known)
+      .select('version')
+    if (error) fail('Kunne ikke lagre presentasjonen', error)
+
+    const updated = (data ?? []) as VersionRow[]
+    if (updated.length === 0) {
+      // Nothing matched: the row has either moved on since we read it or is
+      // gone. The version stays exactly as it was — every retry keeps making
+      // the same guarded update and keeps failing, until the document is read
+      // again. Forgetting it here is what would turn the next attempt into an
+      // insert, and an insert of a row somebody deleted is not a save but a
+      // resurrection.
+      throw new RepositoryConflictError(
+        `«${document.title}» er endret eller slettet et annet sted (en annen fane eller enhet). Åpne den på nytt – lagring nå ville overskrevet den nyere versjonen eller gjenopprettet en slettet presentasjon.`,
+      )
+    }
+    this.knownVersions.set(document.id, numberOr(updated[0]?.version, known + 1))
+  }
+
+  async deletePresentation(id: string): Promise<void> {
+    // The row goes first, and the files after it. Removing the files first
+    // would, if the row delete then failed, leave a presentation that is still
+    // listed and still opens — with its pictures permanently gone. Losing data
+    // something still points at is worse than leaving data nothing points at,
+    // and the latter is what `deleteOrphanAssets` reclaims.
+    const paths = await this.assetPaths(id)
+    // The asset rows go with the presentation through the foreign key.
+    const { error } = await this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id)
+    if (error) fail('Kunne ikke slette presentasjonen', error)
+    // Deleting through this repository is a local decision, so this is the one
+    // place the row may be forgotten: a later save of the same id really is new.
+    this.knownVersions.delete(id)
+    await this.reclaimObjects(paths)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Folders
+   * ---------------------------------------------------------------- */
+
+  async listFolders(): Promise<Folder[]> {
+    const { data, error } = await this.client
+      .from(FOLDERS_TABLE)
+      .select('id, name, created_at')
+      .order('name')
+    if (error) fail('Kunne ikke hente mappene', error)
+
+    const folders: Folder[] = []
+    for (const row of (data ?? []) as { id: string; name: string; created_at: string | null }[]) {
+      const candidate = { id: row.id, name: row.name, createdAt: toIso(row.created_at, EPOCH) }
+      if (folderSchema.safeParse(candidate).success) folders.push(candidate)
+    }
+    return folders
+  }
+
+  async saveFolder(folder: Folder): Promise<void> {
+    const ownerId = await this.ownerId()
+    const { error } = await this.client.from(FOLDERS_TABLE).upsert({
+      id: folder.id,
+      owner_id: ownerId,
+      name: folder.name,
+      created_at: folder.createdAt,
+    })
+    if (error) fail('Kunne ikke lagre mappen', error)
+  }
+
+  /** Presentations in a deleted folder move back to the root rather than vanish. */
+  async deleteFolder(id: string): Promise<void> {
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .select('id, document, version')
+      .eq('folder_id', id)
+    if (error) fail('Kunne ikke hente presentasjonene i mappen', error)
+
+    for (const row of (data ?? []) as { id: string; document: unknown; version: number | null }[]) {
+      // The folder is named in two places — the column the library filters on
+      // and the document itself — so both have to move back to the root.
+      const document = { ...(row.document as Presentation), folderId: null }
+      const known = numberOr(row.version, 0)
+      const update = await this.client
+        .from(PRESENTATIONS_TABLE)
+        .update({ folder_id: null, document })
+        .eq('id', row.id)
+        .eq('version', known)
+        .select('version')
+      if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
+      const updated = (update.data ?? []) as VersionRow[]
+      if (updated.length === 0) {
+        // Same rule as above: a lost race never makes us forget the row.
+        throw new RepositoryConflictError(
+          'En presentasjon i mappen ble endret et annet sted. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
+        )
+      }
+      this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
+    }
+
+    const removed = await this.client.from(FOLDERS_TABLE).delete().eq('id', id)
+    if (removed.error) fail('Kunne ikke slette mappen', removed.error)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Templates
+   * ---------------------------------------------------------------- */
+
+  async listTemplates(): Promise<LayoutTemplate[]> {
+    const { data, error } = await this.client
+      .from(TEMPLATES_TABLE)
+      .select('template, created_at')
+      .order('created_at')
+    if (error) fail('Kunne ikke hente malene', error)
+
+    const templates: LayoutTemplate[] = []
+    for (const row of (data ?? []) as { template: unknown }[]) {
+      const validated = validateLayoutTemplate(row.template)
+      if (validated.ok && validated.value) templates.push(validated.value as LayoutTemplate)
+    }
+    return templates
+  }
+
+  async saveTemplate(template: LayoutTemplate): Promise<void> {
+    if (!validateLayoutTemplate(template).ok) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    const ownerId = await this.ownerId()
+    const payload = JSON.parse(JSON.stringify(template)) as LayoutTemplate
+    const row = {
+      id: payload.id,
+      owner_id: ownerId,
+      name: payload.name,
+      template: payload,
+    }
+
+    // Update first, then insert — never a blind upsert. Template ids are unique
+    // across every account while RLS shows a user only their own rows, so an
+    // upsert on an id that belongs to somebody else would try to write over a
+    // row this user cannot see. Updating first keeps that impossible: an id
+    // that is ours matches and updates, and one that is not falls through to
+    // an insert whose unique violation is a conflict the caller can answer.
+    const updated = await this.client
+      .from(TEMPLATES_TABLE)
+      .update(row)
+      .eq('id', payload.id)
+      .select('id')
+    if (updated.error) fail('Kunne ikke lagre malen', updated.error)
+    if (((updated.data ?? []) as unknown[]).length > 0) return
+
+    const { error } = await this.client
+      .from(TEMPLATES_TABLE)
+      .insert({ ...row, created_at: payload.createdAt })
+    if (error) {
+      if (error.code === UNIQUE_VIOLATION) {
+        throw new RepositoryConflictError(
+          `Malen «${payload.name}» har en id som allerede er i bruk.`,
+          error,
+        )
+      }
+      fail('Kunne ikke lagre malen', error)
+    }
+  }
+
+  async deleteTemplate(id: string): Promise<void> {
+    const { error } = await this.client.from(TEMPLATES_TABLE).delete().eq('id', id)
+    if (error) fail('Kunne ikke slette malen', error)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Assets
+   * ---------------------------------------------------------------- */
+
+  /**
+   * Storage paths start with the owner's UUID because that is exactly what the
+   * Storage policies check. The path is derived, never taken from a caller.
+   */
+  private objectPath(ownerId: string, presentationId: string, assetId: string): string {
+    return `${ownerId}/${presentationId}/${assetId}`
+  }
+
+  async putAsset(presentationId: string, ref: AssetRef, blob: Blob): Promise<void> {
+    const ownerId = await this.ownerId()
+    const objectPath = this.objectPath(ownerId, presentationId, ref.id)
+
+    const upload = await this.client.storage.from(ASSETS_BUCKET).upload(objectPath, blob, {
+      contentType: ref.mimeType || 'application/octet-stream',
+      upsert: true,
+    })
+    if (upload.error) fail(`Kunne ikke laste opp «${ref.name}»`, upload.error)
+
+    const { error } = await this.client.from(ASSETS_TABLE).upsert({
+      id: ref.id,
+      owner_id: ownerId,
+      presentation_id: presentationId,
+      ref: { ...ref },
+      object_path: objectPath,
+    })
+    if (error) {
+      // The file is up but nothing can reach it without its row, so take it
+      // back out rather than leave it behind in the bucket.
+      await this.reclaimObjects([objectPath])
+      fail(`Kunne ikke lagre metadata for «${ref.name}»`, error)
+    }
+    // This path is referenced again. A failed removal from an earlier attempt
+    // must not have it swept out from under the row that now points at it.
+    this.pendingObjectRemovals.delete(objectPath)
+  }
+
+  async getAsset(id: string): Promise<StoredAsset | null> {
+    const { data, error } = await this.client
+      .from(ASSETS_TABLE)
+      .select('ref, object_path')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) fail('Kunne ikke hente filen', error)
+    if (!data) return null
+
+    const row = data as { ref: unknown; object_path: string }
+    const parsed = assetRefSchema.safeParse(row.ref)
+    if (!parsed.success) {
+      throw new RepositoryError(`Metadata for filen «${id}» er ugyldig.`, parsed.error.issues)
+    }
+
+    const download = await this.client.storage.from(ASSETS_BUCKET).download(row.object_path)
+    if (download.error || !download.data) {
+      fail(`Kunne ikke laste ned «${parsed.data.name}»`, download.error)
+    }
+    return { ref: parsed.data, blob: download.data }
+  }
+
+  async listAssets(presentationId: string): Promise<AssetRef[]> {
+    const { data, error } = await this.client
+      .from(ASSETS_TABLE)
+      .select('ref')
+      .eq('presentation_id', presentationId)
+    if (error) fail('Kunne ikke hente filene til presentasjonen', error)
+
+    const refs: AssetRef[] = []
+    for (const row of (data ?? []) as { ref: unknown }[]) {
+      const parsed = assetRefSchema.safeParse(row.ref)
+      if (parsed.success) refs.push(parsed.data)
+    }
+    return refs
+  }
+
+  async existingAssetIds(ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const { data, error } = await this.client.from(ASSETS_TABLE).select('id').in('id', [...ids])
+    if (error) fail('Kunne ikke sjekke hvilke filer som finnes fra før', error)
+    return ((data ?? []) as { id: string }[]).map((row) => row.id)
+  }
+
+  async deleteAsset(id: string): Promise<void> {
+    const { data, error } = await this.client
+      .from(ASSETS_TABLE)
+      .select('object_path')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) fail('Kunne ikke hente filen', error)
+    if (!data) return
+
+    const removed = await this.client.from(ASSETS_TABLE).delete().eq('id', id)
+    if (removed.error) fail('Kunne ikke slette filen', removed.error)
+    await this.reclaimObjects([(data as { object_path: string }).object_path])
+  }
+
+  async deleteAssetsForPresentation(presentationId: string): Promise<void> {
+    const paths = await this.assetPaths(presentationId)
+    const { error } = await this.client
+      .from(ASSETS_TABLE)
+      .delete()
+      .eq('presentation_id', presentationId)
+    if (error) fail('Kunne ikke slette filene til presentasjonen', error)
+    await this.reclaimObjects(paths)
+  }
+
+  /**
+   * Reclaim Storage objects nothing points at any more.
+   *
+   * Rows cannot be orphaned — an asset row goes with its presentation through
+   * the foreign key — but objects can, precisely because every delete here
+   * takes the row out first. That is the safe direction: what is left behind is
+   * a file nothing references, not a reference to a file that is gone.
+   *
+   * Two passes, both cheap. The paths whose removal failed in this session are
+   * retried at no cost when there are none, and once per sign-in the
+   * presentation folders in the bucket are compared against the presentations
+   * that still exist — two requests when there is nothing to reclaim.
+   *
+   * Reclaiming is best effort by definition: it never fails a user action, and
+   * whatever it does not manage this time it can do next time.
+   */
+  async deleteOrphanAssets(): Promise<number> {
+    try {
+      let removed = await this.retryPendingRemovals()
+      if (!this.sweptStorage) {
+        this.sweptStorage = true
+        removed += await this.sweepOrphanedFolders()
+      }
+      return removed
+    } catch {
+      return 0
+    }
+  }
+
+  private async retryPendingRemovals(): Promise<number> {
+    if (this.pendingObjectRemovals.size === 0) return 0
+    const paths = [...this.pendingObjectRemovals]
+    const { error } = await this.client.storage.from(ASSETS_BUCKET).remove(paths)
+    if (error) return 0
+    for (const path of paths) this.pendingObjectRemovals.delete(path)
+    return paths.length
+  }
+
+  /**
+   * Every folder directly under the owner's prefix is one presentation. A
+   * folder whose presentation is gone is orphaned in full, which is exactly
+   * what an interrupted delete leaves behind.
+   */
+  private async sweepOrphanedFolders(): Promise<number> {
+    const ownerId = await this.ownerId()
+    const listed = await this.client.storage
+      .from(ASSETS_BUCKET)
+      .list(ownerId, { limit: STORAGE_LIST_LIMIT })
+    if (listed.error || !listed.data) return 0
+    // An entry without an id is a prefix rather than a file.
+    const folders = listed.data
+      .filter((entry) => !entry.id && typeof entry.name === 'string' && entry.name.length > 0)
+      .map((entry) => entry.name)
+    if (folders.length === 0) return 0
+
+    // A `?in=(...)` filter goes in the URL, so long lists are asked for in
+    // batches rather than in one request no proxy will accept.
+    const alive = new Set<string>()
+    for (let index = 0; index < folders.length; index += ID_FILTER_BATCH) {
+      const batch = folders.slice(index, index + ID_FILTER_BATCH)
+      const { data, error } = await this.client
+        .from(PRESENTATIONS_TABLE)
+        .select('id')
+        .in('id', batch)
+      if (error) return 0
+      for (const row of (data ?? []) as { id: string }[]) alive.add(row.id)
+    }
+
+    let removed = 0
+    for (const folder of folders) {
+      if (alive.has(folder)) continue
+      const contents = await this.client.storage
+        .from(ASSETS_BUCKET)
+        .list(`${ownerId}/${folder}`, { limit: STORAGE_LIST_LIMIT })
+      if (contents.error || !contents.data) continue
+      const paths = contents.data
+        .filter((entry) => entry.id)
+        .map((entry) => `${ownerId}/${folder}/${entry.name}`)
+      if (paths.length === 0) continue
+      const { error: removeError } = await this.client.storage
+        .from(ASSETS_BUCKET)
+        .remove(paths)
+      if (!removeError) removed += paths.length
+    }
+    return removed
+  }
+
+  private async assetPaths(presentationId: string): Promise<string[]> {
+    const { data, error } = await this.client
+      .from(ASSETS_TABLE)
+      .select('object_path')
+      .eq('presentation_id', presentationId)
+    if (error) fail('Kunne ikke hente filene til presentasjonen', error)
+    return ((data ?? []) as { object_path: unknown }[])
+      .map((row) => row.object_path)
+      .filter((path): path is string => typeof path === 'string' && path.length > 0)
+  }
+
+  /**
+   * Take objects out of Storage once nothing points at them. A failure here is
+   * not the caller's problem — what it asked for has already happened — so the
+   * paths are remembered for `deleteOrphanAssets` instead of turning a delete
+   * that succeeded into an error the user cannot act on.
+   */
+  private async reclaimObjects(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return
+    try {
+      const { error } = await this.client.storage.from(ASSETS_BUCKET).remove([...paths])
+      if (!error) return
+    } catch {
+      // Same outcome as an error response: remember them and move on.
+    }
+    for (const path of paths) this.pendingObjectRemovals.add(path)
+  }
+}

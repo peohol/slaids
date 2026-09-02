@@ -1,13 +1,13 @@
 /**
  * Asset loading for the UI.
  *
- * Blobs are cached per asset id so we do not hit IndexedDB repeatedly, while
+ * Blobs are cached per asset id so we do not hit the store repeatedly, while
  * object URLs are created and revoked per consumer so there is no leak and no
  * shared-lifetime bug.
  */
 
 import { useEffect, useState } from 'react'
-import { repository } from '../persistence/dexieRepository'
+import { repository } from '../persistence/activeRepository'
 import type { AssetRef } from '../domain/types'
 
 const blobCache = new Map<string, Promise<{ ref: AssetRef; blob: Blob } | null>>()
@@ -18,6 +18,14 @@ export function loadAsset(id: string): Promise<{ ref: AssetRef; blob: Blob } | n
   const promise = repository.getAsset(id).catch(() => null)
   blobCache.set(id, promise)
   return promise
+}
+
+/**
+ * Forget every cached blob. Called on sign-out: the cache is keyed by asset id
+ * alone, and the next user must not be shown the previous one's files.
+ */
+export function clearAssetCache(): void {
+  blobCache.clear()
 }
 
 export function useAssetUrl(assetId: string | null): string | null {

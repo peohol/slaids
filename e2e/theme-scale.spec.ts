@@ -2,6 +2,7 @@ import { expect, test, type Page } from './fixtures'
 import {
   G,
   addContentToZone,
+  backToLibrary,
   createPresentation,
   enterContentMode,
   enterZoneMode,
@@ -127,8 +128,9 @@ test.describe('luft and skriftstørrelse', () => {
     await expect(toast(page, 'standard for nye presentasjoner')).toBeVisible()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
-    // Reloading lands back in the deck that was open, so go to the library first.
-    await page.getByTestId('back-to-library').click()
+    // Reloading lands back in the deck that was open, so go to the library
+    // first — and wait for it, since leaving saves before it lets go.
+    await backToLibrary(page)
     await createPresentation(page, 'Ny med standard')
     await enterZoneMode(page)
     await splitSelected(page, [1, 1], 'x')
