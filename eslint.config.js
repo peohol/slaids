@@ -5,11 +5,22 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report', 'test-results', 'coverage'] },
+  {
+    ignores: [
+      'dist',
+      'node_modules',
+      'playwright-report',
+      'test-results',
+      'coverage',
+      // Generated: the agent API bundled for the serverless runtime.
+      'src/server/generated/agentApi.js',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.{ts,tsx}'],
+    // `.mjs` too: the build scripts are Node programs, not browser code.
+    files: ['**/*.{ts,tsx,mjs}'],
     languageOptions: {
       ecmaVersion: 2023,
       globals: { ...globals.browser, ...globals.node },
@@ -31,7 +42,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ['e2e/**/*.ts', '*.config.ts', 'vitest.setup.ts'],
+    // Build and deploy scripts talk to whoever ran them.
+    files: ['e2e/**/*.ts', '*.config.ts', 'vitest.setup.ts', 'scripts/**/*.mjs'],
     rules: { 'no-console': 'off' },
   },
 )

@@ -640,6 +640,16 @@ IndexedDB å falle tilbake på.
 Tabellene `slaids_agent_tokens` og `slaids_agent_audit` kommer med migrasjonen
 `20260902190000_slaids_agent_api.sql`. Se «Deploye Slaids-migrasjoner».
 
+`npm run build` bygger serverfunksjonen til én fil, `src/server/generated/agentApi.js`,
+og Vercel-inngangen importerer den. Det er ikke en optimalisering: plattformen
+kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom dem, og
+TypeScript skriver modulnavn ut ordrett – så `from './handler'` blir stående, og
+Nodes ESM-resolver har verken filtypegjetting eller index-oppslag. Uten
+bundelen svarer funksjonen `ERR_UNSUPPORTED_DIR_IMPORT` ved første kall, med en
+grønn deploy bak seg. `scripts/check-agent-bundle.mjs` laster bundelen i vanlig
+Node og kaller den som en del av byggingen, så nøyaktig den feilen stopper her i
+stedet for i produksjon.
+
 ## Arkitektur
 
 ```
@@ -659,7 +669,8 @@ src/
   routing.ts     hva en URL betyr: arbeidsområde eller /s/<token>
 
 api/
-  agent/v1/      Vercel-inngangen til REST-laget; all logikk ligger i src/server/
+  agent/v1/      Vercel-inngangen til REST-laget; all logikk ligger i src/server/,
+                 og importeres som én ferdig bundel (se «Servermiljø»)
 
 supabase/
   migrations/    skjemaet, inkludert delingskolonnene, version-triggeren,

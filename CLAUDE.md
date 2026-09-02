@@ -96,6 +96,12 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   og tabellen har ingen kolonne slikt kan havne i.
 - `src/server/` importeres aldri fra resten av `src/`. En import derfra ville kompilert,
   bestått testene og dratt hele operasjonsregisteret inn i nettleserbundelen.
+- Serverfunksjonen deployes som **én bundel** (`src/server/generated/agentApi.js`), ikke som
+  kildetreet. Vercel kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom
+  dem; TypeScript skriver modulnavn ordrett, og Nodes ESM-resolver har verken
+  filtypegjetting eller index-oppslag – så en `api/`-fil som importerer `src/` direkte
+  krasjer ved første kall, med en grønn deploy bak seg. `scripts/check-agent-bundle.mjs`
+  laster bundelen i vanlig Node under byggingen, så den feilen stopper der.
 - Supabase-prosjektet er delt med Huskis og mdeditz, men `supabase_migrations.schema_migrations`
   er prosjektglobal og inneholder deres migrasjoner. **`supabase db push` skal aldri kjøres
   herfra**, og verken `migration repair` eller `db pull` er svaret når den klager – begge

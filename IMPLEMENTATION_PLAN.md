@@ -2627,6 +2627,24 @@ konfigurasjon svarer API-et `503` og navngir variabelen som mangler: en server
 har ingen IndexedDB å falle tilbake på, så det finnes ingen lokal modus å velge
 stille.
 
+#### Funksjonen deployes som én fil, ikke som kildetreet
+
+Vercel kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom dem.
+TypeScript skriver modulnavn ut ordrett – det har aldri skrevet dem om – og
+Nodes ESM-resolver har verken filtypegjetting eller index-oppslag. En
+`api/`-fil som importerer `src/server/agent` direkte er derfor en fil som
+typechecker, linter, består alle testene, deployer grønt, og svarer
+`ERR_UNSUPPORTED_DIR_IMPORT` på hver eneste forespørsel. Å stave ut filnavnet
+flytter bare feilen én import dypere ned, siden hele `src/` er skrevet
+ekstensjonsløst.
+
+`vite.agent-api.config.ts` bygger derfor Agent Core og REST-laget til én fil
+uten en eneste relativ import igjen; bare `zod` og `@supabase/supabase-js` står
+igjen som bare specifiers, som Node og avhengighetssporingen håndterer.
+`scripts/check-agent-bundle.mjs` importerer resultatet i vanlig Node og kaller
+det som en del av byggingen – nøyaktig den veien som var brutt – så feilen
+stopper i byggingen i stedet for i produksjon.
+
 `src/server/` importeres aldri fra resten av `src/`, og `boundary.test.ts`
 håndhever det. Feilen ville vært stille: en import fra en UI-fil ville kompilert,
 bestått hver test, og dratt hele operasjonsregisteret og statustabellen inn i
