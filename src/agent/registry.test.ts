@@ -55,7 +55,7 @@ describe('operasjonskatalogen', () => {
     const names = operations.map((operation) => operation.name)
     expect(names).toContain('upload_asset')
     expect(names).toContain('create_svg_asset')
-    expect(names).toContain('place_asset')
+    expect(names).toContain('set_zone_asset')
     expect(names.some((name) => /generate.*image|image.*generate/.test(name))).toBe(false)
   })
 
@@ -125,7 +125,7 @@ describe('runOperation', () => {
     const { assetId } = created.value as { assetId: string }
 
     // No `fit`, no `replace`: the schema's defaults are the contract.
-    const placed = await runOperation(context, 'place_asset', {
+    const placed = await runOperation(context, 'set_zone_asset', {
       presentationId: presentation.id,
       slideId: presentation.slides[0].id,
       nodeId: presentation.slides[0].root.id,

@@ -14,8 +14,8 @@ import { blobToBytes } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
 import type { Presentation } from '../domain/types'
-import { createSvgAsset, listAssets, placeAsset, uploadAsset } from './operations/assets'
-import { describePresentation } from './operations/deck'
+import { createSvgAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
+import { getPresentation, inspectSlide } from './operations/deck'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
 
@@ -298,10 +298,10 @@ describe('create_svg_asset', () => {
 })
 
 /* ------------------------------------------------------------------ *
- * place_asset
+ * set_zone_asset
  * ------------------------------------------------------------------ */
 
-describe('place_asset', () => {
+describe('set_zone_asset', () => {
   async function seedWithAsset(context: AgentContext) {
     const presentation = await seed(context)
     const stored = expectOk(
@@ -321,7 +321,7 @@ describe('place_asset', () => {
     const context = freshContext()
     const seeded = await seedWithAsset(context)
 
-    const placed = expectOk(await placeAsset.run(context, { ...seeded, ...placement }))
+    const placed = expectOk(await setZoneAsset.run(context, { ...seeded, ...placement }))
     expect(placed).toMatchObject({ assetId: seeded.assetId, movedToSandbox: 0, discarded: 0 })
 
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
@@ -338,7 +338,7 @@ describe('place_asset', () => {
     const seeded = await seedWithAsset(context)
 
     const error = expectErr(
-      await placeAsset.run(context, { ...seeded, ...placement, assetId: 'a_finnes_ikke' }),
+      await setZoneAsset.run(context, { ...seeded, ...placement, assetId: 'a_finnes_ikke' }),
     )
     expect(error.code).toBe('ASSET_NOT_FOUND')
   })
@@ -346,14 +346,14 @@ describe('place_asset', () => {
   it('nekter å overskrive en sone som har innhold, med mindre den blir bedt om det', async () => {
     const context = freshContext()
     const seeded = await seedWithAsset(context)
-    await placeAsset.run(context, { ...seeded, ...placement })
+    await setZoneAsset.run(context, { ...seeded, ...placement })
 
-    expect(expectErr(await placeAsset.run(context, { ...seeded, ...placement })).code).toBe(
+    expect(expectErr(await setZoneAsset.run(context, { ...seeded, ...placement })).code).toBe(
       'TARGET_OCCUPIED',
     )
 
     const replaced = expectOk(
-      await placeAsset.run(context, { ...seeded, ...placement, replace: true }),
+      await setZoneAsset.run(context, { ...seeded, ...placement, replace: true }),
     )
     expect(replaced.movedToSandbox).toBe(1)
 
@@ -374,7 +374,7 @@ describe('place_asset', () => {
     if (!split.ok) throw new Error('kunne ikke dele sonen')
     await context.repository.savePresentation(split.value.presentation)
 
-    const error = expectErr(await placeAsset.run(context, { ...seeded, ...placement }))
+    const error = expectErr(await setZoneAsset.run(context, { ...seeded, ...placement }))
     expect(error.code).toBe('NODE_NOT_LEAF')
   })
 
@@ -383,42 +383,41 @@ describe('place_asset', () => {
     const seeded = await seedWithAsset(context)
 
     expect(
-      expectErr(await placeAsset.run(context, { ...seeded, ...placement, nodeId: 'n_borte' })).code,
+      expectErr(await setZoneAsset.run(context, { ...seeded, ...placement, nodeId: 'n_borte' })).code,
     ).toBe('NODE_NOT_FOUND')
     expect(
-      expectErr(await placeAsset.run(context, { ...seeded, ...placement, slideId: 's_borte' })).code,
+      expectErr(await setZoneAsset.run(context, { ...seeded, ...placement, slideId: 's_borte' })).code,
     ).toBe('SLIDE_NOT_FOUND')
   })
 
-  it('lar en agent finne sone-id-en gjennom describe_presentation', async () => {
+  it('lar en agent finne sone-id-en gjennom inspect_slide', async () => {
     const context = freshContext()
     const seeded = await seedWithAsset(context)
+    const inspection = { presentationId: seeded.presentationId, slideId: seeded.slideId }
 
-    const outline = expectOk(
-      await describePresentation.run(context, { presentationId: seeded.presentationId }),
-    )
-    const [slide] = outline.slides
-    const empty = slide.zones.find((zone) => zone.kind === 'leaf' && zone.empty)
+    const before = expectOk(await inspectSlide.run(context, inspection))
+    const empty = before.zones.find((zone) => zone.kind === 'leaf' && zone.empty)
     expect(empty?.nodeId).toBe(seeded.nodeId)
     expect(empty?.rect.width).toBeGreaterThan(0)
 
     expectOk(
-      await placeAsset.run(context, {
+      await setZoneAsset.run(context, {
         ...placement,
         presentationId: seeded.presentationId,
-        slideId: slide.slideId,
+        slideId: before.slideId,
         nodeId: empty!.nodeId,
         assetId: seeded.assetId,
       }),
     )
 
-    const after = expectOk(
-      await describePresentation.run(context, { presentationId: seeded.presentationId }),
-    )
-    expect(after.slides[0].zones[0]).toMatchObject({
+    const after = expectOk(await inspectSlide.run(context, inspection))
+    expect(after.zones[0]).toMatchObject({
       empty: false,
       contentKind: 'container',
       assetIds: [seeded.assetId],
+      referenceIds: [],
+      subfieldIds: [],
+      fits: true,
     })
   })
 })
@@ -468,7 +467,7 @@ describe('asset-invariants', () => {
     expect(unusedAssets(before).map((asset) => asset.id)).toEqual([stored.assetId])
 
     expectOk(
-      await placeAsset.run(context, {
+      await setZoneAsset.run(context, {
         presentationId: presentation.id,
         slideId: presentation.slides[0].id,
         nodeId: presentation.slides[0].root.id,
@@ -497,7 +496,7 @@ describe('asset-invariants', () => {
     const listed = expectOk(await listAssets.run(context, { presentationId: presentation.id }))
     expect(listed.assets).toEqual([{ ...stored.ref, used: false }])
 
-    await runOperation(context, 'place_asset', {
+    await runOperation(context, 'set_zone_asset', {
       presentationId: presentation.id,
       slideId: presentation.slides[0].id,
       nodeId: presentation.slides[0].root.id,
@@ -506,5 +505,64 @@ describe('asset-invariants', () => {
 
     const after = expectOk(await listAssets.run(context, { presentationId: presentation.id }))
     expect(after.assets[0].used).toBe(true)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * discovery
+ * ------------------------------------------------------------------ */
+
+describe('get_presentation og inspect_slide', () => {
+  it('gir en agent id-ene den trenger, uten å utlevere dokumentet', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const view = expectOk(await getPresentation.run(context, { presentationId: presentation.id }))
+    expect(view).toMatchObject({
+      presentationId: presentation.id,
+      title: 'Agenttest',
+      slideCount: 1,
+      assetCount: 0,
+      referenceCount: 0,
+    })
+    expect(view.slides).toEqual([
+      { slideId: presentation.slides[0].id, index: 0, hasTitle: true, title: '' },
+    ])
+    // A description, not the document: no layout tree, no rich text, no sandbox.
+    expect(Object.keys(view)).not.toContain('slidesJson')
+    expect(JSON.stringify(view)).not.toContain('"root"')
+  })
+
+  it('beskriver sonene i en slide med geometry engine-ens egne mål', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const slideId = presentation.slides[0].id
+    const split = splitLeaf(presentation, {
+      slideId,
+      nodeId: presentation.slides[0].root.id,
+      axis: 'x',
+      weights: [1, 1],
+    })
+    if (!split.ok) throw new Error('kunne ikke dele sonen')
+    await context.repository.savePresentation(split.value.presentation)
+
+    const inspection = expectOk(
+      await inspectSlide.run(context, { presentationId: presentation.id, slideId }),
+    )
+    const [root, first, second] = inspection.zones
+    expect(root).toMatchObject({ kind: 'split', axis: 'x', weights: [1, 1] })
+    expect(root.childNodeIds).toEqual([first.nodeId, second.nodeId])
+    expect(first.rect.width).toBeCloseTo(second.rect.width, 6)
+    expect(first).toMatchObject({ kind: 'leaf', empty: true })
+  })
+
+  it('sier fra når sliden ikke finnes', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    expect(
+      expectErr(
+        await inspectSlide.run(context, { presentationId: presentation.id, slideId: 's_borte' }),
+      ).code,
+    ).toBe('SLIDE_NOT_FOUND')
   })
 })

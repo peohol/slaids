@@ -399,11 +399,11 @@ Et første, transportuavhengig agentlag ligger i `src/agent/` (Agent Core). Det
 gir en agent semantiske operasjoner over de samme domenekommandoene som UI-et
 bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
 
-| Operasjon          | Hva agenten sender                        | Hva den får |
-| ------------------ | ----------------------------------------- | ----------- |
-| `upload_asset`     | metadata + filinnhold (base64, bytes, blob) | `assetId`   |
-| `create_svg_asset` | `name` + `svgMarkup`                      | `assetId`   |
-| `place_asset`      | `assetId` + slide og sone                 | plassert innhold |
+| Operasjon          | Hva agenten sender                          | Hva den får      |
+| ------------------ | ------------------------------------------- | ---------------- |
+| `upload_asset`     | metadata + filinnhold (base64, bytes, blob) | `assetId`        |
+| `create_svg_asset` | `name` + `svgMarkup`                        | `assetId`        |
+| `set_zone_asset`   | `assetId` + slide og sone                   | plassert innhold |
 
 - **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
   hva kalleren kaller filen, så noe som ikke er PNG, JPEG, GIF, WEBP, AVIF eller
@@ -416,11 +416,14 @@ bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
   stedet for å bli stille fjernet. En SVG uten kjent størrelsesforhold avvises
   også – uten `viewBox` eller `width`/`height` finnes det ingen riktig måte å
   legge den ut på.
-- **Ingen `generate_image_asset`.** Skal Slaids noen gang generere et bilde, er
-  det en endring av `IMPLEMENTATION_PLAN.md` §44.2 først.
+- **Ingen bildegenererende operasjon** – ingen `generate_image(prompt)` som
+  sender prompten videre til en bildeleverandør. Skal Slaids noen gang generere
+  et bilde, er det en endring av `IMPLEMENTATION_PLAN.md` §44 først.
 - Uansett dør blir resultatet et helt vanlig asset: bytene i lagringen, en
   `AssetRef` i dokumentet, `isVector: true` for SVG, og visning gjennom `<img>`
   og en Blob-URL – aldri injisert markup.
+- Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
+  sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
 Dette er **fundamentet** for et senere REST/MCP-API, ikke nettverkseksponering:
 Agent Core kjører i samme prosess som resten av appen, har nøyaktig den tilgangen

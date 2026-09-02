@@ -6,7 +6,7 @@
  * wants a raster picture in a deck brings one it already has — `upload_asset` —
  * and an agent that wants a drawing writes the vector markup for it —
  * `create_svg_asset`. Both end in the same place: a stored file with an
- * `assetId`, which `place_asset` then puts in a zone.
+ * `assetId`, which `set_zone_asset` then puts in a zone.
  *
  * There is deliberately no `generate_image_asset`.
  */
@@ -107,10 +107,10 @@ function ensureSvgName(name: string): string {
 }
 
 /* ------------------------------------------------------------------ *
- * place_asset
+ * set_zone_asset
  * ------------------------------------------------------------------ */
 
-const placeAssetInput = z.object({
+const setZoneAssetInput = z.object({
   presentationId: presentationIdSchema,
   slideId: slideIdSchema,
   nodeId: nodeIdSchema,
@@ -129,7 +129,7 @@ const placeAssetInput = z.object({
     .describe('Hva som skjer med innholdet som erstattes.'),
 })
 
-export interface PlacedAsset {
+export interface ZoneAssetPlacement {
   presentationId: string
   slideId: string
   nodeId: string
@@ -139,12 +139,12 @@ export interface PlacedAsset {
   discarded: number
 }
 
-export const placeAsset = defineOperation({
-  name: 'place_asset',
+export const setZoneAsset = defineOperation({
+  name: 'set_zone_asset',
   summary: 'Plasser en eksisterende fil som innholdet i en sone.',
   mutates: true,
-  input: placeAssetInput,
-  run(context, input): Promise<AgentResult<PlacedAsset>> {
+  input: setZoneAssetInput,
+  run(context, input): Promise<AgentResult<ZoneAssetPlacement>> {
     return mutatePresentation(context, input.presentationId, (presentation) => {
       if (!presentation.assets.some((asset) => asset.id === input.assetId)) {
         // Checked here rather than left to the renderer: a zone pointing at a
@@ -206,4 +206,4 @@ export const listAssets = defineOperation({
   },
 })
 
-export const assetOperations = [uploadAsset, createSvgAsset, placeAsset, listAssets]
+export const assetOperations = [uploadAsset, createSvgAsset, setZoneAsset, listAssets]

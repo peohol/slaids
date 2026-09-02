@@ -84,12 +84,13 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `drop … if exists` før `create`). Det er dét som gjør at en fil kan kjøres på nytt – i SQL
   Editor, eller mot en base der historikken ikke er komplett – uten å gjøre skade.
 - **Slaids genererer aldri bilder.** Ingen bildegenerering i appen, ingen ekstern
-  bildetjeneste, ingen `generate_image_asset`. Et rasterbilde kommer inn ferdig
+  bildetjeneste, ingen `generate_image(prompt)`. Et rasterbilde kommer inn ferdig
   (`upload_asset`), en figur kommer inn som SVG-markup (`create_svg_asset`), og
-  begge blir helt vanlige assets. SVG saneres i `src/domain/svg.ts` uansett hvilken
-  av de to dørene den kom gjennom, og lagres som reserialisert markup – aldri
-  kallerens streng. Formatet avgjøres av bytene (`src/domain/imageBytes.ts`), ikke
-  av hva kalleren kaller filen. Se `IMPLEMENTATION_PLAN.md` §44.2.
+  begge blir helt vanlige assets som `set_zone_asset` plasserer. SVG saneres i
+  `src/domain/svg.ts` uansett hvilken av de to dørene den kom gjennom, og lagres
+  som reserialisert markup – aldri kallerens streng. Formatet avgjøres av bytene
+  (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen. Se
+  `IMPLEMENTATION_PLAN.md` §44.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
