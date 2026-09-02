@@ -67,10 +67,22 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   første gruppen er lagret. QR-siden er ikke en `Slide` og ligger aldri i
   `presentation.slides`; den er et eget medlem av `DeckPage`-unionen i `src/domain/pages.ts`
   og finnes bare mens delingen er på.
-- `/s/<token>` er offentlig og går aldri gjennom `AuthGate`. `src/Root.tsx` velger rute én
-  gang, over porten, og den delte visningen monterer ingen privat komponent. Bilder i delt
-  visning hentes gjennom delings-endepunktet, aldri gjennom det autentiserte repositoryet –
-  valget tas av `AssetSourceProvider`, ikke av en gren inne i rendereren.
+- **Alt** under `/s/` er offentlig og går aldri gjennom `AuthGate` – grensen er stien, ikke
+  tokenet. En avkortet eller feilskrevet lenke tilhører den som fikk den, og skal møte
+  «Denne delingslenken er ikke aktiv», aldri eierens innlogging. Et syntaktisk umulig token
+  besvares lokalt, uten et kall til delings-endepunktet. `src/Root.tsx` velger rute én gang,
+  over porten, og den delte visningen monterer ingen privat komponent. Bilder i delt visning
+  hentes gjennom delings-endepunktet, aldri gjennom det autentiserte repositoryet – valget
+  tas av `AssetSourceProvider`, ikke av en gren inne i rendereren.
+- Supabase-prosjektet er delt med Huskis og mdeditz, men `supabase_migrations.schema_migrations`
+  er prosjektglobal og inneholder deres migrasjoner. **`supabase db push` skal aldri kjøres
+  herfra**, og verken `migration repair` eller `db pull` er svaret når den klager – begge
+  skader en annen app. Slaids fører sin egen historikk i `public.slaids_migrations` via
+  `scripts/deploy-migrations.sh`. Slaids eier bare `slaids_`-prefiksede objekter og sin egen
+  Edge Function; `functions deploy --prune` ville slettet de andre appenes funksjoner.
+- Slaids-migrasjoner skal være idempotente (`if not exists`, `create or replace`,
+  `drop … if exists` før `create`). Det er dét som gjør at en fil kan kjøres på nytt – i SQL
+  Editor, eller mot en base der historikken ikke er komplett – uten å gjøre skade.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
@@ -95,8 +107,12 @@ npm test             # vitest run
 npm run build        # produksjonsbuild
 npm run e2e          # Playwright (bygger og serverer selv)
 
-supabase db push                      # skjema, inkludert delingsmigrasjonen
-supabase functions deploy slaids-share  # den offentlige lesefunksjonen
+# Databasen. Aldri `supabase db push` – se invarianten over.
+SLAIDS_DB_URL=... ./scripts/deploy-migrations.sh --dry-run
+SLAIDS_DB_URL=... ./scripts/deploy-migrations.sh
+
+# Den offentlige lesefunksjonen. Aldri med --prune.
+supabase functions deploy slaids-share --project-ref <ref>
 ```
 
 I Vercel må **begge** `VITE_SUPABASE_URL` og `VITE_SUPABASE_PUBLISHABLE_KEY` være slått på

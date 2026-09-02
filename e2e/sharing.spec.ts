@@ -53,3 +53,33 @@ test.describe('deling i lokal modus', () => {
     await expect(page.getByTestId('presentation-grid')).toHaveCount(0)
   })
 })
+
+/**
+ * En avkortet eller feilskrevet delingslenke tilhører fortsatt den som fikk
+ * den. Den skal aldri lande på eierens innlogging, og den skal besvares uten å
+ * spørre delings-endepunktet om en adresse som umulig kan være et token.
+ */
+test.describe('ødelagte delingsadresser', () => {
+  for (const path of ['/s/abc', '/s/3f2a1b0c-1111', '/s/', '/s']) {
+    test(`«${path}» blir på den offentlige siden`, async ({ page }) => {
+      const shareCalls: string[] = []
+      page.on('request', (request) => {
+        if (request.url().includes('slaids-share')) shareCalls.push(request.url())
+      })
+
+      await page.goto(path)
+
+      await expect(page.getByTestId('shared-not-found')).toBeVisible()
+      await expect(page.getByTestId('shared-not-found')).toContainText(
+        'Denne delingslenken er ikke aktiv',
+      )
+      // Ingen innlogging, ingen editor, ingen bibliotek.
+      await expect(page.getByTestId('sign-in-password')).toHaveCount(0)
+      await expect(page.getByTestId('auth-loading')).toHaveCount(0)
+      await expect(page.getByTestId('editor')).toHaveCount(0)
+      await expect(page.getByTestId('presentation-grid')).toHaveCount(0)
+      // Og ingen henvendelse til delings-endepunktet.
+      expect(shareCalls).toEqual([])
+    })
+  }
+})

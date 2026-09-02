@@ -154,8 +154,7 @@ infrastruktur, men dette gir ingen konto- eller produktkobling til andre apper
 som bruker samme prosjekt. Utlogging bruker `scope: 'local'`, slik at den bare
 avslutter Slaids-sesjonen i denne nettleseren.
 
-Skjemaet ligger i `supabase/migrations/` og kan kjøres med `supabase db push` mot
-et tomt prosjekt:
+Skjemaet ligger i `supabase/migrations/`:
 
 - fire tabeller i `public` (`slaids_folders`, `slaids_presentations`,
   `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som både
@@ -172,13 +171,67 @@ et tomt prosjekt:
   `<owner_id>/<presentation_id>/<asset_id>` og den samme tillatte brukeren.
 
 Deling har i tillegg en Edge Function, `slaids-share`, som er den eneste
-offentlige inngangen. Den deployes for seg:
+offentlige inngangen. Se «Deling» lenger ned for hva den gjør og hvorfor den
+finnes.
 
-```bash
-supabase functions deploy slaids-share
+### Deploye Slaids-migrasjoner
+
+**Ikke bruk `supabase db push` herfra.** Supabase-prosjektet er delt
+infrastruktur – Slaids, Huskis og mdeditz bor i det samme prosjektet, fra tre
+uavhengige repoer – mens Supabases egen migrasjonshistorikk,
+`supabase_migrations.schema_migrations`, er **prosjektglobal**. Den inneholder
+alle appenes migrasjoner, blant annet `20260806132939_mdeditz_store`, som ikke
+finnes i dette repoet.
+
+`db push` leser den tabellen som om den var historikken til repoet du står i, så
+herfra stopper den:
+
+```text
+Remote migration versions not found in local migrations directory.
 ```
 
-Se «Deling» lenger ned for hva den gjør og hvorfor den finnes.
+og foreslår `supabase migration repair --status reverted 20260806132939` eller
+`supabase db pull`. **Følg ingen av dem.** Den første skriver om *mdeditz'*
+historikk; den andre drar en annen apps skjema inn i Slaids. Det finnes ingen
+flagg som avgrenser `db push` til én app (`--include-all` gjelder motsatt vei –
+lokale migrasjoner som mangler i historikken), og `config.toml` har ingen
+innstilling for det.
+
+Slaids fører derfor sin egen historikk, i sin egen tabell,
+`public.slaids_migrations`, ved siden av sine egne tabeller:
+
+```bash
+# Connection string fra Supabase-dashbordet: Project Settings → Database.
+# Dette er en hemmelighet – hold den utenfor repoet og utenfor Vercel.
+export SLAIDS_DB_URL='postgresql://postgres:...@db.<prosjekt-ref>.supabase.co:5432/postgres'
+
+./scripts/deploy-migrations.sh --dry-run   # hva som ville blitt kjørt
+./scripts/deploy-migrations.sh             # kjør det
+```
+
+Skriptet kjører hver migrasjon i `supabase/migrations/` som ikke allerede står i
+Slaids' egen historikk, i filnavnrekkefølge, og hver av dem i én transaksjon
+sammen med sin egen historikkrad – så en feil etterlater verken en halvkjørt
+migrasjon eller en historikk som lyver. Det leser og skriver aldri den delte
+tabellen, og nekter å kjøre en migrasjon som i det hele tatt nevner den.
+
+Det er dét som gjør det trygt for de andre appene: ingenting her er globalt.
+Deres historikk er urørt, og Slaids-migrasjoner lager bare `slaids_`-prefiksede
+objekter.
+
+Har du ikke `psql`, kan du kjøre den nye migrasjonsfilen i Supabase-dashbordets
+SQL Editor i stedet. Migrasjonene er skrevet idempotent (`if not exists`,
+`create or replace`, `drop … if exists` før `create`), så en fil som kjøres to
+ganger gjør ingen skade – men da må du selv holde styr på hva som er kjørt.
+
+Edge Function-en deployes for seg, og berører ingen migrasjonshistorikk:
+
+```bash
+supabase functions deploy slaids-share --project-ref <prosjekt-ref>
+```
+
+**Aldri med `--prune`.** Det flagget sletter Edge Functions som finnes i
+prosjektet men ikke lokalt – altså Huskis' og mdeditz' funksjoner.
 
 Supabase-oppsettet er **verifisert mot et ekte prosjekt**: innlogging,
 reload/session-persistens, filer, mapper, import/eksport, sletting, utlogging,
@@ -334,6 +387,9 @@ src/
 supabase/
   migrations/    skjemaet, inkludert delingskolonnene og version-triggeren
   functions/     slaids-share: den eneste offentlige inngangen
+
+scripts/
+  deploy-migrations.sh   kjører Slaids' migrasjoner uten å røre den delte historikken
 ```
 
 Regler som gjelder overalt:

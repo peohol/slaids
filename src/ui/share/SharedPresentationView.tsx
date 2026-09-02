@@ -31,9 +31,9 @@ type LoadedDeck = { token: string; outcome: SharedDeckOutcome }
  * the whole access control.
  *
  *  - `noindex, nofollow`: a secret link a crawler has found is not a secret
- *    link. The endpoint sets `X-Robots-Tag` on the data; this covers the page,
- *    which is served by the same static host as the rest of the app and cannot
- *    carry a header of its own.
+ *    link. `vercel.json` sets the same thing as a response header on `/s/`, so
+ *    the very first HTML is covered before any of this runs; this is the
+ *    defence that survives being served from somewhere else.
  *  - `no-referrer`: the token is in the path, so it must never travel in a
  *    `Referer`. Modern browsers already withhold the path cross-origin, and
  *    every link in a slide is `rel="noreferrer"` — this is the belt to those
@@ -57,10 +57,35 @@ function useLinkPrivacyMeta(): void {
   }, [])
 }
 
-export function SharedPresentationView({ token }: { token: string }) {
+/**
+ * One answer for every dead link.
+ *
+ * A wrong address, a share that has been turned off and a presentation that has
+ * been deleted look the same from out here — and so does an address that cannot
+ * be a token at all, which is why this is a component rather than a branch.
+ */
+function SharedLinkNotFound() {
+  return (
+    <div className="shared shared--message" data-testid="shared-not-found">
+      <div className="shared__card">
+        <h1 className="shared__title">Slaids</h1>
+        <p>Denne delingslenken er ikke aktiv.</p>
+        <p className="hint">
+          Lenken kan være skrevet feil eller ufullstendig, eller den som eier presentasjonen kan
+          ha slått av delingen. Be om en ny lenke.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The deck itself. Mounted only once there is a token worth asking about, so a
+ * malformed address never becomes a request to the share endpoint.
+ */
+function SharedDeck({ token }: { token: string }) {
   const [loaded, setLoaded] = useState<LoadedDeck | null>(null)
   const assetSource = useSharedAssetSource(token)
-  useLinkPrivacyMeta()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -87,25 +112,7 @@ export function SharedPresentationView({ token }: { token: string }) {
     )
   }
 
-  if (outcome.kind === 'not-found') {
-    return (
-      <div className="shared shared--message" data-testid="shared-not-found">
-        <div className="shared__card">
-          <h1 className="shared__title">Slaids</h1>
-          {/*
-            Deliberately one message for every reason: a wrong address, a share
-            that has been turned off and a presentation that has been deleted
-            all look the same from out here.
-          */}
-          <p>Denne delingslenken er ikke aktiv.</p>
-          <p className="hint">
-            Lenken kan være skrevet feil, eller den som eier presentasjonen kan ha slått av
-            delingen. Be om en ny lenke.
-          </p>
-        </div>
-      </div>
-    )
-  }
+  if (outcome.kind === 'not-found') return <SharedLinkNotFound />
 
   if (outcome.kind === 'unavailable') {
     return (
@@ -132,4 +139,13 @@ export function SharedPresentationView({ token }: { token: string }) {
       </AssetSourceProvider>
     </div>
   )
+}
+
+export function SharedPresentationView({ token }: { token: string | null }) {
+  useLinkPrivacyMeta()
+  // An address under `/s/` that cannot be a token is answered here and now.
+  // Asking the server about it would tell it nothing it could act on, and would
+  // turn a typo into a request that looks like a guess at somebody's link.
+  if (!token) return <SharedLinkNotFound />
+  return <SharedDeck token={token} />
 }

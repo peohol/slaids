@@ -1451,6 +1451,33 @@ SQL-en for skjemaet ligger i `supabase/migrations/`, slik at en tom Supabase kan
 gjenskape dagens skjema fra bunnen. En anvendt migrasjon skrives aldri om:
 endringer kommer som en ny fil.
 
+Prosjektet er delt infrastruktur, og det avgjør hvordan migrasjoner deployes.
+Supabases egen historikk, `supabase_migrations.schema_migrations`, er
+**prosjektglobal**: den inneholder Huskis' og mdeditz' migrasjoner også, og de
+bor i andre repoer. `supabase db push` leser den som om den var historikken til
+repoet den kjøres fra, og stopper derfor herfra med «Remote migration versions
+not found in local migrations directory» – med to forslag som begge er feil for
+dette oppsettet: `migration repair` skriver om en annen apps historikk, og
+`db pull` drar en annen apps skjema inn i Slaids. Ingen flagg avgrenser
+`db push` til én app.
+
+Slaids fører derfor sin egen historikk, i sin egen tabell,
+`public.slaids_migrations`, og `scripts/deploy-migrations.sh` er hele
+mekanismen: hver ukjørte migrasjon, i filnavnrekkefølge, hver i én transaksjon
+sammen med sin egen historikkrad. Den delte tabellen leses aldri og skrives
+aldri, og en migrasjon som nevner den avvises før noe kjøres.
+
+Det er trygt for de andre appene fordi ingenting i Slaids' deploy er globalt:
+
+- historikken Slaids skriver er `slaids_`-prefikset og bare Slaids';
+- migrasjonene lager bare `slaids_`-prefiksede objekter;
+- Edge Function-deploy rører ingen migrasjonshistorikk – men må kjøres **uten**
+  `--prune`, som ville slettet de andre appenes funksjoner.
+
+Migrasjonene skal være idempotente. Det er dét som gjør at en fil kan kjøres på
+nytt – i SQL Editor, eller mot en base der Slaids' historikk ikke er komplett –
+uten å gjøre skade.
+
 ### Verifisert mot ekte backend
 
 Supabase-oppsettet er testet manuelt mot det ekte prosjektet, ikke bare mot
@@ -1583,8 +1610,18 @@ over» derfor ikke porten – den rendres av et tre porten aldri var med i. Inge
 React Router: én grense er ikke nok til å rettferdiggjøre en ruter, men den er
 nok til å rettferdiggjøre én ren, testet funksjon (`src/routing.ts`).
 
-Vercel trenger en SPA-rewrite (`vercel.json`) for at en direkte forespørsel til
-`/s/<token>` ikke skal gi 404.
+Grensen er **stien, ikke tokenet**. Alt under `/s/` blir på den offentlige siden,
+også når tokenet er ødelagt: en lenke som ble avkortet i en chat, eller skrevet
+av med et tegn for lite, tilhører den som fikk den, og de skal møte «Denne
+delingslenken er ikke aktiv» – ikke eierens innloggingsskjerm, som de uansett
+ikke kan komme forbi. Et token som umulig kan være riktig besvares lokalt, så en
+skrivefeil aldri blir en forespørsel som ser ut som en gjetning på noens lenke.
+
+`vercel.json` gjør to ting for den ruten: en SPA-rewrite, så en direkte
+forespørsel til `/s/<token>` ikke gir 404, og `X-Robots-Tag: noindex, nofollow`
+pluss `Referrer-Policy: no-referrer` som svarhoder. Hodene er poenget her:
+`<meta>`-taggene visningen setter selv virker først etter at JavaScript har
+kjørt, mens en crawler kan nøye seg med det første HTML-svaret.
 
 ### Sidene i et dekk
 

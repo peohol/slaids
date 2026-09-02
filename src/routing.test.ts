@@ -5,8 +5,8 @@ import { SHARE_PATH_PREFIX, isShareToken, parseRoute, shareUrl } from './routing
 const TOKEN = '3f2a1b0c-1111-4222-8333-444455556666'
 
 describe('parseRoute', () => {
-  it('sender alt annet enn /s/<token> til arbeidsområdet', () => {
-    for (const path of ['/', '/bibliotek', '/s', '/s/', '/share/' + TOKEN, '/x/' + TOKEN]) {
+  it('sender vanlige adresser til arbeidsområdet', () => {
+    for (const path of ['/', '/bibliotek', '/settings', '/share/' + TOKEN, '/x/' + TOKEN, '/sok']) {
       expect(parseRoute(path)).toEqual({ kind: 'workspace' })
     }
   })
@@ -20,10 +20,18 @@ describe('parseRoute', () => {
     })
   })
 
-  it('behandler noe som ikke er et token som en vanlig adresse', () => {
-    for (const junk of ['abc', `${TOKEN}extra`, `${TOKEN}/noe`, '../../etc/passwd']) {
-      expect(parseRoute(`${SHARE_PATH_PREFIX}${junk}`)).toEqual({ kind: 'workspace' })
+  it('holder en ødelagt delingsadresse på den offentlige siden', () => {
+    // En lenke som er avkortet i en chat, eller skrevet av med et tegn for lite,
+    // tilhører den som fikk den. De skal møte «lenken er ikke aktiv» – ikke
+    // eierens innlogging.
+    for (const junk of ['abc', `${TOKEN}extra`, `${TOKEN.slice(0, 20)}`, 'noe/mer', '../../etc/passwd']) {
+      expect(parseRoute(`${SHARE_PATH_PREFIX}${junk}`)).toEqual({ kind: 'shared', token: null })
     }
+  })
+
+  it('behandler en avkortet delingsadresse som en delingsadresse', () => {
+    expect(parseRoute('/s/')).toEqual({ kind: 'shared', token: null })
+    expect(parseRoute('/s')).toEqual({ kind: 'shared', token: null })
   })
 })
 

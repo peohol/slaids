@@ -1487,3 +1487,15 @@
   color: inherit;
   opacity: 0.85;
 }
+
+/*
+ * The manual copy fallback.
+ *
+ * Shown only when the clipboard refused, and wide enough that a whole share
+ * link is selectable in one gesture — a link you cannot see is not a fallback.
+ */
+.share-toggle__manual {
+  width: 260px;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}

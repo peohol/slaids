@@ -57,13 +57,31 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 export function ShareToggle({ status, shared, busy, error, link, onToggle }: ShareToggleProps) {
   const [copied, setCopied] = useState(false)
+  /**
+   * The link a copy failed for.
+   *
+   * Kept as the link rather than a boolean so it is derived, not synchronised:
+   * a new token makes the old fallback irrelevant the moment it renders, with
+   * no effect needed to clear it.
+   */
+  const [copyFailedFor, setCopyFailedFor] = useState<string | null>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualField = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     return () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current)
     }
   }, [])
+
+  const showManualLink = Boolean(shared && link && copyFailedFor === link)
+
+  // Ready to press Ctrl+C the moment it appears, which is the whole point of it.
+  useEffect(() => {
+    if (!showManualLink) return
+    manualField.current?.focus()
+    manualField.current?.select()
+  }, [showManualLink])
 
   const unsupported = status === 'unsupported'
   // Until the stored state has been read there is nothing true to show, so the
@@ -114,9 +132,16 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
             onClick={() => {
               void copyToClipboard(link).then((ok) => {
                 if (!ok) {
-                  notify.error('Kunne ikke kopiere lenken. Kopier den fra adressefeltet i stedet.')
+                  // Not "copy it from the address bar": the address bar holds
+                  // the editor's URL, not the share link. The link itself is
+                  // put on screen instead, selected and ready to copy by hand.
+                  setCopyFailedFor(link)
+                  notify.error(
+                    'Kunne ikke kopiere automatisk. Lenken står nå i feltet ved siden av – merk den og kopier.',
+                  )
                   return
                 }
+                setCopyFailedFor(null)
                 setCopied(true)
                 if (copiedTimer.current) clearTimeout(copiedTimer.current)
                 copiedTimer.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS)
@@ -127,6 +152,19 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
             {copied ? 'Kopiert' : 'Kopier lenke'}
           </button>
         </Tooltip>
+      )}
+
+      {showManualLink && link && (
+        <input
+          ref={manualField}
+          type="text"
+          className="input share-toggle__manual"
+          data-testid="share-link-manual"
+          readOnly
+          value={link}
+          aria-label="Delingslenke – merk og kopier"
+          onFocus={(event) => event.currentTarget.select()}
+        />
       )}
     </div>
   )

@@ -42,9 +42,31 @@ describe('Root', () => {
     expect(Root({ pathname: '/bibliotek' }).type).toBe(App)
   })
 
-  it('behandler en ødelagt delingsadresse som en vanlig adresse', () => {
-    expect(Root({ pathname: '/s/ikke-et-token' }).type).toBe(App)
-    expect(Root({ pathname: '/s/' }).type).toBe(App)
+  it('holder en ødelagt delingsadresse på den offentlige siden', () => {
+    // Poenget: en anonym mottaker av en avkortet lenke skal aldri havne på
+    // eierens innloggingsskjerm.
+    expect(Root({ pathname: '/s/ikke-et-token' }).type).toBe(SharedPresentationView)
+    expect(Root({ pathname: '/s/' }).type).toBe(SharedPresentationView)
+    expect(Root({ pathname: '/s' }).type).toBe(SharedPresentationView)
+  })
+
+  it('svarer lokalt på et ugyldig token, uten å spørre serveren', () => {
+    const calls: string[] = []
+    const original = globalThis.fetch
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return Promise.reject(new Error('skal ikke kalles'))
+    }) as typeof globalThis.fetch
+    try {
+      const markup = renderToStaticMarkup(<Root pathname="/s/ikke-et-token" />)
+      expect(markup).toContain('data-testid="shared-not-found"')
+      expect(markup).toContain('Denne delingslenken er ikke aktiv')
+      expect(markup).not.toContain('auth-')
+      expect(markup).not.toContain('shared-loading')
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(calls).toEqual([])
   })
 
   it('viser den delte visningen uten et eneste auth-steg', () => {
