@@ -21,12 +21,12 @@ describe('gateView', () => {
 })
 
 describe('innloggingsskjermen', () => {
-  it('tilbyr innlogging og ingen registrering', () => {
+  it('ber bare om passord og tilbyr ingen registrering', () => {
     const markup = renderToStaticMarkup(<SignInView />)
 
-    expect(markup).toContain('data-testid="sign-in-email"')
+    expect(markup).not.toContain('data-testid="sign-in-email"')
     expect(markup).toContain('data-testid="sign-in-password"')
     expect(markup).toContain('Logg inn')
-    expect(markup).not.toMatch(/registrer|opprett konto|ny bruker/i)
+    expect(markup).not.toMatch(/Huskis|registrer|opprett konto|ny bruker/i)
   })
 })

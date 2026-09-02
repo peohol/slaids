@@ -90,9 +90,9 @@ Anbefalt første stack:
 | Rich text         | Tiptap / ProseMirror      | Strukturert dokumentmodell, egne nodes, tabeller og citations |
 | UI-primitiver     | Radix Primitives          | Robuste dialoger, popovers, tooltips, slider osv.             |
 | Drag-and-drop     | dnd-kit                   | Kontrollerbar DnD, sensors og DragOverlay                     |
-| Persistens (produksjon) | Supabase (Postgres + Storage) | Data følger kontoen, ikke nettleseren; RLS gir én bruker kun egne rader |
+| Persistens (produksjon) | Supabase (Postgres + Storage) | Data følger Slaids' ene tillatte bruker; RLS avviser alle andre Auth-brukere |
 | Persistens (lokal/test) | IndexedDB via Dexie | Bedre enn localStorage for strukturert data og Blobs          |
-| Auth              | Supabase Auth             | Delt konto med Huskis; aldri et hjemmelaget passordsystem      |
+| Auth              | Supabase Auth             | Én fast personlig Slaids-bruker; ingen konto- eller produktkobling til Huskis |
 | Unit tests        | Vitest                    | Domenelogikk og geometri                                      |
 | E2E/browser       | Playwright                | Reelle arbeidsflyter, browser-geometri og screenshots         |
 
@@ -1376,18 +1376,28 @@ SlaidsRepository
    └─ Supabase   (produksjon – konfigurert og innlogget)
 ```
 
+Slaids er en **énbruker-app**. Supabase-prosjektet er delt infrastruktur, men det
+gir ingen konto- eller produktkobling til Huskis eller andre apper som bruker
+samme prosjekt. Bare den faste Supabase Auth-brukeren definert av
+`SLAIDS_OWNER_ID` kan bruke Slaids i produksjon; e-postadressen er bare
+påloggingsidentifikatoren for denne brukeren, ikke selve autorisasjonsregelen.
+
 Krav som gjelder:
 
 - bruk Supabase Auth, ikke et hjemmelaget passordsystem;
-- browser-eksponerte tabeller beskyttes med RLS;
+- app-gaten skal bare slippe gjennom Slaids' faste Auth-bruker;
+- browser-eksponerte tabeller beskyttes med RLS som både håndhever eierskap og
+  den faste Slaids-brukeren;
 - service-role/secret keys skal aldri ligge i frontend – bare
   `VITE_SUPABASE_PUBLISHABLE_KEY`;
-- assets legges i private Storage buckets med riktige policies.
+- assets legges i private Storage buckets med policies som håndhever samme
+  brukerbegrensning.
 
 ### Datamodell
 
-Fire tabeller i `public`, alle med `owner_id uuid → auth.users` og RLS som gir en
-autentisert bruker kun tilgang til egne rader:
+Fire tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir bare
+Slaids' faste Auth-bruker tilgang, og bare til rader der `owner_id` samtidig er
+den samme brukerens UUID:
 
 | Tabell                  | Innhold                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -1403,10 +1413,10 @@ kolonnene finnes bare for at biblioteket skal kunne listes uten å laste ned hve
 dokument.
 
 Binærdata ligger i den private bucketen `slaids-assets`, med sti
-`<owner_id>/<presentation_id>/<asset_id>` – første ledd er brukerens UUID, som er
-nøyaktig det Storage-policyene sjekker. Sletting av en presentasjon må også rydde
-Storage: DB-metadata følger med via fremmednøkkelen, men Storage-objekter gjør det
-ikke.
+`<owner_id>/<presentation_id>/<asset_id>`. Storage-policyene krever både at første
+ledd er den innloggede brukerens UUID og at denne UUID-en er Slaids' faste
+tillatte Auth-bruker. Sletting av en presentasjon må også rydde Storage:
+DB-metadata følger med via fremmednøkkelen, men Storage-objekter gjør det ikke.
 
 Rekkefølgen er ikke likegyldig. Raden slettes først, filene etterpå. Motsatt vei
 ville en feilet radsletting etterlatt en presentasjon som fortsatt vises og
@@ -1415,11 +1425,12 @@ på er verre enn å la ligge data ingenting peker på – og det siste ryddes av
 `deleteOrphanAssets()`, som sammenligner presentasjonsmappene i bucketen mot
 presentasjonene som finnes.
 
-`owner_id` settes alltid fra den autentiserte sesjonen, aldri fra brukerinput.
-Fremmednøklene er sammensatte – `(folder_id, owner_id)` og
-`(presentation_id, owner_id)` – slik at eieren følger med referansen. Å kjenne en
-id skal ikke være nok til å legge sin egen rad inn under en annen brukers mappe
-eller presentasjon.
+`owner_id` settes alltid fra den tillatte autentiserte sesjonen, aldri fra
+brukerinput. Fremmednøklene er sammensatte – `(folder_id, owner_id)` og
+`(presentation_id, owner_id)` – slik at eieren følger med referansen. Dette er
+forsvar i dybden selv om Slaids bare har én tillatt bruker: en rad eller referanse
+kan aldri flyttes til en annen Auth-identitet dersom tilgangsmodellen senere
+endres eller data manipuleres utenfor klienten.
 
 ### Samtidighet
 
@@ -1462,6 +1473,13 @@ Deling er **publisering, ikke samarbeid**. Det er skillet hele modellen hviler
 på, og det er verdt å si eksplisitt hva det utelukker: ingen invitasjoner, ingen
 roller, ingen skrivetilgang for andre, og ingen offentlig katalog. Man må kjenne
 den ugjettbare lenken.
+
+Det er også det som gjør deling forenlig med at Slaids er en énbruker-app
+(§ 43): en delt lenke gir ingen konto, ingen Auth-bruker og ingen tilgang til
+noe som helst annet – bare lesetilgang til én publisert kopi. `SLAIDS_OWNER_ID`
+er fortsatt den eneste som kan logge inn, og fortsatt den eneste som kan endre
+noe. Deling er den eneste veien noen andre ser noe i det hele tatt, og de ser en
+kopi.
 
 ### To dokumenter
 
@@ -1697,7 +1715,7 @@ Første fase er vellykket når Slaids er noe brukeren faktisk kan åpne og arbei
 
 Det skal være mulig å lage en reell presentasjon med flere slides og komplekse nestede layouts, skrive innhold, reloade uten å miste data og presentere resultatet – mens geometry engine garanterer at den sentrale «samme gap overalt»-ideen holder.
 
-Backend, auth og agent-API kommer etter at selve editorparadigmet er bevist i praksis.
+Supabase-persistens og personlig innlogging er nå på plass. REST/MCP-agent-API kommer etter at selve editorparadigmet er bevist i praksis.
 
 > **Oppdatert:** første fase er nådd, og to skiver til er lagt oppå den uten at
 > domenemodellen ble skrevet om: Supabase som primær persistens (§ 43) og deling

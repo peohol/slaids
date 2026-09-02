@@ -38,8 +38,10 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Å forlate editoren er et lagringspunkt. Autosave holder det ventende snapshotet i minnet
   og slutter å prøve på nytt når editoren unmountes, så «Tilbake» flusher først og blir
   stående hvis skrivingen ikke gikk igjennom. Ingen parallell flush i cleanup som kan race.
-- Deling er **publisering, ikke samarbeid**. Det finnes to dokumenter: den private
-  arbeidskopien (`document`) og et sanitert snapshot (`shared_document`). Snapshotet bygges
+- Deling er **publisering, ikke samarbeid**, og bryter derfor ikke énbruker-modellen:
+  en delt lenke gir ingen konto og ingen Auth-bruker, bare lesetilgang til én publisert
+  kopi. Det finnes to dokumenter: den private arbeidskopien (`document`) og et sanitert
+  snapshot (`shared_document`). Snapshotet bygges
   i `src/domain/sharing.ts` ved å liste opp hva som skal med – aldri ved å slette felter fra
   arbeidskopien, slik at et nytt felt på `Presentation` er privat til noen med vilje
   publiserer det. `sandbox`, `ideas`, `folderId`, `owner_id`, ubrukte filer og usiterte
