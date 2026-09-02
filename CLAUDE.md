@@ -38,6 +38,37 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Å forlate editoren er et lagringspunkt. Autosave holder det ventende snapshotet i minnet
   og slutter å prøve på nytt når editoren unmountes, så «Tilbake» flusher først og blir
   stående hvis skrivingen ikke gikk igjennom. Ingen parallell flush i cleanup som kan race.
+- Deling er **publisering, ikke samarbeid**. Det finnes to dokumenter: den private
+  arbeidskopien (`document`) og et sanitert snapshot (`shared_document`). Snapshotet bygges
+  i `src/domain/sharing.ts` ved å liste opp hva som skal med – aldri ved å slette felter fra
+  arbeidskopien, slik at et nytt felt på `Presentation` er privat til noen med vilje
+  publiserer det. `sandbox`, `ideas`, `folderId`, `owner_id`, ubrukte filer og usiterte
+  referanser forlater aldri arbeidskopien.
+- `anon` har ingen tilgang til `slaids_presentations`. Den eneste offentlige inngangen er
+  Edge Function-en `slaids-share`, som slår opp på token, svarer med snapshotet, og serverer
+  en fil bare når nøyaktig det publiserte snapshotet lister den. Ingen listeform, ingen
+  skrivetilgang, og samme generelle 404 for alt som ikke gir tilgang – ellers blir
+  endepunktet en informasjonskanal. Service-role-nøkkelen finnes bare i funksjonens eget
+  miljø, aldri i Vite, Vercel eller nettleseren.
+- Delingsstatus er ikke en del av `Presentation`. Den bor på raden, og det er dét som gjør at
+  den ikke kan angres med Ctrl+Z, ikke følger med `.slaids`-eksport/import, og ikke arves av
+  en duplisering. En kopi starter alltid som ikke delt.
+- `share_token` roteres både ved aktivering og ved deaktivering, så en tilbakekalt lenke
+  aldri blir gyldig igjen. Publisering venter på at autosave har landet: en feilet lagring
+  publiserer ingenting, og bryteren blir stående av.
+- En ren endring av `is_shared`, `share_token` eller `shared_document` er ikke en redigering
+  av dokumentet, og øker verken `version` eller `updated_at`. Ellers ville publisering gjort
+  den åpne editorens kjente versjon utdatert og laget en falsk samtidighetskonflikt ved neste
+  autosave. Den ekte optimistiske låsen gjelder fortsatt for `document`, `title`, `folder_id`
+  og `slide_count`.
+- Sidene i et dekk er `authored slides → avledede referansesider → avledet QR-side`. Bare den
+  første gruppen er lagret. QR-siden er ikke en `Slide` og ligger aldri i
+  `presentation.slides`; den er et eget medlem av `DeckPage`-unionen i `src/domain/pages.ts`
+  og finnes bare mens delingen er på.
+- `/s/<token>` er offentlig og går aldri gjennom `AuthGate`. `src/Root.tsx` velger rute én
+  gang, over porten, og den delte visningen monterer ingen privat komponent. Bilder i delt
+  visning hentes gjennom delings-endepunktet, aldri gjennom det autentiserte repositoryet –
+  valget tas av `AssetSourceProvider`, ikke av en gren inne i rendereren.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
@@ -61,7 +92,15 @@ npm run lint         # eslint
 npm test             # vitest run
 npm run build        # produksjonsbuild
 npm run e2e          # Playwright (bygger og serverer selv)
+
+supabase db push                      # skjema, inkludert delingsmigrasjonen
+supabase functions deploy slaids-share  # den offentlige lesefunksjonen
 ```
+
+I Vercel må **begge** `VITE_SUPABASE_URL` og `VITE_SUPABASE_PUBLISHABLE_KEY` være slått på
+for både Production og Preview. Er de bare satt for Production, bygges PR-previews uten
+noen av dem – og det er ikke en feil, det er lokal modus, så previewen kjører mot en tom
+Dexie-base og ser tom ut.
 
 Playwright laster ned egen nettleser. Finnes det allerede en Chromium i miljøet:
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e`

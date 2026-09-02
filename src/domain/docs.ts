@@ -4,7 +4,15 @@
  */
 
 import { walkNodes } from './layout'
-import type { CardBody, LayoutNode, Presentation, RichDoc, RichNode, ZoneContent } from './types'
+import type {
+  CardBody,
+  LayoutNode,
+  Presentation,
+  RichDoc,
+  RichNode,
+  Slide,
+  ZoneContent,
+} from './types'
 
 export type DocTransform = (doc: RichDoc) => RichDoc
 
@@ -81,16 +89,26 @@ export function mapPresentationDocs(
   return changed ? { ...presentation, slides, sandbox } : presentation
 }
 
-/** Every zone content in the presentation, slides first, then the sandbox. */
-export function allContent(presentation: Presentation): ZoneContent[] {
+/**
+ * Every zone content on these slides, in slide order.
+ *
+ * The sandbox is deliberately not part of this: it is work in progress that is
+ * not on any slide, which is exactly the distinction a published snapshot has
+ * to make. `allContent` adds it back for the callers that want everything.
+ */
+export function slideContent(slides: readonly Slide[]): ZoneContent[] {
   const out: ZoneContent[] = []
-  for (const slide of presentation.slides) {
+  for (const slide of slides) {
     walkNodes(slide.root, (node) => {
       if (node.kind === 'leaf' && node.content) out.push(node.content)
     })
   }
-  for (const item of presentation.sandbox) out.push(item.content)
   return out
+}
+
+/** Every zone content in the presentation, slides first, then the sandbox. */
+export function allContent(presentation: Presentation): ZoneContent[] {
+  return [...slideContent(presentation.slides), ...presentation.sandbox.map((item) => item.content)]
 }
 
 /** Rewrite asset ids inside a single content object. */

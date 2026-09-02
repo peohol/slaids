@@ -10,3 +10,5 @@ blob-report
 .playwright
 e2e/screenshots
 tmp
+# Supabase CLI scratch (link state, downloaded version markers)
+supabase/.temp

@@ -1,9 +1,13 @@
 /**
  * Renders a stored asset. SVG stays vector because it is displayed through an
- * `<img>` pointing at a Blob URL rather than inlined as markup.
+ * `<img>` rather than inlined as markup.
+ *
+ * Where the URL comes from is not decided here: `useAssetUrl` asks the asset
+ * source this subtree is mounted under, which is the repository in the editor
+ * and the public share endpoint in a shared deck.
  */
 
-import { useAssetUrl } from '../../state/assets'
+import { useAssetUrl } from '../../state/assetSource'
 
 /**
  * An image inside a text flow.

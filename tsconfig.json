@@ -25,5 +25,18 @@
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
   },
-  "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts", "vitest.setup.ts", "eslint.config.js"]
+  "include": [
+    "src",
+    "e2e",
+    "supabase/functions",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "vitest.setup.ts",
+    "eslint.config.js"
+  ],
+  // The Edge Function entry points run on Deno: `jsr:` specifiers and the Deno
+  // global are not part of this project's TypeScript program. Everything they
+  // import that matters — the rules themselves — lives beside them and is
+  // checked.
+  "exclude": ["supabase/functions/*/index.ts"]
 }

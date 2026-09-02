@@ -1,0 +1,14 @@
+# Supabase CLI configuration for Slaids.
+#
+# Deliberately minimal. The Supabase project is shared with Huskis and mdeditz,
+# so this file configures the one Slaids Edge Function and nothing else — a
+# fuller config could push another app's settings back to a project it does not
+# own. Do not add auth, database or storage sections here.
+
+project_id = "slaids"
+
+[functions.slaids-share]
+# The whole point of this function: it is read by people who are not signed in,
+# so Supabase must not demand a JWT before it runs. Access control is the share
+# token in the URL, checked inside the function against `is_shared`.
+verify_jwt = false

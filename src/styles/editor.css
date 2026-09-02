@@ -1468,3 +1468,22 @@
   flex-wrap: wrap;
   justify-content: center;
 }
+
+/*
+ * The Del toggle.
+ *
+ * The word beside it is the state, spelled out. An icon that changes shade is
+ * not enough for a switch whose off position is the difference between private
+ * and public.
+ */
+.share-toggle__state {
+  margin-left: 2px;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+  color: var(--chrome-text-dim);
+}
+
+.btn--active .share-toggle__state {
+  color: inherit;
+  opacity: 0.85;
+}

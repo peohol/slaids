@@ -9,8 +9,10 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { duplicateSlide } from '../../domain/commands'
+import type { DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
 import type { Presentation, Slide } from '../../domain/types'
+import { DeckPageView } from '../slide/DeckPageView'
 import { SlideView } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
@@ -111,7 +113,7 @@ function SlideThumb({
 
 export function Filmstrip({
   presentation,
-  derivedSlides,
+  derived,
   viewingDerivedId,
   onSelectDerived,
   onSelectAuthored,
@@ -119,10 +121,14 @@ export function Filmstrip({
   onRequestNewSlide,
 }: {
   presentation: Presentation
-  /** Reference slides, computed from the citations rather than stored. */
-  derivedSlides: Slide[]
+  /**
+   * The generated pages: reference slides computed from the citations, and the
+   * QR page while sharing is on. None of them is stored, so none of them has
+   * the tools an authored slide has.
+   */
+  derived: DeckPage[]
   viewingDerivedId: string | null
-  onSelectDerived: (slideId: string) => void
+  onSelectDerived: (pageId: string) => void
   /** Selecting an authored slide closes the derived view for good. */
   onSelectAuthored: () => void
   onRequestDelete: (slide: Slide) => void
@@ -163,44 +169,50 @@ export function Filmstrip({
             ))}
         </SortableContext>
 
-        {derivedSlides.map((slide, index) => (
-          <div
-            key={slide.id}
-            className={
-              slide.id === viewingDerivedId
-                ? 'filmstrip__item filmstrip__item--active filmstrip__item--derived'
-                : 'filmstrip__item filmstrip__item--derived'
-            }
-            data-testid="filmstrip-derived"
-          >
-            <div className="filmstrip__index">
-              <span>{presentation.slides.length + index + 1}</span>
-              <span className="filmstrip__badge">Avledet</span>
-            </div>
-            <button
-              type="button"
-              className="filmstrip__thumb"
-              style={{ width: THUMB_WIDTH, height: (SLIDE_HEIGHT * THUMB_WIDTH) / SLIDE_WIDTH }}
-              onClick={() => onSelectDerived(slide.id)}
-              aria-label={`Referanseslide ${index + 1}`}
+        {derived.map((page, index) => {
+          const isQr = page.kind === 'qr'
+          const label = isQr ? 'QR-side' : `Referanseslide ${index + 1}`
+          return (
+            <div
+              key={page.id}
+              className={
+                page.id === viewingDerivedId
+                  ? 'filmstrip__item filmstrip__item--active filmstrip__item--derived'
+                  : 'filmstrip__item filmstrip__item--derived'
+              }
+              data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
             >
-              <div
-                style={{
-                  width: SLIDE_WIDTH,
-                  height: SLIDE_HEIGHT,
-                  transform: `scale(${THUMB_WIDTH / SLIDE_WIDTH})`,
-                  transformOrigin: 'top left',
-                  pointerEvents: 'none',
-                }}
-              >
-                <SlideView slide={slide} />
+              <div className="filmstrip__index">
+                <span>{presentation.slides.length + index + 1}</span>
+                <span className="filmstrip__badge">Avledet</span>
               </div>
-            </button>
-            <div className="filmstrip__tools">
-              <span className="hint">Genereres fra referansene</span>
+              <button
+                type="button"
+                className="filmstrip__thumb"
+                style={{ width: THUMB_WIDTH, height: (SLIDE_HEIGHT * THUMB_WIDTH) / SLIDE_WIDTH }}
+                onClick={() => onSelectDerived(page.id)}
+                aria-label={label}
+              >
+                <div
+                  style={{
+                    width: SLIDE_WIDTH,
+                    height: SLIDE_HEIGHT,
+                    transform: `scale(${THUMB_WIDTH / SLIDE_WIDTH})`,
+                    transformOrigin: 'top left',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <DeckPageView page={page} />
+                </div>
+              </button>
+              <div className="filmstrip__tools">
+                <span className="hint">
+                  {isQr ? 'Genereres av Del' : 'Genereres fra referansene'}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
       <div className="filmstrip__footer">
         <button

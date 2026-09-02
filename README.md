@@ -33,6 +33,16 @@ layoutet er nestet.
 - mapper, og flytting av presentasjoner mellom dem
 - eksport og import av `.slaids`-sikkerhetskopi (zip med manifest, data og filer)
 
+**Deling**
+
+- `Del`-bryter i verktøylinjen publiserer presentasjonen til en hemmelig lenke,
+  `/s/<token>`, som hvem som helst kan åpne uten å logge inn
+- seerne får kun visning: ingen editor, ingen filmstripe, ingen redigering, og
+  ingen katalog man kan finne delte presentasjoner i – man må kjenne lenken
+- en avledet QR-side legges automatisk aller sist, etter referansesidene
+- slås delingen av, dør lenken; slås den på igjen, får man en helt ny lenke
+- krever Supabase-modus (se «Lagring»); i lokal modus er bryteren avslått
+
 **Slides**
 
 - opprett med eller uten overskriftssone, dupliser, slett, endre rekkefølge (DnD)
@@ -146,11 +156,61 @@ prosjekt:
 - fire tabeller i `public` (`slaids_folders`, `slaids_presentations`,
   `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som gir en
   bruker kun egne rader;
-- en trigger som øker `version` og setter `updated_at` ved hver oppdatering, slik
-  at en gammel kopi fra en annen fane får en tydelig konfliktfeil i stedet for å
-  overskrive en nyere;
+- en trigger som øker `version` og setter `updated_at` når selve dokumentet
+  endres, slik at en gammel kopi fra en annen fane får en tydelig konfliktfeil i
+  stedet for å overskrive en nyere. Rene delingsendringer holdes utenfor: å
+  publisere eller trekke tilbake en lenke er ikke en redigering, og skal ikke
+  gjøre den åpne editorens versjon utdatert;
+- kolonnene `is_shared`, `share_token` og `shared_document` for deling, med en
+  CHECK som binder dem sammen: delt betyr publisert, og ikke delt betyr at det
+  ikke finnes noe publisert;
 - den private bucketen `slaids-assets` med policies som binder hver fil til
   `<owner_id>/<presentation_id>/<asset_id>`.
+
+Deling har i tillegg en Edge Function, `slaids-share`, som er den eneste
+offentlige inngangen. Den deployes for seg:
+
+```bash
+supabase functions deploy slaids-share
+```
+
+Se «Deling» lenger ned for hva den gjør og hvorfor den finnes.
+
+Supabase-oppsettet er **verifisert mot et ekte prosjekt**: innlogging,
+reload/session-persistens, filer, mapper, import/eksport, sletting, utlogging,
+samtidighetskonflikt mellom faner og enheter, nettverksbrudd og en InPrivate-sesjon
+er alle testet manuelt og fungerer.
+
+### Deploy til Vercel
+
+Begge variablene
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_PUBLISHABLE_KEY
+```
+
+må være slått på for **både Production og Preview** i Vercel. Dette er den ene
+deploy-fella vi faktisk gikk i: er de bare satt for Production, bygges hver
+PR-preview uten dem, og siden ingen av dem finnes er det ikke en feil – det er
+lokal modus. Previewen starter da uten innlogging og lagrer i nettleseren, mot en
+tom Dexie-base, og ser ut som om alt er borte.
+
+Regelen bak det er den samme som i tabellen over, og den er verdt å ha i hodet
+når man setter miljøvariabler:
+
+| Variabler satt      | Hva bygget blir                                                     |
+| ------------------- | ------------------------------------------------------------------- |
+| ingen               | bevisst lokal modus: Dexie, ingen innlogging, ingen deling           |
+| begge               | Supabase-modus: innlogging kreves, deling tilgjengelig               |
+| nøyaktig én         | hard konfigurasjonsfeil – appen stopper og sier hvilken som mangler  |
+
+`vercel.json` gjør resten: en SPA-rewrite slik at en direkte forespørsel til
+`/s/<token>` – som Vercel ellers ville svart 404 på – serverer `index.html` og lar
+appen rute selv.
+
+Service-role-nøkkelen hører **ikke** hjemme noe sted i Vercel. Den brukes bare av
+Edge Function-en, der Supabase selv injiserer den.
 
 ## Kom i gang
 
@@ -178,6 +238,78 @@ peke på en eksisterende Chromium:
 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e
 ```
 
+## Deling
+
+Deling er **publisering, ikke samarbeid**. Det er to dokumenter, og forskjellen
+mellom dem er hele sikkerhetsmodellen:
+
+| Dokument                       | Hvem ser det        | Hva det inneholder                                      |
+| ------------------------------ | ------------------- | ------------------------------------------------------- |
+| `document` (arbeidskopien)     | bare eieren         | hele `Presentation`: sandkasse, idéer, mappe, alle filer |
+| `shared_document` (snapshotet) | alle med lenken     | tittel, tema, slides, siterte referanser, viste filer    |
+
+Snapshotet bygges i `src/domain/sharing.ts` ved å **liste opp hva som skal med**,
+aldri ved å slette felter fra arbeidskopien. Et nytt felt på `Presentation` er
+derfor privat helt til noen med vilje publiserer det – som er riktig standard for
+den retningen dataene går.
+
+Delingsstatus er ikke en del av `Presentation` i det hele tatt. Den bor på raden
+i databasen, og det er dét som gjør at den ikke kan angres med Ctrl+Z, ikke blir
+med i `.slaids`-eksporten, og ikke arves av en kopi eller en import.
+
+**Ruter og komponenter**
+
+```text
+/                     → AuthGate → bibliotek/editor        (privat)
+/s/<token>            → SharedPresentationView             (offentlig)
+
+PresentationPlayer          én renderer, ett sett geometri
+├─ PresentView              lokalt, med «Avslutt»
+└─ SharedPresentationView   offentlig, uten vei tilbake
+```
+
+`src/Root.tsx` velger mellom dem én gang, over `AuthGate`. Den delte visningen
+monterer aldri en privat komponent og ber aldri om en sesjon.
+
+**Sidene i et delt dekk**
+
+```text
+authored slides → avledede referansesider → avledet QR-side
+```
+
+Bare den første gruppen er lagret. QR-siden er ikke en slide og ligger ikke i
+`presentation.slides`; den er et eget medlem av `DeckPage`-unionen i
+`src/domain/pages.ts`, og finnes bare så lenge delingen er på. Derfor kan den
+verken slettes, flyttes, dupliseres eller redigeres – det finnes ingen kommando
+som når den.
+
+**Den offentlige inngangen**
+
+`anon` har fortsatt ingen tilgang til `slaids_presentations`. Alt en seer får,
+kommer fra Edge Function-en `slaids-share`, som kjører med service role på
+serversiden og svarer på nøyaktig to spørsmål:
+
+```text
+GET .../slaids-share?token=<token>              → det saniterte snapshotet
+GET .../slaids-share?token=<token>&asset=<id>   → én fil dekket faktisk viser
+```
+
+Det finnes ingen listeform. Feil token, tilbakekalt deling, slettet presentasjon
+og en fil som ikke er i snapshotet gir alle den samme generelle 404-en, slik at
+endepunktet ikke kan brukes til å finne ut om et token er ekte. Svarene sendes
+med `Cache-Control: no-store` og `X-Robots-Tag: noindex, nofollow` – en cachet
+kopi ville overlevd tilbakekallingen som skulle fjerne den.
+
+Filene forblir private: bucketen er ikke offentlig, og det lages ingen kopi av
+dem. Edge Function-en henter fila selv, og bare når snapshotet lister den.
+
+**Å slå av og på**
+
+Tokenet roteres både når delingen slås av og når den slås på igjen. En lenke som
+er trukket tilbake blir derfor aldri gyldig igjen, og en ny deling er en ny
+adresse. Publisering venter alltid på at autosave har landet: går ikke lagringen
+igjennom, publiseres ingenting, og bryteren blir stående av.
+
 ## Arkitektur
 
 ```
@@ -185,9 +317,15 @@ src/
   domain/        headless kjerne: typer, geometry engine, layouttre, kommandoer,
                  Zod-schema, migrasjoner, referanser, farger, fit
   persistence/   SlaidsRepository + Dexie/IndexedDB og Supabase, assets, .slaids-backup
+  sharing/       klienten mot den offentlige delings-funksjonen
   supabase/      Supabase-klient, konfigurasjon og modusvalg
-  state/         Zustand-store, autosave, DOM-måling, utklippstavle
-  ui/            React-komponenter (bibliotek, editor, slide-renderer, visning)
+  state/         Zustand-store, autosave, DOM-måling, utklippstavle, delingsstatus
+  ui/            React-komponenter (bibliotek, editor, slide-renderer, visning, delt visning)
+  routing.ts     hva en URL betyr: arbeidsområde eller /s/<token>
+
+supabase/
+  migrations/    skjemaet, inkludert delingskolonnene og version-triggeren
+  functions/     slaids-share: den eneste offentlige inngangen
 ```
 
 Regler som gjelder overalt:
@@ -200,6 +338,10 @@ Regler som gjelder overalt:
 
 ## Ikke bygget ennå
 
-Deling av presentasjoner, REST-API, MCP-server og agenttokens er bevisst utenfor
-scope i denne fasen. Repository-abstraksjonen og kommandolaget er laget slik at
-de kan legges til uten å skrive om domenemodellen.
+REST-API, MCP-server og agenttokens er bevisst utenfor scope i denne fasen.
+Repository-abstraksjonen og kommandolaget er laget slik at de kan legges til uten
+å skrive om domenemodellen.
+
+Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
+publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller
+skrivetilgang for andre enn eieren.

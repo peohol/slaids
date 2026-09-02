@@ -2,9 +2,11 @@
 
 import { CONTENT_KIND_LABELS } from '../../domain/content'
 import type { ZoneContentKind } from '../../domain/types'
+import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
 import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { ShareToggle } from './ShareToggle'
 
 const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
   container: 'container',
@@ -31,6 +33,8 @@ export interface TopToolbarProps {
   onToggleSandbox: () => void
   onPresent: () => void
   onOpenTheme: () => void
+  /** Publish or revoke the secret link. The toggle itself owns the state. */
+  onToggleShare: () => void
   sandboxCount: number
 }
 
@@ -41,6 +45,11 @@ export function TopToolbar(props: TopToolbarProps) {
   const redo = useEditorStore((state) => state.redo)
   const canUndo = useEditorStore((state) => state.past.length > 0)
   const canRedo = useEditorStore((state) => state.future.length > 0)
+  const shareStatus = useSharingStore((state) => state.status)
+  const shared = useSharingStore((state) => state.shared)
+  const shareBusy = useSharingStore((state) => state.busy)
+  const shareError = useSharingStore((state) => state.error)
+  const shareLink = useShareUrl()
 
   return (
     <header className="toolbar" data-testid="top-toolbar">
@@ -181,6 +190,15 @@ export function TopToolbar(props: TopToolbarProps) {
           </button>
         </Tooltip>
       </div>
+
+      <ShareToggle
+        status={shareStatus}
+        shared={shared}
+        busy={shareBusy}
+        error={shareError}
+        link={shareLink}
+        onToggle={props.onToggleShare}
+      />
 
       <Tooltip label="Vis presentasjon (F5)">
         <button type="button" className="btn btn--primary btn--sm" onClick={props.onPresent} data-testid="present">

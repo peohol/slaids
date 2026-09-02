@@ -19,8 +19,10 @@
  */
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
+import { newShareToken } from '../domain/ids'
 import { migratePresentation } from '../domain/migrations'
 import { assetRefSchema, folderSchema, validateLayoutTemplate } from '../domain/schema'
+import { buildSharedSnapshot, type SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
   Folder,
@@ -32,6 +34,8 @@ import { getSupabaseClient } from '../supabase/client'
 import {
   RepositoryConflictError,
   RepositoryError,
+  type ShareState,
+  type SharingRepository,
   type SlaidsRepository,
   type StoredAsset,
 } from './repository'
@@ -67,6 +71,14 @@ interface VersionRow {
   version: number | null
 }
 
+interface SharedFlagRow {
+  is_shared: boolean | null
+}
+
+interface ShareRow extends SharedFlagRow {
+  share_token: string | null
+}
+
 type FailureDetail = PostgrestError | { message: string } | null | undefined
 
 function fail(what: string, error: FailureDetail): never {
@@ -84,7 +96,7 @@ function numberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-export class SupabaseSlaidsRepository implements SlaidsRepository {
+export class SupabaseSlaidsRepository implements SlaidsRepository, SharingRepository {
   /**
    * The `version` each presentation was last seen at. Every update is written
    * against that version, so a tab holding a stale copy is told it lost the
@@ -104,6 +116,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
    * which is a local decision rather than a surprise from somewhere else.
    */
   private readonly knownVersions = new Map<string, number>()
+
+  /**
+   * Whether each presentation was shared the last time this repository looked.
+   *
+   * It decides one thing only: whether a save carries a freshly built public
+   * snapshot along with the private document. Being wrong is not dangerous in
+   * either direction — the database refuses to keep a snapshot on a row that is
+   * not shared, and a save that finds the row shared after all publishes the
+   * snapshot it should have carried. See `savePresentation`.
+   */
+  private readonly knownShared = new Map<string, boolean>()
 
   /**
    * Storage paths whose removal failed after their row was already gone.
@@ -128,6 +151,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
   /** Test seam: forget every known row, as a fresh sign-in would. */
   forgetVersions(): void {
     this.knownVersions.clear()
+    this.knownShared.clear()
   }
 
   private async ownerId(): Promise<string> {
@@ -173,7 +197,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
   async loadPresentation(id: string): Promise<Presentation> {
     const { data, error } = await this.client
       .from(PRESENTATIONS_TABLE)
-      .select('document, version')
+      // `is_shared` comes along so a save knows whether it also has to publish,
+      // without a second round trip and without depending on the share UI
+      // having asked first.
+      .select('document, version, is_shared')
       .eq('id', id)
       .maybeSingle()
     if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
@@ -186,6 +213,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     // so a row whose version we could not read fails the guard rather than
     // being inserted as if it were new.
     this.knownVersions.set(id, numberOr((data as VersionRow).version, 0))
+    this.knownShared.set(id, (data as SharedFlagRow).is_shared === true)
     return migrated.value
   }
 
@@ -222,18 +250,31 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
         fail('Kunne ikke lagre presentasjonen', error)
       }
       this.knownVersions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
+      // A presentation that has just been created is not shared. Sharing is
+      // never inherited — not by a copy, not by an import, not by a new row.
+      this.knownShared.set(document.id, false)
       return
     }
 
+    // A shared presentation is published by the same write that stores it, so a
+    // save that succeeded can never leave the audience on an older version than
+    // the owner just wrote. When the row turns out not to be shared, the
+    // database drops the snapshot again (see the migration's trigger), so
+    // sending one on a stale reading publishes nothing.
+    const believedShared = this.knownShared.get(document.id) === true
+    const payload = believedShared
+      ? { ...row, shared_document: buildSharedSnapshot(document) }
+      : row
+
     const { data, error } = await this.client
       .from(PRESENTATIONS_TABLE)
-      .update(row)
+      .update(payload)
       .eq('id', document.id)
       .eq('version', known)
-      .select('version')
+      .select('version, is_shared')
     if (error) fail('Kunne ikke lagre presentasjonen', error)
 
-    const updated = (data ?? []) as VersionRow[]
+    const updated = (data ?? []) as (VersionRow & SharedFlagRow)[]
     if (updated.length === 0) {
       // Nothing matched: the row has either moved on since we read it or is
       // gone. The version stays exactly as it was — every retry keeps making
@@ -246,6 +287,18 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
       )
     }
     this.knownVersions.set(document.id, numberOr(updated[0]?.version, known + 1))
+
+    // The row itself has the last word on whether it is shared.
+    const actuallyShared = updated[0]?.is_shared === true
+    this.knownShared.set(document.id, actuallyShared)
+    if (actuallyShared && !believedShared) {
+      // Sharing was switched on elsewhere while this editor was open, so the
+      // write that just landed carried no snapshot and the audience would be
+      // looking at the version published at the time. Publish the one it should
+      // have carried; a share-only update does not move the document version,
+      // so this cannot turn into a conflict for the next autosave.
+      await this.publishSnapshot(document.id, buildSharedSnapshot(document))
+    }
   }
 
   async deletePresentation(id: string): Promise<void> {
@@ -261,7 +314,94 @@ export class SupabaseSlaidsRepository implements SlaidsRepository {
     // Deleting through this repository is a local decision, so this is the one
     // place the row may be forgotten: a later save of the same id really is new.
     this.knownVersions.delete(id)
+    this.knownShared.delete(id)
     await this.reclaimObjects(paths)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Sharing
+   *
+   * Every write here touches share columns only. The trigger installed by the
+   * sharing migration leaves `version` and `updated_at` alone for exactly those
+   * writes, so publishing or revoking never makes an open editor's known
+   * version stale — and therefore never turns the next autosave into a false
+   * "changed somewhere else" conflict.
+   * ---------------------------------------------------------------- */
+
+  async readShareState(presentationId: string): Promise<ShareState> {
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .select('is_shared, share_token')
+      .eq('id', presentationId)
+      .maybeSingle()
+    if (error) fail('Kunne ikke lese delingsstatusen', error)
+    if (!data) throw new RepositoryError(`Fant ikke presentasjonen «${presentationId}».`)
+    return this.rememberShareState(presentationId, data as ShareRow)
+  }
+
+  async enableSharing(
+    presentationId: string,
+    snapshot: SharedPresentationSnapshot,
+  ): Promise<ShareState> {
+    // A new token on every activation, so a link that was revoked earlier stays
+    // revoked forever rather than coming back to life on the next share.
+    const token = newShareToken()
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .update({ is_shared: true, share_token: token, shared_document: snapshot })
+      .eq('id', presentationId)
+      .select('is_shared, share_token')
+    if (error) fail('Kunne ikke dele presentasjonen', error)
+
+    const rows = (data ?? []) as ShareRow[]
+    if (rows.length === 0) {
+      throw new RepositoryError(
+        'Fant ikke presentasjonen i Supabase. Den kan være slettet et annet sted.',
+      )
+    }
+    return this.rememberShareState(presentationId, rows[0])
+  }
+
+  async disableSharing(presentationId: string): Promise<ShareState> {
+    // Rotated on the way out too: from here the address that was in circulation
+    // is dead, whatever happens next.
+    const token = newShareToken()
+    const { data, error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .update({ is_shared: false, share_token: token, shared_document: null })
+      .eq('id', presentationId)
+      .select('is_shared, share_token')
+    if (error) fail('Kunne ikke slå av delingen', error)
+
+    const rows = (data ?? []) as ShareRow[]
+    if (rows.length === 0) {
+      throw new RepositoryError(
+        'Fant ikke presentasjonen i Supabase. Den kan være slettet et annet sted.',
+      )
+    }
+    return this.rememberShareState(presentationId, rows[0])
+  }
+
+  /** A token is only ever handed out while the share it belongs to is live. */
+  private rememberShareState(presentationId: string, row: ShareRow): ShareState {
+    const shared = row.is_shared === true
+    this.knownShared.set(presentationId, shared)
+    return { shared, token: shared ? (row.share_token ?? null) : null }
+  }
+
+  /** Refresh the published copy without touching the private document. */
+  private async publishSnapshot(
+    presentationId: string,
+    snapshot: SharedPresentationSnapshot,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from(PRESENTATIONS_TABLE)
+      .update({ shared_document: snapshot })
+      .eq('id', presentationId)
+      // Sharing may have been switched off again in the meantime; publishing to
+      // a row that is no longer shared would violate the state invariant.
+      .eq('is_shared', true)
+    if (error) fail('Kunne ikke oppdatere den delte kopien', error)
   }
 
   /* ---------------------------------------------------------------- *

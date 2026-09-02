@@ -429,3 +429,34 @@
   height: 0;
   pointer-events: none;
 }
+
+/*
+ * The derived QR page.
+ *
+ * Same 1600 x 900 design space as a slide, and the same theme tokens, but no
+ * zone tree: it is one centred column, spaced by the deck's own gap.
+ */
+.qr-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-page__heading,
+.qr-page__url {
+  margin: 0;
+  text-align: center;
+  max-width: 84%;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Always dark on white, whatever the theme is: contrast is what a scanner
+ * reads, so this one box does not take the presentation's colours.
+ */
+.qr-page__code {
+  background: #fff;
+  border-radius: var(--slaids-card-radius);
+  line-height: 0;
+}

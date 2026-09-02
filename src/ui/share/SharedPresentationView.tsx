@@ -1,0 +1,135 @@
+/**
+ * A shared deck, as an anonymous visitor sees it.
+ *
+ * This is the whole public surface of Slaids. It mounts no editor, no toolbar,
+ * no filmstrip, no inspector, no status bar and no library — not hidden, not
+ * disabled, simply never imported into this tree. There is no route from here
+ * back into the workspace, and nothing here asks for a session.
+ *
+ * What it does mount is `PresentationPlayer`, exactly as the owner's own
+ * presentation mode does, wrapped in the public asset source so every picture
+ * comes through the share endpoint rather than the authenticated repository.
+ */
+
+import { useEffect, useState } from 'react'
+import { fetchSharedSnapshot, type SharedDeckOutcome } from '../../sharing/shareClient'
+import { shareUrl } from '../../routing'
+import { AssetSourceProvider, useSharedAssetSource } from '../../state/assetSource'
+import { PresentationPlayer } from '../present/PresentationPlayer'
+
+/**
+ * The answer, keyed by the token it answers for.
+ *
+ * Derived rather than reset: a new token makes the previous answer irrelevant
+ * the moment it renders, with no effect in between that could show one deck's
+ * result under another deck's address.
+ */
+type LoadedDeck = { token: string; outcome: SharedDeckOutcome }
+
+/**
+ * Two things the page has to say about its own address, because the address is
+ * the whole access control.
+ *
+ *  - `noindex, nofollow`: a secret link a crawler has found is not a secret
+ *    link. The endpoint sets `X-Robots-Tag` on the data; this covers the page,
+ *    which is served by the same static host as the rest of the app and cannot
+ *    carry a header of its own.
+ *  - `no-referrer`: the token is in the path, so it must never travel in a
+ *    `Referer`. Modern browsers already withhold the path cross-origin, and
+ *    every link in a slide is `rel="noreferrer"` — this is the belt to those
+ *    braces, and costs a shared deck nothing.
+ */
+function useLinkPrivacyMeta(): void {
+  useEffect(() => {
+    const tags = (
+      [
+        ['robots', 'noindex, nofollow'],
+        ['referrer', 'no-referrer'],
+      ] as const
+    ).map(([name, content]) => {
+      const meta = document.createElement('meta')
+      meta.name = name
+      meta.content = content
+      document.head.appendChild(meta)
+      return meta
+    })
+    return () => tags.forEach((meta) => meta.remove())
+  }, [])
+}
+
+export function SharedPresentationView({ token }: { token: string }) {
+  const [loaded, setLoaded] = useState<LoadedDeck | null>(null)
+  const assetSource = useSharedAssetSource(token)
+  useLinkPrivacyMeta()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetchSharedSnapshot(token, controller.signal).then((outcome) => {
+      if (controller.signal.aborted) return
+      setLoaded({ token, outcome })
+    })
+    return () => controller.abort()
+  }, [token])
+
+  const outcome = loaded && loaded.token === token ? loaded.outcome : null
+  const title = outcome?.kind === 'ok' ? outcome.snapshot.title : null
+
+  useEffect(() => {
+    if (!title) return
+    document.title = `${title} – Slaids`
+  }, [title])
+
+  if (!outcome) {
+    return (
+      <div className="shared shared--message" data-testid="shared-loading">
+        <p className="hint">Henter presentasjonen …</p>
+      </div>
+    )
+  }
+
+  if (outcome.kind === 'not-found') {
+    return (
+      <div className="shared shared--message" data-testid="shared-not-found">
+        <div className="shared__card">
+          <h1 className="shared__title">Slaids</h1>
+          {/*
+            Deliberately one message for every reason: a wrong address, a share
+            that has been turned off and a presentation that has been deleted
+            all look the same from out here.
+          */}
+          <p>Denne delingslenken er ikke aktiv.</p>
+          <p className="hint">
+            Lenken kan være skrevet feil, eller den som eier presentasjonen kan ha slått av
+            delingen. Be om en ny lenke.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (outcome.kind === 'unavailable') {
+    return (
+      <div className="shared shared--message" data-testid="shared-unavailable">
+        <div className="shared__card">
+          <h1 className="shared__title">Slaids</h1>
+          <p role="alert">{outcome.message}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="shared" data-testid="shared-view">
+      <AssetSourceProvider value={assetSource}>
+        <PresentationPlayer
+          deck={outcome.snapshot}
+          // The QR page points at the page it is on, so a photograph of a
+          // screen is enough to open the deck on another device.
+          shareUrl={shareUrl(window.location.origin, token)}
+          startIndex={0}
+          onExit={null}
+        />
+      </AssetSourceProvider>
+    </div>
+  )
+}

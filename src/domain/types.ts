@@ -181,14 +181,26 @@ export interface AssetRef {
   isVector: boolean
 }
 
-export interface Presentation {
+/**
+ * Everything it takes to draw a deck: the authored slides, the theme they are
+ * drawn in, and the references their citations point at.
+ *
+ * Reference numbering and the derived reference slides are computed from
+ * exactly these three, and nothing else — which is what lets the private
+ * `Presentation` and the sanitised `SharedPresentationSnapshot` go through the
+ * same renderer without a branch anywhere in it.
+ */
+export interface DeckSource {
+  theme: PresentationTheme
+  slides: Slide[]
+  references: Reference[]
+}
+
+export interface Presentation extends DeckSource {
   schemaVersion: number
   id: string
   title: string
   folderId: string | null
-  theme: PresentationTheme
-  slides: Slide[]
-  references: Reference[]
   sandbox: SandboxItem[]
   ideas: IdeaRow[]
   assets: AssetRef[]

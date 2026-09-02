@@ -1,12 +1,12 @@
 /**
- * Asset loading for the UI.
+ * Asset bytes from the owner's own store.
  *
- * Blobs are cached per asset id so we do not hit the store repeatedly, while
- * object URLs are created and revoked per consumer so there is no leak and no
- * shared-lifetime bug.
+ * Blobs are cached per asset id so we do not hit the store repeatedly. Turning
+ * one into a URL a component can render is `state/assetSource.tsx`'s job — it
+ * is what decides whether a picture comes from here or from the public share
+ * endpoint, and this module deliberately knows nothing about that choice.
  */
 
-import { useEffect, useState } from 'react'
 import { repository } from '../persistence/activeRepository'
 import type { AssetRef } from '../domain/types'
 
@@ -26,30 +26,6 @@ export function loadAsset(id: string): Promise<{ ref: AssetRef; blob: Blob } | n
  */
 export function clearAssetCache(): void {
   blobCache.clear()
-}
-
-export function useAssetUrl(assetId: string | null): string | null {
-  const [entry, setEntry] = useState<{ id: string; url: string } | null>(null)
-
-  useEffect(() => {
-    if (!assetId) return
-    let objectUrl: string | null = null
-    let cancelled = false
-
-    void loadAsset(assetId).then((stored) => {
-      if (cancelled || !stored) return
-      objectUrl = URL.createObjectURL(stored.blob)
-      setEntry({ id: assetId, url: objectUrl })
-    })
-
-    return () => {
-      cancelled = true
-      // The URL is released as soon as this consumer stops using it.
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [assetId])
-
-  return entry && entry.id === assetId ? entry.url : null
 }
 
 /** Intrinsic size of an image file, used when registering an asset. */
