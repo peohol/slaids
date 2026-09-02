@@ -47,9 +47,11 @@ import type { RichDoc, RichMark, RichNode, TitleDoc } from '../domain/types'
  * The contract
  * ------------------------------------------------------------------ */
 
-const alignSchema = z
+export const alignSchema = z
   .enum(['left', 'center', 'right'])
   .describe('Justering av blokken. Utelatt betyr venstrejustert, som er standard.')
+
+export type TextAlign = z.output<typeof alignSchema>
 
 /**
  * The emphasis a Slaids document can store, and nothing else.
@@ -169,7 +171,7 @@ function spanToNode(span: TextSpan): RichNode {
   return { type: 'text', text: span.text, ...(marks.length > 0 ? { marks } : {}) }
 }
 
-function paragraph(spans: readonly TextSpan[], align?: 'left' | 'center' | 'right'): RichNode {
+function paragraph(spans: readonly TextSpan[], align?: TextAlign): RichNode {
   const content = spans.map(spanToNode)
   return {
     type: 'paragraph',
@@ -220,9 +222,18 @@ export function blocksToDoc(blocks: readonly TextBlock[]): RichDoc {
   return mergeAdjacentCitations({ type: 'doc', content: blocks.map(blockToNode) })
 }
 
-export function titleSpansToDoc(spans: readonly TitleSpan[]): TitleDoc {
-  if (spans.length === 0) return emptyDoc()
-  return mergeAdjacentCitations({ type: 'doc', content: [paragraph(spans)] })
+/**
+ * A title as the one paragraph it is.
+ *
+ * `align` is separate from the spans for the same reason it is on a paragraph
+ * block rather than on a span: it belongs to the line, not to a run of text.
+ * A caller that leaves it out gets no alignment attribute, so the callers that
+ * only mean to change the *text* pass the alignment the title already had —
+ * otherwise rewriting a centered title would quietly left-align it.
+ */
+export function titleSpansToDoc(spans: readonly TitleSpan[], align?: TextAlign): TitleDoc {
+  if (spans.length === 0 && !align) return emptyDoc()
+  return mergeAdjacentCitations({ type: 'doc', content: [paragraph(spans, align)] })
 }
 
 /** Every reference id these blocks cite, so a caller can check them first. */
@@ -242,7 +253,7 @@ export function citedIdsInBlocks(blocks: readonly TextBlock[]): string[] {
  * Out: RichDoc → agent blocks
  * ------------------------------------------------------------------ */
 
-function alignOf(node: RichNode): 'left' | 'center' | 'right' | undefined {
+function alignOf(node: RichNode): TextAlign | undefined {
   const value = node.attrs?.textAlign
   return value === 'left' || value === 'center' || value === 'right' ? value : undefined
 }
@@ -374,4 +385,16 @@ export function docToTitleSpans(doc: TitleDoc | null | undefined): TextSpan[] {
   return (doc?.content ?? []).flatMap((node) =>
     node.type === 'paragraph' ? spansOf(node) : [],
   )
+}
+
+/**
+ * The alignment a stored title carries, if any.
+ *
+ * Reported by `inspect_slide` and reused by the operations that only rewrite
+ * the text, so an alignment a person chose in the editor survives an agent
+ * touching the words.
+ */
+export function docToTitleAlign(doc: TitleDoc | null | undefined): TextAlign | undefined {
+  const paragraphNode = (doc?.content ?? []).find((node) => node.type === 'paragraph')
+  return paragraphNode ? alignOf(paragraphNode) : undefined
 }

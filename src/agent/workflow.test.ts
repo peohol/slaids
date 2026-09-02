@@ -540,6 +540,34 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
     })
   })
 
+  it('sier hvor stor subsonen er når innhold ikke får plass i den ved splitting', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const nodeId = firstZone(inspection)
+    const parentRect = inspection.zones.find((zone) => zone.nodeId === nodeId)?.rect as Rect
+
+    await fillToCapacity(context, { presentationId: deck.presentationId, slideId, nodeId }, paragraph)
+
+    // The content is measured against the child it would move into, so the rect
+    // reported has to be that child's — the parent is bigger, and an agent told
+    // the parent's size would shorten by too little and fail again.
+    const failure = await fails(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      axis: 'x',
+      weights: [1, 1],
+      contentFallback: 'delete',
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect((failure.details?.rect as Rect).width).toBeLessThan(parentRect.width)
+  })
+
   it('avviser en overskrift som ikke får plass på én linje', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
@@ -894,6 +922,40 @@ describe('samtidighet', () => {
     })
   })
 
+  it('lar to samtidige mutasjoner ikke overskrive hverandre', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+
+    // Both start from the same reading and neither is awaited before the other
+    // begins, so both pass their own precondition. The write itself is what has
+    // to keep the second one from landing on top of the first.
+    const [first, second] = await Promise.all([
+      call(context, 'set_slide_title', {
+        presentationId: deck.presentationId,
+        slideId,
+        expectedRevision: deck.revision,
+        spans: [{ text: 'Første' }],
+      }),
+      call(context, 'set_slide_title', {
+        presentationId: deck.presentationId,
+        slideId,
+        expectedRevision: deck.revision,
+        spans: [{ text: 'Andre' }],
+      }),
+    ])
+
+    expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1)
+    const rejected = first.ok ? second : first
+    expect(expectErr(rejected).code).toBe('CONFLICT')
+
+    // And what is stored is the one that won, whole.
+    const view = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(['Første', 'Andre']).toContain(view.slides[0].title)
+  })
+
   it('avviser en stale asset-registrering før noe er lagret', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
@@ -1006,6 +1068,93 @@ describe('atomisitet', () => {
 /* ------------------------------------------------------------------ *
  * Validation
  * ------------------------------------------------------------------ */
+
+describe('justering av overskrifter', () => {
+  it('beholder justeringen når bare teksten endres', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Midtstilt' }],
+      align: 'center',
+    })
+    expect(
+      (
+        await ok<SlideInspection>(context, 'inspect_slide', {
+          presentationId: deck.presentationId,
+          slideId,
+        })
+      ).titleAlign,
+    ).toBe('center')
+
+    // Rewriting the words is not a request to un-centre the line.
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Fortsatt midtstilt' }],
+    })
+    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(after.title).toBe('Fortsatt midtstilt')
+    expect(after.titleAlign).toBe('center')
+
+    // And it can still be changed on purpose.
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Venstrestilt igjen' }],
+      align: 'left',
+    })
+    expect(
+      (
+        await ok<SlideInspection>(context, 'inspect_slide', {
+          presentationId: deck.presentationId,
+          slideId,
+        })
+      ).titleAlign,
+    ).toBe('left')
+  })
+
+  it('gjør det samme for korttittelen', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      title: [{ text: 'Midtstilt' }],
+      titleAlign: 'center',
+    })
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      title: [{ text: 'Ny tekst' }],
+    })
+
+    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(after.zones[0].cardTitle).toEqual([{ text: 'Ny tekst' }])
+    expect(after.zones[0].cardTitleAlign).toBe('center')
+  })
+})
 
 describe('validering', () => {
   it('sier at en presentasjon bygget gjennom Agent Core er gyldig', async () => {

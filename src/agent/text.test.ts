@@ -14,6 +14,7 @@ import type { RichDoc } from '../domain/types'
 import {
   blocksToDoc,
   docToBlocks,
+  docToTitleAlign,
   docToTitleSpans,
   textBlocksSchema,
   titleSpansSchema,
@@ -302,5 +303,16 @@ describe('overskrifter', () => {
 
   it('blir tom når det ikke er noen spans', () => {
     expect(docToTitleSpans(titleSpansToDoc([]))).toEqual([])
+  })
+
+  it('bærer justeringen sin, så en omskriving ikke stiller den tilbake', () => {
+    const centered = titleSpansToDoc([{ text: 'Midtstilt' }], 'center')
+    expect(docToTitleAlign(centered)).toBe('center')
+    // Rewriting the words while passing the alignment back keeps the line where
+    // it was; passing nothing is what would have left-aligned it.
+    expect(docToTitleAlign(titleSpansToDoc([{ text: 'Ny tekst' }], docToTitleAlign(centered)))).toBe(
+      'center',
+    )
+    expect(docToTitleAlign(titleSpansToDoc([{ text: 'Ny tekst' }]))).toBeUndefined()
   })
 })

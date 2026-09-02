@@ -2469,6 +2469,12 @@ To ting formatet ikke kan uttrykke, og hva som skjer med dem:
 rendereren lager en ekte `<a href>` av en link-mark, så en `javascript:`-lenke må
 avvises før den blir et dokument – ikke etterpå.
 
+Justering hører til linja, ikke til teksten, og følger derfor blokken: `align` på
+et avsnitt eller en overskrift, og `align`/`titleAlign` på operasjonene som setter
+en tittel. Utelates den, beholdes justeringen tittelen allerede hadde – en agent
+som er bedt om å endre ordene har ikke bedt om å midtstille dem tilbake til
+venstre.
+
 #### Revisjon er ikke en ny lås
 
 `src/domain/revision.ts` er en kort digest av dokumentet. `get_presentation`,
@@ -2492,11 +2498,24 @@ Digesten regnes over dokumentet slik det *lagres* – nøkkelrekkefølge ignorer
 og `undefined` behandles som JSON behandler det – slik at revisjonen en mutasjon
 svarer med er den samme som neste lesing gir.
 
+Selve skrivingen er i tillegg alltid låst mot revisjonen operasjonen leste, ikke
+bare når kalleren ba om det: to samtidige agentkall kan begge passere sin egen
+forhåndssjekk, og da er det skrivingen som må hindre at den andre lander oppå den
+første. `SlaidsRepository.savePresentation` tar derfor en valgfri `SaveGuard`.
+Supabase-implementasjonen trenger den ikke – radens `version` låser det samme
+vinduet hardere – mens Dexie sammenligner mot det lagrede dokumentet inne i den
+samme `rw`-transaksjonen som skriver. Uten den transaksjonen er det ingen lås:
+begge kan lese, begge kan bli enige om at dokumentet er det de lastet, og den
+andre `put`-en vinner likevel. Editorens autosave skriver fortsatt ubetinget –
+den eier dokumentet den redigerer.
+
 #### Fit-feil er handlingsbare
 
 En avvisning bærer `slideId`, `nodeId`, `overflow`, sonens `rect` og `subject`
 (`zone-content` eller `slide-title`). Kommandoene fyller inn det de vet;
-agentlaget fyller inn det bare kalleren visste. Det er dét som gjør løkken
+agentlaget fyller inn det bare kalleren visste, og overstyrer aldri en `rect`
+kommandoen selv oppga: målte den mot en subsone som ikke finnes i dokumentet
+ennå, er det den som gjelder, ikke sonen slik den står nå. Det er dét som gjør løkken
 `set_zone_text → CONTENT_DOES_NOT_FIT → kortere tekst → set_zone_text` mulig uten
 gjetting: overflow sier hvor mye som ikke fikk plass, rect hvor mye plass det var.
 

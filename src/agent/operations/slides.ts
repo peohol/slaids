@@ -14,6 +14,7 @@
 
 import { z } from 'zod'
 import { addSlide, deleteSlide, duplicateSlide, moveSlide, setSlideTitle } from '../../domain/commands'
+import { findSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { Presentation } from '../../domain/types'
 import {
@@ -23,7 +24,7 @@ import {
   slideIdSchema,
 } from '../operation'
 import { mutatePresentation, structuralOptions } from '../presentation'
-import { citedIdsInSpans, titleSpansToDoc, titleSpansSchema } from '../text'
+import { alignSchema, citedIdsInSpans, docToTitleAlign, titleSpansSchema, titleSpansToDoc } from '../text'
 import type { AgentResult } from '../types'
 import { unknownReferenceIds } from './references'
 
@@ -181,6 +182,9 @@ export const setSlideTitleOperation = defineOperation({
     expectedRevision: expectedRevisionSchema,
     slideId: slideIdSchema,
     spans: titleSpansSchema,
+    align: alignSchema
+      .optional()
+      .describe('Utelatt beholder justeringen overskriften allerede har.'),
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string }>> {
     return mutatePresentation(context, input, (presentation) => {
@@ -191,12 +195,17 @@ export const setSlideTitleOperation = defineOperation({
         })
       }
 
+      // Alignment is carried over unless the caller says otherwise: an agent
+      // asked to change the words has not asked to un-centre the line.
+      const slide = findSlide(presentation, input.slideId)
+      const align = input.align ?? docToTitleAlign(slide?.title)
+
       // The title zone is one line at a fixed height: too long is refused, never
       // clipped, and the command measures it against the prospective numbering.
       const titled = setSlideTitle(
         presentation,
         input.slideId,
-        titleSpansToDoc(input.spans),
+        titleSpansToDoc(input.spans, align),
         structuralOptions(context),
       )
       if (!titled.ok) return titled

@@ -115,10 +115,16 @@ export function splitLeaf(
     } else {
       const fallback = input.contentFallback ?? 'sandbox'
       if (fallback === 'delete') {
+        // The rect is the child the content was measured against, not the zone
+        // being split: `nodeId` still names the parent, because that is what
+        // the caller addressed, and reporting the parent's larger rectangle
+        // alongside the child's overflow would tell a caller trying to shorten
+        // the content that it has room it does not have.
         return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i den valgte subsonen.', {
           slideId: input.slideId,
           nodeId: input.nodeId,
           childIndex: targetIndex,
+          rect: targetRect,
           overflow: fit.overflow,
         })
       }

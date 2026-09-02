@@ -41,9 +41,11 @@ import {
 } from '../operation'
 import { applySteps, mutatePresentation, structuralOptions } from '../presentation'
 import {
+  alignSchema,
   blocksToDoc,
   citedIdsInBlocks,
   citedIdsInSpans,
+  docToTitleAlign,
   textBlocksSchema,
   titleSpansSchema,
   titleSpansToDoc,
@@ -191,6 +193,9 @@ export const setZoneCard = defineOperation({
     title: titleSpansSchema
       .optional()
       .describe('Korttittelen. Bare for titled-card.'),
+    titleAlign: alignSchema
+      .optional()
+      .describe('Justering av korttittelen. Utelatt beholder den kortet allerede har.'),
     color: z
       .string()
       .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)
@@ -206,7 +211,7 @@ export const setZoneCard = defineOperation({
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string; nodeId: string; kind: string; subfieldIds: string[] }>> {
     return mutatePresentation(context, input, (presentation) => {
-      if (input.title && input.kind !== 'titled-card') {
+      if ((input.title || input.titleAlign) && input.kind !== 'titled-card') {
         return err('INVALID_ARGUMENT', 'Bare et kort med tittel kan ha en korttittel.')
       }
       const unknown = input.title
@@ -222,12 +227,19 @@ export const setZoneCard = defineOperation({
       if (!zone.ok) return zone
       const target = { slideId: input.slideId, nodeId: input.nodeId, ...structuralOptions(context) }
 
+      // A card that is already titled keeps its title's alignment when only the
+      // words change; a card that is being created has none to keep.
+      const existing = zone.value.content
+      const align =
+        input.titleAlign ??
+        (existing?.kind === 'titled-card' ? docToTitleAlign(existing.title) : undefined)
+
       // Several domain commands, one save: the intermediate documents never
       // leave this function, so a failure in the last step leaves nothing behind
       // from the first.
       const applied = applySteps(presentation, [
         (current) =>
-          zone.value.content
+          existing
             ? setContentKind(current, { ...target, kind: input.kind })
             : mapOutcome(
                 setZoneContent(current, { ...target, content: createContentOfKind(input.kind) }),
@@ -239,7 +251,7 @@ export const setZoneCard = defineOperation({
         (current) =>
           input.title === undefined
             ? ok(current)
-            : setCardTitle(current, { ...target, doc: titleSpansToDoc(input.title) }),
+            : setCardTitle(current, { ...target, doc: titleSpansToDoc(input.title, align) }),
         (current) =>
           input.color === undefined
             ? ok(current)

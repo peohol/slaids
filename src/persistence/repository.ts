@@ -21,10 +21,31 @@ export interface StoredAsset {
   blob: Blob
 }
 
+/**
+ * A precondition on a write: only store this if the stored copy is still the
+ * one the caller read.
+ *
+ * The revision is `domain/revision.ts`'s digest of the document that was
+ * loaded. It exists because the two implementations guard the same window with
+ * different currencies — Supabase has a `version` column and IndexedDB has
+ * nothing — and a caller that wants "do not overwrite somebody else" should not
+ * have to know which store it is talking to.
+ */
+export interface SaveGuard {
+  expectedRevision: string
+}
+
 export interface SlaidsRepository {
   listPresentations(): Promise<PresentationSummary[]>
   loadPresentation(id: string): Promise<Presentation>
-  savePresentation(presentation: Presentation): Promise<void>
+  /**
+   * Store the document. With a `guard`, refuse — `RepositoryConflictError` —
+   * if the stored copy has moved on since the revision the guard names.
+   *
+   * Without one the write is unconditional, which is what the editor's autosave
+   * wants: it owns the document it is editing and re-saves it continuously.
+   */
+  savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void>
   deletePresentation(id: string): Promise<void>
 
   listFolders(): Promise<Folder[]>

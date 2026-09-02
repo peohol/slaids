@@ -35,7 +35,14 @@ import type {
 } from '../../domain/types'
 import { defineOperation, presentationIdSchema, slideIdSchema } from '../operation'
 import { loadPresentation, savePresentation } from '../presentation'
-import { docToBlocks, docToTitleSpans, type InspectedBlock, type TextSpan } from '../text'
+import {
+  docToBlocks,
+  docToTitleAlign,
+  docToTitleSpans,
+  type InspectedBlock,
+  type TextAlign,
+  type TextSpan,
+} from '../text'
 import { agentErr, agentOk, type AgentContext, type AgentResult } from '../types'
 
 /* ------------------------------------------------------------------ *
@@ -173,8 +180,9 @@ export interface ZoneInspection {
   contentKind?: ZoneContentKind
   /** Containers only: whether the zone holds text fields or a file. */
   payload?: 'fields' | 'asset'
-  /** Titled cards only: the card's own heading. */
+  /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
+  cardTitleAlign?: TextAlign
   /** The text fields inside the content, addressable in a later call. */
   subfields?: SubfieldInspection[]
   /** Files and references this zone shows. */
@@ -191,6 +199,7 @@ export interface SlideInspection extends SlideSummary {
   rootNodeId: string
   /** The title as spans, so a citation in it survives being read back. */
   titleSpans: TextSpan[]
+  titleAlign?: TextAlign
   zones: ZoneInspection[]
 }
 
@@ -219,6 +228,7 @@ export const inspectSlide = defineOperation({
       revision: presentationRevision(presentation),
       rootNodeId: slide.root.id,
       titleSpans: docToTitleSpans(slide.title),
+      ...(docToTitleAlign(slide.title) ? { titleAlign: docToTitleAlign(slide.title) } : {}),
       zones: inspectZones(slide, presentation, context),
     })
   },
@@ -279,7 +289,14 @@ function collectZones(
     empty: false,
     contentKind: content.kind,
     ...(content.kind === 'container' ? { payload: content.payload.type } : {}),
-    ...(content.kind === 'titled-card' ? { cardTitle: docToTitleSpans(content.title) } : {}),
+    ...(content.kind === 'titled-card'
+      ? {
+          cardTitle: docToTitleSpans(content.title),
+          ...(docToTitleAlign(content.title)
+            ? { cardTitleAlign: docToTitleAlign(content.title) }
+            : {}),
+        }
+      : {}),
     subfields:
       body?.subfields.map((field) => ({
         subfieldId: field.id,

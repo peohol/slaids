@@ -35,6 +35,7 @@ import {
   RepositoryConflictError,
   RepositoryError,
   RepositoryNotFoundError,
+  type SaveGuard,
   type ShareState,
   type SharingRepository,
   type SlaidsRepository,
@@ -218,7 +219,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return migrated.value
   }
 
-  async savePresentation(presentation: Presentation): Promise<void> {
+  /**
+   * `guard` is accepted and deliberately not compared.
+   *
+   * The row's `version` already guards the same window, and guards it harder:
+   * the update below only matches the version this repository read, so *any*
+   * concurrent write loses — not only one that changed the document's content.
+   * Comparing a revision as well would cost a second round trip to answer a
+   * question the version has already answered. The Dexie repository does the
+   * comparison because it has no version to check.
+   */
+  async savePresentation(presentation: Presentation, _guard?: SaveGuard): Promise<void> {
     const ownerId = await this.ownerId()
     // Same defensive round-trip as the Dexie repository: what goes on the wire
     // is plain JSON, never a live object with accidental extras.

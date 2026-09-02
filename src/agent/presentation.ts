@@ -13,11 +13,13 @@
  *    (`applySteps`) and the result saved once. A failure at any step returns
  *    before anything is written, so there is no such thing as a half-applied
  *    operation — not because it is rolled back, but because it was never stored.
- *  - **Concurrency.** A caller may state the revision it read. It is checked
+ *  - **Concurrency.** A caller may state the revision it read; it is checked
  *    against the document just loaded, before any command runs, and a mismatch
- *    is a `CONFLICT` rather than an overwrite. The repository's own optimistic
- *    lock still guards the write itself; see `domain/revision.ts` for why these
- *    are two different windows and not two versions of the same guard.
+ *    is a `CONFLICT` rather than an overwrite. The write itself is guarded
+ *    separately and always, against the revision this operation loaded, so two
+ *    concurrent operations cannot both pass their check and have the second one
+ *    win. See `domain/revision.ts` for why those are two windows and not two
+ *    versions of the same guard.
  *  - **Actionable failures.** A fit error is only useful if it says where and by
  *    how much, so a failure is enriched with the slide, the zone, that zone's
  *    rectangle and the measured overflow before it goes back out.
@@ -83,12 +85,27 @@ export async function loadPresentation(
   }
 }
 
+/**
+ * Store a document, refusing to overwrite a copy that moved since it was read.
+ *
+ * `guardedBy` is the revision of the document this operation loaded, and it is
+ * passed on every agent write — never only when the caller asked for it. The
+ * caller's own `expectedRevision` covers the long window between *its* read and
+ * its decision; this covers the short one between our load and our save, which
+ * is a different race and the only one two concurrent agent calls can lose. In
+ * Supabase mode the row's `version` already closes it; in local Dexie mode
+ * nothing did until the repository grew a compare-and-swap for exactly this.
+ */
 export async function savePresentation(
   context: AgentContext,
   presentation: Presentation,
+  guardedBy?: string,
 ): Promise<AgentResult<Presentation>> {
   try {
-    await context.repository.savePresentation(presentation)
+    await context.repository.savePresentation(
+      presentation,
+      guardedBy ? { expectedRevision: guardedBy } : undefined,
+    )
     return agentOk(presentation)
   } catch (error) {
     return storageFailure(error, 'Kunne ikke lagre presentasjonen.', {
@@ -112,10 +129,10 @@ export async function savePresentation(
 export function revisionConflict(
   presentation: Presentation,
   expected: string | undefined,
+  /** The loaded document's revision, when the caller has already computed it. */
+  revision = presentationRevision(presentation),
 ): AgentResult<never> | null {
-  if (!expected) return null
-  const revision = presentationRevision(presentation)
-  if (revision === expected) return null
+  if (!expected || revision === expected) return null
   return agentErr(
     'CONFLICT',
     'Presentasjonen er endret siden du leste den. Les den på nytt før du skriver.',
@@ -187,14 +204,15 @@ export async function mutatePresentation<T extends object>(
 ): Promise<AgentResult<Mutated<T>>> {
   const loaded = await loadPresentation(context, request.presentationId)
   if (!loaded.ok) return loaded
+  const loadedRevision = presentationRevision(loaded.value)
 
-  const conflict = revisionConflict(loaded.value, request.expectedRevision)
+  const conflict = revisionConflict(loaded.value, request.expectedRevision, loadedRevision)
   if (conflict) return conflict
 
   const applied = apply(loaded.value)
   if (!applied.ok) return { ok: false, error: describeFailure(loaded.value, applied.error, request, context) }
 
-  const saved = await savePresentation(context, applied.value.presentation)
+  const saved = await savePresentation(context, applied.value.presentation, loadedRevision)
   if (!saved.ok) return saved
   return agentOk({ ...applied.value.value, revision: presentationRevision(saved.value) })
 }
@@ -266,8 +284,14 @@ function describeFailure(
     const slideId = typeof details.slideId === 'string' ? details.slideId : undefined
     const nodeId = typeof details.nodeId === 'string' ? details.nodeId : undefined
     details.subject = nodeId === TITLE_NODE_ID ? 'slide-title' : 'zone-content'
-    const rect = zoneRect(presentation, context, slideId, nodeId)
-    if (rect) details.rect = rect
+    // Only when the command did not report one. A command that measured against
+    // a rectangle the document does not have yet — the prospective child of a
+    // split — knows the right one, and looking `nodeId` up here would answer
+    // with the zone as it stands instead.
+    if (details.rect === undefined) {
+      const rect = zoneRect(presentation, context, slideId, nodeId)
+      if (rect) details.rect = rect
+    }
   }
 
   return { code: error.code, message: error.message, details }

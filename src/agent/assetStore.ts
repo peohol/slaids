@@ -111,10 +111,11 @@ export async function storeAsset(
 
   const loaded = await loadPresentation(context, input.presentationId)
   if (!loaded.ok) return loaded
+  const loadedRevision = presentationRevision(loaded.value)
 
   // Checked before a single byte is written: a conflict that is discovered
   // after the file is stored leaves an orphan to clean up for nothing.
-  const conflict = revisionConflict(loaded.value, input.expectedRevision)
+  const conflict = revisionConflict(loaded.value, input.expectedRevision, loadedRevision)
   if (conflict) return conflict
 
   const ref: AssetRef = {
@@ -150,7 +151,7 @@ export async function storeAsset(
     return fromDomainError(registered.error)
   }
 
-  const saved = await savePresentation(context, registered.value)
+  const saved = await savePresentation(context, registered.value, loadedRevision)
   if (saved.ok) return success(saved.value)
   return resolveAmbiguousRegistration(context, input.presentationId, ref, saved, success)
 }
