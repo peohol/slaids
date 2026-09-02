@@ -93,6 +93,19 @@ describe('sanitizeSvg – gyldig markup', () => {
     expect(result.markup).toContain('rgba(0,0,0,0.6)')
   })
 
+  it('godtar CSS-funksjoner som ikke kan hente noe', () => {
+    const result = sanitized(
+      `<svg viewBox="0 0 1 1"><rect clip-path="polygon(0 0, 1px 0, 0 1px)" style="filter:blur(2px) drop-shadow(0 1px 2px rgba(0,0,0,.3))"/></svg>`,
+    )
+    expect(result.markup).toContain('polygon(')
+    expect(result.markup).toContain('blur(2px)')
+  })
+
+  it('leser ikke tekstattributter som CSS', () => {
+    const result = sanitized(`<svg viewBox="0 0 1 1"><rect aria-label="f(x)" id="a-b"/></svg>`)
+    expect(result.markup).toContain('aria-label="f(x)"')
+  })
+
   it('godtar parenteser som ikke er funksjonskall, og store bokstaver i dem som er', () => {
     // `Figur (utkast)` is a label, not a call to `Figur()` — CSS reads a
     // function only when the parenthesis follows the name directly.
@@ -198,12 +211,17 @@ describe('sanitizeSvg – utrygg markup avvises', () => {
     ).toBe('UNSAFE_SVG')
   })
 
-  it('avviser <style>, som ikke kan valideres uten en CSS-parser', () => {
-    const error = rejection(
-      `<svg viewBox="0 0 1 1"><style>rect { fill: red }</style><rect width="1" height="1"/></svg>`,
+  it('fjerner <style> og sier fra, i stedet for å prøve å validere CSS', () => {
+    // Illustrator, Inkscape, matplotlib and D3 all emit one, so the file is
+    // still storable — but the styling it carried does not survive, and the
+    // report is what says so.
+    const result = sanitized(
+      `<svg viewBox="0 0 1 1"><style>rect { fill: url(https://a.example/x) }</style><rect width="1" height="1"/></svg>`,
     )
-    expect(error.code).toBe('INVALID_SVG')
-    expect(error.message).toContain('presentasjonsattributter')
+    expect(result.markup).not.toContain('<style')
+    expect(result.markup).not.toContain('a.example')
+    expect(result.markup).toContain('<rect')
+    expect(result.report.removedElements).toEqual(['style'])
   })
 
   it('avviser egne entiteter, som er hvordan en SVG blir en entitetsbombe', () => {

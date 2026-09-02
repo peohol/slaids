@@ -40,25 +40,6 @@ const MAX_ELEMENTS = 20_000
  * ------------------------------------------------------------------ */
 
 /**
- * Elements Slaids understands but will not store, and why.
- *
- * `<style>` is a whole CSS document, and a CSS document cannot be validated to
- * the standard the rest of this file holds without a real CSS parser: `url` can
- * be written with escapes so the literal letters never appear, and functions
- * like `image-set()` carry a URL as a plain string with no `url()` around it.
- * Rather than approximate a CSS parser with patterns — which is how the last
- * hole got in — the element is refused, with a message that says what to use
- * instead. Everything an agent needs for a figure is expressible as
- * presentation attributes, which are validated one value at a time.
- */
-const UNSUPPORTED_ELEMENTS = new Map<string, string>([
-  [
-    'style',
-    'Slaids lagrer ikke <style> i SVG. Bruk presentasjonsattributter (fill, stroke, font-size …) eller style-attributtet på elementene.',
-  ],
-])
-
-/**
  * Elements that carry or embed executable content. Their presence is a
  * decision by whoever wrote the markup, so it is answered with a refusal.
  */
@@ -78,7 +59,20 @@ const FORBIDDEN_ELEMENTS = new Set([
   'base',
 ])
 
-/** Everything Slaids is willing to draw. Case-sensitive, as SVG names are. */
+/**
+ * Everything Slaids is willing to draw. Case-sensitive, as SVG names are.
+ *
+ * `<style>` is deliberately absent, so it is dropped and reported like any
+ * other element this file cannot vouch for. A CSS document cannot be validated
+ * to the standard the rest of this holds without a real CSS parser: `url` can
+ * be written with escapes so the letters never appear, and functions like
+ * `image-set()` carry a URL as a plain string with no `url()` around it.
+ * Dropping it keeps a real-world export — Illustrator, Inkscape, matplotlib and
+ * D3 all emit one — storable, and `report.removedElements` says it happened, so
+ * a figure that comes back unstyled is never a silent surprise. Styling that
+ * has to survive belongs in presentation attributes or `style="…"`, which are
+ * validated one value at a time.
+ */
 const ALLOWED_ELEMENTS = new Set([
   'svg',
   'g',
@@ -350,6 +344,24 @@ const ALLOWED_CSS_FUNCTIONS = new Set([
   'max',
   'clamp',
   'var',
+  // basic shapes, for clip-path and friends
+  'polygon',
+  'circle',
+  'ellipse',
+  'inset',
+  'rect',
+  'xywh',
+  'path',
+  // filter shorthands
+  'blur',
+  'brightness',
+  'contrast',
+  'drop-shadow',
+  'grayscale',
+  'hue-rotate',
+  'invert',
+  'saturate',
+  'sepia',
   // transforms
   'matrix',
   'matrix3d',
@@ -370,6 +382,23 @@ const ALLOWED_CSS_FUNCTIONS = new Set([
   'skewx',
   'skewy',
   'perspective',
+])
+
+/**
+ * Attributes whose value is text or a name, never a CSS value.
+ *
+ * Nothing parses these as CSS, so reading them as CSS produces only false
+ * refusals: `aria-label="Figur f(x)"` is a label, not a call to `f()`.
+ */
+const TEXT_VALUED_ATTRIBUTES = new Set([
+  'aria-label',
+  'aria-hidden',
+  'role',
+  'lang',
+  'xml:lang',
+  'xml:space',
+  'id',
+  'class',
 ])
 
 /**
@@ -668,8 +697,6 @@ function cleanElement(element: SvgElementNode, report: SvgSanitizeReport): SvgEl
   if (FORBIDDEN_ELEMENTS.has(local.toLowerCase())) {
     throw unsafe(`Elementet <${element.name}> er ikke tillatt i en SVG som lagres i Slaids.`)
   }
-  const unsupported = UNSUPPORTED_ELEMENTS.get(local.toLowerCase())
-  if (unsupported) throw invalid(unsupported)
   if (!ALLOWED_ELEMENTS.has(local)) {
     record(report.removedElements, element.name)
     return null
@@ -733,6 +760,7 @@ function checkValue(name: string, value: string): void {
   if (DANGEROUS_VALUE.test(value)) {
     throw unsafe(`Verdien til «${name}» peker på noe som ville blitt kjørt eller hentet.`)
   }
+  if (TEXT_VALUED_ATTRIBUTES.has(name)) return
   if (value.includes('\\')) {
     throw unsafe(`Verdien til «${name}» bruker CSS-escapes, som ikke er tillatt.`)
   }

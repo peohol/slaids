@@ -2359,9 +2359,11 @@ noen presenterer. Derfor er sniffing (`imageBytes.ts`) skilt fra validering
   sist, og ingenting etter.
 - **JPEG** – markørkjeden, med entropidata skannet til neste ekte markør, SOF og
   SOS til stede og EOI på plass.
-- **GIF** – blokk-kjeden med underblokker, og avslutningsmerket.
-- **WEBP** – RIFF-lengden mot filens faktiske lengde, og chunkene gått gjennom,
-  fordi bildedataene ikke er første chunk i en fil med fargeprofil.
+- **GIF** – blokk-kjeden med underblokker, minst én bilderamme, og
+  avslutningsmerket.
+- **WEBP** – RIFF-lengden mot filens faktiske lengde, chunkene gått gjennom
+  (bildedataene er ikke første chunk i en fil med fargeprofil), og en chunk som
+  faktisk bærer bildet: `VP8X` beskriver bare lerretet.
 
 Størrelsen tas alltid fra bitstrømmen. Den er aldri en parameter kalleren
 sender: en påstand om størrelse er ikke en verifikasjon av at filen er et
@@ -2387,14 +2389,22 @@ Tre bevisste avvik fra teksten over, med begrunnelse:
 resten av sanitiseringen holder uten en ekte CSS-parser: `url` kan skrives med
 escapes slik at bokstavene aldri står der, og funksjoner som `image-set()` tar
 en URL som en ren streng uten `url()` rundt. Å etterligne en CSS-parser med
-mønstre er hvordan det forrige hullet oppsto, så elementet avvises med en
-melding om hva man skal bruke i stedet.
+mønstre er hvordan det forrige hullet oppsto.
+
+Elementet fjernes og rapporteres, slik alt annet denne filen ikke kan gå god
+for behandles – ikke avvises. Illustrator, Inkscape, matplotlib og D3 legger
+alle ved en `<style>`-blokk, og en fil fra verden skal fortsatt kunne lagres.
+Prisen er at stilingen som lå der ikke overlever, og `report.removedElements`
+er det som sier fra, slik at en figur som kommer tilbake ustylet aldri er en
+stille overraskelse.
 
 `style`-attributtet lever videre, med en verdikontrakt som kan håndheves: ingen
-escapes, og bare funksjoner fra en allowlist (`url()` inn i samme dokument,
-farge-, `calc`- og transform-funksjoner). Alt annet avvises. Vanlige figurer –
-fill, stroke, opacity, font, transform, interne gradients, filters og clipPaths
-– er uberørt.
+CSS-escapes, og bare funksjoner fra en allowlist – `url()` inn i samme dokument,
+farge-, `calc`-, transform-, basisform- og filterfunksjoner. Alt annet avvises.
+Attributter som holder tekst (`aria-label`, `id`, `class`, `lang`) leses ikke
+som CSS i det hele tatt: «Figur f(x)» er en etikett, ikke et funksjonskall.
+Vanlige figurer – fill, stroke, opacity, font, transform, interne gradients,
+filters og clipPaths – er uberørt.
 
 #### Registrering er to skrivinger
 

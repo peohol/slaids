@@ -89,6 +89,28 @@ describe('readRasterImage – forfalskninger', () => {
     expect(rejected(fake).code).toBe('INVALID_IMAGE')
   })
 
+  it('avviser en GIF som bare er et hode og et avslutningsmerke', () => {
+    // It declares 1024 × 768 and contains no picture at all. The declared size
+    // is exactly what this module does not take anyone's word for.
+    const header = [...'GIF89a'].map((char) => char.charCodeAt(0))
+    const gif = new Uint8Array([...header, 0, 4, 0, 3, 0x00, 0, 0, 0x3b])
+    expect(rejected(gif).code).toBe('INVALID_IMAGE')
+  })
+
+  it('avviser en WEBP som bare har VP8X-hodet og ingen bildedata', () => {
+    const webp = new Uint8Array(30)
+    const put = (text: string, at: number) =>
+      [...text].forEach((char, index) => (webp[at + index] = char.charCodeAt(0)))
+    put('RIFF', 0)
+    webp[4] = 22
+    put('WEBP', 8)
+    put('VP8X', 12)
+    webp[16] = 10
+    webp[24] = 15
+    webp[27] = 7
+    expect(rejected(webp).code).toBe('INVALID_IMAGE')
+  })
+
   it('avviser noe som ikke er et bilde i det hele tatt', () => {
     expect(rejected(new TextEncoder().encode('{"ikke":"et bilde"}')).code).toBe(
       'UNSUPPORTED_MEDIA_TYPE',

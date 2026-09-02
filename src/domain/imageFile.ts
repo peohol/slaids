@@ -180,10 +180,14 @@ function validateGif(bytes: Uint8Array): Result<Size> {
   const packed = bytes[10]
   let offset = 13
   if (packed & 0x80) offset += 3 * 2 ** ((packed & 0x07) + 1)
+  // A screen descriptor and a trailer is a file that declares a size and
+  // contains no picture. The size in the header is exactly what this module
+  // refuses to take anyone's word for, so a frame has to be there.
+  let frames = 0
 
   while (offset < bytes.length) {
     const marker = bytes[offset]
-    if (marker === 0x3b) return ok(size) // trailer
+    if (marker === 0x3b) return frames > 0 ? ok(size) : broken('filen inneholder ingen bilderamme')
 
     if (marker === 0x21) {
       // Extension: a label, then sub-blocks.
@@ -198,6 +202,7 @@ function validateGif(bytes: Uint8Array): Result<Size> {
       // Image descriptor: 9 bytes, an optional local colour table, the LZW
       // minimum code size, then the image data as sub-blocks.
       if (offset + 10 > bytes.length) return broken('en bildeblokk er avkortet')
+      frames += 1
       const local = bytes[offset + 9]
       offset += 10
       if (local & 0x80) offset += 3 * 2 ** ((local & 0x07) + 1)
@@ -304,6 +309,11 @@ function validateWebp(bytes: Uint8Array): Result<Size> {
 
   let offset = 12
   let size: Size | null = null
+  // `VP8X` declares the canvas and carries no pixels: a file with nothing but
+  // that chunk is a header claiming a size, which is the one thing this module
+  // does not accept on faith. `ANMF` counts, since an animation's frames hold
+  // their own bitstreams.
+  let picture = false
 
   while (offset + 8 <= bytes.length) {
     const fourcc = ascii(bytes, offset, 4)
@@ -313,20 +323,24 @@ function validateWebp(bytes: Uint8Array): Result<Size> {
 
     if (fourcc === 'VP8X' && length >= 10) {
       size = { width: le24(bytes, data + 4) + 1, height: le24(bytes, data + 7) + 1 }
-    } else if (fourcc === 'VP8 ' && size === null) {
+    } else if (fourcc === 'VP8 ') {
       if (length < 10) return broken('VP8-rammen er avkortet')
       if (!startsWith(bytes, [0x9d, 0x01, 0x2a], data + 3)) return broken('VP8-synkronkoden mangler')
-      size = { width: le16(bytes, data + 6) & 0x3fff, height: le16(bytes, data + 8) & 0x3fff }
-    } else if (fourcc === 'VP8L' && size === null) {
+      picture = true
+      size ??= { width: le16(bytes, data + 6) & 0x3fff, height: le16(bytes, data + 8) & 0x3fff }
+    } else if (fourcc === 'VP8L') {
       if (length < 5 || bytes[data] !== 0x2f) return broken('VP8L-rammen er avkortet')
+      picture = true
       const bits = le32(bytes, data + 1)
-      size = { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
+      size ??= { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
+    } else if (fourcc === 'ANMF') {
+      picture = true
     }
 
     offset = data + length + (length & 1)
   }
 
   if (offset !== bytes.length) return broken('en chunk går utenfor filen')
-  if (!size) return broken('bildedataene mangler')
+  if (!size || !picture) return broken('bildedataene mangler')
   return ok(size)
 }

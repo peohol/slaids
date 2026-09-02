@@ -417,8 +417,10 @@ bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
   blir lagret. Skript, hendelsesattributter, `foreignObject`, `javascript:`,
   referanser ut av dokumentet og egne entiteter avvises med en egen feilkode i
   stedet for å bli stille fjernet. `<style>` lagres ikke – et CSS-dokument kan
-  ikke valideres uten en ekte CSS-parser – men `style`-attributtet virker, med
-  en allowlist av funksjoner og uten CSS-escapes. En SVG uten kjent
+  ikke valideres uten en ekte CSS-parser – men det fjernes og rapporteres i
+  stedet for å avvise hele filen, slik at en eksport fra Illustrator eller
+  matplotlib fortsatt kan lagres. `style`-attributtet virker, med en allowlist
+  av funksjoner og uten CSS-escapes. En SVG uten kjent
   størrelsesforhold avvises også: uten `viewBox` eller `width`/`height` finnes
   det ingen riktig måte å legge den ut på.
 - **Ingen bildegenererende operasjon** – ingen `generate_image(prompt)` som
