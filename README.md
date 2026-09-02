@@ -262,9 +262,20 @@ når man setter miljøvariabler:
 | begge               | Supabase-modus: innlogging kreves, deling tilgjengelig               |
 | nøyaktig én         | hard konfigurasjonsfeil – appen stopper og sier hvilken som mangler  |
 
-`vercel.json` gjør resten: en SPA-rewrite slik at en direkte forespørsel til
-`/s/<token>` – som Vercel ellers ville svart 404 på – serverer `index.html` og lar
-appen rute selv.
+`vercel.json` gjør to ting til for delingsruten:
+
+- en SPA-rewrite, slik at en direkte forespørsel til `/s/<token>` – som Vercel
+  ellers ville svart 404 på – serverer `index.html` og lar appen rute selv;
+- `X-Robots-Tag: noindex, nofollow` og `Referrer-Policy: no-referrer` som
+  svarhoder på `/s/`. Den delte visningen setter de samme som `<meta>`, men det
+  virker først etter at JavaScript har kjørt – en crawler kan nøye seg med det
+  første HTML-svaret.
+
+Én ting til om testing: **PR-previews ligger bak Vercel Authentication.** En
+delingslenke mot en preview sender en anonym besøkende til Vercels
+innloggingsside, uansett hva Slaids gjør. Skal du teste at lenken virker uten
+innlogging – i et InPrivate-vindu, eller fra telefonen – må det gjøres mot
+Production.
 
 Service-role-nøkkelen hører **ikke** hjemme noe sted i Vercel. Den brukes bare av
 Edge Function-en, der Supabase selv injiserer den.
