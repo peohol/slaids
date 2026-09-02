@@ -28,6 +28,7 @@
   "include": [
     "src",
     "e2e",
+    "scripts",
     "supabase/functions",
     "vite.config.ts",
     "playwright.config.ts",

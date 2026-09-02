@@ -205,9 +205,15 @@ Slaids fører derfor sin egen historikk, i sin egen tabell,
 # Dette er en hemmelighet – hold den utenfor repoet og utenfor Vercel.
 export SLAIDS_DB_URL='postgresql://postgres:...@db.<prosjekt-ref>.supabase.co:5432/postgres'
 
-./scripts/deploy-migrations.sh --dry-run   # hva som ville blitt kjørt
+./scripts/deploy-migrations.sh --dry-run   # hva som ville blitt kjørt – leser bare
 ./scripts/deploy-migrations.sh             # kjør det
 ```
+
+`--dry-run` er read-only i streng forstand: den sender ingen setning som endrer
+noe, ikke engang opprettelsen av historikktabellen. Mot en base som aldri har
+sett Slaids etterlater den den nøyaktig som den fant den, og melder alle
+migrasjonene som gjenstående – hvilket er sant. Historikktabellen opprettes
+først i en ekte kjøring, rett før den første migrasjonen.
 
 Skriptet kjører hver migrasjon i `supabase/migrations/` som ikke allerede står i
 Slaids' egen historikk, i filnavnrekkefølge, og hver av dem i én transaksjon

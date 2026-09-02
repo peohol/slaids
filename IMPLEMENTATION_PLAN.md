@@ -1467,6 +1467,13 @@ mekanismen: hver ukjørte migrasjon, i filnavnrekkefølge, hver i én transaksjo
 sammen med sin egen historikkrad. Den delte tabellen leses aldri og skrives
 aldri, og en migrasjon som nevner den avvises før noe kjøres.
 
+`--dry-run` er read-only i streng forstand: den sender ingen setning som endrer
+noe. Historikktabellen bootstrappes først når kjøringen faktisk skal mutere,
+rett før den første migrasjonen – ikke mens den svarer på hva som ville skjedd.
+Finnes den ikke, regnes Slaids-historikken som tom, og alt gjenstår. En
+tørrkjøring som måtte opprette en tabell for å kunne svare, ville ikke vært en
+tørrkjøring.
+
 Det er trygt for de andre appene fordi ingenting i Slaids' deploy er globalt:
 
 - historikken Slaids skriver er `slaids_`-prefikset og bare Slaids';

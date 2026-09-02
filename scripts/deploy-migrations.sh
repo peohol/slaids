@@ -40,8 +40,13 @@
 # Usage
 # -----
 #   export SLAIDS_DB_URL='postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres'
-#   ./scripts/deploy-migrations.sh --dry-run    # what would be applied
+#   ./scripts/deploy-migrations.sh --dry-run    # what would be applied — reads only
 #   ./scripts/deploy-migrations.sh              # apply it
+#
+# `--dry-run` is read-only in the strict sense: it issues no statement that
+# changes anything, not even creating the ledger table. A dry run against a
+# database that has never seen Slaids leaves it exactly as it found it, and
+# reports every migration as pending — which is the truth.
 #
 # The URL is the project's Postgres connection string, from the Supabase
 # dashboard under Project Settings → Database. It is a secret: keep it out of
@@ -84,22 +89,18 @@ if grep -rlF 'supabase_migrations' "$MIGRATIONS_DIR" 2>/dev/null | grep -q .; th
   exit 1
 fi
 
-# Self-bootstrapping: no migration can create the table its own ledger row goes
-# into. Locked down like every other Slaids table — this is deploy metadata, and
-# no browser role has any business reading it.
-run_sql <<SQL
-set client_min_messages = warning;
-create table if not exists $LEDGER (
-  version    text primary key,
-  name       text not null,
-  applied_at timestamptz not null default now()
-);
-alter table $LEDGER enable row level security;
-revoke all on table $LEDGER from anon;
-revoke all on table $LEDGER from authenticated;
-SQL
-
-applied="$(run_sql --tuples-only --no-align -c "select version from $LEDGER")"
+# Reading the ledger must not create it: a dry run has to be able to answer
+# "what would happen" against a database it is not allowed to touch. `to_regclass`
+# returns NULL rather than raising for a table that is not there, so asking
+# whether the ledger exists is itself a plain read.
+applied=""
+if [[ "$(run_sql --tuples-only --no-align -c "select to_regclass('$LEDGER') is not null")" == t ]]; then
+  applied="$(run_sql --tuples-only --no-align -c "select version from $LEDGER")"
+fi
+# No ledger means no Slaids migration has been recorded here yet, so everything
+# is pending. The migrations are idempotent, which is what makes that safe: the
+# first real run against a database that already carries the schema re-applies
+# them harmlessly and writes the history that was missing.
 
 pending=()
 for file in "$MIGRATIONS_DIR"/*.sql; do
@@ -119,9 +120,25 @@ echo "Migrasjoner som skal kjøres:"
 for file in "${pending[@]}"; do echo "  - $(basename "$file")"; done
 
 if [[ "$DRY_RUN" == true ]]; then
-  echo "(--dry-run: ingenting ble kjørt)"
+  echo "(--dry-run: ingenting ble kjørt, og ingenting i databasen ble endret)"
   exit 0
 fi
+
+# Past this line the run mutates, so this is where the ledger is bootstrapped.
+# No migration can create the table its own history row goes into. Locked down
+# like every other Slaids table — this is deploy metadata, and no browser role
+# has any business reading it.
+run_sql <<SQL
+set client_min_messages = warning;
+create table if not exists $LEDGER (
+  version    text primary key,
+  name       text not null,
+  applied_at timestamptz not null default now()
+);
+alter table $LEDGER enable row level security;
+revoke all on table $LEDGER from anon;
+revoke all on table $LEDGER from authenticated;
+SQL
 
 for file in "${pending[@]}"; do
   base="$(basename "$file" .sql)"

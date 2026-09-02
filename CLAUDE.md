@@ -108,7 +108,7 @@ npm run build        # produksjonsbuild
 npm run e2e          # Playwright (bygger og serverer selv)
 
 # Databasen. Aldri `supabase db push` – se invarianten over.
-SLAIDS_DB_URL=... ./scripts/deploy-migrations.sh --dry-run
+SLAIDS_DB_URL=... ./scripts/deploy-migrations.sh --dry-run   # leser bare, endrer ingenting
 SLAIDS_DB_URL=... ./scripts/deploy-migrations.sh
 
 # Den offentlige lesefunksjonen. Aldri med --prune.
