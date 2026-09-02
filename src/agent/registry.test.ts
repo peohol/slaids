@@ -75,6 +75,39 @@ describe('operasjonskatalogen', () => {
     )
   })
 
+  it('publiserer bare former som faktisk kan sendes over en ledning', () => {
+    // `upload_asset` accepts a `Blob` and a `Uint8Array` in-process. Neither can
+    // be put in a JSON request, so neither may appear in the published
+    // contract — and it must not appear as an unconstrained `{}` either, which
+    // is what an "unrepresentable" branch degrades into.
+    const upload = describeOperations().find((entry) => entry.name === 'upload_asset')
+    const content = (upload?.inputSchema.properties as Record<string, { anyOf?: unknown[] }>).content
+    const branches = content.anyOf ?? []
+
+    const typed = branches as { properties: { encoding: { const?: string }; data: unknown } }[]
+    expect(typed.map((branch) => branch.properties.encoding.const)).toEqual(['base64', 'text'])
+    for (const branch of typed) {
+      expect(Object.keys(branch.properties)).toEqual(['encoding', 'data'])
+      expect(branch.properties.data).toMatchObject({ type: 'string' })
+    }
+
+    const published = JSON.stringify(upload?.inputSchema)
+    expect(published).not.toContain('"const":"blob"')
+    expect(published).not.toContain('"const":"bytes"')
+    // An empty branch would accept anything while promising nothing.
+    expect(published).not.toContain('{}')
+  })
+
+  it('lar ingen operasjon publisere et skjema som ikke kan uttrykkes i JSON Schema', () => {
+    // `describeOperations` generates with `unrepresentable: 'throw'`, so this
+    // fails loudly the day someone puts a runtime-only type in a published
+    // schema rather than shipping a contract that lies.
+    expect(() => describeOperations()).not.toThrow()
+    for (const described of describeOperations()) {
+      expect(JSON.stringify(described.inputSchema)).not.toContain('"not":{}')
+    }
+  })
+
   it('finner en operasjon på navn, og ingenting på et navn som ikke finnes', () => {
     expect(findOperation('create_svg_asset')?.mutates).toBe(true)
     expect(findOperation('slaids_create_svg_asset')).toBeNull()

@@ -35,6 +35,29 @@ describe('sanitizeSvg – gyldig markup', () => {
     expect(result).toMatchObject({ width: 200, height: 80 })
   })
 
+  it('regner om absolutte enheter, slik at forholdet blir riktig', () => {
+    // 2in is 192px, so this is a 2:1 picture. Reading both numbers as user
+    // units would call it square and stretch it in whatever zone it gets.
+    expect(sanitized('<svg width="2in" height="96px"><rect/></svg>')).toMatchObject({
+      width: 192,
+      height: 96,
+    })
+    expect(sanitized('<svg width="72pt" height="1in"><rect/></svg>')).toMatchObject({
+      width: 96,
+      height: 96,
+    })
+    const metric = sanitized('<svg width="2.54cm" height="10mm"><rect/></svg>')
+    expect(metric.width).toBeCloseTo(96, 9)
+    expect(metric.height).toBeCloseTo(96 / 2.54, 9)
+  })
+
+  it('faller tilbake på viewBox for enheter uten egen størrelse', () => {
+    expect(sanitized('<svg width="10em" height="4em" viewBox="0 0 40 20"><rect/></svg>')).toMatchObject({
+      width: 40,
+      height: 20,
+    })
+  })
+
   it('legger til xmlns når det mangler, slik at filen kan vises i en <img>', () => {
     const result = sanitized('<svg viewBox="0 0 4 2"><rect width="4" height="2"/></svg>')
     expect(result.markup.startsWith(`<svg xmlns="${SVG_NAMESPACE}"`)).toBe(true)
@@ -45,6 +68,39 @@ describe('sanitizeSvg – gyldig markup', () => {
     expect(result.markup).toContain('Hei &amp; hallo')
     // Round trip: what comes out is itself valid input.
     expect(sanitized(result.markup).markup).toBe(result.markup)
+  })
+
+  it('godtar det en vanlig agentfigur faktisk bruker', () => {
+    const markup = `<svg viewBox="0 0 100 50">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="rgb(10, 20, 30)" stop-opacity="0.5"/>
+        </linearGradient>
+        <clipPath id="c"><rect width="50" height="50"/></clipPath>
+        <filter id="f"><feGaussianBlur stdDeviation="2"/></filter>
+      </defs>
+      <g transform="translate(10, 5) rotate(15) scale(1.5)" clip-path="url(#c)" filter="url(#f)">
+        <rect width="40" height="20" fill="url(#g)" stroke="#123" stroke-width="2" opacity="0.8"/>
+        <text x="4" y="12" font-family="Inter, sans-serif" font-size="10" style="fill:rgba(0,0,0,0.6)">
+          Figur
+        </text>
+      </g>
+    </svg>`
+    const result = sanitized(markup)
+    expect(result.report).toEqual({ removedElements: [], removedAttributes: [] })
+    expect(result.markup).toContain('url(#g)')
+    expect(result.markup).toContain('translate(10, 5) rotate(15) scale(1.5)')
+    expect(result.markup).toContain('rgba(0,0,0,0.6)')
+  })
+
+  it('godtar parenteser som ikke er funksjonskall, og store bokstaver i dem som er', () => {
+    // `Figur (utkast)` is a label, not a call to `Figur()` — CSS reads a
+    // function only when the parenthesis follows the name directly.
+    const result = sanitized(
+      `<svg viewBox="0 0 1 1"><rect aria-label="Figur (utkast)" fill="RGB(1, 2, 3)" transform="TranslateX(2)"/></svg>`,
+    )
+    expect(result.markup).toContain('Figur (utkast)')
+    expect(result.markup).toContain('RGB(1, 2, 3)')
   })
 
   it('godtar interne referanser og innebygde rasterbilder', () => {
@@ -115,11 +171,39 @@ describe('sanitizeSvg – utrygg markup avvises', () => {
     )
   })
 
-  it('avviser CSS som henter noe utenfra', () => {
+  it('avviser CSS-escapes, som kan skrive url() uten bokstavene i url', () => {
+    // `\75 rl(...)` is `url(...)` to a CSS parser and something else entirely to
+    // anything looking for the letters. The escape mechanism is refused whole.
     expect(
-      rejection(`<svg viewBox="0 0 1 1"><style>@import url(https://example.com/a.css);</style></svg>`)
+      rejection(`<svg viewBox="0 0 1 1"><rect fill="\\75 rl('https://a.example/x')"/></svg>`).code,
+    ).toBe('UNSAFE_SVG')
+    expect(
+      rejection(`<svg viewBox="0 0 1 1"><rect style="fill:\\75 rl(#g)"/></svg>`).code,
+    ).toBe('UNSAFE_SVG')
+  })
+
+  it('avviser CSS-funksjoner som henter noe uten å bruke url()', () => {
+    // `image-set()` takes a bare string, so a url()-scanner never sees it.
+    expect(
+      rejection(
+        `<svg viewBox="0 0 1 1"><rect style="fill:image-set(&quot;https://a.example/x.png&quot; 1x)"/></svg>`,
+      ).code,
+    ).toBe('UNSAFE_SVG')
+    expect(
+      rejection(`<svg viewBox="0 0 1 1"><rect fill="image(&quot;https://a.example/x.png&quot;)"/></svg>`)
         .code,
     ).toBe('UNSAFE_SVG')
+    expect(
+      rejection(`<svg viewBox="0 0 1 1"><rect style="fill:cross-fade(url(#a), url(#b))"/></svg>`).code,
+    ).toBe('UNSAFE_SVG')
+  })
+
+  it('avviser <style>, som ikke kan valideres uten en CSS-parser', () => {
+    const error = rejection(
+      `<svg viewBox="0 0 1 1"><style>rect { fill: red }</style><rect width="1" height="1"/></svg>`,
+    )
+    expect(error.code).toBe('INVALID_SVG')
+    expect(error.message).toContain('presentasjonsattributter')
   })
 
   it('avviser egne entiteter, som er hvordan en SVG blir en entitetsbombe', () => {

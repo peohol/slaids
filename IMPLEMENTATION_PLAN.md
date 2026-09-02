@@ -1295,10 +1295,12 @@ Minst:
   tilgang, ugyldig token, deaktivert deling og en fil utenfor snapshotet gir det
   ikke;
 - SVG-sanitiseringen: gyldig markup overlever reserialisering, skript,
-  hendelsesattributter, eksterne referanser og egne entiteter avvises, ukjente
-  elementer og attributter fjernes og rapporteres;
-- formatgjenkjenning fra bytene: hvert støttet format med riktig størrelse, og
-  nei til alt som ikke er et bilde;
+  hendelsesattributter, eksterne referanser, CSS-escapes, CSS-funksjoner som
+  henter noe, og egne entiteter avvises, ukjente elementer og attributter
+  fjernes og rapporteres;
+- bildevalidering: hvert støttet format som en ekte, dekodbar fil med riktig
+  størrelse, og avvist når den samme filen er avkortet eller endret – med ekte
+  bildefiler som testdata, ikke håndlagde filhoder;
 - Agent Core: se testlisten i §44. Asset-kontraktene kjøres mot et ekte
   repository, ikke en stubb – kontrakten er at filen faktisk er lagret og at
   dokumentet peker på den.
@@ -2332,8 +2334,7 @@ uten:
 Fase 1 er påbegynt og fase 2 er på plass:
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
-  (`runOperation` kaster aldri, og JSON Schema genereres fra de samme
-  Zod-skjemaene som validerer); `types.ts` er konteksten, konvolutten og
+  (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
   feilkodene; `presentation.ts` er load → domenekommando → save, med
   fit-sjekkerne som aldri utelates; `assetStore.ts` er den ene veien et asset
   kommer inn; `operations/` er selve operasjonene.
@@ -2343,18 +2344,80 @@ Fase 1 er påbegynt og fase 2 er på plass:
   reserialisering fra det parsede treet: det som lagres er bare det Slaids
   faktisk forsto. `UNSAFE_SVG` for det som prøver å kjøre eller hente noe,
   `INVALID_SVG` for det som ikke er en brukbar SVG.
-- `src/domain/imageBytes.ts` – MIME-typen avgjøres av bytene, ikke av hva
-  kalleren kaller filen, og størrelsen leses fra det samme filhodet.
+- `src/domain/imageBytes.ts` og `src/domain/imageFile.ts` – to trinn, ikke ett:
+  det første sniffer format ut av bytene, det andre går gjennom hele filen.
 
-To bevisste avvik fra teksten over, med begrunnelse:
+#### Validering er to spørsmål, ikke ett
 
-- Rasterformatene er PNG, JPEG, GIF, WEBP og AVIF, ikke bare de tre første.
-  Det konkrete behovet er paritet: editorens opplastingsdialog tar allerede imot
-  alle fem, og en `.slaids`-import kan inneholde dem. To dører inn til det samme
+Et filhode sier hva noe vil kalles. Det sier ingenting om at resten finnes: en
+avbrutt nedlasting og åtte bytes PNG-signatur sniffer begge som bilder, og
+lagrer man en av dem, får man en slide som viser et ødelagt bilde akkurat idet
+noen presenterer. Derfor er sniffing (`imageBytes.ts`) skilt fra validering
+(`imageFile.ts`), og et rasterasset lagres bare når hele filen er gått gjennom:
+
+- **PNG** – chunk-kjeden med CRC per chunk, IHDR først, IDAT til stede, IEND
+  sist, og ingenting etter.
+- **JPEG** – markørkjeden, med entropidata skannet til neste ekte markør, SOF og
+  SOS til stede og EOI på plass.
+- **GIF** – blokk-kjeden med underblokker, og avslutningsmerket.
+- **WEBP** – RIFF-lengden mot filens faktiske lengde, og chunkene gått gjennom,
+  fordi bildedataene ikke er første chunk i en fil med fargeprofil.
+
+Størrelsen tas alltid fra bitstrømmen. Den er aldri en parameter kalleren
+sender: en påstand om størrelse er ikke en verifikasjon av at filen er et
+bilde, og et rasterasset med ukjent størrelse lagres ikke i det hele tatt.
+
+Tre bevisste avvik fra teksten over, med begrunnelse:
+
+- Rasterformatene er PNG, JPEG, GIF og WEBP. GIF er med for paritet med
+  editorens opplastingsdialog og `.slaids`-import; to dører inn til det samme
   assetlageret skal ikke ha hver sin liste over hva som er lov.
+- **AVIF gjenkjennes, men lagres ikke i agentveien.** Størrelsen ligger i en
+  `ispe`-boks som hører til ett av flere items i containeren, og velger man feil
+  item, får man feil størrelsesforhold. Til det er parset ordentlig, er nei
+  bedre enn et bilde vi har gjettet formen på. Editoren tar fortsatt imot AVIF,
+  fordi nettleseren dekoder det der.
 - SVG saneres uansett hvilken dør den kom inn gjennom, ikke bare i
   `create_svg_asset`. En SVG lastet opp som fil er den samme filen som en SVG
   postet som markup, og skal møte de samme reglene.
+
+#### CSS i SVG
+
+`<style>` lagres ikke. Et CSS-dokument kan ikke valideres til den standarden
+resten av sanitiseringen holder uten en ekte CSS-parser: `url` kan skrives med
+escapes slik at bokstavene aldri står der, og funksjoner som `image-set()` tar
+en URL som en ren streng uten `url()` rundt. Å etterligne en CSS-parser med
+mønstre er hvordan det forrige hullet oppsto, så elementet avvises med en
+melding om hva man skal bruke i stedet.
+
+`style`-attributtet lever videre, med en verdikontrakt som kan håndheves: ingen
+escapes, og bare funksjoner fra en allowlist (`url()` inn i samme dokument,
+farge-, `calc`- og transform-funksjoner). Alt annet avvises. Vanlige figurer –
+fill, stroke, opacity, font, transform, interne gradients, filters og clipPaths
+– er uberørt.
+
+#### Registrering er to skrivinger
+
+Filen lagres først, dokumentet som peker på den etterpå. En feilet andre
+skriving er ikke bevis for at serveren ikke skrev: Supabase kan committe raden
+og miste svaret på veien tilbake, og en tilbakerulling som stoler på feilen
+sletter da bytes den lagrede presentasjonen allerede peker på.
+
+Svaret leses, ikke antas: står assetet i den lagrede presentasjonen, landet
+skrivingen, og filen blir stående; står det ikke der, er filen ubrukt og kan
+fjernes; er presentasjonen borte, kan ingenting peke på filen; kan basen ikke
+leses heller, beholdes filen, og id-en kommer tilbake i
+`details.retainedAssetId`. En ubrukt fil koster lagring, en manglende fil som en
+slide peker på koster sliden. Filen slettes uansett sammen med presentasjonen.
+
+#### Transportkontrakten er ikke runtime-skjemaet
+
+`upload_asset` tar imot base64, tekst, `Uint8Array` og `Blob` in-process. Bare
+de to første kan ligge i en JSON-forespørsel, så det publiserte JSON Schema-et
+beskriver bare dem; REST oversetter sin egen binære form til bytes før den
+kaller inn. Skjemaet genereres med `unrepresentable: 'throw'`, slik at en type
+som ikke lar seg uttrykke i JSON Schema stopper genereringen i stedet for å bli
+publisert som et tomt `{}` som lover ingenting og godtar alt.
 
 Fortsatt ikke bygget: resten av fase 1 (opprette presentasjon, slides, layout,
 tekstinnhold, referanser, validering) og fase 3–5 i sin helhet. Agent Core er

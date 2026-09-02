@@ -43,11 +43,17 @@ export interface AgentError {
   details?: Record<string, unknown>
 }
 
+/** The failed half of a result, on its own, for code that only handles failure. */
+export interface AgentFailure {
+  ok: false
+  error: AgentError
+}
+
 /**
  * Same shape as `domain/result.ts`, so a caller that already knows how to read
  * a command result does not have to learn a second convention.
  */
-export type AgentResult<T> = { ok: true; value: T } | { ok: false; error: AgentError }
+export type AgentResult<T> = { ok: true; value: T } | AgentFailure
 
 /**
  * Everything an operation needs from the outside world.
@@ -80,6 +86,13 @@ export interface AgentOperation<Input, Output> {
   /** Whether the operation writes. A transport maps this to a verb or an annotation. */
   mutates: boolean
   input: z.ZodType
+  /**
+   * What a transport may publish, when that is narrower than what the function
+   * accepts. Only `upload_asset` needs it today: in-process callers may hand
+   * over a `Blob` or a `Uint8Array`, and neither of those is a thing a JSON
+   * request can contain. Absent means the two are the same.
+   */
+  transportInput?: z.ZodType
   run(context: AgentContext, input: Input): Promise<AgentResult<Output>>
 }
 

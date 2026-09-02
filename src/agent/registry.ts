@@ -39,7 +39,15 @@ export interface OperationDescription {
   toolName: string
   summary: string
   mutates: boolean
-  /** JSON Schema for the input, generated from the same Zod schema that validates it. */
+  /**
+   * JSON Schema for what may be sent over a wire.
+   *
+   * Generated from the operation's `transportInput` when it has one, and from
+   * its `input` otherwise — and generated with `unrepresentable: 'throw'`, so a
+   * schema that cannot be expressed in JSON Schema fails loudly here instead of
+   * being published as an empty, unconstrained `{}` that promises nothing and
+   * accepts everything.
+   */
   inputSchema: Record<string, unknown>
 }
 
@@ -49,10 +57,10 @@ export function describeOperations(): OperationDescription[] {
     toolName: `${AGENT_TOOL_PREFIX}${operation.name}`,
     summary: operation.summary,
     mutates: operation.mutates,
-    inputSchema: z.toJSONSchema(operation.input, { io: 'input', unrepresentable: 'any' }) as Record<
-      string,
-      unknown
-    >,
+    inputSchema: z.toJSONSchema(operation.transportInput ?? operation.input, {
+      io: 'input',
+      unrepresentable: 'throw',
+    }) as Record<string, unknown>,
   }))
 }
 

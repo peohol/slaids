@@ -25,6 +25,7 @@ export type DomainErrorCode =
   | 'SANDBOX_ITEM_NOT_FOUND'
   | 'ASSET_NOT_FOUND'
   | 'UNSUPPORTED_MEDIA_TYPE'
+  | 'INVALID_IMAGE'
   | 'ASSET_TOO_LARGE'
   | 'INVALID_SVG'
   | 'UNSAFE_SVG'
@@ -74,6 +75,7 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   SANDBOX_ITEM_NOT_FOUND: 'Fant ikke elementet i sandkassen.',
   ASSET_NOT_FOUND: 'Fant ikke filen.',
   UNSUPPORTED_MEDIA_TYPE: 'Filtypen støttes ikke.',
+  INVALID_IMAGE: 'Bildefilen er ufullstendig eller ødelagt.',
   ASSET_TOO_LARGE: 'Filen er for stor.',
   INVALID_SVG: 'SVG-en er ugyldig.',
   UNSAFE_SVG: 'SVG-en inneholder noe som ikke er trygt å lagre.',

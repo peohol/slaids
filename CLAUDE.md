@@ -89,7 +89,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   begge blir helt vanlige assets som `set_zone_asset` plasserer. SVG saneres i
   `src/domain/svg.ts` uansett hvilken av de to dørene den kom gjennom, og lagres
   som reserialisert markup – aldri kallerens streng. Formatet avgjøres av bytene
-  (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen. Se
+  (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen, og et
+  rasterbilde valideres i sin helhet (`src/domain/imageFile.ts`) før det lagres:
+  et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Se
   `IMPLEMENTATION_PLAN.md` §44.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.

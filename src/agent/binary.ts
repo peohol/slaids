@@ -18,14 +18,37 @@ export type AgentFileContent =
   | { encoding: 'text'; data: string }
 
 /**
- * Validation for the union above.
+ * What a JSON transport can carry, and therefore what may be published as the
+ * operation's schema: a string, either base64 or plain text.
  *
- * Only the base64 and text variants survive a JSON transport; the other two
- * exist for callers that share memory with us, and are checked by identity.
+ * This is the *contract*. `fileContentSchema` below is what the in-process
+ * function accepts, which is a superset — and the two are deliberately separate
+ * values rather than one schema with unrepresentable branches, because a tool
+ * definition that advertises `Blob` is advertising something no caller on the
+ * other side of a wire can send.
+ */
+export const transportFileContentSchema = z.union([
+  z.object({
+    encoding: z.literal('base64'),
+    data: z.string().describe('Filens bytes som base64, eventuelt som en data-URL.'),
+  }),
+  z.object({
+    encoding: z.literal('text'),
+    data: z.string().describe('Filen som tekst. Bare for tekstformater, i praksis SVG.'),
+  }),
+])
+
+/**
+ * What the in-process function accepts.
+ *
+ * The two extra variants exist for callers that share memory with Agent Core —
+ * a REST layer that has already read a multipart body into bytes, the editor,
+ * a test — and they are checked by identity because there is nothing else to
+ * check. A transport never sees them: it maps its own binary form to `bytes`
+ * before calling in.
  */
 export const fileContentSchema: z.ZodType<AgentFileContent> = z.union([
-  z.object({ encoding: z.literal('base64'), data: z.string() }),
-  z.object({ encoding: z.literal('text'), data: z.string() }),
+  transportFileContentSchema,
   z.object({ encoding: z.literal('bytes'), data: z.instanceof(Uint8Array) }),
   z.object({ encoding: z.literal('blob'), data: z.instanceof(Blob) }),
 ])

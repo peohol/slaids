@@ -18,6 +18,8 @@ export function defineOperation<Schema extends z.ZodType, Output>(operation: {
   summary: string
   mutates: boolean
   input: Schema
+  /** Only when the published contract is narrower than what the function takes. */
+  transportInput?: z.ZodType
   run: (context: AgentContext, input: z.output<Schema>) => Promise<AgentResult<Output>>
 }): AgentOperation<z.output<Schema>, Output> {
   return operation

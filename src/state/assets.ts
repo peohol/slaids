@@ -7,7 +7,7 @@
  * endpoint, and this module deliberately knows nothing about that choice.
  */
 
-import { probeImage } from '../domain/imageBytes'
+import { readRasterImage } from '../domain/imageFile'
 import { blobToBytes } from '../persistence/blob'
 import { repository } from '../persistence/activeRepository'
 import type { AssetRef } from '../domain/types'
@@ -33,16 +33,15 @@ export function clearAssetCache(): void {
 /**
  * Intrinsic size of an image file, used when registering an asset.
  *
- * The header says it for every format that carries its size there, and that is
- * the same answer the headless path in `domain/imageBytes.ts` gives an agent —
- * one truth for "how big is this picture". The browser's own decoder is the
- * fallback for the rest (SVG, AVIF), which is something only it can do.
+ * The bitstream says it for every raster format Slaids validates, and that is
+ * the same answer `domain/imageFile.ts` gives an agent — one truth for "how big
+ * is this picture", and one that only accepts a file that is actually complete.
+ * The browser's own decoder is the fallback for the rest (SVG, AVIF), which is
+ * something only it can do.
  */
 export async function readImageSize(blob: Blob): Promise<{ width: number; height: number }> {
-  const probed = probeImage(await blobToBytes(blob))
-  if (probed && probed.width > 0 && probed.height > 0) {
-    return { width: probed.width, height: probed.height }
-  }
+  const raster = readRasterImage(await blobToBytes(blob))
+  if (raster.ok) return { width: raster.value.width, height: raster.value.height }
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob)
     const image = new Image()

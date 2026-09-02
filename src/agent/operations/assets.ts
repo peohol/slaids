@@ -16,7 +16,7 @@ import { setZoneContent, usedAssetIds } from '../../domain/commands'
 import { createContainer } from '../../domain/content'
 import { err, ok } from '../../domain/result'
 import type { AssetRef } from '../../domain/types'
-import { fileContentSchema, readFileContent } from '../binary'
+import { fileContentSchema, readFileContent, transportFileContentSchema } from '../binary'
 import { storeAsset, type StoredAssetResult } from '../assetStore'
 import {
   assetIdSchema,
@@ -33,19 +33,28 @@ import { agentOk, fromDomainError, type AgentResult } from '../types'
  * upload_asset
  * ------------------------------------------------------------------ */
 
+const CONTENT_DESCRIPTION =
+  'Selve filen. Base64 (eller en data-URL) for et JSON-transport; ren tekst for SVG.'
+
 const uploadAssetInput = z.object({
   presentationId: presentationIdSchema,
   name: assetNameSchema,
   content: fileContentSchema.describe(
-    'Selve filen. Base64 (eller en data-URL) er formen som overlever et JSON-transport; bytes og blob finnes for kallere som deler minne med Slaids.',
+    `${CONTENT_DESCRIPTION} In-process kan en kaller også sende bytes eller en Blob.`,
   ),
-  width: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe('Bredde i piksler. Brukes bare for formater der størrelsen ikke står i filhodet.'),
-  height: z.number().int().positive().optional().describe('Høyde i piksler, som `width`.'),
+})
+
+/**
+ * The published contract: only the forms a request can actually contain.
+ *
+ * A REST layer converts its multipart body to bytes and an MCP adapter decodes
+ * base64 before calling in; neither of them can put a `Blob` in a JSON payload,
+ * so neither of them is told it may.
+ */
+const uploadAssetTransportInput = z.object({
+  presentationId: presentationIdSchema,
+  name: assetNameSchema,
+  content: transportFileContentSchema.describe(CONTENT_DESCRIPTION),
 })
 
 export const uploadAsset = defineOperation({
@@ -54,16 +63,17 @@ export const uploadAsset = defineOperation({
     'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv.',
   mutates: true,
   input: uploadAssetInput,
+  transportInput: uploadAssetTransportInput,
   async run(context, input): Promise<AgentResult<StoredAssetResult>> {
     const bytes = await readFileContent(input.content)
     if (!bytes.ok) return fromDomainError(bytes.error)
 
+    // No width/height from the caller: the size comes out of the bitstream, or
+    // the file is not stored. A parameter would be a claim, not a measurement.
     return storeAsset(context, {
       presentationId: input.presentationId,
       name: input.name,
       bytes: bytes.value,
-      ...(input.width ? { width: input.width } : {}),
-      ...(input.height ? { height: input.height } : {}),
     })
   },
 })

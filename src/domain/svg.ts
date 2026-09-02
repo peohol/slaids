@@ -40,6 +40,25 @@ const MAX_ELEMENTS = 20_000
  * ------------------------------------------------------------------ */
 
 /**
+ * Elements Slaids understands but will not store, and why.
+ *
+ * `<style>` is a whole CSS document, and a CSS document cannot be validated to
+ * the standard the rest of this file holds without a real CSS parser: `url` can
+ * be written with escapes so the literal letters never appear, and functions
+ * like `image-set()` carry a URL as a plain string with no `url()` around it.
+ * Rather than approximate a CSS parser with patterns — which is how the last
+ * hole got in — the element is refused, with a message that says what to use
+ * instead. Everything an agent needs for a figure is expressible as
+ * presentation attributes, which are validated one value at a time.
+ */
+const UNSUPPORTED_ELEMENTS = new Map<string, string>([
+  [
+    'style',
+    'Slaids lagrer ikke <style> i SVG. Bruk presentasjonsattributter (fill, stroke, font-size …) eller style-attributtet på elementene.',
+  ],
+])
+
+/**
  * Elements that carry or embed executable content. Their presence is a
  * decision by whoever wrote the markup, so it is answered with a refusal.
  */
@@ -69,7 +88,6 @@ const ALLOWED_ELEMENTS = new Set([
   'a',
   'title',
   'desc',
-  'style',
   'path',
   'rect',
   'circle',
@@ -300,6 +318,68 @@ const DANGEROUS_VALUE = /(javascript:|vbscript:|expression\s*\(|-moz-binding|@im
 
 /** Where a `url(` function starts. Its target is read by hand — see below. */
 const URL_FUNCTION_START = /url\(/gi
+
+/**
+ * The CSS functions a value may call.
+ *
+ * An allowlist rather than a search for dangerous names, because the dangerous
+ * set is open-ended: `image-set()`, `image()`, `cross-fade()`, `element()` and
+ * whatever CSS adds next can all name an external resource, and several do it
+ * with a bare string instead of `url()`. Anything not on this list is refused,
+ * so a new CSS function cannot become a new hole by default.
+ */
+const ALLOWED_CSS_FUNCTIONS = new Set([
+  // Written lowercase; the check lowercases the name it finds.
+  // references into this document
+  'url',
+  // colour
+  'rgb',
+  'rgba',
+  'hsl',
+  'hsla',
+  'hwb',
+  'lab',
+  'lch',
+  'oklab',
+  'oklch',
+  'color',
+  'color-mix',
+  // arithmetic and custom properties
+  'calc',
+  'min',
+  'max',
+  'clamp',
+  'var',
+  // transforms
+  'matrix',
+  'matrix3d',
+  'translate',
+  'translatex',
+  'translatey',
+  'translate3d',
+  'scale',
+  'scalex',
+  'scaley',
+  'scale3d',
+  'rotate',
+  'rotatex',
+  'rotatey',
+  'rotatez',
+  'rotate3d',
+  'skew',
+  'skewx',
+  'skewy',
+  'perspective',
+])
+
+/**
+ * `ident(` — every function call in a value, whatever it turns out to be.
+ *
+ * No whitespace before the parenthesis, because CSS itself only reads a
+ * function token when the `(` follows the name directly: `Figur (utkast)` in a
+ * label is text, not a call to `Figur()`.
+ */
+const CSS_FUNCTION_CALL = /([A-Za-z_][A-Za-z0-9_-]*)\(/g
 
 /* ------------------------------------------------------------------ *
  * Parsed shape
@@ -588,6 +668,8 @@ function cleanElement(element: SvgElementNode, report: SvgSanitizeReport): SvgEl
   if (FORBIDDEN_ELEMENTS.has(local.toLowerCase())) {
     throw unsafe(`Elementet <${element.name}> er ikke tillatt i en SVG som lagres i Slaids.`)
   }
+  const unsupported = UNSUPPORTED_ELEMENTS.get(local.toLowerCase())
+  if (unsupported) throw invalid(unsupported)
   if (!ALLOWED_ELEMENTS.has(local)) {
     record(report.removedElements, element.name)
     return null
@@ -602,7 +684,7 @@ function cleanElement(element: SvgElementNode, report: SvgSanitizeReport): SvgEl
   const children: SvgNode[] = []
   for (const child of element.children) {
     if (!isElement(child)) {
-      children.push(local === 'style' ? { text: checkStyleSheet(child.text) } : child)
+      children.push(child)
       continue
     }
     const cleaned = cleanElement(child, report)
@@ -628,14 +710,41 @@ function cleanAttribute(
     record(report.removedAttributes, `${elementName}@${name}`)
     return null
   }
-  if (DANGEROUS_VALUE.test(value)) {
-    throw unsafe(`Verdien til «${name}» peker på noe som ville blitt kjørt eller hentet.`)
-  }
-
-  checkUrlFunctions(name, value)
+  checkValue(name, value)
   if (name === 'href' || name === 'xlink:href') checkReference(name, value)
 
   return [name, value]
+}
+
+/**
+ * One attribute value, read as the CSS it may be.
+ *
+ * Three rules, in order of how much they rule out:
+ *
+ *  1. Nothing that names a scheme or an at-rule that fetches or runs.
+ *  2. No backslash. A CSS escape lets `url(` be written without those letters
+ *     (`\75 rl(…)`), so any pattern that looks for the name loses. No SVG a
+ *     figure needs contains one, so the whole escape mechanism is refused
+ *     rather than unescaped and re-checked.
+ *  3. Every function call must be one this file knows, and a `url()` must point
+ *     inside this document.
+ */
+function checkValue(name: string, value: string): void {
+  if (DANGEROUS_VALUE.test(value)) {
+    throw unsafe(`Verdien til «${name}» peker på noe som ville blitt kjørt eller hentet.`)
+  }
+  if (value.includes('\\')) {
+    throw unsafe(`Verdien til «${name}» bruker CSS-escapes, som ikke er tillatt.`)
+  }
+
+  for (const match of value.matchAll(CSS_FUNCTION_CALL)) {
+    // CSS function names are case-insensitive, so the comparison is too:
+    // `RGB(…)` is legal and `IMAGE-SET(…)` must not slip through on spelling.
+    if (!ALLOWED_CSS_FUNCTIONS.has(match[1].toLowerCase())) {
+      throw unsafe(`Funksjonen «${match[1]}()» i «${name}» er ikke tillatt.`)
+    }
+  }
+  checkUrlFunctions(name, value)
 }
 
 /**
@@ -708,15 +817,6 @@ function checkReference(name: string, value: string): void {
   )
 }
 
-/** CSS inside `<style>` gets the same treatment as a style attribute. */
-function checkStyleSheet(css: string): string {
-  if (DANGEROUS_VALUE.test(css)) {
-    throw unsafe('CSS-en i <style> henter eller kjører noe utenfor dokumentet.')
-  }
-  checkUrlFunctions('style', css)
-  return css
-}
-
 function localName(name: string): string {
   const colon = name.indexOf(':')
   if (colon < 0) return name
@@ -745,13 +845,36 @@ function attributeOf(element: SvgElementNode, name: string): string | null {
   return element.attributes.find(([key]) => key === name)?.[1] ?? null
 }
 
-/** A length in user units. Percentages have no intrinsic size and yield null. */
+/**
+ * Absolute CSS lengths in px, which is the unit user units are drawn in.
+ *
+ * The unit is converted rather than ignored: `width="2in" height="96px"` is a
+ * 2:1 picture, and reading both numbers as user units would call it square and
+ * stretch it into whatever zone it was given.
+ */
+const CSS_PX_PER_UNIT: Record<string, number> = {
+  px: 1,
+  in: 96,
+  pt: 96 / 72,
+  pc: 96 / 6,
+  cm: 96 / 2.54,
+  mm: 96 / 25.4,
+  q: 96 / 101.6,
+}
+
+/**
+ * A length in px. Percentages and font-relative units have no intrinsic size of
+ * their own, so they yield null and the viewBox decides instead.
+ */
 function parseLength(raw: string | null): number | null {
   if (raw === null) return null
-  const match = /^\s*(-?[0-9]*\.?[0-9]+)\s*(px|pt|cm|mm|in|pc)?\s*$/i.exec(raw)
+  const match = /^\s*(-?[0-9]*\.?[0-9]+)\s*([a-z]*)\s*$/i.exec(raw)
   if (!match) return null
   const value = Number(match[1])
-  return Number.isFinite(value) && value > 0 ? value : null
+  if (!Number.isFinite(value) || value <= 0) return null
+  const unit = match[2].toLowerCase()
+  const scale = unit === '' ? 1 : CSS_PX_PER_UNIT[unit]
+  return scale ? value * scale : null
 }
 
 /**

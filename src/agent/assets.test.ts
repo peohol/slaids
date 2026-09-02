@@ -14,6 +14,7 @@ import { blobToBytes } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
 import { RepositoryError } from '../persistence/repository'
+import { realImageBase64, realImages, IMAGE_HEIGHT, IMAGE_WIDTH } from '../domain/testImages'
 import type { Presentation } from '../domain/types'
 import { createSvgAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
 import { getPresentation, inspectSlide } from './operations/deck'
@@ -40,36 +41,22 @@ async function seed(context: AgentContext): Promise<Presentation> {
   return presentation
 }
 
-/** A four-byte-wide PNG, built from its own header so the bytes are explicit. */
-function pngBytes(width = 4, height = 2): Uint8Array {
-  const be32 = (value: number) => [
-    (value >>> 24) & 0xff,
-    (value >>> 16) & 0xff,
-    (value >>> 8) & 0xff,
-    value & 0xff,
-  ]
-  return new Uint8Array([
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-    ...be32(13),
-    ...[...'IHDR'].map((char) => char.charCodeAt(0)),
-    ...be32(width),
-    ...be32(height),
-    8, 6, 0, 0, 0,
-  ])
-}
-
-function base64(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
+/**
+ * A complete PNG, not a header: `readRasterImage` walks the whole file, so a
+ * fixture that is only a signature would fail — as it should.
+ */
+const pngBytes = realImages.png
 
 function expectOk<T>(result: AgentResult<T>): T {
   if (!result.ok) throw new Error(`Forventet suksess, fikk ${result.error.code}: ${result.error.message}`)
   return result.value
 }
 
-function expectErr(result: AgentResult<unknown>): { code: string; message: string } {
+function expectErr(result: AgentResult<unknown>): {
+  code: string
+  message: string
+  details?: Record<string, unknown>
+} {
   if (result.ok) throw new Error('Forventet en feil')
   return result.error
 }
@@ -84,7 +71,7 @@ describe('upload_asset', () => {
   it('lagrer et rasterbilde og registrerer det i presentasjonen', async () => {
     const context = freshContext()
     const presentation = await seed(context)
-    const bytes = pngBytes(1600, 900)
+    const bytes = pngBytes()
 
     const stored = expectOk(
       await uploadAsset.run(context, {
@@ -98,8 +85,8 @@ describe('upload_asset', () => {
     expect(stored.ref).toMatchObject({
       name: 'graf.png',
       mimeType: 'image/png',
-      width: 1600,
-      height: 900,
+      width: IMAGE_WIDTH,
+      height: IMAGE_HEIGHT,
       isVector: false,
       byteSize: bytes.byteLength,
     })
@@ -121,14 +108,14 @@ describe('upload_asset', () => {
       await uploadAsset.run(context, {
         presentationId: presentation.id,
         name: 'a.png',
-        content: { encoding: 'base64', data: base64(bytes) },
+        content: { encoding: 'base64', data: realImageBase64.png },
       }),
     )
     const dataUrl = expectOk(
       await uploadAsset.run(context, {
         presentationId: presentation.id,
         name: 'b.png',
-        content: { encoding: 'base64', data: `data:image/png;base64,${base64(bytes)}` },
+        content: { encoding: 'base64', data: `data:image/png;base64,${realImageBase64.png}` },
       }),
     )
 
@@ -140,16 +127,15 @@ describe('upload_asset', () => {
   it('holder binærdata utenfor presentasjonsdokumentet', async () => {
     const context = freshContext()
     const presentation = await seed(context)
-    const bytes = pngBytes()
     await uploadAsset.run(context, {
       presentationId: presentation.id,
       name: 'a.png',
-      content: { encoding: 'base64', data: base64(bytes) },
+      content: { encoding: 'base64', data: realImageBase64.png },
     })
 
     const reloaded = await context.repository.loadPresentation(presentation.id)
     const json = JSON.stringify(reloaded)
-    expect(json).not.toContain(base64(bytes))
+    expect(json).not.toContain(realImageBase64.png)
     expect(json).not.toContain('blob')
   })
 
@@ -627,3 +613,190 @@ describe('lagringsfeil', () => {
     expect(error.code).toBe('PRESENTATION_NOT_FOUND')
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * binærvalidering
+ * ------------------------------------------------------------------ */
+
+describe('rastervalidering', () => {
+  const formats = Object.entries(realImages) as [string, () => Uint8Array][]
+
+  it.each(formats)('godtar en komplett %s', async (name, load) => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const stored = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: `${name}-fil`,
+        content: { encoding: 'bytes', data: load() },
+      }),
+    )
+    expect(stored.ref.width).toBe(IMAGE_WIDTH)
+    expect(stored.ref.height).toBe(IMAGE_HEIGHT)
+  })
+
+  it.each(formats)('avviser en avkortet %s, som bare har et gyldig filhode', async (name, load) => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const whole = load()
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: `${name}-avkortet`,
+        content: { encoding: 'bytes', data: whole.subarray(0, Math.floor(whole.length / 2)) },
+      }),
+    )
+    expect(error.code).toBe('INVALID_IMAGE')
+    expect(await context.repository.listAssets(presentation.id)).toEqual([])
+  })
+
+  it('avviser en PNG der innholdet er endret etter at filhodet ble skrevet', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const tampered = realImages.png()
+    tampered[40] ^= 0xff
+
+    expect(
+      expectErr(
+        await uploadAsset.run(context, {
+          presentationId: presentation.id,
+          name: 'endret.png',
+          content: { encoding: 'bytes', data: tampered },
+        }),
+      ).code,
+    ).toBe('INVALID_IMAGE')
+  })
+
+  it('avviser AVIF i agentveien, i stedet for å gjette størrelsen', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const ftyp = [0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70]
+    const avif = new Uint8Array([...ftyp, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31])
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'bilde.avif',
+        content: { encoding: 'bytes', data: avif },
+      }),
+    )
+    expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE')
+    expect(error.message).toContain('AVIF')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * atomisitet: filen og dokumentet er to skrivinger
+ * ------------------------------------------------------------------ */
+
+describe('tvetydig registrering', () => {
+  function freshDatabase(): SlaidsDatabase {
+    counter += 1
+    const database = new SlaidsDatabase(`slaids-agent-atomic-${counter}`)
+    databases.push(database)
+    return database
+  }
+
+  /** The server wrote the row and the answer never came back. */
+  class LostResponseRepository extends DexieSlaidsRepository {
+    override async savePresentation(presentation: Presentation): Promise<void> {
+      await super.savePresentation(presentation)
+      throw new RepositoryError('Forbindelsen brøt sammen etter at raden var skrevet.')
+    }
+  }
+
+  /** The write was refused; nothing was committed. */
+  class RefusedWriteRepository extends DexieSlaidsRepository {
+    override savePresentation(): Promise<void> {
+      return Promise.reject(new RepositoryError('Skrivingen ble avvist.'))
+    }
+  }
+
+  /** The write failed and the store cannot be read either. */
+  class UnreachableAfterWriteRepository extends DexieSlaidsRepository {
+    private loads = 0
+
+    override loadPresentation(id: string): Promise<Presentation> {
+      this.loads += 1
+      if (this.loads === 1) return super.loadPresentation(id)
+      return Promise.reject(new RepositoryError('Basen svarer ikke.'))
+    }
+
+    override savePresentation(): Promise<void> {
+      return Promise.reject(new RepositoryError('Basen svarer ikke.'))
+    }
+  }
+
+  async function seedIn(database: SlaidsDatabase): Promise<Presentation> {
+    const presentation = createPresentation({ title: 'Atomisitet' })
+    await new DexieSlaidsRepository(database).savePresentation(presentation)
+    return presentation
+  }
+
+  it('sletter aldri en fil som den lagrede presentasjonen allerede peker på', async () => {
+    const database = freshDatabase()
+    const presentation = await seedIn(database)
+    const context: AgentContext = { repository: new LostResponseRepository(database) }
+
+    const stored = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'commit.png',
+        content: { encoding: 'bytes', data: realImages.png() },
+      }),
+    )
+
+    // The row landed, so the operation is a success — and the bytes it points
+    // at have to be there. A rollback that trusted the error would have deleted
+    // them and left this reference dangling.
+    const verifier = new DexieSlaidsRepository(database)
+    const reloaded = await verifier.loadPresentation(presentation.id)
+    expect(reloaded.assets.map((asset) => asset.id)).toEqual([stored.assetId])
+    expect(await verifier.getAsset(stored.assetId)).not.toBeNull()
+  })
+
+  it('rydder opp filen når skrivingen beviselig ikke landet', async () => {
+    const database = freshDatabase()
+    const presentation = await seedIn(database)
+    const context: AgentContext = { repository: new RefusedWriteRepository(database) }
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'avvist.png',
+        content: { encoding: 'bytes', data: realImages.png() },
+      }),
+    )
+    expect(error.code).toBe('STORAGE_FAILED')
+
+    const verifier = new DexieSlaidsRepository(database)
+    expect((await verifier.loadPresentation(presentation.id)).assets).toEqual([])
+    expect(await verifier.listAssets(presentation.id)).toEqual([])
+  })
+
+  it('beholder filen når det ikke kan avgjøres, og sier hvilken', async () => {
+    const database = freshDatabase()
+    const presentation = await seedIn(database)
+    const context: AgentContext = { repository: new UnreachableAfterWriteRepository(database) }
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'uvisst.png',
+        content: { encoding: 'bytes', data: realImages.png() },
+      }),
+    )
+    expect(error.code).toBe('STORAGE_FAILED')
+    const retained = error.details?.retainedAssetId as string | undefined
+    expect(retained).toMatch(/^a_/)
+
+    // Kept on purpose: deleting it would risk breaking a reference that may
+    // have been written after all. It goes with the presentation when that goes.
+    const verifier = new DexieSlaidsRepository(database)
+    expect(await verifier.getAsset(retained!)).not.toBeNull()
+    await verifier.deletePresentation(presentation.id)
+    expect(await verifier.getAsset(retained!)).toBeNull()
+  })
+})
+

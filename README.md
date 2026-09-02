@@ -406,16 +406,21 @@ bruker – aldri rå JSON – og for bilder finnes det nøyaktig to dører inn:
 | `set_zone_asset`   | `assetId` + slide og sone                   | plassert innhold |
 
 - **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
-  hva kalleren kaller filen, så noe som ikke er PNG, JPEG, GIF, WEBP, AVIF eller
-  SVG blir avvist.
+  hva kalleren kaller filen – og hele filen gås gjennom, ikke bare filhodet: en
+  avkortet eller endret PNG, JPEG, GIF eller WEBP blir avvist i stedet for å bli
+  en slide som viser et ødelagt bilde. Størrelsen tas alltid fra bildedataene,
+  aldri fra noe kalleren oppgir. AVIF gjenkjennes, men lagres ikke i agentveien
+  ennå (editoren tar det fortsatt imot, der dekoder nettleseren det).
 - **Agenten kan lage SVG direkte.** SVG er et førsteklasses agentformat: markup
   inn, vektorasset ut. Markupen valideres og saneres mot en allowlist og
   serialiseres på nytt fra det parsede treet, så bare det Slaids faktisk forsto
   blir lagret. Skript, hendelsesattributter, `foreignObject`, `javascript:`,
   referanser ut av dokumentet og egne entiteter avvises med en egen feilkode i
-  stedet for å bli stille fjernet. En SVG uten kjent størrelsesforhold avvises
-  også – uten `viewBox` eller `width`/`height` finnes det ingen riktig måte å
-  legge den ut på.
+  stedet for å bli stille fjernet. `<style>` lagres ikke – et CSS-dokument kan
+  ikke valideres uten en ekte CSS-parser – men `style`-attributtet virker, med
+  en allowlist av funksjoner og uten CSS-escapes. En SVG uten kjent
+  størrelsesforhold avvises også: uten `viewBox` eller `width`/`height` finnes
+  det ingen riktig måte å legge den ut på.
 - **Ingen bildegenererende operasjon** – ingen `generate_image(prompt)` som
   sender prompten videre til en bildeleverandør. Skal Slaids noen gang generere
   et bilde, er det en endring av `IMPLEMENTATION_PLAN.md` §44 først.
