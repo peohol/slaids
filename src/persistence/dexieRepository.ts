@@ -17,7 +17,12 @@ import type {
   PresentationSummary,
 } from '../domain/types'
 import { db, type SlaidsDatabase } from './db'
-import { RepositoryError, type SlaidsRepository, type StoredAsset } from './repository'
+import {
+  RepositoryError,
+  RepositoryNotFoundError,
+  type SlaidsRepository,
+  type StoredAsset,
+} from './repository'
 
 export class DexieSlaidsRepository implements SlaidsRepository {
   constructor(private readonly database: SlaidsDatabase = db) {}
@@ -40,7 +45,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
 
   async loadPresentation(id: string): Promise<Presentation> {
     const record = await this.database.presentations.get(id)
-    if (!record) throw new RepositoryError(`Fant ikke presentasjonen «${id}».`)
+    if (!record) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
     const migrated = migratePresentation(record.data)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message)
     return migrated.value

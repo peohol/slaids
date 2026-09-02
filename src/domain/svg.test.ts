@@ -91,6 +91,30 @@ describe('sanitizeSvg – utrygg markup avvises', () => {
     ).toBe('UNSAFE_SVG')
   })
 
+  it('avviser en url() i anførselstegn som inneholder en sluttparentes', () => {
+    // The target contains `)`, so a pattern that stops at the first one never
+    // sees the reference at all — and letting it through is the whole risk.
+    expect(
+      rejection(`<svg viewBox="0 0 1 1"><rect fill="url('https://a.example/x)y')"/></svg>`).code,
+    ).toBe('UNSAFE_SVG')
+    expect(
+      rejection(`<svg viewBox="0 0 1 1"><rect style="fill:url(&quot;https://a.example/x)y&quot;)"/></svg>`)
+        .code,
+    ).toBe('UNSAFE_SVG')
+  })
+
+  it('avviser en url() som ikke er avsluttet, i stedet for å hoppe over den', () => {
+    expect(rejection(`<svg viewBox="0 0 1 1"><rect fill="url('https://a.example/x"/></svg>`).code).toBe(
+      'UNSAFE_SVG',
+    )
+  })
+
+  it('godtar en intern referanse i anførselstegn', () => {
+    expect(sanitized(`<svg viewBox="0 0 1 1"><rect fill="url('#g')"/></svg>`).markup).toContain(
+      "url('#g')",
+    )
+  })
+
   it('avviser CSS som henter noe utenfra', () => {
     expect(
       rejection(`<svg viewBox="0 0 1 1"><style>@import url(https://example.com/a.css);</style></svg>`)

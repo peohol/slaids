@@ -100,6 +100,22 @@ export class RepositoryError extends Error {
 }
 
 /**
+ * The row is not there.
+ *
+ * Told apart from every other repository failure on purpose: "this
+ * presentation does not exist" and "the store did not answer" call for opposite
+ * reactions, and a caller that cannot tell them apart will treat an outage as a
+ * deletion. Only a genuinely absent row throws this — never a network error, a
+ * refused query or a document that failed validation.
+ */
+export class RepositoryNotFoundError extends RepositoryError {
+  constructor(message: string, detail?: unknown) {
+    super(message, detail)
+    this.name = 'RepositoryNotFoundError'
+  }
+}
+
+/**
  * A write lost a race: the stored copy has moved on since the one being saved
  * was read, so writing it would silently discard whatever the other tab or
  * device did. The caller is told rather than overwritten.

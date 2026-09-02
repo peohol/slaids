@@ -52,12 +52,9 @@ export async function storeAsset(
   const name = input.name.trim()
   if (name.length === 0) return agentErr('INVALID_ARGUMENT', 'Filen må ha et navn.')
   if (input.bytes.byteLength === 0) return agentErr('INVALID_ARGUMENT', 'Filen er tom.')
-  if (input.bytes.byteLength > MAX_ASSET_BYTES) {
-    return agentErr('ASSET_TOO_LARGE', `Filen er for stor (maks ${MAX_ASSET_BYTES} byte).`, {
-      byteSize: input.bytes.byteLength,
-      maxByteSize: MAX_ASSET_BYTES,
-    })
-  }
+
+  const oversized = tooLarge(input.bytes)
+  if (oversized) return oversized
 
   const probed = probeImage(input.bytes)
   if (!probed || (input.declaredKind === 'svg' && probed.mimeType !== SVG_MIME_TYPE)) {
@@ -83,6 +80,12 @@ export async function storeAsset(
     sanitized = clean.value.report
     width = clean.value.width
     height = clean.value.height
+
+    // Re-serialising can grow the file — every `&` in the source comes back as
+    // `&amp;` — so the limit is checked again on what is actually stored, not
+    // only on what arrived.
+    const grewTooLarge = tooLarge(bytes)
+    if (grewTooLarge) return grewTooLarge
   }
 
   if (width <= 0 || height <= 0) {
@@ -127,6 +130,14 @@ export async function storeAsset(
   }
 
   return agentOk({ assetId: ref.id, ref, ...(sanitized ? { sanitized } : {}) })
+}
+
+function tooLarge(bytes: Uint8Array): AgentResult<never> | null {
+  if (bytes.byteLength <= MAX_ASSET_BYTES) return null
+  return agentErr('ASSET_TOO_LARGE', `Filen er for stor (maks ${MAX_ASSET_BYTES} byte).`, {
+    byteSize: bytes.byteLength,
+    maxByteSize: MAX_ASSET_BYTES,
+  })
 }
 
 async function discard(context: AgentContext, assetId: string): Promise<void> {

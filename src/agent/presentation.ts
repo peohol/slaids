@@ -10,7 +10,11 @@ import { estimateFitChecker, estimateTitleFitChecker } from '../domain/fit'
 import type { StructuralOptions } from '../domain/commands'
 import type { Result } from '../domain/result'
 import type { Presentation } from '../domain/types'
-import { RepositoryConflictError, RepositoryError } from '../persistence/repository'
+import {
+  RepositoryConflictError,
+  RepositoryError,
+  RepositoryNotFoundError,
+} from '../persistence/repository'
 import { agentErr, agentOk, fromDomainError, type AgentContext, type AgentResult } from './types'
 
 /**
@@ -30,6 +34,14 @@ export function structuralOptions(context: AgentContext): StructuralOptions {
   }
 }
 
+/**
+ * Only an absent row is `PRESENTATION_NOT_FOUND`.
+ *
+ * A store that is down, a query that was refused and a stored document that no
+ * longer validates are all `STORAGE_FAILED`: an agent should read a missing
+ * presentation as gone and everything else as "try again or tell someone", and
+ * collapsing the two would turn an outage into an apparent deletion.
+ */
 export async function loadPresentation(
   context: AgentContext,
   presentationId: string,
@@ -37,10 +49,10 @@ export async function loadPresentation(
   try {
     return agentOk(await context.repository.loadPresentation(presentationId))
   } catch (error) {
-    if (error instanceof RepositoryError) {
+    if (error instanceof RepositoryNotFoundError) {
       return agentErr('PRESENTATION_NOT_FOUND', error.message, { presentationId })
     }
-    throw error
+    return storageFailure(error, 'Kunne ikke hente presentasjonen.', { presentationId })
   }
 }
 

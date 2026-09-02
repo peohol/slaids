@@ -298,8 +298,8 @@ const ALLOWED_DATA_URL = /^data:image\/(png|jpeg|gif|webp|avif);base64,[a-z0-9+/
 /** Anything in a value that would fetch or run something. */
 const DANGEROUS_VALUE = /(javascript:|vbscript:|expression\s*\(|-moz-binding|@import|behavior\s*:)/i
 
-/** `url(...)` targets, so each one can be checked on its own. */
-const URL_FUNCTION = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi
+/** Where a `url(` function starts. Its target is read by hand — see below. */
+const URL_FUNCTION_START = /url\(/gi
 
 /* ------------------------------------------------------------------ *
  * Parsed shape
@@ -659,14 +659,43 @@ function cleanNamespace(
   return null
 }
 
-/** Every `url(...)` in a value must point inside this document. */
+/**
+ * Every `url(...)` in a value must point inside this document.
+ *
+ * Read by hand rather than by one regular expression, because a quoted target
+ * may contain the closing parenthesis — `url('https://a.example/x)y')` — and a
+ * pattern that stops at the first `)` simply fails to match it, which would let
+ * the reference through instead of rejecting it. A `url(` this cannot read to
+ * the end is refused rather than skipped.
+ */
 function checkUrlFunctions(name: string, value: string): void {
-  for (const match of value.matchAll(URL_FUNCTION)) {
-    const target = match[2].trim()
+  for (const match of value.matchAll(URL_FUNCTION_START)) {
+    const target = readUrlTarget(name, value, (match.index ?? 0) + match[0].length)
     if (!target.startsWith('#')) {
       throw unsafe(`«${name}» henter noe utenfor dokumentet: ${target || 'tom url()'}.`)
     }
   }
+}
+
+/** The target of one `url(`, starting just after the parenthesis. */
+function readUrlTarget(name: string, value: string, start: number): string {
+  let index = start
+  while (index < value.length && /\s/.test(value[index])) index += 1
+
+  const quote = value[index]
+  if (quote === '"' || quote === "'") {
+    const close = value.indexOf(quote, index + 1)
+    if (close < 0) throw unsafe(`«${name}» har en url() som ikke er avsluttet.`)
+    const target = value.slice(index + 1, close).trim()
+    index = close + 1
+    while (index < value.length && /\s/.test(value[index])) index += 1
+    if (value[index] !== ')') throw unsafe(`«${name}» har en url() som ikke er avsluttet.`)
+    return target
+  }
+
+  const close = value.indexOf(')', index)
+  if (close < 0) throw unsafe(`«${name}» har en url() som ikke er avsluttet.`)
+  return value.slice(index, close).trim()
 }
 
 /** A reference is either into this document or an inline raster image. */

@@ -13,6 +13,7 @@ import { createPresentation } from '../domain/presentation'
 import { blobToBytes } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
+import { RepositoryError } from '../persistence/repository'
 import type { Presentation } from '../domain/types'
 import { createSvgAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
 import { getPresentation, inspectSlide } from './operations/deck'
@@ -183,6 +184,27 @@ describe('upload_asset', () => {
       }),
     )
     expect(error.code).toBe('ASSET_TOO_LARGE')
+  })
+
+  it('avviser en SVG som blir for stor når den serialiseres på nytt', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    // A raw `&` is one byte in and five bytes out (`&amp;`), so markup well
+    // under the limit crosses it on the way back out. The limit is about what
+    // actually gets stored.
+    const ampersands = '&'.repeat(Math.ceil(MAX_ASSET_BYTES / 4))
+    const markup = `<svg viewBox="0 0 1 1"><text>${ampersands}</text></svg>`
+    expect(markup.length).toBeLessThan(MAX_ASSET_BYTES)
+
+    const error = expectErr(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'stor',
+        svgMarkup: markup,
+      }),
+    )
+    expect(error.code).toBe('ASSET_TOO_LARGE')
+    expect(await context.repository.listAssets(presentation.id)).toEqual([])
   })
 
   it('avviser en ukjent presentasjon uten å lagre noe', async () => {
@@ -564,5 +586,44 @@ describe('get_presentation og inspect_slide', () => {
         await inspectSlide.run(context, { presentationId: presentation.id, slideId: 's_borte' }),
       ).code,
     ).toBe('SLIDE_NOT_FOUND')
+  })
+})
+
+
+/* ------------------------------------------------------------------ *
+ * a store that is down is not a store that is empty
+ * ------------------------------------------------------------------ */
+
+describe('lagringsfeil', () => {
+  /** Reachable, but not answering — which is not the same as "does not exist". */
+  class UnreachableRepository extends DexieSlaidsRepository {
+    override loadPresentation(): Promise<never> {
+      return Promise.reject(new RepositoryError('Basen svarer ikke.'))
+    }
+  }
+
+  it('sier STORAGE_FAILED, ikke PRESENTATION_NOT_FOUND, når basen ikke svarer', async () => {
+    counter += 1
+    const database = new SlaidsDatabase(`slaids-agent-down-${counter}`)
+    databases.push(database)
+    const context: AgentContext = { repository: new UnreachableRepository(database) }
+
+    const error = expectErr(
+      await uploadAsset.run(context, {
+        presentationId: 'p_finnes',
+        name: 'a.png',
+        content: { encoding: 'bytes', data: pngBytes() },
+      }),
+    )
+    expect(error.code).toBe('STORAGE_FAILED')
+    expect(error.message).toBe('Basen svarer ikke.')
+  })
+
+  it('sier fortsatt PRESENTATION_NOT_FOUND når raden faktisk ikke finnes', async () => {
+    const context = freshContext()
+    const error = expectErr(
+      await listAssets.run(context, { presentationId: 'p_finnes_ikke' }),
+    )
+    expect(error.code).toBe('PRESENTATION_NOT_FOUND')
   })
 })
