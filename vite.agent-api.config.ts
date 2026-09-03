@@ -10,8 +10,8 @@
  * `src/` tree, written the way every bundler expects, is unloadable that way.
  *
  * So the function is handed a single file with no relative imports left in it.
- * `api/agent/v1/` then contains exactly one committed entry point that imports
- * that file by its real name, with its extension.
+ * `api/agent/v1.ts` is then the one committed entry point, and it imports that
+ * file by its real name, with its extension.
  *
  * Dependencies stay external: `zod` and `@supabase/supabase-js` remain bare
  * specifiers, which Node resolves from `node_modules` and the platform's

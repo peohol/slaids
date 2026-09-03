@@ -286,6 +286,9 @@ når man setter miljøvariabler:
   virker først etter at JavaScript har kjørt – en crawler kan nøye seg med det
   første HTML-svaret.
 
+SPA-rewriten er skrevet slik at den aldri kan svelge `/api/` eller `/assets/`,
+og agent-API-et har sin egen rewrite foran den – se «Ruting av agent-API-et».
+
 Én ting til om testing: **PR-previews ligger bak Vercel Authentication.** En
 delingslenke mot en preview sender en anonym besøkende til Vercels
 innloggingsside, uansett hva Slaids gjør. Skal du teste at lenken virker uten
@@ -627,7 +630,7 @@ gjør det, siden det ikke er noen å tilskrive raden.
 
 ### Servermiljø
 
-REST-laget kjører som en Vercel-funksjon (`api/agent/v1/`) og krever to
+REST-laget kjører som en Vercel-funksjon (`api/agent/v1.ts`) og krever to
 servervariabler, som **ikke** skal ha `VITE_`-prefiks:
 
 ```bash
@@ -651,6 +654,34 @@ IndexedDB å falle tilbake på.
 
 Tabellene `slaids_agent_tokens` og `slaids_agent_audit` kommer med migrasjonen
 `20260902190000_slaids_agent_api.sql`. Se «Deploye Slaids-migrasjoner».
+
+### Ruting av agent-API-et
+
+Alle tre adressene serveres av **én statisk funksjon**, `api/agent/v1.ts`, som
+svarer på `/api/agent/v1`. Alt under den kommer inn gjennom én eksplisitt
+rewrite i `vercel.json`:
+
+```json
+{ "source": "/api/agent/v1/:__slaidsPath*", "destination": "/api/agent/v1" }
+```
+
+Det er ikke en stilpreferanse. Inngangen var tidligere en
+`[...path]`-catch-all, altså en rute plattformen utvidet på egen hånd ut fra
+filnavnet – og det den faktisk dekket var ett ledd: `/api/agent/v1/operations`
+svarte med katalogen, mens `/api/agent/v1/operations/<navn>` – adressen hver
+eneste operasjon kalles på – fikk Vercels egen tekst-404. Klienten fikk da
+`SyntaxError: Unexpected token 'T', "The page c"…`, fordi svaret aldri kom fra
+Slaids. Ruting som står skrevet i repoet kan testes; ruting som utledes av et
+filnavn kan bare observeres i produksjon.
+
+En rewrite kan ikke bære ekstra ledd inn i en statisk funksjon, så Vercel legger
+dem i query-strengen til destinasjonen. `agentApiUrl` i `src/routing.ts` setter
+adressen sammen igjen og **fjerner parameteren** før ruting: query-strengen er
+operasjonsinput for en råopplasting, og et felt plattformen la til ville blitt
+avvist av et strengt skjema. `src/server/agent/deployment.test.ts` går den veien en
+adresse med to ledd faktisk går – `vercel.json` kompilert med Vercels egen
+`convertRewrites`, videre inn i funksjonens URL, gjennom ruteren og ut som
+operasjonens eget svar – og sjekker samtidig at SPA-rewriten aldri tar `/api/`.
 
 `npm run build` bygger serverfunksjonen til én fil, `src/server/generated/agentApi.js`,
 og Vercel-inngangen importerer den. Det er ikke en optimalisering: plattformen
@@ -681,8 +712,11 @@ src/
   routing.ts     hva en URL betyr: arbeidsområde eller /s/<token>
 
 api/
-  agent/v1/      Vercel-inngangen til REST-laget; all logikk ligger i src/server/,
-                 og importeres som én ferdig bundel (se «Servermiljø»)
+  agent/v1.ts    Vercel-inngangen til REST-laget, og den eneste filen her: hver
+                 .ts-fil under api/ blir et offentlig endepunkt. Én statisk
+                 funksjon på /api/agent/v1; all logikk ligger i src/server/ og
+                 importeres som én ferdig bundel (se «Servermiljø» og «Ruting av
+                 agent-API-et»)
 
 supabase/
   migrations/    skjemaet, inkludert delingskolonnene, version-triggeren,

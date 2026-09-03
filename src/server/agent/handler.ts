@@ -25,6 +25,10 @@
  *   GET  /api/agent/v1/operations           → the catalogue, with JSON Schema
  *   POST /api/agent/v1/operations/<name>    → run one operation
  *
+ * All three are one static function on the platform (`api/agent/v1.ts`) plus an
+ * explicit rewrite; `deployment.test.ts` checks that the deployment really
+ * sends every one of them here.
+ *
  * Every operation is a POST, including the reads. An operation's arguments are
  * a structured object with a strict schema; splitting them between a query
  * string for some operations and a body for others would make the contract two
@@ -37,7 +41,7 @@ import {
   runOperation,
   unknownOperationError,
 } from '../../agent/registry'
-import { AGENT_API_BASE_PATH, AGENT_API_VERSION } from '../../routing'
+import { AGENT_API_BASE_PATH, AGENT_API_VERSION, agentApiUrl } from '../../routing'
 import type { AgentContext } from '../../agent/types'
 import { auditRecord, auditedPresentationId, type AgentAuditSink, type AuditSubject } from './audit'
 import { parseOperationInput, readBody } from './body'
@@ -113,7 +117,13 @@ export async function handleAgentRequest(deps: AgentApiDeps, request: Request): 
 }
 
 async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
-  const url = new URL(request.url)
+  // The address the caller asked for, which is not always the one the host
+  // delivered: a static function plus a rewrite is the only shape whose routing
+  // Vercel gets right for every operation address, and a rewrite hands the path
+  // over in a parameter. `agentApiUrl` puts it back and takes the parameter out
+  // again, so everything below — routing and the query-string fields a raw
+  // upload carries — sees the request as it was made.
+  const url = agentApiUrl(new URL(request.url))
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: agentApiHeaders() })

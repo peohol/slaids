@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { newShareToken } from './domain/ids'
-import { SHARE_PATH_PREFIX, isShareToken, parseRoute, shareUrl } from './routing'
+import {
+  AGENT_API_BASE_PATH,
+  AGENT_API_PATH_PARAM,
+  SHARE_PATH_PREFIX,
+  agentApiUrl,
+  isShareToken,
+  parseRoute,
+  shareUrl,
+} from './routing'
 
 const TOKEN = '3f2a1b0c-1111-4222-8333-444455556666'
 
@@ -52,5 +60,38 @@ describe('shareUrl', () => {
   it('bygger adressen fra origin', () => {
     expect(shareUrl('https://slaids.example', TOKEN)).toBe(`https://slaids.example/s/${TOKEN}`)
     expect(shareUrl('https://slaids.example/', TOKEN)).toBe(`https://slaids.example/s/${TOKEN}`)
+  })
+})
+
+describe('agentApiUrl', () => {
+  const ORIGIN = 'https://slaids.example'
+  const forwarded = (value: string, query = ''): URL =>
+    new URL(`${ORIGIN}${AGENT_API_BASE_PATH}?${AGENT_API_PATH_PARAM}=${value}${query}`)
+
+  it('lar en adresse verten rutet riktig stå urørt', () => {
+    const direct = new URL(`${ORIGIN}${AGENT_API_BASE_PATH}/operations/list_presentations`)
+    expect(agentApiUrl(direct).href).toBe(direct.href)
+  })
+
+  it('setter stien sammen igjen fra parameteren rewriten la den i', () => {
+    expect(agentApiUrl(forwarded('operations/list_presentations')).pathname).toBe(
+      `${AGENT_API_BASE_PATH}/operations/list_presentations`,
+    )
+    expect(agentApiUrl(forwarded('operations')).pathname).toBe(`${AGENT_API_BASE_PATH}/operations`)
+  })
+
+  it('leser en tom parameter som selve basisadressen', () => {
+    expect(agentApiUrl(forwarded('')).pathname).toBe(AGENT_API_BASE_PATH)
+    expect(agentApiUrl(forwarded('/')).pathname).toBe(AGENT_API_BASE_PATH)
+  })
+
+  it('fjerner parameteren, så en råopplasting ikke får et felt den aldri sendte', () => {
+    // The query string is an operation's input for a raw binary upload, and its
+    // schema is strict: a parameter the platform added would be rejected as an
+    // unknown field on a request the agent wrote correctly.
+    const url = agentApiUrl(forwarded('operations/upload_asset', '&presentationId=p_1&name=f.png'))
+    expect(url.searchParams.has(AGENT_API_PATH_PARAM)).toBe(false)
+    expect(url.searchParams.get('presentationId')).toBe('p_1')
+    expect(url.searchParams.get('name')).toBe('f.png')
   })
 })

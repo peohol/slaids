@@ -78,6 +78,16 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   oversett til Agent Core-input, kall inn, oversett svaret. Ingen domeneregler der.
   Operasjonsnavn, JSON Schema og scopes hentes fra `describeOperations()` – aldri en
   andre, håndholdt kopi av kontrakten.
+- Adressene til agent-API-et rutes av **én statisk funksjon** (`api/agent/v1.ts`) pluss en
+  eksplisitt rewrite i `vercel.json` for `/api/agent/v1/:__slaidsPath*` – aldri av en
+  `[...path]`-catch-all. Catch-allen deployet grønt og svarte på `/api/agent/v1/operations`,
+  mens `/api/agent/v1/operations/<navn>` – adressen hver eneste operasjon kalles på – fikk
+  Vercels egen tekst-404 og aldri nådde koden. Rewriten leverer resten av stien i
+  `AGENT_API_PATH_PARAM`, og `agentApiUrl` i `src/routing.ts` setter adressen sammen igjen og
+  fjerner parameteren før ruting – query-strengen er input for en råopplasting, og et felt
+  plattformen la til ville blitt avvist av et strengt skjema. `src/server/agent/deployment.test.ts`
+  følger en adresse med to ledd hele veien fra `vercel.json` til operasjonens eget svar.
+  Hver `.ts`-fil under `api/` blir et offentlig endepunkt, så det ligger nøyaktig én der.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.
@@ -135,7 +145,7 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Domain-, geometry- og repository-lagene er headless og React-uavhengige (gjenbrukes senere av REST/MCP).
 - `src/agent/` (Agent Core) er agentflaten, og er transportuavhengig: ingen HTTP, ingen MCP,
   ingen modell- eller leverandørspesifikk kode. `src/server/agent/` er REST-adapteren over
-  den, og `api/agent/v1/` er Vercel-inngangen – seks linjer som leser miljøet og kaller inn. Operasjoner er semantiske og går gjennom
+  den, og `api/agent/v1.ts` er Vercel-inngangen – seks linjer som leser miljøet og kaller inn. Operasjoner er semantiske og går gjennom
   domenekommandoene med fit-sjekkere påslått; en agent skriver aldri rå `ZoneContent`-JSON.
   Repository og fit-sjekkere injiseres via `AgentContext` – aldri importert direkte.
 - Design-tokens (`G`, min-størrelser, typografi) bor i `src/domain/constants.ts` – ikke hardkod verdier i UI.

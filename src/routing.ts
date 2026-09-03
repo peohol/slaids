@@ -38,6 +38,49 @@ export const SHARE_PATH_PREFIX = '/s/'
 export const AGENT_API_VERSION = 'v1'
 export const AGENT_API_BASE_PATH = `/api/agent/${AGENT_API_VERSION}`
 
+/**
+ * The query parameter the host hands the rest of the path over in.
+ *
+ * The API is one static function at `AGENT_API_BASE_PATH`, and everything
+ * deeper reaches it through an explicit rewrite in `vercel.json`. A rewrite
+ * cannot carry extra path segments into a static function, so it carries them
+ * as a parameter instead — that is Vercel's own behaviour for a `:param*`
+ * source, not a trick: the platform appends the captured segments to the
+ * destination's query string.
+ *
+ * The name is deliberately not a word an operation could ever use for a field
+ * of its own, because `parseOperationInput` reads the query string as input
+ * for a raw binary upload. `agentApiUrl` removes it again before anything sees
+ * it, so the parameter exists between the edge and the router and nowhere else.
+ *
+ * It lives here, next to the address it completes, so that the rewrite, the
+ * router and the test that checks they agree all read the same string.
+ */
+export const AGENT_API_PATH_PARAM = '__slaidsPath'
+
+/**
+ * The address the caller actually asked for.
+ *
+ * A host that routed the request straight to the function is already right, and
+ * the URL passes through untouched. A host that could only route the base path
+ * hands the rest over in `AGENT_API_PATH_PARAM`, and this is where the address
+ * is made whole again — before routing, so `/operations/<name>` is one thing
+ * the router understands rather than two things it has to know about.
+ *
+ * Pure, and total: an empty or missing parameter is the base path, which is
+ * what a rewrite that matched nothing after the version prefix means.
+ */
+export function agentApiUrl(requested: URL): URL {
+  if (!requested.searchParams.has(AGENT_API_PATH_PARAM)) return requested
+
+  const forwarded = requested.searchParams.get(AGENT_API_PATH_PARAM) ?? ''
+  const url = new URL(requested)
+  url.searchParams.delete(AGENT_API_PATH_PARAM)
+  const suffix = forwarded.replace(/^\/+/, '')
+  url.pathname = suffix ? `${AGENT_API_BASE_PATH}/${suffix}` : AGENT_API_BASE_PATH
+  return url
+}
+
 /** `/s` with nothing after it is a share link someone cut short, not a page. */
 const SHARE_PATH_ROOT = '/s'
 

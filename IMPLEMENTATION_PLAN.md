@@ -2543,7 +2543,7 @@ tilbake, men fordi det aldri ble skrevet.
 
 #### Fase 3: REST, tokens, scopes og audit
 
-`src/server/agent/` er transportlaget, og `api/agent/v1/` er Vercel-inngangen
+`src/server/agent/` er transportlaget, og `api/agent/v1.ts` er Vercel-inngangen
 til det – seks linjer som leser `process.env` og kaller inn. Alt som *bestemmer*
 ligger i `src/server/agent/`, injisert inn i `handleAgentRequest`, slik at «REST
 er tynt» er en egenskap ved koden: filen kan ikke nå en database, en klokke
@@ -2554,6 +2554,25 @@ GET  /api/agent/v1                    hva dette er, og hvor katalogen ligger
 GET  /api/agent/v1/operations         katalogen, fra describeOperations()
 POST /api/agent/v1/operations/<navn>  én operasjon
 ```
+
+**Hvordan de tre adressene finner fram.** Filnavnet er hele ruten: én statisk
+funksjon på `/api/agent/v1`, og alt under den kommer inn gjennom en eksplisitt
+rewrite i `vercel.json` (`/api/agent/v1/:__slaidsPath*`). Det er ikke en
+stilpreferanse. En `[...path]`-catch-all ble utvidet av plattformen, utenfor
+repoets syn, og det den faktisk dekket var ett ledd: katalogen svarte, mens
+`/api/agent/v1/operations/<navn>` fikk Vercels egen tekst-404 og aldri nådde
+`serveAgentApi`. Ruting som står skrevet i repoet kan testes; ruting som utledes
+av et filnavn kan bare observeres i produksjon.
+
+En rewrite kan ikke bære ekstra ledd inn i en statisk funksjon, så den bærer dem
+som en query-parameter – plattformens egen oppførsel for en `:param*`-kilde.
+`agentApiUrl` i `src/routing.ts` setter adressen sammen igjen *og fjerner
+parameteren* før ruting: query-strengen er operasjonsinput for en råopplasting,
+og et felt plattformen la til ville blitt avvist av et strengt skjema.
+`src/server/agent/deployment.test.ts` går den veien en adresse med to ledd
+faktisk går –
+`vercel.json` kompilert med Vercels egen `convertRewrites`, videre inn i
+funksjonens URL, gjennom ruteren og ut som operasjonens eget svar.
 
 Katalogen er ikke en andre, håndholdt kopi av kontrakten: navn, summary, JSON
 Schema og `requiredScopes` kommer alle ut av operasjonene selv. Alt er `POST`,
