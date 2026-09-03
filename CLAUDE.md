@@ -92,9 +92,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   oversett til Agent Core-input, kall inn, oversett svaret. Ingen domeneregler der.
   Operasjonsnavn, JSON Schema og scopes hentes fra `describeOperations()` – aldri en
   andre, håndholdt kopi av kontrakten.
-- Adressene til agent-API-et rutes av **én statisk funksjon** (`api/agent/v1.ts`) pluss en
-  eksplisitt rewrite i `vercel.json` for `/api/agent/v1/:__slaidsPath*` – aldri av en
-  `[...path]`-catch-all. Catch-allen deployet grønt og svarte på `/api/agent/v1/operations`,
+- Adressene til agent-API-et – MCP-endepunktet inkludert – rutes av **én statisk funksjon**
+  (`api/agent/v1.ts`) pluss en eksplisitt rewrite i `vercel.json` for
+  `/api/agent/v1/:__slaidsPath*` – aldri av en `[...path]`-catch-all. Catch-allen deployet grønt og svarte på `/api/agent/v1/operations`,
   mens `/api/agent/v1/operations/<navn>` – adressen hver eneste operasjon kalles på – fikk
   Vercels egen tekst-404 og aldri nådde koden. Rewriten leverer resten av stien i
   `AGENT_API_PATH_PARAM`, og `agentApiUrl` i `src/routing.ts` setter adressen sammen igjen og
@@ -102,6 +102,57 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   plattformen la til ville blitt avvist av et strengt skjema. `src/server/agent/deployment.test.ts`
   følger en adresse med to ledd hele veien fra `vercel.json` til operasjonens eget svar.
   Hver `.ts`-fil under `api/` blir et offentlig endepunkt, så det ligger nøyaktig én der.
+- MCP ligger på `POST /api/agent/v1/mcp`, i den samme funksjonen og bak det samme tokenet
+  som REST. Transporten er **Streamable HTTP, tilstandsløs**: én JSON-RPC-melding per POST,
+  svar som `application/json`, ingen `Mcp-Session-Id`, ingen SSE-strøm (`GET` og `DELETE`
+  svarer `405`), ingen batcher. Tokenet er identiteten på hver melding, og den eneste
+  tilstanden mellom to kall er presentasjonens `revision` – det er dét som gjør endepunktet
+  riktig på en plattform som kan svare fra to kalde instanser.
+- **Slaids annonserer bare protokollrevisjonen den faktisk implementerer**, i dag `2025-06-18`
+  alene. `2025-03-26` ville lovet en klient at endepunktet tar imot JSON-RPC-batcher, som det
+  avviser, og `2024-11-05` ville lovet den gamle HTTP+SSE-transporten med to endepunkter som
+  ikke finnes her. `negotiateProtocolVersion` svarer aldri med en revisjon som ikke står i
+  `SUPPORTED_MCP_PROTOCOL_VERSIONS`, og `MCP-Protocol-Version` valideres mot den samme listen.
+  Mangler headeren, leses den som den ene revisjonen serveren har – aldri som spesifikasjonens
+  `2025-03-26`-fallback, siden den ikke er implementert.
+- `Origin` valideres på MCP-endepunktet, som Streamable HTTP krever mot DNS rebinding, og
+  Slaids validerer den ved å **avvise enhver forespørsel som bærer en**. Å sammenligne
+  `Origin` med forespørselens egen vert er verdiløst: i angrepet er begge sider angriperens –
+  siden ligger på `evil.example`, DNS-en peker om til denne serveren, og nettleseren sender
+  `Host: evil.example` og `Origin: https://evil.example`, som matcher. En sjekk som
+  sammenligner en forespørsel med seg selv beviser ingenting. Den betrodde listen må komme fra
+  et sted angriperen ikke styrer, og Slaids har ingen browser-origin å betro: en MCP-klient er
+  et program, ikke en side, og sender ingen `Origin`. Sjekken skjer før kroppen leses.
+  Skal en browser-basert MCP-klient noen gang støttes, må de betrodde origin-ene leses fra
+  servermiljøet – aldri fra forespørselen.
+- **REST og MCP deler `src/server/agent/invoke.ts`.** Begge kaller `authorizeOperation` og
+  `performOperation`, i den rekkefølgen. «Samme operasjon gir samme svar og samme feil over
+  begge transportene» er derfor en egenskap ved koden, ikke et løfte om to adaptere skrevet
+  nøye. Alt som er igjen i adapterne er serialisering.
+- MCP-verktøylisten genereres av `describeOperations()` – navn (med `slaids_`-prefikset som
+  navnerom), beskrivelse, JSON Schema og scopes er operasjonens egne. **Det finnes ikke ett
+  eneste operasjonsnavn som streng i `src/server/mcp/`**, og en test håndhever det: en
+  håndskrevet liste ville blitt oppdaget først den dagen den manglet en ny operasjon.
+- I MCP avgjøres det av **om et ekte verktøy fikk bestemme** hvor en avvisning havner, ikke av
+  hvor alvorlig den er. Kjørte en operasjon og sa nei – innhold som ikke får plass, stale
+  revisjon, noe som ikke finnes, et scope tokenet mangler – er det et *resultat* med
+  `isError: true` og hele feilobjektet i `structuredContent.error`: en agent skal lese koden og
+  handle på den, og de fleste klienter viser et resultat til modellen og en JSON-RPC-feil til
+  loggen. Var kallet aldri gyldig – uparsbar JSON, ukjent metode, en batch, et verktøy som ikke
+  finnes (`UNKNOWN_OPERATION`), eller argumenter som ikke passer verktøyets skjema
+  (`INVALID_INPUT`) – er det en JSON-RPC-feil, med det samme feilobjektet i `data`.
+  Referanseimplementasjonen trekker streken nøyaktig der (begge er `InvalidParams` i den), og
+  `NEVER_A_VALID_CALL` i `src/server/mcp/server.ts` er den ene listen som avgjør det.
+- Konvolutten (`jsonrpc.ts`) og metodenes egne parametre (`requests.ts`) valideres hver for seg,
+  begge før dispatch. En melding kan være en helt gyldig JSON-RPC-forespørsel og likevel være
+  et kall ingen MCP-metode kunne ta imot – `initialize` uten `clientInfo`, en `cursor` som er et
+  tall – og da er svaret `INVALID_PARAMS`, aldri stille ignorering. `id: null` er ugyldig MCP og
+  besvares som en ugyldig forespørsel, aldri som en notifikasjon: en klient som sendte den
+  venter på svar, og `202` med stillhet er det ene den ikke kan håndtere.
+- Auditen skiller ikke på transport, og skal ikke gjøre det: et `tools/call` skrives ned
+  under operasjonens eget navn med statusen feilkoden ville hatt over HTTP, så REST og MCP
+  kan leses i én spørring. Bare protokolltrafikken har egne navn (`mcp:initialize`,
+  `mcp:tools/list`).
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.
@@ -159,9 +210,19 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Domain-, geometry- og repository-lagene er headless og React-uavhengige (gjenbrukes senere av REST/MCP).
 - `src/agent/` (Agent Core) er agentflaten, og er transportuavhengig: ingen HTTP, ingen MCP,
   ingen modell- eller leverandørspesifikk kode. `src/server/agent/` er REST-adapteren over
-  den, og `api/agent/v1.ts` er Vercel-inngangen – seks linjer som leser miljøet og kaller inn. Operasjoner er semantiske og går gjennom
+  den, `src/server/mcp/` er MCP-adapteren, og `api/agent/v1.ts` er Vercel-inngangen – seks
+  linjer som leser miljøet og kaller inn. Operasjoner er semantiske og går gjennom
   domenekommandoene med fit-sjekkere påslått; en agent skriver aldri rå `ZoneContent`-JSON.
   Repository og fit-sjekkere injiseres via `AgentContext` – aldri importert direkte.
+- MCP-protokollen er skrevet for hånd (`src/server/mcp/jsonrpc.ts` og `endpoint.ts`), ikke
+  hentet fra `@modelcontextprotocol/sdk`. SDK-ens servertransport bygger på Nodes
+  `IncomingMessage`/`ServerResponse`, mens plattformen her gir en web-`Request` og venter en
+  `Response`; og en tilstandsløs Streamable HTTP-server er noen få titalls linjer. SDK-en er
+  derfor en **devDependency og et orakel**: `src/server/mcp/interop.test.ts` kjører den
+  offisielle klienten mot en ekte socket, og `requests.test.ts` kjører spesifikasjonens egne
+  skjemaer mot hver melding parameterleserne godtar – så protokollen valideres mot referansen
+  i stedet for mot vår egen lesing av spesifikasjonen. Den skal aldri bli en
+  runtime-avhengighet.
 - Design-tokens (`G`, min-størrelser, typografi) bor i `src/domain/constants.ts` – ikke hardkod verdier i UI.
 
 ## Kommandoer

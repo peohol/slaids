@@ -21,10 +21,14 @@ export type TransportErrorCode =
   | 'UNAUTHENTICATED'
   /** A valid token without the authority this operation needs. */
   | 'FORBIDDEN_SCOPE'
+  /** A browser origin that is not this deployment's. MCP only; see `mcp/endpoint.ts`. */
+  | 'FORBIDDEN_ORIGIN'
   /** No such route. Not the same as `UNKNOWN_OPERATION`, which is a real route. */
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
   | 'UNSUPPORTED_CONTENT_TYPE'
+  /** A protocol revision this deployment does not speak. MCP only; see `mcp/endpoint.ts`. */
+  | 'UNSUPPORTED_PROTOCOL_VERSION'
   | 'REQUEST_TOO_LARGE'
   | 'MALFORMED_BODY'
   /** The deployment has no Supabase to act on; see `config.ts`. */
@@ -70,9 +74,11 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   // Transport
   UNAUTHENTICATED: 401,
   FORBIDDEN_SCOPE: 403,
+  FORBIDDEN_ORIGIN: 403,
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
   UNSUPPORTED_CONTENT_TYPE: 415,
+  UNSUPPORTED_PROTOCOL_VERSION: 400,
   REQUEST_TOO_LARGE: 413,
   MALFORMED_BODY: 400,
   SERVER_NOT_CONFIGURED: 503,
@@ -135,8 +141,11 @@ export function statusFor(code: ApiErrorCode): number {
 export function agentApiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    // `mcp-*` are the Streamable HTTP transport's own headers. A browser MCP
+    // client sends them, so a preflight that did not name them would fail before
+    // the request the endpoint would have answered with a plain `405`.
+    'Access-Control-Allow-Headers': 'authorization, content-type, mcp-protocol-version, mcp-session-id',
     'Access-Control-Max-Age': '600',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',

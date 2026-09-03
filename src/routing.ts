@@ -39,6 +39,17 @@ export const AGENT_API_VERSION = 'v1'
 export const AGENT_API_BASE_PATH = `/api/agent/${AGENT_API_VERSION}`
 
 /**
+ * The MCP endpoint, under the same version prefix as everything else.
+ *
+ * One address, because that is what Streamable HTTP is: a single URL a client
+ * posts JSON-RPC to. It sits under `AGENT_API_BASE_PATH` rather than beside it
+ * so the existing rewrite already carries it, the existing function already
+ * answers it, and the existing token is already the credential — MCP is a second
+ * way to say the same things, not a second deployment.
+ */
+export const AGENT_MCP_PATH = `${AGENT_API_BASE_PATH}/mcp`
+
+/**
  * The query parameter the host hands the rest of the path over in.
  *
  * The API is one static function at `AGENT_API_BASE_PATH`, and everything

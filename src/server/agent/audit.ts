@@ -98,3 +98,25 @@ function stringField(value: unknown, key: string): string | null {
   // caller that sends a novel as an id gets it truncated, not stored.
   return typeof field === 'string' && field.length > 0 && field.length <= 200 ? field : null
 }
+
+/**
+ * Write one row, and never let the writing of it fail the call.
+ *
+ * An audit that cannot be written must not turn a successful mutation into a
+ * failure the agent will retry — the write already happened, and retrying it is
+ * the more damaging of the two. It is loud in the server log instead.
+ *
+ * Shared by both transports for the same reason `invoke.ts` is: "one row per
+ * authenticated call" is a property of the API, not of REST, and a second copy
+ * of this try/catch is a second place the swallowing could go missing.
+ */
+export async function recordAgentCall(
+  sink: AgentAuditSink,
+  entry: Parameters<typeof auditRecord>[0],
+): Promise<void> {
+  try {
+    await sink.record(auditRecord(entry))
+  } catch (error) {
+    console.error('slaids-agent: kunne ikke skrive auditrad', error)
+  }
+}

@@ -24,10 +24,18 @@
  *   GET  /api/agent/v1                      → what this is, and where to look
  *   GET  /api/agent/v1/operations           → the catalogue, with JSON Schema
  *   POST /api/agent/v1/operations/<name>    → run one operation
+ *   POST /api/agent/v1/mcp                  → the same operations, as MCP tools
  *
- * All three are one static function on the platform (`api/agent/v1.ts`) plus an
+ * All four are one static function on the platform (`api/agent/v1.ts`) plus an
  * explicit rewrite; `deployment.test.ts` checks that the deployment really
  * sends every one of them here.
+ *
+ * The MCP endpoint is routed here rather than deployed beside this one because
+ * everything above it is the same: the same bearer token, the same scopes, the
+ * same audit. What is different starts after authentication, and that part lives
+ * in `src/server/mcp/`. What both of them call is `invoke.ts`, which is what
+ * makes "the same operation answers the same thing over either transport" a
+ * property of the code rather than of two adapters written carefully.
  *
  * Every operation is a POST, including the reads. An operation's arguments are
  * a structured object with a strict schema; splitting them between a query
@@ -35,33 +43,16 @@
  * contracts, and the catalogue publishes one.
  */
 
-import {
-  describeOperations,
-  findOperation,
-  runOperation,
-  unknownOperationError,
-} from '../../agent/registry'
-import { AGENT_API_BASE_PATH, AGENT_API_VERSION, agentApiUrl } from '../../routing'
+import { describeOperations } from '../../agent/registry'
+import { AGENT_API_BASE_PATH, AGENT_API_VERSION, AGENT_MCP_PATH, agentApiUrl } from '../../routing'
 import type { AgentContext } from '../../agent/types'
-import { auditRecord, auditedPresentationId, type AgentAuditSink, type AuditSubject } from './audit'
+import { auditedPresentationId, recordAgentCall, type AgentAuditSink, type AuditSubject } from './audit'
 import { parseOperationInput, readBody } from './body'
-import {
-  agentApiHeaders,
-  errorResponse,
-  fromAgentError,
-  jsonResponse,
-  revisionOf,
-  statusFor,
-  type ApiError,
-} from './protocol'
+import { authorizeOperation, performOperation } from './invoke'
+import { handleMcpRequest } from '../mcp/endpoint'
+import { agentApiHeaders, errorResponse, jsonResponse, statusFor, type ApiError } from './protocol'
 import { looksLikeAgentToken } from '../../persistence/agentTokens'
-import {
-  REFUSAL_CODES,
-  bearerToken,
-  missingScopes,
-  type AgentPrincipal,
-  type AuthOutcome,
-} from './tokens'
+import { REFUSAL_CODES, bearerToken, type AgentPrincipal, type AuthOutcome } from './tokens'
 
 
 /**
@@ -154,6 +145,9 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
   if (path === '/operations') {
     return finish(deps, { subject, started, operation: 'catalogue', input: null, ...listing(request) })
   }
+  // MCP writes its own audit row, because a JSON-RPC message is what happened
+  // and only it knows which method that was.
+  if (path === MCP_SUBPATH) return handleMcpRequest(deps, request, principal, subject)
 
   const name = operationNameIn(path)
   if (name === null) {
@@ -196,6 +190,15 @@ function operationNameIn(path: string): string | null {
     return named[1]
   }
 }
+
+/**
+ * The MCP address, as this router sees it: everything after the version prefix.
+ *
+ * Derived from the full address in `src/routing.ts` rather than written out
+ * again, so the rewrite, the router and the screen that tells an owner where to
+ * point a client all read one string.
+ */
+const MCP_SUBPATH = AGENT_MCP_PATH.slice(AGENT_API_BASE_PATH.length)
 
 /** The path under the versioned base, or `null` when the request is not ours. */
 function routePath(pathname: string): string | null {
@@ -249,22 +252,15 @@ async function recordRefusal(
   path: string,
 ): Promise<void> {
   if (!auth.identified) return
-  const at = deps.now()
-  try {
-    await deps.audit.record(
-      auditRecord({
-        at,
-        subject: auth.identified,
-        operation: operationNameIn(path) ?? 'authenticate',
-        presentationId: null,
-        status: statusFor('UNAUTHENTICATED'),
-        errorCode: REFUSAL_CODES[auth.reason],
-        durationMs: 0,
-      }),
-    )
-  } catch (error) {
-    console.error('slaids-agent: kunne ikke skrive auditrad for avvist token', error)
-  }
+  await recordAgentCall(deps.audit, {
+    at: deps.now(),
+    subject: auth.identified,
+    operation: operationNameIn(path) ?? 'authenticate',
+    presentationId: null,
+    status: statusFor('UNAUTHENTICATED'),
+    errorCode: REFUSAL_CODES[auth.reason],
+    durationMs: 0,
+  })
 }
 
 /** What this API is, for a caller that guessed the base address. */
@@ -276,6 +272,7 @@ function meta(request: Request): Answer {
       api: 'slaids-agent',
       version: AGENT_API_VERSION,
       operations: `${AGENT_API_BASE_PATH}/operations`,
+      mcp: AGENT_MCP_PATH,
     },
   }
 }
@@ -312,35 +309,15 @@ async function invoke(
   subject: AuditSubject,
   started: Date,
 ): Promise<Response> {
-  const operation = findOperation(name)
-  if (!operation) {
-    // Agent Core's own answer, from the same catalogue, so an unknown name says
-    // the same thing over REST as it does in process — including the list of
-    // names that do exist.
-    return finish(deps, {
-      subject,
-      started,
-      operation: name,
-      input: null,
-      error: fromAgentError(unknownOperationError(name)),
-    })
-  }
-
-  // Scopes, before the body is read: an unauthorised caller must not be able to
-  // make the server buffer megabytes for it.
-  const lacking = missingScopes(principal, operation.scopes)
-  if (lacking.length > 0) {
-    return finish(deps, {
-      subject,
-      started,
-      operation: name,
-      input: null,
-      error: {
-        code: 'FORBIDDEN_SCOPE',
-        message: `Tokenet mangler ${lacking.join(', ')} for «${name}».`,
-        details: { operation: name, required: [...operation.scopes], missing: lacking },
-      },
-    })
+  // Does it exist, and may this token run it. Both answers come from `invoke.ts`
+  // — the same call the MCP endpoint makes — so an unknown name says the same
+  // thing over either transport, list of real names and all.
+  //
+  // It happens *before* the body is read on purpose: an unauthorised caller must
+  // not be able to make the server buffer megabytes for it.
+  const authorized = authorizeOperation(principal, name)
+  if (!authorized.ok) {
+    return finish(deps, { subject, started, operation: name, input: null, error: authorized.error })
   }
 
   const body = await readBody(request, { maxRequestBytes: deps.maxRequestBytes })
@@ -348,31 +325,17 @@ async function invoke(
     return finish(deps, { subject, started, operation: name, input: null, error: body.error })
   }
 
+  // The one genuinely REST-shaped step, and the reason this layer exists: a
+  // multipart or raw binary body becomes the bytes Agent Core works with. An
+  // MCP client has no such body and sends base64, which Agent Core accepts on
+  // its own.
   const parsed = await parseOperationInput(request.headers.get('content-type'), body.bytes, url)
   if (!parsed.ok) {
     return finish(deps, { subject, started, operation: name, input: null, error: parsed.error })
   }
 
-  const result = await runOperation(deps.contextFor(principal), name, parsed.input)
-  if (!result.ok) {
-    return finish(deps, {
-      subject,
-      started,
-      operation: name,
-      input: parsed.input,
-      error: fromAgentError(result.error),
-    })
-  }
-
-  const revision = revisionOf(result.value)
-  return finish(deps, {
-    subject,
-    started,
-    operation: name,
-    input: parsed.input,
-    data: result.value,
-    revision,
-  })
+  const outcome = await performOperation(deps.contextFor(principal), name, parsed.input)
+  return finish(deps, { subject, started, operation: name, input: parsed.input, ...outcome })
 }
 
 /** What a route produced: one of the two, never both. */
@@ -405,24 +368,15 @@ async function finish(
   const status = outcome.error ? statusFor(outcome.error.code) : 200
   const finished = deps.now()
 
-  try {
-    await deps.audit.record(
-      auditRecord({
-        at: outcome.started,
-        subject: outcome.subject,
-        operation: outcome.operation,
-        presentationId: auditedPresentationId(outcome.input, outcome.data),
-        status,
-        errorCode: outcome.error ? outcome.error.code : null,
-        durationMs: finished.getTime() - outcome.started.getTime(),
-      }),
-    )
-  } catch (error) {
-    // An audit that cannot be written must not turn a successful mutation into
-    // a failure the agent will retry — the write already happened, and retrying
-    // it is the more damaging of the two. It is loud in the server log instead.
-    console.error('slaids-agent: kunne ikke skrive auditrad', error)
-  }
+  await recordAgentCall(deps.audit, {
+    at: outcome.started,
+    subject: outcome.subject,
+    operation: outcome.operation,
+    presentationId: auditedPresentationId(outcome.input, outcome.data),
+    status,
+    errorCode: outcome.error ? outcome.error.code : null,
+    durationMs: finished.getTime() - outcome.started.getTime(),
+  })
 
   if (outcome.error) {
     return errorResponse(outcome.error, {

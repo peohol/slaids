@@ -2374,6 +2374,9 @@ Eksponer Agent Core gjennom MCP-tools.
 
 Ingen domenelogikk flyttes til MCP-laget.
 
+Bygget. Se «Status: hva som er bygget» → «Fase 4: MCP over den samme
+inngangen».
+
 #### Fase 5 — Visuell feedback
 
 Legg til en måte å rendere en slide til et bilde/preview som agenten kan inspisere.
@@ -2402,7 +2405,7 @@ Minst:
 - utrygg SVG avvises eller sanitiseres deterministisk;
 - SVG med script/event handlers kan aldri rendres som aktivt innhold;
 - ugyldig assetreferanse avvises;
-- REST og MCP gir semantisk samme Agent Core-resultat for samme operasjon når disse lagene senere finnes;
+- REST og MCP gir semantisk samme Agent Core-resultat for samme operasjon;
 - scopes håndheves serverside.
 
 ### Ferdigkriterium
@@ -2434,7 +2437,7 @@ uten:
 
 ### Status: hva som er bygget
 
-Fase 1, 2 og 3 er på plass:
+Fase 1, 2, 3 og 4 er på plass:
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
   (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
@@ -2783,9 +2786,148 @@ håndhever det. Feilen ville vært stille: en import fra en UI-fil ville kompile
 bestått hver test, og dratt hele operasjonsregisteret og statustabellen inn i
 bundelen alle besøkende laster ned.
 
-Fortsatt ikke bygget: fase 4 (MCP) og fase 5 (rendret preview). Begge legges
-oppå Agent Core uten å endre domenemodellen, og MCP henter navn, JSON Schema og
-scopes fra det samme registeret REST bruker.
+#### Fase 4: MCP over den samme inngangen
+
+MCP ligger på `POST /api/agent/v1/mcp` – i den samme Vercel-funksjonen, bak det
+samme tokenet, med den samme auditen. Ikke som en besparelse, men fordi alt over
+autentiseringen faktisk *er* det samme; det som skiller begynner etterpå, og det
+ligger i `src/server/mcp/`.
+
+**Transporten er Streamable HTTP i revisjonen `2025-06-18`, tilstandsløs.** Én
+JSON-RPC-melding per POST, svaret som `application/json` på den samme responsen.
+Det som er utelatt er utelatt med vilje, ikke uferdig:
+
+- **ingen SSE-strøm.** En server åpner en for notifikasjoner, progresjon og
+  spørsmål den selv stiller. Slaids sender ingen av delene – hver operasjon er
+  ett kall med ett svar – så en strøm ville vært en åpen forbindelse uten noe å
+  si. `GET` svarer `405`, som er nøyaktig det spesifikasjonen ber om fra en
+  server uten strøm.
+- **ingen sesjon.** Ingen `Mcp-Session-Id` deles ut, så det er ingen å gjenoppta
+  og ingen å avslutte (`DELETE` er `405` av samme grunn). Tokenet er identiteten
+  på hver melding, og den eneste tilstanden mellom to kall – hvilken lesing en
+  skriving er gjort mot – ligger allerede i presentasjonens `revision`. Det er
+  dét som gjør endepunktet riktig på en plattform som kan svare på to meldinger
+  fra to kalde instanser.
+- **ingen batcher.** Fjernet fra protokollen i 2025-06-18-revisjonen. En array er
+  derfor ikke en batch vi avslår, det er en meldingsform som ikke finnes lenger,
+  og å si det er mer nyttig enn å kjøre det første elementet i den.
+
+**Bare én revisjon annonseres, og det er den som er implementert.** Listen var en
+stund lengre, og det var en feil snarere enn raushet: `2025-03-26` ville lovet en
+klient at endepunktet tar imot JSON-RPC-batcher, som det avviser, og `2024-11-05`
+ville lovet den gamle HTTP+SSE-transporten med et eget SSE-endepunkt og et eget
+POST-endepunkt, som ingen av delene finnes her. En klient tror på det den får, og
+går i gang med å bruke det. Så `negotiateProtocolVersion` svarer aldri med noe som
+ikke står i `SUPPORTED_MCP_PROTOCOL_VERSIONS`, `MCP-Protocol-Version` valideres mot
+den samme listen, og en manglende header leses som den ene revisjonen serveren har –
+ikke som spesifikasjonens `2025-03-26`-fallback, som ville vært den samme løgnen én
+gang til. En nyere klient forhandler seg ned; `interop.test.ts` viser den offisielle
+klienten gjøre nøyaktig det.
+
+**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding, og
+valideringen er å avvise enhver forespørsel som bærer en.
+
+Den nærliggende sjekken – sammenlign `Origin` med forespørselens egen vert – er
+verdiløs her, og verre enn verdiløs fordi den ser ut som beskyttelse. I angrepet den
+skal stoppe er *begge* sider angriperens: siden serveres fra `evil.example`, DNS-en
+for `evil.example` peker om til denne serveren, og nettleseren sender da
+`Host: evil.example` sammen med `Origin: https://evil.example`. De matcher, og
+forespørselen slipper gjennom. En sjekk som sammenligner en forespørsel med seg selv
+beviser ingenting om den; det betrodde settet må komme fra et sted angriperen ikke
+styrer.
+
+Det stedet er vanligvis en konfigurert liste. Slaids trenger ingen, fordi det ikke
+finnes en browser-origin å betro: **en MCP-klient er et program, ikke en side.** Den
+offisielle SDK-en over Node, Claude Desktop, en editor, et skript – ingen av dem
+sender `Origin`, og ingenting i Slaids' egen nettleserapp snakker med dette
+endepunktet i det hele tatt. Den ærlige listen er den tomme, og å avvise enhver
+`Origin` er den listen håndhevet. Det er dessuten den ene formen uten en
+konfigurasjon en deploy kan glemme å sette og dermed åpne hullet igjen. Sjekken
+kjører før kroppen leses, så en side aldri når en operasjon, langt mindre en som
+skriver.
+
+**Verktøykatalogen er operasjonskatalogen.** `mcpTools()` bygger den av
+`describeOperations()`, den samme funksjonen REST-katalogen kaller: navn,
+beskrivelse, JSON Schema og scopes er operasjonens egne. Prefikset `slaids_` er
+et navnerom, ikke en del av navnet – en klient holder alle serveres verktøy i én
+flat liste – og det bare navnet løses opp like godt, siden det er registeret som
+avgjør hva som finnes. Annotasjonene utledes: `readOnlyHint` er `!mutates`, og
+`openWorldHint` er usann fordi hver operasjon rører eierens egne dekk og ingenting
+annet. `destructiveHint` er bevisst utelatt: å skille en sletting fra en
+innsetting ville krevd et felt som ikke finnes på operasjonene, og å finne det opp
+her som en liste over navn er nøyaktig den andre kontrakten dette laget er bygget
+for å unngå.
+
+Testen som bærer det er ikke at listene stemmer i dag, men at det ikke **finnes
+ett eneste operasjonsnavn som streng** i `src/server/mcp/`. En håndskrevet liste
+ville bestått den første testen og strøket på denne – og den ville uansett blitt
+oppdaget først den dagen den manglet en ny operasjon.
+
+**Paritet er én funksjon, ikke to nøye skrevne adaptere.**
+`src/server/agent/invoke.ts` holder alt som skjer mellom «en kaller navnga en
+operasjon» og «Agent Core svarte»: `authorizeOperation` (finnes den, og har
+tokenet scopene den krever) og `performOperation` (kjør, og løft revisjonen ut av
+svaret). Begge transportene kaller de to, i den rekkefølgen. Delingen i to er ikke
+ryddighet: REST sjekker scopes *før* den leser kroppen, slik at en uautorisert
+kaller ikke kan få serveren til å bufre megabyte for seg, mens MCP allerede har
+argumentene når den kjenner verktøynavnet – de kom i den samme meldingen.
+`parity.test.ts` går gjennom hver eneste operasjon over begge veier og
+sammenligner svarene.
+
+**En avvisning et verktøy kom fram til, er et resultat.** Manglende scope, stale
+revisjon, noe som ikke finnes og innhold som ikke får plass kommer tilbake som et
+verktøyresultat med `isError: true` og hele feilobjektet i
+`structuredContent.error`, med den samme koden REST ville gitt. Det er dét som gjør
+at modellen ser `CONTENT_DOES_NOT_FIT` og hvor mye som ble til overs, og kan korte
+ned teksten – der en JSON-RPC-feil i de fleste klienter blir «verktøykallet feilet»
+med det nyttige i et hjørne.
+
+Streken går ved **om et ekte verktøy fikk bestemme**, ikke ved hvor alvorlig feilen
+er. Et verktøy som ikke finnes (`UNKNOWN_OPERATION`) og argumenter som ikke passer
+verktøyets publiserte skjema (`INVALID_INPUT`) er ikke noe Slaids veide og avslo –
+ingenting kjørte, og ingenting kunne ha kjørt – så de er JSON-RPC-feil, sammen med
+uparsbar JSON, en ukjent metode, en batch og `id: null`. Referanseimplementasjonen
+klassifiserer nøyaktig de to første som `InvalidParams`, og å trekke streken et annet
+sted ville gjort et skjemabrudd til noe som så ut som en vurdering. Feilobjektet er
+det samme uansett – i `structuredContent.error` eller i `error.data` – så koden en
+agent forgrener på er den samme begge veier og over begge transportene.
+`NEVER_A_VALID_CALL` i `src/server/mcp/server.ts` er den ene listen som avgjør det.
+
+**Konvolutten og metodenes parametre valideres hver for seg.** `jsonrpc.ts` svarer på
+«er dette en velformet melding?», som er alt JSON-RPC har en mening om; MCP har mer.
+`initialize` uten `clientInfo` er en gyldig JSON-RPC-forespørsel og en ugyldig
+MCP-håndhilsning, og en `cursor` som er et tall er en klient som ber om side to og
+ville fått side én av en server som bare ignorerte den. Så `requests.ts` leser hver
+metodes parametre før noe dispatches, og en refusjon er en verdi der også.
+`requests.test.ts` bruker spesifikasjonens egne skjemaer som orakel: alt leserne
+godtar, godtar `@modelcontextprotocol/sdk` også.
+
+**Auditen skiller ikke på transport.** Et `tools/call` skrives ned under
+operasjonens eget navn, med statusen feilkoden ville hatt over HTTP – en
+`CONFLICT` er 409 i auditen uansett hvilken vei den kom – så begge transportene
+kan leses i én spørring, uten en ny kolonne og uten en migrasjon. Bare
+protokolltrafikken har egne navn (`mcp:initialize`, `mcp:tools/list`).
+
+**Protokollen er skrevet for hånd, og SDK-en er testens orakel.**
+`@modelcontextprotocol/sdk` er en devDependency, aldri en runtime-avhengighet:
+serversiden av den bygger på Nodes `IncomingMessage`/`ServerResponse`, mens
+plattformen her gir en web-`Request` og venter en `Response`, og en tilstandsløs
+Streamable HTTP-server er noen få titalls linjer uansett. Men en protokoll skrevet
+for hånd er en protokoll validert mot vår egen lesing av spesifikasjonen, og det
+er nøyaktig det som kan være galt. Så `interop.test.ts` starter en ekte
+HTTP-server og kjører den offisielle klienten mot den: den validerer hver melding
+mot spesifikasjonens egne skjemaer, så et feilformet `initialize`-svar eller et
+verktøyskjema som ikke er et objekt stopper der i stedet for i den første
+klienten noen prøver.
+
+Til slutt: `scripts/check-agent-bundle.mjs` bygger verktøykatalogen inne i den
+deployede bundelen, i vanlig Node, som en del av byggingen. Katalogen genereres
+først når en klient spør, med `unrepresentable: 'throw'` – så en operasjon hvis
+input ikke lar seg uttrykke i JSON Schema ville typechecket, deployet grønt og
+svart 500 på den aller første `tools/list`. Nå stopper den i byggingen.
+
+Fortsatt ikke bygget: fase 5 (rendret preview). Den legges oppå Agent Core uten å
+endre domenemodellen.
 
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
@@ -2839,7 +2981,8 @@ Det skal være mulig å lage en reell presentasjon med flere slides og komplekse
 
 Supabase-persistens og personlig innlogging er nå på plass. REST/MCP-agent-API kommer etter at selve editorparadigmet er bevist i praksis.
 
-> **Oppdatert:** første fase er nådd, og to skiver til er lagt oppå den uten at
-> domenemodellen ble skrevet om: Supabase som primær persistens (§ 43) og deling
-> som publisering av en skrivebeskyttet kopi (§ 43.5). Agent-API-et (§ 44) er det
-> som gjenstår.
+> **Oppdatert:** første fase er nådd, og flere skiver er lagt oppå den uten at
+> domenemodellen ble skrevet om: Supabase som primær persistens (§ 43), deling
+> som publisering av en skrivebeskyttet kopi (§ 43.5), og agent-API-et (§ 44) –
+> Agent Core, REST med tokens og scopes, og MCP over den samme inngangen. Det som
+> gjenstår av § 44 er fase 5: rendret preview en agent kan se på.
