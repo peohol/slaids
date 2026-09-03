@@ -15,12 +15,12 @@
  */
 
 import { z } from 'zod'
-import { fitContextFor } from '../../domain/commands'
+import { createDeck, fitContextFor } from '../../domain/commands'
 import { bodyOf, contentAssetIds, contentCitationIds } from '../../domain/content'
 import { estimateFit } from '../../domain/fit'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
-import { createPresentation, findSlide } from '../../domain/presentation'
+import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
 import type { FitContext } from '../../domain/fit'
@@ -34,7 +34,7 @@ import type {
   ZoneContentKind,
 } from '../../domain/types'
 import { defineOperation, presentationIdSchema, slideIdSchema } from '../operation'
-import { loadPresentation, savePresentation } from '../presentation'
+import { loadPresentation, savePresentation, structuralOptions } from '../presentation'
 import {
   docToBlocks,
   docToTitleAlign,
@@ -157,17 +157,24 @@ export const createPresentationOperation = defineOperation({
     coverSubtitle: z.string().max(400).optional().describe('Undertittelen på forsiden.'),
   }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
-    // The same factory the library uses, so an agent's presentation is not a
+    // The same command the library uses, so an agent's presentation is not a
     // second kind of presentation: same schema version, same default theme, same
-    // single empty slide to start from.
-    const presentation = createPresentation({
-      title: input.title,
-      folderId: input.folderId ?? null,
-      firstSlideHasTitle: input.firstSlideHasTitle,
-      coverTitle: input.coverTitle,
-      coverSubtitle: input.coverSubtitle,
-    })
-    const saved = await savePresentation(context, presentation)
+    // single empty slide — and the same refusal when a name or a cover line is
+    // too long for the one line the cover gives it.
+    const created = createDeck(
+      {
+        title: input.title,
+        folderId: input.folderId ?? null,
+        firstSlideHasTitle: input.firstSlideHasTitle,
+        coverTitle: input.coverTitle,
+        coverSubtitle: input.coverSubtitle,
+      },
+      structuralOptions(context),
+    )
+    if (!created.ok) {
+      return agentErr(created.error.code, created.error.message, created.error.details)
+    }
+    const saved = await savePresentation(context, created.value)
     if (!saved.ok) return saved
     return agentOk(presentationView(saved.value))
   },

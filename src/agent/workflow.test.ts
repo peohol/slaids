@@ -1287,6 +1287,18 @@ describe('forsiden', () => {
     expect(deck.slideCount).toBe(1)
   })
 
+  it('avviser et navn som er for langt for forsiden, og lagrer ingenting', async () => {
+    const context = freshContext()
+    const before = await context.repository.listPresentations()
+    const error = await fails(context, 'create_presentation', {
+      title: 'Et navn som er altfor langt '.repeat(6),
+    })
+    expect(error.code).toBe('CONTENT_DOES_NOT_FIT')
+    // Sjekken skjer før lagringen, så det ligger ingen halvferdig presentasjon
+    // igjen med en forside ingen kan lese.
+    expect(await context.repository.listPresentations()).toHaveLength(before.length)
+  })
+
   it('setter tittel og undertittel i ett steg', async () => {
     const context = freshContext()
     const deck = await newDeck(context)

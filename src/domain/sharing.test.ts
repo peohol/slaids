@@ -10,7 +10,7 @@ import {
   buildSharedSnapshot,
   parseSharedSnapshot,
 } from './sharing'
-import { imageNode } from './richdoc'
+import { docToPlainText, imageNode } from './richdoc'
 import type { AssetRef, Presentation, Reference, RichDoc } from './types'
 
 function citing(ids: string[]): RichDoc {
@@ -180,6 +180,21 @@ describe('parseSharedSnapshot', () => {
     expect(parseSharedSnapshot(null).ok).toBe(false)
     // Den private presentasjonen er ikke et snapshot, og skal ikke leses som ett.
     expect(parseSharedSnapshot(fullPresentation()).ok).toBe(false)
+  })
+
+  it('leser en delingslenke som ble publisert før forsiden fantes', () => {
+    // Et snapshot fra før v8 har ikke feltet i det hele tatt. Konvolutten må
+    // slippe det gjennom til migreringene, ellers slutter hver eneste lenke som
+    // allerede er delt ut å virke — og den som fikk den har ingen ny å be om.
+    const snapshot = buildSharedSnapshot(fullPresentation())
+    const legacy = { ...snapshot, schemaVersion: 7 } as Record<string, unknown>
+    delete legacy.cover
+
+    const parsed = parseSharedSnapshot(legacy)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(docToPlainText(parsed.value.cover.title).trim()).toBe('Arbeidskopi')
+    expect(parsed.value.slides).toHaveLength(1)
   })
 
   it('kjører et eldre snapshot gjennom migreringene', () => {

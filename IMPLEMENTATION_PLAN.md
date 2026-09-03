@@ -352,6 +352,19 @@ Migrasjonen til v8 gjør nøyaktig dette for dokumenter som allerede finnes: en
 lagret farge som er *nøyaktig* den gamle standarden fjernes (den var aldri et
 valg), alle andre farger står urørt.
 
+### Å opprette et dekk er også en redigering
+
+Forsidens tittel starter som dekkets navn. Da er navnet ikke lenger bare
+metadata i biblioteket – det er en linje som tegnes – og et navn som ikke får
+plass på én linje ville blitt lagret som en klippet forside, i en tilstand den
+aller neste redigeringen av den linjen ville avvist.
+
+`createPresentation` forblir derfor en ren fabrikk (lasting, migrering og
+import skal aldri stoppes av en fit-regel), mens kommandoen `createDeck` er
+formen de to stedene et menneske eller en agent lager et dekk av tekst de nettopp
+skrev. Den måler forsiden absolutt – det finnes ingen forrige tilstand å
+regrediere fra – og avviser med samme feilkode som en for lang slide-tittel.
+
 ---
 
 ## 9\. Soneredigeringsmodus

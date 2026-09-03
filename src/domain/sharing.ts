@@ -117,9 +117,12 @@ const envelopeSchema = z.object({
   title: z.string(),
   publishedAt: z.string(),
   theme: z.unknown(),
-  /* Absent in a snapshot published before covers existed; the migration chain
-     below builds one, exactly as it does for a stored presentation. */
-  cover: z.unknown(),
+  /* Absent in a snapshot published before covers existed, and `.optional()` is
+     what lets such a snapshot through: a bare `z.unknown()` still *requires*
+     the key, so every link published before this field existed would have
+     stopped resolving here — before the migration chain below, which builds a
+     cover from the title exactly as it does for a stored presentation. */
+  cover: z.unknown().optional(),
   slides: z.unknown(),
   references: z.unknown(),
   assets: z.unknown(),

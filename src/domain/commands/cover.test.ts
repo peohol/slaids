@@ -15,12 +15,13 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PILL_COLOR } from '../constants'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { FONT_OPTIONS } from '../fonts'
-import { COVER_TITLE_NODE_ID } from '../geometry'
+import { COVER_SUBTITLE_NODE_ID, COVER_TITLE_NODE_ID } from '../geometry'
 import { COVER_PAGE_ID, deckPages } from '../pages'
 import { createPresentation } from '../presentation'
 import { docToPlainText, titleDoc } from '../richdoc'
 import type { Presentation } from '../types'
 import {
+  createDeck,
   deleteSlide,
   setCoverPillColor,
   setCoverSubtitle,
@@ -61,6 +62,49 @@ describe('every deck has a cover', () => {
     // There is no command that removes a cover, and the one that empties a deck
     // of slides is refused for its own reasons — so the first page never moves.
     expect(deleteSlide(presentation, presentation.slides[0].id).ok).toBe(false)
+  })
+})
+
+describe('creating a deck', () => {
+  it('seeds the cover from the name and accepts an ordinary one', () => {
+    const created = unwrap(createDeck({ title: 'Kvartalsrapport' }, checkers))
+    expect(docToPlainText(created.cover.title).trim()).toBe('Kvartalsrapport')
+  })
+
+  it('refuses a name too long for the one line the cover gives it', () => {
+    // The name is the cover's first line, so creation is measured exactly as
+    // editing that line would be — otherwise a deck could be born in a state
+    // its very next edit would refuse.
+    const result = createDeck({ title: 'Et navn som er altfor langt '.repeat(6) }, checkers)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(result.error.details).toMatchObject({ slideId: COVER_PAGE_ID })
+  })
+
+  it('refuses an over-long cover line a caller supplied itself', () => {
+    const result = createDeck(
+      { title: 'Kort', coverSubtitle: 'En undertittel som er altfor lang '.repeat(6) },
+      checkers,
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.details).toMatchObject({ nodeId: COVER_SUBTITLE_NODE_ID })
+  })
+
+  it('measures against the theme the deck is actually created with', () => {
+    const near = { title: 'Kvartalsrapport for hele konsernet'.padEnd(60, ' x') }
+    expect(createDeck(near, checkers).ok).toBe(true)
+    expect(
+      createDeck({ ...near, theme: { headingFontFamily: stack('verdana') } }, checkers).ok,
+    ).toBe(false)
+  })
+
+  it('leaves the pure factory alone: loading and importing are never gated', () => {
+    // `createPresentation` is what migrations and imports go through, and a
+    // document that arrives over-long has to arrive.
+    const long = createPresentation({ title: 'Et navn som er altfor langt '.repeat(6) })
+    expect(docToPlainText(long.cover.title).length).toBeGreaterThan(100)
   })
 })
 

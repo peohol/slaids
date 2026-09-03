@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { createPresentation, watchForErrors } from './helpers'
+import { createPresentation, toast, watchForErrors } from './helpers'
 
 test.describe('presentation library', () => {
   test('runs in local mode without a sign-in gate, and says so', async ({ page }) => {
@@ -30,6 +30,26 @@ test.describe('presentation library', () => {
     await page.getByTestId('back-to-library').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
     expect(guard.errors).toEqual([])
+  })
+
+  test('refuses a name too long for the forside it becomes', async ({ page }) => {
+    // Navnet er også forsidens første linje, så det måles som en hvilken som
+    // helst annen linje på en side. Dialogen blir stående med navnet i seg.
+    await page.goto('/')
+    await page.getByTestId('new-presentation').click()
+    await page
+      .getByTestId('presentation-title-input')
+      .fill('Et navn som er altfor langt til å stå på én linje på forsiden av dette dekket, uansett hvilken font det settes i')
+    await page.getByTestId('create-presentation').click()
+
+    await expect(toast(page, 'får ikke plass på forsiden')).toHaveCount(1)
+    await expect(page.getByTestId('new-presentation-modal')).toBeVisible()
+    await expect(page.getByTestId('editor')).toHaveCount(0)
+
+    // Kortet ned, og den blir opprettet.
+    await page.getByTestId('presentation-title-input').fill('Kort nok')
+    await page.getByTestId('create-presentation').click()
+    await expect(page.getByTestId('editor')).toBeVisible()
   })
 
   test('renames, duplicates and deletes', async ({ page }) => {
