@@ -20,9 +20,10 @@
  *
  *   package.json pins → the driver's target → the shipped package → the binary
  *
- * The last one is the one that cannot be argued with: the browser is asked what
- * it is. The first is what stops `npm install` from quietly changing any of the
- * others — a caret on a package that does not follow semver is an invitation.
+ * The last link can only be executed on Linux: the npm package from
+ * `@sparticuz/chromium` contains a Linux binary. CI and Vercel exercise it there;
+ * Windows and macOS still verify the package pins and Puppeteer's own Chrome
+ * target rather than trying to execute a binary for the wrong operating system.
  *
  * Deliberately a dependency test rather than a runtime check. Production code
  * reading `PUPPETEER_REVISIONS` — which Puppeteer marks `@internal` and does not
@@ -39,6 +40,7 @@ import { describe, expect, it } from 'vitest'
 import serverlessChromium from '@sparticuz/chromium'
 
 const run = promisify(execFile)
+const linuxIt = process.platform === 'linux' ? it : it.skip
 
 /**
  * The Chromium major this repository is wired for, and the driver that speaks
@@ -110,9 +112,10 @@ describe('nettleseren og driveren er den samme Chromium', () => {
     expect(majorOf(target)).toBe(CHROMIUM_MAJOR)
   })
 
-  it('den faktiske binæren er den majoren også', async () => {
+  linuxIt('den faktiske binæren er den majoren også', async () => {
     // Not a version string about a browser — the browser. The package's version
-    // schema *claims* to be the Chromium version; this is that claim checked.
+    // schema *claims* to be the Chromium version; this is that claim checked on
+    // the platform the package actually ships a binary for.
     //
     // One caveat worth knowing rather than guarding: `executablePath()` returns
     // an already-inflated `/tmp/chromium` if one is there, so a machine that
