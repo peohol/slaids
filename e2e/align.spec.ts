@@ -9,6 +9,8 @@ import { expect, test } from './fixtures'
 import {
   addContentToZone,
   createPresentation,
+  enterContentMode,
+  enterZoneMode,
   stage,
   waitForSaved,
   watchForErrors,
@@ -151,17 +153,43 @@ test.describe('alignment', () => {
       return box.y - outer.y
     }
 
-    const atTop = await topOffset()
-    await page.getByTestId('valign-bottom').click()
-    await page.waitForTimeout(150)
-    const atBottom = await topOffset()
-    expect(atBottom).toBeGreaterThan(atTop + 50)
+    /*
+     * Where the text sits while it is edited, and where the static renderer
+     * puts it. The two have to be the same number: the static renderer is what
+     * presentation mode draws, what a shared deck serves and what the offscreen
+     * fit measurement reads — and a centred field used to look centred in the
+     * editor and jump straight back to the top the moment it was presented.
+     */
+    const placements = async (): Promise<{ editing: number; presented: number }> => {
+      const editing = await topOffset()
+      await enterZoneMode(page)
+      const presented = await topOffset()
+      await enterContentMode(page)
+      return { editing, presented }
+    }
 
-    await page.getByTestId('valign-middle').click()
-    await page.waitForTimeout(150)
-    const atMiddle = await topOffset()
-    expect(atMiddle).toBeGreaterThan(atTop + 10)
-    expect(atMiddle).toBeLessThan(atBottom - 10)
+    const align = async (value: 'top' | 'middle' | 'bottom'): Promise<void> => {
+      await field.locator('.tiptap').click()
+      await page.getByTestId(`valign-${value}`).click()
+      await page.waitForTimeout(150)
+    }
+
+    const atTop = await placements()
+    await align('bottom')
+    const atBottom = await placements()
+    await align('middle')
+    const atMiddle = await placements()
+
+    expect(atBottom.editing).toBeGreaterThan(atTop.editing + 50)
+    expect(atMiddle.editing).toBeGreaterThan(atTop.editing + 10)
+    expect(atMiddle.editing).toBeLessThan(atBottom.editing - 10)
+
+    for (const [name, placement] of Object.entries({ atTop, atMiddle, atBottom })) {
+      expect(Math.abs(placement.presented - placement.editing), name).toBeLessThan(1)
+    }
+
+    // Moving text within a box it already fits in cannot make it stop fitting.
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
   test('keeps alignment through a reload', async ({ page }) => {

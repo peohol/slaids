@@ -20,6 +20,7 @@ import {
   renderedBodyFont,
   renderedHeadingFont,
   stage,
+  titleTextOverflow,
   toast,
   topUpToCapacity,
   worstOverflow,
@@ -230,13 +231,7 @@ test.describe('restoring a slide title', () => {
     await expect(toast(page, 'Denne fonten')).toBeVisible()
     expect(await renderedHeadingFont(page)).not.toContain('Consolas')
 
-    const overflow = await page.evaluate(() => {
-      const element = document.querySelector(
-        '[data-testid="stage-slide"] .slide-title',
-      ) as HTMLElement
-      return element.scrollWidth - element.clientWidth
-    })
-    expect(overflow).toBeLessThanOrEqual(1)
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 
   test('refuses a remembered title that no longer fits, and keeps it', async ({ page }) => {

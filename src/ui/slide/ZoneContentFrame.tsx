@@ -6,7 +6,7 @@
  * offscreen.
  */
 
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, type CSSProperties, type ReactNode } from 'react'
 import {
   CARD_DIVIDER_COLOR,
   CARD_RADIUS,
@@ -26,11 +26,44 @@ export interface ZoneContentFrameProps {
   renderAsset: (payload: { assetId: string; fit: 'contain' | 'cover' }) => ReactNode
 }
 
-/** Flexbox placement for a vertical alignment, defaulting to the top. */
-export function justifyFor(align: VerticalAlign | undefined): string {
-  if (align === 'middle') return 'center'
-  if (align === 'bottom') return 'flex-end'
-  return 'flex-start'
+/**
+ * A vertical alignment in the two CSS forms it takes.
+ *
+ * A field's content box is always the full height of the field — that is what
+ * bounds a figure to the field it sits in, and what lets a click anywhere in
+ * the field land in the text — so the field has no free space to distribute
+ * and aligning the box itself moved nothing. The alignment is handed to the
+ * box as a custom property instead and applied to the flow inside it. A file
+ * fills its zone outright, so there it is the picture within the box that
+ * moves, which is `object-position`.
+ *
+ * `safe` is what keeps the fit rule honest: with content taller than its
+ * field, plain centring pushes the top of it out through the top edge, where
+ * `scrollHeight` cannot see it and the overflow measurement reads half the
+ * truth. Overflow then always grows downwards, which is the direction that is
+ * measured.
+ */
+const VERTICAL_ALIGNMENT = {
+  top: { flow: 'start', object: 'top' },
+  middle: { flow: 'safe center', object: 'center' },
+  bottom: { flow: 'safe end', object: 'bottom' },
+} as const satisfies Record<VerticalAlign, { flow: string; object: string }>
+
+/** Where a field's flowed content sits, defaulting to the top of the field. */
+export function flowAlign(align: VerticalAlign | undefined): string {
+  return VERTICAL_ALIGNMENT[align ?? 'top'].flow
+}
+
+/**
+ * Where a picture sits inside the box it fills.
+ *
+ * `undefined` when nothing was chosen, and the stylesheet then leaves
+ * `object-position` at its own centred default: a picture has no flow to start
+ * at the top of, so the middle of the box it was given is where one belongs
+ * until someone says otherwise.
+ */
+export function assetAlign(align: VerticalAlign | undefined): string | undefined {
+  return align && VERTICAL_ALIGNMENT[align].object
 }
 
 function SubfieldStack({
@@ -72,11 +105,13 @@ function SubfieldStack({
             data-fit-scroll=""
             data-subfield-id={field.id}
             data-align={field.verticalAlign ?? 'top'}
-            style={{
-              flexGrow: (body.weights[index] ?? 1) / total,
-              flexBasis: 0,
-              justifyContent: justifyFor(field.verticalAlign),
-            }}
+            style={
+              {
+                flexGrow: (body.weights[index] ?? 1) / total,
+                flexBasis: 0,
+                '--slaids-flow-align': flowAlign(field.verticalAlign),
+              } as CSSProperties
+            }
           >
             {renderField(field, index)}
           </div>
@@ -103,12 +138,14 @@ export function ZoneContentFrame({
           className="zone-content zone-content--container"
           data-content-kind="container"
           data-fit-scroll=""
-          data-align={content.verticalAlign ?? 'top'}
-          style={{
-            color,
-            textShadow: textShadowFor(theme.backgroundColor),
-            justifyContent: justifyFor(content.verticalAlign),
-          }}
+          data-align={content.verticalAlign}
+          style={
+            {
+              color,
+              textShadow: textShadowFor(theme.backgroundColor),
+              '--slaids-asset-align': assetAlign(content.verticalAlign),
+            } as CSSProperties
+          }
         >
           {renderAsset(content.payload)}
         </div>

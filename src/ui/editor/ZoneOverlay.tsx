@@ -3,6 +3,11 @@
  *
  * Everything here is positioned from the geometry engine, including the ratio
  * drag handles, so the overlay can never disagree with what is rendered.
+ *
+ * It is drawn *around* the zones, never across them: which zone is selected or
+ * hovered is a property of its edge. The slide underneath has to look the same
+ * in zone mode as it does while its text is edited and as it does on screen —
+ * an author arranging zones is looking at the slide, not at chrome.
  */
 
 import { Fragment } from 'react'
@@ -65,8 +70,6 @@ export function ZoneOverlay({
 }: ZoneOverlayProps) {
   const nodes = collectNodes(slide.root)
   const selectedRect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
-  const hoveredRect =
-    hoveredNodeId && hoveredNodeId !== selectedNodeId ? geometry.rects.get(hoveredNodeId) : undefined
 
   const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
   const breadcrumbIds: NodeId[] = []
@@ -87,6 +90,7 @@ export function ZoneOverlay({
         const rect = geometry.rects.get(node.id)
         if (!rect) return null
         const selected = node.id === selectedNodeId
+        const hovered = !selected && node.id === hoveredNodeId
         const inSelection =
           selectedNodeId !== null && !selected && isDescendant(slide.root, selectedNodeId, node.id)
         return (
@@ -95,6 +99,7 @@ export function ZoneOverlay({
             className={[
               'zone-outline',
               selected ? 'zone-outline--selected' : '',
+              hovered ? 'zone-outline--hover' : '',
               inSelection ? 'zone-outline--in-selection' : '',
               node.kind === 'split' ? 'zone-outline--split' : '',
             ]
@@ -105,18 +110,6 @@ export function ZoneOverlay({
           />
         )
       })}
-
-      {hoveredRect && (
-        <div className="zone-veil zone-veil--hover" style={absoluteStyle(hoveredRect)} />
-      )}
-
-      {selectedRect && (
-        <div
-          className="zone-veil zone-veil--selected"
-          style={absoluteStyle(selectedRect)}
-          data-testid="zone-selected-veil"
-        />
-      )}
 
       {/* Ratio drag handles sit exactly in the gap between siblings. */}
       {nodes.map((node) => {

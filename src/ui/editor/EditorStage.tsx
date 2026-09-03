@@ -76,6 +76,21 @@ export interface EditorStageProps {
   dropTargets: ReadonlySet<NodeId>
 }
 
+/**
+ * How far the slide title reaches past the zone it was given, live.
+ *
+ * A title is one line, so overflow is sideways. Both the zone and the title's
+ * own box clip it, and which of them the text spills out of is an accident of
+ * how the box happens to be sized — so the worst of the two is the answer. The
+ * offscreen `measureTitleFit` is the one that judges a committed change; this
+ * is the guard that runs while the author is still typing.
+ */
+function titleOverflow(host: HTMLElement | null): number {
+  if (!host) return 0
+  const boxes = [host, ...host.querySelectorAll<HTMLElement>('.rich-doc--title')]
+  return boxes.reduce((worst, box) => Math.max(worst, box.scrollWidth - box.clientWidth), 0)
+}
+
 export function EditorStage({ slide, actions, onAddContent, dropTargets }: EditorStageProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
@@ -307,14 +322,7 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                     variant="title"
                     placeholder="Slidetittel"
                     overflowMessage="Overskriften får ikke plass i tittelsonen."
-                    measureOverflow={() =>
-                      titleHostRef.current
-                        ? Math.max(
-                            0,
-                            titleHostRef.current.scrollWidth - titleHostRef.current.clientWidth,
-                          )
-                        : 0
-                    }
+                    measureOverflow={() => titleOverflow(titleHostRef.current)}
                     onEditorReady={(editor) => {
                       titleEditorRef.current = editor
                       if (!editor && useActiveEditor.getState().editor === editor) {
