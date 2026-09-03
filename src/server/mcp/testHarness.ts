@@ -17,6 +17,8 @@
  * throw rather than assert, which reads the same in a failure and costs nothing.
  */
 
+import type { SlidePreviewRenderer } from '../../agent/preview'
+import { runOperation } from '../../agent/registry'
 import type { AgentContext, AgentScope } from '../../agent/types'
 import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
@@ -25,7 +27,7 @@ import { handleAgentRequest, type AgentApiDeps } from '../agent/handler'
 import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import { AGENT_API_BASE_PATH, AGENT_MCP_PATH } from '../../routing'
 import type { JsonRpcId, JsonRpcResponse } from './jsonrpc'
-import type { McpToolResult } from './result'
+import { resultText, type McpToolResult } from './result'
 
 export const ORIGIN = 'https://slaids.example'
 export const TOKEN = 'slaids_at_0123456789012345678901234567890123456789012'
@@ -60,11 +62,25 @@ export async function closeHarnessDatabases(): Promise<void> {
   while (databases.length > 0) await databases.pop()?.delete()
 }
 
-export function harness(options: { scopes?: AgentScope[] } = {}): Harness {
+export function harness(
+  options: {
+    scopes?: AgentScope[]
+    /**
+     * A preview renderer, for the tests about rendered visual feedback.
+     *
+     * Absent is the honest default: a deployment without one answers
+     * `PREVIEW_UNAVAILABLE`, and a harness that always had one would hide that.
+     */
+    preview?: SlidePreviewRenderer
+  } = {},
+): Harness {
   counter += 1
   const database = new SlaidsDatabase(`slaids-mcp-${counter}`)
   databases.push(database)
-  const context: AgentContext = { repository: new DexieSlaidsRepository(database) }
+  const context: AgentContext = {
+    repository: new DexieSlaidsRepository(database),
+    ...(options.preview ? { preview: options.preview } : {}),
+  }
   const audit = new MemoryAudit()
 
   const principal: AgentPrincipal = {
@@ -199,7 +215,7 @@ export async function callOk(
 ): Promise<Record<string, unknown>> {
   const result = await callTool(harnessed, name, args)
   if (result.isError || !result.structuredContent) {
-    throw new Error(`Forventet at «${name}» gikk bra, fikk ${result.content[0]?.text ?? '(ingenting)'}`)
+    throw new Error(`Forventet at «${name}» gikk bra, fikk ${resultText(result) || '(ingenting)'}`)
   }
   return result.structuredContent
 }
@@ -293,15 +309,73 @@ export async function rest(
   operation: string,
   input: Record<string, unknown> = {},
 ): Promise<RestAnswer> {
-  const response = await handleAgentRequest(
+  const response = await restRaw(harnessed, operation, input, {
+    headers: { Accept: 'application/json' },
+  })
+  return { status: response.status, body: (await response.json()) as RestAnswer['body'] }
+}
+
+/**
+ * One REST call, unparsed.
+ *
+ * `rest` above asks for JSON, which every operation but one answers with
+ * anyway. A rendered preview answers with the picture itself unless asked
+ * otherwise, so a test about *that* has to see the response rather than a body
+ * somebody already decided how to read.
+ */
+export function restRaw(
+  harnessed: Harness,
+  operation: string,
+  input: Record<string, unknown> = {},
+  init: {
+    headers?: Record<string, string>
+    /** `null` to send no `Authorization` at all, for the unauthenticated cases. */
+    token?: string | null
+  } = {},
+): Promise<Response> {
+  const token = init.token === undefined ? TOKEN : init.token
+  return handleAgentRequest(
     harnessed.deps,
     new Request(`${ORIGIN}${AGENT_API_BASE_PATH}/operations/${operation}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'Content-Type': 'application/json',
+        ...init.headers,
+      },
       body: JSON.stringify(input),
     }),
   )
-  return { status: response.status, body: (await response.json()) as RestAnswer['body'] }
+}
+
+/**
+ * A deck put straight into this harness's store, past the transport.
+ *
+ * For the tests whose subject is what a *token* may do: a read-only token
+ * cannot create the deck it is then supposed to be allowed to render, and
+ * creating it in a second harness would put it in a second database. Agent Core
+ * runs in-process with its caller's access, so this is the same code with no
+ * scope check in front of it — which is exactly what a fixture wants.
+ */
+export async function seedDeck(
+  harnessed: Harness,
+  title = 'Seedet dekk',
+): Promise<{ presentationId: string; slideId: string; rootNodeId: string; revision: string }> {
+  const created = await runOperation(harnessed.context, 'create_presentation', { title })
+  if (!created.ok) throw new Error(`Kunne ikke opprette dekket: ${created.error.code}`)
+  const deck = created.value as { presentationId: string; slides: { slideId: string }[] }
+  const inspected = await runOperation(harnessed.context, 'inspect_slide', {
+    presentationId: deck.presentationId,
+    slideId: deck.slides[0].slideId,
+  })
+  if (!inspected.ok) throw new Error(`Kunne ikke inspisere sliden: ${inspected.error.code}`)
+  const slide = inspected.value as { rootNodeId: string; revision: string }
+  return {
+    presentationId: deck.presentationId,
+    slideId: deck.slides[0].slideId,
+    rootNodeId: slide.rootNodeId,
+    revision: slide.revision,
+  }
 }
 
 /** The id and revision of a fresh presentation, made the way an agent would. */

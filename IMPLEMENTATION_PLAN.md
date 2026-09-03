@@ -2045,6 +2045,8 @@ Preview skal bruke Slaids' virkelige renderer og geometri, ikke en separat agent
 
 Dette trenger ikke implementeres i første Agent Core-versjon. Kontrakten skal imidlertid ikke utformes slik at visuell feedback senere blir vanskelig.
 
+Bygget. Se «Status: hva som er bygget» → «Fase 5: rendret preview».
+
 ### Assets
 
 Slaids skal lagre agent-assets på samme måte som assets lagt inn via editoren.
@@ -2383,6 +2385,8 @@ Legg til en måte å rendere en slide til et bilde/preview som agenten kan inspi
 
 Bruk den virkelige Slaids-rendereren.
 
+Bygget. Se «Status: hva som er bygget» → «Fase 5: rendret preview».
+
 ### Tester
 
 Agent Core skal ha egne unit-/integrasjonstester.
@@ -2407,6 +2411,38 @@ Minst:
 - ugyldig assetreferanse avvises;
 - REST og MCP gir semantisk samme Agent Core-resultat for samme operasjon;
 - scopes håndheves serverside.
+
+For fase 5 i tillegg:
+
+- en enkel slide kan rendres;
+- en slide med flere soner og tekst gjengis, med sonene på nøyaktig de rect-ene
+  geometrimotoren gir editoren;
+- bilder og SVG-assets inngår korrekt, som den samme `<img>` editoren tegner;
+- en fil lageret ikke har rapporteres framfor å mangle stille;
+- ukjent presentasjon og ukjent side gir den eksisterende, handlingsbare
+  feilsemantikken (`PRESENTATION_NOT_FOUND`, `SLIDE_NOT_FOUND` med sidene som
+  finnes);
+- `presentations:read` alene holder, og et ugyldig eller manglende token avvises
+  fortsatt med det samme 401-et;
+- REST og MCP peker på den samme underliggende previewfunksjonen, og svarer med
+  de samme bytene og det samme strukturerte resultatet;
+- MCP-resultatet valideres mot den offisielle SDK-en og inneholder faktisk
+  visuelt innhold en agent kan konsumere – en `ImageContent`-blokk, ikke base64
+  i en tekstblokk;
+- preview-generering muterer aldri presentasjonen eller revisjonen;
+- deployment-testen følger et binært previewsvar gjennom den kompilerte
+  `vercel.json`-rutingen, og håndhever at nettleserbinærene er pakket med
+  funksjonen;
+- bundeltesten laster den deployede filen i vanlig Node, med
+  `react-dom/server`, `puppeteer-core` og `@sparticuz/chromium` som eksterne
+  importer Node må klare å løse, og sjekker at appens eget stilark faktisk ligger
+  i den.
+
+Og minst én integrasjonstest som kjører den ekte løkken: bygg en slide gjennom
+MCP med den offisielle klienten over en ekte socket, legg inn tekst og en SVG,
+hent previewet, og verifiser at det er en gyldig, ikke-tom PNG på 1600 × 900 med
+mer enn én farge der innholdet ligger – og at bildet endrer seg når dekket gjør
+det.
 
 ### Ferdigkriterium
 
@@ -2435,9 +2471,14 @@ uten:
 - leverandørspesifikk KI-kode i Slaids;
 - ekstern betalt bildegenerering.
 
+Hele løkken er nåbar, siste linje inkludert. `src/render/agentLoop.test.ts`
+kjører den: den offisielle MCP-klienten over en ekte socket, mot en ekte
+Chromium, og leser pikslene tilbake for å slå fast at bildet faktisk viser
+sliden – og endrer seg når dekket gjør det.
+
 ### Status: hva som er bygget
 
-Fase 1, 2, 3 og 4 er på plass:
+Fase 1, 2, 3, 4 og 5 er på plass:
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
   (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
@@ -2447,7 +2488,7 @@ Fase 1, 2, 3 og 4 er på plass:
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
   `list_assets`, `validate_slide`, `validate_presentation`.
-- Lesing (forts.): `get_sharing`.
+- Lesing (forts.): `get_sharing`, `render_slide_preview`.
 - Skriving: `create_presentation`, `set_cover`, `set_cover_color`, `add_slide`,
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
@@ -2926,8 +2967,126 @@ først når en klient spør, med `unrepresentable: 'throw'` – så en operasjon
 input ikke lar seg uttrykke i JSON Schema ville typechecket, deployet grønt og
 svart 500 på den aller første `tools/list`. Nå stopper den i byggingen.
 
-Fortsatt ikke bygget: fase 5 (rendret preview). Den legges oppå Agent Core uten å
-endre domenemodellen.
+#### Fase 5: rendret preview
+
+`render_slide_preview` gir en agent et PNG av én side i dekket, tegnet slik et
+publikum ser den. Det er den ene tingen strukturell validering ikke kan svare
+på: `validate_slide` sier om en slide er *lovlig*, ikke om den er god – om
+blikket lander riktig, om et kort er knøttlite ved siden av nabokortet, om en
+figur er beskåret på en måte tallene er helt fornøyde med. Løkken §44 ber om er
+derfor `bygg → validate_slide → render_slide_preview → se → juster → rendre på
+nytt`, og den er nå kjørbar.
+
+**Det er den virkelige rendereren, ikke en til.** Markupen kommer fra
+`DeckPageView` – den samme komponenten presentasjonsmodus, den delte visningen
+og filmstripen tegner – inne i den samme `SlideRenderProvider`
+`PresentationPlayer` bygger, under appens egne stilark, importert med `?inline`
+fra `src/styles/`. Det finnes ingen geometri, ingen typografi, ingen fit-regel og
+ingen layout i previewlaget: en regel som legges til i `slide.css` i morgen er i
+previewet i morgen, uten at noen husker å oppdatere noe. `src/render/document.tsx`
+eier bare *siden rundt* sliden, altså det nettleseren ellers får fra `index.html`
+og `main.tsx`.
+
+**Rasteriseringen er en ekte Chromium**, og alternativene ble vurdert og forkastet
+med samme begrunnelse hver gang. En vektorrasterizer (resvg) kan ikke tegne HTML
+i det hele tatt. En HTML-til-SVG-layoutmotor (satori, og dermed `@vercel/og`)
+forstår et utsnitt av flexbox og ingen stilark, så previewet måtte uttrykkes på
+nytt som inline-stiler den kjenner – som er nøyaktig den «separate
+agentrendereren» §44 forbyr, og nøyaktig den som stille slutter å stemme med
+editoren. Og å måle tekst uten en shaper er hvordan et preview ender med å være
+uenig med fit-reglene det skal illustrere. Nettleseren er prisen for ekte visuell
+paritet.
+
+**`puppeteer-core` + `@sparticuz/chromium`, som vanlige avhengigheter.** Ingen
+nedlasting ved kjøring, og ingen konfigurasjon på Vercel: pakken bærer sin egen
+Chromium og pakker den ut i funksjonens `/tmp`. Binærene er brotli-blober som
+leses via en sti utledet av `import.meta.url`, så *ingen importgraf nevner dem* –
+`@vercel/nft` pakker JavaScript-en og ikke nettleseren, og resultatet ville
+typechecket, bygget, deployet grønt og svart «the input directory does not exist»
+på hver eneste preview. Derfor står de eksplisitt i `vercel.json`
+(`includeFiles`), og `deployment.test.ts` håndhever det. Nettleseren gjenbrukes
+per varm instans og startes på nytt hvis den er borte; å starte en per
+forespørsel ville vært det meste av forespørselen.
+
+**Fontene hentes her, ikke i nettleseren.** Det opplagte – legge appens eget
+`<link rel="stylesheet">` i dokumentet – virket, og kostet **tolv sekunder per
+bilde**: en headless Chromium i en serverless-container henter stilarket og hvert
+subset over en kald forbindelse, på hver side, fordi en sides HTTP-cache ikke er
+noe neste invokasjon kan regne med. `src/render/fonts.ts` henter dem i stedet i
+denne prosessen, én gang per varm instans, og baker dem inn som `data:`-URL-er.
+Det tok tiden ned til rundt en tiendedels sekund – og gjorde en rendring
+uavhengig av om en fontjeneste er nåbar i det øyeblikket. Bare
+`fonts.gstatic.com` hentes fra: stilarket er et svar utenfra som navngir URL-er å
+hente, som er formen på en request forgery, og en allowlist er svaret som ikke
+er avhengig av at svaret oppfører seg. En familie som ikke kan hentes lenkes i
+stedet, og `fontsReady: false` sier hva som skjedde framfor å fotografere
+reservefonten i stillhet.
+
+**Dokumentet henter ingenting og kjører ingenting.** Ingen script-tagg, statisk
+markup, innbakte fonter, og en lagret SVG tegnet gjennom en `<img>` fra en
+`data:`-URL – nøyaktig som i appen, så den kan ikke kjøre der heller. Bildene er
+hentet *før* markupen bygges, fordi `renderToStaticMarkup` ikke kjører effekter:
+en `useEffect`-basert URL-oppslag ville gitt et preview med «Laster figur …» der
+figuren skulle vært. Det er dét `AssetUrlSource.resolveSync` er til for, og
+`src/state/assetSources.ts` finnes fordi de to kildene nettleseren bruker drar
+inn hver sin lagringsmekanisme – som ikke har noe å gjøre i modulgrafen til en
+renderer som bare tegner en slide.
+
+**Agent Core er fortsatt React-fritt.** Rendereren injiseres, på samme måte som
+repositoryet og fit-sjekkerne: `src/agent/preview.ts` sier hva et preview *er*,
+`AgentContext.preview` er der det kommer inn, og `src/render/` er
+implementasjonen. En installasjon uten renderer svarer `PREVIEW_UNAVAILABLE` –
+aldri et bilde av ingenting, og aldri en nest beste renderer som var lettere å
+lenke. `PREVIEW_FAILED` er den andre halvdelen: nettleseren finnes, og dette
+forsøket gikk galt. To koder fordi det er to forskjellige neste trekk.
+
+**`src/server/` importerer `src/render/` fra nøyaktig én fil** –
+`src/server/agent/index.ts`, deployment-sømmen der alle de andre injeksjonene
+også blir virkelige. Hullet i veggen er med vilje, og `boundary.test.ts` spikrer
+det til én fil og én retning: appen importerer aldri `src/render/`, og
+`puppeteer-core` finnes ingen andre steder i `src/`. Klientbundelen er byte for
+byte den samme som før fase 5.
+
+**Bildet på ledningen er én verdi og to serialiseringer.** Operasjonen svarer med
+et `AgentImage` – bytes, media-type og pikselstørrelse – og
+`detachImage` i `src/agent/image.ts` deler svaret i «det JSON kan bære» og
+«bildet». Den kalles fra `performOperation`, altså den ene funksjonen begge
+transportene deler, så «det ligger et bilde i dette svaret» avgjøres én gang for
+begge:
+
+- **REST** svarer med bildet: `200`, `Content-Type: image/png`, bytene som
+  kropp, og operasjonen og revisjonen i `X-Slaids-*`. Et par hundre kilobyte
+  base64 inne i en konvolutt kalleren må pakke opp igjen er ikke en tjeneste. Hele
+  det strukturerte svaret er ett `Accept: application/json` unna, med bildet som
+  base64 i feltet operasjonen la det i – så ingenting en agent kan lese over MCP
+  er utilgjengelig over REST.
+- **MCP** svarer med en `ImageContent`-blokk, som er base64 pluss en media-type.
+  Det er *den* blokken en klient gir videre til en multimodal modell; de samme
+  bytene limt inn i en tekstblokk er en halv megabyte tegn den leser som tegn.
+  `structuredContent` beskriver bildet og gjentar det ikke: bytes der ville vært
+  en andre kopi i alt som logger JSON. `interop.test.ts` kjører den offisielle
+  SDK-en mot en ekte socket, så blokkens form valideres mot spesifikasjonens eget
+  skjema framfor mot vår lesning av den.
+
+**Previewet er en lesing.** `presentations:read` alene holder, ingenting lagres,
+og revisjonen svaret bærer er den lesingen bildet viser – så en agent kan rendre,
+tenke, og skrive mot den samme revisjonen uten å bli fortalt av sitt eget
+skjermbilde at den er utdatert. Auditen får én rad under operasjonens eget navn,
+og radformen er fortsatt lukket: det finnes ingen kolonne bildet kunne havnet i.
+
+**Adresseringen er `presentationId` + `slideId`**, der `slideId` er en slide,
+`__cover__` for forsiden, eller id-en til en avledet referanseside – oppslaget
+går mot `deckPages`, den samme sidemodellen presentasjonsmodus blar gjennom. En
+id som ikke finnes gir `SLIDE_NOT_FOUND` med id-ene som *finnes*, slik
+`inspect_slide` gjør. QR-siden er ikke med: den finnes bare mens delingen er på,
+og `get_sharing` er det som svarer på om den gjør det.
+
+**`scale`** er piksler per logisk enhet, `1` som standard (1600 × 900, det
+publikum ser). Lavere er knappen som betyr noe for en agent, fordi et bilde er
+tokens; hele skaleringen er rasterizerens `deviceScaleFactor`, så layouten skjer
+alltid i det designrommet Slaids er definert i og bare samplingen endrer seg. En
+CSS-transform ville i stedet lagt ut sliden i én størrelse og strukket resultatet,
+som ikke er det noen ser.
 
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
@@ -2983,6 +3142,7 @@ Supabase-persistens og personlig innlogging er nå på plass. REST/MCP-agent-API
 
 > **Oppdatert:** første fase er nådd, og flere skiver er lagt oppå den uten at
 > domenemodellen ble skrevet om: Supabase som primær persistens (§ 43), deling
-> som publisering av en skrivebeskyttet kopi (§ 43.5), og agent-API-et (§ 44) –
-> Agent Core, REST med tokens og scopes, og MCP over den samme inngangen. Det som
-> gjenstår av § 44 er fase 5: rendret preview en agent kan se på.
+> som publisering av en skrivebeskyttet kopi (§ 43.5), og agent-API-et (§ 44) i
+> sin helhet – Agent Core, REST med tokens og scopes, MCP over den samme
+> inngangen, og rendret preview en agent kan se på, tegnet av Slaids' egen
+> renderer.

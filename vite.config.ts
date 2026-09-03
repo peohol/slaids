@@ -12,6 +12,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // The headless preview inlines the app's own stylesheets with `?inline`
+    // (see `src/render/styles.ts`). Without this Vitest hands back an empty
+    // string for a CSS import, which would make every preview test pass
+    // against an unstyled slide — the one thing the preview must not be.
+    css: true,
     setupFiles: ['./vitest.setup.ts'],
     // The Edge Function's rules are the public security model, so they are
     // covered like everything else. Only the pure module is reachable from

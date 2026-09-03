@@ -20,6 +20,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SlidePreviewRenderer } from '../../agent/preview'
 import type { AgentContext } from '../../agent/types'
 import { AGENT_AUDIT_TABLE, hashAgentToken } from '../../persistence/agentTokens'
 import type { SupabaseAgentTokens } from '../../persistence/agentTokens'
@@ -84,9 +85,23 @@ export async function authenticateAgentToken(
  * `sharing` is the same object: `SupabaseSlaidsRepository` implements both
  * interfaces, and publishing needs the public backend that only exists here.
  */
-export function agentContextFor(client: SupabaseClient, principal: AgentPrincipal): AgentContext {
+export function agentContextFor(
+  client: SupabaseClient,
+  principal: AgentPrincipal,
+  /**
+   * The preview renderer, when the deployment has one.
+   *
+   * Passed in rather than built here for the reason the whole layer is built
+   * this way: drawing a slide means React, the app's stylesheets and a browser,
+   * and this file may not import any of them (`boundary.test.ts`). It is one
+   * object shared between requests — a browser is expensive to start and holds
+   * no per-caller state — while the repository stays per-request, because its
+   * version bookkeeping is what makes a guarded save a guard.
+   */
+  preview?: SlidePreviewRenderer,
+): AgentContext {
   const repository = new SupabaseSlaidsRepository(() => client, principal.ownerId)
-  return { repository, sharing: repository }
+  return { repository, sharing: repository, ...(preview ? { preview } : {}) }
 }
 
 /**

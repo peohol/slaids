@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AGENT_TOOL_PREFIX } from '../../agent/registry'
 import { AGENT_MCP_PATH } from '../../routing'
 import { handleAgentRequest } from '../agent/handler'
+import { resultText } from './result'
 import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from './tools'
 import {
   ORIGIN,
@@ -130,7 +131,7 @@ describe('en hel arbeidsflyt over MCP', () => {
     // The structured half alone was enough for every step above; the text block
     // is the same JSON, for a client that only shows text.
     const asText = await callTool(harnessed, tool('get_presentation'), { presentationId })
-    expect(JSON.parse(asText.content[0].text)).toEqual(asText.structuredContent)
+    expect(JSON.parse(resultText(asText))).toEqual(asText.structuredContent)
   })
 })
 
@@ -224,7 +225,7 @@ describe('feil som er resultater', () => {
     const harnessed = harness()
     const result = await callTool(harnessed, tool('get_presentation'), { presentationId: 'p_x' })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('PRESENTATION_NOT_FOUND')
+    expect(resultText(result)).toContain('PRESENTATION_NOT_FOUND')
   })
 })
 

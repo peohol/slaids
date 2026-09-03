@@ -29,6 +29,8 @@ import { coverOverflow, fitContextFor, slideOverflow, type StructuralOptions } f
 import { DEFAULT_PILL_COLOR, FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
+import { AssetSourceProvider } from './assetSource'
+import { repositoryAssetSource } from './assetSources'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
 import { ZoneContentView } from '../ui/slide/ZoneContentView'
 import { RichDocView } from '../ui/slide/RichDocView'
@@ -71,7 +73,15 @@ function withHost<T>(rect: Rect, render: () => React.ReactNode, read: (host: HTM
   const { host: element, root: reactRoot } = ensureHost()
   element.style.width = `${rect.width}px`
   element.style.height = `${rect.height}px`
-  flushSync(() => reactRoot.render(render()))
+  // The measuring root is detached from the app's, so it has to name its own
+  // asset source. It is the owner's own files: an inline picture is measured as
+  // the `<img>` it will be, not as the placeholder an unresolved one draws —
+  // and those are different heights.
+  flushSync(() =>
+    reactRoot.render(
+      <AssetSourceProvider value={repositoryAssetSource}>{render()}</AssetSourceProvider>,
+    ),
+  )
   try {
     return read(element)
   } finally {

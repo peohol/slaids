@@ -14,7 +14,8 @@
 import { useEffect, useState } from 'react'
 import { fetchSharedSnapshot, type SharedDeckOutcome } from '../../sharing/shareClient'
 import { shareUrl } from '../../routing'
-import { AssetSourceProvider, useSharedAssetSource } from '../../state/assetSource'
+import { AssetSourceProvider } from '../../state/assetSource'
+import { useSharedAssetSource } from '../../state/assetSources'
 import { PresentationPlayer } from '../present/PresentationPlayer'
 
 /**

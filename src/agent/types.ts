@@ -17,6 +17,7 @@ import type { ContentFitChecker, TitleFitChecker } from '../domain/fit'
 import type { GeometryOptions } from '../domain/geometry'
 import type { DomainError, DomainErrorCode } from '../domain/result'
 import type { SharingRepository, SlaidsRepository } from '../persistence/repository'
+import type { SlidePreviewRenderer } from './preview'
 
 /**
  * What an agent token may be allowed to do.
@@ -64,6 +65,9 @@ export type AgentOwnErrorCode =
   | 'STORAGE_FAILED'
   | 'CONFLICT'
   | 'SHARING_UNAVAILABLE'
+  /** The deployment has no renderer to draw a preview with; see `preview.ts`. */
+  | 'PREVIEW_UNAVAILABLE'
+  | 'PREVIEW_FAILED'
   | 'INTERNAL_ERROR'
 
 export type AgentErrorCode = DomainErrorCode | AgentOwnErrorCode
@@ -110,6 +114,17 @@ export interface AgentContext {
   fits?: ContentFitChecker
   fitsTitle?: TitleFitChecker
   geometry?: GeometryOptions
+  /**
+   * Rendered visual feedback, when the deployment can draw it.
+   *
+   * Injected for the same reason the fit checkers are, and one more: drawing a
+   * slide the way a viewer sees it means React, a stylesheet and a browser, and
+   * Agent Core is required to work without any of the three. Absent means the
+   * preview operation answers `PREVIEW_UNAVAILABLE` and says what is missing —
+   * an approximate picture would be worse than none, because an agent would
+   * correct a composition that is not the one anybody will see.
+   */
+  preview?: SlidePreviewRenderer
 }
 
 /**

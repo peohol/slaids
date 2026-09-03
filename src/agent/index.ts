@@ -8,10 +8,17 @@
  * image policy: Slaids never generates a picture, it stores one an agent
  * already has (`upload_asset`) or vector markup an agent wrote
  * (`create_svg_asset`).
+ *
+ * `render_slide_preview` is not an exception to that. It photographs a slide
+ * that already exists, with Slaids' own renderer, so an agent can look at what
+ * it built — and even that renderer is injected (`preview.ts`), because it is
+ * React and a browser, and this layer is required to work without either.
  */
 
 export * from './types'
 export * from './binary'
+export * from './image'
+export * from './preview'
 export * from './operation'
 export * from './presentation'
 export * from './text'
@@ -21,6 +28,7 @@ export * from './operations/assets'
 export * from './operations/content'
 export * from './operations/deck'
 export * from './operations/layout'
+export * from './operations/preview'
 export * from './operations/references'
 export * from './operations/sharing'
 export * from './operations/slides'

@@ -91,3 +91,30 @@ function decodeBase64(raw: string): Result<Uint8Array> {
   }
   return err('INVALID_ARGUMENT', 'Kjøremiljøet kan ikke dekode base64.')
 }
+
+/**
+ * Bytes as base64, the other direction.
+ *
+ * The same two runtimes as `decodeBase64` and for the same reason: a browser
+ * has `btoa`, a Node build may only have `Buffer`. It is here rather than in the
+ * transport because both transports need it for the same value — a rendered
+ * preview is bytes in Agent Core, base64 in an MCP image block and base64 in a
+ * REST envelope a caller asked for as JSON — and two encoders would be two
+ * chances to differ about padding.
+ */
+export function encodeBase64(bytes: Uint8Array): string {
+  const buffer = (globalThis as { Buffer?: { from(input: Uint8Array): { toString(encoding: string): string } } })
+    .Buffer
+  if (buffer) return buffer.from(bytes).toString('base64')
+  if (typeof globalThis.btoa === 'function') {
+    // In chunks: `String.fromCharCode(...bytes)` on a megabyte of pixels
+    // overflows the argument limit, which is a crash rather than a slow path.
+    let binary = ''
+    const CHUNK = 0x8000
+    for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK))
+    }
+    return globalThis.btoa(binary)
+  }
+  throw new Error('Kjøremiljøet kan ikke kode base64.')
+}

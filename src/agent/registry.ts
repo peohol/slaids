@@ -15,6 +15,7 @@ import { contentOperations } from './operations/content'
 import { coverOperations } from './operations/cover'
 import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
+import { previewOperations } from './operations/preview'
 import { referenceOperations } from './operations/references'
 import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
@@ -47,6 +48,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...sharingOperations,
   ...assetOperations,
   ...validationOperations,
+  ...previewOperations,
 ]
 
 const byName = new Map<string, AnyAgentOperation>(

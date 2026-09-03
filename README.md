@@ -44,6 +44,9 @@ layoutet er nestet.
   transportene kaller den samme koden
 - tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
 - binær filopplasting uten base64, og `409 CONFLICT` når noen skrev først
+- **rendret preview** (`render_slide_preview`): én side som PNG, tegnet av
+  Slaids' egne komponenter og stilark i en ekte Chromium, så en agent kan se på
+  komposisjonen og rette den. Binært over REST, som en image-blokk over MCP.
 - én auditrad per kall – uten slideinnhold, filer eller hele forespørsler
 
 **Deling**
@@ -318,8 +321,16 @@ npm run dev          # http://localhost:5173
 | `npm run preview`   | Serverer produksjonsbuilden på port 4173      |
 | `npm run typecheck` | `tsc --noEmit`                                |
 | `npm run lint`      | ESLint                                        |
-| `npm test`          | Vitest (domene, geometri, schema, persistens, agent-API og MCP) |
+| `npm test`          | Vitest (domene, geometri, schema, persistens, agent-API, MCP og rendret preview) |
 | `npm run e2e`       | Playwright (bygger og serverer selv)          |
+
+`npm test` starter en ekte Chromium for previewtestene. Den kommer fra
+`@sparticuz/chromium`, som er en vanlig avhengighet, så det trengs ingenting –
+men `SLAIDS_CHROMIUM_EXECUTABLE` kan peke på en du allerede har:
+
+```bash
+SLAIDS_CHROMIUM_EXECUTABLE=/sti/til/chrome npm test
+```
 
 Playwright laster normalt ned egen nettleser. I miljøer uten nedlasting kan du
 peke på en eksisterende Chromium:
@@ -428,6 +439,7 @@ om en eksplisitt sluttkontroll – uten React, museklikk eller databasetilgang:
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title` | innholdet                              |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
+| `render_slide_preview`                                                 | tegner én side som PNG, slik publikum ser den |
 
 For bilder finnes det nøyaktig to dører inn:
 
@@ -486,6 +498,78 @@ Tre ting til er verdt å vite om hvordan laget oppfører seg:
 
 Se `IMPLEMENTATION_PLAN.md` §44 for hele kontrakten.
 
+## Rendret preview: å faktisk se sliden
+
+`validate_slide` svarer på om en slide er **lovlig**. Den kan ikke svare på om
+den er **god** – om blikket lander riktig, om et kort er knøttlite ved siden av
+nabokortet, om en figur er beskåret på en måte tallene er helt fornøyde med. Det
+krever å se den, og det er dét `render_slide_preview` er til for:
+
+```text
+bygg slide → validate_slide → render_slide_preview → se på den → juster → rendre på nytt
+```
+
+```bash
+export SLAIDS_TOKEN=slaids_at_…
+export SLAIDS_API=https://<domenet>/api/agent/v1
+
+# Bildet, som et bilde
+curl -sS -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…"}' \
+     "$SLAIDS_API/operations/render_slide_preview" -o slide.png
+
+# Eller hele svaret som JSON, med bildet som base64
+curl -sS -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -H 'Accept: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…","scale":0.5}' \
+     "$SLAIDS_API/operations/render_slide_preview"
+```
+
+- **Det er den virkelige rendereren.** Ikke et bilde bygget av de samme tallene:
+  de samme React-komponentene presentasjonsmodus og den delte visningen tegner,
+  under Slaids' egne stilark, i en ekte Chromium. En regel som legges til i
+  `slide.css` er i previewet med en gang. Det finnes ingen «agentrenderer» å
+  drifte fra hverandre.
+- **`slideId` er en side, ikke bare en slide.** En slide, `__cover__` for
+  forsiden, eller id-en til en avledet referanseside. En id som ikke finnes gir
+  `SLIDE_NOT_FOUND` med id-ene som *finnes*, så neste kall kan treffe.
+- **`scale`** er piksler per logisk enhet. `1` (standard) gir 1600 × 900, det
+  publikum ser; `0.5` gir 800 × 450 og en fjerdedel av tokenene. Layouten skjer
+  alltid i designrommet – bare samplingen endrer seg – så et lite preview er den
+  samme sliden, ikke en strukket en.
+- **Det endrer ingenting.** `presentations:read` alene holder, og revisjonen
+  svaret bærer er den lesingen bildet viser, så en agent kan rendre, tenke og
+  skrive mot den samme revisjonen uten en falsk `CONFLICT`.
+- **Over REST er svaret bildet**: `200` med `Content-Type: image/png` og bytene
+  som kropp, pluss `X-Slaids-Revision` og `X-Slaids-Operation`. Et par hundre
+  kilobyte base64 inne i en konvolutt er ikke en tjeneste. `Accept:
+  application/json` gir den vanlige konvolutten med bildet som base64 i
+  `data.image.base64`, sammen med `pageKind`, `scale`, `fontsReady` og
+  `warnings`.
+- **Over MCP er svaret en image-blokk**, altså MCPs egen mekanisme for visuelt
+  innhold – den blokken en klient gir videre til en multimodal modell. De samme
+  bytene limt inn som tekst ville vært en halv megabyte tegn modellen leser som
+  tegn. `structuredContent` beskriver bildet (media-type, størrelse, byte-antall)
+  og gjentar det ikke.
+- **`fontsReady` og `warnings` er verdt å lese.** Fontene hentes serverside og
+  bakes inn i dokumentet, men en familie som ikke kunne hentes gir
+  `fontsReady: false` – komposisjonen er riktig, men linjelengder kan avvike.
+  En fil lageret ikke har nevnes i `warnings` framfor å bare mangle i bildet.
+- Svarer installasjonen `PREVIEW_UNAVAILABLE` (`501`), kan den ikke rendre
+  previews i det hele tatt, og resten av API-et virker som før.
+  `PREVIEW_FAILED` (`502`) betyr at rendereren finnes og at dette forsøket gikk
+  galt – prøv igjen. Ble bildet for stort til å sendes (over 3 MB, i praksis bare
+  mulig på `scale: 2`), sier den samme feilen hvor stort det ble og at en lavere
+  `scale` er svaret, i stedet for at plattformen kutter responsen.
+
+Rasteriseringen bruker `puppeteer-core` med Chromium fra `@sparticuz/chromium`.
+Begge er vanlige avhengigheter, så det trengs ingen konfigurasjon på Vercel og
+ingenting lastes ned ved kjøring; `vercel.json` pakker nettleserbinærene med
+funksjonen (`includeFiles`), fordi ingen importgraf nevner dem. Lokalt kan
+`SLAIDS_CHROMIUM_EXECUTABLE` peke på en Chromium du allerede har. Tegner
+previewet mot en Chromium som går tom for minne, kan `functions.memory` i
+`vercel.json` heves.
+
 ## REST-API for agenter
 
 Agent Core er nåbar utenfra, versjonert fra første dag:
@@ -536,12 +620,17 @@ koden, aldri en tredje mening:
 | `413`  | forespørselen eller filen er for stor                                     |
 | `415`  | filtypen støttes ikke                                                     |
 | `422`  | forstått, og avvist av reglene (`CONTENT_DOES_NOT_FIT`, `UNSAFE_SVG` …)   |
-| `502`  | lagringen svarte ikke                                                     |
+| `501`  | denne installasjonen gjør ikke dette (`SHARING_UNAVAILABLE`, `PREVIEW_UNAVAILABLE`) |
+| `502`  | lagringen eller previewrendereren svarte ikke                             |
 | `503`  | serveren er ikke satt opp mot Supabase                                    |
 
 Skillet mellom `400` og `422` er poenget: `400` betyr «du sendte tull», `422`
 betyr «Slaids sa nei». Å sende det samme på nytt hjelper bare i det første
-tilfellet.
+tilfellet. `501` og `502` er det samme skillet én etasje ned: `501` betyr «slutt
+å spørre», `502` betyr «prøv igjen».
+
+Én operasjon svarer ikke med denne konvolutten i det hele tatt:
+`render_slide_preview` svarer med bildet, som et bilde. Se «Rendret preview».
 
 ### En liten runde
 
@@ -702,7 +791,25 @@ Node og kaller den som en del av byggingen, så nøyaktig den feilen stopper her
 stedet for i produksjon. Den bygger også verktøykatalogen inne i bundelen: den
 genereres først når en klient spør, så en operasjon hvis input ikke lar seg
 uttrykke i JSON Schema ville ellers deployet grønt og svart `500` på den aller
-første `tools/list`.
+første `tools/list`. Og den leter etter Slaids' eget stilark i bundelen: CSS-en
+previewet tegner med importeres med `?inline`, og en import som ikke blir
+prosessert feiler ikke – den gir en tom streng, og previewet ville rendret hver
+slide uten stiler mens alt som bare leser markup fortsatte å bestå.
+
+`vercel.json` har i tillegg én `functions`-oppføring, av samme grunn som
+rewriten står skrevet ned:
+
+```json
+{ "api/agent/v1.ts": { "includeFiles": "node_modules/@sparticuz/chromium/bin/**" } }
+```
+
+Nettleseren previewet rasteriserer med ligger i `@sparticuz/chromium`, og
+plattformens avhengighetssporing følger *importen* og pakker JavaScript-en. Det
+den ikke kan se, er at pakken deretter leser en Chromium ut av sin egen `bin/` –
+brotli-blober, funnet via en sti utledet av `import.meta.url`, som ingen
+importgraf nevner. Uten linjen over ville hver eneste preview svart «the input
+directory does not exist» bak en grønn deploy, og `deployment.test.ts` håndhever
+den derfor sammen med resten av rutingen.
 
 ## MCP-server for agenter
 
@@ -777,6 +884,27 @@ som bare viser tekst:
 Det er med vilje: en modell som ser `CONTENT_DOES_NOT_FIT` og hvor mye som ble til
 overs, kan korte ned teksten. En JSON-RPC-feil ville i de fleste klienter blitt
 «verktøykallet feilet», med det nyttige i et hjørne.
+
+**Et rendret preview kommer som en image-blokk**, altså MCPs egen mekanisme for
+visuelt innhold – den blokken en klient gir videre til en multimodal modell:
+
+```jsonc
+{
+  "content": [
+    { "type": "text", "text": "{ \"slideId\": \"s_…\", \"fontsReady\": true, … }" },
+    { "type": "image", "data": "iVBORw0KGgo…", "mimeType": "image/png" }
+  ],
+  "structuredContent": {
+    "slideId": "s_…", "pageKind": "authored-slide", "revision": "…", "scale": 1,
+    "fontsReady": true, "warnings": [],
+    "image": { "mimeType": "image/png", "width": 1600, "height": 900, "byteLength": 48213 }
+  }
+}
+```
+
+De samme bytene limt inn som tekst ville vært en halv megabyte tegn modellen
+leser som tegn. `structuredContent` beskriver bildet og gjentar det ikke – bytes
+der ville vært en andre kopi i alt som logger JSON.
 
 ### Hvor en feil havner
 
@@ -869,6 +997,9 @@ src/
                  revisjon
   agent/         Agent Core: transportuavhengige, semantiske operasjoner over
                  domenekommandoene (grunnlaget for både REST og MCP)
+  render/        rendret preview: appens egne slide-komponenter og stilark,
+                 headless, pluss rasteriseringen i en ekte Chromium. Importeres
+                 aldri av appen, og bare fra én fil i server/
   server/        transportlagene over Agent Core. Importeres aldri av appen – en
                  egen test håndhever det
     agent/       REST: autentisering, scopes, audit, binærtransport, og
@@ -905,13 +1036,18 @@ Regler som gjelder overalt:
 - Domene-, geometri- og repository-lagene er React-uavhengige, slik at REST- og
   MCP-API-et er bygget på nøyaktig de samme kommandoene som editoren.
 - Alt som lagres har `schemaVersion` og valideres med Zod ved innlasting.
+- **Det finnes én slide-renderer.** Editoren, presentasjonsmodus, den delte
+  visningen, filmstripen, den offscreen fit-målingen og agentens rendrede
+  preview tegner alle `DeckPageView` under `src/styles/slide.css`. Previewet er
+  ikke et unntak fra regelen – det er den skarpeste formen av den, siden det er
+  det eneste som tegner den utenfor en nettleser.
 
 ## Ikke bygget ennå
-
-Rendret preview – en måte for en agent å se på en slide som bilde – er bevisst
-utenfor scope foreløpig. Den legges oppå Agent Core uten å endre domenemodellen,
-og bruker den virkelige Slaids-rendereren.
 
 Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller
 skrivetilgang for andre enn eieren.
+
+Én kjent skjevhet står igjen: editorens opplastingsdialog lagrer fortsatt en SVG
+en bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret
+bør på sikt være én dør.

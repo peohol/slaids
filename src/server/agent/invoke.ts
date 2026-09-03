@@ -22,6 +22,7 @@
  * operation, and this file only compares it against the token.
  */
 
+import { detachImage, type AgentImage } from '../../agent/image'
 import { findOperation, runOperation, unknownOperationError } from '../../agent/registry'
 import type { AgentContext, AnyAgentOperation } from '../../agent/types'
 import { fromAgentError, revisionOf, type ApiError } from './protocol'
@@ -64,10 +65,23 @@ export function authorizeOperation(
 
 /** What one call produced: the operation's own answer, or the error it refused with. */
 export interface OperationOutcome {
+  /** JSON-safe, always: a picture in the answer has been taken out of it. */
   data?: unknown
   error?: ApiError
   /** The reading this answer produced, lifted out of `data` where there is one. */
   revision?: string
+  /**
+   * The picture the answer carried, when it carried one.
+   *
+   * Taken out here rather than in either transport, which is the whole reason
+   * this file exists: REST sends the bytes as the body and MCP sends them as an
+   * image block, and those are two serialisations of one value rather than two
+   * ideas about where a preview lives. `field` says where it came from, so a
+   * caller that wants it back in the JSON (`Accept: application/json`) puts it
+   * back where the operation had it.
+   */
+  image?: AgentImage
+  imageField?: string
 }
 
 /**
@@ -85,6 +99,15 @@ export async function performOperation(
   const result = await runOperation(context, name, input)
   if (!result.ok) return { error: fromAgentError(result.error) }
 
-  const revision = revisionOf(result.value)
-  return { data: result.value, ...(revision ? { revision } : {}) }
+  // Unconditional: an answer with no picture in it comes back untouched, so
+  // there is no list of which operations produce one to keep in step.
+  const detached = detachImage(result.value)
+  const revision = revisionOf(detached.json)
+  return {
+    data: detached.json,
+    ...(revision ? { revision } : {}),
+    ...(detached.image && detached.field
+      ? { image: detached.image, imageField: detached.field }
+      : {}),
+  }
 }
