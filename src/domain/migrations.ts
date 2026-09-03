@@ -6,14 +6,14 @@
  * before validation, so early test presentations never become unreadable.
  */
 
-import { DEFAULT_BACKGROUND_COLOR } from './constants'
+import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from './constants'
 import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
-import { emptyDoc, mergeAdjacentCitations } from './richdoc'
+import { emptyDoc, mergeAdjacentCitations, titleDoc } from './richdoc'
 import { newSubfieldId } from './ids'
 import { normalizeIdeas } from './ideas'
-import type { Presentation, RichDoc } from './types'
+import type { DeckCover, Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import {
   DEFAULT_FONT_SCALE,
@@ -292,6 +292,82 @@ const migrate6to7: MigrationFn = (data) => {
   return { ...rest, schemaVersion: 7, ideas: normalizeIdeas([...loose, ...categories]) }
 }
 
+/**
+ * Every deck gets a cover, and a heading pill stops storing the default colour.
+ *
+ * Two halves of the same change. The cover is new and mandatory, so one is
+ * added to every existing presentation, titled with the name the deck already
+ * has — the one line of cover text the author has demonstrably written.
+ *
+ * The second half is what makes the cover's colour mean something. Until now
+ * every heading stored a colour, because the editor wrote the default one into
+ * the document; from here a heading stores a colour only when somebody picked
+ * one, and a heading with none reads the cover's. So a stored colour that is
+ * exactly the old default is cleared: it was never a choice, it was the absence
+ * of one, and leaving it behind would freeze those headings out of the very
+ * behaviour this migration exists to give them. Any other colour is a real
+ * decision and is kept untouched.
+ */
+const migrate7to8: MigrationFn = (data) => ({
+  ...(dropDefaultHeadingColors(data) as Raw),
+  schemaVersion: 8,
+  cover: coverFrom(data.cover, asString(data.title, '')),
+})
+
+/**
+ * The pill colour the editor used to write into every heading, as a literal.
+ *
+ * Deliberately not `DEFAULT_PILL_COLOR`: a migration describes what documents
+ * written *then* look like, and that does not change when today's default does.
+ * Pointed at the constant, changing the default would silently rewrite the
+ * meaning of this step for every document it has not run on yet.
+ */
+const LEGACY_HEADING_COLOR = '#33475b'
+
+function dropDefaultHeadingColors(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(dropDefaultHeadingColors)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = dropDefaultHeadingColors(entry)
+
+  if (record.type === 'heading' && out.attrs && typeof out.attrs === 'object') {
+    const attrs = out.attrs as Raw
+    if (
+      typeof attrs.color === 'string' &&
+      normalizeHex(attrs.color) === LEGACY_HEADING_COLOR
+    ) {
+      const { color, ...rest } = attrs
+      void color
+      out.attrs = rest
+    }
+  }
+  return out
+}
+
+/**
+ * A cover, from whatever is there.
+ *
+ * Used both by the migration and by `repairPresentation`, because a document
+ * already at the current version runs no migration at all — and a presentation
+ * without a cover is one the schema refuses and the editor therefore cannot
+ * open. A missing cover is not corruption worth failing over: it is a field
+ * that can be rebuilt from the deck's own name without guessing.
+ */
+function coverFrom(value: unknown, presentationTitle: string): DeckCover {
+  const raw = (value ?? {}) as Raw
+  const doc = (candidate: unknown, fallback: string): RichDoc => {
+    const record = (candidate ?? {}) as Raw
+    return record.type === 'doc' ? (record as unknown as RichDoc) : titleDoc(fallback)
+  }
+  return {
+    title: doc(raw.title, presentationTitle),
+    subtitle: doc(raw.subtitle, ''),
+    pillColor: normalizeHex(asString(raw.pillColor, '')) ?? DEFAULT_PILL_COLOR,
+  }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -301,6 +377,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   4: migrate4to5,
   5: migrate5to6,
   6: migrate6to7,
+  7: migrate7to8,
 }
 
 /**
@@ -346,6 +423,10 @@ export function repairPresentation(data: Raw): Raw {
 
   return {
     ...(repairColors(data) as Raw),
+    /* The cover is rebuilt rather than refused, for the same reason the theme's
+       colours are coerced: it is a single small field whose absence would make
+       an otherwise perfectly readable document unopenable. */
+    cover: coverFrom(data.cover, asString(data.title, '')),
     /* The ideas list repairs rather than refuses — that is the contract
        `src/domain/ideas.ts` states, and this is the only place it can be kept.
        A document already at the current version runs no migration, so without

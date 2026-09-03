@@ -79,6 +79,8 @@ export interface PresentationView {
   updatedAt: string
   /** Send this back as `expectedRevision` to write against exactly this reading. */
   revision: string
+  /** The mandatory first page. Not a slide, and not counted as one. */
+  cover: { title: string; subtitle: string; pillColor: string }
   slideCount: number
   assetCount: number
   referenceCount: number
@@ -101,6 +103,11 @@ export function presentationView(presentation: Presentation): PresentationView {
     folderId: presentation.folderId,
     updatedAt: presentation.updatedAt,
     revision: presentationRevision(presentation),
+    cover: {
+      title: docToPlainText(presentation.cover.title).trim(),
+      subtitle: docToPlainText(presentation.cover.subtitle).trim(),
+      pillColor: presentation.cover.pillColor,
+    },
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
     referenceCount: presentation.references.length,
@@ -128,7 +135,7 @@ export const getPresentation = defineOperation({
 
 export const createPresentationOperation = defineOperation({
   name: 'create_presentation',
-  summary: 'Opprett en ny presentasjon med én tom slide.',
+  summary: 'Opprett en ny presentasjon med en forside og én tom slide.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -142,6 +149,12 @@ export const createPresentationOperation = defineOperation({
       .boolean()
       .default(true)
       .describe('Om den første sliden får en overskriftssone.'),
+    coverTitle: z
+      .string()
+      .max(400)
+      .optional()
+      .describe('Tittelen på forsiden. Utelatt bruker presentasjonens egen tittel.'),
+    coverSubtitle: z.string().max(400).optional().describe('Undertittelen på forsiden.'),
   }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
     // The same factory the library uses, so an agent's presentation is not a
@@ -151,6 +164,8 @@ export const createPresentationOperation = defineOperation({
       title: input.title,
       folderId: input.folderId ?? null,
       firstSlideHasTitle: input.firstSlideHasTitle,
+      coverTitle: input.coverTitle,
+      coverSubtitle: input.coverSubtitle,
     })
     const saved = await savePresentation(context, presentation)
     if (!saved.ok) return saved

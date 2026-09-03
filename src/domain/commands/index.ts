@@ -8,6 +8,7 @@
 export * from './types'
 export * from './fitGuard'
 export * from './slides'
+export * from './cover'
 export * from './layout'
 export * from './content'
 export * from './sandbox'

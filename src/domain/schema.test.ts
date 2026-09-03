@@ -3,7 +3,8 @@ import { CURRENT_SCHEMA_VERSION, validateClipboardPayload, validatePresentation 
 import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
 import { createUntitledCard } from './content'
-import { paragraphDoc } from './richdoc'
+import { docToPlainText, paragraphDoc } from './richdoc'
+import { DEFAULT_PILL_COLOR } from './constants'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
 
@@ -230,6 +231,71 @@ describe('migrations', () => {
   it('passes a current-version document straight through', () => {
     const result = migratePresentation(sample())
     expect(result.ok).toBe(true)
+  })
+
+  it('gives a pre-cover presentation a cover, titled with the deck it belongs to', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 7
+    delete stored.cover
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(docToPlainText(result.value.cover.title).trim()).toBe('Prøve')
+    expect(docToPlainText(result.value.cover.subtitle).trim()).toBe('')
+    expect(result.value.cover.pillColor).toBe(DEFAULT_PILL_COLOR)
+  })
+
+  it('rebuilds a cover that is missing from a current-version document', () => {
+    const { cover: _cover, ...withoutCover } = sample()
+    const result = migratePresentation(withoutCover)
+    // No migration runs at the current version, so `repairPresentation` is the
+    // only thing between a stripped field and an unopenable presentation.
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(docToPlainText(result.value.cover.title).trim()).toBe('Prøve')
+  })
+
+  it('lets a heading that only ever had the default colour follow the cover again', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 7
+    delete stored.cover
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    const leaf = root.children[0] as { content: Record<string, unknown> }
+    const body = leaf.content.body as { subfields: Array<{ doc: RichDoc }> }
+    body.subfields[0].doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1, color: DEFAULT_PILL_COLOR },
+          content: [{ type: 'text', text: 'Arvet' }],
+        },
+        {
+          type: 'heading',
+          attrs: { level: 1, color: '#a64d79' },
+          content: [{ type: 'text', text: 'Valgt' }],
+        },
+      ],
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const first = migrated.children[0]
+    if (first.kind !== 'leaf' || first.content?.kind !== 'untitled-card') {
+      throw new Error('expected a card leaf')
+    }
+    const headings = first.content.body.subfields[0].doc.content ?? []
+    // The one nobody chose loses its colour and takes the cover's; the one that
+    // was picked keeps exactly what it was given.
+    expect(headings[0].attrs).not.toHaveProperty('color')
+    expect(headings[1].attrs?.color).toBe('#a64d79')
   })
 
   it('refuses documents from a newer schema version', () => {

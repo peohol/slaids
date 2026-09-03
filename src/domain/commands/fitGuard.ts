@@ -38,7 +38,8 @@
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
  *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
  *    `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
- *    `setSlideTitle`, `setSlideHasTitle`, `updateSplit` / `setSplitWeights`,
+ *    `setSlideTitle`, `setSlideHasTitle`, `setCoverTitle`, `setCoverSubtitle`,
+ *    `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.
  *  - **Placement-gated as well** (calls the checker directly, absolutely,
@@ -48,8 +49,8 @@
  *    overflowed must not license content that overflows slightly less.
  *  - **Cannot shrink anything, deliberately ungated**: `duplicateSlide` (a copy
  *    lands after its original, so no earlier first occurrence moves),
- *    `setPresentationTitle`, `setFolder`, every idea command, and every asset
- *    command.
+ *    `setPresentationTitle`, `setFolder`, `setCoverPillColor` (a colour is not
+ *    a size), every idea command, and every asset command.
  *  - **Deliberate exception — removals**: `deleteSlide`, `deleteLayoutNode`,
  *    `clearLayoutNode`, `moveContentToSandbox` and `deleteReference` take
  *    content off the deck. They cannot shrink a zone, but they *can* renumber
@@ -84,16 +85,32 @@
  * slides, which repaginate themselves.
  */
 
-import { computeLayoutRects, computeSlideGeometry, TITLE_NODE_ID } from '../geometry'
+import {
+  COVER_SUBTITLE_NODE_ID,
+  COVER_TITLE_NODE_ID,
+  computeCoverGeometry,
+  computeLayoutRects,
+  computeSlideGeometry,
+  TITLE_NODE_ID,
+} from '../geometry'
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
 import { FIT_TOLERANCE } from '../constants'
-import { geometryForTheme, themeMetrics } from '../metrics'
+import { coverGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
+import { COVER_PAGE_ID } from '../pages'
 import { walkRichNodes } from '../richdoc'
 import { err, ok, type Result } from '../result'
-import type { LayoutNode, NodeId, Presentation, Rect, RichDoc, Slide } from '../types'
+import type {
+  DeckCover,
+  LayoutNode,
+  NodeId,
+  Presentation,
+  Rect,
+  RichDoc,
+  Slide,
+} from '../types'
 import type { StructuralOptions } from './types'
 
 /**
@@ -194,6 +211,39 @@ export function slideOverflow(
 }
 
 /**
+ * Overflow per line for the cover.
+ *
+ * The cover is two single lines of heading type in pills only as wide as their
+ * text, so it fails the same way a slide title does — sideways — and is
+ * measured by the same checker. The two lines are set in different sizes, which
+ * is why the checker is told which size it is looking at.
+ *
+ * Nothing here consults the citation numbering: the cover cannot cite, so the
+ * one thing that makes a slide's fit depend on the rest of the deck does not
+ * reach it.
+ */
+export function coverOverflow(
+  cover: DeckCover,
+  context: FitContext,
+  options: StructuralOptions = {},
+): Map<NodeId, number> {
+  const overflow = new Map<NodeId, number>()
+  if (!options.fitsTitle) return overflow
+  const resolved = { ...coverGeometryForTheme(context.theme), ...options.geometry }
+  const geometry = computeCoverGeometry(resolved)
+  overflow.set(
+    COVER_TITLE_NODE_ID,
+    options.fitsTitle(cover.title, geometry.titleRect, context, resolved.titleFontSize).overflow,
+  )
+  overflow.set(
+    COVER_SUBTITLE_NODE_ID,
+    options.fitsTitle(cover.subtitle, geometry.subtitleRect, context, resolved.subtitleFontSize)
+      .overflow,
+  )
+  return overflow
+}
+
+/**
  * Nodes that overflow in `next` and were not already overflowing at least as
  * much before. `previousOverflowOf` is a function rather than a map so callers
  * can avoid measuring the previous state at all when nothing overflows now.
@@ -236,6 +286,21 @@ export function findFitRegressions(
   const typographyUnchanged = sameFitRelevantTheme(before.theme, after.theme)
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
   const regressions: FitRegression[] = []
+
+  // The cover is not a slide, but it is text on a page and the rule is the same
+  // one: a change may not end with a line the audience can no longer read. It
+  // is checked here rather than in the cover's own commands so that everything
+  // above it — a wider font, more air, a larger type scale — is caught too.
+  if (after.cover !== before.cover || !typographyUnchanged) {
+    const next = coverOverflow(after.cover, afterContext, options)
+    let baseline: Map<NodeId, number> | null = null
+    for (const entry of overflowRegressions(next, (nodeId) => {
+      baseline ??= coverOverflow(before.cover, beforeContext, options)
+      return baseline.get(nodeId) ?? 0
+    })) {
+      regressions.push({ slideId: COVER_PAGE_ID, ...entry })
+    }
+  }
 
   for (const slide of after.slides) {
     const previous = previousSlides.get(slide.id)

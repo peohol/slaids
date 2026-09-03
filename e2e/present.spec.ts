@@ -17,18 +17,20 @@ test.describe('presentation mode', () => {
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
 
+    // Three slides, and the mandatory cover in front of them: four pages.
     await page.getByTestId('present').click()
     await expect(page.getByTestId('present-view')).toBeVisible()
-    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
+    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
 
     await page.keyboard.press('Home')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 3')
+    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
+    await expect(page.getByTestId('present-view')).toContainText('Visning')
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 4')
     await page.keyboard.press('ArrowLeft')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 3')
+    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
     await page.keyboard.press('End')
-    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
+    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
 
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('editor')).toBeVisible()
@@ -72,9 +74,11 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('stage-slide')).toContainText('En viktig kilde')
     await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
 
+    // Cover, the authored slide, then the derived reference slide.
     await page.getByTestId('present').click()
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
     await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
     await expect(page.getByTestId('present-view')).toContainText('Referanser')
     await expect(page.getByTestId('present-view')).toContainText('En viktig kilde')
   })
@@ -123,20 +127,22 @@ test.describe('presentation mode', () => {
 
     await page.getByTestId('present').click()
     await page.keyboard.press('Home')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
+    // Past the cover: the link is on the first authored slide.
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
 
     const link = page.getByTestId('present-view').locator('a').first()
     await expect(link).toBeVisible()
     const popup = page.context().waitForEvent('page').catch(() => null)
     await link.click()
     // The click belonged to the link, not to the deck.
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 2')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
     const opened = await popup
     if (opened) await opened.close()
 
     // A click on the slide itself still advances.
     await page.getByTestId('present-view').click({ position: { x: 5, y: 5 } })
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 2')
+    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
   })
 
   test('shows several sources cited together as one citation', async ({ page }) => {

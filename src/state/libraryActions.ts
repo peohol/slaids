@@ -27,6 +27,9 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
     title: `${source.title} (kopi)`,
     createdAt: now,
     updatedAt: now,
+    // Cloned rather than shared: two documents that point at one cover object
+    // are one edit away from being the same cover.
+    cover: structuredClone(source.cover),
     slides: source.slides.map((slide) => ({
       ...slide,
       id: newSlideId(),

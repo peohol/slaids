@@ -16,7 +16,11 @@ import type { RichDoc } from '../../domain/types'
 import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
 
-export type EditorVariant = 'body' | 'title'
+/**
+ * `cover` is a title with the alignment and the citations taken out — see
+ * `titleExtensions`. It lays out identically, so it shares the title's markup.
+ */
+export type EditorVariant = 'body' | 'title' | 'cover'
 
 export interface RichTextEditorProps {
   doc: RichDoc
@@ -199,17 +203,19 @@ export function RichTextEditor({
   const editor = useEditor(
     {
       extensions:
-        variant === 'title' ? titleExtensions(placeholder) : bodyExtensions({ placeholder }),
+        variant === 'body'
+          ? bodyExtensions({ placeholder })
+          : titleExtensions(placeholder, variant === 'cover' ? 'cover' : 'slide'),
       content: doc,
       editable,
       autofocus: autoFocus ? 'end' : false,
       editorProps: {
         attributes: {
-          class: variant === 'title' ? 'rich-doc rich-doc--title tiptap' : 'rich-doc tiptap',
+          class: variant === 'body' ? 'rich-doc tiptap' : 'rich-doc rich-doc--title tiptap',
         },
         transformPastedHTML: normalizePastedHtml,
         handleKeyDown: (_view, event) => {
-          if (variant === 'title' && event.key === 'Enter') {
+          if (variant !== 'body' && event.key === 'Enter') {
             event.preventDefault()
             return true
           }

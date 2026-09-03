@@ -29,6 +29,7 @@ import { splitReferences } from './references'
 import { err, ok, type Result } from './result'
 import type {
   AssetRef,
+  DeckCover,
   DeckSource,
   Presentation,
   PresentationTheme,
@@ -55,6 +56,8 @@ export interface SharedPresentationSnapshot extends DeckSource {
   schemaVersion: number
   title: string
   theme: PresentationTheme
+  /** The cover is part of the deck a viewer pages through, so it is published. */
+  cover: DeckCover
   slides: Slide[]
   /** Only the references that are actually cited, in numbering order. */
   references: Reference[]
@@ -91,6 +94,7 @@ export function buildSharedSnapshot(
     schemaVersion: presentation.schemaVersion,
     title: presentation.title,
     theme: presentation.theme,
+    cover: presentation.cover,
     slides: presentation.slides,
     references: splitReferences(presentation).used,
     assets: presentation.assets.filter((asset) => shownAssetIds.has(asset.id)),
@@ -113,6 +117,9 @@ const envelopeSchema = z.object({
   title: z.string(),
   publishedAt: z.string(),
   theme: z.unknown(),
+  /* Absent in a snapshot published before covers existed; the migration chain
+     below builds one, exactly as it does for a stored presentation. */
+  cover: z.unknown(),
   slides: z.unknown(),
   references: z.unknown(),
   assets: z.unknown(),
@@ -142,6 +149,7 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     title: parsed.title,
     folderId: null,
     theme: parsed.theme,
+    cover: parsed.cover,
     slides: parsed.slides,
     references: parsed.references,
     sandbox: [],
@@ -159,6 +167,7 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     schemaVersion: deck.schemaVersion,
     title: deck.title,
     theme: deck.theme,
+    cover: deck.cover,
     slides: deck.slides,
     references: deck.references,
     assets: deck.assets,

@@ -110,6 +110,7 @@ describe('buildSharedSnapshot', () => {
     expect(snapshot.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(snapshot.title).toBe('Arbeidskopi')
     expect(snapshot.theme).toEqual(presentation.theme)
+    expect(snapshot.cover).toEqual(presentation.cover)
     expect(snapshot.slides).toEqual(presentation.slides)
     expect(snapshot.publishedAt).toBe('2026-09-02T08:00:00.000Z')
   })
@@ -123,6 +124,7 @@ describe('buildSharedSnapshot', () => {
     expect(fields.sort()).toEqual(
       [
         'assets',
+        'cover',
         'format',
         'publishedAt',
         'references',
