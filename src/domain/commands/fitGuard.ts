@@ -104,7 +104,7 @@ import {
 } from '../geometry'
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
-import { FIT_TOLERANCE } from '../constants'
+import { FIT_TOLERANCE, GEOMETRY_EPSILON, MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH } from '../constants'
 import { coverGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
@@ -352,7 +352,12 @@ export function findFitRegressions(
  *
  * A regression, like everything else here: a document that is already too tight
  * — an import, or one from before a token changed — must not be locked out of
- * the very change that would repair it.
+ * the very change that would repair it. Measured as a *size*, not as a set of
+ * ids: a zone that is already 1 px too narrow and would become 40 px too narrow
+ * is worse, and comparing which nodes are on the list would call that no change
+ * at all. The same shape `overflowRegressions` uses for content, one axis at a
+ * time — a change that helps one dimension by hurting the other is not an
+ * improvement.
  *
  * The rect comes back with it, and it is the *prospective* one — the size the
  * zone has under the theme that was refused, which is the size that broke the
@@ -377,28 +382,64 @@ export function findGeometryRegression(
   const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
 
   for (const slide of after.slides) {
-    const tooSmall = belowMinimum(slide, afterGeometry)
-    if (tooSmall.length === 0) continue
+    const now = belowMinimum(slide, afterGeometry)
+    if (now.size === 0) continue
     const old = previous.get(slide.id)
     // Measured only when something is wrong now, and only then: the baseline
     // costs a full geometry pass per slide.
-    const already = old ? new Set(belowMinimum(old, beforeGeometry)) : new Set<NodeId>()
-    const fresh = tooSmall.find((nodeId) => !already.has(nodeId))
-    if (fresh) {
-      return {
-        slideId: slide.id,
-        nodeId: fresh,
-        rect: computeSlideGeometry(slide, afterGeometry).rects.get(fresh) ?? null,
+    let already: Map<NodeId, Undersized> | null = null
+    for (const [nodeId, entry] of now) {
+      already ??= old ? belowMinimum(old, beforeGeometry) : new Map()
+      const was = already.get(nodeId)
+      if (
+        was &&
+        entry.short.width <= was.short.width + GEOMETRY_EPSILON &&
+        entry.short.height <= was.short.height + GEOMETRY_EPSILON
+      ) {
+        continue
       }
+      return { slideId: slide.id, nodeId, rect: entry.rect }
     }
   }
   return null
 }
 
-function belowMinimum(slide: Slide, geometry: GeometryOptions): NodeId[] {
-  return validateSlideGeometry(slide, geometry)
-    .filter((violation) => violation.kind === 'below-minimum')
-    .map((violation) => violation.nodeId)
+/** A zone under the minimum, and by how much on each axis. */
+interface Undersized {
+  rect: Rect
+  short: { width: number; height: number }
+}
+
+/**
+ * The undersized zones on a slide, in tree order.
+ *
+ * *Whether* a zone is too small is `validateSlideGeometry`'s answer, so the
+ * guard and the read-only validator cannot disagree about it. *How much* is
+ * arithmetic on the same rect, and it exists only to compare two states with
+ * each other — never to decide the question itself.
+ */
+function belowMinimum(slide: Slide, geometry: GeometryOptions): Map<NodeId, Undersized> {
+  const undersized = new Map<NodeId, Undersized>()
+  const violations = validateSlideGeometry(slide, geometry).filter(
+    (violation) => violation.kind === 'below-minimum',
+  )
+  if (violations.length === 0) return undersized
+
+  const rects = computeSlideGeometry(slide, geometry).rects
+  const minWidth = geometry.minZoneWidth ?? MIN_ZONE_WIDTH
+  const minHeight = geometry.minZoneHeight ?? MIN_ZONE_HEIGHT
+  for (const violation of violations) {
+    const rect = rects.get(violation.nodeId)
+    if (!rect) continue
+    undersized.set(violation.nodeId, {
+      rect,
+      short: {
+        width: Math.max(0, minWidth - rect.width),
+        height: Math.max(0, minHeight - rect.height),
+      },
+    })
+  }
+  return undersized
 }
 
 /**
