@@ -63,10 +63,24 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   den åpne editorens kjente versjon utdatert og laget en falsk samtidighetskonflikt ved neste
   autosave. Den ekte optimistiske låsen gjelder fortsatt for `document`, `title`, `folder_id`
   og `slide_count`.
-- Sidene i et dekk er `authored slides → avledede referansesider → avledet QR-side`. Bare den
-  første gruppen er lagret. QR-siden er ikke en `Slide` og ligger aldri i
+- Sidene i et dekk er `forside → authored slides → avledede referansesider → avledet QR-side`.
+  De to første er lagret, de to siste ikke. QR-siden er ikke en `Slide` og ligger aldri i
   `presentation.slides`; den er et eget medlem av `DeckPage`-unionen i `src/domain/pages.ts`
   og finnes bare mens delingen er på.
+- **Hver presentasjon har nøyaktig én forside, alltid først.** Den er et felt (`cover`) på
+  `DeckSource`, ikke et element i `slides` – derfor er «alle presentasjoner har en forside»
+  en egenskap ved typen, ikke en regel en kommando må huske, og ingen kommando kan slette
+  den, flytte den eller lage en til. Den er ikke en `Slide`: intet layouttre, ingen soner,
+  ingen soneredigering. Tittel og undertittel er én linje hver, alltid midtstilt (skjemaet
+  har ikke noe justeringsattributt å sette), og de kan ikke sitere – et citation-nummer
+  utledes av første forekomst blant slidene, så en citation der ville tegnet en tom pille.
+  Se `IMPLEMENTATION_PLAN.md` §8.5.
+- Forsidens pillefarge er samtidig dekkets standardfarge for de pilleformede overskriftene
+  i innholdet. «Bruker standardfargen» betyr **ikke** samme hex-kode: en overskrift ingen
+  har valgt farge for lagrer ingen farge (`color: null`) og males av
+  `--slaids-heading-pill`, som settes fra `cover.pillColor`. Derfor treffer en endring på
+  forsiden hver slik overskrift – også de som lages senere – uten at ett eneste lagret
+  dokument endres. En overskrift som *har* fått en farge, beholder den.
 - **Alt** under `/s/` er offentlig og går aldri gjennom `AuthGate` – grensen er stien, ikke
   tokenet. En avkortet eller feilskrevet lenke tilhører den som fikk den, og skal møte
   «Denne delingslenken er ikke aktiv», aldri eierens innlogging. Et syntaktisk umulig token

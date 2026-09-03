@@ -129,7 +129,14 @@ export function PresentationPlayer({
         go(dx < 0 ? 1 : -1)
       }}
     >
-      <SlideRenderProvider value={{ theme: deck.theme, numbering, isStatic: true }}>
+      <SlideRenderProvider
+        value={{
+          theme: deck.theme,
+          numbering,
+          headingPillColor: deck.cover.pillColor,
+          isStatic: true,
+        }}
+      >
         <div
           className="present__slide"
           style={{ width: SLIDE_WIDTH * scale, height: SLIDE_HEIGHT * scale }}

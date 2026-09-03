@@ -205,6 +205,15 @@
   margin-inline: auto 0;
 }
 
+/*
+ * A heading with no colour of its own takes the deck's.
+ *
+ * The default lives here as a custom property rather than in the document, so
+ * changing it on the cover repaints every such heading at once — in the editor,
+ * on the slide and in the offscreen measurement — with no stored document
+ * touched. A heading that *was* given a colour writes an inline style, and an
+ * inline style wins over this.
+ */
 .rich-doc :is(h1, .rd-heading) {
   display: block;
   width: max-content;
@@ -212,6 +221,8 @@
   margin: 0 0 var(--slaids-heading-spacing, 10px);
   padding: 2px 14px;
   border-radius: 999px;
+  background: var(--slaids-heading-pill, #33475b);
+  color: var(--slaids-heading-pill-text, #ffffff);
   font-size: var(--slaids-heading-font-size);
   font-weight: 600;
   font-family: var(--slaids-heading-font-family);
@@ -448,6 +459,46 @@
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- *
+ * The cover
+ *
+ * One centred column of two pills, spaced by the deck's own gap — the same
+ * arrangement the QR page uses, because both are pages without a zone tree.
+ * Each pill is only as wide as its text and never wider than the page, and its
+ * line is centred and never wrapped: a cover line is one line, exactly as a
+ * slide title is, so text that does not fit is refused rather than reflowed.
+ * ----------------------------------------------------------------- */
+.cover-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * The pill is a flex row for the same reason `.slide-title` is: its child keeps
+ * its min-content width, so a line too long for the pill makes the pill's own
+ * `scrollWidth` exceed its `clientWidth`. That difference is what the editor
+ * rolls an over-long line back on, and `max-width` is set from the geometry
+ * engine so the box that clips and the box the fit gate measures are one box.
+ */
+.cover-pill {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cover-pill :is(p, .rd-p) {
+  margin: 0;
+  /* Centred by construction: the cover carries no alignment to override this. */
+  text-align: center;
+  white-space: nowrap;
 }
 
 /*

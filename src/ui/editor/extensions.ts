@@ -88,8 +88,6 @@ export function normalizePastedHtml(html: string): string {
   return parsed.body.innerHTML
 }
 
-export const DEFAULT_HEADING_PILL_COLOR = '#33475b'
-
 /** The alignments a Slaids document can store. */
 export const ALIGNMENTS = ['left', 'center', 'right'] as const
 export type Alignment = (typeof ALIGNMENTS)[number]
@@ -97,17 +95,25 @@ export type Alignment = (typeof ALIGNMENTS)[number]
 /**
  * Headings are pills. There is exactly one heading level; the only thing the
  * author picks is the pill colour, and the text colour follows from contrast.
+ *
+ * The colour defaults to `null`, and that is the whole point: a heading nobody
+ * picked a colour for stores nothing, and is painted with the deck's default —
+ * `cover.pillColor`, delivered as the `--slaids-heading-pill` custom property.
+ * So changing the colour on the cover repaints every such heading at once,
+ * while a heading that *was* given a colour writes it as an inline style and
+ * keeps it. Storing the default instead would make "no choice" and "chose this
+ * exact blue" the same document, and neither could follow the cover again.
  */
 const SlaidsHeading = Heading.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
       color: {
-        default: DEFAULT_HEADING_PILL_COLOR,
-        parseHTML: (element) => element.getAttribute('data-color') ?? DEFAULT_HEADING_PILL_COLOR,
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-color'),
         renderHTML: (attributes) => {
-          const color =
-            typeof attributes.color === 'string' ? attributes.color : DEFAULT_HEADING_PILL_COLOR
+          const color = typeof attributes.color === 'string' ? attributes.color : null
+          if (!color) return { class: 'rd-heading' }
           return {
             'data-color': color,
             class: 'rd-heading',
@@ -123,6 +129,9 @@ interface ExtensionOptions {
   placeholder?: string
   enableTables?: boolean
 }
+
+/** A slide title, or one of the cover's two lines. */
+export type TitleVariant = 'slide' | 'cover'
 
 export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
   const extensions: Extensions = [
@@ -161,13 +170,24 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
 /**
  * Titles are one line of plain text (citations allowed) — no marks, no breaks,
  * no lists. This is what makes the title zone geometrically deterministic.
+ *
+ * The cover's two lines are titles too, with two things taken away: they carry
+ * no alignment, because a cover line is centred by construction and there is no
+ * decision to store, and they cannot cite, because a citation's number comes
+ * from where it first occurs among the *slides* — a citation on the cover would
+ * render a pill with nothing in it. Both are removed from the schema rather
+ * than hidden in the toolbar, so no paste, no shortcut and no future caller can
+ * put one there.
  */
-export function titleExtensions(placeholder?: string): Extensions {
+export function titleExtensions(placeholder?: string, variant: TitleVariant = 'slide'): Extensions {
+  const cover = variant === 'cover'
   return [
     Placeholder.configure({ placeholder: placeholder ?? '' }),
     // A title is one paragraph, but it is still a paragraph: the same alignment
     // attribute, so a title reads the same in the editor and on the slide.
-    TextAlign.configure({ types: ['paragraph'], alignments: [...ALIGNMENTS] }),
+    ...(cover
+      ? []
+      : [TextAlign.configure({ types: ['paragraph'], alignments: [...ALIGNMENTS] })]),
     StarterKit.configure({
       heading: false,
       bold: false,
@@ -187,6 +207,6 @@ export function titleExtensions(placeholder?: string): Extensions {
       dropcursor: false,
       gapcursor: false,
     }),
-    CitationExtension,
+    ...(cover ? [] : [CitationExtension]),
   ]
 }

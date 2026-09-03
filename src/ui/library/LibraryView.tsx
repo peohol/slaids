@@ -3,8 +3,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPresentation } from '../../domain/presentation'
+import { createDeck } from '../../domain/commands'
+import { describeError } from '../../domain/result'
 import { newFolderId } from '../../domain/ids'
+import { domFitCheckers } from '../../state/measure'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
 import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
@@ -107,11 +109,18 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   }, [reloadToken, mode])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
-    const presentation = createPresentation({
-      title: result.title,
-      theme: result.theme,
-      folderId: activeFolder,
-    })
+    // The deck's name is also the first line of its cover, so it is measured
+    // like any other line on a page. A refusal leaves the dialog open with the
+    // name still in it, which is where the author fixes it.
+    const created = createDeck(
+      { title: result.title, theme: result.theme, folderId: activeFolder },
+      domFitCheckers,
+    )
+    if (!created.ok) {
+      notify.error(describeError(created.error))
+      return
+    }
+    const presentation = created.value
     try {
       await repository.savePresentation(presentation)
     } catch (error) {

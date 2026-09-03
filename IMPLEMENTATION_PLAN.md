@@ -284,6 +284,89 @@ Når tittelen fjernes, ekspanderer hovedområdet automatisk. Layouttreets relati
 
 ---
 
+## 8.5\. Forside
+
+Hver presentasjon har **nøyaktig én forside**, og den er obligatorisk. Den er
+første side i dekket, og ingen kommando kan slette den, flytte den eller lage en
+til.
+
+Det er ikke en regel en kommando må huske: forsiden er et **felt på
+presentasjonen** (`cover` på `DeckSource`), ikke et element i `slides`. Da er
+«alle presentasjoner har en forside» en egenskap ved typen, og «forsiden er
+først» en egenskap ved `deckPages`.
+
+Forsiden er heller ikke en `Slide`. Den har ikke noe layouttre, ingen soner,
+ingen splitting og ingen soneredigering – bare to linjer og en farge:
+
+```ts
+type DeckCover = {
+  title: TitleDoc
+  subtitle: TitleDoc
+  /** Fargen på pillene – og samtidig standardfargen for overskrifter. */
+  pillColor: string
+}
+```
+
+### De to linjene
+
+- **Tittel** settes i nøyaktig samme størrelse som en slide-tittel
+  (`TITLE_FONT_SIZE`), slik at dekket åpner i typografien det fortsetter i.
+- **Undertittel** settes ett hakk under (`COVER_SUBTITLE_FONT_SIZE`) – et hakk,
+  ikke en annen slags tekst.
+- Begge er **alltid horisontalt midtstilt**, og de to er **samlet vertikalt
+  midtstilt**. Midtstillingen er ikke et valg som lagres: `titleExtensions`
+  fjerner justeringsattributtet helt for forsiden, så det finnes ingen annen
+  tilstand å havne i – heller ikke via paste eller et framtidig API-kall.
+- Hver linje er **én linje**, som en tittelsone: tekst som ikke får plass
+  avvises, den klippes aldri. `computeCoverGeometry` eier bredden hver linje
+  faktisk har (siden minus pillens egen polstring), og både fit-porten og
+  `max-width` på pillen leser den samme.
+- Forsiden kan **ikke sitere**. Et citation-nummer utledes av første forekomst
+  blant *slidene*, så en citation på forsiden ville tegnet en tom pille.
+  `CitationExtension` er derfor ikke med i forsidens skjema.
+- En linje uten tekst tegner **ingen pille** når dekket vises. I editoren tegnes
+  begge, ellers kan en tom undertittel aldri klikkes i.
+
+### Pillefargen er dekkets standardfarge for overskrifter
+
+Bakgrunnsfargen på forsidens piller er samtidig **standardfargen for de
+pilleformede overskriftene i innholdet**. Tekstfargen utledes av kontrast, som
+alle andre fargepar i Slaids.
+
+Det avgjørende er hva «bruker standardfargen» betyr. Det betyr **ikke** at
+overskriften har samme hex-kode som forsiden. Det betyr at ingen har valgt en
+farge for den:
+
+- en overskrift uten valgt farge lagrer **ingen** farge (`color: null`), og
+  males av `--slaids-heading-pill`, som settes fra `cover.pillColor`;
+- en overskrift som *har* fått en farge lagrer den, og beholder den.
+
+Derfor treffer en fargeendring på forsiden hver eneste overskrift som følger
+standarden – også de som lages senere – uten at ett eneste lagret dokument
+endres, og uten at noe av dette kan angres bort som en dokumentendring.
+Alternativet, å skrive standardfargen inn i dokumentet, ville gjort «ikke valgt»
+og «valgte akkurat denne blåfargen» til det samme dokumentet, og da kunne ingen
+av dem følge forsiden igjen.
+
+Migrasjonen til v8 gjør nøyaktig dette for dokumenter som allerede finnes: en
+lagret farge som er *nøyaktig* den gamle standarden fjernes (den var aldri et
+valg), alle andre farger står urørt.
+
+### Å opprette et dekk er også en redigering
+
+Forsidens tittel starter som dekkets navn. Da er navnet ikke lenger bare
+metadata i biblioteket – det er en linje som tegnes – og et navn som ikke får
+plass på én linje ville blitt lagret som en klippet forside, i en tilstand den
+aller neste redigeringen av den linjen ville avvist.
+
+`createPresentation` forblir derfor en ren fabrikk (lasting, migrering og
+import skal aldri stoppes av en fit-regel), mens kommandoen `createDeck` er
+formen de to stedene et menneske eller en agent lager et dekk av tekst de nettopp
+skrev. Den måler forsiden absolutt – det finnes ingen forrige tilstand å
+regrediere fra – og avviser med samme feilkode som en for lang slide-tittel.
+
+---
+
 ## 9\. Soneredigeringsmodus
 
 Appen har to hovedmodi:
@@ -477,6 +560,11 @@ Tekst på bakgrunn velges mellom svart og hvitt ved å beregne kontrast og velge
 
 Tekstskygge kan brukes dekorativt på mørke bakgrunner, men skal ikke være forutsetningen for lesbarhet.
 
+Standardfargen for de pilleformede overskriftene i innholdet er ikke en konstant
+i paletten, men **forsidens pillefarge** – se §8.5. En overskrift uten valgt
+farge lagrer ingen farge og følger den; en overskrift som har fått en farge,
+beholder den.
+
 ---
 
 ## 15\. Presentasjonstema
@@ -532,6 +620,11 @@ valideres på vei ut igjen.
 ## 16\. Rich text
 
 Bruk Tiptap/ProseMirror og lagre dokumentet som strukturert JSON, ikke rå HTML.
+
+En overskrift er en pille, og fargeattributtet er `null` når ingen har valgt noe.
+Standarden lagres aldri i dokumentet – den kommer fra forsiden gjennom en
+CSS-variabel – slik at «ikke valgt» og «valgte akkurat denne fargen» forblir to
+forskjellige dokumenter. Se §8.5.
 
 ### Første RichDoc-scope
 
@@ -1648,14 +1741,19 @@ kjørt, mens en crawler kan nøye seg med det første HTML-svaret.
 ### Sidene i et dekk
 
 ```text
-authored slides → avledede referansesider → avledet QR-side
+forside → authored slides → avledede referansesider → avledet QR-side
 ```
 
-Bare den første gruppen er lagret. QR-siden er ikke en `Slide` og ligger aldri i
-`presentation.slides`; den er et eget medlem av `DeckPage`-unionen i
+De to første er lagret, de to siste ikke. QR-siden er ikke en `Slide` og ligger
+aldri i `presentation.slides`; den er et eget medlem av `DeckPage`-unionen i
 `src/domain/pages.ts`. Det authored slide-formatet forurenses ikke for å få plass
 til den, og ingen kommando kan nå den – derfor kan den verken slettes, flyttes,
 dupliseres eller redigeres. Den finnes så lenge delingen er på, og ikke lenger.
+
+Forsiden er lagret og redigerbar, men er heller ikke en `Slide`: den er et felt
+på presentasjonen og et eget medlem av den samme unionen, alltid først. Se
+§8.5. Snapshotet publiserer den – den er en side publikum ser – men fortsatt
+ved å liste den opp, ikke ved at noe arves.
 
 I editoren vises den i filmstripen som en avledet, skrivebeskyttet side på samme
 måte som referansesidene, med en forklaring om at den styres av `Del`.
@@ -1800,6 +1898,9 @@ Eksempler:
 list_presentations
 get_presentation
 create_presentation
+
+set_cover
+set_cover_color
 
 inspect_slide
 add_slide
@@ -2135,6 +2236,8 @@ For eksempel:
 slaids_list_presentations
 slaids_get_presentation
 slaids_create_presentation
+slaids_set_cover
+slaids_set_cover_color
 slaids_inspect_slide
 slaids_add_slide
 slaids_split_zone
@@ -2345,7 +2448,8 @@ Fase 1, 2, 3 og 4 er på plass:
 - Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
   `list_assets`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`.
-- Skriving: `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`,
+- Skriving: `create_presentation`, `set_cover`, `set_cover_color`, `add_slide`,
+  `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
   `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,

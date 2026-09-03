@@ -13,8 +13,6 @@ import type { RichDoc, RichMark, RichNode } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
 
-const DEFAULT_HEADING_PILL = '#33475b'
-
 function applyMarks(node: RichNode, children: ReactNode): ReactNode {
   const marks: RichMark[] = node.marks ?? []
   return marks.reduce<ReactNode>((content, mark) => {
@@ -123,12 +121,22 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
           {renderNodes(node.content) ?? <br />}
         </p>
       )
+    /*
+     * A heading stores a colour only when somebody picked one. With none, the
+     * element carries no colour at all and the deck's default arrives through
+     * `--slaids-heading-pill` — so changing it on the cover repaints every such
+     * heading without rewriting a single document, and a heading that *was*
+     * given a colour keeps it.
+     */
     case 'heading': {
-      const color = typeof node.attrs?.color === 'string' ? node.attrs.color : DEFAULT_HEADING_PILL
+      const color = typeof node.attrs?.color === 'string' ? node.attrs.color : null
       return (
         <h1
           className="rd-heading"
-          style={{ background: color, color: bestTextColor(color), ...alignStyle(node) }}
+          style={{
+            ...(color ? { background: color, color: bestTextColor(color) } : null),
+            ...alignStyle(node),
+          }}
         >
           {renderNodes(node.content)}
         </h1>

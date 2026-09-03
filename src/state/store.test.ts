@@ -25,6 +25,7 @@ beforeEach(() => {
   useEditorStore.setState({
     presentation: null,
     currentSlideId: null,
+    viewingCover: false,
     selectedNodeId: null,
     activeField: null,
     mode: 'content',
@@ -242,6 +243,56 @@ describe('navigation', () => {
     expect(useEditorStore.getState().selectedNodeId).toBe(root.id)
     store.navigate('up')
     expect(useEditorStore.getState().selectedNodeId).toBe(root.id)
+  })
+})
+
+describe('the cover', () => {
+  it('is not what the editor opens on, but stays one click away', () => {
+    useEditorStore.getState().setPresentation(seed())
+    expect(useEditorStore.getState().viewingCover).toBe(false)
+  })
+
+  it('replaces the slide selection while it is being edited, and gives it back', () => {
+    const presentation = seed()
+    const store = useEditorStore.getState()
+    store.setPresentation(presentation)
+
+    store.selectCover()
+    expect(useEditorStore.getState().viewingCover).toBe(true)
+    // Which slide to return to is remembered, so leaving the cover does not
+    // dump the author back at the start of the deck.
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
+
+    useEditorStore.getState().selectSlide(presentation.slides[0].id)
+    expect(useEditorStore.getState().viewingCover).toBe(false)
+  })
+
+  it('refuses zone mode, whichever way it is asked for', () => {
+    const store = useEditorStore.getState()
+    store.setPresentation(seed())
+    store.selectCover()
+
+    // The cover has no layout tree, so there is nothing for a zone action to
+    // act on — the toolbar button and Ctrl+E hit the same rule.
+    useEditorStore.getState().setMode('zone')
+    expect(useEditorStore.getState().mode).toBe('content')
+    useEditorStore.getState().toggleMode()
+    expect(useEditorStore.getState().mode).toBe('content')
+  })
+
+  it('keeps the caret in a cover line across a commit', () => {
+    const presentation = seed()
+    const store = useEditorStore.getState()
+    store.setPresentation(presentation)
+    store.selectCover()
+    useEditorStore
+      .getState()
+      .setActiveField({ nodeId: '__cover_title__', subfieldId: null, kind: 'cover-title' })
+
+    // A cover line is text on a page, not a node in a layout tree: nothing a
+    // command does to the tree can invalidate it.
+    useEditorStore.getState().run('typing:cover:title', (current) => ok({ ...current }))
+    expect(useEditorStore.getState().activeField?.kind).toBe('cover-title')
   })
 })
 

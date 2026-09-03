@@ -34,8 +34,9 @@ test.describe('deling i lokal modus', () => {
     await expect(page.getByTestId('copy-share-link')).toHaveCount(0)
     await expect(page.getByTestId('filmstrip-qr')).toHaveCount(0)
 
+    // Forsiden og den ene sliden — og ingen QR-side, som er poenget her.
     await page.getByTestId('present').click()
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 1')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 2')
     await page.keyboard.press('Escape')
 
     expect(guard.errors).toEqual([])

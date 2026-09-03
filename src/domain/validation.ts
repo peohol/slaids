@@ -22,11 +22,12 @@
  */
 
 import { contentAssetIds, contentDocs } from './content'
-import { fitContextFor, slideOverflow } from './commands/fitGuard'
+import { coverOverflow, fitContextFor, slideOverflow } from './commands/fitGuard'
 import { FIT_TOLERANCE } from './constants'
 import { collectLeaves, validateTree } from './layout'
 import { geometryForTheme } from './metrics'
 import { TITLE_NODE_ID, validateSlideGeometry } from './geometry'
+import { COVER_PAGE_ID } from './pages'
 import { collectCitationIds } from './richdoc'
 import { presentationSchema } from './schema'
 import type { StructuralOptions } from './commands/types'
@@ -241,6 +242,24 @@ export function findPresentationIssues(
         details: { [label]: id },
       })
     }
+  }
+
+  // The cover is a page the audience sees, so a line it clips is a finding —
+  // it is simply not a slide, and `findSlideIssues` would have nothing to look
+  // at. Same checker, same tolerance, same code as a slide title.
+  for (const [nodeId, overflow] of coverOverflow(
+    presentation.cover,
+    fitContextFor(presentation),
+    options,
+  )) {
+    if (overflow <= FIT_TOLERANCE) continue
+    issues.push({
+      code: 'TITLE_DOES_NOT_FIT',
+      message: 'Teksten får ikke plass på forsiden.',
+      slideId: COVER_PAGE_ID,
+      nodeId,
+      details: { overflow },
+    })
   }
 
   for (const slide of presentation.slides) {

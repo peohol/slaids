@@ -18,6 +18,13 @@ export interface TopToolbarProps {
   title: string
   hasTitleZone: boolean
   canToggleTitle: boolean
+  /**
+   * False on a page with no zone tree — a derived page or the cover.
+   *
+   * Zone mode, the content types and an inserted picture all address a zone, so
+   * on such a page there is nothing for them to act on.
+   */
+  canEditZones: boolean
   selectionIsLeaf: boolean
   selectionHasContent: boolean
   onBack: () => void
@@ -85,6 +92,7 @@ export function TopToolbar(props: TopToolbarProps) {
             type="button"
             className={mode === 'zone' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
             onClick={() => setMode('zone')}
+            disabled={!props.canEditZones}
             data-testid="mode-zone"
           >
             <Icon name="zones" size={15} /> Soner
@@ -96,7 +104,13 @@ export function TopToolbar(props: TopToolbarProps) {
         <Tooltip label={props.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone'}>
           <button
             type="button"
-            className={props.hasTitleZone ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+            /* A disabled button never reads as "on": on a page with no title
+               zone to toggle, the state of some other page's is not news. */
+            className={
+              props.hasTitleZone && props.canToggleTitle
+                ? 'btn btn--sm btn--active'
+                : 'btn btn--sm'
+            }
             onClick={props.onToggleTitle}
             disabled={!props.canToggleTitle}
             data-testid="toggle-title"
@@ -126,6 +140,7 @@ export function TopToolbar(props: TopToolbarProps) {
             type="button"
             className="btn btn--sm btn--icon"
             onClick={props.onOpenImage}
+            disabled={!props.canEditZones}
             data-testid="open-image"
             aria-label="Sett inn bilde"
           >
@@ -170,7 +185,14 @@ export function TopToolbar(props: TopToolbarProps) {
           </button>
         </Tooltip>
         <Tooltip label="Maler">
-          <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenTemplates} data-testid="open-templates" aria-label="Maler">
+          <button
+            type="button"
+            className="btn btn--sm btn--icon"
+            onClick={props.onOpenTemplates}
+            disabled={!props.canEditZones}
+            data-testid="open-templates"
+            aria-label="Maler"
+          >
             <Icon name="template" size={15} />
           </button>
         </Tooltip>

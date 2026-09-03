@@ -7,6 +7,7 @@
 
 import { useEffect } from 'react'
 import { setVerticalAlign } from '../../domain/commands'
+import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import type { VerticalAlign } from '../../domain/types'
 import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -32,6 +33,10 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
   const activeField = useEditorStore((state) => state.activeField)
   const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
+  /** What a heading with no colour of its own is painted with. */
+  const defaultPillColor = useEditorStore(
+    (state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR,
+  )
 
   useEffect(() => {
     if (!editor) return
@@ -43,6 +48,18 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
       editor.off('selectionUpdate', handler)
     }
   }, [editor, bump])
+
+  // The cover's two lines carry no formatting and no alignment at all: they are
+  // centred by construction, so there is nothing here to offer for them.
+  if (activeField?.kind === 'cover-title' || activeField?.kind === 'cover-subtitle') {
+    return (
+      <div className="text-toolbar" data-testid="text-toolbar">
+        <span className="hint">
+          {activeField.kind === 'cover-title' ? 'Forsidetittel' : 'Undertittel'} – alltid midtstilt
+        </span>
+      </div>
+    )
+  }
 
   if (!editor || !activeField) {
     return (
@@ -197,10 +214,16 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
   ) : null
 
   const headingActive = editor.isActive('heading')
-  const headingColor =
-    typeof editor.getAttributes('heading').color === 'string'
-      ? (editor.getAttributes('heading').color as string)
-      : '#33475b'
+  /*
+   * A heading with no colour of its own is not "the default hex": it is a
+   * heading that follows the cover. The picker therefore shows the resolved
+   * colour but marks "Standard" as the choice in force, and picking Standard
+   * again clears the attribute rather than writing today's colour into the
+   * document — which is what keeps it following the cover tomorrow.
+   */
+  const headingColorAttr = editor.getAttributes('heading').color
+  const explicitHeadingColor =
+    typeof headingColorAttr === 'string' ? headingColorAttr : null
 
   return (
     <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
@@ -248,8 +271,15 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
       {headingActive && (
         <ColorPickerButton
           label="Overskriftsfarge"
-          value={headingColor}
+          value={explicitHeadingColor ?? defaultPillColor}
           testId="heading-color"
+          inherited={{
+            color: defaultPillColor,
+            label: 'Standard (fra forsiden)',
+            active: explicitHeadingColor === null,
+            onSelect: () =>
+              editor.chain().focus().updateAttributes('heading', { color: null }).run(),
+          }}
           onChange={(color) => editor.chain().focus().updateAttributes('heading', { color }).run()}
         />
       )}

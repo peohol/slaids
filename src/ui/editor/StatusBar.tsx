@@ -21,6 +21,7 @@ export function StatusBar({
   const saveStatus = useEditorStore((state) => state.saveStatus)
   const mode = useEditorStore((state) => state.mode)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
+  const viewingCover = useEditorStore((state) => state.viewingCover)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const slide = presentation.slides.find((entry) => entry.id === currentSlideId)
   const index = presentation.slides.findIndex((entry) => entry.id === currentSlideId)
@@ -33,9 +34,9 @@ export function StatusBar({
       </span>
       <span className="statusbar__sep">·</span>
       <span>
-        Slide {index + 1} av {presentation.slides.length}
+        {viewingCover ? 'Forside' : `Slide ${index + 1} av ${presentation.slides.length}`}
       </span>
-      {mode === 'zone' && breadcrumb.length > 0 && (
+      {!viewingCover && mode === 'zone' && breadcrumb.length > 0 && (
         <>
           <span className="statusbar__sep">·</span>
           <span data-testid="status-breadcrumb">{breadcrumb.join(' › ')}</span>

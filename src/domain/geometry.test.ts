@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COVER_PILL_PADDING_X_EM,
+  COVER_PILL_PADDING_Y_EM,
+  COVER_SUBTITLE_FONT_SIZE,
   G,
   MIN_ZONE_HEIGHT,
   MIN_ZONE_WIDTH,
   SLIDE_HEIGHT,
   SLIDE_INSET,
   SLIDE_WIDTH,
+  TITLE_FONT_SIZE,
+  TITLE_LINE_HEIGHT,
   TITLE_ZONE_HEIGHT,
 } from './constants'
 import {
+  computeCoverGeometry,
   computeLayoutRects,
   computeMainRect,
   computeSlideGeometry,
@@ -380,5 +386,49 @@ describe('degenerate rects', () => {
     const violations = validateSlideGeometry(slide)
     expect(violations.some((violation) => violation.kind === 'below-minimum')).toBe(true)
     expect(violations.some((violation) => violation.kind === 'outside-parent')).toBe(false)
+  })
+})
+
+describe('computeCoverGeometry', () => {
+  const geometry = computeCoverGeometry()
+
+  it('leaves each line the page less its own pill padding', () => {
+    const usable = SLIDE_WIDTH - SLIDE_INSET * 2
+    expect(geometry.areaRect.width).toBe(usable)
+    expect(geometry.titleRect.width).toBeCloseTo(
+      usable - TITLE_FONT_SIZE * COVER_PILL_PADDING_X_EM * 2,
+      9,
+    )
+    // The subtitle is set smaller, so its padding is smaller and its line is
+    // wider — which is exactly why it holds more characters than the title.
+    expect(geometry.subtitleRect.width).toBeCloseTo(
+      usable - COVER_SUBTITLE_FONT_SIZE * COVER_PILL_PADDING_X_EM * 2,
+      9,
+    )
+    expect(geometry.subtitleRect.width).toBeGreaterThan(geometry.titleRect.width)
+  })
+
+  it('centres the two pills as one block, with exactly one gap between them', () => {
+    const { areaRect, blockRect, titleRect, subtitleRect } = geometry
+    expect(rectContainsRect(areaRect, blockRect)).toBe(true)
+    // Equal air above and below: the block is centred, not the pills separately.
+    expect(blockRect.y - areaRect.y).toBeCloseTo(rectBottom(areaRect) - rectBottom(blockRect), 9)
+
+    // The pill boxes, reconstructed from the line rects and the padding that
+    // put them there — the distance between them is the deck's one gap, and
+    // nothing here adds a second one.
+    const titlePadY = titleRect.y - blockRect.y
+    const subtitlePadY = COVER_SUBTITLE_FONT_SIZE * COVER_PILL_PADDING_Y_EM
+    const titlePillBottom = rectBottom(titleRect) + titlePadY
+    expect(subtitleRect.y - subtitlePadY - titlePillBottom).toBeCloseTo(G, 9)
+    expect(rectBottom(subtitleRect) + subtitlePadY).toBeCloseTo(rectBottom(blockRect), 9)
+  })
+
+  it('grows the block with the type it is set in', () => {
+    const bigger = computeCoverGeometry({ titleFontSize: TITLE_FONT_SIZE * 2 })
+    expect(bigger.blockRect.height).toBeGreaterThan(geometry.blockRect.height)
+    expect(bigger.titleRect.height).toBeCloseTo(TITLE_FONT_SIZE * 2 * TITLE_LINE_HEIGHT, 9)
+    // Still centred, and still inside the page.
+    expect(rectContainsRect(bigger.areaRect, bigger.blockRect)).toBe(true)
   })
 })

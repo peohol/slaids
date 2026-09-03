@@ -1,6 +1,10 @@
 /**
  * Traversal and transformation across every rich-text document in a
  * presentation, including slide titles, card titles, subfields and the sandbox.
+ *
+ * The cover is deliberately not among them, and it is not an omission: the one
+ * caller is `deleteReference`, which strips citations, and the cover's schema
+ * has no citation node in it. A cover line has nothing for a transform to find.
  */
 
 import { walkNodes } from './layout'

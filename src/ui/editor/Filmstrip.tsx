@@ -10,14 +10,78 @@ import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { duplicateSlide } from '../../domain/commands'
 import type { DeckPage } from '../../domain/pages'
+import { CoverPageView } from '../slide/CoverPageView'
 import { useEditorStore } from '../../state/store'
-import type { Presentation, Slide } from '../../domain/types'
+import type { DeckCover, Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
 import { SlideView } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
 const THUMB_WIDTH = 168
+const THUMB_SCALE = THUMB_WIDTH / SLIDE_WIDTH
+const THUMB_HEIGHT = SLIDE_HEIGHT * THUMB_SCALE
+
+/** A page drawn at thumbnail size. Every strip entry uses this one box. */
+function Thumb({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        width: SLIDE_WIDTH,
+        height: SLIDE_HEIGHT,
+        transform: `scale(${THUMB_SCALE})`,
+        transformOrigin: 'top left',
+        pointerEvents: 'none',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The cover: always first, never draggable, never deleted.
+ *
+ * It has no grip and no tools, because there is nothing a cover can be moved
+ * before or duplicated into. That is not chrome the strip happens to leave out
+ * — the commands to do either do not exist.
+ */
+function CoverThumb({
+  cover,
+  active,
+  onSelect,
+}: {
+  cover: DeckCover
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <div
+      className={active ? 'filmstrip__item filmstrip__item--active' : 'filmstrip__item'}
+      data-testid="filmstrip-cover"
+    >
+      <div className="filmstrip__index">
+        <span>1</span>
+        <span className="filmstrip__badge">Forside</span>
+      </div>
+      <button
+        type="button"
+        className="filmstrip__thumb"
+        style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
+        onClick={onSelect}
+        data-testid="filmstrip-cover-thumb"
+        aria-label="Forside"
+      >
+        <Thumb>
+          <CoverPageView cover={cover} />
+        </Thumb>
+      </button>
+      <div className="filmstrip__tools">
+        <span className="hint">Alltid først</span>
+      </div>
+    </div>
+  )
+}
 
 function SlideThumb({
   slide,
@@ -40,7 +104,6 @@ function SlideThumb({
     id: slide.id,
     data: { kind: 'slide' },
   })
-  const scale = THUMB_WIDTH / SLIDE_WIDTH
 
   return (
     <div
@@ -51,7 +114,8 @@ function SlideThumb({
       data-slide-id={slide.id}
     >
       <div className="filmstrip__index">
-        <span>{index + 1}</span>
+        {/* The cover is page one, so slide 1 is page two. */}
+        <span>{index + 2}</span>
         <button
           type="button"
           className="filmstrip__grip"
@@ -65,22 +129,14 @@ function SlideThumb({
       <button
         type="button"
         className="filmstrip__thumb"
-        style={{ width: THUMB_WIDTH, height: SLIDE_HEIGHT * scale }}
+        style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
         onClick={onSelect}
         data-testid="filmstrip-thumb"
         aria-label={`Slide ${index + 1}`}
       >
-        <div
-          style={{
-            width: SLIDE_WIDTH,
-            height: SLIDE_HEIGHT,
-            transform: `scale(${scale})`,
-            transformOrigin: 'top left',
-            pointerEvents: 'none',
-          }}
-        >
+        <Thumb>
           <SlideView slide={slide} />
-        </div>
+        </Thumb>
       </button>
       <div className="filmstrip__tools">
         <Tooltip label="Dupliser slide">
@@ -135,7 +191,9 @@ export function Filmstrip({
   onRequestNewSlide: () => void
 }) {
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
+  const viewingCover = useEditorStore((state) => state.viewingCover)
   const selectSlide = useEditorStore((state) => state.selectSlide)
+  const selectCover = useEditorStore((state) => state.selectCover)
   const selectAuthored = (slideId: string): void => {
     onSelectAuthored()
     selectSlide(slideId)
@@ -151,6 +209,15 @@ export function Filmstrip({
   return (
     <aside className="filmstrip" data-testid="filmstrip">
       <div className="filmstrip__list">
+        <CoverThumb
+          cover={presentation.cover}
+          active={viewingCover && viewingDerivedId === null}
+          onSelect={() => {
+            onSelectAuthored()
+            selectCover()
+          }}
+        />
+
         <SortableContext
             items={presentation.slides.map((slide) => slide.id)}
             strategy={verticalListSortingStrategy}
@@ -160,7 +227,7 @@ export function Filmstrip({
                 key={slide.id}
                 slide={slide}
                 index={index}
-                active={slide.id === currentSlideId && viewingDerivedId === null}
+                active={slide.id === currentSlideId && !viewingCover && viewingDerivedId === null}
                 canDelete={presentation.slides.length > 1}
                 onSelect={() => selectAuthored(slide.id)}
                 onDuplicate={() => duplicate(slide.id, index)}
@@ -183,27 +250,19 @@ export function Filmstrip({
               data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
             >
               <div className="filmstrip__index">
-                <span>{presentation.slides.length + index + 1}</span>
+                <span>{presentation.slides.length + index + 2}</span>
                 <span className="filmstrip__badge">Avledet</span>
               </div>
               <button
                 type="button"
                 className="filmstrip__thumb"
-                style={{ width: THUMB_WIDTH, height: (SLIDE_HEIGHT * THUMB_WIDTH) / SLIDE_WIDTH }}
+                style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
                 onClick={() => onSelectDerived(page.id)}
                 aria-label={label}
               >
-                <div
-                  style={{
-                    width: SLIDE_WIDTH,
-                    height: SLIDE_HEIGHT,
-                    transform: `scale(${THUMB_WIDTH / SLIDE_WIDTH})`,
-                    transformOrigin: 'top left',
-                    pointerEvents: 'none',
-                  }}
-                >
+                <Thumb>
                   <DeckPageView page={page} />
-                </div>
+                </Thumb>
               </button>
               <div className="filmstrip__tools">
                 <span className="hint">

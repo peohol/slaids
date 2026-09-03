@@ -15,6 +15,7 @@ import {
   parentIdOf,
   siblingIdOf,
 } from '../domain/layout'
+import { COVER_SUBTITLE_NODE_ID, COVER_TITLE_NODE_ID, TITLE_NODE_ID } from '../domain/geometry'
 import { findSlide } from '../domain/presentation'
 import type { NodeId, Presentation, Slide } from '../domain/types'
 import { notify } from './toast'
@@ -26,8 +27,14 @@ export interface ActiveField {
   nodeId: NodeId
   /** `null` addresses a card title; a subfield id addresses a body field. */
   subfieldId: string | null
-  kind: 'body' | 'card-title' | 'slide-title'
+  kind: 'body' | 'card-title' | 'slide-title' | 'cover-title' | 'cover-subtitle'
 }
+
+/** Fields that are text on a page rather than a node in a layout tree. */
+const NON_LAYOUT_FIELD_IDS: ReadonlySet<string> = new Set([
+  COVER_TITLE_NODE_ID,
+  COVER_SUBTITLE_NODE_ID,
+])
 
 interface HistoryEntry {
   presentation: Presentation
@@ -47,6 +54,15 @@ interface EditorStore {
   loadError: string | null
 
   currentSlideId: string | null
+  /**
+   * The cover is being edited instead of a slide.
+   *
+   * It is a flag beside `currentSlideId` rather than a slide id of its own,
+   * because the cover is not a slide: it has no layout tree, so every command,
+   * every selection and every navigation that addresses a node simply does not
+   * apply to it. Which slide the filmstrip returns to is remembered meanwhile.
+   */
+  viewingCover: boolean
   selectedNodeId: NodeId | null
   activeField: ActiveField | null
   mode: EditorMode
@@ -77,6 +93,7 @@ interface EditorStore {
   canRedo: () => boolean
 
   selectSlide: (slideId: string) => void
+  selectCover: () => void
   selectNode: (nodeId: NodeId | null) => void
   setMode: (mode: EditorMode) => void
   toggleMode: () => void
@@ -96,6 +113,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   loadError: null,
 
   currentSlideId: null,
+  viewingCover: false,
   selectedNodeId: null,
   activeField: null,
   mode: 'content',
@@ -113,6 +131,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({
       presentation,
       currentSlideId: presentation?.slides[0]?.id ?? null,
+      // A deck opens where the work is. The cover is page one and sits first in
+      // the filmstrip, but it is one line of text, not the thing being built.
+      viewingCover: false,
       selectedNodeId: presentation?.slides[0]?.root.id ?? null,
       activeField: null,
       past: [],
@@ -213,15 +234,30 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const presentation = get().presentation
     const slide = presentation ? findSlide(presentation, slideId) : null
     if (!slide) return
-    set({ currentSlideId: slideId, selectedNodeId: slide.root.id, activeField: null })
+    set({
+      currentSlideId: slideId,
+      viewingCover: false,
+      selectedNodeId: slide.root.id,
+      activeField: null,
+    })
+  },
+
+  selectCover: () => {
+    if (!get().presentation) return
+    // Zone mode has nothing to act on here, so leaving it on would show zone
+    // tools for a page with no zones.
+    set({ viewingCover: true, activeField: null, mode: 'content' })
   },
 
   selectNode: (selectedNodeId) => set({ selectedNodeId }),
-  setMode: (mode) => set({ mode, activeField: mode === 'zone' ? null : get().activeField }),
-  toggleMode: () => {
-    const mode = get().mode === 'zone' ? 'content' : 'zone'
-    set({ mode, activeField: mode === 'zone' ? null : get().activeField })
-  },
+  /*
+   * Zone mode is refused on the cover rather than merely hidden there: the
+   * cover has no layout tree, so every zone action would have nothing to act
+   * on. Keeping the rule here means the toolbar button and Ctrl+E obey the same
+   * one, instead of each remembering it.
+   */
+  setMode: (mode) => set(modePatch(get(), mode)),
+  toggleMode: () => set(modePatch(get(), get().mode === 'zone' ? 'content' : 'zone')),
   setActiveField: (activeField) => set({ activeField }),
 
   navigate: (direction) => {
@@ -253,6 +289,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     return findSlide(presentation, currentSlideId)
   },
 }))
+
+function modePatch(state: EditorStore, mode: EditorMode): Partial<EditorStore> {
+  if (mode === 'zone' && state.viewingCover) return {}
+  return { mode, activeField: mode === 'zone' ? null : state.activeField }
+}
 
 type SetState = (partial: Partial<EditorStore>) => void
 
@@ -310,7 +351,16 @@ function reconcileSelection(
     state.selectedNodeId !== null && findNode(slide.root, state.selectedNodeId) !== null
   if (!selectionValid) patch.selectedNodeId = slide.root.id
 
-  if (state.activeField && !findNode(slide.root, state.activeField.nodeId)) {
+  /* Only a field that addresses a *layout node* can be invalidated by a command:
+     a slide title and the cover's two lines are text on a page, not nodes, and
+     clearing them here would drop the toolbar out from under the caret on the
+     first keystroke. */
+  if (
+    state.activeField &&
+    state.activeField.nodeId !== TITLE_NODE_ID &&
+    !NON_LAYOUT_FIELD_IDS.has(state.activeField.nodeId) &&
+    !findNode(slide.root, state.activeField.nodeId)
+  ) {
     patch.activeField = null
   }
   return patch

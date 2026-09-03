@@ -8,6 +8,10 @@
  *
  * Outside a browser (unit tests, future server-side validation) the pure
  * estimator in `domain/fit.ts` is used instead.
+ *
+ * The one render-context field that is *not* the caller's is the deck's heading
+ * pill colour: a colour changes no glyph's width, so the offscreen copy is
+ * measured with the default one and the box it lands in is the same box.
  */
 
 import { createRoot, type Root } from 'react-dom/client'
@@ -21,8 +25,8 @@ import {
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
-import { fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
-import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import { coverOverflow, fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
+import { DEFAULT_PILL_COLOR, FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
@@ -96,7 +100,14 @@ export function measureContentFit(
   const overflow = withHost(
     rect,
     () => (
-      <SlideRenderProvider value={{ theme, numbering: context.numbering, isStatic: true }}>
+      <SlideRenderProvider
+        value={{
+          theme,
+          numbering: context.numbering,
+          headingPillColor: DEFAULT_PILL_COLOR,
+          isStatic: true,
+        }}
+      >
         <div
           className="slide-zone"
           style={{ ...slideTokenStyle(theme), width: rect.width, height: rect.height }}
@@ -124,15 +135,23 @@ export function measureTitleFit(
   doc: TitleDoc,
   titleRect: Rect,
   context: FitContext,
+  size?: number,
 ): FitResult {
-  if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, context)
+  if (typeof document === 'undefined') return estimateTitleFit(doc, titleRect, context, size)
   const { theme } = context
-  const fontSize = themeMetrics(theme).titleFontSize
+  const fontSize = size ?? themeMetrics(theme).titleFontSize
   const height = fontSize * TITLE_LINE_HEIGHT
   const needed = withHost(
     { x: 0, y: 0, width: titleRect.width, height },
     () => (
-      <SlideRenderProvider value={{ theme, numbering: context.numbering, isStatic: true }}>
+      <SlideRenderProvider
+        value={{
+          theme,
+          numbering: context.numbering,
+          headingPillColor: DEFAULT_PILL_COLOR,
+          isStatic: true,
+        }}
+      >
         <div
           className="slide-title"
           data-measure-title=""
@@ -172,17 +191,23 @@ export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitl
 }
 
 /**
- * How many zones in the whole deck currently overflow, measured for real.
+ * How many places in the whole deck currently clip their content, measured for
+ * real: every zone, every slide title, and both lines of the cover.
  *
  * This is the after-the-fact half of the fit rule: commands refuse changes that
  * would hide content, but some things — a web font swapping in, an image
  * finishing its download, a document written before the rule existed — are not
- * commands at all. One offscreen render per zone, so it is used deliberately
- * rather than on every keystroke.
+ * commands at all. The cover is in the count for exactly that reason: a font
+ * that arrives wider than the one it replaced clips a cover title the same way
+ * it clips a slide title. One offscreen render per place, so this is used
+ * deliberately rather than on every keystroke.
  */
-export function overflowingZoneCount(presentation: Presentation): number {
+export function overflowingCount(presentation: Presentation): number {
   const context = fitContextFor(presentation)
   let count = 0
+  for (const overflow of coverOverflow(presentation.cover, context, domFitCheckers).values()) {
+    if (overflow > FIT_TOLERANCE) count += 1
+  }
   for (const slide of presentation.slides) {
     for (const overflow of slideOverflow(slide, context, domFitCheckers).values()) {
       if (overflow > FIT_TOLERANCE) count += 1

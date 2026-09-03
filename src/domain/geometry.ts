@@ -12,6 +12,9 @@
  */
 
 import {
+  COVER_PILL_PADDING_X_EM,
+  COVER_PILL_PADDING_Y_EM,
+  COVER_SUBTITLE_FONT_SIZE,
   GEOMETRY_EPSILON,
   G,
   MIN_ZONE_HEIGHT,
@@ -19,11 +22,15 @@ import {
   SLIDE_HEIGHT,
   SLIDE_INSET,
   SLIDE_WIDTH,
+  TITLE_FONT_SIZE,
+  TITLE_LINE_HEIGHT,
   TITLE_ZONE_HEIGHT,
 } from './constants'
 import type { Axis, LayoutNode, NodeId, Rect, Slide } from './types'
 
 export const TITLE_NODE_ID = '__title__'
+export const COVER_TITLE_NODE_ID = '__cover_title__'
+export const COVER_SUBTITLE_NODE_ID = '__cover_subtitle__'
 
 export interface SlideGeometry {
   /** Rect of the deterministic title zone, or `null` when the slide has none. */
@@ -233,6 +240,84 @@ export function computeSlideGeometry(slide: Slide, options: GeometryOptions = {}
   const rects = computeLayoutRects(slide.root, mainRect, o.gap)
   if (titleRect) rects.set(TITLE_NODE_ID, titleRect)
   return { titleRect, mainRect, rects }
+}
+
+/* ------------------------------------------------------------------ *
+ * The cover
+ * ------------------------------------------------------------------ */
+
+export interface CoverGeometryOptions extends GeometryOptions {
+  /** Defaults to the slide title's size — the cover is set in the same type. */
+  titleFontSize?: number
+  subtitleFontSize?: number
+}
+
+export interface CoverGeometry {
+  /** The whole usable page: the slide minus its inset. */
+  areaRect: Rect
+  /** The two pills together, centred in `areaRect`. */
+  blockRect: Rect
+  /** The line the title's text gets, already inside the pill's own padding. */
+  titleRect: Rect
+  subtitleRect: Rect
+}
+
+/**
+ * Where the cover's two lines sit.
+ *
+ * The pills themselves are only as wide as their text, so where each one starts
+ * horizontally is decided by centring in CSS — exactly as a heading pill inside
+ * a card is. What is decided here is the part a fit check needs and CSS cannot
+ * answer: how much room a line actually has, which is the usable width less the
+ * pill's own padding, and how tall the two of them are together.
+ *
+ * There is one gap between the two pills, and it is the deck's own gap.
+ */
+export function computeCoverGeometry(options: CoverGeometryOptions = {}): CoverGeometry {
+  const o = resolveOptions(options)
+  const titleFont = options.titleFontSize ?? TITLE_FONT_SIZE
+  const subtitleFont = options.subtitleFontSize ?? COVER_SUBTITLE_FONT_SIZE
+
+  const areaRect: Rect = {
+    x: o.inset,
+    y: o.inset,
+    width: o.slideWidth - o.inset * 2,
+    height: o.slideHeight - o.inset * 2,
+  }
+
+  const lineOf = (fontSize: number): { pillHeight: number; padX: number; padY: number } => {
+    const padX = fontSize * COVER_PILL_PADDING_X_EM
+    const padY = fontSize * COVER_PILL_PADDING_Y_EM
+    return { pillHeight: fontSize * TITLE_LINE_HEIGHT + padY * 2, padX, padY }
+  }
+
+  const title = lineOf(titleFont)
+  const subtitle = lineOf(subtitleFont)
+  const blockHeight = title.pillHeight + o.gap + subtitle.pillHeight
+  const blockRect: Rect = {
+    x: areaRect.x,
+    y: areaRect.y + (areaRect.height - blockHeight) / 2,
+    width: areaRect.width,
+    height: blockHeight,
+  }
+
+  const textRect = (
+    top: number,
+    fontSize: number,
+    line: { padX: number; padY: number },
+  ): Rect => ({
+    x: areaRect.x + line.padX,
+    y: top + line.padY,
+    width: Math.max(0, areaRect.width - line.padX * 2),
+    height: fontSize * TITLE_LINE_HEIGHT,
+  })
+
+  return {
+    areaRect,
+    blockRect,
+    titleRect: textRect(blockRect.y, titleFont, title),
+    subtitleRect: textRect(blockRect.y + title.pillHeight + o.gap, subtitleFont, subtitle),
+  }
 }
 
 /* ------------------------------------------------------------------ *

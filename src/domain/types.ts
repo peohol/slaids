@@ -138,6 +138,26 @@ export interface Slide {
   root: LayoutNode
 }
 
+/**
+ * The cover of a deck: the page an audience meets first.
+ *
+ * Every presentation has exactly one and it is stored, but it is deliberately
+ * not a `Slide`: there is no zone tree behind it, no layout to split and no
+ * command that can delete, move or duplicate it. Both lines are centred by
+ * construction, which is why neither carries an alignment of its own — and
+ * neither may cite, because a citation gets its number from the slides.
+ *
+ * `pillColor` is the colour of the two pills, and it is at the same time the
+ * deck's default heading colour: a heading pill that never had a colour picked
+ * for it stores none and reads this one, so changing it here repaints every
+ * such heading in the deck without touching a single stored document.
+ */
+export interface DeckCover {
+  title: TitleDoc
+  subtitle: TitleDoc
+  pillColor: string
+}
+
 export interface PresentationTheme {
   backgroundColor: string
   headingFontFamily: string
@@ -182,16 +202,17 @@ export interface AssetRef {
 }
 
 /**
- * Everything it takes to draw a deck: the authored slides, the theme they are
- * drawn in, and the references their citations point at.
+ * Everything it takes to draw a deck: the cover, the authored slides, the theme
+ * they are drawn in, and the references their citations point at.
  *
  * Reference numbering and the derived reference slides are computed from
- * exactly these three, and nothing else — which is what lets the private
+ * exactly these, and nothing else — which is what lets the private
  * `Presentation` and the sanitised `SharedPresentationSnapshot` go through the
  * same renderer without a branch anywhere in it.
  */
 export interface DeckSource {
   theme: PresentationTheme
+  cover: DeckCover
   slides: Slide[]
   references: Reference[]
 }
