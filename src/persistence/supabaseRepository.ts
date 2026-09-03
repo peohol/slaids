@@ -198,6 +198,51 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return filterable.eq('owner_id', this.pinnedOwnerId)
   }
 
+  /**
+   * Store a row this repository owns — and never one somebody else owns.
+   *
+   * The obvious spelling is an upsert, and it is the wrong one. `INSERT … ON
+   * CONFLICT DO UPDATE` conflicts on the primary key alone, so an id that
+   * already belongs to another owner is not a collision it refuses but a row it
+   * takes over: `owner_id` is among the columns written, so the row simply
+   * becomes ours. In the browser row level security stops that; with a server
+   * key there is no row level security left to stop it, and "asset ids are
+   * random enough" is not a security property.
+   *
+   * So: insert, and only if the id turns out to be taken, update it *as its
+   * owner*. The two outcomes are exactly the ones a caller needs to tell apart —
+   * the row was ours and is now saved, or the row is not ours and nothing
+   * happened — and the second is a `RepositoryConflictError`, the same answer a
+   * lost race gets, because the caller's move is the same: use a different id.
+   *
+   * Insert first rather than update first because the common case is a new row;
+   * `saveTemplate` orders it the other way for the same reason in reverse, and
+   * both reach the same place.
+   */
+  private async saveOwnedRow(
+    table: string,
+    id: string,
+    row: Record<string, unknown>,
+    what: string,
+  ): Promise<void> {
+    const inserted = await this.client.from(table).insert(row)
+    if (!inserted.error) return
+    if (inserted.error.code !== UNIQUE_VIOLATION) fail(what, inserted.error)
+
+    // The id is taken. Whether it is *ours* is what the owner filter answers —
+    // and in the browser, where there is no filter to add, row level security
+    // answers the same question the same way.
+    const updated = await this.scoped(
+      this.client.from(table).update(row).eq('id', id),
+    ).select('id')
+    if (updated.error) fail(what, updated.error)
+    if (((updated.data ?? []) as unknown[]).length > 0) return
+
+    throw new RepositoryConflictError(
+      `${what}: id-en «${id}» er allerede i bruk av en rad denne økten ikke eier. Bruk en annen id.`,
+    )
+  }
+
   /** Test seam: forget every known row, as a fresh sign-in would. */
   forgetVersions(): void {
     this.knownVersions.clear()
@@ -609,14 +654,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async saveFolder(folder: Folder): Promise<void> {
-    const ownerId = await this.ownerId()
-    const { error } = await this.client.from(FOLDERS_TABLE).upsert({
-      id: folder.id,
-      owner_id: ownerId,
-      name: folder.name,
-      created_at: folder.createdAt,
-    })
-    if (error) fail('Kunne ikke lagre mappen', error)
+    await this.saveOwnedRow(
+      FOLDERS_TABLE,
+      folder.id,
+      {
+        id: folder.id,
+        owner_id: await this.ownerId(),
+        name: folder.name,
+        created_at: folder.createdAt,
+      },
+      'Kunne ikke lagre mappen',
+    )
   }
 
   /** Presentations in a deleted folder move back to the root rather than vanish. */
@@ -740,18 +788,27 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     })
     if (upload.error) fail(`Kunne ikke laste opp «${ref.name}»`, upload.error)
 
-    const { error } = await this.client.from(ASSETS_TABLE).upsert({
-      id: ref.id,
-      owner_id: ownerId,
-      presentation_id: presentationId,
-      ref: { ...ref },
-      object_path: objectPath,
-    })
-    if (error) {
+    try {
+      await this.saveOwnedRow(
+        ASSETS_TABLE,
+        ref.id,
+        {
+          id: ref.id,
+          owner_id: ownerId,
+          presentation_id: presentationId,
+          ref: { ...ref },
+          object_path: objectPath,
+        },
+        `Kunne ikke lagre metadata for «${ref.name}»`,
+      )
+    } catch (error) {
       // The file is up but nothing can reach it without its row, so take it
-      // back out rather than leave it behind in the bucket.
+      // back out rather than leave it behind in the bucket. That includes the
+      // case where the id belongs to somebody else: the object we just wrote
+      // sits under *our* owner prefix and is now unreferenced, while their row
+      // and their file are untouched.
       await this.reclaimObjects([objectPath])
-      fail(`Kunne ikke lagre metadata for «${ref.name}»`, error)
+      throw error
     }
     // This path is referenced again. A failed removal from an earlier attempt
     // must not have it swept out from under the row that now points at it.
@@ -792,13 +849,27 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return refs
   }
 
+  /**
+   * Which of these ids this owner already has a file under.
+   *
+   * Scoped, like everything else. It is tempting to leave it open — "does this
+   * id name *any* stored file" is the question that would let an importer step
+   * around a collision it cannot see — but that reading was never true: in the
+   * browser row level security has always narrowed this to the owner's own
+   * rows, so an unscoped query only reaches further when a server key is
+   * holding it, which is precisely when it must not.
+   *
+   * Nothing is lost by narrowing it, because the safety never rested here. A
+   * foreign id that looks free is caught by the write instead: `saveOwnedRow`
+   * refuses it with a conflict rather than taking the row over, which is the
+   * same shape `savePresentation` already relies on and the importer already
+   * knows how to answer.
+   */
   async existingAssetIds(ids: readonly string[]): Promise<string[]> {
     if (ids.length === 0) return []
-    // Deliberately not scoped to the owner. The question is "does this id
-    // already name a stored file", and an id that belongs to somebody else is
-    // exactly the answer an importer must not miss — writing over it would take
-    // their picture away.
-    const { data, error } = await this.client.from(ASSETS_TABLE).select('id').in('id', [...ids])
+    const { data, error } = await this.scoped(
+      this.client.from(ASSETS_TABLE).select('id'),
+    ).in('id', [...ids])
     if (error) fail('Kunne ikke sjekke hvilke filer som finnes fra før', error)
     return ((data ?? []) as { id: string }[]).map((row) => row.id)
   }

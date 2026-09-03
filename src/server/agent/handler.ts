@@ -78,20 +78,37 @@ export interface AgentApiDeps {
 }
 
 /**
+ * What a caller is told when the handler itself failed.
+ *
+ * Deliberately one fixed sentence with nothing in it. The thrown error's own
+ * message is written by whatever threw — a Postgres driver, the Supabase
+ * client, a URL parser — and those say things like which relation was queried,
+ * which constraint failed or which host did not resolve. None of that is the
+ * caller's business, and an API that repeats it is an API that maps the
+ * database for whoever is probing it.
+ */
+export const INTERNAL_ERROR_MESSAGE =
+  'Forespørselen feilet uventet. Feilen er logget serverside; prøv igjen, eller se serverloggen.'
+
+/**
  * One answer, whatever went wrong.
  *
  * Nothing below throws out of here: a bug in the handler answers `500` with the
  * same envelope as everything else, because an agent can only act on what it
- * can parse.
+ * can parse. What it does *not* do is hand the exception's own text back — that
+ * goes to the server log, where only the owner can read it.
+ *
+ * The errors an agent is supposed to act on never come through here: Agent Core
+ * catches its own, and a repository failure is already a typed `STORAGE_FAILED`
+ * with a message written for a reader. This path is for the unforeseen, and the
+ * unforeseen is exactly what has not been checked for what it says.
  */
 export async function handleAgentRequest(deps: AgentApiDeps, request: Request): Promise<Response> {
   try {
     return await route(deps, request)
   } catch (error) {
-    return errorResponse({
-      code: 'INTERNAL_ERROR',
-      message: error instanceof Error ? error.message : 'Forespørselen feilet uventet.',
-    })
+    console.error('slaids-agent: uventet feil i forespørselen', error)
+    return errorResponse({ code: 'INTERNAL_ERROR', message: INTERNAL_ERROR_MESSAGE })
   }
 }
 

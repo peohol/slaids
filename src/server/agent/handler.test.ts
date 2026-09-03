@@ -15,7 +15,7 @@
  * thing Agent Core answers in process.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { operations, runOperation } from '../../agent/registry'
 import { AGENT_SCOPES, type AgentContext, type AgentScope } from '../../agent/types'
 import { realImages } from '../../domain/testImages'
@@ -23,7 +23,7 @@ import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import type { AgentAuditRecord, AgentAuditSink } from './audit'
 import { AGENT_API_BASE_PATH } from '../../routing'
-import { handleAgentRequest, type AgentApiDeps } from './handler'
+import { INTERNAL_ERROR_MESSAGE, handleAgentRequest, type AgentApiDeps } from './handler'
 import type { AgentPrincipal, AuthOutcome } from './tokens'
 
 const ORIGIN = 'https://slaids.example'
@@ -187,6 +187,47 @@ describe('autentisering', () => {
     // No credentials: a page without a token gains nothing from being allowed
     // to ask, and there is no cookie for it to ride on.
     expect(response.headers.get('Access-Control-Allow-Credentials')).toBeNull()
+  })
+
+  it('lekker aldri en uventet feils egen tekst til kalleren', async () => {
+    // The exception's message is written by whatever threw — a Postgres driver,
+    // the Supabase client — and those name relations, constraints and hosts.
+    // The caller gets one fixed sentence; the detail goes to the server log,
+    // which only the owner can read.
+    const secret =
+      'relation "slaids_presentations" does not exist at db.hemmelig-prosjekt.supabase.co:5432 (key sb_secret_lekkasje)'
+    const api = harness()
+    api.deps.authenticate = () => {
+      throw new Error(secret)
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await handleAgentRequest(
+      api.deps,
+      new Request(url('/operations'), { method: 'GET', headers: authorized() }),
+    )
+    const body = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(body).toContain('INTERNAL_ERROR')
+    for (const fragment of [
+      secret,
+      'slaids_presentations',
+      'hemmelig-prosjekt',
+      'sb_secret_lekkasje',
+      '5432',
+    ]) {
+      expect(body).not.toContain(fragment)
+    }
+    expect(JSON.parse(body)).toMatchObject({
+      ok: false,
+      error: { code: 'INTERNAL_ERROR', message: INTERNAL_ERROR_MESSAGE },
+    })
+
+    // Not swallowed either: the owner still gets the whole thing, server-side.
+    expect(logged).toHaveBeenCalled()
+    expect(logged.mock.calls.flat().some((argument) => String(argument).includes(secret))).toBe(true)
+    logged.mockRestore()
   })
 
   it('svarer 404 for en adresse som ikke er agent-API-et i det hele tatt', async () => {
