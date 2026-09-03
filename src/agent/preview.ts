@@ -54,13 +54,19 @@ export interface SlidePreviewRequest {
 export interface SlidePreview {
   image: AgentImage
   /**
-   * Whether every web font the theme names was usable when the picture was
-   * taken.
+   * Whether the picture is set in the type the deck names.
    *
-   * Reported rather than waited for indefinitely. Fonts come over the network,
-   * and a preview drawn in the fallback face is still worth looking at for
+   * Reported rather than waited for indefinitely, and false for both reasons it
+   * can be. A web font's faces come over the network and may not arrive; a
+   * *local* font — one the catalogue marks as belonging to the machine rather
+   * than to Slaids — can never arrive at all, because there is nothing to
+   * fetch and nothing to wait for. The second case is the one that used to
+   * report readiness by accident: a renderer asked to wait for no families
+   * waits successfully while the container substitutes something else.
+   *
+   * A preview drawn in a fallback face is still worth looking at for
    * composition — but an agent judging whether a line is too long has to know
-   * that the glyphs it is looking at are not the ones the deck will use.
+   * the glyphs are not the ones the deck will use.
    */
   fontsReady: boolean
   /**

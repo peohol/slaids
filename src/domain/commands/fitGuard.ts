@@ -38,7 +38,15 @@
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
  *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
  *    `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
- *    `setSlideTitle`, `setSlideHasTitle`, `setCoverTitle`, `setCoverSubtitle`,
+ *    `setSlideTitle`, `setSlideHasTitle` — **both directions**, and the
+ *    removing one is the easy half to get wrong: it can only give *this* slide
+ *    room, so it looks like it cannot hide anything. A title may cite, and
+ *    removing it takes a reference's first occurrence away, which renumbers
+ *    every citation after it on slides nobody touched. It is gated rather than
+ *    listed with the removals below because the same citation is already gated
+ *    when `setSlideTitle` edits it out of the text, and one way of dropping a
+ *    citation must not be the way around the other —
+ *    `setCoverTitle`, `setCoverSubtitle`,
  *    `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.

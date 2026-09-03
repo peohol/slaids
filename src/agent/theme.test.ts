@@ -18,10 +18,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { FONT_IDS, findFontById } from '../domain/fonts'
+import { FONT_OPTIONS, GUARANTEED_FONT_IDS, findFontById, isGuaranteedFont } from '../domain/fonts'
 import { computeMainRect } from '../domain/geometry'
-import { geometryForTheme } from '../domain/metrics'
-import { FONT_SCALE_RANGE, SPACING_RANGE } from '../domain/metrics'
+import { FONT_SCALE_RANGE, SPACING_RANGE, geometryForTheme } from '../domain/metrics'
 import { COVER_PAGE_ID } from '../domain/pages'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
@@ -130,11 +129,17 @@ describe('å lese temaet', () => {
     })
     expect(view.theme).toEqual({
       backgroundColor: expect.stringMatching(/^#[0-9a-f]{6}$/),
-      headingFont: { fontId: 'quicksand', label: 'Quicksand', stack: expect.any(String) },
+      headingFont: {
+        fontId: 'quicksand',
+        label: 'Quicksand',
+        stack: expect.any(String),
+        guaranteed: true,
+      },
       bodyFont: {
         fontId: 'atkinson',
         label: 'Atkinson Hyperlegible Next',
         stack: expect.any(String),
+        guaranteed: true,
       },
       spacing: 1,
       fontScale: 1,
@@ -264,13 +269,27 @@ describe('kontrakten set_theme publiserer', () => {
   }
 
   it('gjør de gyldige fontvalgene oppdagbare, fra fontkatalogen selv', () => {
-    // Generated from `domain/fonts.ts`, so a font added to the editor's chooser
-    // is a font an agent can pick in the same commit — and a hand-written list
-    // here would be the copy that falls behind.
+    // Generated from `domain/fonts.ts`, so a web font added to the editor's
+    // chooser is a font an agent can pick in the same commit — and a
+    // hand-written list here would be the copy that falls behind.
     const properties = described()
-    expect(properties.headingFont).toMatchObject({ type: 'string', enum: FONT_IDS })
-    expect(properties.bodyFont).toMatchObject({ type: 'string', enum: FONT_IDS })
-    expect(FONT_IDS).toContain('quicksand')
+    expect(properties.headingFont).toMatchObject({ type: 'string', enum: GUARANTEED_FONT_IDS })
+    expect(properties.bodyFont).toMatchObject({ type: 'string', enum: GUARANTEED_FONT_IDS })
+    expect(GUARANTEED_FONT_IDS).toContain('quicksand')
+  })
+
+  it('tilbyr bare fonter Slaids kan hente selv, ikke editorens lokale', () => {
+    // The contract that keeps a fit answer and a rendered preview describing the
+    // same font: an agent cannot name a font the renderer would substitute.
+    const enumerated = described().headingFont as { enum: string[] }
+    for (const font of FONT_OPTIONS) {
+      expect(enumerated.enum.includes(font.id), font.id).toBe(isGuaranteedFont(font))
+    }
+    // Named out loud, because these are the ones that used to be selectable:
+    // a container that draws a preview has no Calibri and no Segoe UI.
+    expect(enumerated.enum).not.toContain('calibri')
+    expect(enumerated.enum).not.toContain('segoe')
+    expect(enumerated.enum).not.toContain('times')
   })
 
   it('publiserer domenets egne grenser for de to skalaene', () => {
@@ -299,6 +318,14 @@ describe('kontrakten set_theme publiserer', () => {
       bodyFont: 'comic-sans',
     })
     expect(font.code).toBe('INVALID_INPUT')
+
+    // And a font that exists in the editor but not in the agent's half of the
+    // catalogue is refused the same way, by the schema, before anything runs.
+    const local = await fails(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      bodyFont: 'calibri',
+    })
+    expect(local.code).toBe('INVALID_INPUT')
 
     const scale = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
@@ -493,27 +520,21 @@ describe('fonten en hodeløs måling dømmer etter', () => {
 
     const wide = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
-      bodyFont: 'verdana',
+      bodyFont: 'merriweather',
     })
     expect(wide.code).toBe('CONTENT_DOES_NOT_FIT')
 
     const narrow = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
-      bodyFont: 'calibri',
+      bodyFont: 'source-sans',
     })
-    expect(narrow.theme.bodyFont.fontId).toBe('calibri')
+    expect(narrow.theme.bodyFont.fontId).toBe('source-sans')
 
-    // A web font is judged the same way, with nothing downloaded and no
-    // network anywhere in the call: Merriweather is wider than what the zone
-    // now holds, so it is refused on its own catalogue metrics.
-    const webFont = await fails(context, 'set_theme', {
-      presentationId: deck.presentationId,
-      bodyFont: 'merriweather',
-    })
-    expect(webFont.code).toBe('CONTENT_DOES_NOT_FIT')
-
+    // Both are web fonts, and neither was downloaded: no network took part in
+    // either answer, and they still differ — because the number comes from the
+    // catalogue's entry for the font that was named.
     const document = await stored(context, deck.presentationId)
-    expect(document.theme.bodyFontFamily).toBe(findFontById('calibri')?.stack)
+    expect(document.theme.bodyFontFamily).toBe(findFontById('source-sans')?.stack)
   })
 
   it('måler forsiden også, og sier at det var den', async () => {
@@ -538,7 +559,7 @@ describe('fonten en hodeløs måling dømmer etter', () => {
 
     const refused = await fails(context, 'set_theme', {
       presentationId: created.presentationId,
-      headingFont: 'verdana',
+      headingFont: 'merriweather',
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(refused.details?.slideId).toBe(COVER_PAGE_ID)
@@ -556,7 +577,9 @@ describe('fonten en hodeløs måling dømmer etter', () => {
       title: 'Tittelmåling',
     })
     const slideId = created.slides[0].slideId
-    // A title that is as long as the zone allows in the default face.
+    // A title exactly as long as the zone allows in the default face. Grown one
+    // character at a time on purpose: a coarser step would leave slack, and the
+    // slack would be the thing the next assertion measured.
     let length = 10
     for (;;) {
       const attempt = await call(context, 'set_slide_title', {
@@ -565,18 +588,18 @@ describe('fonten en hodeløs måling dømmer etter', () => {
         spans: [{ text: 'A'.repeat(length) }],
       })
       if (!attempt.ok) break
-      length += 5
+      length += 1
       if (length > 400) throw new Error('Tittelsonen tok imot alt.')
     }
     await ok(context, 'set_slide_title', {
       presentationId: created.presentationId,
       slideId,
-      spans: [{ text: 'A'.repeat(length - 5) }],
+      spans: [{ text: 'A'.repeat(length - 1) }],
     })
 
     const refused = await fails(context, 'set_theme', {
       presentationId: created.presentationId,
-      headingFont: 'verdana',
+      headingFont: 'merriweather',
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(refused.details).toMatchObject({ subject: 'slide-title', slideId })

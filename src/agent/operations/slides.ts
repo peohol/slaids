@@ -16,7 +16,9 @@
  * choice — a full-bleed figure wants the whole 1600 × 900 — and it is not a
  * property of the text: removing the zone gives the content the height the zone
  * took, which is why it is a structural command with a fit guard rather than
- * `set_slide_title('')`.
+ * `set_slide_title('')`. Both directions are gated, including the one that only
+ * frees space: a title may cite, and a citation that goes away renumbers the
+ * deck. See `domain/commands/fitGuard.ts`.
  */
 
 import { z } from 'zod'
@@ -243,7 +245,7 @@ export const setSlideTitleOperation = defineOperation({
 export const setSlideHasTitleOperation = defineOperation({
   name: 'set_slide_has_title',
   summary:
-    'Slå tittelsonen på en slide av eller på. Å legge den til krymper innholdsområdet og kan derfor avvises; å fjerne den frigjør høyden den tok. Teksten settes med set_slide_title.',
+    'Slå tittelsonen på en slide av eller på. Å legge den til krymper innholdsområdet og kan derfor avvises; å fjerne den frigjør høyden den tok. Fjerner du en overskrift som siterer, renummereres citations i hele dekket, og kallet avvises hvis det gjør innhold på en annen slide for stort. Teksten settes med set_slide_title.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

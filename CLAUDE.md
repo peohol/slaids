@@ -158,8 +158,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   liten og en agent som har lest presentasjonen har lest temaet – og `set_theme`
   setter det via `setTheme`. Ingen validering, klamping eller temalogikk i
   agentlaget. Fonter navngis med id fra `src/domain/fonts.ts`, og det publiserte
-  fontenumet **genereres fra katalogen**; en andre liste ville blitt oppdaget
-  først den dagen editoren fikk en font agenten ikke kunne velge. Luft og
+  fontenumet **genereres fra katalogens garanterte halvdel** (`isGuaranteedFont`);
+  en andre liste ville blitt oppdaget først den dagen katalogen fikk en font
+  enumet manglet. Luft og
   skriftstørrelse publiseres med domenets eget intervall (`SPACING_RANGE`,
   `FONT_SCALE_RANGE`), mens editorens fire navngitte trinn bor i
   `src/domain/metrics.ts` (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`) og siteres i
@@ -180,12 +181,21 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   målingen feilet mot.
 - **Hodeløs fit-måling dømmer den fonten som ble navngitt, aldri en reservefont.**
   Estimatoren leser `advanceRatioFor(stack)` – katalogens eget tall for den
-  fonten – så et agentkall trenger verken nettverk eller webfont-venting, og et
-  tema som ble godkjent er det samme temaet previewet tegner. Nettleseren er det
-  motsatte tilfellet: der måles den ekte DOM-en, og derfor venter `ThemeModal` på
-  `ensureWebFonts` før den commit-er. At agentens inndata er begrenset til
-  katalog-id-er er det som holder de to like; en ukjent stack ville falt tilbake
-  på `DEFAULT_ADVANCE_RATIO`, som beskriver ingen bestemt font.
+  fonten – så et agentkall trenger verken nettverk eller webfont-venting.
+  Nettleseren er det motsatte tilfellet: der måles den ekte DOM-en, og derfor
+  venter `ThemeModal` på `ensureWebFonts` før den commit-er.
+- **Fontkatalogen skiller webfonter fra lokale fonter, og agenten får bare de
+  første.** En webfont henter Slaids selv og kan gis til hvem som helst som skal
+  tegne dekket; en lokal font (Calibri, Segoe UI, Times New Roman) har maskinen
+  eller ikke. Det siste var det ene tilfellet der fit, preview og API kunne bli
+  uenige uten at noen merket det: det finnes ingenting å hente, så hentingen
+  lykkes trivielt, rasterizeren har ingen familie å vente på, og «ingenting å
+  vente på» svarte `fontsReady: true` mens containeren tegnet noe annet. Derfor
+  publiserer `set_theme` `GUARANTEED_FONT_IDS`, og `fontsReady: true` betyr at
+  bildet er i dekkets egen skrift – usant både for en webfont som ikke kom fram
+  og for en font som aldri kunne komme fram. Et dekk kan fortsatt inneholde en
+  lokal font fra editoren; da leser `get_presentation` den med
+  `guaranteed: false`, og previewet advarer i stedet for å påstå paritet.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.

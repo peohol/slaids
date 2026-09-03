@@ -68,6 +68,13 @@ export interface SlidePreviewView {
   scale: number
   /** Bytes in Agent Core; the response body over REST, an image block over MCP. */
   image: AgentImage
+  /**
+   * Whether the picture is in the deck's own type.
+   *
+   * False for both ways it can fail to be: a web font whose faces did not
+   * arrive, and a font Slaids cannot fetch at all — a local one a person chose
+   * in the editor, which no renderer can be handed. `warnings` names which.
+   */
   fontsReady: boolean
   warnings: string[]
 }

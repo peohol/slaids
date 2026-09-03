@@ -486,7 +486,17 @@ Fire ting til er verdt å vite om hvordan laget oppfører seg:
   som ville skjult innhold blir avvist på samme måte, i sin helhet, uten at noe
   lagres. Luft og skriftstørrelse flytter i tillegg geometrien, så de måles to
   ganger: en endring som ville gjort soner mindre enn minstemålet avvises med
-  `ZONE_TOO_SMALL` selv om sonene er tomme og ingenting kunne blitt skjult. Fonter velges med id fra Slaids' egen fontkatalog, og de gyldige
+  `ZONE_TOO_SMALL` selv om sonene er tomme og ingenting kunne blitt skjult.
+- **Agenten får bare fonter Slaids kan garantere.** Katalogen skiller mellom
+  webfonter, som Slaids henter selv og kan gi til hvem som helst som tegner
+  dekket, og lokale fonter som Calibri og Segoe UI, som maskinen enten har eller
+  ikke har. Editoren tilbyr begge – der ser forfatteren resultatet selv – mens
+  `set_theme` publiserer webfontene, generert fra katalogen. Ellers kunne en
+  agent valgt en font den hodeløse fit-målingen regnet på, previewet byttet ut i
+  stillhet, og `fontsReady: true` sa var i orden. Et dekk kan fortsatt være satt
+  i en lokal font: `get_presentation` markerer den med `guaranteed: false`, og et
+  preview av det dekket rapporterer `fontsReady: false` med en advarsel som
+  navngir fonten. Fonter velges med id fra Slaids' egen fontkatalog, og de gyldige
   valgene er publisert som et enum i operasjonens JSON Schema, generert fra
   katalogen selv. Luft og skriftstørrelse publiseres med domenets eget intervall;
   editorens fire trinn («tett», «normal», «luftig», «ekstra luftig») siteres som

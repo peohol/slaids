@@ -2043,7 +2043,8 @@ Kontrakten er derfor:
 - **Fonter navngis med id fra fontkatalogen**, og det publiserte JSON
   Schema-et er et enum generert fra `src/domain/fonts.ts`. Det gjør de gyldige
   valgene oppdagbare i `tools/list`, og det finnes ingen andre liste som kan
-  havne bak editorens.
+  havne bak katalogen. Enumet er katalogens **garanterte** halvdel – se
+  «Webfonter, hodeløs fit-måling og hva et preview kan love» under.
 - **Skalaene publiseres med domenets eget intervall.** Editorens fire trinn er
   navn en agent kan bruke for å si «normal», ikke grensene den må holde seg til;
   de siteres i beskrivelsen fra `SPACING_PRESETS` og `FONT_SCALE_PRESETS`. En
@@ -2070,10 +2071,11 @@ Kontrakten er derfor:
   målingen feilet mot gapet og tittelhøyden det *nye* temaet gir, og rommet en
   sone hadde før ville sendt agenten på å korte ned med feil mengde.
 
-#### Webfonter og hodeløs fit-måling
+#### Webfonter, hodeløs fit-måling og hva et preview kan love
 
 En font avgjør hvor mye tekst som får plass, så «hvilken font ble dette godkjent
-mot?» må ha ett svar. Det har det, og mekanismen er ikke den samme to steder:
+mot?» må ha ett svar – og bildet agenten deretter ser på må være i den samme
+fonten. Tre mekanismer, og de er bare enige fordi inndataene er begrenset:
 
 - **I nettleseren** måler fit-gaten den ekte DOM-en, altså den fonten som er
   lastet i det øyeblikket. Derfor venter `ThemeModal` på `ensureWebFonts` før
@@ -2081,16 +2083,42 @@ mot?» må ha ett svar. Det har det, og mekanismen er ikke den samme to steder:
   reservefonten og tegnes i noe annet et øyeblikk senere.
 - **Hodeløst – som er hvert eneste agentkall** – måles ingenting. Estimatoren
   leser `advanceRatioFor(stack)`, et tall katalogen oppgir for *den* fonten, og
-  det er det samme tallet enten fontens bytes noen gang kommer eller ikke. Det
-  finnes derfor ingen reservefont å bli godkjent mot og ingenting å vente på:
-  `set_theme` og et senere `render_slide_preview` dømmer den samme navngitte
-  fonten. At inndataene er begrenset til katalog-id-er er det som garanterer
-  det – en stack utenfra ville falt tilbake på `DEFAULT_ADVANCE_RATIO`, som
-  beskriver ingen bestemt font.
+  det er det samme tallet enten fontens bytes noen gang kommer eller ikke. Et
+  fit-svar beskriver derfor alltid fonten som ble navngitt.
+- **Et rendret preview** tegnes av en hodeløs Chromium, som har de fontene
+  Slaids ga den og ingen andre.
 
-Rendreren sier den andre halvdelen høyt: et preview rapporterer `fontsReady`, så
-en agent som ser på bildet vet om glyffene er dekkets egne eller en stand-in
-nettverket kostet den.
+Det siste punktet er grunnen til at katalogen skiller eksplisitt mellom to
+slags fonter, og at agenten bare får den ene:
+
+- en **webfont** navngir en Google Fonts-familie, så Slaids henter ansiktene
+  selv – nettleseren gjennom `ui/fonts.ts`, rendreren gjennom
+  `render/fonts.ts`. Den kan gis til hvem som helst som skal tegne dekket, og
+  en henting som feiler *rapporteres* i stedet for å byttes ut i stillhet;
+- en **lokal font** er en maskinen enten har eller ikke har: Calibri, Segoe UI,
+  Times New Roman. Den hører hjemme i editoren, der forfatteren ser resultatet
+  på sin egen maskin og Slaids måler nettopp den DOM-en. Den kan ikke sendes
+  noe sted, og en serverless Linux-container har ingen av dem.
+
+En lokal font var derfor det ene tilfellet der de tre kunne bli uenige uten at
+noen merket det: det finnes ingenting å hente, så hentingen lykkes trivielt,
+rasterizeren har ingen familie å vente på – og «ingenting å vente på» svarte
+`fontsReady: true` mens containeren tegnet noe annet. Fit-svaret beskrev
+Calibri, bildet viste en reservefont, og API-et sa at alt var i orden.
+
+Kontrakten er derfor:
+
+- `set_theme` publiserer `GUARANTEED_FONT_IDS`, ikke hele katalogen. En agent
+  kan ikke velge en font previewet ville byttet ut. Listen genereres fra
+  katalogen (`isGuaranteedFont`), aldri skrevet ut på nytt.
+- Et dekk kan fortsatt *inneholde* en lokal font, fordi et menneske kan velge
+  den i editoren. `get_presentation` leser den som før, og markerer den med
+  `guaranteed: false` – så agenten vet både at `set_theme` ikke tar den tilbake
+  og at et preview ikke er tegnet i den.
+- `fontsReady: true` betyr at bildet er i dekkets egen skrift. Den er `false`
+  av begge grunner den kan være det: en webfont som ikke kom fram, og en font
+  som aldri kunne komme fram. `warnings` sier hvilken.
+- Editoren er uendret og tilbyr fortsatt hele katalogen.
 
 ### Validering
 
@@ -3197,7 +3225,12 @@ begge går gjennom de samme kommandoene og den samme fit-guarden som modalen. Se
 «Tema» over for kontrakten. Sammen med det kom to hull som var i veien for at en
 agent kunne *vedlikeholde* et dekk den hadde laget: `set_slide_has_title` (en
 tittelsone kunne bare bestemmes idet sliden ble laget) og
-`set_presentation_title` (navnet i biblioteket kunne bare settes ved opprettelse).
+`set_presentation_title` (navnet i biblioteket kunne bare settes ved
+opprettelse). Begge retninger av `setSlideHasTitle` er fit-gatet: å fjerne
+tittelsonen gir *denne* sliden mer plass, men en tittel kan sitere, og en
+citation som forsvinner tar en referanses første forekomst med seg – da
+renummereres citations på slides ingen har rørt. Se kommandolisten i
+`fitGuard.ts`.
 
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste

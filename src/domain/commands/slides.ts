@@ -228,7 +228,21 @@ export function setSlideHasTitle(
         'Overskriften har tekst. Bekreft at den skal fjernes (force).',
       )
     }
-    return ok(withSlide(presentation, { ...slide, title: null }))
+
+    // Guarded, even though this slide can only gain room by it. A title may
+    // cite, and a citation that disappears takes its reference's first
+    // occurrence with it: every reference numbered after it moves up, and a
+    // label that was `1–2` can come back as `1, 3` — wider, on a slide nobody
+    // touched. That is the same rule `setSlideTitle` follows when the *text* of
+    // a title drops a citation, and dropping the whole zone must not be the way
+    // around it. See the command list in `fitGuard.ts`.
+    const without = withSlide(presentation, { ...slide, title: null })
+    return guardFit(
+      presentation,
+      without,
+      options,
+      'Å fjerne overskriften renummererer citations, og da får innhold på en annen slide ikke lenger plass. Kort ned der først.',
+    )
   }
 
   // Adding a title shrinks the main area by TITLE_ZONE_HEIGHT + G, so both the
