@@ -74,6 +74,34 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   over porten, og den delte visningen monterer ingen privat komponent. Bilder i delt visning
   hentes gjennom delings-endepunktet, aldri gjennom det autentiserte repositoryet – valget
   tas av `AssetSourceProvider`, ikke av en gren inne i rendereren.
+- Agent-API-et over HTTP ligger under `/api/agent/v1/` og er tynt: autentiser, valider,
+  oversett til Agent Core-input, kall inn, oversett svaret. Ingen domeneregler der.
+  Operasjonsnavn, JSON Schema og scopes hentes fra `describeOperations()` – aldri en
+  andre, håndholdt kopi av kontrakten.
+- Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
+  selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
+  feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.
+  Vanlig redigering gir aldri rett til å publisere.
+- Et agenttoken er en delegasjon fra eieren, ikke en ny bruker. 32 tilfeldige bytes,
+  generert i eierens nettleser, vist én gang; bare SHA-256 lagres. `owner_id` settes fra
+  tokenraden, aldri fra kalleren. Manglende, ukjent, tilbakekalt og utløpt gir det samme
+  401-et med den samme setningen – hvilken av dem det var, hører hjemme i auditen.
+- Serverklienten holder en secret key og går forbi row level security. Derfor pinnes
+  `SupabaseSlaidsRepository` til tokenets eier og skriver eierfilteret RLS ville lagt på.
+  Nøkkelen skal aldri finnes under et `VITE_`-navn – oppstarten nekter å starte hvis den
+  gjør det, fordi den da allerede ligger i nettleserbundelen. Uten konfigurasjon svarer
+  API-et 503; en server har ingen IndexedDB å falle tilbake på.
+- Auditen lagrer identitet, tidspunkt, operasjon, presentasjon, utfall og feilkode – aldri
+  slideinnhold, filbytes eller hele payloads. Formen er lukket i `src/server/agent/audit.ts`
+  og tabellen har ingen kolonne slikt kan havne i.
+- `src/server/` importeres aldri fra resten av `src/`. En import derfra ville kompilert,
+  bestått testene og dratt hele operasjonsregisteret inn i nettleserbundelen.
+- Serverfunksjonen deployes som **én bundel** (`src/server/generated/agentApi.js`), ikke som
+  kildetreet. Vercel kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom
+  dem; TypeScript skriver modulnavn ordrett, og Nodes ESM-resolver har verken
+  filtypegjetting eller index-oppslag – så en `api/`-fil som importerer `src/` direkte
+  krasjer ved første kall, med en grønn deploy bak seg. `scripts/check-agent-bundle.mjs`
+  laster bundelen i vanlig Node under byggingen, så den feilen stopper der.
 - Supabase-prosjektet er delt med Huskis og mdeditz, men `supabase_migrations.schema_migrations`
   er prosjektglobal og inneholder deres migrasjoner. **`supabase db push` skal aldri kjøres
   herfra**, og verken `migration repair` eller `db pull` er svaret når den klager – begge
@@ -106,7 +134,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   domenekommandoer i `src/domain/commands/`, som returnerer `Ok`/`Err` med typed feilkoder.
 - Domain-, geometry- og repository-lagene er headless og React-uavhengige (gjenbrukes senere av REST/MCP).
 - `src/agent/` (Agent Core) er agentflaten, og er transportuavhengig: ingen HTTP, ingen MCP,
-  ingen modell- eller leverandørspesifikk kode. Operasjoner er semantiske og går gjennom
+  ingen modell- eller leverandørspesifikk kode. `src/server/agent/` er REST-adapteren over
+  den, og `api/agent/v1/` er Vercel-inngangen – seks linjer som leser miljøet og kaller inn. Operasjoner er semantiske og går gjennom
   domenekommandoene med fit-sjekkere påslått; en agent skriver aldri rå `ZoneContent`-JSON.
   Repository og fit-sjekkere injiseres via `AgentContext` – aldri importert direkte.
 - Design-tokens (`G`, min-størrelser, typografi) bor i `src/domain/constants.ts` – ikke hardkod verdier i UI.
@@ -133,6 +162,11 @@ I Vercel må **begge** `VITE_SUPABASE_URL` og `VITE_SUPABASE_PUBLISHABLE_KEY` v�
 for både Production og Preview. Er de bare satt for Production, bygges PR-previews uten
 noen av dem – og det er ikke en feil, det er lokal modus, så previewen kjører mot en tom
 Dexie-base og ser tom ut.
+
+Agent-API-et trenger i tillegg to **servervariabler**, uten `VITE_`-prefiks:
+`SLAIDS_SUPABASE_URL` (eller `SUPABASE_URL`) og `SLAIDS_SUPABASE_SECRET_KEY` (eller
+`SUPABASE_SERVICE_ROLE_KEY`). De hører bare hjemme i servermiljøet – `VITE_*` bygges inn i
+nettleserbundelen, og finner oppstarten nøkkelen under et slikt navn, nekter den å starte.
 
 Playwright laster ned egen nettleser. Finnes det allerede en Chromium i miljøet:
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e`

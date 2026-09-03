@@ -11,12 +11,14 @@
  */
 
 import { z } from 'zod'
-import type { AgentContext, AgentOperation, AgentResult } from './types'
+import type { AgentContext, AgentOperation, AgentResult, AgentScope } from './types'
 
 export function defineOperation<Schema extends z.ZodType, Output>(operation: {
   name: string
   summary: string
   mutates: boolean
+  /** Every scope a caller must hold. Not optional — see `AgentOperation`. */
+  scopes: readonly [AgentScope, ...AgentScope[]]
   input: Schema
   /** Only when the published contract is narrower than what the function takes. */
   transportInput?: z.ZodType

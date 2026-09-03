@@ -16,7 +16,38 @@ import type { z } from 'zod'
 import type { ContentFitChecker, TitleFitChecker } from '../domain/fit'
 import type { GeometryOptions } from '../domain/geometry'
 import type { DomainError, DomainErrorCode } from '../domain/result'
-import type { SlaidsRepository } from '../persistence/repository'
+import type { SharingRepository, SlaidsRepository } from '../persistence/repository'
+
+/**
+ * What an agent token may be allowed to do.
+ *
+ * Declared here rather than in the REST layer for one reason: the *operation*
+ * knows what kind of authority it needs, and every transport that ever exposes
+ * it needs the same answer. A second, hand-written table in the transport would
+ * be a copy that drifts — and the way it drifts is that a new operation is not
+ * in it, which is the failure that matters.
+ *
+ * Enforcement is still the transport's job (see `src/server/agent/`): Agent
+ * Core runs in-process with exactly the access its caller already has, and a
+ * check it performed on itself would not be one.
+ *
+ * The separation between the four is deliberate: editing a deck must not imply
+ * publishing it (`sharing:write`), and being allowed to store a file must not
+ * imply being allowed to rewrite slides. See `IMPLEMENTATION_PLAN.md` §44,
+ * "Autentisering av agenter".
+ */
+export const AGENT_SCOPES = [
+  'presentations:read',
+  'presentations:write',
+  'assets:write',
+  'sharing:write',
+] as const
+
+export type AgentScope = (typeof AGENT_SCOPES)[number]
+
+export function isAgentScope(value: unknown): value is AgentScope {
+  return typeof value === 'string' && (AGENT_SCOPES as readonly string[]).includes(value)
+}
 
 /**
  * Errors an agent can be handed.
@@ -32,6 +63,7 @@ export type AgentOwnErrorCode =
   | 'PRESENTATION_NOT_FOUND'
   | 'STORAGE_FAILED'
   | 'CONFLICT'
+  | 'SHARING_UNAVAILABLE'
   | 'INTERNAL_ERROR'
 
 export type AgentErrorCode = DomainErrorCode | AgentOwnErrorCode
@@ -66,6 +98,15 @@ export type AgentResult<T> = { ok: true; value: T } | AgentFailure
  */
 export interface AgentContext {
   repository: SlaidsRepository
+  /**
+   * Publishing, when the deployment has somewhere to publish to.
+   *
+   * Optional for the same reason `activeRepository.ts` makes it a separate
+   * interface: local mode has no anonymous reader, so there is nothing to
+   * share to. Absent means the sharing operations answer
+   * `SHARING_UNAVAILABLE` — never a link that looks live and is not.
+   */
+  sharing?: SharingRepository
   fits?: ContentFitChecker
   fitsTitle?: TitleFitChecker
   geometry?: GeometryOptions
@@ -85,6 +126,14 @@ export interface AgentOperation<Input, Output> {
   summary: string
   /** Whether the operation writes. A transport maps this to a verb or an annotation. */
   mutates: boolean
+  /**
+   * The authority a caller must hold for this operation, all of it.
+   *
+   * Required rather than defaulted, so an operation added later cannot inherit
+   * "whatever the least privileged token has" by saying nothing. `registry.test.ts`
+   * checks the other half: that a mutating operation always asks for a write scope.
+   */
+  scopes: readonly [AgentScope, ...AgentScope[]]
   input: z.ZodType
   /**
    * What a transport may publish, when that is narrower than what the function

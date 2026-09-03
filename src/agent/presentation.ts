@@ -302,18 +302,30 @@ function describeFailure(
 }
 
 /**
- * A failed write, told apart.
+ * A failed repository call, told apart.
  *
- * A conflict is not a broken store: somebody else saved first, and the caller
- * can read again and retry. Anything else is the store itself failing, and in
- * Supabase mode that is never answered with a quiet local write — see the
- * storage-mode invariant in `CLAUDE.md`.
+ * Three answers, because they call for three different next moves:
+ *
+ *  - **an absent row** is `PRESENTATION_NOT_FOUND`. The same rule as
+ *    `loadPresentation`: an agent should read a missing presentation as gone and
+ *    stop, and collapsing it into a store failure would have it retry forever
+ *    against something that will never be there.
+ *  - **a conflict** is not a broken store either: somebody else saved first, and
+ *    the caller can read again and retry.
+ *  - **anything else** is the store itself failing, and in Supabase mode that is
+ *    never answered with a quiet local write — see the storage-mode invariant in
+ *    `CLAUDE.md`.
  */
 export function storageFailure<T = never>(
   error: unknown,
   message: string,
   details: Record<string, unknown>,
 ): AgentResult<T> {
+  // Before the `RepositoryError` branch: it is a subclass, and the general case
+  // would otherwise swallow the specific one.
+  if (error instanceof RepositoryNotFoundError) {
+    return agentErr('PRESENTATION_NOT_FOUND', error.message, details)
+  }
   if (error instanceof RepositoryConflictError) {
     return agentErr('CONFLICT', error.message, details)
   }

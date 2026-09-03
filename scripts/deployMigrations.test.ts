@@ -13,7 +13,15 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -175,12 +183,16 @@ onPosix('deploy-migrations.sh (ekte kjøring)', () => {
       .flatMap((statement) => [...statement.matchAll(/insert into public\.slaids_migrations \(version, name\) values \('(\d+)'/g)])
       .map((match) => match[1])
 
-    expect(recorded).toEqual([
-      '20260831090315',
-      '20260831090506',
-      '20260902061716',
-      '20260902084500',
-    ])
+    // Derived from the directory rather than written out: a list copied here
+    // goes stale on the next migration, and the claim being made is "every one
+    // of them, in filename order", not "these four".
+    const versions = readdirSync(join(process.cwd(), 'supabase', 'migrations'))
+      .filter((file) => file.endsWith('.sql'))
+      .sort()
+      .map((file) => file.split('_')[0])
+
+    expect(versions.length).toBeGreaterThan(0)
+    expect(recorded).toEqual(versions)
   })
 
   it('rører aldri den delte historikken', () => {

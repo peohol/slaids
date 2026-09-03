@@ -22,6 +22,7 @@ import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
+import { AgentTokensModal } from './AgentTokensModal'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -54,6 +55,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [storage, setStorage] = useState<StorageEstimateInfo | null>(null)
   const [persisted, setPersisted] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [managingTokens, setManagingTokens] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const mode = storageMode()
@@ -198,6 +200,18 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           <p className="library__subtitle">Presentasjoner med matematisk stram soneinndeling.</p>
         </div>
         <div className="library__actions">
+          {mode === 'supabase' && (
+            <Tooltip label="Nøkler en KI-agent bruker mot Slaids' REST-API">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setManagingTokens(true)}
+                data-testid="manage-agent-tokens"
+              >
+                <Icon name="code" size={15} /> Agenttokens
+              </button>
+            </Tooltip>
+          )}
           {mode === 'supabase' && (
             <Tooltip label={sessionEmail ? `Logget inn som ${sessionEmail}` : 'Logg ut'}>
               <button
@@ -425,6 +439,10 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           </>
         )}
       </footer>
+
+      {/* Mounted only while open: closing is what drops a freshly created
+          token out of memory, rather than an effect that clears it. */}
+      {managingTokens && <AgentTokensModal open onOpenChange={setManagingTokens} />}
 
       <NewPresentationModal
         open={creating}

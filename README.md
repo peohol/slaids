@@ -32,6 +32,15 @@ layoutet er nestet.
 - åpne, gi nytt navn, dupliser (inkludert filer), slett med bekreftelse
 - mapper, og flytting av presentasjoner mellom dem
 - eksport og import av `.slaids`-sikkerhetskopi (zip med manifest, data og filer)
+- agenttokens: lag, se og trekk tilbake nøklene en KI-agent bruker mot REST-API-et
+
+**Agent-API**
+
+- versjonert REST under `/api/agent/v1/`, med katalogen generert fra
+  operasjonene selv
+- tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
+- binær filopplasting uten base64, og `409 CONFLICT` når noen skrev først
+- én auditrad per kall – uten slideinnhold, filer eller hele forespørsler
 
 **Deling**
 
@@ -468,10 +477,190 @@ Tre ting til er verdt å vite om hvordan laget oppfører seg:
   nyeste versjonen lagringslaget tilfeldigvis kjenner – så to samtidige kall
   ikke kan lande oppå hverandre.
 
-Dette er **fundamentet** for et senere REST/MCP-API, ikke nettverkseksponering:
-Agent Core kjører i samme prosess som resten av appen, har nøyaktig den tilgangen
-den innloggede brukeren har, og har ingen HTTP-inngang. Se `IMPLEMENTATION_PLAN.md`
-§44 for hele kontrakten.
+Se `IMPLEMENTATION_PLAN.md` §44 for hele kontrakten.
+
+## REST-API for agenter
+
+Agent Core er nåbar utenfra, versjonert fra første dag:
+
+```
+GET  /api/agent/v1                    hva dette er, og hvor katalogen ligger
+GET  /api/agent/v1/operations         alle operasjoner, med JSON Schema og scopes
+POST /api/agent/v1/operations/<navn>  kjør én operasjon
+```
+
+Katalogen er ikke skrevet for hånd. Den genereres fra operasjonene selv, så
+navnene, skjemaene og scopene REST publiserer er nøyaktig de Agent Core
+håndhever. Alt går som `POST`, også lesingene: argumentene til en operasjon er
+ett objekt med ett strengt skjema, og å dele dem mellom query-streng og kropp
+ville gjort kontrakten til to kontrakter.
+
+Transportlaget inneholder ingen domeneregler. Det autentiserer, validerer,
+oversetter forespørselen til Agent Core-input, kaller inn og oversetter svaret
+tilbake. Alt annet – fit, minstemål, referanseintegritet, atomisitet – er de
+samme kommandoene editoren kjører.
+
+### Svarformatet
+
+```jsonc
+// suksess
+{ "ok": true, "operation": "set_zone_text", "revision": "…", "data": { … } }
+
+// feil
+{ "ok": false, "operation": "set_zone_text",
+  "error": { "code": "CONTENT_DOES_NOT_FIT", "message": "…",
+             "details": { "slideId": "…", "nodeId": "…", "overflow": 42, "rect": { … } } } }
+```
+
+Feilkodene er domenets egne. HTTP-statusen er en grovere lesing av den samme
+koden, aldri en tredje mening:
+
+| Status | Betyr                                                                     |
+| ------ | ------------------------------------------------------------------------- |
+| `400`  | forespørselen var feil i seg selv (`INVALID_INPUT`, ugyldige verdier)      |
+| `401`  | mangler et gyldig token                                                   |
+| `403`  | tokenet mangler et scope operasjonen krever                               |
+| `404`  | ukjent operasjon, eller en id som ikke finnes                             |
+| `409`  | noen skrev etter at du leste (`CONFLICT`), eller sonen er allerede opptatt |
+| `413`  | forespørselen eller filen er for stor                                     |
+| `415`  | filtypen støttes ikke                                                     |
+| `422`  | forstått, og avvist av reglene (`CONTENT_DOES_NOT_FIT`, `UNSAFE_SVG` …)   |
+| `502`  | lagringen svarte ikke                                                     |
+| `503`  | serveren er ikke satt opp mot Supabase                                    |
+
+Skillet mellom `400` og `422` er poenget: `400` betyr «du sendte tull», `422`
+betyr «Slaids sa nei». Å sende det samme på nytt hjelper bare i det første
+tilfellet.
+
+### En liten runde
+
+```bash
+export SLAIDS_TOKEN=slaids_at_…
+export SLAIDS_API=https://<domenet>/api/agent/v1
+
+# Hva kan API-et?
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" "$SLAIDS_API/operations"
+
+# Lag en presentasjon
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"title":"Fra en agent"}' \
+     "$SLAIDS_API/operations/create_presentation"
+
+# Finn sone-id-ene på den første sliden
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…"}' \
+     "$SLAIDS_API/operations/inspect_slide"
+
+# Skriv tekst i en sone, mot revisjonen du nettopp leste
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…","nodeId":"n_…","expectedRevision":"…",
+          "blocks":[{"type":"paragraph","spans":[{"text":"Hei."}]}]}' \
+     "$SLAIDS_API/operations/set_zone_text"
+```
+
+### Samtidighet over ledningen
+
+Hver lesing svarer med `revision`. Send den tilbake som `expectedRevision` på
+neste mutasjon, så blir kallet avvist med `409 CONFLICT` i stedet for å
+overskrive noen som skrev i mellomtiden.
+
+Ett unntak, med vilje: å *trekke tilbake* en delingslenke sjekker ingen revisjon
+og leser ikke dokumentet. En gammel revisjon – eller et dokument som ikke lar seg
+lese – skal aldri kunne holde en offentlig lenke i live.
+
+### Filer
+
+En fil trenger ikke være base64 over REST. Det publiserte JSON Schema-et
+beskriver bare base64 og tekst fordi bare de kan ligge i en JSON-forespørsel;
+REST tar imot bytene direkte:
+
+```bash
+# multipart
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" \
+     -F presentationId=p_abc -F name=figur.png -F file=@figur.png \
+     https://<domenet>/api/agent/v1/operations/upload_asset
+
+# rå binær, med feltene i query-strengen
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: image/png' \
+     --data-binary @figur.png \
+     "https://<domenet>/api/agent/v1/operations/upload_asset?presentationId=p_abc&name=figur.png"
+```
+
+### Agenttokens
+
+Tokens lages i biblioteket, under **Agenttokens**. Et token er
+
+- 32 tilfeldige bytes, generert i din egen nettleser;
+- lagret bare som SHA-256, så det kan ikke vises igjen – kopier det med én gang;
+- navngitt, med opprettelsestid, valgfri utløpstid og tidspunkt for siste bruk;
+- tilbakekallbart når som helst, med umiddelbar virkning.
+
+Det sendes som `Authorization: Bearer slaids_at_…`.
+
+Scopene er fire, og de er skilt fra hverandre med vilje:
+
+| Scope                  | Gir rett til                                          |
+| ---------------------- | ----------------------------------------------------- |
+| `presentations:read`   | lese, inspisere og validere                            |
+| `presentations:write`  | lage og endre presentasjoner, slides, soner, referanser |
+| `assets:write`         | laste opp bilder og lage SVG-figurer                   |
+| `sharing:write`        | publisere en presentasjon på en delingslenke           |
+
+**Vanlig redigering gir ikke rett til å publisere.** Et token som skal bygge
+slides trenger ikke `sharing:write`, og får det ikke med mindre du krysser det
+av. Håndhevingen skjer serverside på hver forespørsel, ut fra det samme feltet
+katalogen publiserer.
+
+Et token er en delegasjon fra Slaids-eieren, ikke en ny bruker: raden navngir
+eieren, og det er derfra `owner_id` kommer på hver skriving.
+
+### Audit
+
+Hvert autentisert kall skriver én rad i `slaids_agent_audit`: hvilket token (id
+og navn, aldri tokenet selv), tidspunkt, operasjon, presentasjon, om det gikk, og
+feilkoden. Også katalogoppslag (`index`, `catalogue`) og forespørsler til en
+ukjent adresse (`unknown_route`) – et stjålet tokens første trekk er å spørre hva
+det får lov til, og det er det tidligste en eier kunne legge merke til. Tabellen har ingen kolonne slideinnhold, filbytes eller hele
+forespørsler kan havne i. Et tilbakekalt token som brukes igjen skrives også
+ned – det er dét en audit er til for – mens et token ingen har sett før ikke
+gjør det, siden det ikke er noen å tilskrive raden.
+
+### Servermiljø
+
+REST-laget kjører som en Vercel-funksjon (`api/agent/v1/`) og krever to
+servervariabler, som **ikke** skal ha `VITE_`-prefiks:
+
+```bash
+SLAIDS_SUPABASE_URL=https://<ref>.supabase.co   # eller SUPABASE_URL
+SLAIDS_SUPABASE_SECRET_KEY=sb_secret_…          # eller SUPABASE_SERVICE_ROLE_KEY
+SLAIDS_AGENT_MAX_REQUEST_BYTES=4194304          # valgfri; standard 4 MB
+```
+
+**Agenten må bruke Slaids' eget domene, ikke en `.vercel.app`-adresse.** Vercel
+Authentication er slått på for alt annet enn egne domener, så et kall til en
+preview- eller `.vercel.app`-adresse svarer med en omdirigering til Vercels
+innlogging i stedet for med API-et. Det gjelder hele deployen, ikke bare
+agent-API-et.
+
+Nøkkelen går forbi row level security, og hører derfor bare hjemme i
+servermiljøet. Alt som heter `VITE_*` bygges inn i nettleserbundelen – finner
+oppstarten den samme nøkkelen under et slikt navn, nekter den å starte i det
+hele tatt, fordi nøkkelen da allerede er offentlig og må roteres. Uten
+variablene svarer API-et `503` og sier hvilken som mangler; en server har ingen
+IndexedDB å falle tilbake på.
+
+Tabellene `slaids_agent_tokens` og `slaids_agent_audit` kommer med migrasjonen
+`20260902190000_slaids_agent_api.sql`. Se «Deploye Slaids-migrasjoner».
+
+`npm run build` bygger serverfunksjonen til én fil, `src/server/generated/agentApi.js`,
+og Vercel-inngangen importerer den. Det er ikke en optimalisering: plattformen
+kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom dem, og
+TypeScript skriver modulnavn ut ordrett – så `from './handler'` blir stående, og
+Nodes ESM-resolver har verken filtypegjetting eller index-oppslag. Uten
+bundelen svarer funksjonen `ERR_UNSUPPORTED_DIR_IMPORT` ved første kall, med en
+grønn deploy bak seg. `scripts/check-agent-bundle.mjs` laster bundelen i vanlig
+Node og kaller den som en del av byggingen, så nøyaktig den feilen stopper her i
+stedet for i produksjon.
 
 ## Arkitektur
 
@@ -481,7 +670,9 @@ src/
                  Zod-schema, migrasjoner, referanser, farger, fit, validering,
                  revisjon
   agent/         Agent Core: transportuavhengige, semantiske operasjoner over
-                 domenekommandoene (grunnlaget for senere REST/MCP)
+                 domenekommandoene (grunnlaget for REST og senere MCP)
+  server/        REST-laget over Agent Core: autentisering, scopes, audit.
+                 Importeres aldri av appen – en egen test håndhever det
   persistence/   SlaidsRepository + Dexie/IndexedDB og Supabase, assets, .slaids-backup
   sharing/       klienten mot den offentlige delings-funksjonen
   supabase/      Supabase-klient, konfigurasjon og modusvalg
@@ -489,8 +680,13 @@ src/
   ui/            React-komponenter (bibliotek, editor, slide-renderer, visning, delt visning)
   routing.ts     hva en URL betyr: arbeidsområde eller /s/<token>
 
+api/
+  agent/v1/      Vercel-inngangen til REST-laget; all logikk ligger i src/server/,
+                 og importeres som én ferdig bundel (se «Servermiljø»)
+
 supabase/
-  migrations/    skjemaet, inkludert delingskolonnene og version-triggeren
+  migrations/    skjemaet, inkludert delingskolonnene, version-triggeren,
+                 agenttokens og auditen
   functions/     slaids-share: den eneste offentlige inngangen
 
 scripts/
@@ -507,10 +703,9 @@ Regler som gjelder overalt:
 
 ## Ikke bygget ennå
 
-REST-endepunkter, MCP-server, agenttokens og rendret preview er bevisst utenfor
-scope i denne fasen. Agent Core (`src/agent/`) er ferdig og kjører bare i
-prosessen; transporten legges oppå den uten å endre domenemodellen, og henter
-operasjonsnavn og JSON Schema fra det samme registeret.
+MCP-server og rendret preview er bevisst utenfor scope i denne fasen. Begge
+legges oppå Agent Core uten å endre domenemodellen, og MCP-laget henter
+operasjonsnavn, JSON Schema og scopes fra det samme registeret REST bruker.
 
 Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller

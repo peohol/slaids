@@ -60,9 +60,18 @@ export interface SlaidsRepository {
   getAsset(id: string): Promise<StoredAsset | null>
   listAssets(presentationId: string): Promise<AssetRef[]>
   /**
-   * Which of these asset ids are already stored, no matter which presentation
-   * owns them. Asset rows are keyed by id alone, so an importer has to know
-   * this before writing, or it would overwrite someone else's file.
+   * Which of these asset ids this account already has a file under, whichever
+   * presentation it belongs to. Asset rows are keyed by id alone, so an importer
+   * asks before writing rather than discovering the clash afterwards.
+   *
+   * It answers for this account and no further — a remote store shows a user
+   * only their own rows, and the server-side repository writes that same limit
+   * out because its key would otherwise see past it. An id that looks free can
+   * therefore still be taken by an account nobody here can see; that is not this
+   * method's job to catch, and it is not left to chance either. The write
+   * refuses such an id with a `RepositoryConflictError` rather than taking the
+   * row over, which is the same answer `savePresentation` already gives and the
+   * one `persistence/backup.ts` already knows how to act on.
    */
   existingAssetIds(ids: readonly string[]): Promise<string[]>
   deleteAsset(id: string): Promise<void>

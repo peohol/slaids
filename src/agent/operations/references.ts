@@ -66,6 +66,7 @@ export const addReferenceOperation = defineOperation({
   name: 'add_reference',
   summary: 'Legg til en referanse og få tilbake id-en citations skal peke på.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -93,6 +94,7 @@ export const updateReferenceOperation = defineOperation({
   name: 'update_reference',
   summary: 'Erstatt feltene på en referanse. Citationene som peker på den er uendret.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
@@ -126,6 +128,7 @@ export const deleteReferenceOperation = defineOperation({
   summary:
     'Slett en referanse. Alle citations som peker på den fjernes fra teksten i samme operasjon.',
   mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,

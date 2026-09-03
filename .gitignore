@@ -12,3 +12,7 @@ e2e/screenshots
 tmp
 # Supabase CLI scratch (link state, downloaded version markers)
 supabase/.temp
+
+# The agent API, bundled for the serverless runtime by `npm run build`.
+# Generated, never edited; `agentApi.d.ts` beside it is the committed half.
+src/server/generated/agentApi.js

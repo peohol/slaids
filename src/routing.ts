@@ -25,6 +25,19 @@
 /** The public prefix. Also what the Vercel rewrite has to send to `index.html`. */
 export const SHARE_PATH_PREFIX = '/s/'
 
+/**
+ * The agent REST API, versioned from the first day.
+ *
+ * It lives here with the other addresses rather than in `src/server/`, for the
+ * same reason `SHARE_PATH_PREFIX` does: an address is a fact about the app that
+ * several places need — the handler that routes it, the Vercel rewrite that has
+ * to *not* swallow it, and the token screen that tells the owner where to point
+ * an agent. A constant the browser can read without importing the server is the
+ * difference between one fact and two.
+ */
+export const AGENT_API_VERSION = 'v1'
+export const AGENT_API_BASE_PATH = `/api/agent/${AGENT_API_VERSION}`
+
 /** `/s` with nothing after it is a share link someone cut short, not a page. */
 const SHARE_PATH_ROOT = '/s'
 

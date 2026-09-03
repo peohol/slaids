@@ -9,14 +9,17 @@ import { RepositoryConflictError, RepositoryError } from './repository'
 import {
   ASSETS_BUCKET,
   ASSETS_TABLE,
+  FOLDERS_TABLE,
   PRESENTATIONS_TABLE,
   SupabaseSlaidsRepository,
+  TEMPLATES_TABLE,
 } from './supabaseRepository'
 import {
   TEST_OWNER_ID,
   createFakeSupabase,
   type FakeSupabaseOptions,
   type QueryRecord,
+  type QueryResolver,
 } from './supabaseTestClient'
 
 function repositoryFor(options: FakeSupabaseOptions) {
@@ -471,7 +474,10 @@ describe('SupabaseSlaidsRepository – filer', () => {
     })
     const row = fake.queries.at(-1)
     expect(row?.table).toBe(ASSETS_TABLE)
-    expect(row?.op).toBe('upsert')
+    // An insert, never an upsert: an upsert conflicts on the primary key alone,
+    // so a taken id would be a row taken over rather than a collision refused.
+    // See `saveOwnedRow`.
+    expect(row?.op).toBe('insert')
     const values = row?.values as Record<string, unknown>
     expect(values.owner_id).toBe(TEST_OWNER_ID)
     expect(values.presentation_id).toBe('p1')
@@ -583,3 +589,356 @@ describe('SupabaseSlaidsRepository – filer', () => {
     expect(await repository.deleteOrphanAssets()).toBe(0)
   })
 })
+
+/**
+ * The server-side shape of the repository.
+ *
+ * The agent REST layer has no browser session to ask who is signed in — it
+ * authenticates an agent token and reads the owner off that token's row — and
+ * it holds a secret key, which bypasses row level security. Both halves of the
+ * pin are therefore load-bearing: the owner on a write comes from the pin, and
+ * the filter RLS would have applied is written out instead of assumed.
+ */
+describe('SupabaseSlaidsRepository – pinnet til én eier', () => {
+  const PINNED = '99999999-8888-4777-8666-555555555555'
+
+  function pinnedRepositoryFor(options: FakeSupabaseOptions) {
+    const fake = createFakeSupabase({ session: null, ...options })
+    return { repository: new SupabaseSlaidsRepository(() => fake.client, PINNED), fake }
+  }
+
+  it('skriver med eieren fra pinnen, uten en sesjon å spørre', async () => {
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) => (record.op === 'insert' ? { data: { version: 1 } } : { data: [] }),
+    })
+
+    await repository.savePresentation(createPresentation({ title: 'Fra agenten' }))
+
+    const insert = fake.queries.find((record) => record.op === 'insert')
+    expect((insert?.values as { owner_id?: string })?.owner_id).toBe(PINNED)
+  })
+
+  it('filtrerer lesing og skriving på eieren, siden RLS er omgått', async () => {
+    const presentation = createPresentation({ title: 'Eid' })
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) =>
+        record.table === PRESENTATIONS_TABLE && record.op === 'select' && record.single === 'maybe'
+          ? { data: { document: presentation, version: 2 } }
+          : { data: [] },
+    })
+
+    await repository.listPresentations()
+    await repository.loadPresentation(presentation.id)
+    await repository.listAssets(presentation.id)
+    await repository.listFolders()
+    await repository.listTemplates()
+
+    // Every one of them, not most of them: a single unfiltered read against a
+    // key that bypasses RLS is a read of somebody else's rows.
+    for (const record of fake.queries) {
+      expect(filterValue(record, 'owner_id')).toBe(PINNED)
+    }
+  })
+
+  it('holder den vaktede skrivingen bundet til eieren *og* versjonen', async () => {
+    const presentation = createPresentation({ title: 'Vaktet' })
+    const { repository, fake } = pinnedRepositoryFor({
+      resolve: (record) =>
+        record.op === 'update' ? { data: [{ version: 4, is_shared: false }] } : { data: { document: presentation, version: 3 } },
+    })
+
+    const loaded = await repository.loadPresentation(presentation.id)
+    await repository.savePresentation(loaded, { expectedRevision: presentationRevision(loaded) })
+
+    const update = fake.queries.find((record) => record.op === 'update')
+    expect(filterValue(update as QueryRecord, 'owner_id')).toBe(PINNED)
+    expect(filterValue(update as QueryRecord, 'version')).toBe(3)
+  })
+
+  it('lar nettleseren være helt uendret: ingen eierfilter uten pin', async () => {
+    // The browser has RLS doing this, and adding a redundant filter there would
+    // be a second copy of the rule that can drift from the policy.
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [] }) })
+    await repository.listPresentations()
+    await repository.listFolders()
+    for (const record of fake.queries) {
+      expect(record.filters.some((filter) => filter.column === 'owner_id')).toBe(false)
+    }
+  })
+})
+
+
+/**
+ * Two owners, one table.
+ *
+ * The claims here are about *stored state*, so the resolver below is a small
+ * stand-in for Postgres rather than a recorder: it has a primary key on `id`,
+ * it raises `23505` when one is taken, and filters actually filter. A test that
+ * only asserted "the right method was called" could not tell an upsert that
+ * takes a row over from an insert that refuses to.
+ *
+ * A server-side client holds a secret key and therefore has no row level
+ * security narrowing anything. What stops it reaching the other owner's rows is
+ * only what this file checks.
+ */
+describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
+  const OURS = '99999999-8888-4777-8666-555555555555'
+  const THEIRS = '00000000-1111-4222-8333-444444444444'
+
+  type Row = Record<string, unknown>
+
+  function matches(row: Row, filters: QueryRecord['filters']): boolean {
+    return filters.every((filter) =>
+      Array.isArray(filter.value)
+        ? filter.value.includes(row[filter.column])
+        : row[filter.column] === filter.value,
+    )
+  }
+
+  /** One `id` primary key per table, and a unique violation when it is taken. */
+  function fakeDatabase(seed: Record<string, Row[]>) {
+    const tables: Record<string, Row[]> = {}
+    for (const [table, rows] of Object.entries(seed)) tables[table] = rows.map((row) => ({ ...row }))
+
+    const resolve: QueryResolver = (record) => {
+      const rows = (tables[record.table] ??= [])
+      const hit = rows.filter((row) => matches(row, record.filters))
+
+      switch (record.op) {
+        case 'select':
+          return { data: record.single === 'none' ? hit : (hit[0] ?? null) }
+        case 'insert': {
+          const incoming = (Array.isArray(record.values) ? record.values : [record.values]) as Row[]
+          for (const row of incoming) {
+            if (rows.some((existing) => existing.id === row.id)) {
+              return {
+                error: { message: 'duplicate key value violates unique constraint', code: '23505' },
+              }
+            }
+          }
+          rows.push(...incoming.map((row) => ({ ...row })))
+          return { data: record.single === 'none' ? incoming : incoming[0] }
+        }
+        case 'update': {
+          for (const row of hit) Object.assign(row, record.values as Row)
+          return { data: hit }
+        }
+        case 'upsert': {
+          // Never reached by the paths under test — asserted below — but honest
+          // about what it would do if one came back: take the row over.
+          const incoming = (Array.isArray(record.values) ? record.values : [record.values]) as Row[]
+          for (const row of incoming) {
+            const existing = rows.find((entry) => entry.id === row.id)
+            if (existing) Object.assign(existing, row)
+            else rows.push({ ...row })
+          }
+          return { data: incoming }
+        }
+        case 'delete':
+          for (const row of hit) rows.splice(rows.indexOf(row), 1)
+          return { data: hit }
+      }
+    }
+
+    return { tables, resolve }
+  }
+
+  function theirFolder(): Row {
+    return { id: 'fl_delt', owner_id: THEIRS, name: 'Deres mappe', created_at: EARLIER }
+  }
+
+  function theirAsset(): Row {
+    return {
+      id: 'a_delt',
+      owner_id: THEIRS,
+      presentation_id: 'p_deres',
+      ref: { id: 'a_delt', name: 'deres.png' },
+      object_path: `${THEIRS}/p_deres/a_delt`,
+    }
+  }
+
+  const EARLIER = '2026-08-01T09:00:00.000Z'
+
+  function pinned(seed: Record<string, Row[]>) {
+    const database = fakeDatabase(seed)
+    const fake = createFakeSupabase({ session: null, resolve: database.resolve })
+    return {
+      repository: new SupabaseSlaidsRepository(() => fake.client, OURS),
+      fake,
+      tables: database.tables,
+    }
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Reading
+   * ---------------------------------------------------------------- */
+
+  it('ser ikke den andre eierens filer', async () => {
+    const { repository } = pinned({
+      [ASSETS_TABLE]: [
+        theirAsset(),
+        {
+          id: 'a_vår',
+          owner_id: OURS,
+          presentation_id: 'p_vår',
+          ref: { id: 'a_vår', name: 'vår.png', mimeType: 'image/png', byteSize: 1, width: 1, height: 1, isVector: false },
+          object_path: `${OURS}/p_vår/a_vår`,
+        },
+      ],
+    })
+
+    // `presentation_id` is not what protects this: the ids are asked for
+    // directly, across presentations.
+    expect(await repository.existingAssetIds(['a_delt', 'a_vår'])).toEqual(['a_vår'])
+    // And a direct lookup by their id finds nothing at all.
+    expect(await repository.getAsset('a_delt')).toBeNull()
+  })
+
+  it('ser ikke den andre eierens mapper eller presentasjoner', async () => {
+    const { repository } = pinned({
+      [FOLDERS_TABLE]: [theirFolder(), { id: 'fl_vår', owner_id: OURS, name: 'Vår', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [
+        { id: 'p_deres', owner_id: THEIRS, title: 'Deres', version: 1 },
+        { id: 'p_vår', owner_id: OURS, title: 'Vår', folder_id: null, slide_count: 1, version: 1 },
+      ],
+    })
+
+    expect((await repository.listFolders()).map((folder) => folder.id)).toEqual(['fl_vår'])
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual(['p_vår'])
+  })
+
+  /* ---------------------------------------------------------------- *
+   * Writing: never a takeover
+   * ---------------------------------------------------------------- */
+
+  it('kan ikke overta den andre eierens mappe ved id-kollisjon', async () => {
+    const { repository, tables, fake } = pinned({ [FOLDERS_TABLE]: [theirFolder()] })
+
+    await expect(
+      repository.saveFolder({ id: 'fl_delt', name: 'Vår nå', createdAt: EARLIER }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // Their row, byte for byte as it was. Not renamed, and still theirs.
+    expect(tables[FOLDERS_TABLE]).toEqual([theirFolder()])
+    // And no upsert was ever sent: the takeover is impossible, not merely unlikely.
+    expect(fake.queries.some((record) => record.op === 'upsert')).toBe(false)
+  })
+
+  it('kan ikke overta den andre eierens fil ved id-kollisjon, og rydder opp etter seg', async () => {
+    const { repository, tables, fake } = pinned({ [ASSETS_TABLE]: [theirAsset()] })
+
+    await expect(
+      repository.putAsset('p_vår', sampleAssetWithId('a_delt'), new Blob(['x'])),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    expect(tables[ASSETS_TABLE]).toEqual([theirAsset()])
+    expect(fake.queries.some((record) => record.op === 'upsert')).toBe(false)
+
+    // The bytes we uploaded sit under *our* prefix and are now unreferenced, so
+    // they go back out. Their file was never touched — different prefix.
+    const removed = fake.storageCalls.filter((call) => call.op === 'remove')
+    expect(removed.flatMap((call) => call.paths)).toEqual([`${OURS}/p_vår/a_delt`])
+    expect(removed.flatMap((call) => call.paths)).not.toContain(`${THEIRS}/p_deres/a_delt`)
+  })
+
+  /* ---------------------------------------------------------------- *
+   * Writing: our own rows still work
+   * ---------------------------------------------------------------- */
+
+  it('oppretter og oppdaterer sine egne rader som før', async () => {
+    const { repository, tables } = pinned({ [FOLDERS_TABLE]: [theirFolder()] })
+
+    await repository.saveFolder({ id: 'fl_vår', name: 'Vår', createdAt: EARLIER })
+    expect(tables[FOLDERS_TABLE]).toContainEqual({
+      id: 'fl_vår',
+      owner_id: OURS,
+      name: 'Vår',
+      created_at: EARLIER,
+    })
+
+    // Saving the same id again updates in place rather than duplicating.
+    await repository.saveFolder({ id: 'fl_vår', name: 'Vår, omdøpt', createdAt: EARLIER })
+    expect(tables[FOLDERS_TABLE].filter((row) => row.id === 'fl_vår')).toEqual([
+      { id: 'fl_vår', owner_id: OURS, name: 'Vår, omdøpt', created_at: EARLIER },
+    ])
+    expect(tables[FOLDERS_TABLE]).toContainEqual(theirFolder())
+  })
+
+  it('lagrer og overskriver sin egen fil', async () => {
+    const { repository, tables } = pinned({ [ASSETS_TABLE]: [theirAsset()] })
+
+    await repository.putAsset('p_vår', sampleAssetWithId('a_vår'), new Blob(['x']))
+    expect(tables[ASSETS_TABLE].find((row) => row.id === 'a_vår')).toMatchObject({
+      owner_id: OURS,
+      presentation_id: 'p_vår',
+      object_path: `${OURS}/p_vår/a_vår`,
+    })
+
+    await repository.putAsset('p_vår', { ...sampleAssetWithId('a_vår'), name: 'nytt.png' }, new Blob(['y']))
+    const ours = tables[ASSETS_TABLE].filter((row) => row.id === 'a_vår')
+    expect(ours).toHaveLength(1)
+    expect((ours[0].ref as AssetRef).name).toBe('nytt.png')
+    expect(tables[ASSETS_TABLE]).toContainEqual(theirAsset())
+  })
+
+  it('kan ikke overta den andre eierens presentasjon eller mal heller', async () => {
+    // These two already refused a taken id — an insert, never an upsert, with
+    // the unique violation mapped to a conflict. Pinned here so the whole class
+    // is covered by a test rather than by a reading of it.
+    const { repository, tables } = pinned({
+      [PRESENTATIONS_TABLE]: [{ id: 'p_deres', owner_id: THEIRS, title: 'Deres', version: 4 }],
+      [TEMPLATES_TABLE]: [{ id: 't_deres', owner_id: THEIRS, name: 'Deres mal', template: {} }],
+    })
+
+    const ours = createPresentation({ title: 'Vår' })
+    await expect(
+      repository.savePresentation({ ...ours, id: 'p_deres' }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(tables[PRESENTATIONS_TABLE]).toEqual([
+      { id: 'p_deres', owner_id: THEIRS, title: 'Deres', version: 4 },
+    ])
+
+    await expect(
+      repository.saveTemplate({
+        id: 't_deres',
+        name: 'Vår mal',
+        createdAt: EARLIER,
+        root: ours.slides[0].root,
+        hasTitle: false,
+      }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(tables[TEMPLATES_TABLE]).toEqual([
+      { id: 't_deres', owner_id: THEIRS, name: 'Deres mal', template: {} },
+    ])
+  })
+
+  /* ---------------------------------------------------------------- *
+   * The browser is unchanged
+   * ---------------------------------------------------------------- */
+
+  it('legger ikke noe eierfilter på skrivingene uten pin', async () => {
+    // Without a pin there is no filter to add, and row level security is what
+    // decides — exactly as before. The write shape may have changed; the
+    // browser's authorization has not.
+    const database = fakeDatabase({})
+    const fake = createFakeSupabase({ resolve: database.resolve })
+    const repository = new SupabaseSlaidsRepository(() => fake.client)
+
+    await repository.saveFolder({ id: 'fl_1', name: 'Uten pin', createdAt: EARLIER })
+    await repository.putAsset('p_1', sampleAssetWithId('a_1'), new Blob(['x']))
+
+    for (const record of fake.queries) {
+      expect(record.filters.some((filter) => filter.column === 'owner_id')).toBe(false)
+    }
+    // And `owner_id` still comes from the session, never from a caller.
+    const inserted = fake.queries.filter((record) => record.op === 'insert')
+    expect(inserted).toHaveLength(2)
+    for (const record of inserted) {
+      expect((record.values as { owner_id?: string }).owner_id).toBe(TEST_OWNER_ID)
+    }
+  })
+})
+
+function sampleAssetWithId(id: string): AssetRef {
+  return { ...sampleAsset(), id }
+}

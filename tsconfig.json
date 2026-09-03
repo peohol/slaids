@@ -27,6 +27,7 @@
   },
   "include": [
     "src",
+    "api",
     "e2e",
     "scripts",
     "supabase/functions",
