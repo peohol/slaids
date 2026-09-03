@@ -20,11 +20,21 @@
  *  - **no batching.** Removed from the protocol in this revision; see
  *    `jsonrpc.ts`.
  *
- * The `MCP-Protocol-Version` header is validated rather than ignored. Absent is
- * fine — the specification says to assume the pre-negotiation default, which is
- * a revision this server speaks — but a revision it does not speak is a `400`
- * instead of a request served with different semantics under a name nobody
- * agreed to. The client learned which revision applies from `initialize`.
+ * Two checks happen before a single byte of the body is read, and both of them
+ * are the specification's:
+ *
+ *  - **`Origin`, against DNS rebinding.** Streamable HTTP requires a server to
+ *    validate it. A non-browser client — which is every MCP client that matters
+ *    today — sends none, and is unaffected; a browser sends one, and only this
+ *    deployment's own is allowed through. That it runs before the body is read
+ *    is the point: a page on another origin must not be able to reach an
+ *    operation at all, never mind one that writes.
+ *  - **`MCP-Protocol-Version`.** Absent is allowed, and is read as the one
+ *    revision this server implements — never as the `2025-03-26` the
+ *    specification names for backwards compatibility, because this server does
+ *    not implement `2025-03-26` and pretending otherwise is the same lie as
+ *    announcing it. Present and not that revision is a `400`: the client was
+ *    told at `initialize` which one applies.
  *
  * Everything before the message is read is the REST layer's, unchanged: the
  * same bearer token, checked by the same `authenticate`; the same body limit;
@@ -54,7 +64,11 @@ import {
   type JsonRpcResponse,
 } from './jsonrpc'
 import { dispatchMcpMessage, type McpAudited } from './server'
-import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from './tools'
+import {
+  MCP_PROTOCOL_VERSION,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  isSupportedProtocolVersion,
+} from './tools'
 
 /**
  * What the endpoint needs, described structurally rather than imported.
@@ -74,6 +88,30 @@ const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json$/i
 
 /** The header a client states its negotiated protocol revision in. */
 const PROTOCOL_VERSION_HEADER = 'mcp-protocol-version'
+
+/**
+ * Whether a browser origin may drive this endpoint.
+ *
+ * Same-site, and derived from the request rather than configured, so it is right
+ * for every address the deployment answers on — the custom domain, a preview
+ * host, a developer's `localhost` — without a list anybody has to maintain.
+ *
+ * The comparison is on **host**, not the whole origin. Behind a TLS-terminating
+ * proxy the function can see `http://` where the browser saw `https://`, and a
+ * scheme mismatch there would refuse the deployment's own pages. It costs
+ * nothing: DNS rebinding is an attack about *which site is asking*, and an
+ * attacker able to serve `http://` on this host already owns the name.
+ *
+ * An `Origin` that will not parse — `null` from a sandboxed frame, or anything
+ * malformed — is not this host, and is refused rather than thrown on.
+ */
+function originAllowed(origin: string, requestUrl: string): boolean {
+  try {
+    return new URL(origin).host === new URL(requestUrl).host
+  } catch {
+    return false
+  }
+}
 
 function mediaType(header: string | null): string {
   return (header ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
@@ -133,18 +171,28 @@ export async function handleMcpRequest(
     )
   }
 
-  // The revision the client says it agreed to. Absent is fine: the
-  // specification says to assume the pre-negotiation default, and that is one
-  // this server speaks. A revision it does *not* speak has to be refused rather
-  // than served with these semantics under a name nobody agreed to — the client
-  // was told at `initialize` which one applies, so a header saying otherwise
-  // means it either ignored the answer or never asked. The reference
-  // implementation refuses it the same way, and for the same reason.
-  const declaredVersion = request.headers.get(PROTOCOL_VERSION_HEADER)
-  if (declaredVersion !== null && !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(declaredVersion)) {
+  // A browser is asking on behalf of a page. Which page decides whether it may.
+  const origin = request.headers.get('origin')
+  if (origin !== null && !originAllowed(origin, request.url)) {
+    return refuse({
+      code: 'FORBIDDEN_ORIGIN',
+      message:
+        'MCP-endepunktet tar bare imot forespørsler fra denne Slaids-installasjonens eget origin. En MCP-klient utenfor nettleseren sender ingen Origin og berøres ikke.',
+      details: { origin },
+    })
+  }
+
+  // The revision the client says it agreed to. Absent means the one revision
+  // this server implements — the specification's own fallback is `2025-03-26`,
+  // and naming that here would be claiming a revision this server does not have.
+  // Present and different is refused: the client was told at `initialize` which
+  // revision applies, so a header saying otherwise means it either ignored the
+  // answer or never asked. The reference implementation refuses it the same way.
+  const declaredVersion = request.headers.get(PROTOCOL_VERSION_HEADER) ?? MCP_PROTOCOL_VERSION
+  if (!isSupportedProtocolVersion(declaredVersion)) {
     return refuse({
       code: 'UNSUPPORTED_PROTOCOL_VERSION',
-      message: `Slaids snakker ikke MCP-versjonen «${declaredVersion}». Versjonen avtales i initialize; denne serveren svarer på ${SUPPORTED_MCP_PROTOCOL_VERSIONS.join(', ')}.`,
+      message: `Slaids snakker ikke MCP-versjonen «${declaredVersion}». Versjonen avtales i initialize; denne serveren svarer bare på ${SUPPORTED_MCP_PROTOCOL_VERSIONS.join(', ')}.`,
       details: { requested: declaredVersion, supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS] },
     })
   }

@@ -17,14 +17,20 @@
  *
  * What is deliberately *not* asserted is that the two envelopes are identical.
  * REST answers `{ ok, operation, revision, data }` with an HTTP status; MCP
- * answers a tool result with `isError` and `structuredContent`. Those are the
- * two protocols' own shapes, and flattening them into one would be inventing a
- * third. What has to match is everything inside.
+ * answers a tool result, or — when the call was never a valid one — a JSON-RPC
+ * error. Those are the two protocols' own shapes, and flattening them into one
+ * would be inventing a third.
+ *
+ * What has to match is everything inside, and *which* MCP envelope a refusal
+ * lands in is itself part of the contract, so it is asserted rather than
+ * accepted either way: `UNKNOWN_OPERATION` and `INVALID_INPUT` are protocol
+ * errors, everything a real operation decided is a tool result.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
 import {
+  callFailure,
   callTool,
   closeHarnessDatabases,
   harness,
@@ -60,6 +66,30 @@ async function bothWays(
     mcpError: (overMcp.structuredContent as { error?: McpToolError } | undefined)?.error,
     status: overRest.status,
     isError: overMcp.isError,
+  }
+}
+
+/**
+ * A refusal both ways, with MCP's envelope reported rather than hidden.
+ *
+ * REST has one shape for every failure; MCP has two, and which one a code lands
+ * in is part of the contract. Reporting it here is what lets a test say "the
+ * payload is identical *and* it arrived in the envelope it belongs in" instead
+ * of quietly accepting either.
+ */
+async function refusedBothWays(
+  harnessed: Harness,
+  operation: string,
+  input: Record<string, unknown>,
+): Promise<{ rest: McpToolError; mcp: McpToolError; envelope: 'result' | 'protocol'; status: number }> {
+  const overRest = await rest(harnessed, operation, input)
+  const overMcp = await callFailure(harnessed, tool(operation), input)
+  if (!overRest.body.error) throw new Error(`Forventet at REST avviste «${operation}».`)
+  return {
+    rest: overRest.body.error,
+    mcp: overMcp.error,
+    envelope: overMcp.envelope,
+    status: overRest.status,
   }
 }
 
@@ -125,22 +155,27 @@ describe('lesing gir det samme over begge transportene', () => {
 })
 
 describe('feilene er de samme feilene', () => {
-  it('ugyldig input gir samme kode og samme issues', async () => {
+  it('ugyldig input gir samme kode og samme issues, som protokollfeil i MCP', async () => {
+    // Arguments that do not match the tool's published schema were never a
+    // valid call to it, so MCP puts them in a JSON-RPC error — with the same
+    // payload REST returns in its body.
     const harnessed = harness()
-    const both = await bothWays(harnessed, 'create_presentation', { title: '' })
+    const both = await refusedBothWays(harnessed, 'create_presentation', { title: '' })
 
-    expect(both.restError).toEqual(both.mcpError)
-    expect(both.restError?.code).toBe('INVALID_INPUT')
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('INVALID_INPUT')
+    expect(both.envelope).toBe('protocol')
     expect(both.status).toBe(400)
-    expect(both.isError).toBe(true)
   })
 
-  it('en id som ikke finnes gir samme kode', async () => {
+  it('en id som ikke finnes gir samme kode, som verktøyresultat i MCP', async () => {
+    // A real operation ran and said no, so this is an answer an agent acts on.
     const harnessed = harness()
-    const both = await bothWays(harnessed, 'get_presentation', { presentationId: 'p_nei' })
+    const both = await refusedBothWays(harnessed, 'get_presentation', { presentationId: 'p_nei' })
 
-    expect(both.restError).toEqual(both.mcpError)
-    expect(both.restError?.code).toBe('PRESENTATION_NOT_FOUND')
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('PRESENTATION_NOT_FOUND')
+    expect(both.envelope).toBe('result')
     expect(both.status).toBe(404)
   })
 
@@ -181,24 +216,26 @@ describe('feilene er de samme feilene', () => {
     expect(both.status).toBe(422)
   })
 
-  it('et manglende scope gir samme kode og de samme manglene', async () => {
+  it('et manglende scope gir samme kode og de samme manglene, som verktøyresultat', async () => {
+    // A decision about a tool that exists, with arguments that were fine: an
+    // answer, not a malformed call.
     const readOnly = harness({ scopes: ['presentations:read'] })
-    const both = await bothWays(readOnly, 'create_presentation', { title: 'Dekk' })
+    const both = await refusedBothWays(readOnly, 'create_presentation', { title: 'Dekk' })
 
-    expect(both.restError).toEqual(both.mcpError)
-    expect(both.restError?.code).toBe('FORBIDDEN_SCOPE')
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('FORBIDDEN_SCOPE')
+    expect(both.envelope).toBe('result')
     expect(both.status).toBe(403)
   })
 
-  it('et ukjent navn gir samme kode og den samme listen over navn som finnes', async () => {
+  it('et ukjent navn gir samme kode og den samme listen, som protokollfeil i MCP', async () => {
     const harnessed = harness()
-    const overRest = await rest(harnessed, 'finnes_ikke', {})
-    const overMcp = await callTool(harnessed, tool('finnes_ikke'), {})
+    const both = await refusedBothWays(harnessed, 'finnes_ikke', {})
 
-    const mcpError = (overMcp.structuredContent as { error: McpToolError }).error
-    expect(overRest.body.error).toEqual(mcpError)
-    expect(mcpError.code).toBe('UNKNOWN_OPERATION')
-    expect((mcpError.details as { available: string[] }).available).toEqual(
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.mcp.code).toBe('UNKNOWN_OPERATION')
+    expect(both.envelope).toBe('protocol')
+    expect((both.mcp.details as { available: string[] }).available).toEqual(
       operations.map((operation) => operation.name),
     )
   })
@@ -214,13 +251,20 @@ describe('hele flaten er nåbar begge veier', () => {
     const harnessed = harness()
     for (const operation of operations) {
       const overRest = await rest(harnessed, operation.name, {})
-      const overMcp = await callTool(harnessed, tool(operation.name), {})
-      const mcpBody = overMcp.isError
-        ? (overMcp.structuredContent as { error: McpToolError }).error
-        : overMcp.structuredContent
 
-      expect(overRest.body.error ?? overRest.body.data, operation.name).toEqual(mcpBody)
-      expect(overRest.body.error?.code, operation.name).not.toBe('UNKNOWN_OPERATION')
+      if (!overRest.body.error) {
+        const succeeded = await callTool(harnessed, tool(operation.name), {})
+        expect(succeeded.structuredContent, operation.name).toEqual(overRest.body.data)
+        continue
+      }
+
+      const refused = await callFailure(harnessed, tool(operation.name), {})
+      expect(refused.error, operation.name).toEqual(overRest.body.error)
+      expect(overRest.body.error.code, operation.name).not.toBe('UNKNOWN_OPERATION')
+      // And the envelope is decided by the code, not by the operation.
+      expect(refused.envelope, operation.name).toBe(
+        overRest.body.error.code === 'INVALID_INPUT' ? 'protocol' : 'result',
+      )
     }
   })
 })

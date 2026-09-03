@@ -713,9 +713,9 @@ tokenet:
 POST /api/agent/v1/mcp
 ```
 
-Transporten er **Streamable HTTP**, i den tilstandsløse formen: én JSON-RPC-melding
-per POST, svaret som `application/json` på den samme responsen. Pek en MCP-klient
-dit, med tokenet i den vanlige headeren:
+Transporten er **Streamable HTTP** i revisjonen `2025-06-18`, i den tilstandsløse
+formen: én JSON-RPC-melding per POST, svaret som `application/json` på den samme
+responsen. Pek en MCP-klient dit, med tokenet i den vanlige headeren:
 
 ```jsonc
 {
@@ -761,7 +761,7 @@ som bare viser tekst:
 }
 ```
 
-**En avvisning er et resultat, ikke et unntak:**
+**En avvisning et verktøy kom fram til er et resultat, ikke et unntak:**
 
 ```jsonc
 {
@@ -776,9 +776,23 @@ som bare viser tekst:
 
 Det er med vilje: en modell som ser `CONTENT_DOES_NOT_FIT` og hvor mye som ble til
 overs, kan korte ned teksten. En JSON-RPC-feil ville i de fleste klienter blitt
-«verktøykallet feilet», med det nyttige i et hjørne. Bare meldinger som aldri var
-et gyldig kall – uparsbar JSON, en ukjent metode, en JSON-RPC-batch – blir
-JSON-RPC-feil.
+«verktøykallet feilet», med det nyttige i et hjørne.
+
+### Hvor en feil havner
+
+Skillet går på **om et ekte verktøy fikk bestemme**, ikke på hvor alvorlig feilen er:
+
+| Hva som skjedde | Hvor svaret kommer |
+| --- | --- |
+| En operasjon kjørte og sa nei: `CONTENT_DOES_NOT_FIT`, `CONFLICT`, `PRESENTATION_NOT_FOUND`, `FORBIDDEN_SCOPE`, `STORAGE_FAILED` … | verktøyresultat med `isError: true` |
+| Verktøyet finnes ikke (`UNKNOWN_OPERATION`) | JSON-RPC-feil `-32602` |
+| Argumentene passer ikke verktøyets skjema (`INVALID_INPUT`) | JSON-RPC-feil `-32602` |
+| Meldingen var aldri et gyldig kall: uparsbar JSON, ukjent metode, batch, `id: null`, `initialize` uten `clientInfo`, en `cursor` som er et tall | JSON-RPC-feil |
+
+Feilobjektet er det samme uansett – i `structuredContent.error` på et resultat, og i
+`error.data` på en JSON-RPC-feil – så koden og detaljene en agent handler på er de
+samme REST returnerer. Referanseimplementasjonen trekker streken på samme sted, så
+en agents feilhåndtering virker likt mot andre MCP-servere.
 
 ### Hva serveren ikke tilbyr
 
@@ -795,11 +809,24 @@ JSON-RPC-feil.
 - **Ingen bildegenerering.** Som ellers i Slaids: et rasterbilde lastes opp ferdig,
   en figur skrives som SVG-markup.
 
-`MCP-Protocol-Version`-headeren valideres i stedet for å ignoreres. At den mangler
-er greit – spesifikasjonen sier at man da skal anta standardversjonen, og den
-snakker serveren – men en versjon den ikke snakker gir `400` i stedet for et svar
-med disse semantikkene under et navn ingen ble enige om. Klienten fikk vite
-hvilken versjon som gjelder i `initialize`.
+### Versjon og Origin
+
+**Slaids annonserer bare revisjonen den faktisk implementerer**, i dag `2025-06-18`
+alene. Å annonsere `2025-03-26` ville lovet en klient at endepunktet tar imot
+JSON-RPC-batcher, som det avviser; `2024-11-05` ville lovet den gamle
+HTTP+SSE-transporten med to endepunkter som ikke finnes her. En nyere klient
+forhandler seg ned – det er dét forhandlingen er til for – og den offisielle
+klienten gjør nøyaktig det i `interop.test.ts`.
+
+`MCP-Protocol-Version`-headeren valideres mot den samme listen. Mangler den, leses
+den som den ene revisjonen serveren har – ikke som spesifikasjonens
+`2025-03-26`-fallback, siden den ikke er implementert. En annen versjon gir `400`.
+
+**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding. En MCP-klient
+utenfor nettleseren sender ingen `Origin` og berøres ikke – det gjelder alle vanlige
+klienter. En nettleser sender en, og bare deployens egen vert slipper gjennom.
+Sjekken skjer før kroppen leses, så en side på et fremmed origin aldri når en
+operasjon, langt mindre en som skriver.
 
 ### Protokollen er skrevet for hånd
 

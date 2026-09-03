@@ -2689,9 +2689,9 @@ samme tokenet, med den samme auditen. Ikke som en besparelse, men fordi alt over
 autentiseringen faktisk *er* det samme; det som skiller begynner etterpå, og det
 ligger i `src/server/mcp/`.
 
-**Transporten er Streamable HTTP, tilstandsløs.** Én JSON-RPC-melding per POST,
-svaret som `application/json` på den samme responsen. Det som er utelatt er
-utelatt med vilje, ikke uferdig:
+**Transporten er Streamable HTTP i revisjonen `2025-06-18`, tilstandsløs.** Én
+JSON-RPC-melding per POST, svaret som `application/json` på den samme responsen.
+Det som er utelatt er utelatt med vilje, ikke uferdig:
 
 - **ingen SSE-strøm.** En server åpner en for notifikasjoner, progresjon og
   spørsmål den selv stiller. Slaids sender ingen av delene – hver operasjon er
@@ -2707,6 +2707,26 @@ utelatt med vilje, ikke uferdig:
 - **ingen batcher.** Fjernet fra protokollen i 2025-06-18-revisjonen. En array er
   derfor ikke en batch vi avslår, det er en meldingsform som ikke finnes lenger,
   og å si det er mer nyttig enn å kjøre det første elementet i den.
+
+**Bare én revisjon annonseres, og det er den som er implementert.** Listen var en
+stund lengre, og det var en feil snarere enn raushet: `2025-03-26` ville lovet en
+klient at endepunktet tar imot JSON-RPC-batcher, som det avviser, og `2024-11-05`
+ville lovet den gamle HTTP+SSE-transporten med et eget SSE-endepunkt og et eget
+POST-endepunkt, som ingen av delene finnes her. En klient tror på det den får, og
+går i gang med å bruke det. Så `negotiateProtocolVersion` svarer aldri med noe som
+ikke står i `SUPPORTED_MCP_PROTOCOL_VERSIONS`, `MCP-Protocol-Version` valideres mot
+den samme listen, og en manglende header leses som den ene revisjonen serveren har –
+ikke som spesifikasjonens `2025-03-26`-fallback, som ville vært den samme løgnen én
+gang til. En nyere klient forhandler seg ned; `interop.test.ts` viser den offisielle
+klienten gjøre nøyaktig det.
+
+**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding. En MCP-klient
+utenfor nettleseren sender ingen og berøres ikke; en nettleser sender en, og bare
+deployens egen vert slipper gjennom. Sammenligningen er på *vert*, ikke på hele
+origin: bak en TLS-terminerende proxy kan funksjonen se `http://` der nettleseren så
+`https://`, og et skjemaavvik der ville avvist deployens egne sider – mens angrepet
+handler om hvilket nettsted som spør. Sjekken kjører før kroppen leses, så en side på
+et fremmed origin aldri når en operasjon, langt mindre en som skriver.
 
 **Verktøykatalogen er operasjonskatalogen.** `mcpTools()` bygger den av
 `describeOperations()`, den samme funksjonen REST-katalogen kaller: navn,
@@ -2736,15 +2756,33 @@ argumentene når den kjenner verktøynavnet – de kom i den samme meldingen.
 `parity.test.ts` går gjennom hver eneste operasjon over begge veier og
 sammenligner svarene.
 
-**En avvisning er et resultat.** Ugyldig input, manglende scope, stale revisjon og
-innhold som ikke får plass kommer tilbake som et verktøyresultat med
-`isError: true` og hele feilobjektet i `structuredContent.error`, med den samme
-koden REST ville gitt. Det er dét som gjør at modellen ser
-`CONTENT_DOES_NOT_FIT` og hvor mye som ble til overs, og kan korte ned teksten –
-der en JSON-RPC-feil i de fleste klienter blir «verktøykallet feilet» med det
-nyttige i et hjørne. Bare meldinger som aldri var et gyldig kall til Slaids –
-uparsbar JSON, en ukjent metode, en batch – blir JSON-RPC-feil, fordi det ikke er
-noe der for en agent å handle på utenom «du adresserte dette feil».
+**En avvisning et verktøy kom fram til, er et resultat.** Manglende scope, stale
+revisjon, noe som ikke finnes og innhold som ikke får plass kommer tilbake som et
+verktøyresultat med `isError: true` og hele feilobjektet i
+`structuredContent.error`, med den samme koden REST ville gitt. Det er dét som gjør
+at modellen ser `CONTENT_DOES_NOT_FIT` og hvor mye som ble til overs, og kan korte
+ned teksten – der en JSON-RPC-feil i de fleste klienter blir «verktøykallet feilet»
+med det nyttige i et hjørne.
+
+Streken går ved **om et ekte verktøy fikk bestemme**, ikke ved hvor alvorlig feilen
+er. Et verktøy som ikke finnes (`UNKNOWN_OPERATION`) og argumenter som ikke passer
+verktøyets publiserte skjema (`INVALID_INPUT`) er ikke noe Slaids veide og avslo –
+ingenting kjørte, og ingenting kunne ha kjørt – så de er JSON-RPC-feil, sammen med
+uparsbar JSON, en ukjent metode, en batch og `id: null`. Referanseimplementasjonen
+klassifiserer nøyaktig de to første som `InvalidParams`, og å trekke streken et annet
+sted ville gjort et skjemabrudd til noe som så ut som en vurdering. Feilobjektet er
+det samme uansett – i `structuredContent.error` eller i `error.data` – så koden en
+agent forgrener på er den samme begge veier og over begge transportene.
+`NEVER_A_VALID_CALL` i `src/server/mcp/server.ts` er den ene listen som avgjør det.
+
+**Konvolutten og metodenes parametre valideres hver for seg.** `jsonrpc.ts` svarer på
+«er dette en velformet melding?», som er alt JSON-RPC har en mening om; MCP har mer.
+`initialize` uten `clientInfo` er en gyldig JSON-RPC-forespørsel og en ugyldig
+MCP-håndhilsning, og en `cursor` som er et tall er en klient som ber om side to og
+ville fått side én av en server som bare ignorerte den. Så `requests.ts` leser hver
+metodes parametre før noe dispatches, og en refusjon er en verdi der også.
+`requests.test.ts` bruker spesifikasjonens egne skjemaer som orakel: alt leserne
+godtar, godtar `@modelcontextprotocol/sdk` også.
 
 **Auditen skiller ikke på transport.** Et `tools/call` skrives ned under
 operasjonens eget navn, med statusen feilkoden ville hatt over HTTP – en

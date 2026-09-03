@@ -34,18 +34,23 @@ import { AGENT_TOOL_PREFIX, describeOperations } from '../../agent/registry'
 import type { AgentScope } from '../../agent/types'
 
 /**
- * The revision this server implements, and the ones it will answer to.
+ * The one revision this server implements — and therefore the only one it
+ * announces.
  *
- * A client that asks for one of these gets it back; anything else is answered
- * with the newest we have, which the spec makes the client's decision to accept
- * or hang up on. The list is ordered newest first so it reads as a preference.
+ * The list used to be longer, and that was a bug rather than generosity. A
+ * server that answers `2025-03-26` is promising a peer that it accepts JSON-RPC
+ * batches, which this endpoint refuses outright; one that answers `2024-11-05`
+ * is promising the older HTTP+SSE transport, with a separate SSE endpoint and a
+ * separate POST endpoint, neither of which exists here. Announcing either would
+ * be telling a client it may do things that would then fail — and negotiation
+ * exists precisely so a client can learn what a server actually implements.
+ *
+ * So it is one entry, and it stays a list because the *rule* — answer with the
+ * requested revision when we implement it, otherwise with one we do — is what
+ * survives the day a second revision is implemented.
  */
 export const MCP_PROTOCOL_VERSION = '2025-06-18'
-export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = [
-  MCP_PROTOCOL_VERSION,
-  '2025-03-26',
-  '2024-11-05',
-]
+export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = [MCP_PROTOCOL_VERSION]
 
 export interface McpToolAnnotations {
   readOnlyHint: boolean
@@ -128,9 +133,26 @@ export function operationNameForTool(toolName: string): string {
     : toolName
 }
 
-/** The version to answer `initialize` with, given what the client asked for. */
+/**
+ * The revision to answer `initialize` with, given what the client asked for.
+ *
+ * The specification's rule, and nothing else: the same revision back when this
+ * server implements it, and otherwise one it does implement — which the client
+ * then accepts or disconnects over. What it must never do is echo a revision
+ * this server has not implemented, because the client would believe it and
+ * proceed to use it.
+ *
+ * With one entry in the list that means it always answers `MCP_PROTOCOL_VERSION`.
+ * That is the honest answer to a newer client too: it asked for something this
+ * server does not speak, and it is told what this server does speak.
+ */
 export function negotiateProtocolVersion(requested: unknown): string {
   return typeof requested === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
     ? requested
     : MCP_PROTOCOL_VERSION
+}
+
+/** Whether a client may present this revision in `MCP-Protocol-Version`. */
+export function isSupportedProtocolVersion(version: string): boolean {
+  return SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(version)
 }

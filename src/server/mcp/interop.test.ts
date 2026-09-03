@@ -163,6 +163,16 @@ describe('den offisielle MCP-klienten mot en ekte socket', () => {
     await expect(client.connect(new StreamableHTTPClientTransport(address))).rejects.toThrow()
   })
 
+  it('lar den nyeste offisielle klienten falle ned til revisjonen serveren har', async () => {
+    // The SDK asks for its own newest revision, which this server does not
+    // implement. Narrowing what Slaids announces to the one revision it really
+    // does implement must not break that client — the negotiation is what it is
+    // for, and the client accepts the answer and carries on.
+    const client = await connectedClient()
+    expect((await client.listTools()).tools.length).toBeGreaterThan(0)
+    await client.close()
+  })
+
   it('snakker den protokollversjonen den sier den snakker', async () => {
     // Straight over the wire, so the negotiated version is read off the answer
     // rather than off the client's own bookkeeping.

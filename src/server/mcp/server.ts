@@ -20,11 +20,32 @@
  * makes the endpoint safe on a platform that may answer two messages from two
  * instances — a session held in one instance's memory would be a session the
  * next request cannot find.
+ *
+ * ## Where a refusal goes
+ *
+ * MCP has two places to put one, and which one it goes in is a fact about the
+ * failure rather than a preference:
+ *
+ *  - **a JSON-RPC error** when the message was never a valid call: an unknown
+ *    method, parameters that are not the shape the method takes, a tool that
+ *    does not exist, or arguments that do not match the tool's published schema.
+ *    Nothing ran, and nothing could have. The reference implementation draws the
+ *    line in exactly this place — both "tool not found" and "invalid arguments
+ *    for tool" are `InvalidParams` there — and drawing it anywhere else would
+ *    make a schema violation look like something Slaids considered and declined.
+ *  - **a tool result with `isError: true`** when a real operation ran and said
+ *    no: content that does not fit, a stale revision, a presentation that is not
+ *    there, a scope the token lacks. Those are answers, and an agent is supposed
+ *    to read them and act — which is what most clients show a model, where a
+ *    JSON-RPC error goes to the log.
+ *
+ * Either way the payload is Agent Core's own error object, unchanged, so the
+ * code and details an agent branches on are the same ones REST returns.
  */
 
 import type { AgentContext } from '../../agent/types'
-import { statusFor, type ApiError } from '../agent/protocol'
-import { authorizeOperation, performOperation } from '../agent/invoke'
+import { statusFor, type ApiErrorCode } from '../agent/protocol'
+import { authorizeOperation, performOperation, type OperationOutcome } from '../agent/invoke'
 import type { AgentPrincipal } from '../agent/tokens'
 import {
   JSON_RPC_AUDIT,
@@ -36,6 +57,12 @@ import {
   type JsonRpcResponse,
 } from './jsonrpc'
 import { MCP_INSTRUCTIONS, MCP_SERVER_INFO } from './instructions'
+import {
+  readCallToolParams,
+  readInitializeParams,
+  readListToolsParams,
+  type Validated,
+} from './requests'
 import { toolResultFor } from './result'
 import { mcpTools, negotiateProtocolVersion, operationNameForTool } from './tools'
 
@@ -114,10 +141,15 @@ async function handleRequest(
   const { id, method, params } = message
 
   switch (method) {
-    case 'initialize':
+    case 'initialize': {
+      const read = readInitializeParams(params)
+      if (!read.ok) return refusedParams(id, method, read)
       return {
         response: jsonRpcResult(id, {
-          protocolVersion: negotiateProtocolVersion(params.protocolVersion),
+          // What the client asked for only if this server implements it; the
+          // one revision it does implement otherwise. It never answers with a
+          // version it does not speak — see `negotiateProtocolVersion`.
+          protocolVersion: negotiateProtocolVersion(read.value.protocolVersion),
           // Nothing but tools, and the list never changes while a client is
           // connected: it is compiled from the registry at build time, so there
           // is no `listChanged` notification to promise.
@@ -127,15 +159,25 @@ async function handleRequest(
         }),
         audit: protocolAudit(method),
       }
+    }
 
+    // `ping` takes no parameters of its own, and the specification allows a
+    // `_meta` on any of them, so there is nothing here to be strict about that
+    // would not be strictness against the protocol rather than for it.
     case 'ping':
       return { response: jsonRpcResult(id, {}), audit: protocolAudit(method) }
 
-    case 'tools/list':
-      return listTools(id, params)
+    case 'tools/list': {
+      const read = readListToolsParams(params)
+      if (!read.ok) return refusedParams(id, method, read)
+      return { response: jsonRpcResult(id, { tools: mcpTools() }), audit: protocolAudit(method) }
+    }
 
-    case 'tools/call':
-      return callTool(session, id, params)
+    case 'tools/call': {
+      const read = readCallToolParams(params)
+      if (!read.ok) return refusedParams(id, method, read)
+      return callTool(session, id, read.value.name, read.value.arguments)
+    }
 
     default:
       return {
@@ -143,96 +185,97 @@ async function handleRequest(
           id,
           JSON_RPC_ERROR.METHOD_NOT_FOUND,
           `Slaids' MCP-server har ingen metode som heter «${method}».`,
-          { method, available: ['initialize', 'ping', 'tools/list', 'tools/call'] },
+          { method, available: [...SUPPORTED_METHODS] },
         ),
         audit: protocolAudit(method, { code: JSON_RPC_ERROR.METHOD_NOT_FOUND }),
       }
   }
 }
 
-/**
- * The catalogue.
- *
- * Unpaged: the whole registry is a couple of dozen tools with their schemas, far
- * inside any sensible message size, so there is no cursor to issue. A client
- * that presents one got it from somewhere else, and the spec's answer to a
- * cursor a server did not mint is to refuse it rather than to guess.
- */
-function listTools(id: string | number, params: Record<string, unknown>): McpOutcome {
-  if (typeof params.cursor === 'string' && params.cursor.length > 0) {
-    return {
-      response: jsonRpcError(
-        id,
-        JSON_RPC_ERROR.INVALID_PARAMS,
-        'Ukjent cursor. Slaids paginerer ikke verktøylisten, så hele listen kommer i ett svar.',
-      ),
-      audit: protocolAudit('tools/list', { code: JSON_RPC_ERROR.INVALID_PARAMS }),
-    }
+/** Every method this server answers. Published in a method-not-found, so a
+ * client that misspelled one can see the real ones without a second request. */
+const SUPPORTED_METHODS = ['initialize', 'ping', 'tools/list', 'tools/call'] as const
+
+/** Parameters that were not the shape the method takes. Nothing ran. */
+function refusedParams(
+  id: string | number,
+  method: string,
+  refusal: Extract<Validated<unknown>, { ok: false }>,
+): McpOutcome {
+  return {
+    response: jsonRpcError(id, refusal.code, refusal.message, { method }),
+    audit: protocolAudit(method, { code: refusal.code }),
   }
-  return { response: jsonRpcResult(id, { tools: mcpTools() }), audit: protocolAudit('tools/list') }
 }
+
+/**
+ * The codes that mean this was never a valid call to a tool.
+ *
+ * `UNKNOWN_OPERATION` is a tool that does not exist, and `INVALID_INPUT` is
+ * arguments that do not match the one it named — neither of which is something
+ * Slaids weighed and declined, so neither is a *result*. The reference
+ * implementation classifies exactly these two as `InvalidParams`, and matching
+ * it is what makes an agent's error handling portable between servers.
+ *
+ * Everything else an operation can answer stays a tool result. The line is
+ * "did a real operation get to decide", not "how bad was it": a missing scope is
+ * a decision about a tool that exists, so it is an answer an agent can act on.
+ */
+const NEVER_A_VALID_CALL: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>([
+  'UNKNOWN_OPERATION',
+  'INVALID_INPUT',
+])
 
 /**
  * One operation, called the way REST calls it.
  *
- * The only thing decided here is the shape of the message: MCP puts the tool
- * name in `params.name` and the operation's own arguments in `params.arguments`.
- * Everything after that — does it exist, may this token run it, does the input
- * match the schema, what did the domain say — is `invoke.ts`, unchanged.
+ * The only thing decided here is where the answer goes. Everything that decides
+ * *what* the answer is — does the tool exist, may this token run it, do the
+ * arguments match the schema, what did the domain say — is `invoke.ts`,
+ * unchanged and shared with REST.
  */
 async function callTool(
   session: McpSession,
   id: string | number,
-  params: Record<string, unknown>,
+  toolName: string,
+  input: Record<string, unknown>,
 ): Promise<McpOutcome> {
-  if (typeof params.name !== 'string' || params.name.length === 0) {
-    return {
-      response: jsonRpcError(
-        id,
-        JSON_RPC_ERROR.INVALID_PARAMS,
-        'Kallet mangler «name», altså hvilket verktøy som skal kjøres.',
-      ),
-      audit: protocolAudit('tools/call', { code: JSON_RPC_ERROR.INVALID_PARAMS }),
-    }
-  }
-
-  const name = operationNameForTool(params.name)
-  // Absent arguments is the empty object, which is what an operation without
-  // arguments wants to receive — the same reading REST gives an empty body.
-  const input = params.arguments === undefined ? {} : params.arguments
+  const name = operationNameForTool(toolName)
 
   const authorized = authorizeOperation(session.principal, name)
-  if (!authorized.ok) return refusal(id, name, input, authorized.error)
+  if (!authorized.ok) return answer(id, name, input, { error: authorized.error })
 
-  const outcome = await performOperation(session.context(), name, input)
-  return {
-    response: jsonRpcResult(id, toolResultFor(outcome)),
-    audit: {
-      operation: name,
-      input,
-      data: outcome.data ?? null,
-      errorCode: outcome.error ? outcome.error.code : null,
-      status: outcome.error ? statusFor(outcome.error.code) : 200,
-    },
-  }
+  return answer(id, name, input, await performOperation(session.context(), name, input))
 }
 
 /**
- * A tool call Slaids refused before it ran.
+ * One outcome, in whichever of MCP's two envelopes it belongs.
  *
- * Still a tool *result*, not a JSON-RPC error, and for the same reason
- * `result.ts` gives: an unknown name comes back with the real names in it, and a
- * missing scope comes back with which scope — both of which an agent can act on,
- * and neither of which most clients would show it from an error envelope.
+ * The audit is written the same way for both, under the operation's own name and
+ * with the status the code would have had over HTTP — so a refusal reads the
+ * same in the owner's log whichever envelope carried it, and whichever transport
+ * it arrived on.
  */
-function refusal(
+function answer(
   id: string | number,
   name: string,
   input: unknown,
-  error: ApiError,
+  outcome: OperationOutcome,
 ): McpOutcome {
-  return {
-    response: jsonRpcResult(id, toolResultFor({ error })),
-    audit: { operation: name, input, data: null, errorCode: error.code, status: statusFor(error.code) },
+  const error = outcome.error
+  const audit: McpAudited = {
+    operation: name,
+    input,
+    data: outcome.data ?? null,
+    errorCode: error ? error.code : null,
+    status: error ? statusFor(error.code) : 200,
   }
+
+  if (error && NEVER_A_VALID_CALL.has(error.code)) {
+    // A protocol error, with Agent Core's own error object as its `data`: the
+    // envelope is MCP's, the payload is the one REST returns, so an agent reads
+    // the same code and the same details either way.
+    return { response: jsonRpcError(id, JSON_RPC_ERROR.INVALID_PARAMS, error.message, error), audit }
+  }
+  return { response: jsonRpcResult(id, toolResultFor(outcome)), audit }
 }

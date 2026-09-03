@@ -52,4 +52,6 @@ Fire regler som avgjør om et kall lykkes:
 - **Du sender aldri editorens interne JSON.** Tekst er navngitte blokker med spans; en sitering er en referanse-id, ikke et tall du skriver selv.
 - **Slaids lager ikke bilder.** Det finnes ingen bildegenerering her og kommer ikke til å gjøre det. Et rasterbilde må du ha ferdig og laste opp, og en figur skriver du selv som SVG-markup. Begge blir helt vanlige filer du deretter plasserer i en sone.
 
-Feil er svar, ikke unntak: et avvist kall kommer tilbake som et resultat med isError og en maskinlesbar kode i structuredContent.error – les koden og detaljene, de sier hva som skal endres. Tokenet ditt har et sett scopes, og et verktøy du mangler scope for svarer FORBIDDEN_SCOPE uansett hvordan kallet ellers ser ut; vanlig redigering gir aldri rett til å publisere.`
+Feil er svar, ikke unntak. Når et verktøy har kjørt og Slaids sier nei – CONTENT_DOES_NOT_FIT, CONFLICT, noe som ikke finnes, et scope du mangler – kommer det tilbake som et resultat med isError og en maskinlesbar kode i structuredContent.error. Les koden og detaljene: de sier hva som skal endres. Et kall som aldri var gyldig – et verktøy som ikke finnes, eller argumenter som ikke passer verktøyets skjema – kommer som en JSON-RPC-feil i stedet, med den samme koden i data.
+
+Tokenet ditt har et sett scopes, og et verktøy du mangler scope for svarer FORBIDDEN_SCOPE uansett hvordan kallet ellers ser ut; vanlig redigering gir aldri rett til å publisere.`

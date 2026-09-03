@@ -21,6 +21,8 @@ export type TransportErrorCode =
   | 'UNAUTHENTICATED'
   /** A valid token without the authority this operation needs. */
   | 'FORBIDDEN_SCOPE'
+  /** A browser origin that is not this deployment's. MCP only; see `mcp/endpoint.ts`. */
+  | 'FORBIDDEN_ORIGIN'
   /** No such route. Not the same as `UNKNOWN_OPERATION`, which is a real route. */
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
@@ -72,6 +74,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   // Transport
   UNAUTHENTICATED: 401,
   FORBIDDEN_SCOPE: 403,
+  FORBIDDEN_ORIGIN: 403,
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
   UNSUPPORTED_CONTENT_TYPE: 415,

@@ -39,10 +39,34 @@ describe('readJsonRpcMessage', () => {
     })
   })
 
-  it('behandler id: null som en notifikasjon, siden MCP ikke tillater den som id', () => {
-    expect(readJsonRpcMessage({ jsonrpc: '2.0', id: null, method: 'ping' }).kind).toBe(
-      'notification',
-    )
+  it('avviser id: null, i stedet for å behandle den som en notifikasjon', () => {
+    // MCP forbids `null` as a request id. Reading it as "ingen id" ville
+    // kvittert med 202 og latt en klient som venter på svar vente for alltid.
+    expect(readJsonRpcMessage({ jsonrpc: '2.0', id: null, method: 'ping' })).toMatchObject({
+      kind: 'invalid',
+      code: JSON_RPC_ERROR.INVALID_REQUEST,
+      id: null,
+    })
+  })
+
+  it.each([
+    ['boolsk', true],
+    ['objekt', { a: 1 }],
+    ['liste', [1]],
+  ])('avviser en id som er %s', (_name, id) => {
+    expect(readJsonRpcMessage({ jsonrpc: '2.0', id, method: 'ping' })).toMatchObject({
+      kind: 'invalid',
+      code: JSON_RPC_ERROR.INVALID_REQUEST,
+    })
+  })
+
+  it('lar et svar bære id: null, som er det et svar på en uleselig melding gjør', () => {
+    // Checked before the id is judged: `{"id":null,"error":{…}}` is a valid
+    // JSON-RPC *response*, and refusing it would be refusing the protocol.
+    expect(readJsonRpcMessage({ jsonrpc: '2.0', id: null, error: { code: -32700 } })).toEqual({
+      kind: 'response',
+      id: null,
+    })
   })
 
   it('godtar den tomme strengen som id, som JSON-RPC gjør', () => {

@@ -169,17 +169,26 @@ export function jsonRpcFailureOf(answer: McpAnswer): { code: number; message: st
   return answer.body.error
 }
 
-/** One tool call, as a client makes it. */
+/** One tool call, exactly as sent — envelope and all, for a test that cares. */
+export async function toolCall(
+  harnessed: Harness,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<McpAnswer> {
+  const answer = await mcp(harnessed, 'tools/call', { name, arguments: args })
+  if (answer.status !== 200) {
+    throw new Error(`Forventet 200 fra tools/call, fikk ${answer.status}`)
+  }
+  return answer
+}
+
+/** One tool call that reached a tool, unwrapped to its `CallToolResult`. */
 export async function callTool(
   harnessed: Harness,
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<McpToolResult> {
-  const answer = await mcp(harnessed, 'tools/call', { name, arguments: args })
-  if (answer.status !== 200) {
-    throw new Error(`Forventet 200 fra tools/call, fikk ${answer.status}`)
-  }
-  return resultOf(answer) as unknown as McpToolResult
+  return resultOf(await toolCall(harnessed, name, args)) as unknown as McpToolResult
 }
 
 /** A tool call that is expected to have worked, unwrapped to its structured half. */
@@ -201,7 +210,14 @@ export interface McpToolError {
   details?: Record<string, unknown>
 }
 
-/** A tool call that is expected to have been refused, unwrapped to its error. */
+/**
+ * A tool call refused by the tool itself, unwrapped to its error.
+ *
+ * A *result* with `isError`, which is where an operation's own refusals go —
+ * content that does not fit, a stale revision, a scope the token lacks. Throws
+ * if the refusal came back as a protocol error instead, because then the call
+ * never reached a tool and the test is asserting the wrong half of the split.
+ */
 export async function callError(
   harnessed: Harness,
   name: string,
@@ -212,6 +228,49 @@ export async function callError(
     throw new Error(`Forventet at «${name}» ble avvist, men den gikk gjennom.`)
   }
   return (result.structuredContent as { error: McpToolError }).error
+}
+
+/**
+ * A call that was never a valid invocation, unwrapped to its protocol error.
+ *
+ * An unknown tool, or arguments that do not match the one it named. The
+ * JSON-RPC error's `data` is Agent Core's own error object, so the code and
+ * details are the same ones REST returns.
+ */
+export async function callProtocolError(
+  harnessed: Harness,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<{ code: number; error: McpToolError }> {
+  const failure = jsonRpcFailureOf(await toolCall(harnessed, name, args))
+  return { code: failure.code, error: failure.data as McpToolError }
+}
+
+/** Which envelope a refusal arrived in, and the error inside it. */
+export interface ToolFailure {
+  envelope: 'result' | 'protocol'
+  error: McpToolError
+}
+
+/**
+ * A refused call, whichever envelope carried it.
+ *
+ * For the tests that sweep the whole surface: they assert the *payload* is the
+ * one REST returns, and report the envelope so a change of side is visible
+ * rather than silently absorbed.
+ */
+export async function callFailure(
+  harnessed: Harness,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<ToolFailure> {
+  const answer = await toolCall(harnessed, name, args)
+  if ('error' in answer.body) {
+    return { envelope: 'protocol', error: answer.body.error.data as McpToolError }
+  }
+  const result = answer.body.result as unknown as McpToolResult
+  if (!result.isError) throw new Error(`Forventet at «${name}» ble avvist, men den gikk gjennom.`)
+  return { envelope: 'result', error: (result.structuredContent as { error: McpToolError }).error }
 }
 
 /* ------------------------------------------------------------------ *

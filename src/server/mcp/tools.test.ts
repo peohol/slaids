@@ -27,6 +27,7 @@ import { MCP_INSTRUCTIONS, MCP_SERVER_INFO } from './instructions'
 import {
   MCP_PROTOCOL_VERSION,
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  isSupportedProtocolVersion,
   mcpTools,
   negotiateProtocolVersion,
   operationNameForTool,
@@ -139,20 +140,47 @@ describe('navnerommet', () => {
 })
 
 describe('protokollversjonen', () => {
+  it('annonserer bare den ene revisjonen serveren faktisk implementerer', () => {
+    // Announcing more was a bug, not generosity: `2025-03-26` would promise a
+    // peer that this endpoint accepts JSON-RPC batches, which it refuses
+    // outright, and `2024-11-05` would promise the older HTTP+SSE transport,
+    // with two endpoints neither of which exists here.
+    expect([...SUPPORTED_MCP_PROTOCOL_VERSIONS]).toEqual([MCP_PROTOCOL_VERSION])
+    expect(MCP_PROTOCOL_VERSION).toBe('2025-06-18')
+  })
+
   it('svarer med den klienten ba om når vi kan den', () => {
     for (const version of SUPPORTED_MCP_PROTOCOL_VERSIONS) {
       expect(negotiateProtocolVersion(version)).toBe(version)
     }
   })
 
-  it('svarer med den nyeste vi har når klienten ber om noe annet', () => {
-    expect(negotiateProtocolVersion('1999-01-01')).toBe(MCP_PROTOCOL_VERSION)
-    expect(negotiateProtocolVersion(undefined)).toBe(MCP_PROTOCOL_VERSION)
-    expect(negotiateProtocolVersion(42)).toBe(MCP_PROTOCOL_VERSION)
+  it.each([
+    // Older revisions this server does not implement…
+    '2025-03-26',
+    '2024-11-05',
+    '2024-10-07',
+    // …a newer one it has not seen…
+    '2099-01-01',
+    // …and nonsense.
+    '',
+  ])('forhandler aldri fram %s', (requested) => {
+    expect(negotiateProtocolVersion(requested)).toBe(MCP_PROTOCOL_VERSION)
+    expect(isSupportedProtocolVersion(requested)).toBe(false)
   })
 
-  it('foretrekker den nyeste', () => {
-    expect(SUPPORTED_MCP_PROTOCOL_VERSIONS[0]).toBe(MCP_PROTOCOL_VERSION)
+  it('svarer med den ene versjonen den har når klienten ikke sier noe brukbart', () => {
+    expect(negotiateProtocolVersion(undefined)).toBe(MCP_PROTOCOL_VERSION)
+    expect(negotiateProtocolVersion(42)).toBe(MCP_PROTOCOL_VERSION)
+    expect(negotiateProtocolVersion(null)).toBe(MCP_PROTOCOL_VERSION)
+  })
+
+  it('svarer aldri med noe den ikke ville godtatt i headeren etterpå', () => {
+    // The two have to be the same set: a version this server negotiates is a
+    // version the client will send back on every later request.
+    for (const requested of ['2025-06-18', '2025-03-26', '2024-11-05', '2099-01-01', 'tull']) {
+      expect(isSupportedProtocolVersion(negotiateProtocolVersion(requested))).toBe(true)
+    }
   })
 })
 

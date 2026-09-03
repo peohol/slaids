@@ -94,6 +94,17 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   svarer `405`), ingen batcher. Tokenet er identiteten på hver melding, og den eneste
   tilstanden mellom to kall er presentasjonens `revision` – det er dét som gjør endepunktet
   riktig på en plattform som kan svare fra to kalde instanser.
+- **Slaids annonserer bare protokollrevisjonen den faktisk implementerer**, i dag `2025-06-18`
+  alene. `2025-03-26` ville lovet en klient at endepunktet tar imot JSON-RPC-batcher, som det
+  avviser, og `2024-11-05` ville lovet den gamle HTTP+SSE-transporten med to endepunkter som
+  ikke finnes her. `negotiateProtocolVersion` svarer aldri med en revisjon som ikke står i
+  `SUPPORTED_MCP_PROTOCOL_VERSIONS`, og `MCP-Protocol-Version` valideres mot den samme listen.
+  Mangler headeren, leses den som den ene revisjonen serveren har – aldri som spesifikasjonens
+  `2025-03-26`-fallback, siden den ikke er implementert.
+- `Origin` valideres på MCP-endepunktet, som Streamable HTTP krever mot DNS rebinding. En
+  MCP-klient utenfor nettleseren sender ingen `Origin` og berøres ikke; en nettleser sender
+  en, og bare deployens egen vert slipper gjennom. Sjekken skjer før kroppen leses, så en side
+  på et fremmed origin aldri når en operasjon – langt mindre en som skriver.
 - **REST og MCP deler `src/server/agent/invoke.ts`.** Begge kaller `authorizeOperation` og
   `performOperation`, i den rekkefølgen. «Samme operasjon gir samme svar og samme feil over
   begge transportene» er derfor en egenskap ved koden, ikke et løfte om to adaptere skrevet
@@ -102,12 +113,22 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   navnerom), beskrivelse, JSON Schema og scopes er operasjonens egne. **Det finnes ikke ett
   eneste operasjonsnavn som streng i `src/server/mcp/`**, og en test håndhever det: en
   håndskrevet liste ville blitt oppdaget først den dagen den manglet en ny operasjon.
-- I MCP er en avvisning et *resultat*, ikke et unntak: ugyldig input, manglende scope, stale
-  revisjon og innhold som ikke får plass kommer tilbake med `isError: true` og hele
-  feilobjektet i `structuredContent.error`. Bare meldinger som aldri var et gyldig kall –
-  uparsbar JSON, ukjent metode, en batch – blir JSON-RPC-feil. En agent skal kunne lese
-  koden og handle på den, og de fleste klienter viser et resultat til modellen og en
-  JSON-RPC-feil til loggen.
+- I MCP avgjøres det av **om et ekte verktøy fikk bestemme** hvor en avvisning havner, ikke av
+  hvor alvorlig den er. Kjørte en operasjon og sa nei – innhold som ikke får plass, stale
+  revisjon, noe som ikke finnes, et scope tokenet mangler – er det et *resultat* med
+  `isError: true` og hele feilobjektet i `structuredContent.error`: en agent skal lese koden og
+  handle på den, og de fleste klienter viser et resultat til modellen og en JSON-RPC-feil til
+  loggen. Var kallet aldri gyldig – uparsbar JSON, ukjent metode, en batch, et verktøy som ikke
+  finnes (`UNKNOWN_OPERATION`), eller argumenter som ikke passer verktøyets skjema
+  (`INVALID_INPUT`) – er det en JSON-RPC-feil, med det samme feilobjektet i `data`.
+  Referanseimplementasjonen trekker streken nøyaktig der (begge er `InvalidParams` i den), og
+  `NEVER_A_VALID_CALL` i `src/server/mcp/server.ts` er den ene listen som avgjør det.
+- Konvolutten (`jsonrpc.ts`) og metodenes egne parametre (`requests.ts`) valideres hver for seg,
+  begge før dispatch. En melding kan være en helt gyldig JSON-RPC-forespørsel og likevel være
+  et kall ingen MCP-metode kunne ta imot – `initialize` uten `clientInfo`, en `cursor` som er et
+  tall – og da er svaret `INVALID_PARAMS`, aldri stille ignorering. `id: null` er ugyldig MCP og
+  besvares som en ugyldig forespørsel, aldri som en notifikasjon: en klient som sendte den
+  venter på svar, og `202` med stillhet er det ene den ikke kan håndtere.
 - Auditen skiller ikke på transport, og skal ikke gjøre det: et `tools/call` skrives ned
   under operasjonens eget navn med statusen feilkoden ville hatt over HTTP, så REST og MCP
   kan leses i én spørring. Bare protokolltrafikken har egne navn (`mcp:initialize`,
@@ -178,8 +199,10 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `IncomingMessage`/`ServerResponse`, mens plattformen her gir en web-`Request` og venter en
   `Response`; og en tilstandsløs Streamable HTTP-server er noen få titalls linjer. SDK-en er
   derfor en **devDependency og et orakel**: `src/server/mcp/interop.test.ts` kjører den
-  offisielle klienten mot en ekte socket, så protokollen valideres mot referansen i stedet
-  for mot vår egen lesing av spesifikasjonen. Den skal aldri bli en runtime-avhengighet.
+  offisielle klienten mot en ekte socket, og `requests.test.ts` kjører spesifikasjonens egne
+  skjemaer mot hver melding parameterleserne godtar – så protokollen valideres mot referansen
+  i stedet for mot vår egen lesing av spesifikasjonen. Den skal aldri bli en
+  runtime-avhengighet.
 - Design-tokens (`G`, min-størrelser, typografi) bor i `src/domain/constants.ts` – ikke hardkod verdier i UI.
 
 ## Kommandoer

@@ -13,10 +13,17 @@
  *    and saying so is more useful than answering the first element of it.
  *  - **no `null` id.** JSON-RPC allows a request to carry one; MCP forbids it,
  *    because `null` is what a response to an unparseable request uses and the
- *    two would be indistinguishable.
+ *    two would be indistinguishable. A message that carries one is refused, not
+ *    quietly demoted to a notification: a client that sent `id: null` is waiting
+ *    for an answer, and `202` with silence is the one thing it cannot handle.
  *
  * What it does *not* narrow is which strings may be an id. The empty string is
  * one, and `readId` says so — see the note there for why that matters.
+ *
+ * This file reads the *envelope* and stops there. Which parameters a method
+ * requires is `requests.ts`, because those rules are MCP's rather than
+ * JSON-RPC's, and a message can be a perfectly well-formed request and still be
+ * a call no method could serve.
  */
 
 export const JSONRPC_VERSION = '2.0'
@@ -78,31 +85,45 @@ export type IncomingMessage =
   | { kind: 'response'; id: JsonRpcId | null }
   | { kind: 'invalid'; code: JsonRpcErrorCode; message: string; id: JsonRpcId | null }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+/** Shared with `requests.ts`: MCP's parameters are always by name. */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
- * The id a message carries, if it carries one.
+ * What a message says about which call it is.
  *
- * `undefined` means there is none, and that is what makes a message a
- * notification. It is deliberately *not* `null`, because `''` is a perfectly
- * valid id: JSON-RPC requires only that one be a string or a number, so a client
- * that numbers its requests from the empty string is conforming — and folding
- * that into "absent" would quietly turn its calls into notifications, answered
- * `202` and never run.
+ * Three outcomes, and the difference between the first two is the whole reason
+ * this is not a single nullable value:
  *
- * An explicit `null` is treated as absent. JSON-RPC allows it on a request, MCP
- * forbids it, and it is what a response to an unreadable message carries, so
- * there is nothing to answer under it either way.
+ *  - **absent** — no `id` member at all. That, and only that, is a notification.
+ *  - **an id** — including `''` and `0`. JSON-RPC requires only that an id be a
+ *    string or a number, so a client that numbers its requests from the empty
+ *    string is conforming; folding that into "absent" would turn its calls into
+ *    notifications, answered `202` and never run.
+ *  - **invalid** — an `id` member that is present but is not one: `null`, a
+ *    boolean, an object. MCP forbids `null` outright, and a client that sent one
+ *    is waiting for an answer, so the honest reply is a refusal it can read
+ *    rather than an acknowledgement it cannot act on.
  */
-function readId(message: Record<string, unknown>): JsonRpcId | undefined {
+type IdReading =
+  | { kind: 'absent' }
+  | { kind: 'id'; id: JsonRpcId }
+  | { kind: 'invalid' }
+
+function readId(message: Record<string, unknown>): IdReading {
+  if (!('id' in message)) return { kind: 'absent' }
   const id = message.id
-  if (typeof id === 'string') return id
+  if (typeof id === 'string') return { kind: 'id', id }
   // JSON cannot express a non-finite number, so this only rules out an id no
   // answer could ever be matched against.
-  if (typeof id === 'number' && Number.isFinite(id)) return id
-  return undefined
+  if (typeof id === 'number' && Number.isFinite(id)) return { kind: 'id', id }
+  return { kind: 'invalid' }
+}
+
+/** The id to address a refusal to, when the message may not have a usable one. */
+function answerTo(reading: IdReading): JsonRpcId | null {
+  return reading.kind === 'id' ? reading.id : null
 }
 
 export function readJsonRpcMessage(value: unknown): IncomingMessage {
@@ -124,28 +145,40 @@ export function readJsonRpcMessage(value: unknown): IncomingMessage {
     }
   }
 
-  const id = readId(value)
+  const reading = readId(value)
   // What a refusal is addressed to. `null` is JSON-RPC's own "we could not tell
-  // which call this was", which is exactly the case when there is no id.
-  const answerTo = id ?? null
+  // which call this was", which is exactly the case when there is no usable id.
+  const addressee = answerTo(reading)
 
   if (value.jsonrpc !== JSONRPC_VERSION) {
     return {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_REQUEST,
       message: `Feltet «jsonrpc» må være «${JSONRPC_VERSION}».`,
-      id: answerTo,
+      id: addressee,
     }
   }
 
   if (typeof value.method !== 'string' || value.method.length === 0) {
-    // No method and a result or an error means this is an answer, not a call.
-    if ('result' in value || 'error' in value) return { kind: 'response', id: answerTo }
+    // No method and a result or an error means this is an answer, not a call —
+    // and an answer legitimately carries `id: null` when the peer could not read
+    // what it was answering, so this is checked before the id is judged.
+    if ('result' in value || 'error' in value) return { kind: 'response', id: addressee }
     return {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_REQUEST,
       message: 'Meldingen mangler et «method»-felt.',
-      id: answerTo,
+      id: addressee,
+    }
+  }
+
+  if (reading.kind === 'invalid') {
+    return {
+      kind: 'invalid',
+      code: JSON_RPC_ERROR.INVALID_REQUEST,
+      message:
+        'Feltet «id» må være en streng eller et tall. MCP tillater ikke null som id på en forespørsel.',
+      id: null,
     }
   }
 
@@ -156,13 +189,13 @@ export function readJsonRpcMessage(value: unknown): IncomingMessage {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_PARAMS,
       message: 'Feltet «params» må være et objekt.',
-      id: answerTo,
+      id: addressee,
     }
   }
 
   const params = isPlainObject(value.params) ? value.params : {}
-  if (id === undefined) return { kind: 'notification', method: value.method, params }
-  return { kind: 'request', id, method: value.method, params }
+  if (reading.kind === 'absent') return { kind: 'notification', method: value.method, params }
+  return { kind: 'request', id: reading.id, method: value.method, params }
 }
 
 export function jsonRpcResult(id: JsonRpcId, result: unknown): JsonRpcSuccess {

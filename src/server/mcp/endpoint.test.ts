@@ -26,6 +26,7 @@ import {
   TOKEN,
   callError,
   callOk,
+  callProtocolError,
   callTool,
   closeHarnessDatabases,
   harness,
@@ -138,33 +139,6 @@ describe('en hel arbeidsflyt over MCP', () => {
  * ------------------------------------------------------------------ */
 
 describe('feil som er resultater', () => {
-  it('avviser input som ikke passer skjemaet, og sier hvilket felt', async () => {
-    const harnessed = harness()
-    const error = await callError(harnessed, tool('create_presentation'), { title: '' })
-    expect(error.code).toBe('INVALID_INPUT')
-    expect(JSON.stringify(error.details)).toContain('title')
-  })
-
-  it('avviser et felt operasjonen ikke har, i stedet for å la det forsvinne', async () => {
-    const harnessed = harness()
-    // A misspelled `expectedRevision` would otherwise be a concurrency check
-    // that quietly did not happen.
-    const error = await callError(harnessed, tool('create_presentation'), {
-      title: 'Dekk',
-      expectedRevison: 'r_1',
-    })
-    expect(error.code).toBe('INVALID_INPUT')
-  })
-
-  it('svarer på et ukjent verktøy med Agent Cores egen feil, navnene inkludert', async () => {
-    const harnessed = harness()
-    const error = await callError(harnessed, tool('generate_image'))
-    expect(error.code).toBe('UNKNOWN_OPERATION')
-    const available = (error.details as { available: string[] }).available
-    expect(available).toContain('create_svg_asset')
-    expect(available).not.toContain('generate_image')
-  })
-
   it('håndhever scopes serverside, uansett hvordan kallet ser ut', async () => {
     const readOnly = harness({ scopes: ['presentations:read'] })
     const error = await callError(readOnly, tool('create_presentation'), { title: 'Dekk' })
@@ -255,20 +229,121 @@ describe('feil som er resultater', () => {
 })
 
 /* ------------------------------------------------------------------ *
- * Protocol errors, which are a different thing
+ * The line between a refused call and a call that never was one
  * ------------------------------------------------------------------ */
+
+describe('skillet mellom protokollfeil og verktøyfeil', () => {
+  it('svarer på et ukjent verktøy med en JSON-RPC-feil, ikke med et resultat', async () => {
+    // Nothing ran, and nothing could have: there is no such tool. That is a
+    // protocol error in the specification and in the reference implementation,
+    // and the payload is still Agent Core's own, list of real names and all.
+    const harnessed = harness()
+    const { code, error } = await callProtocolError(harnessed, tool('generate_image'))
+
+    expect(code).toBe(-32602)
+    expect(error.code).toBe('UNKNOWN_OPERATION')
+    const available = (error.details as { available: string[] }).available
+    expect(available).toContain('create_svg_asset')
+    expect(available).not.toContain('generate_image')
+  })
+
+  it('svarer på argumenter som ikke passer verktøyets skjema med en JSON-RPC-feil', async () => {
+    const harnessed = harness()
+    const { code, error } = await callProtocolError(harnessed, tool('create_presentation'), {
+      title: '',
+    })
+
+    expect(code).toBe(-32602)
+    expect(error.code).toBe('INVALID_INPUT')
+    expect(JSON.stringify(error.details)).toContain('title')
+  })
+
+  it('avviser et felt operasjonen ikke har, i stedet for å la det forsvinne', async () => {
+    // A misspelled `expectedRevision` would otherwise be a concurrency check
+    // that quietly did not happen.
+    const harnessed = harness()
+    const { error } = await callProtocolError(harnessed, tool('create_presentation'), {
+      title: 'Dekk',
+      expectedRevison: 'r_1',
+    })
+    expect(error.code).toBe('INVALID_INPUT')
+  })
+
+  it.each([
+    ['manglende presentasjon', 'get_presentation', { presentationId: 'p_nei' }, 'PRESENTATION_NOT_FOUND'],
+    ['manglende scope', 'set_sharing', { presentationId: 'p_nei', shared: true }, 'FORBIDDEN_SCOPE'],
+  ])(
+    'lar %s være et resultat, siden et ekte verktøy fikk bestemme',
+    async (_name, operation, args, expected) => {
+      // The line is "did a real operation get to decide", not "how bad was it".
+      const harnessed = harness({ scopes: ['presentations:read', 'presentations:write'] })
+      const error = await callError(harnessed, tool(operation), args)
+      expect(error.code).toBe(expected)
+    },
+  )
+})
 
 describe('protokollfeil', () => {
   it('svarer på en ukjent metode med JSON-RPC-feilen, ikke med et verktøyresultat', async () => {
     const harnessed = harness()
     const answer = await mcp(harnessed, 'resources/list')
     expect(answer.status).toBe(200)
-    expect(jsonRpcFailureOf(answer).code).toBe(-32601)
+    const failure = jsonRpcFailureOf(answer)
+    expect(failure.code).toBe(-32601)
+    // The real method names, so a client that misspelled one can see them.
+    expect((failure.data as { available: string[] }).available).toContain('tools/call')
   })
 
-  it('krever et verktøynavn i tools/call', async () => {
+  it('svarer på ping', async () => {
     const harnessed = harness()
-    expect(jsonRpcFailureOf(await mcp(harnessed, 'tools/call', {})).code).toBe(-32602)
+    expect(resultOf(await mcp(harnessed, 'ping'))).toEqual({})
+  })
+
+  it('svarer på ping selv om klienten sender et _meta med', async () => {
+    // `ping` takes no parameters of its own, but the specification allows a
+    // `_meta` on any of them; refusing that would be strictness against the
+    // protocol rather than for it.
+    const harnessed = harness()
+    expect(resultOf(await mcp(harnessed, 'ping', { _meta: { sporing: 'abc' } }))).toEqual({})
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * What each method requires of its parameters
+ * ------------------------------------------------------------------ */
+
+describe('parametervalidering per metode', () => {
+  const VALID_INITIALIZE = {
+    protocolVersion: MCP_PROTOCOL_VERSION,
+    capabilities: {},
+    clientInfo: { name: 'testklient', version: '1.0.0' },
+  }
+
+  it.each([
+    ['uten protocolVersion', { capabilities: {}, clientInfo: VALID_INITIALIZE.clientInfo }],
+    ['uten capabilities', { protocolVersion: MCP_PROTOCOL_VERSION, clientInfo: VALID_INITIALIZE.clientInfo }],
+    ['uten clientInfo', { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {} }],
+    ['med clientInfo uten version', { ...VALID_INITIALIZE, clientInfo: { name: 'x' } }],
+  ])('avviser en initialize %s', async (_name, params) => {
+    const harnessed = harness()
+    const failure = jsonRpcFailureOf(await mcp(harnessed, 'initialize', params))
+    expect(failure.code).toBe(-32602)
+    expect(failure.data).toMatchObject({ method: 'initialize' })
+  })
+
+  it('godtar en fullstendig initialize', async () => {
+    const harnessed = harness()
+    expect(resultOf(await mcp(harnessed, 'initialize', VALID_INITIALIZE))).toMatchObject({
+      protocolVersion: MCP_PROTOCOL_VERSION,
+    })
+  })
+
+  it.each([
+    ['et tall', 5],
+    ['en liste', ['a']],
+  ])('avviser en tools/list-cursor som er %s, i stedet for å ignorere den', async (_name, cursor) => {
+    const harnessed = harness()
+    expect(jsonRpcFailureOf(await mcp(harnessed, 'tools/list', { cursor })).code).toBe(-32602)
   })
 
   it('avviser en cursor den aldri delte ut', async () => {
@@ -276,9 +351,50 @@ describe('protokollfeil', () => {
     expect(jsonRpcFailureOf(await mcp(harnessed, 'tools/list', { cursor: 'noe' })).code).toBe(-32602)
   })
 
-  it('svarer på ping', async () => {
+  it.each([
+    ['uten navn', {}],
+    ['med numerisk navn', { name: 7 }],
+    ['med argumenter som liste', { name: 'slaids_list_presentations', arguments: [] }],
+    ['med argumenter som streng', { name: 'slaids_list_presentations', arguments: 'ingen' }],
+  ])('avviser en tools/call %s', async (_name, params) => {
     const harnessed = harness()
-    expect(resultOf(await mcp(harnessed, 'ping'))).toEqual({})
+    expect(jsonRpcFailureOf(await mcp(harnessed, 'tools/call', params)).code).toBe(-32602)
+  })
+
+  it('avviser posisjonelle parametre, som konvolutten selv ikke tillater', async () => {
+    // An envelope MCP never allows, so this is `400` rather than a well-formed
+    // message the server declined — the same line the reference schema draws.
+    const harnessed = harness()
+    const response = await mcpRaw(
+      harnessed,
+      '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":[1,2]}',
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { code: number } }
+    expect(body.error.code).toBe(-32602)
+  })
+
+  it('avviser id: null i stedet for å kvittere for den som en notifikasjon', async () => {
+    // A client that sent `id: null` is waiting for an answer; `202` and silence
+    // is the one thing it cannot handle.
+    const harnessed = harness()
+    const response = await mcpRaw(
+      harnessed,
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        method: 'tools/call',
+        params: { name: tool('create_presentation'), arguments: { title: 'Skal ikke lagres' } },
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { id: null; error: { code: number } }
+    expect(body.error.code).toBe(-32600)
+    expect(body.id).toBeNull()
+
+    const listed = await callOk(harnessed, tool('list_presentations'))
+    expect(listed.presentations).toEqual([])
   })
 })
 
@@ -332,6 +448,52 @@ describe('transporten', () => {
     expect(response.headers.get('Mcp-Session-Id')).toBeNull()
   })
 
+  it.each([
+    ['ingen Origin — en MCP-klient utenfor nettleseren', undefined],
+    ['samme Origin som deployen', ORIGIN],
+  ])('slipper %s gjennom', async (_name, origin) => {
+    const harnessed = harness()
+    const response = await handleAgentRequest(harnessed.deps, new Request(address, {
+      method: 'POST',
+      headers: {
+        ...authorized,
+        'Content-Type': 'application/json',
+        ...(origin ? { Origin: origin } : {}),
+      },
+      body: '{"jsonrpc":"2.0","id":1,"method":"ping"}',
+    }))
+    expect(response.status).toBe(200)
+  })
+
+  it.each([
+    ['en fremmed side', 'https://angriper.example'],
+    ['samme navn på en annen vert', 'https://slaids.example.angriper.example'],
+    ['et ugyldig Origin, som en sandkasset ramme sender', 'null'],
+  ])('avviser %s før kroppen leses', async (_name, origin) => {
+    // Streamable HTTP requires Origin validation against DNS rebinding, and the
+    // body is deliberately a mutation: a page on another origin must not reach
+    // an operation at all, never mind one that writes.
+    const harnessed = harness()
+    const response = await handleAgentRequest(harnessed.deps, new Request(address, {
+      method: 'POST',
+      headers: { ...authorized, 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: tool('create_presentation'), arguments: { title: 'Skal ikke lagres' } },
+      }),
+    }))
+
+    expect(response.status).toBe(403)
+    const body = (await response.json()) as { error: { code: string } }
+    expect(body.error.code).toBe('FORBIDDEN_ORIGIN')
+
+    // And nothing was written on the way to being refused.
+    const listed = await callOk(harnessed, tool('list_presentations'))
+    expect(listed.presentations).toEqual([])
+  })
+
   it('avviser en MCP-versjon den ikke snakker, i stedet for å svare som om den gjorde det', async () => {
     const harnessed = harness()
     const response = await handleAgentRequest(harnessed.deps, new Request(address, {
@@ -371,10 +533,29 @@ describe('transporten', () => {
     expect(response.status).toBe(200)
   })
 
-  it('godtar at headeren mangler, som spesifikasjonen ber om', async () => {
+  it('godtar at headeren mangler, og leser den som den ene versjonen den har', async () => {
+    // The specification's own fallback is `2025-03-26`, which this server does
+    // not implement — so an absent header is read as the revision it does.
     const harnessed = harness()
     expect((await mcp(harnessed, 'ping')).status).toBe(200)
   })
+
+  it.each(['2025-03-26', '2024-11-05', '2024-10-07'])(
+    'avviser %s, som den verken annonserer eller implementerer',
+    async (version) => {
+      const harnessed = harness()
+      const response = await handleAgentRequest(harnessed.deps, new Request(address, {
+        method: 'POST',
+        headers: {
+          ...authorized,
+          'Content-Type': 'application/json',
+          'MCP-Protocol-Version': version,
+        },
+        body: '{"jsonrpc":"2.0","id":1,"method":"ping"}',
+      }))
+      expect(response.status).toBe(400)
+    },
+  )
 
   it('kjører et kall med den tomme strengen som id, i stedet for å kvittere for det', async () => {
     // `''` is a valid JSON-RPC id. Reading it as "ingen id" ville gjort kallet
