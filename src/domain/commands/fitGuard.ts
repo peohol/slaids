@@ -353,12 +353,25 @@ export function findFitRegressions(
  * A regression, like everything else here: a document that is already too tight
  * — an import, or one from before a token changed — must not be locked out of
  * the very change that would repair it.
+ *
+ * The rect comes back with it, and it is the *prospective* one — the size the
+ * zone has under the theme that was refused, which is the size that broke the
+ * rule. Reported here for the same reason `guardFit` reports its own: a caller
+ * measuring afterwards has only the document that still stands, and would
+ * answer with a zone comfortably above the minimum while holding an error that
+ * says it is below it.
  */
+export interface GeometryRegression {
+  slideId: string
+  nodeId: NodeId
+  rect: Rect | null
+}
+
 export function findGeometryRegression(
   before: Presentation,
   after: Presentation,
   options: StructuralOptions = {},
-): { slideId: string; nodeId: NodeId } | null {
+): GeometryRegression | null {
   const afterGeometry = { ...geometryForTheme(after.theme), ...options.geometry }
   const beforeGeometry = { ...geometryForTheme(before.theme), ...options.geometry }
   const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
@@ -371,7 +384,13 @@ export function findGeometryRegression(
     // costs a full geometry pass per slide.
     const already = old ? new Set(belowMinimum(old, beforeGeometry)) : new Set<NodeId>()
     const fresh = tooSmall.find((nodeId) => !already.has(nodeId))
-    if (fresh) return { slideId: slide.id, nodeId: fresh }
+    if (fresh) {
+      return {
+        slideId: slide.id,
+        nodeId: fresh,
+        rect: computeSlideGeometry(slide, afterGeometry).rects.get(fresh) ?? null,
+      }
+    }
   }
   return null
 }

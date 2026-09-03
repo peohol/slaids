@@ -19,7 +19,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { FONT_OPTIONS, GUARANTEED_FONT_IDS, findFontById, isGuaranteedFont } from '../domain/fonts'
-import { computeMainRect } from '../domain/geometry'
+import { MIN_ZONE_WIDTH } from '../domain/constants'
+import { computeMainRect, computeSlideGeometry } from '../domain/geometry'
 import { FONT_SCALE_RANGE, SPACING_RANGE, geometryForTheme } from '../domain/metrics'
 import { COVER_PAGE_ID } from '../domain/pages'
 import { SlaidsDatabase } from '../persistence/db'
@@ -472,6 +473,18 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
       nodeId: expect.any(String),
     })
     expect((await stored(context, deck.presentationId)).theme.spacing).toBe(1)
+
+    // The rect is the one the refused theme would have given the zone, not the
+    // one it has today — today's is comfortably above the minimum, which is
+    // exactly what the error says it is not.
+    const document = await stored(context, deck.presentationId)
+    const nodeId = refused.details?.nodeId as string
+    const prospective = computeSlideGeometry(
+      document.slides[0],
+      geometryForTheme({ ...document.theme, spacing: SPACING_RANGE.max }),
+    ).rects.get(nodeId)
+    expect(refused.details?.rect).toEqual(prospective)
+    expect((refused.details?.rect as { width: number }).width).toBeLessThan(MIN_ZONE_WIDTH)
   })
 
   it('lar presentasjonen forbli gyldig, som validate_presentation ser den', async () => {

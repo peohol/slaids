@@ -363,9 +363,13 @@ export function setTheme(
   // too small to exist is not something shorter text would fix.
   const tooSmall = findGeometryRegression(presentation, updated, options)
   if (tooSmall) {
+    // The rect is the one the theme *would* have given the zone. The zone as it
+    // stands is above the minimum — that is why the change was allowed to be
+    // attempted — so answering with today's rect would contradict the error.
     return err('ZONE_TOO_SMALL', minimumRefusalMessage(theme), {
       slideId: tooSmall.slideId,
       nodeId: tooSmall.nodeId,
+      ...(tooSmall.rect ? { rect: tooSmall.rect } : {}),
     })
   }
 
