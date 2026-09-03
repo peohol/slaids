@@ -43,6 +43,29 @@ import { pngPixelSize } from './rasterize'
 /** A browser launch plus a font fetch is seconds, not milliseconds. */
 const BROWSER_TIMEOUT_MS = 180_000
 
+/**
+ * Two backgrounds far enough apart that a sampled pixel settles the question.
+ *
+ * The theme's background is the one part of it that reaches the picture without
+ * passing through type: it is the ground the whole slide sits on, so it is what
+ * a colour probe can state plainly. The typographic half of a theme change is
+ * asserted the way this file asserts every visual change — the bytes differ.
+ */
+const DEEP_GREEN = { hex: '#0b3d2e', rgb: [11, 61, 46] as const }
+const RUST = { hex: '#7c2d12', rgb: [124, 45, 18] as const }
+
+/** A corner outside the slide inset, so it is background and nothing else. */
+const BACKGROUND_REGION = { x: 4, y: 4, width: 30, height: 30 }
+
+/** As much of `get_presentation`'s theme as this file reads. */
+interface ThemeReading {
+  backgroundColor: string
+  headingFont: { fontId: string | null }
+  bodyFont: { fontId: string | null }
+  spacing: number
+  fontScale: number
+}
+
 const SVG_MARKUP = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120">
   <rect width="200" height="120" fill="#f4c542"/>
   <circle cx="100" cy="60" r="45" fill="#1f2937"/>
@@ -329,6 +352,115 @@ describe('en agent bygger, ser og retter', () => {
   )
 
   it(
+    'ser et nytt tema i bildet, og får en temaendring som ville skjult innhold avvist i sin helhet',
+    async () => {
+      const client = await agentClient()
+
+      /* ---- 1. read the deck, and with it the theme it is drawn in ---- */
+
+      const created = await call<{ presentationId: string; slides: { slideId: string }[] }>(
+        client,
+        'create_presentation',
+        { title: 'Tema i bildet' },
+      )
+      const presentationId = created.presentationId
+      const slideId = created.slides[0].slideId
+
+      const read = await call<{ theme: ThemeReading }>(client, 'get_presentation', {
+        presentationId,
+      })
+      expect(read.theme).toMatchObject({
+        headingFont: { fontId: 'quicksand' },
+        bodyFont: { fontId: 'atkinson' },
+        spacing: 1,
+        fontScale: 1,
+      })
+
+      const inspected = await call<{ rootNodeId: string }>(client, 'inspect_slide', {
+        presentationId,
+        slideId,
+      })
+      await call(client, 'set_slide_title', {
+        presentationId,
+        slideId,
+        spans: [{ text: 'Temaet er globalt' }],
+      })
+      // Text in a transparent container rather than a card, so the deck's own
+      // background is what the picture is mostly made of.
+      const zone = { presentationId, slideId, nodeId: inspected.rootNodeId }
+      await call(client, 'set_zone_text', {
+        ...zone,
+        blocks: [{ type: 'paragraph', spans: [{ text: 'Bakgrunn, font og luft. '.repeat(40) }] }],
+      })
+
+      /* ---- 2. a theme nobody could mistake for the default ---- */
+
+      await call(client, 'set_theme', {
+        presentationId,
+        backgroundColor: DEEP_GREEN.hex,
+        headingFont: 'merriweather',
+        bodyFont: 'merriweather',
+        spacing: 1.3,
+      })
+
+      const green = await renderPreview(client, { presentationId, slideId })
+      // The picture is drawn in the theme that was just set — not in the one
+      // the deck was created with, and not in a renderer's own defaults.
+      expect(hasColourNear(decodePng(green.bytes), DEEP_GREEN.rgb, BACKGROUND_REGION)).toBe(true)
+
+      /* ---- 3. change it again, and the picture follows ---- */
+
+      await call(client, 'set_theme', {
+        presentationId,
+        backgroundColor: RUST.hex,
+        fontScale: 0.85,
+      })
+      const rust = await renderPreview(client, { presentationId, slideId })
+
+      expect(rust.bytes).not.toEqual(green.bytes)
+      const rustBitmap = decodePng(rust.bytes)
+      expect(hasColourNear(rustBitmap, RUST.rgb, BACKGROUND_REGION)).toBe(true)
+      expect(hasColourNear(rustBitmap, DEEP_GREEN.rgb, BACKGROUND_REGION)).toBe(false)
+
+      /* ---- 4. and a theme that would hide the text is refused whole ---- */
+
+      // Fill the zone under the theme now in force, so what is left to decide
+      // is the theme and nothing else. Grown through the operation itself:
+      // "full" is whatever the fit checker says, and the last refusal leaves
+      // the longest accepted text in place because nothing is stored when an
+      // operation is refused.
+      await fillZone(client, zone)
+
+      const before = await deployment.context.repository.loadPresentation(presentationId)
+      const refused = (await client.callTool({
+        name: 'slaids_set_theme',
+        arguments: {
+          presentationId,
+          // A colour that could never hide anything, sent together with a type
+          // size that would: half a theme is not a state anybody asked for.
+          backgroundColor: '#ffffff',
+          fontScale: 1.6,
+        },
+      })) as { isError?: boolean; structuredContent?: { error?: { code: string } } }
+      expect(refused.isError).toBe(true)
+      expect(refused.structuredContent?.error?.code).toBe('CONTENT_DOES_NOT_FIT')
+
+      // Nothing was written — not the type size, and not the colour that came
+      // with it. The stored document is the one from before the call.
+      expect(await deployment.context.repository.loadPresentation(presentationId)).toEqual(before)
+
+      // Which is what the agent sees when it looks again: still the rust deck.
+      const after = await renderPreview(client, { presentationId, slideId })
+      const afterBitmap = decodePng(after.bytes)
+      expect(hasColourNear(afterBitmap, RUST.rgb, BACKGROUND_REGION)).toBe(true)
+      expect(hasColourNear(afterBitmap, [255, 255, 255], BACKGROUND_REGION)).toBe(false)
+
+      await client.close()
+    },
+    BROWSER_TIMEOUT_MS,
+  )
+
+  it(
     'endrer ikke presentasjonen ved å rendre den',
     async () => {
       const client = await agentClient()
@@ -352,6 +484,28 @@ describe('en agent bygger, ser og retter', () => {
     BROWSER_TIMEOUT_MS,
   )
 })
+
+/**
+ * Put as much text in a zone as it will hold, through the tool an agent uses.
+ *
+ * Grown rather than calculated: the capacity depends on the theme in force, and
+ * a test that computed it would be testing its own arithmetic instead of the
+ * fit checker's answer. The refusal that ends the loop stores nothing, so the
+ * zone is left holding the longest text that was accepted.
+ */
+async function fillZone(client: Client, zone: Record<string, string>): Promise<void> {
+  for (let length = 600; length <= 12000; length += 600) {
+    const attempt = (await client.callTool({
+      name: 'slaids_set_zone_text',
+      arguments: {
+        ...zone,
+        blocks: [{ type: 'paragraph', spans: [{ text: 'ord '.repeat(length / 4) }] }],
+      },
+    })) as { isError?: boolean }
+    if (attempt.isError) return
+  }
+  throw new Error('Sonen tok imot all teksten den ble tilbudt.')
+}
 
 /** Whether a region contains a pixel close to this colour. */
 function hasColourNear(

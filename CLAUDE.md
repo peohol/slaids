@@ -153,6 +153,27 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   under operasjonens eget navn med statusen feilkoden ville hatt over HTTP, så REST og MCP
   kan leses i én spørring. Bare protokolltrafikken har egne navn (`mcp:initialize`,
   `mcp:tools/list`).
+- **Temaet styres av agenten gjennom den samme kommandoen som modalen.**
+  `get_presentation` bærer temaet – ingen egen `get_theme`, fordi flaten skal være
+  liten og en agent som har lest presentasjonen har lest temaet – og `set_theme`
+  setter det via `setTheme`. Ingen validering, klamping eller temalogikk i
+  agentlaget. Fonter navngis med id fra `src/domain/fonts.ts`, og det publiserte
+  fontenumet **genereres fra katalogen**; en andre liste ville blitt oppdaget
+  først den dagen editoren fikk en font agenten ikke kunne velge. Luft og
+  skriftstørrelse publiseres med domenets eget intervall (`SPACING_RANGE`,
+  `FONT_SCALE_RANGE`), mens editorens fire navngitte trinn bor i
+  `src/domain/metrics.ts` (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`) og siteres i
+  beskrivelsen – de er et utvalg, ikke grensen. En temaendring måler hele dekket
+  på nytt og avvises i sin helhet: også fargen som fulgte med en skriftstørrelse
+  som ikke gikk.
+- **Hodeløs fit-måling dømmer den fonten som ble navngitt, aldri en reservefont.**
+  Estimatoren leser `advanceRatioFor(stack)` – katalogens eget tall for den
+  fonten – så et agentkall trenger verken nettverk eller webfont-venting, og et
+  tema som ble godkjent er det samme temaet previewet tegner. Nettleseren er det
+  motsatte tilfellet: der måles den ekte DOM-en, og derfor venter `ThemeModal` på
+  `ensureWebFonts` før den commit-er. At agentens inndata er begrenset til
+  katalog-id-er er det som holder de to like; en ukjent stack ville falt tilbake
+  på `DEFAULT_ADVANCE_RATIO`, som beskriver ingen bestemt font.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.

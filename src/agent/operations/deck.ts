@@ -15,7 +15,7 @@
  */
 
 import { z } from 'zod'
-import { createDeck, fitContextFor } from '../../domain/commands'
+import { createDeck, fitContextFor, setPresentationTitle } from '../../domain/commands'
 import { bodyOf, contentAssetIds, contentCitationIds } from '../../domain/content'
 import { estimateFit } from '../../domain/fit'
 import { computeSlideGeometry } from '../../domain/geometry'
@@ -33,8 +33,19 @@ import type {
   VerticalAlign,
   ZoneContentKind,
 } from '../../domain/types'
-import { defineOperation, presentationIdSchema, slideIdSchema } from '../operation'
-import { loadPresentation, savePresentation, structuralOptions } from '../presentation'
+import { ok } from '../../domain/result'
+import {
+  defineOperation,
+  expectedRevisionSchema,
+  presentationIdSchema,
+  slideIdSchema,
+} from '../operation'
+import {
+  loadPresentation,
+  mutatePresentation,
+  savePresentation,
+  structuralOptions,
+} from '../presentation'
 import {
   docToBlocks,
   docToTitleAlign,
@@ -44,6 +55,7 @@ import {
   type TextSpan,
 } from '../text'
 import { agentErr, agentOk, type AgentContext, type AgentResult } from '../types'
+import { themeView, type ThemeView } from './theme'
 
 /* ------------------------------------------------------------------ *
  * list_presentations
@@ -81,6 +93,15 @@ export interface PresentationView {
   revision: string
   /** The mandatory first page. Not a slide, and not counted as one. */
   cover: { title: string; subtitle: string; pillColor: string }
+  /**
+   * What the whole deck is drawn in, and what `set_theme` takes back.
+   *
+   * Here rather than in an operation of its own: the theme is global and small,
+   * every plan for a slide depends on it, and an agent that has read the
+   * presentation should not need a second call to know how much room its
+   * typography leaves. See `operations/theme.ts`.
+   */
+  theme: ThemeView
   slideCount: number
   assetCount: number
   referenceCount: number
@@ -108,6 +129,7 @@ export function presentationView(presentation: Presentation): PresentationView {
       subtitle: docToPlainText(presentation.cover.subtitle).trim(),
       pillColor: presentation.cover.pillColor,
     },
+    theme: themeView(presentation.theme),
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
     referenceCount: presentation.references.length,
@@ -118,7 +140,7 @@ export function presentationView(presentation: Presentation): PresentationView {
 export const getPresentation = defineOperation({
   name: 'get_presentation',
   summary:
-    'En presentasjon i agenttermer: tittel, revisjon, slides og hvor mange filer og referanser den har.',
+    'En presentasjon i agenttermer: tittel, revisjon, tema, slides og hvor mange filer og referanser den har.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
@@ -177,6 +199,36 @@ export const createPresentationOperation = defineOperation({
     const saved = await savePresentation(context, created.value)
     if (!saved.ok) return saved
     return agentOk(presentationView(saved.value))
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * set_presentation_title
+ * ------------------------------------------------------------------ */
+
+export const setPresentationTitleOperation = defineOperation({
+  name: 'set_presentation_title',
+  summary:
+    'Endre navnet presentasjonen har i biblioteket. Dette er ikke forsidens tittel – den settes med set_cover.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    title: z.string().trim().min(1).max(200).describe('Det nye navnet.'),
+  }),
+  run(context, input): Promise<AgentResult<{ presentationId: string; title: string }>> {
+    return mutatePresentation(context, input, (presentation) => {
+      // Deliberately not the cover: the two started out the same when the deck
+      // was created and are two decisions from then on, so renaming a deck in
+      // the library must not silently rewrite the page an audience reads.
+      const renamed = setPresentationTitle(presentation, input.title)
+      if (!renamed.ok) return renamed
+      return ok({
+        presentation: renamed.value,
+        value: { presentationId: presentation.id, title: renamed.value.title },
+      })
+    })
   },
 })
 
@@ -340,5 +392,6 @@ export const deckOperations = [
   listPresentations,
   getPresentation,
   createPresentationOperation,
+  setPresentationTitleOperation,
   inspectSlide,
 ]

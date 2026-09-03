@@ -25,7 +25,16 @@ export interface FontOption {
 /** Fallback advance for a stack that is not one of ours (e.g. an old document). */
 export const DEFAULT_ADVANCE_RATIO = 0.5
 
-export const FONT_OPTIONS: FontOption[] = [
+/**
+ * The catalogue, and the only place a font is named.
+ *
+ * `as const` is load-bearing rather than decorative: it is what turns the ids
+ * into a union type, so an agent operation can publish them as an enum and a
+ * caller that names a font is checked against the same list the editor's
+ * chooser is built from. One catalogue, three consumers — the chooser, the
+ * agent contract and the headless estimator.
+ */
+const CATALOGUE = [
   {
     id: 'quicksand',
     label: 'Quicksand',
@@ -90,19 +99,42 @@ export const FONT_OPTIONS: FontOption[] = [
     webFont: 'Space Grotesk',
     advance: 0.53,
   },
-]
+] as const satisfies readonly FontOption[]
 
-function stackFor(id: string): string {
-  const font = FONT_OPTIONS.find((option) => option.id === id)
+/** A font, named the short way: what a chooser stores and an agent sends. */
+export type FontId = (typeof CATALOGUE)[number]['id']
+
+/** A catalogue entry: an option whose id is known to be one of ours. */
+export type CatalogueFont = FontOption & { id: FontId }
+
+export const FONT_OPTIONS: readonly CatalogueFont[] = CATALOGUE
+
+/** Every id, in catalogue order. Published as the agent contract's font enum. */
+export const FONT_IDS: FontId[] = FONT_OPTIONS.map((font) => font.id)
+
+export function findFontById(id: string): CatalogueFont | undefined {
+  return FONT_OPTIONS.find((font) => font.id === id)
+}
+
+/**
+ * The CSS stack a font id names.
+ *
+ * Throws rather than falling back, and the throw is unreachable by design: the
+ * argument is a `FontId`, so a caller either passed one of ours or went through
+ * a schema that only accepts one. A silent fallback here would be a deck set in
+ * a font nobody chose.
+ */
+export function fontStackFor(id: FontId): string {
+  const font = findFontById(id)
   if (!font) throw new Error(`unknown font: ${id}`)
   return font.stack
 }
 
 /** Titles and headings default to Quicksand, body text to Atkinson Hyperlegible Next. */
-export const DEFAULT_HEADING_FONT = stackFor('quicksand')
-export const DEFAULT_BODY_FONT = stackFor('atkinson')
+export const DEFAULT_HEADING_FONT = fontStackFor('quicksand')
+export const DEFAULT_BODY_FONT = fontStackFor('atkinson')
 
-export function findFontByStack(stack: string): FontOption | undefined {
+export function findFontByStack(stack: string): CatalogueFont | undefined {
   return FONT_OPTIONS.find((font) => font.stack === stack)
 }
 

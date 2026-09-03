@@ -611,6 +611,19 @@ utledningen – ellers glir de fra hverandre. Begge skalaene er derfor
 fit-relevante: en temaendring som ikke er en font må måle decket på nytt på
 samme måte som en font gjør.
 
+Begge skalaene er kontinuerlige i domenet. `SPACING_RANGE` og
+`FONT_SCALE_RANGE` er de virkelige grensene, og fit-guarden avgjør hva som er
+brukbart innenfor dem. Editoren tilbyr fire navngitte trinn på hver, fordi et
+menneske vil ha knapper og ikke en glidebryter – men trinnene er et utvalg, ikke
+en regel. De er derfor deklarert i `src/domain/metrics.ts` sammen med
+intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
+API-et siterer den samme listen når det forteller en agent hva «normal» er, og
+én liste er det som holder de to fra å si forskjellige ting.
+
+Fontkatalogen (`src/domain/fonts.ts`) er på samme måte det ene stedet en font
+er navngitt. Både editorens velger, den hodeløse estimatorens glyffbredder og
+agentkontraktens publiserte fontenum leses ut av den.
+
 Temaet kan lagres som standard for nye presentasjoner. Det er en lokal
 preferanse (localStorage, som vindusgeometri), ikke presentasjonsdata, og
 valideres på vei ut igjen.
@@ -1898,6 +1911,9 @@ Eksempler:
 list_presentations
 get_presentation
 create_presentation
+set_presentation_title
+
+set_theme
 
 set_cover
 set_cover_color
@@ -1908,6 +1924,7 @@ move_slide
 duplicate_slide
 delete_slide
 set_slide_title
+set_slide_has_title
 
 split_zone
 adjust_split
@@ -2006,6 +2023,60 @@ set_zone_text
 → set_zone_text
 → OK
 ```
+
+### Tema
+
+Temaet er globalt: bakgrunnsfarge, font for titler, font for brødtekst, luft og
+skriftstørrelse gjelder hele presentasjonen, og en enkelt slide kan ikke avvike.
+En agent som ikke kan styre det, kan bare lage innhold i standardtemaet – og da
+er «lag en gjennomført presentasjon» ikke en oppgave den kan gjøre ferdig.
+
+Kontrakten er derfor:
+
+- **Lesing hører hjemme i `get_presentation`.** Temaet er lite, globalt og noe
+  enhver plan for en slide avhenger av, så en agent som har lest presentasjonen
+  har lest temaet. Ingen egen `get_theme`; API-flaten skal være liten og
+  ortogonal.
+- **Skriving er én operasjon**, `set_theme`, over den eksisterende
+  `setTheme`-kommandoen. Ingen validering, ingen klamping og ingen temalogikk i
+  agentlaget – det som avgjør er kommandoen editoren også bruker.
+- **Fonter navngis med id fra fontkatalogen**, og det publiserte JSON
+  Schema-et er et enum generert fra `src/domain/fonts.ts`. Det gjør de gyldige
+  valgene oppdagbare i `tools/list`, og det finnes ingen andre liste som kan
+  havne bak editorens.
+- **Skalaene publiseres med domenets eget intervall.** Editorens fire trinn er
+  navn en agent kan bruke for å si «normal», ikke grensene den må holde seg til;
+  de siteres i beskrivelsen fra `SPACING_PRESETS` og `FONT_SCALE_PRESETS`. En
+  agent som ber om 1.12 har bedt om noe lovlig, og fit-guarden avgjør resten.
+- **Bakgrunnsfargen er en vanlig hex-farge**, som `set_cover_color`. Editorens
+  palett er en måte å klikke en farge på, ikke en begrensning domenet har.
+- **Endringen er atomisk.** En temaendring måler hele dekket på nytt mot det
+  prospektive temaet, og en endring som ville skjult innhold avvises med
+  `CONTENT_DOES_NOT_FIT` – hele endringen, også feltene som i seg selv var
+  harmløse. Ingenting lagres. `expectedRevision` virker som ved enhver annen
+  mutasjon.
+
+#### Webfonter og hodeløs fit-måling
+
+En font avgjør hvor mye tekst som får plass, så «hvilken font ble dette godkjent
+mot?» må ha ett svar. Det har det, og mekanismen er ikke den samme to steder:
+
+- **I nettleseren** måler fit-gaten den ekte DOM-en, altså den fonten som er
+  lastet i det øyeblikket. Derfor venter `ThemeModal` på `ensureWebFonts` før
+  den kaller `setTheme`: måles endringen midt i nedlastingen, godkjennes den mot
+  reservefonten og tegnes i noe annet et øyeblikk senere.
+- **Hodeløst – som er hvert eneste agentkall** – måles ingenting. Estimatoren
+  leser `advanceRatioFor(stack)`, et tall katalogen oppgir for *den* fonten, og
+  det er det samme tallet enten fontens bytes noen gang kommer eller ikke. Det
+  finnes derfor ingen reservefont å bli godkjent mot og ingenting å vente på:
+  `set_theme` og et senere `render_slide_preview` dømmer den samme navngitte
+  fonten. At inndataene er begrenset til katalog-id-er er det som garanterer
+  det – en stack utenfra ville falt tilbake på `DEFAULT_ADVANCE_RATIO`, som
+  beskriver ingen bestemt font.
+
+Rendreren sier den andre halvdelen høyt: et preview rapporterer `fontsReady`, så
+en agent som ser på bildet vet om glyffene er dekkets egne eller en stand-in
+nettverket kostet den.
 
 ### Validering
 
@@ -2486,12 +2557,14 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   save, med fit-sjekkerne som aldri utelates; `text.ts` er det agentvennlige
   tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
   `operations/` er selve operasjonene.
-- Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
-  `list_assets`, `validate_slide`, `validate_presentation`.
+- Lesing: `list_presentations`, `get_presentation` (som også bærer temaet),
+  `inspect_slide`, `list_assets`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
-- Skriving: `create_presentation`, `set_cover`, `set_cover_color`, `add_slide`,
+- Skriving: `create_presentation`, `set_presentation_title`, `set_theme`,
+  `set_cover`, `set_cover_color`, `add_slide`,
   `duplicate_slide`, `move_slide`,
-  `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
+  `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
+  `adjust_split`, `delete_zone`,
   `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
   `create_svg_asset`, `set_zone_asset`.
@@ -3102,6 +3175,42 @@ som ikke er det noen ser.
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
 på sikt være én dør.
+
+#### Fase 6: temaet, og hva som fortsatt mangler mot editoren
+
+Temaet er nå agentstyrt: `get_presentation` bærer det, `set_theme` setter det, og
+begge går gjennom de samme kommandoene og den samme fit-guarden som modalen. Se
+«Tema» over for kontrakten. Sammen med det kom to hull som var i veien for at en
+agent kunne *vedlikeholde* et dekk den hadde laget: `set_slide_has_title` (en
+tittelsone kunne bare bestemmes idet sliden ble laget) og
+`set_presentation_title` (navnet i biblioteket kunne bare settes ved opprettelse).
+
+En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
+Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
+tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
+ikke mekanisk:
+
+- **Retning og forholdstall på subfelt.** `set_zone_card` tar `subfieldCount`,
+  men `setBodyAxis` og `setBodyWeights` har ingen operasjon: en agents subfelt
+  ligger alltid stablet nedover med like vekter. To tekstkolonner *inne i* det
+  samme kortet er derfor en komposisjon editoren tilbyr og agenten må erstatte
+  med to soner og et gap.
+- **Sandkassen.** En agent kan sende innhold dit (`disposition: 'sandbox'`, som
+  er standarden), men ikke se, hente tilbake eller slette det etterpå. Det er
+  det eneste stedet i flaten der en operasjons egen standardverdi legger noe et
+  sted API-et ikke når.
+- **Livsløp utover navnet.** Slette, duplisere og flytte en presentasjon mellom
+  mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
+  Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
+  uten at scope-spørsmålet er tenkt igjennom.
+- **Flytting av innhold mellom soner.** `moveZoneContent` finnes i domenet;
+  agenten må i dag tømme og bygge opp igjen, som mister id-er.
+- **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
+  opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
+  fjerne.
+- **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
+  menneske som bygger med musen, den andre en notatflate som aldri forlater
+  arbeidskopien.
 
 ---
 

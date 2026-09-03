@@ -428,15 +428,17 @@ aldri rå JSON – og med nøyaktig de samme reglene: minstemål på soner, ett 
 innhold og overskrifter som må få plass, referanseintegritet.
 
 En agent kan opprette en presentasjon, legge til og flytte slides, dele soner,
-fylle dem med tekst, legge inn referanser og sitere dem, plassere bilder, og be
-om en eksplisitt sluttkontroll – uten React, museklikk eller databasetilgang:
+fylle dem med tekst, sette temaet hele dekket tegnes i, legge inn referanser og
+sitere dem, plassere bilder, og be om en eksplisitt sluttkontroll – uten React,
+museklikk eller databasetilgang:
 
 | Operasjon                                                              | Hva den gjør                                  |
 | ---------------------------------------------------------------------- | --------------------------------------------- |
 | `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`, `delete_slide` | bygger dekket                     |
-| `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst og revisjon     |
+| `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
-| `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title` | innholdet                              |
+| `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
+| `set_theme`, `set_cover`, `set_cover_color`, `set_presentation_title`  | utseendet og navnet på hele dekket            |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
 | `render_slide_preview`                                                 | tegner én side som PNG, slik publikum ser den |
@@ -476,8 +478,20 @@ For bilder finnes det nøyaktig to dører inn:
 - Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
   sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
-Tre ting til er verdt å vite om hvordan laget oppfører seg:
+Fire ting til er verdt å vite om hvordan laget oppfører seg:
 
+- **Agenten styrer temaet, ikke bare innholdet.** `get_presentation` bærer
+  bakgrunnsfargen, de to fontene, luften og skriftstørrelsen, og `set_theme`
+  setter dem – gjennom den samme kommandoen som temamodalen, så en temaendring
+  som ville skjult innhold blir avvist på samme måte, i sin helhet, uten at noe
+  lagres. Fonter velges med id fra Slaids' egen fontkatalog, og de gyldige
+  valgene er publisert som et enum i operasjonens JSON Schema, generert fra
+  katalogen selv. Luft og skriftstørrelse publiseres med domenets eget intervall;
+  editorens fire trinn («tett», «normal», «luftig», «ekstra luftig») siteres som
+  navn en agent kan bruke, ikke som grensene den må holde seg til. En hodeløs
+  fit-måling dømmer alltid den fonten som ble navngitt – aldri en reservefont
+  som tilfeldigvis er lastet – så et tema som ble godkjent er det samme temaet
+  et senere preview tegner.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
   avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
   citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`

@@ -19,6 +19,7 @@ import { previewOperations } from './operations/preview'
 import { referenceOperations } from './operations/references'
 import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
+import { themeOperations } from './operations/theme'
 import { validationOperations } from './operations/validation'
 import {
   agentErr,
@@ -40,6 +41,7 @@ export const AGENT_TOOL_PREFIX = 'slaids_'
 
 export const operations: readonly AnyAgentOperation[] = [
   ...deckOperations,
+  ...themeOperations,
   ...coverOperations,
   ...slideOperations,
   ...layoutOperations,

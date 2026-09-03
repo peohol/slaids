@@ -1351,3 +1351,140 @@ describe('forsiden', () => {
     })).code).toBe('INVALID_ARGUMENT')
   })
 })
+
+
+/* ------------------------------------------------------------------ *
+ * Editor actions an agent used to be unable to reach
+ * ------------------------------------------------------------------ */
+
+describe('tittelsonen på en slide', () => {
+  it('kan slås av og på etter at sliden er laget', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+
+    const removed = await ok<{ hasTitle: boolean }>(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    expect(removed.hasTitle).toBe(false)
+    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+
+    // And back: the zone returns empty, which is what `set_slide_title` writes into.
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: true,
+    })
+    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(inspected.hasTitle).toBe(true)
+  })
+
+  it('gir sonen dens høyde tilbake til innholdet', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const withTitle = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    const without = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    // The geometry an agent plans against moves with it, so this is a
+    // composition choice and not a cosmetic one.
+    expect(without.zones[0].rect.height).toBeGreaterThan(withTitle.zones[0].rect.height)
+  })
+
+  it('kaster ikke en overskrift med tekst uten at det er bedt om', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Noe som står der' }],
+    })
+
+    const refused = await fails(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    expect(refused.code).toBe('INVALID_ARGUMENT')
+    expect((await stored(context, deck.presentationId)).slides[0].title).not.toBeNull()
+
+    // `force` is the confirmation the editor asks a person for.
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+      force: true,
+    })
+    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+  })
+
+  it('sier fra når sonen allerede er slik den bes om å bli', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const refused = await fails(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
+      hasTitle: true,
+    })
+    expect(refused.code).toBe('TITLE_ALREADY_PRESENT')
+  })
+})
+
+describe('navnet presentasjonen har i biblioteket', () => {
+  it('kan endres uten at forsiden endres', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    await ok(context, 'set_presentation_title', {
+      presentationId: deck.presentationId,
+      title: 'Nytt navn',
+    })
+
+    const after = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(after.title).toBe('Nytt navn')
+    // The two started out the same and are two decisions from then on.
+    expect(after.cover.title).toBe('Agentdekk')
+    expect((await context.repository.listPresentations())[0].title).toBe('Nytt navn')
+  })
+
+  it('avviser et tomt navn, og en utdatert revisjon', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    expect(
+      (await fails(context, 'set_presentation_title', {
+        presentationId: deck.presentationId,
+        title: '   ',
+      })).code,
+    ).toBe('INVALID_INPUT')
+
+    await ok(context, 'set_presentation_title', {
+      presentationId: deck.presentationId,
+      title: 'Først',
+    })
+    expect(
+      (await fails(context, 'set_presentation_title', {
+        presentationId: deck.presentationId,
+        expectedRevision: deck.revision,
+        title: 'Etterpå',
+      })).code,
+    ).toBe('CONFLICT')
+  })
+})

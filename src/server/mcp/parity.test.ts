@@ -133,6 +133,38 @@ describe('lesing gir det samme over begge transportene', () => {
     expect((both.mcpData as { valid: boolean }).valid).toBe(true)
   })
 
+  it('set_theme svarer med det samme temaet begge veier, og skriver bare én gang', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Tema begge veier')
+
+    // A theme is global, so the two transports are asked for the same change one
+    // after the other and must describe the result identically. Everything but
+    // the revision: these are two writes to one document, and a write that
+    // lands is a new reading by definition — that is the concurrency contract,
+    // not a difference between the transports.
+    const both = await bothWays(harnessed, 'set_theme', {
+      presentationId: deck.presentationId,
+      backgroundColor: '#101828',
+      headingFont: 'space-grotesk',
+      spacing: 1.3,
+    })
+    const theme = (data: unknown): unknown => (data as { theme: unknown }).theme
+    expect(theme(both.restData)).toEqual(theme(both.mcpData))
+    expect(theme(both.restData)).toMatchObject({
+      backgroundColor: '#101828',
+      headingFont: { fontId: 'space-grotesk' },
+      spacing: 1.3,
+    })
+
+    // And it is the same document underneath, not two answers that happen to
+    // agree: the theme reads back on both sides of `get_presentation`.
+    const read = await bothWays(harnessed, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    expect((read.restData as { theme: { spacing: number } }).theme.spacing).toBe(1.3)
+  })
+
   it('lar en revisjon lest over den ene transporten skrive over den andre', async () => {
     const harnessed = harness()
     const deck = await newPresentation(harnessed)
@@ -312,6 +344,43 @@ describe('feilene er de samme feilene', () => {
     expect(both.restError).toEqual(both.mcpError)
     expect(both.restError?.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(both.status).toBe(422)
+  })
+
+  it('en temaendring som skjuler innhold gir samme kode og de samme tallene', async () => {
+    // The global counterpart of the case above: a fit refusal that no zone was
+    // addressed in, so the details come entirely from the guard.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+    await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(90) }] }],
+    })
+
+    const both = await refusedBothWays(harnessed, 'set_theme', {
+      presentationId: deck.presentationId,
+      fontScale: 1.6,
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(422)
+  })
+
+  it('en ukjent font gir samme INVALID_INPUT, som protokollfeil i MCP', async () => {
+    // The font enum is published in both catalogues from the same operation, so
+    // a name outside it was never a valid call over either transport.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+    const both = await refusedBothWays(harnessed, 'set_theme', {
+      presentationId: deck.presentationId,
+      bodyFont: 'papyrus',
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('INVALID_INPUT')
+    expect(both.envelope).toBe('protocol')
+    expect(both.status).toBe(400)
   })
 
   it('et manglende scope gir samme kode og de samme manglene, som verktøyresultat', async () => {
