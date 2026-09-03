@@ -55,6 +55,15 @@ export const DEFAULT_IMAGE_WIDTH_PERCENT = 50
  * answer, and `offsetTop`/`offsetHeight` are logical pixels, so the stage's CSS
  * scale does not enter into it.
  *
+ * Margin boxes, not border boxes: the outermost margins take up room in the
+ * field like anything else, and the block rules that zero them out for a first
+ * or last child are overridden by the ones a blockquote and a heading carry.
+ * A flow that opens with a quote and closes with a heading would otherwise
+ * measure a whole two margins short — far more than `INSERT_SAFETY` covers,
+ * and enough to let a picture be sized past the field and then rolled back by
+ * the fit guard. Margins between siblings collapse into the span already, so
+ * the outermost margin box in each direction is the whole answer.
+ *
  * Out-of-flow chrome (ProseMirror's gap cursor) is not content and is skipped.
  * With no blocks at all there is nothing to measure, and the box's own scroll
  * height is as good an answer as there is.
@@ -64,10 +73,12 @@ export function flowHeight(dom: HTMLElement): number {
   let bottom = Number.NEGATIVE_INFINITY
   for (const child of Array.from(dom.children)) {
     const block = child as HTMLElement
-    const position = getComputedStyle(block).position
-    if (position === 'absolute' || position === 'fixed') continue
-    top = Math.min(top, block.offsetTop)
-    bottom = Math.max(bottom, block.offsetTop + block.offsetHeight)
+    const style = getComputedStyle(block)
+    if (style.position === 'absolute' || style.position === 'fixed') continue
+    const marginTop = Number.parseFloat(style.marginTop) || 0
+    const marginBottom = Number.parseFloat(style.marginBottom) || 0
+    top = Math.min(top, block.offsetTop - marginTop)
+    bottom = Math.max(bottom, block.offsetTop + block.offsetHeight + marginBottom)
   }
   if (!Number.isFinite(top) || !Number.isFinite(bottom)) return dom.scrollHeight
   return Math.max(0, bottom - top)
