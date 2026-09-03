@@ -64,13 +64,13 @@
 }
 
 /*
- * The header is a flex row, and the editor wraps its content in a div of its
- * own. Left to itself that wrapper shrinks to the width of the text, and a
- * centred title then centres inside its own width — which is no centring at
- * all, and made the editor disagree with the static renderer about where a card
- * title sits.
+ * The header and the title zone are flex rows, and the editor wraps its content
+ * in a div of its own. Left to itself that wrapper shrinks to the width of the
+ * text, and a title aligned inside its own width is not aligned at all — which
+ * made the editor disagree with the static renderer about where a title sits.
  */
-.card-header > * {
+.card-header > *,
+.slide-title > * {
   flex: 1 1 auto;
   min-width: 0;
 }

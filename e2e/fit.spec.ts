@@ -7,6 +7,7 @@ import {
   renderedBodyFont,
   splitSelected,
   stage,
+  titleTextOverflow,
   toast,
   watchForErrors,
   worstOverflow,
@@ -22,11 +23,7 @@ test.describe('content fit', () => {
     await page.keyboard.insertText('Dette er en overskrift som helt sikkert er altfor lang '.repeat(3))
 
     await expect(page.getByTestId('toast')).toBeVisible()
-    const overflow = await page.evaluate(() => {
-      const element = document.querySelector('[data-testid="slide-title"]') as HTMLElement
-      return element.scrollWidth - element.clientWidth
-    })
-    expect(overflow).toBeLessThanOrEqual(1)
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
     expect(guard.errors).toEqual([])
   })
 

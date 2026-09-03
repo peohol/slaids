@@ -235,6 +235,31 @@ export function toast(page: Page, text: string) {
   return page.getByTestId('toast').filter({ hasText: text })
 }
 
+/**
+ * How far the slide title's text reaches past the zone it was given, in logical
+ * pixels.
+ *
+ * The glyphs, not a box: the title zone clips its content and so does the
+ * title's own box, so a scroll measurement only ever reports the overflow of
+ * whichever of them happens to be sized to the text. A range around the text is
+ * neither, and the stage's CSS scale is divided back out so the number means
+ * the same thing at any zoom.
+ */
+export async function titleTextOverflow(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const host = document.querySelector(
+      '[data-testid="stage-slide"] .slide-title',
+    ) as HTMLElement | null
+    if (!host) return 0
+    const block = host.querySelector('p, .rd-p')
+    if (!block) return 0
+    const range = document.createRange()
+    range.selectNodeContents(block)
+    const scale = host.getBoundingClientRect().width / host.clientWidth
+    return range.getBoundingClientRect().width / scale - host.clientWidth
+  })
+}
+
 /** The worst clipped overflow anywhere on the stage, in logical pixels. */
 export async function worstOverflow(page: Page): Promise<number> {
   return page.evaluate(() => {
