@@ -45,6 +45,25 @@ describe('readJsonRpcMessage', () => {
     )
   })
 
+  it('godtar den tomme strengen som id, som JSON-RPC gjør', () => {
+    // A client that numbers its requests from `''` is conforming. Folding that
+    // into "ingen id" would gjøre kallene dens til notifikasjoner: kvittert med
+    // 202, aldri kjørt.
+    expect(readJsonRpcMessage({ jsonrpc: '2.0', id: '', method: 'ping' })).toEqual({
+      kind: 'request',
+      id: '',
+      method: 'ping',
+      params: {},
+    })
+  })
+
+  it('godtar id 0, som er like mye en id som 1', () => {
+    expect(readJsonRpcMessage({ jsonrpc: '2.0', id: 0, method: 'ping' })).toMatchObject({
+      kind: 'request',
+      id: 0,
+    })
+  })
+
   it('kjenner igjen et svar på noe serveren aldri spurte om', () => {
     expect(readJsonRpcMessage({ jsonrpc: '2.0', id: 1, result: {} })).toEqual({
       kind: 'response',

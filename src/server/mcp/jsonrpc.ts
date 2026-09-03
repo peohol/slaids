@@ -14,6 +14,9 @@
  *  - **no `null` id.** JSON-RPC allows a request to carry one; MCP forbids it,
  *    because `null` is what a response to an unparseable request uses and the
  *    two would be indistinguishable.
+ *
+ * What it does *not* narrow is which strings may be an id. The empty string is
+ * one, and `readId` says so — see the note there for why that matters.
  */
 
 export const JSONRPC_VERSION = '2.0'
@@ -79,12 +82,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readId(value: unknown): JsonRpcId | null {
-  if (typeof value === 'string' && value.length > 0) return value
-  // A non-integer or non-finite number is not an id anything could be matched
-  // on, so it is treated as absent rather than echoed back.
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  return null
+/**
+ * The id a message carries, if it carries one.
+ *
+ * `undefined` means there is none, and that is what makes a message a
+ * notification. It is deliberately *not* `null`, because `''` is a perfectly
+ * valid id: JSON-RPC requires only that one be a string or a number, so a client
+ * that numbers its requests from the empty string is conforming — and folding
+ * that into "absent" would quietly turn its calls into notifications, answered
+ * `202` and never run.
+ *
+ * An explicit `null` is treated as absent. JSON-RPC allows it on a request, MCP
+ * forbids it, and it is what a response to an unreadable message carries, so
+ * there is nothing to answer under it either way.
+ */
+function readId(message: Record<string, unknown>): JsonRpcId | undefined {
+  const id = message.id
+  if (typeof id === 'string') return id
+  // JSON cannot express a non-finite number, so this only rules out an id no
+  // answer could ever be matched against.
+  if (typeof id === 'number' && Number.isFinite(id)) return id
+  return undefined
 }
 
 export function readJsonRpcMessage(value: unknown): IncomingMessage {
@@ -106,25 +124,28 @@ export function readJsonRpcMessage(value: unknown): IncomingMessage {
     }
   }
 
-  const id = readId(value.id)
+  const id = readId(value)
+  // What a refusal is addressed to. `null` is JSON-RPC's own "we could not tell
+  // which call this was", which is exactly the case when there is no id.
+  const answerTo = id ?? null
 
   if (value.jsonrpc !== JSONRPC_VERSION) {
     return {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_REQUEST,
       message: `Feltet «jsonrpc» må være «${JSONRPC_VERSION}».`,
-      id,
+      id: answerTo,
     }
   }
 
   if (typeof value.method !== 'string' || value.method.length === 0) {
     // No method and a result or an error means this is an answer, not a call.
-    if ('result' in value || 'error' in value) return { kind: 'response', id }
+    if ('result' in value || 'error' in value) return { kind: 'response', id: answerTo }
     return {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_REQUEST,
       message: 'Meldingen mangler et «method»-felt.',
-      id,
+      id: answerTo,
     }
   }
 
@@ -135,12 +156,12 @@ export function readJsonRpcMessage(value: unknown): IncomingMessage {
       kind: 'invalid',
       code: JSON_RPC_ERROR.INVALID_PARAMS,
       message: 'Feltet «params» må være et objekt.',
-      id,
+      id: answerTo,
     }
   }
 
   const params = isPlainObject(value.params) ? value.params : {}
-  if (id === null) return { kind: 'notification', method: value.method, params }
+  if (id === undefined) return { kind: 'notification', method: value.method, params }
   return { kind: 'request', id, method: value.method, params }
 }
 

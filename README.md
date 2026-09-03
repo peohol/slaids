@@ -795,6 +795,12 @@ JSON-RPC-feil.
 - **Ingen bildegenerering.** Som ellers i Slaids: et rasterbilde lastes opp ferdig,
   en figur skrives som SVG-markup.
 
+`MCP-Protocol-Version`-headeren valideres i stedet for å ignoreres. At den mangler
+er greit – spesifikasjonen sier at man da skal anta standardversjonen, og den
+snakker serveren – men en versjon den ikke snakker gir `400` i stedet for et svar
+med disse semantikkene under et navn ingen ble enige om. Klienten fikk vite
+hvilken versjon som gjelder i `initialize`.
+
 ### Protokollen er skrevet for hånd
 
 `@modelcontextprotocol/sdk` er en **devDependency, aldri en runtime-avhengighet**.

@@ -20,6 +20,12 @@
  *  - **no batching.** Removed from the protocol in this revision; see
  *    `jsonrpc.ts`.
  *
+ * The `MCP-Protocol-Version` header is validated rather than ignored. Absent is
+ * fine — the specification says to assume the pre-negotiation default, which is
+ * a revision this server speaks — but a revision it does not speak is a `400`
+ * instead of a request served with different semantics under a name nobody
+ * agreed to. The client learned which revision applies from `initialize`.
+ *
  * Everything before the message is read is the REST layer's, unchanged: the
  * same bearer token, checked by the same `authenticate`; the same body limit;
  * the same headers; the same audit sink, one row per message. Transport-level
@@ -48,6 +54,7 @@ import {
   type JsonRpcResponse,
 } from './jsonrpc'
 import { dispatchMcpMessage, type McpAudited } from './server'
+import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from './tools'
 
 /**
  * What the endpoint needs, described structurally rather than imported.
@@ -64,6 +71,9 @@ export interface McpEndpointDeps {
 }
 
 const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json$/i
+
+/** The header a client states its negotiated protocol revision in. */
+const PROTOCOL_VERSION_HEADER = 'mcp-protocol-version'
 
 function mediaType(header: string | null): string {
   return (header ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
@@ -121,6 +131,22 @@ export async function handleMcpRequest(
       },
       { Allow: 'POST, OPTIONS' },
     )
+  }
+
+  // The revision the client says it agreed to. Absent is fine: the
+  // specification says to assume the pre-negotiation default, and that is one
+  // this server speaks. A revision it does *not* speak has to be refused rather
+  // than served with these semantics under a name nobody agreed to — the client
+  // was told at `initialize` which one applies, so a header saying otherwise
+  // means it either ignored the answer or never asked. The reference
+  // implementation refuses it the same way, and for the same reason.
+  const declaredVersion = request.headers.get(PROTOCOL_VERSION_HEADER)
+  if (declaredVersion !== null && !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(declaredVersion)) {
+    return refuse({
+      code: 'UNSUPPORTED_PROTOCOL_VERSION',
+      message: `Slaids snakker ikke MCP-versjonen «${declaredVersion}». Versjonen avtales i initialize; denne serveren svarer på ${SUPPORTED_MCP_PROTOCOL_VERSIONS.join(', ')}.`,
+      details: { requested: declaredVersion, supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS] },
+    })
   }
 
   const type = mediaType(request.headers.get('content-type'))

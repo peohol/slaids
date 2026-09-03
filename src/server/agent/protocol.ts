@@ -25,6 +25,8 @@ export type TransportErrorCode =
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
   | 'UNSUPPORTED_CONTENT_TYPE'
+  /** A protocol revision this deployment does not speak. MCP only; see `mcp/endpoint.ts`. */
+  | 'UNSUPPORTED_PROTOCOL_VERSION'
   | 'REQUEST_TOO_LARGE'
   | 'MALFORMED_BODY'
   /** The deployment has no Supabase to act on; see `config.ts`. */
@@ -73,6 +75,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
   UNSUPPORTED_CONTENT_TYPE: 415,
+  UNSUPPORTED_PROTOCOL_VERSION: 400,
   REQUEST_TOO_LARGE: 413,
   MALFORMED_BODY: 400,
   SERVER_NOT_CONFIGURED: 503,

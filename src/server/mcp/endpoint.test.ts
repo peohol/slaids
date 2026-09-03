@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AGENT_TOOL_PREFIX } from '../../agent/registry'
 import { AGENT_MCP_PATH } from '../../routing'
 import { handleAgentRequest } from '../agent/handler'
-import { MCP_PROTOCOL_VERSION } from './tools'
+import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from './tools'
 import {
   ORIGIN,
   TOKEN,
@@ -332,7 +332,7 @@ describe('transporten', () => {
     expect(response.headers.get('Mcp-Session-Id')).toBeNull()
   })
 
-  it('bryr seg ikke om hvilken MCP-Protocol-Version-header klienten sender', async () => {
+  it('avviser en MCP-versjon den ikke snakker, i stedet for å svare som om den gjorde det', async () => {
     const harnessed = harness()
     const response = await handleAgentRequest(harnessed.deps, new Request(address, {
       method: 'POST',
@@ -341,9 +341,68 @@ describe('transporten', () => {
         'Content-Type': 'application/json',
         'MCP-Protocol-Version': '2099-01-01',
       },
+      // A mutation, deliberately: an unnegotiated protocol version must not be
+      // able to write anything.
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: tool('create_presentation'), arguments: { title: 'Skal ikke lagres' } },
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { code: string; details?: unknown } }
+    expect(body.error.code).toBe('UNSUPPORTED_PROTOCOL_VERSION')
+    expect(body.error.details).toMatchObject({ supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS] })
+
+    // And nothing was written on the way to being refused.
+    const listed = await callOk(harnessed, tool('list_presentations'))
+    expect(listed.presentations).toEqual([])
+  })
+
+  it.each([...SUPPORTED_MCP_PROTOCOL_VERSIONS])('godtar headeren når den er %s', async (version) => {
+    const harnessed = harness()
+    const response = await handleAgentRequest(harnessed.deps, new Request(address, {
+      method: 'POST',
+      headers: { ...authorized, 'Content-Type': 'application/json', 'MCP-Protocol-Version': version },
       body: '{"jsonrpc":"2.0","id":1,"method":"ping"}',
     }))
     expect(response.status).toBe(200)
+  })
+
+  it('godtar at headeren mangler, som spesifikasjonen ber om', async () => {
+    const harnessed = harness()
+    expect((await mcp(harnessed, 'ping')).status).toBe(200)
+  })
+
+  it('kjører et kall med den tomme strengen som id, i stedet for å kvittere for det', async () => {
+    // `''` is a valid JSON-RPC id. Reading it as "ingen id" ville gjort kallet
+    // til en notifikasjon: 202, og operasjonen aldri kjørt.
+    const harnessed = harness()
+    const response = await mcpRaw(
+      harnessed,
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: '',
+        method: 'tools/call',
+        params: { name: tool('create_presentation'), arguments: { title: 'Tom id' } },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      id: string
+      result: { structuredContent: { title: string } }
+    }
+    expect(body.id).toBe('')
+    expect(body.result.structuredContent.title).toBe('Tom id')
+
+    // And it really was stored, not just answered.
+    const listed = await callOk(harnessed, tool('list_presentations'))
+    expect((listed.presentations as { title: string }[]).map((entry) => entry.title)).toEqual([
+      'Tom id',
+    ])
   })
 
   it('krever application/json', async () => {
