@@ -179,6 +179,20 @@ export function chromiumRasterizer(options: ChromiumRasterizerOptions = {}): Sli
  * `src/ui/fonts.ts` does in the browser, because `fonts.ready` only settles the
  * loads the page happened to trigger — a slide with no bold text never requests
  * weight 700, and a check for it would then be false forever.
+ *
+ * The readiness answer is two questions, not one, and the second is the one
+ * that is easy to miss. `document.fonts.check()` answers "is every face that
+ * *matches* this font loaded" — so a family the document never defined at all
+ * has no matching face, nothing is pending, and it answers **true**. Measured,
+ * not assumed: a page whose only mention of a family is a `font-family`
+ * declaration reports `check: true` with `document.fonts.size === 0`.
+ *
+ * That is exactly the state a failed stylesheet produces. When the process-side
+ * fetch could not inline a family, the document falls back to linking it
+ * (`fonts.ts`), and if that link fails too there are no `@font-face` rules —
+ * Chromium then draws the fallback face while `check()` cheerfully agrees. So
+ * the families are counted as well as checked, which covers every reason the
+ * faces could be missing rather than only the one this file could observe.
  */
 async function waitForFonts(page: Page, families: string[], timeoutMs: number): Promise<boolean> {
   if (families.length === 0) return true
@@ -189,7 +203,15 @@ async function waitForFonts(page: Page, families: string[], timeoutMs: number): 
         wanted.map((font) => document.fonts.load(font).catch(() => undefined)),
       ).then(() => document.fonts.ready)
       await Promise.race([loads, new Promise((resolve) => setTimeout(resolve, deadline))])
-      return wanted.every((font) => document.fonts.check(font))
+
+      // Chromium reports `FontFace.family` unquoted; the strip is for engines
+      // that serialise the authored string instead.
+      const declared = new Set(
+        [...document.fonts].map((face) => face.family.replace(/^["']|["']$/g, '')),
+      )
+      return (
+        names.every((name) => declared.has(name)) && wanted.every((font) => document.fonts.check(font))
+      )
     },
     families,
     [...FONT_WEIGHTS],
@@ -200,17 +222,21 @@ async function waitForFonts(page: Page, families: string[], timeoutMs: number): 
 /**
  * Let the pictures finish.
  *
- * The `load` event already waits for them, and a `data:` URL cannot be slow —
- * but decoding is a separate step from loading, and a screenshot taken between
- * the two catches an image that is present, sized and not yet painted.
+ * The `load` event already waits for them to *load*, and a `data:` URL cannot be
+ * slow about it — but decoding is a separate step, and a screenshot taken
+ * between the two catches an image that is present, sized and not yet painted.
+ * `decode()` is what waits for that step.
+ *
+ * It is called for every image, including the ones that already report
+ * `complete`. Skipping those was this function doing nothing at all: after
+ * `waitUntil: 'load'` every image in a preview document is complete — measured,
+ * not assumed — so the guard excluded precisely the images the call exists for.
+ * A rejection is tolerated rather than fatal: a picture that cannot be decoded
+ * is a broken slide, not a broken preview, and the picture should show it.
  */
 async function settleImages(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    await Promise.all(
-      [...document.images].map((image) =>
-        image.complete ? undefined : image.decode().catch(() => undefined),
-      ),
-    )
+    await Promise.all([...document.images].map((image) => image.decode().catch(() => undefined)))
   })
 }
 
