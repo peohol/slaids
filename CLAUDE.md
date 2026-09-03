@@ -166,6 +166,18 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   beskrivelsen – de er et utvalg, ikke grensen. En temaendring måler hele dekket
   på nytt og avvises i sin helhet: også fargen som fulgte med en skriftstørrelse
   som ikke gikk.
+- **Luft og skriftstørrelse flytter geometrien, ikke bare typografien**, og det er
+  to spørsmål. Fit-guarden måler innhold, og en tom sone har ikke noe – så et
+  større gap kan presse en sone under minstemålet uten at ett tegn blir skjult.
+  `setTheme` spør derfor `findGeometryRegression` først, med den samme
+  `validateSlideGeometry` som den skrivebeskyttede valideringen bruker: en
+  temaendring guarden slipper gjennom kan aldri være en `validate_presentation`
+  avviser. Begge guardene er regresjonssjekker, så et dekk som allerede er for
+  trangt kan fortsatt repareres.
+- Rektangelet en fit-avvisning bærer måles i dokumentet som **ble avvist**, ikke i
+  det som fortsatt står. `guardFit` legger det ved selv, fordi et tema flytter
+  gapet og tittelsonen: rommet en sone hadde før endringen er ikke rommet
+  målingen feilet mot.
 - **Hodeløs fit-måling dømmer den fonten som ble navngitt, aldri en reservefont.**
   Estimatoren leser `advanceRatioFor(stack)` – katalogens eget tall for den
   fonten – så et agentkall trenger verken nettverk eller webfont-venting, og et

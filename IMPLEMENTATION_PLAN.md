@@ -2055,6 +2055,20 @@ Kontrakten er derfor:
   `CONTENT_DOES_NOT_FIT` – hele endringen, også feltene som i seg selv var
   harmløse. Ingenting lagres. `expectedRevision` virker som ved enhver annen
   mutasjon.
+- **Luft og skriftstørrelse er to spørsmål, ikke ett.** De flytter geometrien
+  selv – gapet mellom soner og høyden på tittelsonen – og fit-guarden måler
+  innhold: en tom sone har ingenting som kan bli skjult, så et større gap kan
+  presse en sju-delt slide under minstemålet uten at ett tegn forsvinner.
+  `setTheme` spør derfor først om geometrien (`findGeometryRegression`, som
+  bruker den samme `validateSlideGeometry` som `validate_presentation`) og
+  svarer `ZONE_TOO_SMALL` med slide og sone. Et tema guarden slipper gjennom kan
+  dermed ikke være et valideringen avviser. Begge guardene er regresjonssjekker:
+  et dekk som allerede er for trangt – en import, eller et dokument fra før en
+  token endret seg – må fortsatt kunne repareres.
+- **Rektangelet en avvisning bærer er det prospektive.** `guardFit` legger ved
+  rektangelet fra dokumentet som ble avvist, ikke fra det som fortsatt står:
+  målingen feilet mot gapet og tittelhøyden det *nye* temaet gir, og rommet en
+  sone hadde før ville sendt agenten på å korte ned med feil mengde.
 
 #### Webfonter og hodeløs fit-måling
 

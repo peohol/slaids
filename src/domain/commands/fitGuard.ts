@@ -92,6 +92,7 @@ import {
   computeLayoutRects,
   computeSlideGeometry,
   TITLE_NODE_ID,
+  validateSlideGeometry,
 } from '../geometry'
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
@@ -102,6 +103,7 @@ import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } fro
 import { COVER_PAGE_ID } from '../pages'
 import { walkRichNodes } from '../richdoc'
 import { err, ok, type Result } from '../result'
+import type { GeometryOptions } from '../geometry'
 import type {
   DeckCover,
   LayoutNode,
@@ -327,6 +329,52 @@ export function findFitRegressions(
 }
 
 /**
+ * A zone that stops satisfying the minimum size because the geometry moved.
+ *
+ * `findFitRegressions` measures *content*, and an empty zone has none: a bigger
+ * gap can push a seven-way split below the minimum zone width without hiding a
+ * single character, and the document would then be committed in a state
+ * `findSlideIssues` immediately reports as `ZONE_TOO_SMALL`. The theme is what
+ * moves those numbers — the gap and the title zone's height — so this is the
+ * question a theme change has to ask in addition to the fit one.
+ *
+ * It is the same `validateSlideGeometry` the read-only validator runs, against
+ * the prospective geometry, so the guard and the validator cannot disagree
+ * about what "too small" means.
+ *
+ * A regression, like everything else here: a document that is already too tight
+ * — an import, or one from before a token changed — must not be locked out of
+ * the very change that would repair it.
+ */
+export function findGeometryRegression(
+  before: Presentation,
+  after: Presentation,
+  options: StructuralOptions = {},
+): { slideId: string; nodeId: NodeId } | null {
+  const afterGeometry = { ...geometryForTheme(after.theme), ...options.geometry }
+  const beforeGeometry = { ...geometryForTheme(before.theme), ...options.geometry }
+  const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
+
+  for (const slide of after.slides) {
+    const tooSmall = belowMinimum(slide, afterGeometry)
+    if (tooSmall.length === 0) continue
+    const old = previous.get(slide.id)
+    // Measured only when something is wrong now, and only then: the baseline
+    // costs a full geometry pass per slide.
+    const already = old ? new Set(belowMinimum(old, beforeGeometry)) : new Set<NodeId>()
+    const fresh = tooSmall.find((nodeId) => !already.has(nodeId))
+    if (fresh) return { slideId: slide.id, nodeId: fresh }
+  }
+  return null
+}
+
+function belowMinimum(slide: Slide, geometry: GeometryOptions): NodeId[] {
+  return validateSlideGeometry(slide, geometry)
+    .filter((violation) => violation.kind === 'below-minimum')
+    .map((violation) => violation.nodeId)
+}
+
+/**
  * Commit `after` only if it does not hide content that `before` showed.
  *
  * Every command that can shrink the space available to existing content ends
@@ -342,11 +390,45 @@ export function guardFit(
   const regressions = findFitRegressions(before, after, options)
   if (regressions.length === 0) return ok(after)
   const worst = regressions.reduce((a, b) => (b.overflow > a.overflow ? b : a))
+  const rect = failingRect(after, worst, options)
   return err('CONTENT_DOES_NOT_FIT', message, {
     slideId: worst.slideId,
     nodeId: worst.nodeId,
     overflow: worst.overflow,
     previousOverflow: worst.previousOverflow,
     zones: regressions.length,
+    ...(rect ? { rect } : {}),
   })
+}
+
+/**
+ * The rectangle the refusal is about, in the document that was refused.
+ *
+ * Reported by the guard rather than left to the caller, because the caller only
+ * has the document as it still stands. That is the same rect for most commands
+ * and the wrong one for a theme change: the measurement failed against the gap
+ * and the title height the *new* theme implies, and answering with the room a
+ * zone had before it grew would tell an agent to shorten text by an amount that
+ * is not the amount missing. The prospective child of a split is the same case
+ * from the other direction — a node the previous document does not have at all.
+ */
+function failingRect(
+  after: Presentation,
+  regression: FitRegression,
+  options: StructuralOptions,
+): Rect | null {
+  if (regression.slideId === COVER_PAGE_ID) {
+    const cover = computeCoverGeometry({
+      ...coverGeometryForTheme(after.theme),
+      ...options.geometry,
+    })
+    if (regression.nodeId === COVER_TITLE_NODE_ID) return cover.titleRect
+    if (regression.nodeId === COVER_SUBTITLE_NODE_ID) return cover.subtitleRect
+    return null
+  }
+
+  const slide = after.slides.find((candidate) => candidate.id === regression.slideId)
+  if (!slide) return null
+  const geometry = { ...geometryForTheme(after.theme), ...options.geometry }
+  return computeSlideGeometry(slide, geometry).rects.get(regression.nodeId) ?? null
 }

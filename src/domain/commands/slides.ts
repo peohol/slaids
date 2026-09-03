@@ -11,7 +11,13 @@ import {
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
-import { coverOverflow, fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
+import {
+  coverOverflow,
+  findGeometryRegression,
+  fitContextFor,
+  guardFit,
+  subtreeOverflow,
+} from './fitGuard'
 import { FIT_TOLERANCE } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
@@ -333,16 +339,49 @@ export function setTheme(
     next.fontScale = theme.fontScale
   }
 
+  const updated = touch({ ...presentation, theme: next })
+
+  // Two questions, and the fit one cannot answer the first. Luft and
+  // skriftstørrelse move the geometry itself — the gap between zones and the
+  // height of the title zone — so a change can leave a zone smaller than the
+  // minimum without hiding a single character, and an empty zone would sail
+  // through a check that measures content. Asked first, because a zone that is
+  // too small to exist is not something shorter text would fix.
+  const tooSmall = findGeometryRegression(presentation, updated, options)
+  if (tooSmall) {
+    return err('ZONE_TOO_SMALL', minimumRefusalMessage(theme), {
+      slideId: tooSmall.slideId,
+      nodeId: tooSmall.nodeId,
+    })
+  }
+
   // Every part of a theme is global: a wider font, more air or larger type can
   // push text out of every zone in the deck at once. The guard measures only
   // the slides the change can affect and only reports zones that got worse, so
   // a change that *reduces* overflow stays available as a repair.
-  const updated = touch({ ...presentation, theme: next })
   return guardFit(presentation, updated, options, refusalMessage(theme))
 }
 
 function inRange(value: number, range: { min: number; max: number }): boolean {
   return Number.isFinite(value) && value >= range.min && value <= range.max
+}
+
+/**
+ * Name the dial that made a zone too small.
+ *
+ * Only the two scales can: a font changes how wide a glyph is, never where a
+ * zone's edges are.
+ */
+function minimumRefusalMessage(patch: Partial<PresentationTheme>): string {
+  const spacing = patch.spacing !== undefined
+  const size = patch.fontScale !== undefined
+  if (spacing && !size) {
+    return 'Så mye luft gjør at soner blir mindre enn minstemålet. Velg mindre luft, eller del sliden i færre soner først.'
+  }
+  if (size && !spacing) {
+    return 'Denne skriftstørrelsen gjør tittelsonen så høy at soner blir mindre enn minstemålet. Velg en mindre størrelse, eller del sliden i færre soner først.'
+  }
+  return 'Denne endringen gjør at soner blir mindre enn minstemålet. Del sliden i færre soner først.'
 }
 
 /** Name the setting that would hide something, and how to get around it. */

@@ -19,12 +19,14 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { FONT_IDS, findFontById } from '../domain/fonts'
+import { computeMainRect } from '../domain/geometry'
+import { geometryForTheme } from '../domain/metrics'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../domain/metrics'
 import { COVER_PAGE_ID } from '../domain/pages'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation } from '../domain/types'
-import type { PresentationView } from './operations/deck'
+import type { PresentationView, SlideInspection } from './operations/deck'
 import type { ThemeView } from './operations/theme'
 import { describeOperations, runOperation } from './registry'
 import type { AgentContext, AgentError, AgentResult } from './types'
@@ -369,6 +371,32 @@ describe('en temaendring som ville skjult innhold', () => {
     expect(themed.theme.fontScale).toBe(1.3)
   })
 
+  it('svarer med rektangelet det nye temaet ville gitt, ikke det gamle', async () => {
+    // The overflow was measured against the gap the *new* theme implies, so the
+    // room reported has to be that room too. Told the old one, an agent would
+    // shorten its text by an amount that is not the amount missing.
+    const context = freshContext()
+    const deck = await filledDeck(context)
+    const before = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+
+    const spacing = SPACING_RANGE.max
+    const refused = await fails(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      spacing,
+    })
+    expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(refused.details?.rect).toEqual(computeMainRect(false, geometryForTheme({ spacing })))
+
+    // Which is a smaller room than the one the zone has right now — the whole
+    // reason the theme was refused.
+    const zone = before.zones.find((entry) => entry.nodeId === deck.nodeId)
+    const rect = refused.details?.rect as { width: number }
+    expect(rect.width).toBeLessThan(zone?.rect.width ?? 0)
+  })
+
   it('slipper igjennom en endring som gir innholdet mer plass', async () => {
     const context = freshContext()
     const deck = await filledDeck(context)
@@ -378,6 +406,74 @@ describe('en temaendring som ville skjult innhold', () => {
       spacing: SPACING_RANGE.min,
     })
     expect(roomier.theme.fontScale).toBe(FONT_SCALE_RANGE.min)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Zone minimums
+ * ------------------------------------------------------------------ */
+
+describe('en temaendring som ville gjort soner ulovlig små', () => {
+  /** A slide split as far across as the design space allows at the default gap. */
+  async function splitWide(context: AgentContext): Promise<{ presentationId: string; slideId: string }> {
+    const deck = await newDeck(context)
+    await ok(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.nodeId,
+      axis: 'x',
+      weights: [1, 1, 1, 1, 1, 1, 1],
+    })
+    return deck
+  }
+
+  it('avvises med ZONE_TOO_SMALL, selv om sonene er tomme', async () => {
+    // The fit guard measures content, and empty zones have none: without a
+    // second question this change would commit a deck that validate_presentation
+    // immediately calls invalid.
+    const context = freshContext()
+    const deck = await splitWide(context)
+
+    const refused = await fails(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      spacing: SPACING_RANGE.max,
+    })
+    expect(refused.code).toBe('ZONE_TOO_SMALL')
+    expect(refused.details).toMatchObject({
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: expect.any(String),
+    })
+    expect((await stored(context, deck.presentationId)).theme.spacing).toBe(1)
+  })
+
+  it('lar presentasjonen forbli gyldig, som validate_presentation ser den', async () => {
+    const context = freshContext()
+    const deck = await splitWide(context)
+    await fails(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      spacing: SPACING_RANGE.max,
+    })
+
+    // The guard and the validator ask `validateSlideGeometry` the same question,
+    // so a change the guard let through can never be one the validator refuses.
+    const report = await ok<{ valid: boolean; issues: unknown[] }>(
+      context,
+      'validate_presentation',
+      { presentationId: deck.presentationId },
+    )
+    expect(report.issues).toEqual([])
+    expect(report.valid).toBe(true)
+  })
+
+  it('slipper igjennom en mindre økning som fortsatt holder minstemålet', async () => {
+    const context = freshContext()
+    const deck = await splitWide(context)
+    const themed = await ok<{ theme: ThemeView }>(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      spacing: 1.3,
+    })
+    expect(themed.theme.spacing).toBe(1.3)
   })
 })
 
@@ -446,6 +542,9 @@ describe('fonten en hodeløs måling dømmer etter', () => {
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(refused.details?.slideId).toBe(COVER_PAGE_ID)
+    // The cover has no zone tree, so the room its one line has is the only
+    // rectangle there is to report — and it is the prospective one.
+    expect(refused.details?.rect).toMatchObject({ width: expect.any(Number) })
     expect((await stored(context, created.presentationId)).theme.headingFontFamily).toBe(
       findFontById('quicksand')?.stack,
     )

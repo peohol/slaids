@@ -484,7 +484,9 @@ Fire ting til er verdt å vite om hvordan laget oppfører seg:
   bakgrunnsfargen, de to fontene, luften og skriftstørrelsen, og `set_theme`
   setter dem – gjennom den samme kommandoen som temamodalen, så en temaendring
   som ville skjult innhold blir avvist på samme måte, i sin helhet, uten at noe
-  lagres. Fonter velges med id fra Slaids' egen fontkatalog, og de gyldige
+  lagres. Luft og skriftstørrelse flytter i tillegg geometrien, så de måles to
+  ganger: en endring som ville gjort soner mindre enn minstemålet avvises med
+  `ZONE_TOO_SMALL` selv om sonene er tomme og ingenting kunne blitt skjult. Fonter velges med id fra Slaids' egen fontkatalog, og de gyldige
   valgene er publisert som et enum i operasjonens JSON Schema, generert fra
   katalogen selv. Luft og skriftstørrelse publiseres med domenets eget intervall;
   editorens fire trinn («tett», «normal», «luftig», «ekstra luftig») siteres som

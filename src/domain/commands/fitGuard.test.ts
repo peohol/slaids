@@ -39,6 +39,7 @@ import {
   setSubfieldDoc,
   setTheme,
   setZoneContent,
+  splitLeaf,
 } from './index'
 
 /** What the editor and any future REST/MCP caller pass. */
@@ -92,6 +93,49 @@ function target(presentation: Presentation): { slideId: string; nodeId: string }
   const slide = presentation.slides[0]
   return { slideId: slide.id, nodeId: slide.root.id }
 }
+
+/* ------------------------------------------------------------------ *
+ * 0. Global changes that move the geometry itself
+ * ------------------------------------------------------------------ */
+
+describe('setTheme og minstemålet for en sone', () => {
+  /** A slide split as far across as the design space allows at the default gap. */
+  function splitWide(): Presentation {
+    const presentation = createPresentation({ title: 'Minstemål', firstSlideHasTitle: false })
+    const slide = presentation.slides[0]
+    return unwrap(
+      splitLeaf(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        axis: 'x',
+        weights: [1, 1, 1, 1, 1, 1, 1],
+        ...checkers,
+      }),
+    ).presentation
+  }
+
+  it('refuses air that would make the zones smaller than the minimum', () => {
+    // The zones are empty, so nothing overflows and the fit guard has nothing to
+    // say. Committed anyway, this is a deck `findSlideIssues` calls invalid.
+    const result = setTheme(splitWide(), { spacing: 2 }, checkers)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('accepts air the zones still satisfy', () => {
+    expect(setTheme(splitWide(), { spacing: 1.3 }, checkers).ok).toBe(true)
+  })
+
+  it('still lets a deck that is already too tight be repaired', () => {
+    // A document from an import, or from before a token changed: refusing every
+    // theme change here would leave it with no way back.
+    const tight = splitWide()
+    const broken: Presentation = { ...tight, theme: { ...tight.theme, spacing: 2 } }
+    expect(setTheme(broken, { spacing: 1 }, checkers).ok).toBe(true)
+    // And a change that leaves it exactly as broken is not a new regression.
+    expect(setTheme(broken, { backgroundColor: '#123456' }, checkers).ok).toBe(true)
+  })
+})
 
 /* ------------------------------------------------------------------ *
  * 1. Global font changes
