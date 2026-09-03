@@ -64,13 +64,13 @@
 }
 
 /*
- * The header is a flex row, and the editor wraps its content in a div of its
- * own. Left to itself that wrapper shrinks to the width of the text, and a
- * centred title then centres inside its own width — which is no centring at
- * all, and made the editor disagree with the static renderer about where a card
- * title sits.
+ * The header and the title zone are flex rows, and the editor wraps its content
+ * in a div of its own. Left to itself that wrapper shrinks to the width of the
+ * text, and a title aligned inside its own width is not aligned at all — which
+ * made the editor disagree with the static renderer about where a title sits.
  */
-.card-header > * {
+.card-header > *,
+.slide-title > * {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -95,24 +95,43 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
-  /* A column, so vertical alignment is a matter of where the flow sits. */
   display: flex;
   flex-direction: column;
 }
 
-/* The editor fills the field so a click anywhere in it lands in the text. */
+/*
+ * The content box is the field, in the editor and on the slide alike.
+ *
+ * It has to fill the field for two reasons: a click anywhere in the field then
+ * lands in the text, and a figure's `max-height: 100%` has a field height to
+ * resolve against rather than its own content. Which is also why the field
+ * cannot align the box — there is no room left to move it in. Vertical
+ * alignment is `--slaids-flow-align`, applied to the flow inside the box.
+ *
+ * The editor wraps its content in a div of its own, so the rule matches the
+ * wrapper there and the rendered document here. That difference is what let a
+ * centred field look centred while being edited and jump to the top the moment
+ * it was presented.
+ */
 .subfield > * {
   width: 100%;
+  height: 100%;
 }
 
 .subfield-divider {
   flex: 0 0 auto;
 }
 
+/*
+ * A file fills its zone, so the zone cannot move it: what an alignment moves is
+ * the picture inside the box it is drawn in. Unaligned, it stays centred —
+ * there is no flow here to begin at the top of.
+ */
 .asset-image {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center var(--slaids-asset-align, center);
   display: block;
 }
 
@@ -134,6 +153,7 @@
 
 .rich-doc {
   height: 100%;
+  align-content: var(--slaids-flow-align, start);
 }
 
 .rich-doc.tiptap,

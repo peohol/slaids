@@ -45,6 +45,46 @@ function clampPercent(percent: number): number {
 export const DEFAULT_IMAGE_WIDTH_PERCENT = 50
 
 /**
+ * How tall the flowed content is, whatever box it is aligned inside.
+ *
+ * The editable box is the whole field — that is what lets a click anywhere in
+ * the field land in the text, and what gives a figure a field height to be
+ * bounded by — so its own height says nothing about how much room the text
+ * takes, and `scrollHeight` would answer with the field every time. The
+ * distance from the first block's top to the last block's bottom is the real
+ * answer, and `offsetTop`/`offsetHeight` are logical pixels, so the stage's CSS
+ * scale does not enter into it.
+ *
+ * Margin boxes, not border boxes: the outermost margins take up room in the
+ * field like anything else, and the block rules that zero them out for a first
+ * or last child are overridden by the ones a blockquote and a heading carry.
+ * A flow that opens with a quote and closes with a heading would otherwise
+ * measure a whole two margins short — far more than `INSERT_SAFETY` covers,
+ * and enough to let a picture be sized past the field and then rolled back by
+ * the fit guard. Margins between siblings collapse into the span already, so
+ * the outermost margin box in each direction is the whole answer.
+ *
+ * Out-of-flow chrome (ProseMirror's gap cursor) is not content and is skipped.
+ * With no blocks at all there is nothing to measure, and the box's own scroll
+ * height is as good an answer as there is.
+ */
+export function flowHeight(dom: HTMLElement): number {
+  let top = Number.POSITIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  for (const child of Array.from(dom.children)) {
+    const block = child as HTMLElement
+    const style = getComputedStyle(block)
+    if (style.position === 'absolute' || style.position === 'fixed') continue
+    const marginTop = Number.parseFloat(style.marginTop) || 0
+    const marginBottom = Number.parseFloat(style.marginBottom) || 0
+    top = Math.min(top, block.offsetTop - marginTop)
+    bottom = Math.max(bottom, block.offsetTop + block.offsetHeight + marginBottom)
+  }
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return dom.scrollHeight
+  return Math.max(0, bottom - top)
+}
+
+/**
  * The largest share of the column a new image can take without pushing the
  * field's text out of sight.
  *
@@ -67,12 +107,12 @@ export function fittingImageWidthPercent(editor: Editor, aspect: number): number
   if (!box || box === dom) return DEFAULT_IMAGE_WIDTH_PERCENT
   const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9
 
-  // `scrollHeight` rather than `clientHeight`: the text is what it is even when
-  // the field is already clipping it. Inserting a block into a paragraph splits
-  // it, which can cost a line, so one is held back.
+  // The flow's own height rather than the field's: the text is what it is even
+  // when the field is already clipping it. Inserting a block into a paragraph
+  // splits it, which can cost a line, so one is held back.
   const line = Number.parseFloat(getComputedStyle(dom).lineHeight)
   const reserve = (Number.isFinite(line) ? line : 0) + IMAGE_BLOCK_MARGIN + INSERT_SAFETY
-  const free = box.clientHeight - dom.scrollHeight - reserve
+  const free = box.clientHeight - flowHeight(dom) - reserve
   if (free <= 0) return null
 
   const percent = Math.floor(((free * ratio) / column) * 100)
@@ -123,7 +163,7 @@ function resizeCeiling(editor: Editor, wrapper: HTMLElement): number {
   const height = wrapper.clientHeight
   if (height <= 0) return MAX_WIDTH_PERCENT
   const ratio = wrapper.clientWidth / height
-  const free = box.clientHeight - dom.scrollHeight - IMAGE_BLOCK_MARGIN - INSERT_SAFETY
+  const free = box.clientHeight - flowHeight(dom) - IMAGE_BLOCK_MARGIN - INSERT_SAFETY
   const ceiling = ((height + Math.max(0, free)) * ratio * 100) / dom.clientWidth
   return clampPercent(Math.floor(ceiling))
 }
