@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { RepositoryConflictError, RepositoryError } from '../persistence/repository'
 import { assetOperations } from './operations/assets'
 import { contentOperations } from './operations/content'
+import { coverOperations } from './operations/cover'
 import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
 import { referenceOperations } from './operations/references'
@@ -38,6 +39,7 @@ export const AGENT_TOOL_PREFIX = 'slaids_'
 
 export const operations: readonly AnyAgentOperation[] = [
   ...deckOperations,
+  ...coverOperations,
   ...slideOperations,
   ...layoutOperations,
   ...contentOperations,

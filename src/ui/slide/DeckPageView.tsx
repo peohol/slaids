@@ -7,10 +7,12 @@
  */
 
 import type { DeckPage } from '../../domain/pages'
+import { CoverPageView } from './CoverPageView'
 import { QrPageView } from './QrPageView'
 import { SlideView } from './SlideView'
 
 export function DeckPageView({ page }: { page: DeckPage }) {
+  if (page.kind === 'cover') return <CoverPageView cover={page.cover} />
   if (page.kind === 'qr') return <QrPageView url={page.shareUrl} />
   return <SlideView slide={page.slide} />
 }

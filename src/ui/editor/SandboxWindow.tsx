@@ -12,6 +12,7 @@ import { DEFAULT_SANDBOX_GEOMETRY } from '../../state/prefs'
 import type { SandboxItem } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { ZoneContentView } from '../slide/ZoneContentView'
+import { pillTokenStyle } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
@@ -20,6 +21,9 @@ const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
 
 function SandboxItemCard({ item }: { item: SandboxItem }) {
   const run = useEditorStore((state) => state.run)
+  // The preview is outside the slide, so the deck's default pill colour has to
+  // be handed to it: a parked heading is the same heading it will be on a slide.
+  const pillColor = useEditorStore((state) => state.presentation?.cover.pillColor)
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sandbox:${item.id}`,
     data: { kind: 'sandbox-item', itemId: item.id },
@@ -39,6 +43,7 @@ function SandboxItemCard({ item }: { item: SandboxItem }) {
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             pointerEvents: 'none',
+            ...(pillColor ? pillTokenStyle(pillColor) : null),
           }}
         >
           <ZoneContentView content={item.content} />

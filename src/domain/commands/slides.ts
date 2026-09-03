@@ -2,15 +2,29 @@
  * Slide-level domain commands.
  */
 
-import { computeMainRect, computeTitleRect, TITLE_NODE_ID } from '../geometry'
+import {
+  COVER_SUBTITLE_NODE_ID,
+  computeMainRect,
+  computeTitleRect,
+  TITLE_NODE_ID,
+} from '../geometry'
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
-import { fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
+import { coverOverflow, fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
 import { FIT_TOLERANCE } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
-import { createSlide, findSlide, slideIndexOf, touch, withSlide } from '../presentation'
+import { COVER_PAGE_ID } from '../pages'
+import {
+  createPresentation,
+  createSlide,
+  findSlide,
+  slideIndexOf,
+  touch,
+  withSlide,
+} from '../presentation'
+import type { CreatePresentationInput } from '../presentation'
 import { titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { LayoutNode, Presentation, PresentationTheme, TitleDoc } from '../types'
@@ -233,6 +247,43 @@ export function setSlideHasTitle(
       ? 'Overskriften får ikke plass i tittelsonen med gjeldende font.'
       : 'Innholdet får ikke plass når overskriftssonen legges til.',
   )
+}
+
+/**
+ * A brand new presentation, refused when its cover cannot be read.
+ *
+ * `createPresentation` is a pure factory and stays one — loading, migrating and
+ * importing all go through it and must never be blocked by a rule about how
+ * much text fits. This is the *command* form, for the two places a person or an
+ * agent creates a deck from text they just typed, and the check is the reason
+ * it exists: the cover's title is seeded from the deck's name, so a name too
+ * long for one line would otherwise be stored as a clipped cover — a state the
+ * very next edit to that line would refuse. Creation gets the same answer as
+ * editing, which is the whole content-fit rule.
+ *
+ * Absolute rather than a regression, like every other placement: there is no
+ * previous state for a document that did not exist a moment ago.
+ */
+export function createDeck(
+  input: CreatePresentationInput,
+  options: StructuralOptions = {},
+): Result<Presentation> {
+  const presentation = createPresentation(input)
+  for (const [nodeId, overflow] of coverOverflow(
+    presentation.cover,
+    fitContextFor(presentation),
+    options,
+  )) {
+    if (overflow <= FIT_TOLERANCE) continue
+    return err(
+      'CONTENT_DOES_NOT_FIT',
+      nodeId === COVER_SUBTITLE_NODE_ID
+        ? 'Undertittelen får ikke plass på forsiden. Velg en kortere.'
+        : 'Tittelen får ikke plass på forsiden på én linje. Velg en kortere.',
+      { slideId: COVER_PAGE_ID, nodeId, overflow },
+    )
+  }
+  return ok(presentation)
 }
 
 export function setPresentationTitle(

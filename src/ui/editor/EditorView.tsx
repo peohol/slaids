@@ -53,15 +53,18 @@ import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
 import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
-import { domFitCheckers, overflowingZoneCount } from '../../state/measure'
+import { domFitCheckers, overflowingCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
+import { pillTokenStyle } from '../slide/SlideView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
+import { CoverInspector } from './CoverInspector'
+import { CoverStage } from './CoverStage'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
@@ -105,6 +108,7 @@ export function EditorView({
   const loadError = useEditorStore((state) => state.loadError)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
+  const viewingCover = useEditorStore((state) => state.viewingCover)
   const setPresentation = useEditorStore((state) => state.setPresentation)
   const setLoading = useEditorStore((state) => state.setLoading)
   const setLoadError = useEditorStore((state) => state.setLoadError)
@@ -274,12 +278,12 @@ export function EditorView({
       if (loaded.ready.length === 0) return
       const deck = useEditorStore.getState().presentation
       if (!deck) return
-      const zones = overflowingZoneCount(deck)
-      if (zones > 0) {
+      const clipped = overflowingCount(deck)
+      if (clipped > 0) {
         notify.warning(
-          zones === 1
-            ? 'Én sone får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.'
-            : `${zones} soner får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.`,
+          clipped === 1
+            ? 'Ett sted i presentasjonen får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.'
+            : `${clipped} steder i presentasjonen får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.`,
         )
       }
     })
@@ -767,7 +771,12 @@ export function EditorView({
     return (
       <PresentView
         presentation={presentation}
-        startIndex={presentation.slides.findIndex((entry) => entry.id === currentSlideId)}
+        startIndex={
+          viewingCover
+            ? 0
+            : // The cover is page one, so slide n is page n + 1.
+              presentation.slides.findIndex((entry) => entry.id === currentSlideId) + 1
+        }
         shareUrl={shareUrl}
         onExit={() => setPresenting(false)}
       />
@@ -789,6 +798,7 @@ export function EditorView({
       value={{
         theme: presentation.theme,
         numbering,
+        headingPillColor: presentation.cover.pillColor,
         isStatic: false,
         // A citation is the shortest path to the source it stands for: one
         // reference opens on that reference, several open the list.
@@ -812,9 +822,12 @@ export function EditorView({
           <TopToolbar
             title={presentation.title}
             hasTitleZone={slide.title !== null}
-            canToggleTitle={viewedDerivedPage === null}
-            selectionIsLeaf={viewedDerivedPage === null && selectedNode?.kind === 'leaf'}
-            selectionHasContent={Boolean(selectedLeaf?.content)}
+            canToggleTitle={viewedDerivedPage === null && !viewingCover}
+            selectionIsLeaf={
+              viewedDerivedPage === null && !viewingCover && selectedNode?.kind === 'leaf'
+            }
+            selectionHasContent={!viewingCover && Boolean(selectedLeaf?.content)}
+            canEditZones={viewedDerivedPage === null && !viewingCover}
             sandboxCount={presentation.sandbox.length}
             onBack={() => void handleBack()}
             backPending={leaving}
@@ -863,6 +876,8 @@ export function EditorView({
                 page={viewedDerivedPage}
                 note={derivedPageNote(viewedDerivedPage)}
               />
+            ) : viewingCover ? (
+              <CoverStage cover={presentation.cover} />
             ) : (
               <EditorStage
                 slide={slide}
@@ -884,6 +899,8 @@ export function EditorView({
                   </p>
                 </section>
               </aside>
+            ) : viewingCover ? (
+              <CoverInspector cover={presentation.cover} />
             ) : (
               <Inspector
                 // Remounting per selection drops any half-finished panel
@@ -909,6 +926,8 @@ export function EditorView({
                   transform: 'scale(0.375)',
                   transformOrigin: 'top left',
                   pointerEvents: 'none',
+                  // Dragged outside the slide, but still the deck's heading.
+                  ...pillTokenStyle(presentation.cover.pillColor),
                 }}
               >
                 <ZoneContentView content={draggedItem.content} />

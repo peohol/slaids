@@ -14,11 +14,13 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { createPresentation } from '../domain/presentation'
+import { docToPlainText } from '../domain/richdoc'
 import { presentationRevision } from '../domain/revision'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation, Rect } from '../domain/types'
 import type { ZoneChange } from './operations/layout'
+import type { CoverView } from './operations/cover'
 import type { PresentationView, SlideInspection } from './operations/deck'
 import type { SlidePlacement } from './operations/slides'
 import type { ValidationReport } from './operations/validation'
@@ -1272,5 +1274,80 @@ describe('validering', () => {
     const fit = report.issues.find((issue) => issue.code === 'CONTENT_DOES_NOT_FIT')
     expect(fit).toMatchObject({ slideId })
     expect(fit?.details?.overflow).toBeGreaterThan(0)
+  })
+})
+
+describe('forsiden', () => {
+  it('finnes fra første øyeblikk, med dekkets eget navn', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    // Ikke en slide, og telles ikke som en: `slideCount` er fortsatt den ene
+    // tomme sliden `create_presentation` lager.
+    expect(deck.cover).toMatchObject({ title: 'Agentdekk', subtitle: '' })
+    expect(deck.slideCount).toBe(1)
+  })
+
+  it('avviser et navn som er for langt for forsiden, og lagrer ingenting', async () => {
+    const context = freshContext()
+    const before = await context.repository.listPresentations()
+    const error = await fails(context, 'create_presentation', {
+      title: 'Et navn som er altfor langt '.repeat(6),
+    })
+    expect(error.code).toBe('CONTENT_DOES_NOT_FIT')
+    // Sjekken skjer før lagringen, så det ligger ingen halvferdig presentasjon
+    // igjen med en forside ingen kan lese.
+    expect(await context.repository.listPresentations()).toHaveLength(before.length)
+  })
+
+  it('setter tittel og undertittel i ett steg', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const cover = await ok<CoverView>(context, 'set_cover', {
+      presentationId: deck.presentationId,
+      title: 'Andre kvartal',
+      subtitle: 'Tall og tiltak',
+    })
+    expect(cover).toMatchObject({ title: 'Andre kvartal', subtitle: 'Tall og tiltak' })
+
+    const reread = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(reread.cover.title).toBe('Andre kvartal')
+  })
+
+  it('lagrer ingen av linjene når den andre ikke får plass', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const error = await fails(context, 'set_cover', {
+      presentationId: deck.presentationId,
+      title: 'Kort nok',
+      subtitle: 'Undertittel som er altfor lang '.repeat(6),
+    })
+    expect(error.code).toBe('CONTENT_DOES_NOT_FIT')
+
+    // Atomisk: tittelen som *ville* fått plass ble aldri skrevet.
+    const after = await stored(context, deck.presentationId)
+    expect(docToPlainText(after.cover.title).trim()).toBe('Agentdekk')
+  })
+
+  it('gir overskrifter uten egen farge forsidens farge, og lar de valgte være', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const cover = await ok<CoverView>(context, 'set_cover_color', {
+      presentationId: deck.presentationId,
+      color: '#A64D79',
+    })
+    expect(cover.pillColor).toBe('#a64d79')
+
+    // Fargen bor ett sted. Ingenting er skrevet inn i noen slide, og det er
+    // nettopp dét som gjør at en senere endring når fram til dem alle.
+    const after = await stored(context, deck.presentationId)
+    expect(after.cover.pillColor).toBe('#a64d79')
+    expect(JSON.stringify(after.slides)).not.toContain('a64d79')
+
+    expect((await fails(context, 'set_cover_color', {
+      presentationId: deck.presentationId,
+      color: 'blå',
+    })).code).toBe('INVALID_ARGUMENT')
   })
 })

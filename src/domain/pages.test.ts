@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createUntitledCard } from './content'
 import { createLeaf } from './layout'
-import { QR_PAGE_ID, deckPages, derivedPageNote, derivedPages, isDerivedPage } from './pages'
+import {
+  COVER_PAGE_ID,
+  QR_PAGE_ID,
+  deckPages,
+  derivedPageNote,
+  derivedPages,
+  isDerivedPage,
+} from './pages'
 import { createPresentation } from './presentation'
 import type { Presentation, RichDoc } from './types'
 
@@ -37,20 +44,31 @@ function withCitation(): Presentation {
 }
 
 describe('deckPages', () => {
-  it('gir bare de authored slidene når ingenting er sitert og ingenting er delt', () => {
+  it('gir forsiden og de authored slidene når ingenting er sitert og ingenting er delt', () => {
     const presentation = createPresentation({ title: 'Enkel' })
     const pages = deckPages(presentation)
-    expect(pages.map((page) => page.kind)).toEqual(['authored-slide'])
+    expect(pages.map((page) => page.kind)).toEqual(['cover', 'authored-slide'])
+  })
+
+  it('legger forsiden aller først, alltid', () => {
+    const presentation = withCitation()
+    const first = deckPages(presentation, { shareUrl: SHARE_URL })[0]
+    expect(first.kind).toBe('cover')
+    if (first.kind !== 'cover') return
+    expect(first.id).toBe(COVER_PAGE_ID)
+    // The very object the deck stores: nothing here copies or rebuilds it.
+    expect(first.cover).toBe(presentation.cover)
   })
 
   it('legger referansesidene etter de authored slidene', () => {
     const pages = deckPages(withCitation())
-    expect(pages.map((page) => page.kind)).toEqual(['authored-slide', 'reference-slide'])
+    expect(pages.map((page) => page.kind)).toEqual(['cover', 'authored-slide', 'reference-slide'])
   })
 
   it('legger QR-siden aller sist, etter referansesidene', () => {
     const pages = deckPages(withCitation(), { shareUrl: SHARE_URL })
     expect(pages.map((page) => page.kind)).toEqual([
+      'cover',
       'authored-slide',
       'reference-slide',
       'qr',
@@ -81,7 +99,15 @@ describe('deckPages', () => {
 })
 
 describe('derivedPages', () => {
-  it('er nøyaktig de sidene som ikke er authored', () => {
+  it('regner ikke forsiden som avledet: den er lagret og redigerbar', () => {
+    const [cover] = deckPages(withCitation(), { shareUrl: SHARE_URL })
+    expect(isDerivedPage(cover)).toBe(false)
+    expect(derivedPages(withCitation(), { shareUrl: SHARE_URL }).map((page) => page.kind)).not.toContain(
+      'cover',
+    )
+  })
+
+  it('er nøyaktig de genererte sidene', () => {
     const pages = derivedPages(withCitation(), { shareUrl: SHARE_URL })
     expect(pages.map((page) => page.kind)).toEqual(['reference-slide', 'qr'])
     expect(pages.every(isDerivedPage)).toBe(true)

@@ -2,7 +2,7 @@
  * Presentation and slide factories plus small pure queries.
  */
 
-import { DEFAULT_BACKGROUND_COLOR } from './constants'
+import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from './constants'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from './metrics'
 import { newPresentationId, newSlideId } from './ids'
@@ -10,6 +10,7 @@ import { createLeaf } from './layout'
 import { titleDoc } from './richdoc'
 import { CURRENT_SCHEMA_VERSION } from './schema'
 import type {
+  DeckCover,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -27,6 +28,21 @@ export function defaultTheme(): PresentationTheme {
   }
 }
 
+/**
+ * The cover a deck starts with.
+ *
+ * The deck's own name is the obvious first cover title — it is the one piece of
+ * text the author has already written — and the subtitle is left empty because
+ * nobody has written it yet. Both are ordinary documents from there on.
+ */
+export function createCover(title = '', subtitle = ''): DeckCover {
+  return {
+    title: titleDoc(title),
+    subtitle: titleDoc(subtitle),
+    pillColor: DEFAULT_PILL_COLOR,
+  }
+}
+
 export function createSlide(options: { hasTitle?: boolean; root?: LayoutNode; title?: string } = {}): Slide {
   const hasTitle = options.hasTitle ?? true
   return {
@@ -41,16 +57,21 @@ export interface CreatePresentationInput {
   theme?: Partial<PresentationTheme>
   folderId?: string | null
   firstSlideHasTitle?: boolean
+  /** Defaults to the presentation's own title. */
+  coverTitle?: string
+  coverSubtitle?: string
 }
 
 export function createPresentation(input: CreatePresentationInput): Presentation {
   const now = new Date().toISOString()
+  const title = input.title.trim() || 'Uten tittel'
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     id: newPresentationId(),
-    title: input.title.trim() || 'Uten tittel',
+    title,
     folderId: input.folderId ?? null,
     theme: { ...defaultTheme(), ...input.theme },
+    cover: createCover(input.coverTitle ?? title, input.coverSubtitle),
     slides: [createSlide({ hasTitle: input.firstSlideHasTitle ?? true })],
     references: [],
     sandbox: [],
@@ -85,6 +106,11 @@ export function slideIndexOf(presentation: Presentation, slideId: string): numbe
 /** Return a copy with a fresh `updatedAt`. Every command funnels through this. */
 export function touch(presentation: Presentation): Presentation {
   return { ...presentation, updatedAt: new Date().toISOString() }
+}
+
+/** Replace the cover and bump `updatedAt`. */
+export function withCover(presentation: Presentation, cover: DeckCover): Presentation {
+  return touch({ ...presentation, cover })
 }
 
 /** Replace one slide, preserving order, and bump `updatedAt`. */

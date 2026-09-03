@@ -64,8 +64,20 @@ export type ContentFitChecker = (
   context: FitContext,
 ) => FitResult
 
-/** The slide title zone is one line of heading type, so it fails horizontally. */
-export type TitleFitChecker = (doc: TitleDoc, rect: Rect, context: FitContext) => FitResult
+/**
+ * The slide title zone is one line of heading type, so it fails horizontally.
+ *
+ * `fontSize` exists because the same rule governs a line that is not the slide
+ * title's size — the cover's subtitle is a step smaller — and measuring that
+ * line at the title's size would refuse text that fits perfectly well. Omitted,
+ * it is the slide title's own size, which is what every slide asks for.
+ */
+export type TitleFitChecker = (
+  doc: TitleDoc,
+  rect: Rect,
+  context: FitContext,
+  fontSize?: number,
+) => FitResult
 
 const EMPTY_NUMBERING: ReferenceNumbering = new Map()
 
@@ -324,16 +336,17 @@ export function estimateFit(
   return fitResult(overflow)
 }
 
-/** Pure estimate for the deterministic single-line slide title zone. */
+/** Pure estimate for a deterministic single line of heading type. */
 export function estimateTitleFit(
   doc: TitleDoc,
   rect: Rect,
   context?: Partial<FitContext>,
+  fontSize?: number,
 ): FitResult {
   if (rect.width <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
   const estimate = estimateContext(context)
-  const needed =
-    countDocChars(doc, estimate) * estimate.tokens.titleFontSize * estimate.metrics.heading
+  const size = fontSize ?? estimate.tokens.titleFontSize
+  const needed = countDocChars(doc, estimate) * size * estimate.metrics.heading
   return fitResult(needed - rect.width)
 }
 

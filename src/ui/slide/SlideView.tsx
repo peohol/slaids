@@ -10,6 +10,7 @@ import type { ReactNode } from 'react'
 import {
   BODY_LINE_HEIGHT,
   CARD_RADIUS,
+  DEFAULT_PILL_COLOR,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   TITLE_LINE_HEIGHT,
@@ -24,15 +25,34 @@ import { RichDocView } from './RichDocView'
 import { ZoneContentView } from './ZoneContentView'
 
 /**
+ * The deck's default heading pill, as the two custom properties a pill reads.
+ *
+ * A heading that was never given a colour stores none, so what it is painted
+ * with is decided here rather than in the document — which is exactly what lets
+ * one change on the cover repaint every such heading at once, with no edit to
+ * any slide and nothing for undo to walk back through.
+ */
+export function pillTokenStyle(pillColor: string): React.CSSProperties {
+  return {
+    '--slaids-heading-pill': pillColor,
+    '--slaids-heading-pill-text': bestTextColor(pillColor),
+  } as React.CSSProperties
+}
+
+/**
  * Typography and spacing tokens exposed to CSS.
  *
  * `constants.ts` holds the base values and `metrics.ts` scales them by the
  * theme, so the stylesheet, the React styles and the headless estimator are all
  * reading the same numbers.
  */
-export function slideTokenStyle(theme: PresentationTheme): React.CSSProperties {
+export function slideTokenStyle(
+  theme: PresentationTheme,
+  pillColor: string = DEFAULT_PILL_COLOR,
+): React.CSSProperties {
   const tokens = themeMetrics(theme)
   return {
+    ...pillTokenStyle(pillColor),
     fontFamily: theme.bodyFontFamily,
     '--slaids-body-font-size': `${tokens.bodyFontSize}px`,
     '--slaids-body-line-height': String(BODY_LINE_HEIGHT),
@@ -70,7 +90,7 @@ export function SlideView({
   children,
   className,
 }: SlideViewProps) {
-  const { theme } = useSlideRender()
+  const { theme, headingPillColor } = useSlideRender()
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(theme),
     ...geometryOptions,
@@ -86,7 +106,7 @@ export function SlideView({
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
         background: theme.backgroundColor,
-        ...slideTokenStyle(theme),
+        ...slideTokenStyle(theme, headingPillColor),
       }}
     >
       {geometry.titleRect &&

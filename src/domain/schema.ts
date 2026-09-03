@@ -12,7 +12,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 7
+export const CURRENT_SCHEMA_VERSION = 8
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -112,6 +112,19 @@ export const slideSchema = z.object({
   root: layoutNodeSchema,
 })
 
+/**
+ * The cover.
+ *
+ * Two documents and a colour — no layout, no alignment and no id: there is
+ * exactly one cover per deck, it is always centred, and nothing addresses it by
+ * id because nothing can move it.
+ */
+export const coverSchema = z.object({
+  title: richDocSchema,
+  subtitle: richDocSchema,
+  pillColor: hexColor,
+})
+
 export const themeSchema = z.object({
   backgroundColor: hexColor,
   headingFontFamily: z.string().min(1),
@@ -172,6 +185,7 @@ export const presentationSchema = z.object({
   title: z.string(),
   folderId: z.string().nullable(),
   theme: themeSchema,
+  cover: coverSchema,
   slides: z.array(slideSchema).min(1),
   references: z.array(referenceSchema),
   sandbox: z.array(sandboxItemSchema),

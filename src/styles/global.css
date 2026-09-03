@@ -339,6 +339,36 @@ textarea {
   box-shadow: 0 0 0 2px var(--chrome-accent);
 }
 
+/*
+ * "Standard": the row that means no colour was picked at all.
+ *
+ * Its swatch shows what the default currently resolves to, so the choice is
+ * visible rather than a word — but it stands apart from the grid, because
+ * picking it is not picking that colour.
+ */
+.palette__row--inherited {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--chrome-border, rgba(255, 255, 255, 0.12));
+}
+
+.palette__inherited {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.palette__inherited--active {
+  border-color: var(--chrome-accent);
+}
+
 .color-trigger__chip {
   width: 16px;
   height: 16px;

@@ -32,6 +32,29 @@ export const TITLE_ZONE_HEIGHT = 72
 export const TITLE_FONT_SIZE = 46
 export const TITLE_LINE_HEIGHT = 1.2
 
+/**
+ * The colour every pill starts out as.
+ *
+ * One number rather than three: the cover's pills, the header of a new titled
+ * card and the pill a heading falls back to are the same blue, and a heading
+ * that never had a colour picked for it does not store this value at all — it
+ * reads whatever the cover currently says. See `DeckCover.pillColor`.
+ */
+export const DEFAULT_PILL_COLOR = '#33475b'
+
+/**
+ * The cover.
+ *
+ * The title is set in the slide title's own size, so a deck opens in the type
+ * it continues in, and the subtitle is one clear step below it — a step, not a
+ * different class of text. Both pills are padded in `em` of their own type, so
+ * the two keep the same shape at every font scale and the deterministic width
+ * a fit check needs is a pure function of the type size.
+ */
+export const COVER_SUBTITLE_FONT_SIZE = 34
+export const COVER_PILL_PADDING_X_EM = 0.6
+export const COVER_PILL_PADDING_Y_EM = 0.16
+
 /** Card typography and chrome. */
 export const CARD_RADIUS = 14
 export const CARD_PADDING = 16
