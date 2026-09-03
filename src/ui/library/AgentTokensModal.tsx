@@ -32,7 +32,7 @@ import {
   isAgentTokenActive,
   type AgentTokenRecord,
 } from '../../persistence/agentTokens'
-import { AGENT_API_BASE_PATH } from '../../routing'
+import { AGENT_API_BASE_PATH, AGENT_MCP_PATH } from '../../routing'
 import { notify } from '../../state/toast'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
@@ -177,8 +177,9 @@ export function AgentTokensModal({ open, onOpenChange, tokens }: AgentTokensModa
     }
   }
 
-  const endpoint =
-    typeof window === 'undefined' ? AGENT_API_BASE_PATH : `${window.location.origin}${AGENT_API_BASE_PATH}`
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const endpoint = `${origin}${AGENT_API_BASE_PATH}`
+  const mcpEndpoint = `${origin}${AGENT_MCP_PATH}`
 
   return (
     <>
@@ -186,7 +187,7 @@ export function AgentTokensModal({ open, onOpenChange, tokens }: AgentTokensModa
         open={open}
         onOpenChange={onOpenChange}
         title="Agenttokens"
-        description="Nøkler en KI-agent bruker for å styre Slaids gjennom REST-API-et."
+        description="Nøkler en KI-agent bruker for å styre Slaids gjennom REST-API-et eller MCP."
         width={720}
         testId="agent-tokens-modal"
         footer={
@@ -199,6 +200,11 @@ export function AgentTokensModal({ open, onOpenChange, tokens }: AgentTokensModa
           API-et ligger på <code>{endpoint}</code>. Katalogen over operasjoner står på{' '}
           <code>{endpoint}/operations</code>, og et token sendes som{' '}
           <code>Authorization: Bearer …</code>.
+        </p>
+        <p className="tokens__endpoint">
+          Samme operasjoner som MCP-verktøy: sett opp en MCP-klient mot{' '}
+          <code>{mcpEndpoint}</code> med det samme tokenet i den samme headeren. Scopene under
+          gjelder begge veier.
         </p>
 
         {created && (

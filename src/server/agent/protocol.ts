@@ -135,8 +135,11 @@ export function statusFor(code: ApiErrorCode): number {
 export function agentApiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    // `mcp-*` are the Streamable HTTP transport's own headers. A browser MCP
+    // client sends them, so a preflight that did not name them would fail before
+    // the request the endpoint would have answered with a plain `405`.
+    'Access-Control-Allow-Headers': 'authorization, content-type, mcp-protocol-version, mcp-session-id',
     'Access-Control-Max-Age': '600',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',

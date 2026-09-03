@@ -52,7 +52,37 @@ if (body?.error?.code !== 'SERVER_NOT_CONFIGURED') {
   fail(`Forventet SERVER_NOT_CONFIGURED, fikk ${JSON.stringify(body)}.`)
 }
 
-console.log('Agent-API-bundelen lastes av Node og svarer som den skal.')
+/**
+ * The published contract, generated inside the bundle.
+ *
+ * The tool catalogue is not written down anywhere — it is built from the
+ * operations' own Zod schemas, with `unrepresentable: 'throw'`, the first time a
+ * client asks for it. That is the right trade (a schema that cannot be
+ * expressed must not be published as an empty `{}`), but it moves the failure to
+ * request time: an operation whose input cannot be turned into JSON Schema would
+ * type-check, deploy green, and answer the very first `tools/list` with a 500.
+ *
+ * So it is generated here instead, in the same plain Node the platform runs, as
+ * part of the build. `mcpTools()` calls the same `describeOperations()` the REST
+ * catalogue does, so this covers both.
+ */
+const tools = typeof loaded.mcpTools === 'function' ? loaded.mcpTools() : null
+if (!Array.isArray(tools) || tools.length === 0) {
+  fail('Bundelen kunne ikke bygge MCP-verktøykatalogen. Første tools/list ville svart 500.')
+}
+
+const malformed = tools.filter((tool) => tool?.inputSchema?.type !== 'object')
+if (malformed.length > 0) {
+  fail(
+    `Disse verktøyene har ikke et objektskjema, som MCP krever: ${malformed
+      .map((tool) => tool?.name ?? '(uten navn)')
+      .join(', ')}.`,
+  )
+}
+
+console.log(
+  `Agent-API-bundelen lastes av Node og svarer som den skal, med ${tools.length} MCP-verktøy.`,
+)
 
 function fail(message) {
   console.error(`\nAgent-API-bundelen er ikke deploybar.\n${message}\n`)

@@ -23,8 +23,20 @@ export * from './audit'
 export * from './body'
 export * from './config'
 export * from './handler'
+export * from './invoke'
 export * from './protocol'
 export * from './tokens'
+/**
+ * The MCP tool catalogue, exported from the deployment's own entry point.
+ *
+ * Not because the platform calls it — the endpoint is routed through
+ * `handleAgentRequest` like everything else — but because it is the one part of
+ * the published contract that is *generated* rather than written, inside the
+ * bundle, at request time. `scripts/check-agent-bundle.mjs` builds it in plain
+ * Node during the build, so a schema that cannot be expressed in JSON Schema
+ * fails there instead of turning every client's first `tools/list` into a 500.
+ */
+export * from '../mcp/tools'
 
 /** The dependencies for a configured deployment. Built once, reused warm. */
 function depsFor(state: Extract<AgentApiConfigState, { kind: 'configured' }>): AgentApiDeps {

@@ -40,7 +40,7 @@ import { convertRewrites } from '@vercel/routing-utils'
 import type { AgentContext } from '../../agent/types'
 import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
-import { AGENT_API_BASE_PATH, AGENT_API_PATH_PARAM } from '../../routing'
+import { AGENT_API_BASE_PATH, AGENT_API_PATH_PARAM, AGENT_MCP_PATH } from '../../routing'
 import type { AgentAuditRecord, AgentAuditSink } from './audit'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
 import type { AgentPrincipal, AuthOutcome } from './tokens'
@@ -137,6 +137,7 @@ describe('adressene til agent-API-et', () => {
     `${AGENT_API_BASE_PATH}/operations`,
     `${AGENT_API_BASE_PATH}/operations/list_presentations`,
     `${AGENT_API_BASE_PATH}/operations/upload_asset?presentationId=p_1&name=figur.png`,
+    AGENT_MCP_PATH,
   ])('%s når inngangsfilen', (address) => {
     expect(routeOf(address)?.file).toBe(join('api', 'agent', 'v1.ts'))
   })
@@ -156,6 +157,7 @@ describe('adressene til agent-API-et', () => {
     '/api/agent/v1',
     '/api/agent/v1/operations',
     '/api/agent/v1/operations/list_presentations',
+    '/api/agent/v1/mcp',
     '/api/noe-helt-annet',
   ])('lar SPA-rewriten aldri svelge %s', (address) => {
     const spa = convertRewrites(rewrites).find((route) => route.dest === '/index.html')
@@ -244,6 +246,27 @@ describe('en adresse med to ledd etter versjonsprefikset, hele veien', () => {
     expect(body.error.code).toBe('UNAUTHENTICATED')
   })
 
+  it('kommer fram til MCP-endepunktet og svarer JSON-RPC, ikke plattformens 404', async () => {
+    // The address that broke before had two segments after the version prefix.
+    // This one has one, but it is new, and the deployment that answers it is the
+    // same rewrite plus the same static function — so it is followed the whole
+    // way here too rather than assumed.
+    const response = await handleAgentRequest(
+      deps(),
+      deployed(AGENT_MCP_PATH, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/json')
+    const body = (await response.json()) as { jsonrpc: string; result: { tools: unknown[] } }
+    expect(body.jsonrpc).toBe('2.0')
+    expect(body.result.tools.length).toBeGreaterThan(0)
+  })
+
   it('svarer på katalogen og på basisadressen med det de er', async () => {
     const shared = deps()
     const catalogue = await handleAgentRequest(
@@ -263,8 +286,14 @@ describe('en adresse med to ledd etter versjonsprefikset, hele veien', () => {
       deployed(AGENT_API_BASE_PATH, { method: 'GET', headers: { Authorization: `Bearer ${TOKEN}` } }),
     )
     expect(index.status).toBe(200)
-    const meta = (await index.json()) as { operation: string; data: { operations: string } }
+    const meta = (await index.json()) as {
+      operation: string
+      data: { operations: string; mcp: string }
+    }
     expect(meta.operation).toBe('index')
     expect(meta.data.operations).toBe(`${AGENT_API_BASE_PATH}/operations`)
+    // A client that guessed the base address should be able to find the MCP
+    // endpoint from it, rather than from documentation it may not have.
+    expect(meta.data.mcp).toBe(AGENT_MCP_PATH)
   })
 })
