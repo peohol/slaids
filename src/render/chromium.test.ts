@@ -25,8 +25,13 @@ import {
 } from './chromium'
 import { pngPixelSize } from './rasterize'
 
-/** Something that exists and is executable on any POSIX machine. */
-const REAL_EXECUTABLE = '/bin/sh'
+/** A real executable on every Node platform; it is never launched as Chromium. */
+const REAL_EXECUTABLE = process.execPath
+const linuxIt = process.platform === 'linux' ? it : it.skip
+const hasExplicitBrowser = Boolean(
+  process.env[CHROMIUM_EXECUTABLE_VAR]?.trim() || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?.trim(),
+)
+const browserDescribe = process.platform === 'linux' || hasExplicitBrowser ? describe : describe.skip
 
 describe('hvilken Chromium som brukes', () => {
   it('lar variabelen overstyre alt annet', async () => {
@@ -47,10 +52,10 @@ describe('hvilken Chromium som brukes', () => {
     ).rejects.toThrow(PreviewBrowserUnavailableError)
   })
 
-  it('finner den innebygde serverless-buildet uten noen konfigurasjon', async () => {
-    // `@sparticuz/chromium` is an ordinary dependency, and this is what makes
-    // the preview work on Vercel with nothing set: the same path production
-    // takes, taken here.
+  linuxIt('finner den innebygde serverless-buildet uten noen konfigurasjon', async () => {
+    // The npm package contains a Linux Chromium. This is the same path Vercel
+    // takes; Windows/macOS must not try to execute that binary merely to run the
+    // unit suite.
     const resolved = await resolveExecutable({})
 
     expect(resolved.executablePath.length).toBeGreaterThan(0)
@@ -75,18 +80,19 @@ p { font-family: '${family}', sans-serif; font-size: 40px; }
 </style></head><body><p>Slaids</p></body></html>`
 }
 
-afterAll(async () => {
-  // The rasterizer holds a browser for the life of the closure.
-  await rasterize({
-    html: '<!doctype html><html><body></body></html>',
-    width: 1,
-    height: 1,
-    scale: 1,
-    fontFamilies: [],
-  }).catch(() => undefined)
-})
+browserDescribe('fontsReady sier hva bildet faktisk er tegnet med', () => {
+  afterAll(async () => {
+    // The rasterizer holds a browser for the life of the closure. There is no
+    // explicit close seam; the Vitest worker owns the process lifetime.
+    await rasterize({
+      html: '<!doctype html><html><body></body></html>',
+      width: 1,
+      height: 1,
+      scale: 1,
+      fontFamilies: [],
+    }).catch(() => undefined)
+  })
 
-describe('fontsReady sier hva bildet faktisk er tegnet med', () => {
   // Every family reaching the rasterizer comes from `webFontsFor`, so it always
   // arrives as an `@font-face`. A system stack contributes no families at all —
   // which is what makes counting declared faces the right question here, and
