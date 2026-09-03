@@ -185,6 +185,14 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   nevner dem**: de står eksplisitt i `vercel.json` (`includeFiles`), og
   `deployment.test.ts` håndhever det. Uten den linjen ville hver preview svart «the input
   directory does not exist» bak en grønn deploy.
+- **De to nettleserpakkene pinnes eksakt, og majoren deres må være den samme.**
+  `puppeteer-core` er bygget mot én bestemt Chrome-build (`PUPPETEER_REVISIONS.chrome`),
+  og `@sparticuz/chromium` *er* Chromium-versjonen – og følger uttrykkelig ikke semver, så
+  en `^` der er en lisens til å bytte nettleser under driveren. Ingen av pakkene sjekker
+  den andre, og et avvik feiler verken ved install, bygg eller oppstart: det feiler på den
+  CDP-kommandoen de to er uenige om, i produksjon, på én kodevei. `browserVersions.test.ts`
+  følger kjeden `package.json` → driverens mål → pakken → binæren, og den siste lenken
+  spør nettleseren selv.
 - Fontene hentes serverside og bakes inn som `data:`-URL-er (`src/render/fonts.ts`), ikke
   lenkes inn i dokumentet. En headless Chromium som henter dem selv kostet tolv sekunder
   per bilde, hver gang, fordi en sides HTTP-cache ikke er noe neste invokasjon kan regne

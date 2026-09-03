@@ -3008,6 +3008,17 @@ på hver eneste preview. Derfor står de eksplisitt i `vercel.json`
 per varm instans og startes på nytt hvis den er borte; å starte en per
 forespørsel ville vært det meste av forespørselen.
 
+**Driveren og nettleseren er pinnet sammen.** `puppeteer-core` er bygget mot én
+bestemt Chrome-build, og `@sparticuz/chromium` *er* Chromium-versjonen – og følger
+uttrykkelig ikke semver, så breaking changes kommer på patch-nivå. Ingen av pakkene
+sjekker den andre, og et avvik feiler verken ved install, bygg eller oppstart: det
+feiler på den CDP-kommandoen de to versjonene er uenige om, i produksjon, på én
+kodevei. Det skjedde her én gang – `puppeteer-core@25.10.0` (Chrome 152) mot
+Chromium 149, tre majorer fra hverandre, med alle tester grønne. Begge er derfor
+pinnet uten `^`, og `browserVersions.test.ts` følger kjeden hele veien:
+`package.json` → driverens eget mål → den installerte pakken → binæren, som blir
+spurt hva den er. Den siste lenken er den som ikke kan diskuteres.
+
 **Fontene hentes her, ikke i nettleseren.** Det opplagte – legge appens eget
 `<link rel="stylesheet">` i dokumentet – virket, og kostet **tolv sekunder per
 bilde**: en headless Chromium i en serverless-container henter stilarket og hvert

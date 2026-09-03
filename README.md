@@ -563,6 +563,13 @@ curl -sS -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/
   `scale` er svaret, i stedet for at plattformen kutter responsen.
 
 Rasteriseringen bruker `puppeteer-core` med Chromium fra `@sparticuz/chromium`.
+Begge er **pinnet eksakt**, og majoren må være den samme: `puppeteer-core` er
+bygget mot én bestemt Chrome-build, `@sparticuz/chromium` *er* Chromium-versjonen
+og følger uttrykkelig ikke semver, og ingen av dem sjekker den andre – et avvik
+feiler først på den CDP-kommandoen de er uenige om. Skal de oppgraderes, finn
+`puppeteer-core`-utgivelsen som peker på samme Chromium-major
+([pptr.dev/chromium-support](https://pptr.dev/chromium-support)) og flytt begge;
+`src/render/browserVersions.test.ts` sier fra hvis de kommer i utakt.
 Begge er vanlige avhengigheter, så det trengs ingen konfigurasjon på Vercel og
 ingenting lastes ned ved kjøring; `vercel.json` pakker nettleserbinærene med
 funksjonen (`includeFiles`), fordi ingen importgraf nevner dem. Lokalt kan
