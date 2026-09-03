@@ -453,12 +453,24 @@ export function EditorView({
     [currentSlideId, run],
   )
 
+  /**
+   * Take the zone away — measured, even though this slide only gains room.
+   *
+   * The checkers are what make the removal a *guarded* one, and leaving them out
+   * is invisible: the guard runs, finds no measurer, and reports no regression.
+   * They matter here for a reason that has nothing to do with this slide. A
+   * title may cite, and a citation that goes away takes its reference's first
+   * occurrence with it — every number after it moves up, and a label that was
+   * `1–4` can come back as `1, 2, 5, 6`, wider, in a zone on a slide nobody
+   * touched. `restoreTitle` below needs them for the opposite reason, and the
+   * command owns both rules.
+   */
   const removeTitle = useCallback(() => {
     if (!slide?.title) return
     const removed = slide.title
     // `force` is the user's confirmation; the command refuses without it.
     const done = run('toggle-title', (current) =>
-      setSlideHasTitle(current, slide.id, false, { force: true }),
+      setSlideHasTitle(current, slide.id, false, { ...domFitCheckers, force: true }),
     )
     if (done) removedTitles.current.set(slide.id, removed)
   }, [run, slide])
