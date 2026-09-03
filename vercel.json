@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/agent/v1.ts": {
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**",
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     { "source": "/api/agent/v1/:__slaidsPath*", "destination": "/api/agent/v1" },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }

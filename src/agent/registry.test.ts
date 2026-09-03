@@ -89,6 +89,16 @@ describe('operasjonskatalogen', () => {
     )
   })
 
+  it('har fase 5: rendret preview, som en lesing og ingenting mer', () => {
+    // §44's phase 5. It is a *read*: nothing about looking at a slide changes
+    // it, so a read-only token has to be enough — and a picture must never
+    // require the authority to rewrite the deck it is a picture of.
+    const preview = findOperation('render_slide_preview')
+    expect(preview).toBeTruthy()
+    expect(preview?.mutates).toBe(false)
+    expect(preview?.scopes).toEqual(['presentations:read'])
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)

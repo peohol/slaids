@@ -17,50 +17,43 @@
  * SDK is the reference, so it is the test, not the implementation.
  *
  * The server is `node:http` rather than a framework, because the platform hands
- * the deployment a web `Request` and expects a `Response` — this shim is the
- * shortest thing that produces one from a real socket.
+ * the deployment a web `Request` and expects a `Response`; `testServer.ts` is
+ * the shortest shim that produces one from a real socket.
  */
 
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { AGENT_MCP_PATH } from '../../routing'
-import { handleAgentRequest } from '../agent/handler'
+import { agentImage } from '../../agent/image'
+import { realImages } from '../../domain/testImages'
 import { MCP_PROTOCOL_VERSION } from './tools'
 import { TOKEN, closeHarnessDatabases, harness, type Harness } from './testHarness'
+import { listenHarness, type ServedHarness } from './testServer'
 
 let deployment: Harness
-let server: Server
+let served: ServedHarness
 let address: URL
 
-/** The deployment, behind a real socket. */
-function serve(harnessed: Harness): Server {
-  return createServer((incoming, outgoing) => {
-    const chunks: Buffer[] = []
-    incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
-    incoming.on('end', () => {
-      const body = Buffer.concat(chunks)
-      const headers = new Headers()
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        for (const single of Array.isArray(value) ? value : [value ?? '']) {
-          if (single) headers.append(name, single)
-        }
-      }
-
-      const request = new Request(`http://localhost${incoming.url ?? '/'}`, {
-        method: incoming.method,
-        headers,
-        ...(body.byteLength > 0 ? { body } : {}),
-      })
-
-      void handleAgentRequest(harnessed.deps, request).then(async (response) => {
-        outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()))
-        outgoing.end(Buffer.from(await response.arrayBuffer()))
-      })
+/**
+ * A renderer that answers with a real PNG.
+ *
+ * Not a browser: what this file is for is the *protocol*, and the claim being
+ * checked is that a rendered preview reaches a client as MCP's own
+ * `ImageContent` — base64 plus a media type — which the SDK validates. That a
+ * real Chromium draws the right pixels is `src/render/agentLoop.test.ts`, which
+ * makes the same call through the same client.
+ */
+function pngRenderer() {
+  const bytes = realImages.png()
+  return () =>
+    Promise.resolve({
+      ok: true as const,
+      value: {
+        image: agentImage({ mimeType: 'image/png', bytes, width: 3, height: 2 }),
+        fontsReady: true,
+        warnings: [],
+      },
     })
-  })
 }
 
 async function connectedClient(): Promise<Client> {
@@ -74,15 +67,13 @@ async function connectedClient(): Promise<Client> {
 }
 
 beforeAll(async () => {
-  deployment = harness()
-  server = serve(deployment)
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const port = (server.address() as AddressInfo).port
-  address = new URL(`http://127.0.0.1:${port}${AGENT_MCP_PATH}`)
+  deployment = harness({ preview: pngRenderer() })
+  served = await listenHarness(deployment)
+  address = served.address
 })
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
+  await served.close()
   await closeHarnessDatabases()
 })
 
@@ -155,6 +146,57 @@ describe('den offisielle MCP-klienten mot en ekte socket', () => {
 
     // The connection is still usable afterwards — a refusal is an answer.
     expect((await client.listTools()).tools.length).toBeGreaterThan(0)
+    await client.close()
+  })
+
+  it('leverer et rendret preview som en image-blokk SDK-en godtar', async () => {
+    const client = await connectedClient()
+
+    const created = (await client.callTool({
+      name: 'slaids_create_presentation',
+      arguments: { title: 'Med preview' },
+    })) as { structuredContent?: { presentationId: string; slides: { slideId: string }[] } }
+    const deck = created.structuredContent
+    if (!deck) throw new Error('Ingen presentasjon ble opprettet.')
+
+    const rendered = (await client.callTool({
+      name: 'slaids_render_slide_preview',
+      arguments: { presentationId: deck.presentationId, slideId: deck.slides[0].slideId },
+    })) as {
+      isError?: boolean
+      content: { type: string; text?: string; data?: string; mimeType?: string }[]
+      structuredContent?: {
+        image: { mimeType: string; width: number; height: number; byteLength: number }
+        pageKind: string
+        fontsReady: boolean
+      }
+    }
+
+    expect(rendered.isError).toBeFalsy()
+
+    // Reaching this line at all means the SDK validated the result against the
+    // specification's `CallToolResult` — an image block with the wrong shape,
+    // or base64 that is not a string, fails inside `callTool`.
+    const image = rendered.content.find((block) => block.type === 'image')
+    if (!image) throw new Error('Previewet kom ikke som en image-blokk.')
+    expect(image.mimeType).toBe('image/png')
+    expect(typeof image.data).toBe('string')
+    // Visual content a client can actually decode, not a base64 string in prose.
+    const bytes = Buffer.from(image.data ?? '', 'base64')
+    expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    expect(bytes.byteLength).toBe(rendered.structuredContent?.image.byteLength)
+
+    // The structured half describes the picture and does not repeat it: bytes in
+    // `structuredContent` would be a second copy in everything that logs JSON.
+    expect(rendered.structuredContent?.image.mimeType).toBe('image/png')
+    expect(rendered.structuredContent?.pageKind).toBe('authored-slide')
+    expect(JSON.stringify(rendered.structuredContent)).not.toContain(image.data)
+
+    // And the text block is still the structured half, for a client that only
+    // shows text.
+    const text = rendered.content.find((block) => block.type === 'text')?.text ?? ''
+    expect(JSON.parse(text)).toEqual(rendered.structuredContent)
+
     await client.close()
   })
 

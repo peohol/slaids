@@ -28,7 +28,10 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { agentImage } from '../../agent/image'
+import type { SlidePreviewRenderer } from '../../agent/preview'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
+import { realImages } from '../../domain/testImages'
 import {
   callFailure,
   callTool,
@@ -36,9 +39,11 @@ import {
   harness,
   newPresentation,
   rest,
+  restRaw,
   type Harness,
   type McpToolError,
 } from './testHarness'
+import { resultImages, resultText } from './result'
 
 afterEach(closeHarnessDatabases)
 
@@ -151,6 +156,99 @@ describe('lesing gir det samme over begge transportene', () => {
     })
     expect(stale.status).toBe(409)
     expect(stale.body.error?.code).toBe('CONFLICT')
+  })
+})
+
+describe('et rendret preview peker på den samme funksjonen begge veier', () => {
+  const bytes = realImages.png()
+
+  /** One renderer, counting: the count is how "the same function" is asserted. */
+  function countingRenderer(): { renderer: SlidePreviewRenderer; calls: () => number } {
+    let calls = 0
+    return {
+      calls: () => calls,
+      renderer: () => {
+        calls += 1
+        return Promise.resolve({
+          ok: true,
+          value: {
+            image: agentImage({ mimeType: 'image/png', bytes, width: 1600, height: 900 }),
+            fontsReady: true,
+            warnings: [],
+          },
+        })
+      },
+    }
+  }
+
+  const renderer: SlidePreviewRenderer = countingRenderer().renderer
+
+  it('svarer med det samme strukturerte resultatet og de samme bytene', async () => {
+    const counting = countingRenderer()
+    const harnessed = harness({ preview: counting.renderer })
+    const deck = await newPresentation(harnessed, 'Preview begge veier')
+    const input = { presentationId: deck.presentationId, slideId: deck.slideId }
+
+    // REST's default framing for a picture is the picture; the envelope is one
+    // `Accept` away, and it is the envelope that is comparable with MCP's
+    // structured half.
+    const binary = new Uint8Array(
+      await (await restRaw(harnessed, 'render_slide_preview', input)).arrayBuffer(),
+    )
+    const envelope = await rest(harnessed, 'render_slide_preview', input)
+    const overMcp = await callTool(harnessed, tool('render_slide_preview'), input)
+
+    // The structured half is identical apart from the one field REST fills in
+    // for a caller that asked for one body: the base64 of the same bytes.
+    const restData = envelope.body.data as { image: Record<string, unknown> }
+    const mcpData = overMcp.structuredContent as { image: Record<string, unknown> }
+    const { base64, ...restImage } = restData.image as { base64: string }
+    expect({ ...restData, image: restImage }).toEqual(mcpData)
+
+    // And all three carry the same picture.
+    const fromMcp = Buffer.from(resultImages(overMcp)[0]?.data ?? '', 'base64')
+    expect(binary).toEqual(bytes)
+    expect(new Uint8Array(Buffer.from(base64, 'base64'))).toEqual(bytes)
+    expect(new Uint8Array(fromMcp)).toEqual(bytes)
+
+    // MCP puts it in the block a client hands a model; the text block is the
+    // structured half, exactly as for every other operation.
+    expect(resultImages(overMcp)).toHaveLength(1)
+    expect(resultImages(overMcp)[0].mimeType).toBe('image/png')
+    expect(JSON.parse(resultText(overMcp))).toEqual(mcpData)
+
+    // Three calls, one renderer: neither transport has a preview path of its
+    // own, and neither of them drew the picture itself. That — rather than the
+    // answers happening to match — is what "the same underlying function" means.
+    expect(counting.calls()).toBe(3)
+  })
+
+  it('avviser en ukjent side likt, som verktøyresultat i MCP', async () => {
+    const harnessed = harness({ preview: renderer })
+    const deck = await newPresentation(harnessed)
+    const both = await refusedBothWays(harnessed, 'render_slide_preview', {
+      presentationId: deck.presentationId,
+      slideId: 's_ikke_her',
+    })
+
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('SLIDE_NOT_FOUND')
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(404)
+  })
+
+  it('sier PREVIEW_UNAVAILABLE likt når installasjonen ikke kan rendre', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+    const both = await refusedBothWays(harnessed, 'render_slide_preview', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('PREVIEW_UNAVAILABLE')
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(501)
   })
 })
 

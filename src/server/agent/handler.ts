@@ -41,8 +41,18 @@
  * a structured object with a strict schema; splitting them between a query
  * string for some operations and a body for others would make the contract two
  * contracts, and the catalogue publishes one.
+ *
+ * The answer is JSON for every operation but one. `render_slide_preview`
+ * produces a picture, and a picture is answered as itself: the PNG as the body,
+ * with `Content-Type` saying so, rather than a few hundred kilobytes of base64
+ * inside an envelope the caller then has to unwrap. Nothing about the contract
+ * changes — `Accept: application/json` still gets the ordinary envelope, with
+ * the image base64-encoded in the field the operation put it in — and where the
+ * picture comes from is `invoke.ts`, the same function MCP calls, so neither
+ * transport has its own idea of what a preview is.
  */
 
+import { attachEncodedImage, type AgentImage } from '../../agent/image'
 import { describeOperations } from '../../agent/registry'
 import { AGENT_API_BASE_PATH, AGENT_API_VERSION, AGENT_MCP_PATH, agentApiUrl } from '../../routing'
 import type { AgentContext } from '../../agent/types'
@@ -50,7 +60,15 @@ import { auditedPresentationId, recordAgentCall, type AgentAuditSink, type Audit
 import { parseOperationInput, readBody } from './body'
 import { authorizeOperation, performOperation } from './invoke'
 import { handleMcpRequest } from '../mcp/endpoint'
-import { agentApiHeaders, errorResponse, jsonResponse, statusFor, type ApiError } from './protocol'
+import {
+  agentApiHeaders,
+  errorResponse,
+  imageResponse,
+  jsonResponse,
+  prefersJsonResult,
+  statusFor,
+  type ApiError,
+} from './protocol'
 import { looksLikeAgentToken } from '../../persistence/agentTokens'
 import { REFUSAL_CODES, bearerToken, type AgentPrincipal, type AuthOutcome } from './tokens'
 
@@ -335,7 +353,14 @@ async function invoke(
   }
 
   const outcome = await performOperation(deps.contextFor(principal), name, parsed.input)
-  return finish(deps, { subject, started, operation: name, input: parsed.input, ...outcome })
+  return finish(deps, {
+    subject,
+    started,
+    operation: name,
+    input: parsed.input,
+    accept: request.headers.get('accept'),
+    ...outcome,
+  })
 }
 
 /** What a route produced: one of the two, never both. */
@@ -344,6 +369,11 @@ interface Answer {
   error?: ApiError
   /** Anything the status alone cannot say, such as `Allow`. */
   headers?: Record<string, string>
+  /** The picture, when the operation produced one. See `invoke.ts`. */
+  image?: AgentImage
+  imageField?: string
+  /** What the caller said it could read. Only a picture gives it a choice. */
+  accept?: string | null
 }
 
 function auditSubject(principal: AgentPrincipal): AuditSubject {
@@ -384,12 +414,29 @@ async function finish(
       ...(outcome.headers ? { extraHeaders: outcome.headers } : {}),
     })
   }
+
+  // A picture, as itself, unless the caller asked for the envelope. The
+  // structured half is not lost either way: the binary answer carries the
+  // operation and the revision in headers, and the whole of it is one
+  // `Accept: application/json` away.
+  const image = outcome.image
+  if (image && !prefersJsonResult(outcome.accept ?? null)) {
+    return imageResponse(image.bytes, image.mimeType, {
+      operation: outcome.operation,
+      ...(outcome.revision ? { revision: outcome.revision } : {}),
+      ...(outcome.headers ? { extraHeaders: outcome.headers } : {}),
+    })
+  }
+
   return jsonResponse(
     {
       ok: true,
       operation: outcome.operation,
       ...(outcome.revision ? { revision: outcome.revision } : {}),
-      data: outcome.data,
+      data:
+        image && outcome.imageField
+          ? attachEncodedImage(outcome.data, outcome.imageField, image)
+          : outcome.data,
     },
     200,
     outcome.headers ?? {},

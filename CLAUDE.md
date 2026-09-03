@@ -171,6 +171,60 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   og tabellen har ingen kolonne slikt kan havne i.
 - `src/server/` importeres aldri fra resten av `src/`. En import derfra ville kompilert,
   bestått testene og dratt hele operasjonsregisteret inn i nettleserbundelen.
+- **Rendret preview bruker Slaids' egen renderer, aldri en til.** `render_slide_preview`
+  tegner markupen `DeckPageView` lager – den samme komponenten presentasjonsmodus, den
+  delte visningen og filmstripen bruker – inne i den samme `SlideRenderProvider`, under
+  appens egne stilark importert med `?inline` fra `src/styles/`. Det finnes ingen geometri,
+  typografi, layout eller fit-regel i `src/render/`: en regel lagt til i `slide.css` er i
+  previewet uten at noen oppdaterer noe. En egen «agentrenderer» – satori, en
+  vektorrasterizer, en egen tekstmåler – er nettopp det §44 forbyr, fordi den slutter å
+  stemme med editoren i stillhet.
+- Rasteriseringen er en ekte Chromium (`puppeteer-core` + `@sparticuz/chromium`, vanlige
+  avhengigheter, ingen nedlasting ved kjøring). Nettleseren gjenbrukes per varm instans.
+  Binærene er brotli-blober pakken finner via `import.meta.url`, så **ingen importgraf
+  nevner dem**: de står eksplisitt i `vercel.json` (`includeFiles`), og
+  `deployment.test.ts` håndhever det. Uten den linjen ville hver preview svart «the input
+  directory does not exist» bak en grønn deploy.
+- **De to nettleserpakkene pinnes eksakt, og majoren deres må være den samme.**
+  `puppeteer-core` er bygget mot én bestemt Chrome-build (`PUPPETEER_REVISIONS.chrome`),
+  og `@sparticuz/chromium` *er* Chromium-versjonen – og følger uttrykkelig ikke semver, så
+  en `^` der er en lisens til å bytte nettleser under driveren. Ingen av pakkene sjekker
+  den andre, og et avvik feiler verken ved install, bygg eller oppstart: det feiler på den
+  CDP-kommandoen de to er uenige om, i produksjon, på én kodevei. `browserVersions.test.ts`
+  følger kjeden `package.json` → driverens mål → pakken → binæren, og den siste lenken
+  spør nettleseren selv.
+- Fontene hentes serverside og bakes inn som `data:`-URL-er (`src/render/fonts.ts`), ikke
+  lenkes inn i dokumentet. En headless Chromium som henter dem selv kostet tolv sekunder
+  per bilde, hver gang, fordi en sides HTTP-cache ikke er noe neste invokasjon kan regne
+  med. Bare `fonts.gstatic.com` hentes fra – stilarket er et svar utenfra som navngir
+  URL-er å hente – og en familie som ikke kan hentes lenkes i stedet og rapporteres som
+  `fontsReady: false`, aldri som en stille reservefont.
+- Previewdokumentet kjører ingenting og henter ingenting: ingen script-tagg, statisk markup,
+  innbakte fonter, og assets som `data:`-URL-er hentet *før* markupen bygges –
+  `renderToStaticMarkup` kjører ingen effekter, så en `useEffect`-basert URL ville gitt et
+  preview med «Laster figur …» i stedet for figuren. Det er dét
+  `AssetUrlSource.resolveSync` er til for.
+- **Agent Core er fortsatt React-fritt.** Rendereren injiseres gjennom
+  `AgentContext.preview`, som repositoryet og fit-sjekkerne. `src/agent/preview.ts` sier
+  hva et preview er, `src/render/` er implementasjonen, og en installasjon uten renderer
+  svarer `PREVIEW_UNAVAILABLE` (`PREVIEW_FAILED` når nettleseren finnes og forsøket gikk
+  galt) – aldri et bilde av ingenting.
+- `src/render/` importeres av **nøyaktig én** fil i serverlaget:
+  `src/server/agent/index.ts`, deployment-sømmen. Appen importerer det aldri, og
+  `puppeteer-core` finnes ingen andre steder i `src/`. `boundary.test.ts` håndhever begge
+  retninger; klientbundelen er byte for byte den samme som før previewet fantes.
+- Bildet er én verdi og to serialiseringer. Operasjonen svarer med et `AgentImage`, og
+  `detachImage` i `src/agent/image.ts` deler svaret i JSON og bytes – kalt fra
+  `performOperation`, altså den ene funksjonen begge transportene deler. REST svarer med
+  bildet (`Content-Type: image/png`, revisjonen i `X-Slaids-Revision`), og hele det
+  strukturerte svaret er ett `Accept: application/json` unna med bildet som base64. MCP
+  svarer med en `ImageContent`-blokk, fordi det er den blokken en klient gir videre til en
+  multimodal modell; `structuredContent` beskriver bildet og gjentar det ikke.
+- Et preview er en **lesing**: `presentations:read` alene holder, ingenting lagres, og
+  revisjonen svaret bærer er den lesingen bildet viser – så en agent kan rendre, tenke og
+  skrive mot den samme revisjonen. `slideId` slås opp mot `deckPages`, så forsiden
+  (`__cover__`) og de avledede referansesidene er adresserbare; QR-siden er ikke med, siden
+  den bare finnes mens delingen er på.
 - Serverfunksjonen deployes som **én bundel** (`src/server/generated/agentApi.js`), ikke som
   kildetreet. Vercel kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom
   dem; TypeScript skriver modulnavn ordrett, og Nodes ESM-resolver har verken
@@ -194,8 +248,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   som reserialisert markup – aldri kallerens streng. Formatet avgjøres av bytene
   (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen, og et
   rasterbilde valideres i sin helhet (`src/domain/imageFile.ts`) før det lagres:
-  et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Se
-  `IMPLEMENTATION_PLAN.md` §44.
+  et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Et rendret
+  preview er ikke et unntak: det er et fotografi av en slide som allerede finnes, aldri
+  en generert illustrasjon. Se `IMPLEMENTATION_PLAN.md` §44.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.
@@ -255,6 +310,11 @@ nettleserbundelen, og finner oppstarten nøkkelen under et slikt navn, nekter de
 
 Playwright laster ned egen nettleser. Finnes det allerede en Chromium i miljøet:
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e`
+
+Previewtestene i `npm test` starter også en ekte Chromium, men den kommer fra
+`@sparticuz/chromium` (en vanlig avhengighet), så det trengs ingenting.
+`SLAIDS_CHROMIUM_EXECUTABLE=/sti/til/chrome` overstyrer den – lokalt og i
+produksjon.
 
 ## Verifikasjon
 

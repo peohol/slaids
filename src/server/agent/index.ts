@@ -11,9 +11,19 @@
  * taken to its conclusion: there is no local mode for a server, so there is
  * nothing to quietly fall back to, and a REST layer that appeared to work
  * against nothing would be the worst of the available answers.
+ *
+ * This file is also the one place in `src/server/` that reaches into
+ * `src/render/`, and the exception is deliberate rather than incidental. A
+ * rendered preview has to be drawn by Slaids' own renderer — §44 is explicit
+ * that it must not be a separate one — and that renderer is React over the
+ * app's own stylesheets, which is exactly the dependency the rest of this
+ * directory is forbidden to have. So it is held behind one function, imported
+ * at the seam where every other injection also becomes real, and
+ * `boundary.test.ts` keeps it to this file.
  */
 
 import { SupabaseAgentTokens } from '../../persistence/agentTokens'
+import { chromiumSlidePreviewRenderer } from '../../render/preview'
 import { readAgentApiConfig, describeUnavailable, type Env, type AgentApiConfigState } from './config'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
 import { errorResponse } from './protocol'
@@ -39,14 +49,21 @@ export * from './tokens'
 export * from '../mcp/tools'
 
 /** The dependencies for a configured deployment. Built once, reused warm. */
-function depsFor(state: Extract<AgentApiConfigState, { kind: 'configured' }>): AgentApiDeps {
+function depsFor(
+  state: Extract<AgentApiConfigState, { kind: 'configured' }>,
+  env: Env,
+): AgentApiDeps {
   const client = createServerClient(state.config)
   const tokens = new SupabaseAgentTokens(() => client)
   const audit = supabaseAuditSink(client)
+  // One renderer for the instance: it owns a browser, and starting one per
+  // request would be most of the request. It holds no caller state, so there is
+  // nothing to leak between two tokens.
+  const preview = chromiumSlidePreviewRenderer({ env })
 
   return {
     authenticate: (presented) => authenticateAgentToken(tokens, presented, new Date()),
-    contextFor: (principal) => agentContextFor(client, principal),
+    contextFor: (principal) => agentContextFor(client, principal, preview),
     audit,
     maxRequestBytes: state.config.maxRequestBytes,
     now: () => new Date(),
@@ -69,7 +86,7 @@ export async function serveAgentApi(request: Request, env: Env): Promise<Respons
     if (state.kind !== 'configured') {
       return errorResponse({ code: 'SERVER_NOT_CONFIGURED', message: describeUnavailable(state) })
     }
-    cached = { deps: depsFor(state) }
+    cached = { deps: depsFor(state, env) }
   }
   return handleAgentRequest(cached.deps, request)
 }

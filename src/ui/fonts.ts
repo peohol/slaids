@@ -19,10 +19,7 @@
  * and nothing else.
  */
 
-import { webFontsFor } from '../domain/fonts'
-
-/** Weights the slide renderer can ask for; all of them must be ready. */
-const WEIGHTS = [400, 600, 700]
+import { FONT_WEIGHTS, googleFontsHref, webFontsFor } from '../domain/fonts'
 
 /**
  * How long to wait for a family before calling it unavailable.
@@ -62,8 +59,7 @@ function injectStylesheet(family: string): HTMLLinkElement {
   const link = document.createElement('link')
   link.rel = 'stylesheet'
   link.setAttribute('data-slaids-font', family)
-  const query = `family=${encodeURIComponent(family).replace(/%20/g, '+')}:wght@${WEIGHTS.join(';')}`
-  link.href = `https://fonts.googleapis.com/css2?${query}&display=swap`
+  link.href = googleFontsHref(family)
   document.head.appendChild(link)
   return link
 }
@@ -89,8 +85,8 @@ async function loadFamily(family: string): Promise<boolean> {
   // to verify; the stylesheet is as far as this environment goes.
   if (!fonts) return true
 
-  await Promise.all(WEIGHTS.map((weight) => fonts.load(`${weight} 16px "${family}"`)))
-  return WEIGHTS.every((weight) => fonts.check(`${weight} 16px "${family}"`))
+  await Promise.all(FONT_WEIGHTS.map((weight) => fonts.load(`${weight} 16px "${family}"`)))
+  return FONT_WEIGHTS.every((weight) => fonts.check(`${weight} 16px "${family}"`))
 }
 
 function withTimeout(work: Promise<boolean>, ms: number): Promise<boolean> {

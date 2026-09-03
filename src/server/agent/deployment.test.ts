@@ -37,7 +37,11 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { convertRewrites } from '@vercel/routing-utils'
+import { agentImage } from '../../agent/image'
+import type { SlidePreviewRenderer } from '../../agent/preview'
+import { realImages } from '../../domain/testImages'
 import type { AgentContext } from '../../agent/types'
+import { runOperation } from '../../agent/registry'
 import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import { AGENT_API_BASE_PATH, AGENT_API_PATH_PARAM, AGENT_MCP_PATH } from '../../routing'
@@ -52,10 +56,27 @@ const TOKEN = 'slaids_at_0123456789012345678901234567890123456789042'
 
 interface VercelConfig {
   rewrites?: { source: string; destination: string }[]
+  functions?: Record<string, { includeFiles?: string; maxDuration?: number }>
 }
 
 const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as VercelConfig
 const rewrites = config.rewrites ?? []
+
+/**
+ * The Chromium the preview renders with, and why it needs saying twice.
+ *
+ * `@sparticuz/chromium` is an ordinary dependency, so the platform's dependency
+ * tracer follows the *import* and packages the JavaScript. What it cannot see is
+ * that the package then reads a browser out of its own `bin/` directory at
+ * runtime: those are brotli blobs, reached by a path computed from
+ * `import.meta.url`, and nothing in any import graph mentions them. A deployment
+ * without them type-checks, builds, deploys green, and answers every preview
+ * with "the input directory does not exist".
+ *
+ * So they are listed explicitly, and asserted here — this is precisely the
+ * class of failure that only production would otherwise report.
+ */
+const CHROMIUM_BIN_GLOB = 'node_modules/@sparticuz/chromium/bin/**'
 
 /**
  * Every function the platform builds from `api/`, keyed by the address it
@@ -137,6 +158,7 @@ describe('adressene til agent-API-et', () => {
     `${AGENT_API_BASE_PATH}/operations`,
     `${AGENT_API_BASE_PATH}/operations/list_presentations`,
     `${AGENT_API_BASE_PATH}/operations/upload_asset?presentationId=p_1&name=figur.png`,
+    `${AGENT_API_BASE_PATH}/operations/render_slide_preview`,
     AGENT_MCP_PATH,
   ])('%s når inngangsfilen', (address) => {
     expect(routeOf(address)?.file).toBe(join('api', 'agent', 'v1.ts'))
@@ -151,6 +173,20 @@ describe('adressene til agent-API-et', () => {
     const routed = routeOf(`${AGENT_API_BASE_PATH}/operations/upload_asset?presentationId=p_1&name=figur.png`)
     expect(routed?.url.searchParams.get('presentationId')).toBe('p_1')
     expect(routed?.url.searchParams.get('name')).toBe('figur.png')
+  })
+
+  it('pakker Chromium-binærene med funksjonen, som ingen importgraf nevner', () => {
+    const entry = config.functions?.[join('api', 'agent', 'v1.ts')]
+    expect(entry?.includeFiles).toBe(CHROMIUM_BIN_GLOB)
+    // A browser launch plus a first inflation is seconds, not milliseconds, so
+    // the default ten is not enough for the first preview a cold instance draws.
+    expect(entry?.maxDuration).toBeGreaterThanOrEqual(30)
+  })
+
+  it('lister nøyaktig den filen som faktisk deployes', () => {
+    // The `functions` key is matched against the source path, so a rename of
+    // the entry point that forgot this line would silently drop the browser.
+    expect([...functions.values()]).toEqual(Object.keys(config.functions ?? {}))
   })
 
   it.each([
@@ -182,11 +218,19 @@ afterEach(async () => {
   while (databases.length > 0) await databases.pop()?.delete()
 })
 
-function deps(): AgentApiDeps {
+interface Deployment {
+  deps: AgentApiDeps
+  context: AgentContext
+}
+
+function deployment(options: { preview?: SlidePreviewRenderer } = {}): Deployment {
   counter += 1
   const database = new SlaidsDatabase(`slaids-api-routing-${counter}`)
   databases.push(database)
-  const context: AgentContext = { repository: new DexieSlaidsRepository(database) }
+  const context: AgentContext = {
+    repository: new DexieSlaidsRepository(database),
+    ...(options.preview ? { preview: options.preview } : {}),
+  }
   const principal: AgentPrincipal = {
     tokenId: 'token-1',
     tokenName: 'Testagenten',
@@ -195,13 +239,22 @@ function deps(): AgentApiDeps {
   }
 
   return {
-    authenticate: (presented): Promise<AuthOutcome> =>
-      Promise.resolve(presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' }),
-    contextFor: () => context,
-    audit: new MemoryAudit(),
-    maxRequestBytes: 1024 * 1024,
-    now: () => new Date('2026-09-03T12:00:00.000Z'),
+    context,
+    deps: {
+      authenticate: (presented): Promise<AuthOutcome> =>
+        Promise.resolve(
+          presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
+        ),
+      contextFor: () => context,
+      audit: new MemoryAudit(),
+      maxRequestBytes: 1024 * 1024,
+      now: () => new Date('2026-09-03T12:00:00.000Z'),
+    },
   }
+}
+
+function deps(): AgentApiDeps {
+  return deployment().deps
 }
 
 /** The request the function is handed for a public address, edge and all. */
@@ -228,6 +281,47 @@ describe('en adresse med to ledd etter versjonsprefikset, hele veien', () => {
     expect(body.ok).toBe(true)
     expect(body.operation).toBe('list_presentations')
     expect(body.data).toEqual({ presentations: [] })
+  })
+
+  it('bærer et binært previewsvar hele veien ut, med media-typen intakt', async () => {
+    // The preview is the one operation whose answer is not JSON, and the
+    // platform is the one thing that can quietly turn that into something else:
+    // a rewrite that lost the path, a header the router never set. So the
+    // picture is followed the same way the JSON is — through `vercel.json`
+    // compiled by Vercel's own rules, into the function's URL, and out.
+    const bytes = realImages.png()
+    const site = deployment({
+      preview: () =>
+        Promise.resolve({
+          ok: true,
+          value: {
+            image: agentImage({ mimeType: 'image/png', bytes, width: 1600, height: 900 }),
+            fontsReady: true,
+            warnings: [],
+          },
+        }),
+    })
+
+    const created = await runOperation(site.context, 'create_presentation', { title: 'Deployet' })
+    if (!created.ok) throw new Error(created.error.code)
+    const deck = created.value as { presentationId: string; slides: { slideId: string }[] }
+
+    const response = await handleAgentRequest(
+      site.deps,
+      deployed(`${AGENT_API_BASE_PATH}/operations/render_slide_preview`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presentationId: deck.presentationId,
+          slideId: deck.slides[0].slideId,
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(response.headers.get('x-slaids-operation')).toBe('render_slide_preview')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
   })
 
   it('svarer 401 som JSON uten token, ikke plattformens egen side', async () => {

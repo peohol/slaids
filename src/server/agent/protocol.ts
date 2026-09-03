@@ -90,6 +90,13 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   STORAGE_FAILED: 502,
   CONFLICT: 409,
   SHARING_UNAVAILABLE: 501,
+  // Two codes for the preview, because they call for two different next moves.
+  // `501` is this deployment saying it does not draw previews at all, so an
+  // agent should stop asking and carry on; `502` is the renderer behind the API
+  // failing, which is worth retrying — the same distinction, and the same two
+  // statuses, as `SHARING_UNAVAILABLE` against `STORAGE_FAILED`.
+  PREVIEW_UNAVAILABLE: 501,
+  PREVIEW_FAILED: 502,
   INTERNAL_ERROR: 500,
 
   // Domain — addressing
@@ -146,6 +153,10 @@ export function agentApiHeaders(extra: Record<string, string> = {}): Record<stri
     // client sends them, so a preflight that did not name them would fail before
     // the request the endpoint would have answered with a plain `405`.
     'Access-Control-Allow-Headers': 'authorization, content-type, mcp-protocol-version, mcp-session-id',
+    // A picture's metadata travels in headers, and a browser sees none of them
+    // unless they are named here: without this, a browser-based caller would get
+    // the PNG and lose the revision it needs to write against.
+    'Access-Control-Expose-Headers': 'x-slaids-operation, x-slaids-revision',
     'Access-Control-Max-Age': '600',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
@@ -159,6 +170,50 @@ export function jsonResponse(body: ApiResponseBody, status: number, extra: Recor
     status,
     headers: agentApiHeaders({ 'Content-Type': 'application/json; charset=utf-8', ...extra }),
   })
+}
+
+/**
+ * An answer that *is* a picture.
+ *
+ * The one operation that produces one answers with the bytes rather than with a
+ * JSON envelope wrapped around a base64 string, because that string is several
+ * hundred kilobytes of the response and the caller has to decode it before it is
+ * an image again. `Content-Type` says which of the two shapes arrived, so a
+ * client needs no flag and no guessing; the envelope is still available to
+ * anyone who asks for it with `Accept: application/json`.
+ *
+ * The header carries the two things the picture cannot: which operation
+ * answered, and the reading it shows — so an agent can render and then write
+ * against that revision without a second request.
+ */
+export function imageResponse(
+  bytes: Uint8Array,
+  mimeType: string,
+  options: { operation: string; revision?: string; extraHeaders?: Record<string, string> } = {
+    operation: '',
+  },
+): Response {
+  return new Response(bytes.slice().buffer as ArrayBuffer, {
+    status: 200,
+    headers: agentApiHeaders({
+      'Content-Type': mimeType,
+      'Content-Length': String(bytes.byteLength),
+      ...(options.operation ? { 'X-Slaids-Operation': options.operation } : {}),
+      ...(options.revision ? { 'X-Slaids-Revision': options.revision } : {}),
+      ...options.extraHeaders,
+    }),
+  })
+}
+
+/**
+ * Whether the caller asked for the envelope rather than the bytes.
+ *
+ * Only an explicit mention of `application/json` counts. A wildcard Accept —
+ * what every default HTTP client sends — means "whatever you have", and what a
+ * preview operation has is a picture.
+ */
+export function prefersJsonResult(accept: string | null): boolean {
+  return accept !== null && /(?:^|,)\s*application\/json\b/i.test(accept)
 }
 
 export function errorResponse(

@@ -124,3 +124,28 @@ export function webFontsFor(stacks: string[]): string[] {
   }
   return [...families]
 }
+
+/**
+ * The weights the slide renderer asks for.
+ *
+ * Body text is 400, a card header is 600 and a heading pill is 700, so all
+ * three have to be downloaded before a measurement or a rendering describes
+ * the font somebody will actually look at. Declared here rather than in the
+ * loader because the headless preview requests the same faces from the same
+ * families — one list, two consumers.
+ */
+export const FONT_WEIGHTS: readonly number[] = [400, 600, 700]
+
+/**
+ * Where a web font's faces come from.
+ *
+ * The `webFont` field above is already documented as a Google Fonts family
+ * name, so the URL that fetches it belongs beside it: the browser's loader and
+ * the headless preview both need the same stylesheet, and two spellings of the
+ * same query would mean the preview could render faces the editor never
+ * measured.
+ */
+export function googleFontsHref(family: string): string {
+  const query = `family=${encodeURIComponent(family).replace(/%20/g, '+')}:wght@${FONT_WEIGHTS.join(';')}`
+  return `https://fonts.googleapis.com/css2?${query}&display=swap`
+}

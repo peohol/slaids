@@ -1,94 +1,14 @@
 /**
- * A small PNG reader, so a test can assert on pixels.
+ * Pixel assertions for the e2e suite.
  *
- * Some things are only true on screen: whether an edge has a pale fringe along
- * it is not visible from the DOM, and a golden-image comparison would answer a
- * different question («is this the same picture as last time?») and need a
- * baseline per environment. Reading the pixels lets a test state the property
- * directly — no pixel here is lighter than the two colours that meet here — and
- * that holds on any machine.
- *
- * Handles the 8-bit RGB and RGBA PNGs Playwright's screenshots produce.
+ * The decoder itself lives in `src/render/png.ts`, because the headless preview
+ * needs the same one: a rendered PNG is read back there to prove it is not a
+ * blank rectangle, and two decoders would be two chances for one of them to be
+ * subtly wrong. What stays here is the question only a screenshot test asks.
  */
 
-import { inflateSync } from 'node:zlib'
-
-export interface Bitmap {
-  width: number
-  height: number
-  /** `[r, g, b, a]` at a pixel, in device pixels. */
-  at(x: number, y: number): [number, number, number, number]
-}
-
-export function decodePng(buffer: Buffer): Bitmap {
-  let offset = 8 // signature
-  let width = 0
-  let height = 0
-  let channels = 4
-  const chunks: Buffer[] = []
-
-  while (offset < buffer.length) {
-    const length = buffer.readUInt32BE(offset)
-    const type = buffer.toString('ascii', offset + 4, offset + 8)
-    const data = buffer.subarray(offset + 8, offset + 8 + length)
-    if (type === 'IHDR') {
-      width = data.readUInt32BE(0)
-      height = data.readUInt32BE(4)
-      const depth = data[8]
-      const colorType = data[9]
-      if (depth !== 8 || (colorType !== 2 && colorType !== 6)) {
-        throw new Error(`Unsupported PNG: depth ${depth}, colour type ${colorType}`)
-      }
-      channels = colorType === 6 ? 4 : 3
-    } else if (type === 'IDAT') {
-      chunks.push(data)
-    } else if (type === 'IEND') {
-      break
-    }
-    offset += 12 + length
-  }
-
-  const raw = inflateSync(Buffer.concat(chunks))
-  const stride = width * channels
-  const pixels = Buffer.alloc(height * stride)
-
-  // Undo the per-scanline filters. Each line starts with its filter byte.
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (stride + 1)]
-    const line = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
-    for (let x = 0; x < stride; x += 1) {
-      const left = x >= channels ? pixels[y * stride + x - channels] : 0
-      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0
-      const upLeft = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0
-      let value = line[x]
-      if (filter === 1) value += left
-      else if (filter === 2) value += up
-      else if (filter === 3) value += (left + up) >> 1
-      else if (filter === 4) {
-        const predicted = left + up - upLeft
-        const dLeft = Math.abs(predicted - left)
-        const dUp = Math.abs(predicted - up)
-        const dUpLeft = Math.abs(predicted - upLeft)
-        value += dLeft <= dUp && dLeft <= dUpLeft ? left : dUp <= dUpLeft ? up : upLeft
-      }
-      pixels[y * stride + x] = value & 0xff
-    }
-  }
-
-  return {
-    width,
-    height,
-    at(x, y) {
-      const index = y * stride + x * channels
-      return [
-        pixels[index],
-        pixels[index + 1],
-        pixels[index + 2],
-        channels === 4 ? pixels[index + 3] : 255,
-      ]
-    },
-  }
-}
+export { decodePng, distinctColours, type Bitmap } from '../src/render/png'
+import type { Bitmap } from '../src/render/png'
 
 /**
  * How much lighter the lightest pixel in a region is than *both* reference
