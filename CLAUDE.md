@@ -115,10 +115,16 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `SUPPORTED_MCP_PROTOCOL_VERSIONS`, og `MCP-Protocol-Version` valideres mot den samme listen.
   Mangler headeren, leses den som den ene revisjonen serveren har – aldri som spesifikasjonens
   `2025-03-26`-fallback, siden den ikke er implementert.
-- `Origin` valideres på MCP-endepunktet, som Streamable HTTP krever mot DNS rebinding. En
-  MCP-klient utenfor nettleseren sender ingen `Origin` og berøres ikke; en nettleser sender
-  en, og bare deployens egen vert slipper gjennom. Sjekken skjer før kroppen leses, så en side
-  på et fremmed origin aldri når en operasjon – langt mindre en som skriver.
+- `Origin` valideres på MCP-endepunktet, som Streamable HTTP krever mot DNS rebinding, og
+  Slaids validerer den ved å **avvise enhver forespørsel som bærer en**. Å sammenligne
+  `Origin` med forespørselens egen vert er verdiløst: i angrepet er begge sider angriperens –
+  siden ligger på `evil.example`, DNS-en peker om til denne serveren, og nettleseren sender
+  `Host: evil.example` og `Origin: https://evil.example`, som matcher. En sjekk som
+  sammenligner en forespørsel med seg selv beviser ingenting. Den betrodde listen må komme fra
+  et sted angriperen ikke styrer, og Slaids har ingen browser-origin å betro: en MCP-klient er
+  et program, ikke en side, og sender ingen `Origin`. Sjekken skjer før kroppen leses.
+  Skal en browser-basert MCP-klient noen gang støttes, må de betrodde origin-ene leses fra
+  servermiljøet – aldri fra forespørselen.
 - **REST og MCP deler `src/server/agent/invoke.ts`.** Begge kaller `authorizeOperation` og
   `performOperation`, i den rekkefølgen. «Samme operasjon gir samme svar og samme feil over
   begge transportene» er derfor en egenskap ved koden, ikke et løfte om to adaptere skrevet

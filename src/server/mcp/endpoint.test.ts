@@ -448,33 +448,25 @@ describe('transporten', () => {
     expect(response.headers.get('Mcp-Session-Id')).toBeNull()
   })
 
-  it.each([
-    ['ingen Origin — en MCP-klient utenfor nettleseren', undefined],
-    ['samme Origin som deployen', ORIGIN],
-  ])('slipper %s gjennom', async (_name, origin) => {
+  it('slipper en vanlig MCP-klient gjennom: den sender ingen Origin', async () => {
+    // Every MCP client is a program — the official SDK over Node, an editor, a
+    // script — and none of them sends the header at all.
     const harnessed = harness()
     const response = await handleAgentRequest(harnessed.deps, new Request(address, {
       method: 'POST',
-      headers: {
-        ...authorized,
-        'Content-Type': 'application/json',
-        ...(origin ? { Origin: origin } : {}),
-      },
+      headers: { ...authorized, 'Content-Type': 'application/json' },
       body: '{"jsonrpc":"2.0","id":1,"method":"ping"}',
     }))
     expect(response.status).toBe(200)
   })
 
-  it.each([
-    ['en fremmed side', 'https://angriper.example'],
-    ['samme navn på en annen vert', 'https://slaids.example.angriper.example'],
-    ['et ugyldig Origin, som en sandkasset ramme sender', 'null'],
-  ])('avviser %s før kroppen leses', async (_name, origin) => {
-    // Streamable HTTP requires Origin validation against DNS rebinding, and the
-    // body is deliberately a mutation: a page on another origin must not reach
-    // an operation at all, never mind one that writes.
-    const harnessed = harness()
-    const response = await handleAgentRequest(harnessed.deps, new Request(address, {
+  /** One mutating call, from a page, at whatever address the page reached. */
+  async function mutatingCallFrom(
+    harnessed: ReturnType<typeof harness>,
+    origin: string,
+    at = address,
+  ): Promise<Response> {
+    return handleAgentRequest(harnessed.deps, new Request(at, {
       method: 'POST',
       headers: { ...authorized, 'Content-Type': 'application/json', Origin: origin },
       body: JSON.stringify({
@@ -484,12 +476,45 @@ describe('transporten', () => {
         params: { name: tool('create_presentation'), arguments: { title: 'Skal ikke lagres' } },
       }),
     }))
+  }
+
+  it.each([
+    ['en fremmed side', 'https://angriper.example'],
+    ['samme navn på en annen vert', 'https://slaids.example.angriper.example'],
+    ['et ugyldig Origin, som en sandkasset ramme sender', 'null'],
+    // Refused too, and that is the point: there is no browser origin to trust,
+    // so even the deployment's own is not one. A page is never an MCP client.
+    ['deployens eget origin', ORIGIN],
+  ])('avviser %s før kroppen leses', async (_name, origin) => {
+    const harnessed = harness()
+    const response = await mutatingCallFrom(harnessed, origin)
 
     expect(response.status).toBe(403)
     const body = (await response.json()) as { error: { code: string } }
     expect(body.error.code).toBe('FORBIDDEN_ORIGIN')
 
     // And nothing was written on the way to being refused.
+    const listed = await callOk(harnessed, tool('list_presentations'))
+    expect(listed.presentations).toEqual([])
+  })
+
+  it('avviser et DNS rebinding-angrep, der Origin og Host er den samme angriperen', async () => {
+    // The attack the check exists for, and the one a same-host comparison lets
+    // through: the page is served from `evil.example`, DNS for `evil.example` is
+    // repointed at this server, so the browser sends `Host: evil.example` *and*
+    // `Origin: https://evil.example`. Comparing the request against itself would
+    // find them equal and proceed. Nothing here is trusted, so it does not.
+    const harnessed = harness()
+    const response = await mutatingCallFrom(
+      harnessed,
+      'https://evil.example',
+      `https://evil.example${AGENT_MCP_PATH}`,
+    )
+
+    expect(response.status).toBe(403)
+    const body = (await response.json()) as { error: { code: string } }
+    expect(body.error.code).toBe('FORBIDDEN_ORIGIN')
+
     const listed = await callOk(harnessed, tool('list_presentations'))
     expect(listed.presentations).toEqual([])
   })

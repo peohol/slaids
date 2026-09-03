@@ -24,11 +24,12 @@
  * are the specification's:
  *
  *  - **`Origin`, against DNS rebinding.** Streamable HTTP requires a server to
- *    validate it. A non-browser client — which is every MCP client that matters
- *    today — sends none, and is unaffected; a browser sends one, and only this
- *    deployment's own is allowed through. That it runs before the body is read
- *    is the point: a page on another origin must not be able to reach an
- *    operation at all, never mind one that writes.
+ *    validate it, and Slaids validates it by refusing every request that carries
+ *    one. A non-browser client — which is every MCP client that exists — sends
+ *    none and is unaffected. See `refusesEveryOrigin` below for why the
+ *    seemingly obvious check is worthless and why the honest allowlist here is
+ *    the empty one. That it runs before the body is read is the point: a page
+ *    must not be able to reach an operation at all, never mind one that writes.
  *  - **`MCP-Protocol-Version`.** Absent is allowed, and is read as the one
  *    revision this server implements — never as the `2025-03-26` the
  *    specification names for backwards compatibility, because this server does
@@ -89,30 +90,6 @@ const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json$/i
 /** The header a client states its negotiated protocol revision in. */
 const PROTOCOL_VERSION_HEADER = 'mcp-protocol-version'
 
-/**
- * Whether a browser origin may drive this endpoint.
- *
- * Same-site, and derived from the request rather than configured, so it is right
- * for every address the deployment answers on — the custom domain, a preview
- * host, a developer's `localhost` — without a list anybody has to maintain.
- *
- * The comparison is on **host**, not the whole origin. Behind a TLS-terminating
- * proxy the function can see `http://` where the browser saw `https://`, and a
- * scheme mismatch there would refuse the deployment's own pages. It costs
- * nothing: DNS rebinding is an attack about *which site is asking*, and an
- * attacker able to serve `http://` on this host already owns the name.
- *
- * An `Origin` that will not parse — `null` from a sandboxed frame, or anything
- * malformed — is not this host, and is refused rather than thrown on.
- */
-function originAllowed(origin: string, requestUrl: string): boolean {
-  try {
-    return new URL(origin).host === new URL(requestUrl).host
-  } catch {
-    return false
-  }
-}
-
 function mediaType(header: string | null): string {
   return (header ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
 }
@@ -128,6 +105,7 @@ function jsonRpcResponse(body: JsonRpcResponse, status = 200): Response {
 function accepted(): Response {
   return new Response(null, { status: 202, headers: agentApiHeaders() })
 }
+
 
 export async function handleMcpRequest(
   deps: McpEndpointDeps,
@@ -171,13 +149,42 @@ export async function handleMcpRequest(
     )
   }
 
-  // A browser is asking on behalf of a page. Which page decides whether it may.
+  // Streamable HTTP requires the server to validate `Origin` against DNS
+  // rebinding. Slaids validates it by refusing every request that carries one.
+  //
+  // The obvious check — compare the `Origin` against the request's own host — is
+  // worthless here, and worse than worthless because it looks like protection.
+  // In the attack it is meant to stop, *both* sides are the attacker's: the page
+  // is served from `evil.example`, DNS for `evil.example` is repointed at this
+  // server, and the browser then sends `Host: evil.example` together with
+  // `Origin: https://evil.example`. They match, and the request goes through. A
+  // check that compares a request against itself proves nothing about it; the
+  // trusted set has to come from somewhere the attacker does not control.
+  //
+  // The usual somewhere is a configured allowlist. Slaids does not need one,
+  // because it has no browser origin to allow: an MCP client is a program, not a
+  // page. The official SDK over Node, Claude Desktop, an editor, a script — none
+  // of them sends `Origin`, and nothing in Slaids' own browser app talks to this
+  // endpoint at all (the token screen only prints the address). So the honest
+  // allowlist is the empty one, and refusing every `Origin` is that allowlist
+  // enforced. It is also the one shape with no configuration a deployment can
+  // forget to set and thereby reopen the hole.
+  //
+  // If a browser-based MCP client ever becomes a requirement, this is the line
+  // to change — and the trusted origins must then be read from the server
+  // environment, never from the request.
+  //
+  // CORS preflight stays permissive, because `agentApiHeaders` is shared with
+  // REST where cross-origin access is deliberate: a bearer-token API has no
+  // cookie to ride on. A browser page therefore gets a successful preflight and
+  // then this `403`, which is the right order — the refusal is a decision this
+  // endpoint makes, not a header a browser is trusted to enforce.
   const origin = request.headers.get('origin')
-  if (origin !== null && !originAllowed(origin, request.url)) {
+  if (origin !== null) {
     return refuse({
       code: 'FORBIDDEN_ORIGIN',
       message:
-        'MCP-endepunktet tar bare imot forespørsler fra denne Slaids-installasjonens eget origin. En MCP-klient utenfor nettleseren sender ingen Origin og berøres ikke.',
+        'MCP-endepunktet tar ikke imot forespørsler fra nettlesersider. En MCP-klient er et program – den offisielle SDK-en, en editor, et skript – og sender ingen Origin.',
       details: { origin },
     })
   }

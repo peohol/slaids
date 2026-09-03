@@ -822,11 +822,22 @@ klienten gjør nøyaktig det i `interop.test.ts`.
 den som den ene revisjonen serveren har – ikke som spesifikasjonens
 `2025-03-26`-fallback, siden den ikke er implementert. En annen versjon gir `400`.
 
-**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding. En MCP-klient
-utenfor nettleseren sender ingen `Origin` og berøres ikke – det gjelder alle vanlige
-klienter. En nettleser sender en, og bare deployens egen vert slipper gjennom.
-Sjekken skjer før kroppen leses, så en side på et fremmed origin aldri når en
-operasjon, langt mindre en som skriver.
+**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding — ved at
+endepunktet avviser *enhver* forespørsel som bærer en. Alle vanlige MCP-klienter er
+programmer, ikke nettlesersider, og sender ingen `Origin`; de berøres ikke.
+
+Det kan se strengt ut, men den nærliggende sjekken – sammenlign `Origin` med
+forespørselens egen vert – beskytter ikke mot noe. I angrepet den skal stoppe er
+begge sider angriperens: siden ligger på `evil.example`, DNS-en for `evil.example`
+peker om til denne serveren, og nettleseren sender `Host: evil.example` sammen med
+`Origin: https://evil.example`. De matcher, og forespørselen slipper gjennom. Den
+betrodde listen må komme fra et sted angriperen ikke styrer – og Slaids har ingen
+browser-origin å betro, så den ærlige listen er den tomme. Skal en browser-basert
+klient noen gang støttes, leses de betrodde origin-ene fra servermiljøet, aldri fra
+forespørselen.
+
+Sjekken skjer før kroppen leses, så en side aldri når en operasjon, langt mindre en
+som skriver.
 
 ### Protokollen er skrevet for hånd
 

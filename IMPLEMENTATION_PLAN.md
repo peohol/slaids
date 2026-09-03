@@ -2824,13 +2824,27 @@ ikke som spesifikasjonens `2025-03-26`-fallback, som ville vært den samme løgn
 gang til. En nyere klient forhandler seg ned; `interop.test.ts` viser den offisielle
 klienten gjøre nøyaktig det.
 
-**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding. En MCP-klient
-utenfor nettleseren sender ingen og berøres ikke; en nettleser sender en, og bare
-deployens egen vert slipper gjennom. Sammenligningen er på *vert*, ikke på hele
-origin: bak en TLS-terminerende proxy kan funksjonen se `http://` der nettleseren så
-`https://`, og et skjemaavvik der ville avvist deployens egne sider – mens angrepet
-handler om hvilket nettsted som spør. Sjekken kjører før kroppen leses, så en side på
-et fremmed origin aldri når en operasjon, langt mindre en som skriver.
+**`Origin` valideres**, som Streamable HTTP krever mot DNS rebinding, og
+valideringen er å avvise enhver forespørsel som bærer en.
+
+Den nærliggende sjekken – sammenlign `Origin` med forespørselens egen vert – er
+verdiløs her, og verre enn verdiløs fordi den ser ut som beskyttelse. I angrepet den
+skal stoppe er *begge* sider angriperens: siden serveres fra `evil.example`, DNS-en
+for `evil.example` peker om til denne serveren, og nettleseren sender da
+`Host: evil.example` sammen med `Origin: https://evil.example`. De matcher, og
+forespørselen slipper gjennom. En sjekk som sammenligner en forespørsel med seg selv
+beviser ingenting om den; det betrodde settet må komme fra et sted angriperen ikke
+styrer.
+
+Det stedet er vanligvis en konfigurert liste. Slaids trenger ingen, fordi det ikke
+finnes en browser-origin å betro: **en MCP-klient er et program, ikke en side.** Den
+offisielle SDK-en over Node, Claude Desktop, en editor, et skript – ingen av dem
+sender `Origin`, og ingenting i Slaids' egen nettleserapp snakker med dette
+endepunktet i det hele tatt. Den ærlige listen er den tomme, og å avvise enhver
+`Origin` er den listen håndhevet. Det er dessuten den ene formen uten en
+konfigurasjon en deploy kan glemme å sette og dermed åpne hullet igjen. Sjekken
+kjører før kroppen leses, så en side aldri når en operasjon, langt mindre en som
+skriver.
 
 **Verktøykatalogen er operasjonskatalogen.** `mcpTools()` bygger den av
 `describeOperations()`, den samme funksjonen REST-katalogen kaller: navn,
