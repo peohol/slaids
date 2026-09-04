@@ -326,7 +326,12 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `duplicatePresentationDocument` i `src/domain/presentation.ts` avgjør hva en
   kopi *er*; `src/persistence/library.ts` avgjør rekkefølgen de to lagrene
   skrives i – dokumentet først, filene etterpå, og kopien tas ut igjen hvis noe
-  av det ikke kom fram. Det gjelder også den *første* skrivingen: en feilet
+  av det ikke kom fram. Tilbakerullingen er **ett** kall (`deletePresentation`),
+  av samme grunn som en sletting er det: den tar dokumentet og filradene sammen,
+  og en egen filopprydding foran den var både overflødig og svakere – feilet
+  den, kjørte aldri dokumentslettingen, og kopien ble liggende igjen etter at
+  dupliseringen hadde meldt feil. Sveipet redder ikke det, siden filer under en
+  presentasjon som fortsatt finnes ikke er foreldreløse. Det gjelder også den *første* skrivingen: en feilet
   respons er ikke bevis for at serveren ikke skrev, så en mislykket
   `savePresentation(copy)` fjerner kopi-id-en i stedet for å anta at raden ikke
   finnes – ellers ville en committet rad med et tapt svar etterlatt et dekk som

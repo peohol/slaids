@@ -2873,6 +2873,7 @@ For bibliotekets livsløp i tillegg:
 - en duplisering som ikke gikk igjennom etterlater ingen halv kopi – når en
   filskriving feiler, når en kildefil forsvinner fra lagringen etter at
   revisjonen er sjekket, og når selve kopiraden ble skrevet mens svaret forsvant;
+- tilbakerullingen fjerner kopien også når filoppryddingen i lagringen er ødelagt;
 - en vanlig presentasjon slettes; en med filer tar radene og bytene med seg; en
   publisert slettes uten `sharing:write`;
 - en sletting av noe som ikke finnes er `PRESENTATION_NOT_FOUND`, ikke et stille
@@ -3874,7 +3875,13 @@ navnebytte som kan gå galt.
 Rekkefølgen er dokumentet først, filene etterpå – motsatt av `storeAsset`, og av
 samme grunn: en fil uten en presentasjon å høre til kan aldri ryddes bort av
 sveipet, som arbeider ved å sammenligne filer mot presentasjonene som fortsatt
-finnes. Kommer ikke alle filene fram, tas kopien ut igjen, filene først. En kopi
+finnes. Kommer ikke alle filene fram, tas kopien ut igjen – med **ett** kall,
+`deletePresentation`, som tar dokumentet og filradene sammen. En egen
+filopprydding foran den var overflødig og svakere: feilet den, kjørte aldri
+dokumentslettingen, og tilbakerullingen endte i nøyaktig den tilstanden den
+finnes for å hindre. Det er den samme regelen `delete_presentation` bygger på –
+en andre slettesekvens ved siden av lagringens egen er en andre sjanse til å
+etterlate en halv presentasjon – og den gjaldt like fullt her. En kopi
 som mangler bilder er verre enn ingen kopi: kalleren får vite at dupliseringen
 feilet, mens et halvkopiert dekk dukker opp i biblioteket ved neste oppfriskning.
 

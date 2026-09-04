@@ -620,6 +620,34 @@ describe('duplicate_presentation', () => {
     expect(await context.repository.getAsset(source.assetId)).not.toBeNull()
   })
 
+  it('fjerner kopien selv om filoppryddingen er ødelagt', async () => {
+    // The rollback must not depend on a second cleanup call succeeding first.
+    // It used to clear the files before the document, and a failure there meant
+    // the document delete never ran — leaving the copy in the library after the
+    // duplication had reported failure, where the orphan sweep cannot reach it
+    // either: files under a presentation that still exists are not orphans.
+    const context = freshContext()
+    const source = await filledDeck(context)
+    const brokenCleanup = overriding(context.repository, {
+      putAsset: () => Promise.reject(new RepositoryError('Filen kunne ikke lagres.')),
+      deleteAssetsForPresentation: () =>
+        Promise.reject(new RepositoryError('Filoppryddingen svarer ikke.')),
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: brokenCleanup }, 'duplicate_presentation', {
+        presentationId: source.presentationId,
+      }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+
+    // The copy is gone anyway: one call takes the document and its files
+    // together, so there is no first step left to fail.
+    const remaining = await context.repository.listPresentations()
+    expect(remaining.map((entry) => entry.id)).toEqual([source.presentationId])
+    expect(await context.repository.deleteOrphanAssets()).toBe(0)
+  })
+
   it('etterlater ingen halv kopi når filene ikke kom med', async () => {
     const context = freshContext()
     const source = await filledDeck(context)

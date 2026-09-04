@@ -101,7 +101,7 @@ export async function duplicatePresentation(
   } catch (error) {
     // A copy whose files did not all make it is worse than no copy: the caller
     // is told the duplication failed while a half-copied presentation shows up
-    // on the next refresh. Take it back out, files first.
+    // on the next refresh. Take it back out — document and files together.
     //
     // No conflict exemption here, unlike the save above: a conflict from
     // `putAsset` is an *asset* id that is taken, and the presentation it would
@@ -114,20 +114,31 @@ export async function duplicatePresentation(
 }
 
 /**
- * Take a copy that should not exist back out, files first.
+ * Take a copy that should not exist back out.
+ *
+ * One call, because that call already does both halves: Dexie removes the
+ * document and its asset rows in a single transaction, and Supabase removes the
+ * row — the asset rows go with it through the foreign key — and then reclaims
+ * the objects. Clearing the files separately first was redundant, and the
+ * redundancy was the bug: a failure there meant `deletePresentation` never ran
+ * at all, and the rollback ended in exactly the state it exists to prevent — a
+ * copy still in the library after the duplication reported failure. The sweep
+ * cannot repair that either, since files under a presentation that still exists
+ * are not orphans.
+ *
+ * That is the same reasoning `delete_presentation` is built on, and it was
+ * ignored right here: a second deletion sequence beside the store's own is a
+ * second chance to leave half a presentation behind.
  *
  * Best effort, and never allowed to replace the failure that caused it: the
  * caller is already reporting why the duplication failed, and "the cleanup also
- * failed" is not a more useful thing to tell it. What is left behind if this
- * cannot finish is reclaimed by `deleteOrphanAssets` and by the presentation's
- * own deletion.
+ * failed" is not a more useful thing to tell it.
  *
  * Only ever called with an id this duplication minted, which is what makes an
  * unconditional delete safe — see the note at the call site.
  */
 async function discardCopy(repository: SlaidsRepository, copyId: string): Promise<void> {
   try {
-    await repository.deleteAssetsForPresentation(copyId)
     await repository.deletePresentation(copyId)
   } catch {
     // Nothing more to try; the original error is the one worth reporting.
