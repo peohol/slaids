@@ -72,6 +72,24 @@ describe('weights that are finite one by one but not together', () => {
       expect(rectRight(rects[rects.length - 1])).toBeCloseTo(rectRight(source), 9)
     }
   })
+
+  it('asks for the same minimum however the same ratio is written', () => {
+    // `childSize * total` is the third place the product overflows before the
+    // sum does. An infinite minimum would refuse a 1:1 split for being too
+    // small, which is the opposite of what the minimum is for.
+    const even = minimumSizeFor(createSplit('x', [1, 1], [leaf(), leaf()]))
+    for (const weights of [[1e307, 1e307], [1e150, 1e150]]) {
+      const huge = minimumSizeFor(createSplit('x', weights, [leaf(), leaf()]))
+      expect(huge.width, JSON.stringify(weights)).toBeCloseTo(even.width, 6)
+      expect(huge.height, JSON.stringify(weights)).toBeCloseTo(even.height, 6)
+    }
+
+    const uneven = minimumSizeFor(createSplit('y', [3, 1], [leaf(), leaf()]))
+    const unevenLarge = minimumSizeFor(
+      createSplit('y', [3e307 / 4, 1e307 / 4], [leaf(), leaf()]),
+    )
+    expect(unevenLarge.height).toBeCloseTo(uneven.height, 6)
+  })
 })
 
 describe('splitRect', () => {

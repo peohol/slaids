@@ -359,11 +359,17 @@ export function minimumSizeFor(node: LayoutNode, options: GeometryOptions = {}):
   const childSizes = node.children.map((child) => minimumSizeFor(child, o))
   const count = node.children.length
 
+  // How many times its own share a child would need the parent to be. The
+  // reciprocal is computed first for the same reason `splitRect` divides before
+  // it multiplies: `childSize * total` overflows for weights that are merely
+  // large, and an infinite minimum would refuse a split whose ratio is 1:1.
+  const inverseShare = (index: number): number => total / node.weights[index]
+
   if (node.axis === 'x') {
     let usable = 0
     let height = 0
     for (let i = 0; i < count; i += 1) {
-      usable = Math.max(usable, (childSizes[i].width * total) / node.weights[i])
+      usable = Math.max(usable, childSizes[i].width * inverseShare(i))
       height = Math.max(height, childSizes[i].height)
     }
     return { width: usable + o.gap * (count - 1), height }
@@ -372,7 +378,7 @@ export function minimumSizeFor(node: LayoutNode, options: GeometryOptions = {}):
   let usable = 0
   let width = 0
   for (let i = 0; i < count; i += 1) {
-    usable = Math.max(usable, (childSizes[i].height * total) / node.weights[i])
+    usable = Math.max(usable, childSizes[i].height * inverseShare(i))
     width = Math.max(width, childSizes[i].width)
   }
   return { width, height: usable + o.gap * (count - 1) }

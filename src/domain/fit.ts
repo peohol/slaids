@@ -262,7 +262,12 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
   const usable = along - context.tokens.subfieldGap * (count - 1)
   let worst = 0
   for (let i = 0; i < count; i += 1) {
-    const share = (usable * body.weights[i]) / total
+    // The fraction first, the length second — the same ordering `splitRect`
+    // uses, and for the same reason. `usable * 1e307` is `Infinity` while the
+    // sum is still perfectly finite, and an infinite share reads as a subfield
+    // wide enough for any text: `[1e307, 1e307]` and `[1, 1]` are the same
+    // layout, so they have to get the same answer.
+    const share = usable * (body.weights[i] / total)
     const width = body.axis === 'x' ? share : area.width
     const height = body.axis === 'x' ? area.height : share
     const needed = (body.subfields[i].doc.content ?? []).reduce(
