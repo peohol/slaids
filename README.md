@@ -848,10 +848,11 @@ ikke finnes et dokument igjen å skrive mot.
 
 **En kopi er selvstendig.** Filene kopieres i stedet for å deles, så kopien
 overlever at originalen slettes, og hver id inne i dokumentet – slide, sone,
-innhold, subfelt, sandkasse – er ny. Kommer ikke alle filene med, blir det ingen
-kopi: en kildefil som står i dokumentet men mangler i lagringen avviser hele
-dupliseringen og ruller den tilbake, framfor å gi deg et dekk med et bilde som
-aldri kan lastes. Kopien arver aldri delingen: den starter
+innhold, subfelt, sandkasse – er ny. Går noe galt underveis, blir det ingen kopi
+i det hele tatt: en kildefil som står i dokumentet men mangler i lagringen
+avviser hele dupliseringen og ruller den tilbake, og det samme gjør en
+lagringsfeil – også når selve kopien rakk å bli skrevet før feilen kom. Du får
+aldri et halvferdig dekk med bilder som ikke kan lastes. Kopien arver aldri delingen: den starter
 som ikke delt, som en duplisering i biblioteket. `expectedRevision` gjelder
 kilden og betyr «kopier nøyaktig den lesingen jeg så».
 

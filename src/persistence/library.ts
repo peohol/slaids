@@ -19,7 +19,7 @@
 
 import { duplicatePresentationDocument } from '../domain/presentation'
 import type { Presentation } from '../domain/types'
-import { RepositoryError, type SlaidsRepository } from './repository'
+import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 
 /**
  * Deep-copy a presentation, including its files.
@@ -49,7 +49,29 @@ export async function duplicatePresentation(
 ): Promise<Presentation> {
   const { presentation: copy, assetIds } = duplicatePresentationDocument(source, options)
 
-  await repository.savePresentation(copy)
+  try {
+    await repository.savePresentation(copy)
+  } catch (error) {
+    // A failed write is not proof that the server did not write. Supabase can
+    // commit the row and lose the response on the way back, and then the copy
+    // exists — with a document that already points at asset ids nothing has
+    // stored yet, because the loop below never ran. That is the same broken
+    // deck the rollback further down exists to prevent, arrived at through the
+    // one path that used to skip it. `assetStore.ts` reasons about the same
+    // ambiguity in the other direction; see `resolveAmbiguousRegistration`.
+    //
+    // So the copy id is taken back out rather than assumed absent. It is safe
+    // without reading anything back first, and that is a property of *this* id
+    // rather than of ids in general: it was minted a few lines ago, it has been
+    // handed to nobody, and an unguarded delete of a row that is not there is a
+    // no-op. Deleting it can therefore only remove a copy that should not exist.
+    //
+    // The exception is a conflict, which is the store saying the id is already
+    // taken — by a row this duplication did not create. That row is somebody's
+    // real presentation, and it is the one thing here that must not be touched.
+    if (!(error instanceof RepositoryConflictError)) await discardCopy(repository, copy.id)
+    throw error
+  }
 
   try {
     // Over the map rather than over `source.assets`, so the pairing of "which
@@ -80,14 +102,34 @@ export async function duplicatePresentation(
     // A copy whose files did not all make it is worse than no copy: the caller
     // is told the duplication failed while a half-copied presentation shows up
     // on the next refresh. Take it back out, files first.
-    try {
-      await repository.deleteAssetsForPresentation(copy.id)
-      await repository.deletePresentation(copy.id)
-    } catch {
-      // Nothing more to try; the original error is the one worth reporting.
-    }
+    //
+    // No conflict exemption here, unlike the save above: a conflict from
+    // `putAsset` is an *asset* id that is taken, and the presentation it would
+    // have belonged to is still ours and still has to go.
+    await discardCopy(repository, copy.id)
     throw error
   }
 
   return copy
+}
+
+/**
+ * Take a copy that should not exist back out, files first.
+ *
+ * Best effort, and never allowed to replace the failure that caused it: the
+ * caller is already reporting why the duplication failed, and "the cleanup also
+ * failed" is not a more useful thing to tell it. What is left behind if this
+ * cannot finish is reclaimed by `deleteOrphanAssets` and by the presentation's
+ * own deletion.
+ *
+ * Only ever called with an id this duplication minted, which is what makes an
+ * unconditional delete safe — see the note at the call site.
+ */
+async function discardCopy(repository: SlaidsRepository, copyId: string): Promise<void> {
+  try {
+    await repository.deleteAssetsForPresentation(copyId)
+    await repository.deletePresentation(copyId)
+  } catch {
+    // Nothing more to try; the original error is the one worth reporting.
+  }
 }

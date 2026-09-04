@@ -588,6 +588,38 @@ describe('duplicate_presentation', () => {
     expect(await context.repository.getAsset(source.assetId)).not.toBeNull()
   })
 
+  it('etterlater ingen halv kopi når kopiraden ble skrevet og svaret forsvant', async () => {
+    // A failed write is not proof the server did not write: Supabase can commit
+    // the row and lose the response. The copy then exists with a document that
+    // points at asset ids nothing has stored — the file loop never ran — which
+    // is the same broken deck the rollback exists to prevent, reached through
+    // the one path that used to run before the `try`.
+    const context = freshContext()
+    const source = await filledDeck(context)
+    const lostResponse = overriding(context.repository, {
+      savePresentation: async (presentation, guard) => {
+        await context.repository.savePresentation(presentation, guard)
+        // Only the copy: the source is read, never written, by a duplication.
+        if (presentation.id !== source.presentationId) {
+          throw new RepositoryError('Skrivingen landet, men svaret kom aldri fram.')
+        }
+      },
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: lostResponse }, 'duplicate_presentation', {
+        presentationId: source.presentationId,
+      }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+
+    // The row that did land is gone again, and the original is untouched.
+    const remaining = await context.repository.listPresentations()
+    expect(remaining.map((entry) => entry.id)).toEqual([source.presentationId])
+    expect(await context.repository.deleteOrphanAssets()).toBe(0)
+    expect(await context.repository.getAsset(source.assetId)).not.toBeNull()
+  })
+
   it('etterlater ingen halv kopi når filene ikke kom med', async () => {
     const context = freshContext()
     const source = await filledDeck(context)

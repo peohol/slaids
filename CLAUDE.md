@@ -325,8 +325,17 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   inne i rik tekst, så å fornye dem er en omskriving uten gevinst.
   `duplicatePresentationDocument` i `src/domain/presentation.ts` avgjør hva en
   kopi *er*; `src/persistence/library.ts` avgjør rekkefølgen de to lagrene
-  skrives i – dokumentet først, filene etterpå, og kopien tas ut igjen hvis ikke
-  alle filene kom fram. En kildefil lagringen ikke har er én av de måtene, og
+  skrives i – dokumentet først, filene etterpå, og kopien tas ut igjen hvis noe
+  av det ikke kom fram. Det gjelder også den *første* skrivingen: en feilet
+  respons er ikke bevis for at serveren ikke skrev, så en mislykket
+  `savePresentation(copy)` fjerner kopi-id-en i stedet for å anta at raden ikke
+  finnes – ellers ville en committet rad med et tapt svar etterlatt et dekk som
+  peker på filer løkken aldri rakk å lagre. Det er trygt uten å lese noe tilbake
+  først, og det er en egenskap ved *den* id-en: den ble laget noen linjer før,
+  den er ikke gitt til noen, og en uvaktet sletting av en rad som ikke er der er
+  en no-op. Unntaket er en konflikt, som er lagringen som sier at id-en allerede
+  er tatt – av en rad dupliseringen ikke laget, og det er den ene tingen her som
+  ikke skal røres. En kildefil lagringen ikke har er én av de andre måtene, og
   den er en **avvisning og ikke et hopp over**: kopiens dokument lister allerede
   filen under sin nye id og peker slides på den, så å hoppe over den ville svart
   `ok` med et dekk som viser et bilde som aldri kan lastes. Det kan skje selv om

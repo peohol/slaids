@@ -2870,9 +2870,9 @@ For bibliotekets livsløp i tillegg:
   nye id-er hele veien – slides, soner, innhold, subfelt, sandkasse og filer;
 - originalen står bit for bit uendret etter at kopien er redigert, og kopiens
   filer overlever at originalen slettes;
-- en duplisering som ikke fikk med filene etterlater ingen halv kopi – både når
-  skrivingen feiler, og når en kildefil forsvinner fra lagringen etter at
-  revisjonen er sjekket;
+- en duplisering som ikke gikk igjennom etterlater ingen halv kopi – når en
+  filskriving feiler, når en kildefil forsvinner fra lagringen etter at
+  revisjonen er sjekket, og når selve kopiraden ble skrevet mens svaret forsvant;
 - en vanlig presentasjon slettes; en med filer tar radene og bytene med seg; en
   publisert slettes uten `sharing:write`;
 - en sletting av noe som ikke finnes er `PRESENTATION_NOT_FOUND`, ikke et stille
@@ -3878,9 +3878,25 @@ finnes. Kommer ikke alle filene fram, tas kopien ut igjen, filene først. En kop
 som mangler bilder er verre enn ingen kopi: kalleren får vite at dupliseringen
 feilet, mens et halvkopiert dekk dukker opp i biblioteket ved neste oppfriskning.
 
-«Kom ikke fram» dekker to ting, og den andre er lettere å overse enn den første.
-En skriving som feiler er åpenbar. En **kildefil lagringen ikke har** er det
-ikke: løkken ber om bytene til hver fil dokumentet lister, og et svar som ikke
+«Kom ikke fram» dekker tre ting, og bare den første er åpenbar.
+
+En skriving som feiler underveis er den enkle. Den **første** skrivingen –
+dokumentet – er ikke like enkel, fordi en feilet respons ikke er bevis for at
+serveren ikke skrev: Supabase kan committe raden og miste svaret på veien
+tilbake, og da finnes kopien, med et dokument som allerede peker på asset-id-er
+ingenting har lagret ennå, siden filløkken aldri kjørte. Det er nøyaktig den
+samme tvetydigheten `resolveAmbiguousRegistration` resonnerer om den andre
+veien. Derfor fjernes kopi-id-en i stedet for å antas fraværende, og det er
+trygt uten å lese noe tilbake først: id-en ble laget noen linjer før, den er
+ikke gitt til noen, og en uvaktet sletting av en rad som ikke er der er en
+no-op – så slettingen kan bare fjerne en kopi som ikke skulle finnes. Unntaket
+er en `RepositoryConflictError`, som er lagringen som sier at id-en allerede er
+tatt, av en rad dupliseringen ikke laget: den raden er noens ekte presentasjon.
+Unntaket gjelder bare den første skrivingen – en konflikt fra `putAsset` er en
+*asset*-id som er tatt, og presentasjonen den skulle hørt til er fortsatt vår og
+skal fortsatt bort.
+
+En **kildefil lagringen ikke har** er den tredje: løkken ber om bytene til hver fil dokumentet lister, og et svar som ikke
 finnes måtte enten hoppes over eller feile. Å hoppe over den er stille
 ødeleggelse – kopiens dokument lister allerede filen under sin nye id og peker
 slides på den, så svaret ville vært `ok` med et dekk som viser et bilde som
