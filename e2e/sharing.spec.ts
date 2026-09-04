@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { createPresentation, watchForErrors } from './helpers'
+import { createPresentation, presentedPage, watchForErrors } from './helpers'
 
 /**
  * The E2E suite runs in local mode: no `VITE_SUPABASE_*`, so Dexie, no sign-in
@@ -36,7 +36,7 @@ test.describe('deling i lokal modus', () => {
 
     // Forsiden og den ene sliden — og ingen QR-side, som er poenget her.
     await page.getByTestId('present').click()
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 2')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 2 })
     await page.keyboard.press('Escape')
 
     expect(guard.errors).toEqual([])

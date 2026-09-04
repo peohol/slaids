@@ -60,7 +60,10 @@ test.describe('assets', () => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Bilde i lavt felt')
     await enterZoneMode(page)
-    await splitSelected(page, [1, 1, 1], 'y')
+    // Half a slide, less the title zone: short enough that a picture sized for
+    // a full-height zone would be rolled back, and tall enough that one scaled
+    // to the room left is still worth inserting.
+    await splitSelected(page, [1, 1], 'y')
     await enterContentMode(page)
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')

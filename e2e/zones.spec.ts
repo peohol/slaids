@@ -297,9 +297,14 @@ test.describe('zone editing', () => {
     await stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).first().click()
 
     // The panel is about the zone the caret is in, not the one selected before.
-    await expect(page.getByTestId('inspector')).toContainText(
-      `${Math.round(zones[0].w)} × ${Math.round(zones[0].h)} px`,
-    )
+    // Compared to within a pixel: the panel rounds the geometry engine's own
+    // number and the fixture rounds a measurement of the scaled DOM, so a zone
+    // that lands on a half pixel can round the two different ways.
+    const reported = await page.getByTestId('inspector').textContent()
+    const size = /(\d+) × (\d+) px/.exec(reported ?? '')
+    expect(size, 'the panel reports a size').not.toBeNull()
+    expect(Math.abs(Number(size?.[1]) - zones[0].w)).toBeLessThanOrEqual(1)
+    expect(Math.abs(Number(size?.[2]) - zones[0].h)).toBeLessThanOrEqual(1)
   })
 
   test('moves content to the sandbox and places it back', async ({ page }) => {

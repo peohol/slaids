@@ -17,18 +17,24 @@ import { createPresentation } from '../presentation'
 import { createUntitledCard } from '../content'
 import { estimateFit, estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { computeReferenceNumbering } from '../references'
-import { SLIDE_HEIGHT, SLIDE_WIDTH, SLIDE_INSET } from '../constants'
+import { computeMainRect } from '../geometry'
+import { geometryForTheme } from '../metrics'
 import type { Presentation, Rect, Reference, RichDoc, ZoneContent } from '../types'
 import { findLeaf } from '../layout'
 import { addSlide, moveSlide, setSubfieldDoc, setZoneContent } from './index'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
-const FULL_RECT: Rect = {
-  x: SLIDE_INSET,
-  y: SLIDE_INSET,
-  width: SLIDE_WIDTH - SLIDE_INSET * 2,
-  height: SLIDE_HEIGHT - SLIDE_INSET * 2,
+/**
+ * The zone a slide with no title gives its root, under a given theme.
+ *
+ * Asked of the geometry engine rather than written out here: the inset is the
+ * theme's own gap and the progress indicator takes a strip off the bottom, so a
+ * rect assembled from the raw constants would be measuring a slide that does
+ * not exist — and these fixtures fill a zone to the very last line.
+ */
+function fullRect(theme: Presentation['theme']): Rect {
+  return computeMainRect(false, geometryForTheme(theme))
 }
 
 function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
@@ -235,7 +241,7 @@ function fillTrailingSlide(earlier: number, citations: number): Presentation {
     const slide = candidate.slides[1]
     const content = findLeaf(slide.root, slide.root.id)?.content
     if (!content) throw new Error('expected content')
-    const fit = estimateFit(content, FULL_RECT, {
+    const fit = estimateFit(content, fullRect(candidate.theme), {
       theme: candidate.theme,
       numbering: computeReferenceNumbering(candidate),
     })
@@ -253,7 +259,7 @@ function fillFirstSlide(citations: number): Presentation {
     const candidate = deck(citations, 'ord '.repeat(length / 4))
     const content = findLeaf(candidate.slides[0].root, candidate.slides[0].root.id)?.content
     if (!content) throw new Error('expected content')
-    const fit = estimateFit(content, FULL_RECT, {
+    const fit = estimateFit(content, fullRect(candidate.theme), {
       theme: candidate.theme,
       numbering: computeReferenceNumbering(candidate),
     })

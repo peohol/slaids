@@ -30,7 +30,6 @@ const EDITOR_TESTIDS = [
   'library',
   'share-toggle',
   'add-slide',
-  'present-exit',
 ]
 
 describe('Root', () => {
@@ -104,7 +103,10 @@ describe('den delte visningen', () => {
     }
   })
 
-  it('har ingen vei tilbake til editoren – den knappen finnes bare med onExit', () => {
+  it('har ingen vei tilbake til editoren, og ingen chrome over sliden', () => {
+    // Siden er hele skjermen: ingen teller, ingen avslutt-knapp, ingenting
+    // tegnet oppå. Veien ut er Escape, og den finnes bare der `onExit` gjør
+    // det — som er nøyaktig det den delte visningen ikke sender med.
     const shared = renderToStaticMarkup(
       <PresentationPlayer deck={deck} shareUrl={SHARE_URL} onExit={null} />,
     )
@@ -112,8 +114,11 @@ describe('den delte visningen', () => {
       <PresentationPlayer deck={deck} shareUrl={SHARE_URL} onExit={() => {}} />,
     )
 
-    expect(shared).not.toContain('present-exit')
-    expect(local).toContain('present-exit')
+    for (const markup of [shared, local]) {
+      expect(markup).not.toContain('present__exit')
+      expect(markup).not.toContain('present__hud')
+      expect(markup).not.toContain('<button')
+    }
   })
 })
 

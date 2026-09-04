@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createUntitledCard } from './content'
 import { newAssetId, newSandboxId } from './ids'
 import { createLeaf } from './layout'
+import { SPACING_RANGE } from './metrics'
 import { createPresentation } from './presentation'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import {
@@ -213,7 +214,8 @@ describe('parseSharedSnapshot', () => {
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
     expect(parsed.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
-    expect(parsed.value.theme.spacing).toBe(1)
+    // Filled in by the migration and clamped into range by the repair.
+    expect(parsed.value.theme.spacing).toBe(SPACING_RANGE.min)
   })
 })
 

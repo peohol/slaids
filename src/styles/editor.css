@@ -1422,28 +1422,6 @@
   overflow: hidden;
 }
 
-.present__hud {
-  position: fixed;
-  right: 16px;
-  bottom: 14px;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 13px;
-  pointer-events: none;
-}
-
-.present__exit {
-  position: fixed;
-  left: 16px;
-  bottom: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.75);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
 .zone-empty--interactive {
   flex-direction: column;
   gap: 12px;

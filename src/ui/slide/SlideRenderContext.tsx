@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from 'react'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
+import type { DeckProgress } from '../../domain/pages'
 import type { ReferenceNumbering } from '../../domain/references'
 import type { PresentationTheme } from '../../domain/types'
 import { defaultTheme } from '../../domain/presentation'
@@ -19,6 +20,20 @@ export interface SlideRenderValue {
    * the default without measuring anything differently.
    */
   headingPillColor: string
+  /**
+   * Where each page of the deck sits in it — what the progress indicator draws.
+   *
+   * Deck-wide information a single page cannot derive on its own, exactly like
+   * `numbering`: how full the bar is depends on how many pages come after this
+   * one, including the reference slides and the QR page. Keeping it here rather
+   * than passing it page by page is what lets the stage, the thumbnails,
+   * presentation mode and a rendered preview all draw the same indicator
+   * without four call sites remembering to hand it over.
+   *
+   * A page that is not in the map draws no indicator — which is the cover, and
+   * offscreen measurement, where there is no deck to be a page of.
+   */
+  progress: DeckProgress
   /** Rendering is static (presentation mode, thumbnails, measurement). */
   isStatic: boolean
   /**
@@ -35,6 +50,7 @@ const fallback: SlideRenderValue = {
   theme: defaultTheme(),
   numbering: new Map(),
   headingPillColor: DEFAULT_PILL_COLOR,
+  progress: new Map(),
   isStatic: true,
 }
 

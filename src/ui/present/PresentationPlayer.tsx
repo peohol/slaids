@@ -14,11 +14,17 @@
  * The public variant differs by what it is *not* given: no `onExit`, and it is
  * mounted with nothing else around it. Editor chrome is not hidden here, it is
  * simply somewhere this component has never known about.
+ *
+ * The page itself is the whole screen: no counter, no exit button, nothing
+ * drawn over the slide. How far through the deck the audience is, is what the
+ * progress indicator says; leaving is Escape, and only where there is somewhere
+ * to leave to — the shared view passes no `onExit`, so the key does nothing
+ * there.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { deckPages } from '../../domain/pages'
+import { deckPages, deckProgress } from '../../domain/pages'
 import { computeReferenceNumbering } from '../../domain/references'
 import type { DeckSource } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
@@ -45,6 +51,7 @@ export function PresentationPlayer({
   onExit = null,
 }: PresentationPlayerProps) {
   const pages = useMemo(() => deckPages(deck, { shareUrl }), [deck, shareUrl])
+  const progress = useMemo(() => deckProgress(pages), [pages])
   const numbering = useMemo(() => computeReferenceNumbering(deck), [deck])
   const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), pages.length - 1))
   const hostRef = useRef<HTMLDivElement>(null)
@@ -106,6 +113,11 @@ export function PresentationPlayer({
     <div
       className="present"
       data-testid="present-view"
+      // Where in the deck the audience is, without drawing it: the progress
+      // indicator is what says that on screen now. Kept as data so a test can
+      // still follow a page turn without a counter having to exist for it.
+      data-page={current + 1}
+      data-page-count={pages.length}
       ref={hostRef}
       onClick={(event) => {
         // Links and buttons inside a page (reference URLs, rich-text links)
@@ -134,6 +146,7 @@ export function PresentationPlayer({
           theme: deck.theme,
           numbering,
           headingPillColor: deck.cover.pillColor,
+          progress,
           isStatic: true,
         }}
       >
@@ -153,22 +166,6 @@ export function PresentationPlayer({
           </div>
         </div>
       </SlideRenderProvider>
-      <div className="present__hud" data-testid="present-counter">
-        {current + 1} / {pages.length}
-      </div>
-      {onExit && (
-        <button
-          type="button"
-          className="present__exit"
-          onClick={(event) => {
-            event.stopPropagation()
-            onExit()
-          }}
-          data-testid="present-exit"
-        >
-          Avslutt (Esc)
-        </button>
-      )}
     </div>
   )
 }

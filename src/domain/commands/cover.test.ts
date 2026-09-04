@@ -17,6 +17,7 @@ import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { FONT_OPTIONS } from '../fonts'
 import { COVER_SUBTITLE_NODE_ID, COVER_TITLE_NODE_ID } from '../geometry'
 import { COVER_PAGE_ID, deckPages } from '../pages'
+import { FONT_SCALE_RANGE } from '../metrics'
 import { createPresentation } from '../presentation'
 import { docToPlainText, titleDoc } from '../richdoc'
 import type { Presentation } from '../types'
@@ -93,7 +94,7 @@ describe('creating a deck', () => {
   })
 
   it('measures against the theme the deck is actually created with', () => {
-    const near = { title: 'Kvartalsrapport for hele konsernet'.padEnd(60, ' x') }
+    const near = { title: 'Kvartalsrapport for hele konsernet'.padEnd(44, ' x') }
     expect(createDeck(near, checkers).ok).toBe(true)
     expect(
       createDeck({ ...near, theme: { headingFontFamily: stack('verdana') } }, checkers).ok,
@@ -130,21 +131,22 @@ describe('cover text', () => {
   it('lets the subtitle be longer than the title, because it is set smaller', () => {
     // Measured at the title's size this would be refused; the subtitle is a
     // step down, and the checker is told which size it is looking at.
-    const line = titleDoc('En ganske lang undertittel som beskriver hele innholdet i dekket')
+    const line = titleDoc('En ganske lang undertittel som beskriver hele innhold')
     expect(setCoverTitle(deck(), line, checkers).ok).toBe(false)
     expect(setCoverSubtitle(deck(), line, checkers).ok).toBe(true)
   })
 
   it('refuses a theme that would clip a cover line that fits today', () => {
-    // Long enough for the default heading font and no longer: 60 characters at
-    // 46 px fills the pill, and Verdana is 12 % wider per glyph.
-    const near = 'Kvartalsrapport for hele konsernet'.padEnd(60, ' x')
+    // Long enough for the default heading font and no longer: this many
+    // characters fill the pill at the deck's own type size, and Verdana is
+    // 12 % wider per glyph.
+    const near = 'Kvartalsrapport for hele konsernet'.padEnd(44, ' x')
     const presentation = unwrap(setCoverTitle(deck(), titleDoc(near), checkers))
 
     // Nothing about the cover changes here — the type it is set in does, and
     // the cover is measured for it exactly as every slide is.
     expect(setTheme(presentation, { headingFontFamily: stack('verdana') }, checkers).ok).toBe(false)
-    expect(setTheme(presentation, { fontScale: 1.6 }, checkers).ok).toBe(false)
+    expect(setTheme(presentation, { fontScale: FONT_SCALE_RANGE.max }, checkers).ok).toBe(false)
     // A narrower font has more room, not less, so it stays available.
     expect(setTheme(presentation, { headingFontFamily: stack('times') }, checkers).ok).toBe(true)
   })

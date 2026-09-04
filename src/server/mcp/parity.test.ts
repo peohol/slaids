@@ -146,14 +146,14 @@ describe('lesing gir det samme over begge transportene', () => {
       presentationId: deck.presentationId,
       backgroundColor: '#101828',
       headingFont: 'space-grotesk',
-      spacing: 1.3,
+      spacing: 2.4,
     })
     const theme = (data: unknown): unknown => (data as { theme: unknown }).theme
     expect(theme(both.restData)).toEqual(theme(both.mcpData))
     expect(theme(both.restData)).toMatchObject({
       backgroundColor: '#101828',
       headingFont: { fontId: 'space-grotesk' },
-      spacing: 1.3,
+      spacing: 2.4,
     })
 
     // And it is the same document underneath, not two answers that happen to
@@ -162,7 +162,7 @@ describe('lesing gir det samme over begge transportene', () => {
       presentationId: deck.presentationId,
     })
     expect(read.restData).toEqual(read.mcpData)
-    expect((read.restData as { theme: { spacing: number } }).theme.spacing).toBe(1.3)
+    expect((read.restData as { theme: { spacing: number } }).theme.spacing).toBe(2.4)
   })
 
   it('sandkassen er den samme på tvers av transportene, id for id', async () => {
@@ -408,7 +408,7 @@ describe('feilene er de samme feilene', () => {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
       nodeId: deck.rootNodeId,
-      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(90) }] }],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(70) }] }],
     })
 
     const both = await refusedBothWays(harnessed, 'set_theme', {
@@ -529,7 +529,7 @@ describe('subfeltlayout er den samme operasjonen begge veier', () => {
     await rest(harnessed, 'adjust_subfields', { ...target, axis: 'x', weights: [3, 1] })
     await rest(harnessed, 'set_zone_text', {
       ...target,
-      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(60) }] }],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(40) }] }],
     })
 
     const both = await refusedBothWays(harnessed, 'adjust_subfields', {

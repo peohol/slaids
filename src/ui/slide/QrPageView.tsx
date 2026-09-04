@@ -12,7 +12,12 @@
  */
 
 import { QRCodeSVG } from 'qrcode.react'
-import { SLIDE_HEIGHT, SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
+import {
+  PROGRESS_BAR_HEIGHT,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  TITLE_LINE_HEIGHT,
+} from '../../domain/constants'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { useSlideRender } from './SlideRenderContext'
@@ -38,6 +43,11 @@ export function QrPageView({ url }: { url: string }) {
         height: SLIDE_HEIGHT,
         background: theme.backgroundColor,
         gap,
+        // The page has no zone tree for the geometry engine to reserve the
+        // indicator's strip in, so the one column it does have is kept clear of
+        // it here instead. The indicator itself is `DeckPageView`'s.
+        paddingBottom: PROGRESS_BAR_HEIGHT,
+        boxSizing: 'border-box',
         ...slideTokenStyle(theme),
       }}
     >

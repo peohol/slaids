@@ -5,6 +5,7 @@ import { createPresentation } from './presentation'
 import { createUntitledCard } from './content'
 import { docToPlainText, paragraphDoc } from './richdoc'
 import { DEFAULT_PILL_COLOR } from './constants'
+import { FONT_SCALE_RANGE, NEUTRAL_SCALE, SPACING_RANGE } from './metrics'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
 
@@ -399,9 +400,13 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    // `1` is exactly what the deck already looked like.
-    expect(result.value.theme.spacing).toBe(1)
-    expect(result.value.theme.fontScale).toBe(1)
+    // The migration fills in the neutral multiplier — what the deck already
+    // looked like — and the repair then clamps it into the range the theme
+    // still offers, which has since moved past it. Both steps are deliberate:
+    // one is a fact about the document, the other a decision about the ladder.
+    expect(NEUTRAL_SCALE).toBeLessThan(SPACING_RANGE.min)
+    expect(result.value.theme.spacing).toBe(SPACING_RANGE.min)
+    expect(result.value.theme.fontScale).toBe(FONT_SCALE_RANGE.min)
   })
 
   it('repairs a theme scale that is out of range rather than refusing the file', () => {
@@ -412,8 +417,8 @@ describe('migrations', () => {
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.theme.spacing).toBeLessThanOrEqual(2)
-    expect(result.value.theme.fontScale).toBeGreaterThan(0)
+    expect(result.value.theme.spacing).toBeLessThanOrEqual(SPACING_RANGE.max)
+    expect(result.value.theme.fontScale).toBeGreaterThanOrEqual(FONT_SCALE_RANGE.min)
   })
 
   it('reports invalid data instead of throwing', () => {

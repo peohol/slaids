@@ -6,12 +6,13 @@ import {
   G,
   MIN_ZONE_HEIGHT,
   MIN_ZONE_WIDTH,
+  PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_INSET,
   SLIDE_WIDTH,
   TITLE_FONT_SIZE,
   TITLE_LINE_HEIGHT,
-  TITLE_ZONE_HEIGHT,
+  titleZoneHeightFor,
 } from './constants'
 import {
   computeCoverGeometry,
@@ -162,7 +163,21 @@ describe('slide framing', () => {
     expect(main.x).toBe(SLIDE_INSET)
     expect(main.y).toBe(SLIDE_INSET)
     expect(rectRight(main)).toBe(SLIDE_WIDTH - SLIDE_INSET)
-    expect(rectBottom(main)).toBe(SLIDE_HEIGHT - SLIDE_INSET)
+    // Along the bottom the inset is still exactly one gap — it is simply a gap
+    // to the progress indicator rather than to the slide edge, because the
+    // indicator sits flush with that edge on every slide.
+    expect(rectBottom(main)).toBe(SLIDE_HEIGHT - PROGRESS_BAR_HEIGHT - SLIDE_INSET)
+  })
+
+  it('reserves the progress indicator on every slide, titled or not', () => {
+    for (const hasTitle of [false, true]) {
+      const withBar = computeMainRect(hasTitle)
+      const withoutBar = computeMainRect(hasTitle, { progressHeight: 0 })
+      expect(withoutBar.height - withBar.height).toBe(PROGRESS_BAR_HEIGHT)
+      // Only the bottom moves: the strip is taken off the end, not the start.
+      expect(withBar.y).toBe(withoutBar.y)
+      expect(withBar.width).toBe(withoutBar.width)
+    }
   })
 
   it('separates the title zone from the main zone by exactly G', () => {
@@ -175,7 +190,9 @@ describe('slide framing', () => {
   it('gives the main zone the whole content area when there is no title', () => {
     const withTitle = computeMainRect(true)
     const withoutTitle = computeMainRect(false)
-    expect(withoutTitle.height - withTitle.height).toBe(TITLE_ZONE_HEIGHT + G)
+    expect(withoutTitle.height - withTitle.height).toBe(
+      titleZoneHeightFor(TITLE_FONT_SIZE) + G,
+    )
     expect(withoutTitle.width).toBe(withTitle.width)
   })
 })
@@ -393,12 +410,14 @@ describe('golden path geometry', () => {
   })
 
   it('matches the expected absolute rects', () => {
-    expect(titleRect).toEqual({ x: 24, y: 24, width: 1552, height: 72 })
-    expect(geometry.mainRect).toEqual({ x: 24, y: 120, width: 1552, height: 756 })
+    // The title zone is one line of its own type: round(40 * 1.15).
+    expect(titleRect).toEqual({ x: 24, y: 24, width: 1552, height: 46 })
+    // 900 - 24 (inset) - 46 (title) - 24 (gap) - 24 (inset) - 10 (indicator).
+    expect(geometry.mainRect).toEqual({ x: 24, y: 94, width: 1552, height: 772 })
     expect(leftRect.width).toBeCloseTo(611.2, EPS)
     expect(rightRect.width).toBeCloseTo(916.8, EPS)
-    expect(topRightRect.height).toBeCloseTo(244, EPS)
-    expect(bottomRightRect.height).toBeCloseTo(488, EPS)
+    expect(topRightRect.height).toBeCloseTo(748 / 3, EPS)
+    expect(bottomRightRect.height).toBeCloseTo((748 * 2) / 3, EPS)
   })
 })
 

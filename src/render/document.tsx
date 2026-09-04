@@ -34,7 +34,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
 import { googleFontsHref } from '../domain/fonts'
-import type { DeckPage } from '../domain/pages'
+import { deckPages, deckProgress, type DeckPage } from '../domain/pages'
 import { computeReferenceNumbering } from '../domain/references'
 import type { Presentation } from '../domain/types'
 import { AssetSourceProvider, type AssetUrlSource } from '../state/assetSource'
@@ -115,6 +115,10 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
           // sees — or none at all.
           numbering: computeReferenceNumbering(presentation),
           headingPillColor: presentation.cover.pillColor,
+          // The page was resolved out of this same list — see
+          // `operations/preview.ts` — so the indicator a preview draws is the
+          // one the audience sees on that page.
+          progress: deckProgress(deckPages(presentation)),
           isStatic: true,
         }}
       >

@@ -20,6 +20,19 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   fortsatt én avstand, bare en annen. `src/domain/metrics.ts` er eneste
   utledning av tema-skalerte tokens; geometrimotoren, DOM-en og estimatoren
   leser alle den samme.
+- **Hver side unntatt forsiden har en fremdriftsindikator, og den er obligatorisk.**
+  Var den valgfri, ville et dekk kunne bygges uten den og få den på etterpå – og da
+  mistet hver slide en stripe med plass den allerede var full av. Fordi den alltid er
+  der, reserverer `computeMainRect` stripen én gang, før noe innhold plasseres.
+  Reservasjonen er `PROGRESS_BAR_HEIGHT` og ikke `PROGRESS_BAR_HEIGHT + G`: luften over
+  den er bunninnrykket innholdsområdet allerede hadde. Hvor langt ut i dekket en side er,
+  er noe bare dekket vet – som et citation-nummer – så det ligger i `SlideRenderContext`
+  ved siden av `numbering`, og komponenten slår det opp selv. Indikatoren henger i
+  sidens egen boks (`DeckPageView`), aldri inne i sliden: sidetypene er forskjellige
+  komponenter, så en indikator inni visningen ville blitt et nytt element – uten noen
+  forrige bredde å animere fra – nøyaktig på sidebyttet fra siste slide til QR-siden.
+  Forsiden telles ikke, første vanlige slide er side 1, og siste side er full uansett
+  hva slags side det er. Se `IMPLEMENTATION_PLAN.md` §8.6.
 - `src/domain/geometry.ts` er eneste sannhetskilde for rects – både rendering og hit-testing.
 - Persistens har to moduser, og valget tas ett sted: `src/persistence/activeRepository.ts`.
   Finnes både `VITE_SUPABASE_URL` og `VITE_SUPABASE_PUBLISHABLE_KEY` er Supabase primærlagring;
@@ -366,6 +379,18 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   i stedet for mot vår egen lesing av spesifikasjonen. Den skal aldri bli en
   runtime-avhengighet.
 - Design-tokens (`G`, min-størrelser, typografi) bor i `src/domain/constants.ts` – ikke hardkod verdier i UI.
+- Temaets to skalaer har et gulv og et tak (`SPACING_RANGE`, `FONT_SCALE_RANGE`), og
+  `DEFAULT_SPACING`/`DEFAULT_FONT_SCALE` er ikke `1`: standarden er «Normal»-trinnet et
+  **nytt** dekk åpner i. `NEUTRAL_SCALE` er det et dekk lagret før skalaene fantes ble
+  tegnet på, og det er dét migreringene fyller inn – å gjenskape et lagret dekk og å style
+  et nytt er to forskjellige jobber. Gulvet ligger nå over den nøytrale verdien, så
+  `repairPresentation` klemmer et slikt dekk opp til det tetteste temaet tilbyr.
+- Tittelsonen er nøyaktig én linjeboks av sin egen type (`titleZoneHeightFor`), aldri et
+  eget tall: slark over og under tittelen ville vært en avstand ingen har valgt, og
+  utledningen gjør «større tekst havner aldri i en boks bygget for mindre» sann ved
+  konstruksjon. Se `IMPLEMENTATION_PLAN.md` §8.
+- Presentasjonsmodus tegner ingenting oppå sliden – ingen teller, ingen avslutt-knapp.
+  Fremdriftsindikatoren sier hvor man er, og Escape er veien ut der `onExit` finnes.
 
 ## Kommandoer
 

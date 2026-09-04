@@ -260,11 +260,23 @@ Tittelsone skal derfor være deterministisk:
 - én linje;
 - fast fontstørrelse;
 - fast line-height;
-- fast `TITLE_ZONE_HEIGHT`;
+- høyde = nøyaktig én linjeboks av sin egen type (`titleZoneHeightFor`);
 - ingen manuelle linjeskift;
 - ingen individuell fontformatering;
 - tekst som ikke får plass skal ikke kunne committes;
 - citations kan tillates i tittelen.
+
+Høyden er bevisst *ikke* et eget tall. En sone høyere enn linjen ville lagt slark
+over og under teksten som ingen har valgt: sliden ville lest som om den hadde én
+avstand over tittelen og en annen overalt ellers. Å utlede den fra typografien
+gjør dessuten «større tekst havner aldri i en boks bygget for mindre» sant ved
+konstruksjon, i stedet for ved at to konstanter holdes i takt.
+
+Det som blir igjen mellom glyfene og kanten av boksen er fontens egen
+half-leading — noen få piksler, og en egenskap ved skriftsnittet snarere enn en
+avstandsbeslutning. `TITLE_LINE_HEIGHT` ligger like over den største summen av
+ascent og descent i fontkatalogen, så en aksent eller en underlengde aldri
+klippes.
 
 Sliden har enten:
 
@@ -364,6 +376,62 @@ import skal aldri stoppes av en fit-regel), mens kommandoen `createDeck` er
 formen de to stedene et menneske eller en agent lager et dekk av tekst de nettopp
 skrev. Den måler forsiden absolutt – det finnes ingen forrige tilstand å
 regrediere fra – og avviser med samme feilkode som en for lang slide-tittel.
+
+---
+
+## 8.6\. Fremdriftsindikator
+
+Hver side unntatt forsiden har en fremdriftsindikator, og den er **obligatorisk**.
+
+At den ikke kan slås av er ikke en forenkling, det er hele poenget. Et valg
+ville betydd at et dekk kunne bygges uten den og få den på etterpå – og da
+mister hver eneste slide en stripe med plass de allerede er fulle av, på en
+gang, uten at noen har redigert dem. Er den alltid der, reserverer
+geometrimotoren stripen én gang, før noe innhold er plassert, og spørsmålet kan
+ikke oppstå.
+
+Formen er en lav stripe i bunnen av sliden:
+
+```text
+[ title zone ]
+G
+[ main zone  ]
+G
+[▓▓▓▓▓▓▓░░░░░]   ← PROGRESS_BAR_HEIGHT, helt ut til begge kanter
+```
+
+- Full slidebredde, helt inntil bunnkanten: ingen luft under og ingen på
+  sidene.
+- Nøyaktig én luft over seg, og det er dekkets eget gap. Reservasjonen i
+  `computeMainRect` er derfor `PROGRESS_BAR_HEIGHT` og ikke
+  `PROGRESS_BAR_HEIGHT + G`: gapet over den er bunninnrykket innholdsområdet
+  allerede hadde.
+- Høyden er en tykkelse og ikke en avstand mellom to ting, så `spacing` skalerer
+  den ikke – på samme måte som den ikke skalerer en kortradius eller en
+  skillestrek.
+- En beholder i forsidens pillefarge med 30 % opacity, og en voksende del i den
+  samme fargen med full opacity. De to er søsken i DOM-en, ikke forelder og
+  barn: `opacity` gjelder for hele gruppen, så en voksende del inni en beholder
+  på 30 % ville selv blitt 30 %.
+- Rund i den enden som vokser, rett i den den vokser fra. Ingen skygge, ingen
+  tall, ingen tekst.
+- Den voksende delen beveger seg til sin nye posisjon over 600 ms med
+  `ease-in-out` i stedet for å hoppe dit.
+
+Hvor langt ut i dekket en side er, er noe bare dekket vet – nøyaktig som et
+citation-nummer – så det ligger i `SlideRenderContext` ved siden av
+`numbering`, utledet av `deckProgress(deckPages(...))`. Komponenten slår det opp
+selv, så et kallsted sier bare *hvilken side* den tegner.
+
+Indikatoren henger i sidens egen boks (`DeckPageView`), ikke inne i sliden. Det
+er dét som holder den montert gjennom et sidebytte: sidetypene er forskjellige
+komponenter, så React bytter ut selve visningen når dekket går fra siste slide
+til QR-siden – og en indikator som fulgte med ville vært et nytt element uten
+noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
+
+Tellingen følger sidene, ikke de lagrede slidene: **forsiden telles ikke**, den
+første vanlige sliden er side 1, og den siste siden er full – uansett om det er
+en vanlig slide, en referanseside eller QR-siden.
 
 ---
 
@@ -619,6 +687,25 @@ en regel. De er derfor deklarert i `src/domain/metrics.ts` sammen med
 intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
 API-et siterer den samme listen når det forteller en agent hva «normal» er, og
 én liste er det som holder de to fra å si forskjellige ting.
+
+Begge stigene er forskjøvet oppover: det tetteste et dekk kan settes i er det
+som en gang var «Luftig», og det luftigste er luftigere igjen enn det gamle
+maksimum. Basistallene i `constants.ts` er ikke rørt – det som er flyttet, er
+multiplikatoren, og det er det ærlige stedet å flytte den: en lagret `spacing`
+betyr fortsatt nøyaktig det den betydde, den tilbys bare ikke lenger under det
+nye gulvet.
+
+Derfor er `DEFAULT_SPACING` ikke lenger det samme tallet som «basistokenene
+uskalert». Et dekk som ble lagret før temaet hadde disse skalaene ble tegnet på
+`NEUTRAL_SCALE`, og det er *det* en migrering fyller inn – aldri `DEFAULT_*`,
+som er det et **nytt** dekk åpner i. Å gjenskape et lagret dekk og å style et
+nytt er to forskjellige jobber, og de så bare like ut så lenge standarden
+tilfeldigvis var nøytral. Stigene har siden flyttet seg forbi den nøytrale
+verdien, så et slikt dekk kan ikke lenger tegnes nøyaktig som det var:
+`repairPresentation` klemmer det opp til det tetteste temaet fortsatt tilbyr.
+Det er en villet konsekvens av å heve gulvet, ikke et uhell – og det er derfor
+verdien fortsatt har et navn: hva en migrering fyller inn er et faktum om
+dokumentet, og hva klemmen så gjør med det er en egen beslutning.
 
 Fontkatalogen (`src/domain/fonts.ts`) er på samme måte det ene stedet en font
 er navngitt. Både editorens velger, den hodeløse estimatorens glyffbredder og
@@ -907,10 +994,13 @@ Krav:
 - ikke bygg separat «presentasjonslayout».
 
 > **Oppdatert:** presentasjonsmodus og den offentlige delte visningen er samme
-> komponent, `PresentationPlayer` (§ 43.5). Den lokale varianten har «Avslutt»;
-> den offentlige har ingen vei tilbake, fordi den ikke er montert i noe å gå
-> tilbake til. Sidelisten er felles og inkluderer de avledede referansesidene og,
-> når delingen er på, QR-siden.
+> komponent, `PresentationPlayer` (§ 43.5). Sidelisten er felles og inkluderer de
+> avledede referansesidene og, når delingen er på, QR-siden.
+>
+> Siden er hele skjermen: ingen teller, ingen avslutt-knapp, ingenting tegnet
+> oppå sliden. Hvor langt ut i dekket man er, er det fremdriftsindikatoren som
+> sier (§ 8.6), og veien ut er Escape — som bare finnes der `onExit` gjør det,
+> altså ikke i den delte visningen.
 
 ---
 

@@ -115,6 +115,10 @@ export function measureContentFit(
           theme,
           numbering: context.numbering,
           headingPillColor: DEFAULT_PILL_COLOR,
+          // A zone is measured on its own, not as a page of a deck: there is
+          // no progress to draw, and the room the indicator takes was already
+          // subtracted from the rect this content is being measured against.
+          progress: new Map(),
           isStatic: true,
         }}
       >
@@ -159,6 +163,10 @@ export function measureTitleFit(
           theme,
           numbering: context.numbering,
           headingPillColor: DEFAULT_PILL_COLOR,
+          // A zone is measured on its own, not as a page of a deck: there is
+          // no progress to draw, and the room the indicator takes was already
+          // subtracted from the rect this content is being measured against.
+          progress: new Map(),
           isStatic: true,
         }}
       >
