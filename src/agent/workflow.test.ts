@@ -2083,7 +2083,7 @@ describe('flytting av innhold mellom soner', () => {
     const contentBefore = storedContent(await stored(context, deck.presentationId), slideId, left)
 
     // 1. Flyttingen selv. `toSlideId` er utelatt, som betyr «samme slide».
-    const moved = await ok<ZoneContentMove>(context, 'move_zone_content', {
+    const moved = await ok<Mutated<ZoneContentMove>>(context, 'move_zone_content', {
       presentationId: deck.presentationId,
       fromSlideId: slideId,
       fromNodeId: left,
@@ -2099,13 +2099,24 @@ describe('flytting av innhold mellom soner', () => {
 
     // 4. Svaret bærer målsonens identitet og de samme subfelt-id-ene, så en
     // agent kan fortsette uten en ekstra inspect_slide.
-    expect(moved.content.subfields.map((field) => field.subfieldId)).toEqual([
-      firstField,
-      secondField,
+    expect(moved.subfieldIds).toEqual([firstField, secondField])
+
+    // Og ingenting mer enn id-er. `presentations:read` og `presentations:write`
+    // er uavhengige på et token, og en flytting til den sonen innholdet
+    // allerede står i er en lovlig no-op – et svar som beskrev innholdet ville
+    // gjort denne operasjonen til et inspect_slide uten lesescope.
+    expect(Object.keys(moved).sort()).toEqual([
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'revision',
+      'subfieldIds',
+      'toNodeId',
+      'toSlideId',
     ])
-    expect(moved.content.contentKind).toBe('titled-card')
-    expect(moved.content.cardTitle).toEqual([{ text: 'Funn' }])
-    expect(moved.content.referenceIds).toEqual([reference.id])
+    expect(JSON.stringify(moved)).not.toContain('Første felt')
+    expect(JSON.stringify(moved)).not.toContain('Funn')
+    expect(JSON.stringify(moved)).not.toContain(reference.id)
 
     // 3. Borte fra kilden, på plass i målet — og det samme innholdsobjektet,
     // ikke en rekonstruksjon som ser likt ut. Sammenlignet felt for felt fordi
@@ -2184,9 +2195,11 @@ describe('flytting av innhold mellom soner', () => {
       toNodeId: targetNode,
     })
     expect(moved).toMatchObject({ toSlideId: target, toNodeId: targetNode })
-    expect(moved.content).toMatchObject({ contentKind: 'container', payload: 'asset' })
-    expect(moved.content.assetIds).toEqual([assetId])
-    // En fil er ikke lastet opp på nytt, og sonen peker på den samme filen.
+    // En sone som viser en fil har ingen tekstfelt, og svaret later ikke som noe
+    // annet — filens id hører hjemme i en lesing, ikke i kvitteringen.
+    expect(moved.subfieldIds).toEqual([])
+    expect(JSON.stringify(moved)).not.toContain(assetId)
+    // Filen er ikke lastet opp på nytt, og sonen peker på den samme filen.
     expect(
       (await ok<PresentationView>(context, 'get_presentation', {
         presentationId: deck.presentationId,
@@ -2197,6 +2210,15 @@ describe('flytting av innhold mellom soner', () => {
     expect(storedContent(after, source, sourceNode)).toBeNull()
     expect(storedContent(after, target, targetNode)).toEqual(contentBefore)
     expect(storedContent(after, target, targetNode)?.id).toBe(contentBefore?.id)
+    const arrived = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: target,
+    })
+    expect(zoneOf(arrived, targetNode)).toMatchObject({
+      contentKind: 'container',
+      payload: 'asset',
+      assetIds: [assetId],
+    })
   })
 
   it('lar agenten redigere videre gjennom de samme subfelt-id-ene etter flyttingen', async () => {

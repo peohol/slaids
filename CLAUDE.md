@@ -238,8 +238,12 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `toSlideId`/`toNodeId`), og `moveZoneContent` navngir selv siden hver avvisning
   gjelder – derfor sender agentlaget ingen `slideId`/`nodeId` inn i
   `mutatePresentation`, siden den fallbacken ville merket en kildefeil med
-  målsonen. Domenets `copy` er bevisst ikke eksponert: en «flytt» som noen ganger
-  lager nye id-er er to operasjoner med ett navn.
+  målsonen. Svaret er id-er og ingenting mer: `presentations:read` og
+  `presentations:write` er uavhengige på et token, og en flytting til den sonen
+  innholdet allerede står i er en lovlig no-op, så en mutasjon som beskrev
+  innholdet ville vært et `inspect_slide` uten lesescopet. Domenets `copy` er
+  bevisst ikke eksponert: en «flytt» som noen ganger lager nye id-er er to
+  operasjoner med ett navn.
 - **Retning, forholdstall og antall subfelt er ett spørsmål, og derfor én
   kommando.** `setBodyLayout` i `src/domain/commands/content.ts` tar alle tre og
   kjører fit-guarden én gang, mot layouten som faktisk ble bedt om – slik

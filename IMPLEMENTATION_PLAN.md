@@ -3422,10 +3422,15 @@ subfelt-id-ene, citationene og filreferansen er alle nye, så hver id agenten
 holdt, inkludert de den nettopp hadde bestemt seg for å skrive inn i, peker på
 noe som ikke finnes lenger. `move_zone_content` flytter i stedet selve
 `ZoneContent`-objektet, og det er hele poenget: id-ene følger med, og en agent
-kan skrive videre gjennom dem uten en ny `inspect_slide`. Svaret bærer likevel
-målsonens identitet og innholdet beskrevet av den samme `inspectContent`
-`inspect_slide` og `list_sandbox_items` bruker, så et kall som *ble* etterfulgt
-av en lesing slipper den.
+kan skrive videre gjennom dem uten en ny `inspect_slide`. Svaret bærer derfor
+målsonens identitet og subfelt-id-ene – og ingenting mer. Det siste er en
+scope-grense og ikke bare en konvensjon: `presentations:read` og
+`presentations:write` er uavhengige avkryssinger på et token, og domenet regner
+en flytting til den sonen innholdet allerede står i som en lovlig no-op, så et
+svar som *beskrev* innholdet ville gjort denne operasjonen til et
+`inspect_slide` uten lesescopet. Å beskrive hva en sone inneholder hører hjemme
+i lesingene; en mutasjon kvitterer med id-er, slik `set_zone_card` og
+`adjust_subfields` allerede gjør.
 
 Kilde og mål er to soner, og det avgjør kontrakten: `fromSlideId`/`fromNodeId`
 og `toSlideId`/`toNodeId`, aldri et enslig `slideId` som leseren må gjette

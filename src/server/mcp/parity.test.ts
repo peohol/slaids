@@ -32,6 +32,7 @@ import { agentImage } from '../../agent/image'
 import type { SlidePreviewRenderer } from '../../agent/preview'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
 import { realImages } from '../../domain/testImages'
+import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import {
   callFailure,
   callTool,
@@ -40,6 +41,7 @@ import {
   newPresentation,
   rest,
   restRaw,
+  TOKEN,
   type Harness,
   type McpToolError,
 } from './testHarness'
@@ -594,11 +596,11 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     const overData = over.body.data as {
       toSlideId: string
       toNodeId: string
-      content: { subfields: { subfieldId: string }[] }
+      subfieldIds: string[]
     }
     expect(over.status).toBe(200)
     expect(overData).toMatchObject({ toSlideId: deck.slideId, toNodeId: deck.right })
-    const subfieldIds = overData.content.subfields.map((field) => field.subfieldId)
+    const { subfieldIds } = overData
 
     const back = await callTool(harnessed, tool('move_zone_content'), {
       presentationId: deck.presentationId,
@@ -607,13 +609,10 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
       toNodeId: deck.left,
     })
     expect(back.isError).toBeFalsy()
-    const backData = back.structuredContent as {
-      toNodeId: string
-      content: { subfields: { subfieldId: string }[] }
-    }
+    const backData = back.structuredContent as { toNodeId: string; subfieldIds: string[] }
     expect(backData.toNodeId).toBe(deck.left)
     // The same subfields came back: neither transport rebuilt the content.
-    expect(backData.content.subfields.map((field) => field.subfieldId)).toEqual(subfieldIds)
+    expect(backData.subfieldIds).toEqual(subfieldIds)
 
     // And it is one document underneath, read identically by both.
     const read = await bothWays(harnessed, 'inspect_slide', {
@@ -624,6 +623,80 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     const zones = (read.restData as { zones: { nodeId: string; empty?: boolean }[] }).zones
     expect(zones.find((zone) => zone.nodeId === deck.left)?.empty).toBe(false)
     expect(zones.find((zone) => zone.nodeId === deck.right)?.empty).toBe(true)
+  })
+
+  /**
+   * The same deployment and the same database, seen by a write-only token.
+   *
+   * `harness({ scopes })` would give a second database, and the claim here is
+   * about a token reading a deck that exists — so only the principal changes.
+   */
+  function withoutReadScope(harnessed: Harness): Harness {
+    const principal: AgentPrincipal = {
+      tokenId: 'token-write-only',
+      tokenName: 'Skrivetoken',
+      ownerId: 'owner-1',
+      scopes: ['presentations:write'],
+    }
+    return {
+      ...harnessed,
+      deps: {
+        ...harnessed.deps,
+        authenticate: (presented): Promise<AuthOutcome> =>
+          Promise.resolve(
+            presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
+          ),
+      },
+    }
+  }
+
+  it('lar et token uten lesescope flytte, men ikke lese innholdet gjennom flyttingen', async () => {
+    // `presentations:read` og `presentations:write` er uavhengige avkryssinger
+    // på et token, så flyttingen må virke for et skrivetoken alene — og må ikke
+    // levere ut det sonen inneholder. Å flytte innhold til den sonen det
+    // allerede står i er en lovlig no-op i domenet, så et svar som beskrev
+    // innholdet ville gjort denne operasjonen til et inspect_slide uten
+    // lesescopet.
+    const full = harness()
+    const deck = await filledPair(full)
+    const writeOnly = withoutReadScope(full)
+
+    // Tokenet kan virkelig ikke lese.
+    const denied = await rest(writeOnly, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    expect(denied.status).toBe(403)
+    expect(denied.body.error?.code).toBe('FORBIDDEN_SCOPE')
+
+    // No-op-en er tillatt, og sier ingenting om hva som står der.
+    const noOp = await rest(writeOnly, 'move_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.left,
+      toNodeId: deck.left,
+    })
+    expect(noOp.status).toBe(200)
+    expect(JSON.stringify(noOp.body.data)).not.toContain('Innhold som flyttes')
+
+    // Og den ekte flyttingen svarer med id-er, ikke med innhold.
+    const moved = await rest(writeOnly, 'move_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.left,
+      toNodeId: deck.right,
+    })
+    expect(moved.status).toBe(200)
+    expect(Object.keys(moved.body.data as object).sort()).toEqual([
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'revision',
+      'subfieldIds',
+      'toNodeId',
+      'toSlideId',
+    ])
+    expect(JSON.stringify(moved.body.data)).not.toContain('Innhold som flyttes')
   })
 
   it('avviser en opptatt målsone og innhold som ikke får plass med de samme feilene', async () => {
