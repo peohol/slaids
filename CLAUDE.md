@@ -244,6 +244,33 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   domenekommando begynner å returnere id-er den ikke returnerte før – så en
   agent som nettopp flyttet noe dit kan fortsette direkte, uten en ekstra
   lesing bare for å finne id-en den selv utløste.
+- **Opprydding kan aldri etterlate en peker uten mål.** `delete_asset` går
+  gjennom `removeAsset`, som nekter så lenge dekket viser filen – som
+  soneinnhold, inline i rik tekst, og hver av de to fra sandkassen
+  (`summarizeAssetUsage` er den ene tellingen, bygget på de samme traverseringene
+  som `usedAssetIds`, så «er den i bruk?» og «hvor?» ikke kan bli uenige).
+  Avvisningen er `ASSET_IN_USE` (422) og bærer **tall, aldri adresser**:
+  operasjonen krever `assets:write` – speilbildet av `upload_asset`, og nok
+  nettopp fordi den er innelukket i fillisten og aldri kan fjerne noe fra en
+  slide – så en slide- eller sone-id i feilen ville gitt et token som bare får
+  lagre filer et kart over et dekk det ikke får lese. Slettingen er to skrivinger
+  i én rekkefølge: dokumentet først, bytene etterpå, av samme grunn som
+  `storeAsset` gjør det motsatt – en foreldreløs fil koster lagring, et dokument
+  som peker på bytes som er borte koster sliden. Derfor er `fileRemoved: false`
+  et *resultat*, ikke en feil, og en avvisning rører ingen av de to lagrene.
+  Flagget er repositoryets eget svar (`deleteAsset` returnerer `boolean`), aldri
+  «kallet kastet ikke»: i Supabase er en filsletting to fjerninger, og en feilet
+  objektfjerning feller med vilje ikke kallet – raden er borte, som er det
+  kalleren ba om. Et `true` utledet av at kallet gikk igjennom ville vært en
+  påstand om lagringen ingen har sjekket.
+  Delingen tåler dette uten et ekstra kall: snapshotet lister bare filer slidene
+  viser, og publiseres på nytt av den samme skrivingen som lagrer dekket, så en
+  slettbar fil er per definisjon en fil snapshotet ikke lister.
+  `delete_unused_references` er den samme tynne innpakningen over
+  `deleteUnusedReferences`, med `presentations:write` som `delete_reference`, og
+  kvitterer med id-ene den fjernet og ingenting mer – en liste med titler ville
+  vært en lesing utført av en skriving. Sandkassen teller som bruk i begge, og
+  et andre kall er en no-op som ikke flytter revisjonen.
 - **En flytting er en flytting, ikke en gjenoppbygging.** `move_zone_content` er en
   tynn innpakning rundt `moveZoneContent`, og poenget er at det samme
   `ZoneContent`-objektet havner i den nye sonen: content-id, subfelt-id-er,
@@ -392,6 +419,17 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Et rendret
   preview er ikke et unntak: det er et fotografi av en slide som allerede finnes, aldri
   en generert illustrasjon. Se `IMPLEMENTATION_PLAN.md` §44.
+- **Den tomme linjen på slutten av et felt er ikke innhold.** Et felt justerer hele
+  flyten sin, så en blank linje til slutt – eller bunnmargen til den siste blokken –
+  er luft ingen har valgt, og det var dét som gjorde «midtstilt» litt for høyt.
+  Dokumentet bærer den aldri (`trimTrailingBlankLines`, håndhevet i `setSubfieldDoc`
+  og i migrasjonen), men editoren gjør det så lenge noen står i feltet: et bilde er
+  en atom, og et skrivemerke kan ikke stå på en linje som ikke finnes. Linjen legges
+  til ved fokus og gis tilbake ved blur (`TrailingLineExtension`; StarterKits egen
+  `trailingNode` er slått av, fordi den skrev linjen inn i dokumentet). At den
+  forsvinner ved blur er poenget: innholdsmodus, sonemodus og presentasjonsmodus
+  tegner det samme dokumentet gjennom den samme rammen, og fit-målingen leser den
+  samme rammen – så et felt ingen står i må se ut nøyaktig som sliden.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.

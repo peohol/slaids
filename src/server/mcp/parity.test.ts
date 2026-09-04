@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { agentImage } from '../../agent/image'
 import type { SlidePreviewRenderer } from '../../agent/preview'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
+import type { AgentScope } from '../../agent/types'
 import { realImages } from '../../domain/testImages'
 import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import {
@@ -617,12 +618,12 @@ async function fillToCapacity(
  * `harness({ scopes })` would give a second database, and the claim here is
  * about a token reading a deck that exists — so only the principal changes.
  */
-function withoutReadScope(harnessed: Harness): Harness {
+function withScopes(harnessed: Harness, scopes: AgentScope[]): Harness {
   const principal: AgentPrincipal = {
-    tokenId: 'token-write-only',
-    tokenName: 'Skrivetoken',
+    tokenId: `token-${scopes.join('+')}`,
+    tokenName: 'Smalt token',
     ownerId: 'owner-1',
-    scopes: ['presentations:write'],
+    scopes,
   }
   return {
     ...harnessed,
@@ -634,6 +635,10 @@ function withoutReadScope(harnessed: Harness): Harness {
         ),
     },
   }
+}
+
+function withoutReadScope(harnessed: Harness): Harness {
+  return withScopes(harnessed, ['presentations:write'])
 }
 
 describe('flytting av innhold er den samme operasjonen begge veier', () => {
@@ -1032,5 +1037,212 @@ describe('hele flaten er nåbar begge veier', () => {
         overRest.body.error.code === 'INVALID_INPUT' ? 'protocol' : 'result',
       )
     }
+  })
+})
+
+describe('opprydding er de samme operasjonene begge veier', () => {
+  const SQUARE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
+
+  /** One stored, unplaced file, made the way an agent makes one. */
+  async function file(harnessed: Harness, presentationId: string, name: string): Promise<string> {
+    const created = await rest(harnessed, 'create_svg_asset', { presentationId, name, svgMarkup: SQUARE })
+    if (created.status !== 200) throw new Error(`Kunne ikke lage filen: ${created.body.error?.code}`)
+    return (created.body.data as { assetId: string }).assetId
+  }
+
+  it('sletter en ubrukt fil likt over REST og MCP, med den samme kvitteringen', async () => {
+    // A deletion cannot be asked for twice — the file is gone afterwards — so
+    // the comparison is two files in the same deck, one deleted each way. What
+    // has to match is the receipt's shape and its promises.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Rydding begge veier')
+    const first = await file(harnessed, deck.presentationId, 'en')
+    const second = await file(harnessed, deck.presentationId, 'to')
+
+    const overRest = await rest(harnessed, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId: first,
+    })
+    expect(overRest.status).toBe(200)
+    const restData = overRest.body.data as Record<string, unknown>
+
+    const overMcp = await callTool(harnessed, tool('delete_asset'), {
+      presentationId: deck.presentationId,
+      assetId: second,
+    })
+    expect(overMcp.isError).toBeFalsy()
+    const mcpData = overMcp.structuredContent as Record<string, unknown>
+
+    expect(Object.keys(restData).sort()).toEqual(Object.keys(mcpData).sort())
+    expect(restData).toMatchObject({ assetId: first, fileRemoved: true })
+    expect(mcpData).toMatchObject({ assetId: second, fileRemoved: true })
+
+    // One document underneath, and both files really left it.
+    const read = await bothWays(harnessed, 'list_assets', { presentationId: deck.presentationId })
+    expect(read.restData).toEqual(read.mcpData)
+    expect((read.restData as { assets: unknown[] }).assets).toEqual([])
+  })
+
+  it('avviser en fil som er i bruk likt, som verktøyresultat med de samme tallene', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Fil i bruk')
+    const assetId = await file(harnessed, deck.presentationId, 'plassert')
+    await rest(harnessed, 'set_zone_asset', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      assetId,
+    })
+
+    const both = await refusedBothWays(harnessed, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId,
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('ASSET_IN_USE')
+    expect(both.rest.details).toMatchObject({
+      assetId,
+      usage: { total: 1, slides: { zoneContent: 1, inlineText: 0 } },
+    })
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(422)
+
+    // Two refusals, and the file is still there after both of them.
+    const listed = await rest(harnessed, 'list_assets', { presentationId: deck.presentationId })
+    expect((listed.body.data as { assets: { id: string; used: boolean }[] }).assets).toMatchObject([
+      { id: assetId, used: true },
+    ])
+  })
+
+  it('rydder referanser likt, og et andre kall er den samme no-op-en begge veier', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Referanserydding')
+    const added = await rest(harnessed, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Ubrukt',
+    })
+    const referenceId = (added.body.data as { reference: { id: string } }).reference.id
+
+    const overRest = await rest(harnessed, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(overRest.status).toBe(200)
+    expect(overRest.body.data).toMatchObject({ removedReferenceIds: [referenceId] })
+
+    // Idempotent, and identically so: the second call removes nothing and
+    // leaves the reading where the first one put it.
+    const both = await bothWays(harnessed, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(both.restData).toEqual(both.mcpData)
+    expect(both.restData).toMatchObject({ removedReferenceIds: [] })
+    expect((both.restData as { revision: string }).revision).toBe(overRest.body.revision)
+  })
+
+  it('avviser en utdatert expectedRevision med CONFLICT begge veier, uten å rydde', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Utdatert rydding')
+    const stale = (
+      await rest(harnessed, 'get_presentation', { presentationId: deck.presentationId })
+    ).body.revision
+    await rest(harnessed, 'add_reference', { presentationId: deck.presentationId, title: 'Ubrukt' })
+
+    const both = await refusedBothWays(harnessed, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+      expectedRevision: stale,
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('CONFLICT')
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(409)
+
+    const after = await rest(harnessed, 'get_presentation', { presentationId: deck.presentationId })
+    expect((after.body.data as { referenceCount: number }).referenceCount).toBe(1)
+  })
+
+  it('lar et token med bare assets:write slette en fil, uten å lese dekket gjennom svaret', async () => {
+    // `delete_asset` is the mirror of `upload_asset` and asks for the same
+    // scope. That is only defensible if it cannot be used to *read*: neither the
+    // receipt nor the refusal may hand a token that may store files a map of a
+    // deck it has no read scope for.
+    const full = harness()
+    const deck = await newPresentation(full, 'Smalt token')
+    const unused = await file(full, deck.presentationId, 'ubrukt')
+    const placed = await file(full, deck.presentationId, 'plassert')
+    await rest(full, 'set_zone_asset', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      assetId: placed,
+    })
+
+    const filesOnly = withScopes(full, ['assets:write'])
+
+    // The token really cannot read.
+    const denied = await rest(filesOnly, 'list_assets', { presentationId: deck.presentationId })
+    expect(denied.status).toBe(403)
+    expect(denied.body.error?.code).toBe('FORBIDDEN_SCOPE')
+
+    // It may delete, and the receipt is ids and one boolean.
+    const deleted = await rest(filesOnly, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId: unused,
+    })
+    expect(deleted.status).toBe(200)
+    expect(Object.keys(deleted.body.data as object).sort()).toEqual([
+      'assetId',
+      'fileRemoved',
+      'presentationId',
+      'revision',
+    ])
+
+    // And the refusal says why without naming a slide or a zone.
+    const refused = await rest(filesOnly, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId: placed,
+    })
+    expect(refused.status).toBe(422)
+    expect(refused.body.error?.code).toBe('ASSET_IN_USE')
+    const serialized = JSON.stringify(refused.body.error?.details)
+    expect(serialized).not.toContain(deck.slideId)
+    expect(serialized).not.toContain(deck.rootNodeId)
+    // Over MCP too — the payload is the same object, so it cannot differ.
+    const overMcp = await callFailure(filesOnly, tool('delete_asset'), {
+      presentationId: deck.presentationId,
+      assetId: placed,
+    })
+    expect(overMcp.error).toEqual(refused.body.error)
+  })
+
+  it('lar et token uten lesescope rydde referanser, men ikke lese dem gjennom kvitteringen', async () => {
+    const full = harness()
+    const deck = await newPresentation(full, 'Rydding uten lesescope')
+    await rest(full, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Hemmelig tittel',
+      authors: 'Hemmelig forfatter',
+      url: 'https://hemmelig.example',
+      year: '2026',
+    })
+    const writeOnly = withoutReadScope(full)
+
+    const denied = await rest(writeOnly, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(denied.status).toBe(403)
+
+    const pruned = await rest(writeOnly, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(pruned.status).toBe(200)
+    expect(Object.keys(pruned.body.data as object).sort()).toEqual([
+      'presentationId',
+      'removedReferenceIds',
+      'revision',
+    ])
+    const serialized = JSON.stringify(pruned.body.data)
+    expect(serialized).not.toContain('Hemmelig tittel')
+    expect(serialized).not.toContain('Hemmelig forfatter')
+    expect(serialized).not.toContain('hemmelig.example')
   })
 })

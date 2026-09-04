@@ -156,8 +156,11 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     return keys as string[]
   }
 
-  async deleteAsset(id: string): Promise<void> {
+  async deleteAsset(id: string): Promise<boolean> {
+    // One store, one row: the bytes live in the row, so there is no second
+    // removal that could fail on its own. Always `true` once the delete lands.
     await this.database.assets.delete(id)
+    return true
   }
 
   async deleteAssetsForPresentation(presentationId: string): Promise<void> {

@@ -57,3 +57,44 @@ export const realImageBase64 = {
   gif: GIF_BASE64,
   webp: WEBP_BASE64,
 }
+
+/**
+ * The JPEG fixture with an EXIF APP1 segment spliced in after the SOI marker,
+ * asking for `orientation`.
+ *
+ * Built here rather than checked in as a second fixture, because the point is
+ * the parse: a segment with a byte order, a TIFF header, an IFD offset and one
+ * entry is exactly what `readExifOrientation` has to walk, and assembling it in
+ * the open is what makes it obvious which byte the answer comes out of. The
+ * picture data is a real encoder's, unchanged — only the tag is added.
+ */
+export function jpegWithExifOrientation(orientation: number, little = true): Uint8Array {
+  const tiff: number[] = []
+  const u16 = (value: number): void => {
+    tiff.push(little ? value & 0xff : value >> 8, little ? value >> 8 : value & 0xff)
+  }
+  const u32 = (value: number): void => {
+    const big = [value >>> 24, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]
+    tiff.push(...(little ? big.reverse() : big))
+  }
+  tiff.push(...(little ? [0x49, 0x49] : [0x4d, 0x4d])) // "II" or "MM"
+  u16(0x002a)
+  u32(8) // IFD0 begins right after the eight-byte TIFF header
+  u16(1) // one entry
+  u16(0x0112) // Orientation
+  u16(3) // SHORT
+  u32(1) // one value…
+  u16(orientation) // …in the first half of the four-byte value field
+  u16(0)
+
+  const payload = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00, ...tiff] // "Exif\0\0"
+  const length = payload.length + 2
+  const segment = [0xff, 0xe1, length >> 8, length & 0xff, ...payload]
+
+  const source = realImages.jpeg()
+  const out = new Uint8Array(source.length + segment.length)
+  out.set(source.subarray(0, 2), 0) // SOI
+  out.set(segment, 2)
+  out.set(source.subarray(2), 2 + segment.length)
+  return out
+}

@@ -4,7 +4,7 @@
  * A headless render has no second chance. `renderToStaticMarkup` runs no
  * effects and never re-renders, so anything a component resolves
  * asynchronously is missing from the output — a slide with a figure would come
- * back with "Laster figur …" where the figure should be. So the bytes are
+ * back with a placeholder where the picture should be. So the bytes are
  * collected *before* the markup is built, and the source handed to the
  * renderer answers synchronously.
  *
@@ -27,7 +27,7 @@ import type { StoredAsset } from '../persistence/repository'
 import type { AssetUrlSource } from '../state/assetSource'
 
 export interface PreviewAssets {
-  /** Mounted over the renderer, so `AssetImage` resolves on the first render. */
+  /** Mounted over the renderer, so a picture resolves on the first render. */
   source: AssetUrlSource
   /** A file the store no longer has. The picture shows the gap; this names it. */
   warnings: string[]

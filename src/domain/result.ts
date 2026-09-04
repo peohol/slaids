@@ -24,6 +24,7 @@ export type DomainErrorCode =
   | 'REFERENCE_INVALID'
   | 'SANDBOX_ITEM_NOT_FOUND'
   | 'ASSET_NOT_FOUND'
+  | 'ASSET_IN_USE'
   | 'UNSUPPORTED_MEDIA_TYPE'
   | 'INVALID_IMAGE'
   | 'ASSET_TOO_LARGE'
@@ -74,6 +75,7 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   REFERENCE_INVALID: 'Referansen må ha minst tittel, forfatter eller lenke.',
   SANDBOX_ITEM_NOT_FOUND: 'Fant ikke elementet i sandkassen.',
   ASSET_NOT_FOUND: 'Fant ikke filen.',
+  ASSET_IN_USE: 'Filen vises i dekket og kan ikke slettes.',
   UNSUPPORTED_MEDIA_TYPE: 'Filtypen støttes ikke.',
   INVALID_IMAGE: 'Bildefilen er ufullstendig eller ødelagt.',
   ASSET_TOO_LARGE: 'Filen er for stor.',

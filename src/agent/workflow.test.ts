@@ -26,6 +26,9 @@ import type { CoverView } from './operations/cover'
 import type { PresentationView, SlideInspection, ZoneInspection } from './operations/deck'
 import type { Mutated } from './presentation'
 import type { SubfieldLayout } from './operations/content'
+import type { PrunedReferences } from './operations/references'
+import type { DeletedAsset } from './operations/assets'
+import type { StoredAssetResult } from './assetStore'
 import type { SandboxItemView, SandboxPlacement } from './operations/sandbox'
 import type { SlidePlacement } from './operations/slides'
 import type { ValidationReport } from './operations/validation'
@@ -3715,5 +3718,239 @@ describe('fargen på et kort med tittel', () => {
       color: null,
     })
     expect(error.code).toBe('INVALID_CONTENT')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Rydding
+ * ------------------------------------------------------------------ */
+
+describe('rydding', () => {
+  const SQUARE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
+
+  /** A reference, added the way an agent adds one. */
+  async function reference(
+    context: AgentContext,
+    presentationId: string,
+    title: string,
+  ): Promise<string> {
+    const added = await ok<Mutated<{ reference: { id: string } }>>(context, 'add_reference', {
+      presentationId,
+      title,
+    })
+    return added.reference.id
+  }
+
+  /** Cite these references from the deck's first zone. */
+  async function cite(
+    context: AgentContext,
+    target: { presentationId: string; slideId: string; nodeId: string },
+    referenceIds: string[],
+  ): Promise<void> {
+    await ok(context, 'set_zone_text', {
+      ...target,
+      blocks: [
+        {
+          type: 'paragraph',
+          spans: [{ text: 'Se ' }, ...referenceIds.map((id) => ({ citation: [id] }))],
+        },
+      ],
+    })
+  }
+
+  async function firstTarget(
+    context: AgentContext,
+    presentationId: string,
+    slideId: string,
+  ): Promise<{ presentationId: string; slideId: string; nodeId: string }> {
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+    )
+    return { presentationId, slideId, nodeId }
+  }
+
+  it('fjerner én ubrukt referanse og svarer med id-en den fjernet', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    const unused = await reference(context, deck.presentationId, 'Ubrukt')
+
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(pruned.removedReferenceIds).toEqual([unused])
+    expect((await stored(context, deck.presentationId)).references).toEqual([])
+    expect(pruned.revision).toBe(presentationRevision(await stored(context, deck.presentationId)))
+  })
+
+  it('fjerner flere ubrukte referanser i ett kall', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    const ids = [
+      await reference(context, deck.presentationId, 'En'),
+      await reference(context, deck.presentationId, 'To'),
+      await reference(context, deck.presentationId, 'Tre'),
+    ]
+
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect([...pruned.removedReferenceIds].sort()).toEqual([...ids].sort())
+    expect((await stored(context, deck.presentationId)).references).toEqual([])
+  })
+
+  it('beholder referanser som faktisk er sitert', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    const cited = await reference(context, deck.presentationId, 'Sitert')
+    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+    await cite(context, target, [cited])
+
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(pruned.removedReferenceIds).toEqual([])
+    const after = await stored(context, deck.presentationId)
+    expect(after.references.map((entry) => entry.id)).toEqual([cited])
+    // And the citation still renders as a number, so nothing was orphaned.
+    expect(citationNumber(after, cited)).toBe(1)
+  })
+
+  it('skiller de brukte fra de ubrukte i det samme dekket', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    const cited = await reference(context, deck.presentationId, 'Sitert')
+    const parked = await reference(context, deck.presentationId, 'Sitert fra sandkassen')
+    const unusedOne = await reference(context, deck.presentationId, 'Ubrukt 1')
+    const unusedTwo = await reference(context, deck.presentationId, 'Ubrukt 2')
+
+    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+    await cite(context, target, [cited])
+
+    // A second slide whose content cites `parked`, then cleared into the
+    // sandbox: parked content is unfinished work, and its citations are real.
+    const second = await emptySlide(context, deck.presentationId)
+    await cite(
+      context,
+      { presentationId: deck.presentationId, slideId: second.slideId, nodeId: second.nodeId },
+      [parked],
+    )
+    await ok(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: second.slideId,
+      nodeId: second.nodeId,
+    })
+
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect([...pruned.removedReferenceIds].sort()).toEqual([unusedOne, unusedTwo].sort())
+
+    const after = await stored(context, deck.presentationId)
+    expect([...after.references.map((entry) => entry.id)].sort()).toEqual([cited, parked].sort())
+  })
+
+  it('er idempotent: et andre kall fjerner ingenting og flytter ingen revisjon', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    await reference(context, deck.presentationId, 'Ubrukt')
+
+    const first = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(first.removedReferenceIds).toHaveLength(1)
+
+    const second = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(second.removedReferenceIds).toEqual([])
+    // Nothing changed, so the reading did not change either: the second call is
+    // safe to make on a schedule without invalidating anybody's revision.
+    expect(second.revision).toBe(first.revision)
+  })
+
+  it('svarer med en tom liste på et dekk som aldri har hatt en referanse', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Ingenting å rydde' })
+    const before = presentationRevision(await stored(context, deck.presentationId))
+
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+    })
+    expect(pruned.removedReferenceIds).toEqual([])
+    expect(pruned.revision).toBe(before)
+  })
+
+  it('avviser en utdatert expectedRevision uten å rydde noe', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Rydding' })
+    const stale = presentationRevision(await stored(context, deck.presentationId))
+    const unused = await reference(context, deck.presentationId, 'Ubrukt')
+
+    const error = await fails(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+      expectedRevision: stale,
+    })
+    expect(error.code).toBe('CONFLICT')
+    expect((await stored(context, deck.presentationId)).references.map((entry) => entry.id)).toEqual(
+      [unused],
+    )
+
+    // Against the current reading it goes through.
+    const current = presentationRevision(await stored(context, deck.presentationId))
+    const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
+      presentationId: deck.presentationId,
+      expectedRevision: current,
+    })
+    expect(pruned.removedReferenceIds).toEqual([unused])
+  })
+
+  it('lukker sløyfen en agent faktisk går: erstatt en figur, rydd den gamle', async () => {
+    // The gap this closes. An agent uploads a picture, places it, changes its
+    // mind and places another — and until now the first one stayed in the deck
+    // forever, listed by `list_assets` and impossible to remove.
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Erstatt en figur' })
+    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+
+    const first = await ok<StoredAssetResult>(context, 'create_svg_asset', {
+      presentationId: deck.presentationId,
+      name: 'gammel',
+      svgMarkup: SQUARE,
+    })
+    await ok(context, 'set_zone_asset', { ...target, assetId: first.assetId })
+
+    const second = await ok<StoredAssetResult>(context, 'create_svg_asset', {
+      presentationId: deck.presentationId,
+      name: 'ny',
+      svgMarkup: SQUARE,
+    })
+    // Replaced outright, so the old picture is not parked in the sandbox: it is
+    // shown nowhere, which is exactly when it becomes deletable.
+    await ok(context, 'set_zone_asset', {
+      ...target,
+      assetId: second.assetId,
+      replace: true,
+      replacedDisposition: 'delete',
+    })
+
+    // Still in use, so still refused — the deck decides, not the agent's memory.
+    expect((await fails(context, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId: second.assetId,
+    })).code).toBe('ASSET_IN_USE')
+
+    const deleted = await ok<Mutated<DeletedAsset>>(context, 'delete_asset', {
+      presentationId: deck.presentationId,
+      assetId: first.assetId,
+    })
+    expect(deleted).toMatchObject({ assetId: first.assetId, fileRemoved: true })
+
+    const after = await stored(context, deck.presentationId)
+    expect(after.assets.map((asset) => asset.id)).toEqual([second.assetId])
+    // And the deck is still whole: the picture that is on the slide is intact.
+    const report = await ok<ValidationReport>(context, 'validate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(report.valid).toBe(true)
   })
 })

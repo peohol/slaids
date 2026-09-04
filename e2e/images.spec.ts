@@ -93,6 +93,26 @@ test.describe('pictures', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('lets its shadow fall into the gap, but never off the slide', async ({ page }) => {
+    await createPresentation(page, 'Bildeskygge')
+    await fillZoneWithPicture(page)
+
+    // A picture fills its frame exactly, so the box that casts the shadow is
+    // the picture — and nothing between the two may clip it away. The slide
+    // itself does clip: a shadow may fall into the gap, never off the slide.
+    const clipped = await page.evaluate(() => {
+      const picture = document.querySelector(
+        '[data-testid="stage-slide"] .image-panel',
+      ) as HTMLElement
+      const slide = picture.closest('.slide') as HTMLElement
+      for (let node = picture.parentElement; node && node !== slide; node = node.parentElement) {
+        if (getComputedStyle(node).overflow !== 'visible') return node.className
+      }
+      return getComputedStyle(slide).overflow === 'hidden' ? null : 'slide does not clip'
+    })
+    expect(clipped).toBeNull()
+  })
+
   test('drags the crop, and snaps back to the middle', async ({ page }) => {
     await createPresentation(page, 'Utsnitt')
     await fillZoneWithPicture(page)

@@ -9,10 +9,20 @@
  * Deleting is the exception. It strips every citation that pointed at the
  * reference, so it is the one reference operation that changes documents, and
  * it says how many it removed rather than doing it quietly.
+ *
+ * `delete_unused_references` is the opposite end of that: it removes only what
+ * nothing cites, so it changes no text at all. What counts as "cited" is the
+ * deck's own answer — slide titles, every zone, and the sandbox — and the
+ * sandbox is the part that makes it safe rather than merely tidy.
  */
 
 import { z } from 'zod'
-import { addReference, deleteReference, updateReference } from '../../domain/commands'
+import {
+  addReference,
+  deleteReference,
+  deleteUnusedReferences,
+  updateReference,
+} from '../../domain/commands'
 import { collectCitationIds } from '../../domain/richdoc'
 import { contentDocs } from '../../domain/content'
 import { allContent } from '../../domain/docs'
@@ -153,8 +163,60 @@ export const deleteReferenceOperation = defineOperation({
   },
 })
 
+/* ------------------------------------------------------------------ *
+ * delete_unused_references
+ * ------------------------------------------------------------------ */
+
+export interface PrunedReferences {
+  presentationId: string
+  /**
+   * The references this call actually removed.
+   *
+   * Ids and nothing else, for the same reason `move_zone_content` answers with
+   * ids: `presentations:write` and `presentations:read` are independent ticks on
+   * a token, and a receipt that listed titles and authors would be a reading of
+   * the deck performed by a write. An empty list is the ordinary answer for a
+   * deck that has nothing to clean, not a failure.
+   */
+  removedReferenceIds: string[]
+}
+
+export const deleteUnusedReferencesOperation = defineOperation({
+  name: 'delete_unused_references',
+  summary:
+    'Fjern referanser ingenting siterer. Innhold i sandkassen teller som bruk, og et dekk uten noe å rydde svarer med en tom liste.',
+  mutates: true,
+  // The same authority as `delete_reference`, because it is the same act on a
+  // set the deck itself picks out. It is not `assets:write`-shaped: a reference
+  // lives in the document, not in the file store.
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+  }),
+  run(context, input): Promise<AgentResult<PrunedReferences>> {
+    return mutatePresentation(context, input, (presentation) => {
+      // What counts as "unused" is `citedReferenceIds`' answer and nothing else:
+      // slide titles, every zone's documents *and* content parked in the
+      // sandbox. That last one is why this cannot be re-derived here — a
+      // citation waiting in the sandbox is a real citation, and pruning past it
+      // would break the item the moment it is placed back on a slide.
+      const before = new Set(presentation.references.map((reference) => reference.id))
+      const pruned = deleteUnusedReferences(presentation)
+      if (!pruned.ok) return pruned
+
+      for (const reference of pruned.value.references) before.delete(reference.id)
+      return ok({
+        presentation: pruned.value,
+        value: { presentationId: presentation.id, removedReferenceIds: [...before] },
+      })
+    })
+  },
+})
+
 export const referenceOperations = [
   addReferenceOperation,
   updateReferenceOperation,
   deleteReferenceOperation,
+  deleteUnusedReferencesOperation,
 ]

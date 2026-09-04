@@ -561,11 +561,15 @@ Første operative innholdstyper:
 Usynlig wrapper:
 
 - transparent bakgrunn;
-- ingen box shadow;
+- ingen box shadow på selve beholderen;
 - ingen visuell kortflate;
 - ingen ytre padding som påvirker layoutgap;
 - inneholder subfelt med RichDoc, og ingenting annet: et bilde som fyller
   sonen er sin egen innholdstype (§13.4), ikke en beholder med en annen hatt.
+
+Beholderen maler fortsatt ingenting, men **et bilde som fyller sonen får
+kortets dybde og kan få kortets hjørner** – se §26. Det er bildet som males,
+ikke beholderen: en beholder med tekst er like usynlig som før.
 
 Tekstfarge velges automatisk mot slidebakgrunn.
 
@@ -813,6 +817,33 @@ ikke kan bli uenige.
 
 Innhold justeres også loddrett (topp/midt/bunn) i feltet det står i. Det er
 en egenskap ved feltet, ikke ved teksten.
+
+### Den tomme linjen på slutten er ikke innhold
+
+Et felt justerer hele flyten sin, marger og tomme linjer inkludert. Derfor er
+to ting som ser ut som ingenting nok til at «midtstilt» ikke blir midtstilt:
+
+- **Ytterste marger.** Hver blokk bærer en avstand ned til blokken etter seg.
+  Den første blokkens toppmarg og den siste blokkens bunnmarg skiller teksten
+  fra ingenting, og skal derfor være null. Ellers havner halve avstanden under
+  teksten som luft ingen har valgt.
+- **Blanke linjer til slutt.** En blank linje mellom to avsnitt er en avstand
+  forfatteren har valgt; en blank linje etter den siste er en linje med
+  ingenting i. Den lagres aldri (`trimTrailingBlankLines`), verken når noen
+  trykker Enter til slutt eller når et bilde settes inn – å sette inn en
+  blokknode i et avsnitt splitter det og legger igjen nettopp en slik linje.
+
+Editoren har den likevel, og må ha den: et bilde er en atom, så et felt som
+slutter med et bilde har ingen plass å sette skrivemerket. Linjen finnes derfor
+så lenge noen står i feltet, og gis tilbake i det de forlater det. Det er
+`TrailingLineExtension` (StarterKits egen `trailingNode` er slått av, fordi den
+skrev linjen inn i dokumentet). Regelen er «siste blokk kan ikke bære et
+skrivemerke» (`!isTextblock`), ikke en liste med nodenavn.
+
+At linjen forsvinner ved blur er ikke kosmetikk: innholdsmodus, sonemodus og
+presentasjonsmodus tegner det samme dokumentet gjennom den samme rammen, og
+fit-målingen leser den samme rammen – så et felt ingen står i må se ut nøyaktig
+som sliden.
 
 ### Ekstern paste
 
@@ -1121,7 +1152,20 @@ ville kastet bort tre ting brukeren ikke ba om å miste.
 Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
 størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
 bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i
-sonen. Fit-vakten har fortsatt siste ord.
+sonen. Fit-vakten har fortsatt siste ord. «Ledig plass» regnes mot flyten slik
+den blir *etter* innsettingen: linjen splittingen legger igjen, bildets egen
+marg, og margen den blokken som er sist nå får tilbake i det den slutter å være
+sist.
+
+### Et bilde som fyller sonen
+
+Se §13.4. Et bilde beskjæres alltid til sonen, så elementet *er* sonen: hjørnene
+en radius runder og omrisset en skygge følger er da sonens egne, og en vanlig
+`box-shadow` på boksen er skyggen på bildet. Det var ikke sant så lenge et bilde
+kunne vises helt — da var det letterboxet, boksen var større enn bildet, og både
+radius og skygge måtte følge en boks som ble trimmet ned til bildet etter
+størrelsesforholdet. Den maskineriet er borte med `contain`: det er ikke noe å
+trimme lenger.
 
 Slaids lager ikke bilder selv, verken for et menneske eller for en agent. Hvor
 et bilde kan komme fra, og hvordan SVG-markup fra en agent valideres og saneres
@@ -2769,6 +2813,34 @@ isolerte kall:
 - REST og MCP er enige om sandkassen, id for id, og den offisielle
   MCP-klienten godtar `list_sandbox_items`- og `place_sandbox_item`-verktøyene.
 
+For fase 6, oppryddingen, i tillegg – og her er avvisningene viktigere enn
+suksessene, fordi de er de eneste som kan ødelegge et dekk:
+
+- et ubrukt asset slettes: `AssetRef`-en forlater dokumentet *og* bytene
+  forlater lagringen, og revisjonen i kvitteringen er den lagrede;
+- et asset som er innholdet i en sone avvises med `ASSET_IN_USE`;
+- et asset som bare ligger inline i rik tekst avvises på samme måte – det er
+  tilfellet en sjekk på soneinnhold alene ville sluppet gjennom;
+- et asset som bare vises fra innhold i sandkassen avvises også;
+- etter hver avvisning er både dokumentet og assetlageret nøyaktig som før,
+  sammenlignet mot lagret tilstand og ikke mot et kall på en stubb;
+- avvisningen navngir aldri en slide, en sone eller et sandkasseelement, bare
+  hvor mange steder av hvert slag filen vises;
+- en fil som ikke lot seg slette fra lagringen etter at dokumentet var skrevet
+  rapporteres som `fileRemoved: false` – aldri som en feil, og aldri ved å
+  legge referansen tilbake;
+- `delete_unused_references` rydder én ubrukt referanse, flere ubrukte
+  referanser, og lar de siterte stå – også når de tre tilfellene er i det samme
+  dekket, og også når det som siterer er en slidetittel eller innhold i
+  sandkassen;
+- et andre kall er en no-op som fjerner ingenting og ikke flytter revisjonen;
+- en utdatert `expectedRevision` gir `CONFLICT` på begge, uten å rydde noe;
+- et token med bare `assets:write` kan slette en fil uten å kunne lese dekket,
+  og et token med bare `presentations:write` kan rydde referanser uten at
+  kvitteringen bærer en eneste tittel, forfatter eller lenke;
+- REST og MCP svarer med den samme kvitteringen, den samme feilkoden, de samme
+  tallene og den samme MCP-konvolutten.
+
 ### Ferdigkriterium
 
 Agentfunksjonen er ikke ferdig bare fordi en agent kan lage gyldig JSON.
@@ -3574,6 +3646,71 @@ gren mellom de to: én innpakningsfunksjon bygger begge operasjonene og får
 domenekommandoen inn som argument, så det finnes ikke noe sted der en kopi kunne
 få en flyttings semantikk.
 
+Opprydding var det siste hullet der agenten kunne *lage* noe den ikke kunne
+fjerne igjen. En agent som lastet opp en figur, plasserte den og senere byttet
+den ut, etterlot en foreldreløs fil for alltid: `list_assets` viste den, og
+ingen operasjon kunne ta den bort. Det samme gjaldt en referanse som ble lagt
+inn og aldri sitert. `delete_asset` og `delete_unused_references` lukker begge,
+og begge er tynne innpakninger over kommandoer domenet allerede hadde
+(`removeAsset` og `deleteUnusedReferences`) – ingen ny opprydningslogikk i
+agentlaget.
+
+Det interessante er avvisningene, ikke slettingene. `delete_asset` skal aldri
+kunne etterlate dokumentet med en referanse til en fil som ikke finnes, så
+domenet nekter så lenge dekket viser filen – og «viser» betyr alle fire
+måtene: som innholdet i en sone, inline i rik tekst, og hver av de to fra
+innhold som ligger parkert i sandkassen. En sjekk på soneinnhold alene ville
+sluppet gjennom nettopp den varianten editoren lager oftest. Sandkassen teller
+med av samme grunn som den teller med i `deleteUnusedReferences`: parkert
+innhold er uferdig arbeid, ikke slettet arbeid, og en fil slettet under det
+ville brutt elementet i det øyeblikket det ble satt tilbake på en slide.
+
+Feilen er `ASSET_IN_USE` (422 – forespørselen var forstått, og reglene sa nei),
+og den bærer hvor mange steder filen vises, delt på slide/sandkasse og
+soneinnhold/inline. Den navngir *ikke* sliden eller sonen, og det er en
+scope-grense: `delete_asset` krever `assets:write` – speilbildet av
+`upload_asset`, siden det er den samme autoriteten over den samme listen – og
+det holder nettopp fordi operasjonen er innelukket i fillisten og aldri kan
+fjerne noe fra en slide. Et token som bare får lagre filer skal ikke kunne
+kartlegge et dekk det ikke har lesetilgang til ved å prøve å slette hver fil.
+Tallene gjør avvisningen handlingsbar; adressene finner en agent med
+`list_assets` og `inspect_slide`, som krever `presentations:read`.
+
+Atomisiteten er to spørsmål, fordi det er to lagre. En avvisning rører ingen av
+dem: `mutatePresentation` returnerer før dokumentet skrives, og filen berøres
+først etterpå – så «verken presentasjonen eller assetlageret er endret» er sant
+ved konstruksjon og ikke ved opprydding. En godkjent sletting skriver dokumentet
+først og bytene etterpå, og det er den samme asymmetrien `storeAsset` snur den
+andre veien: bytes ingen peker på koster lagring til presentasjonen slettes,
+mens et dokument som peker på bytes som er borte koster sliden. Går den siste
+skrivingen galt, står slettingen likevel – `fileRemoved: false` sier at det ble
+liggende igjen en foreldreløs fil, aldri at referansen kom tilbake.
+
+Flagget må komme fra lagringen selv, og det er skarpere enn det ser ut. I
+Supabase er en filsletting to fjerninger – raden, så objektet – og en feilet
+objektfjerning feller med vilje ikke kallet: raden er borte, som er det kalleren
+ba om, og stien huskes for opprydningssveipet. «Husket» er et svakere løfte enn
+det høres ut som på serveren: `agentContextFor` bygger et nytt repository per
+forespørsel, så settet overlever ikke kallet, og sveipet rydder bare mapper til
+presentasjoner som er slettet. Derfor returnerer `SlaidsRepository.deleteAsset`
+en `boolean` i stedet for `void`, og `deleteAssetFile` leser den i stedet for å
+utlede `true` av at kallet ikke kastet – ellers ville `fileRemoved: true` vært
+en påstand om lagringen ingen har sjekket.
+
+Delingen tåler dette uten et eneste ekstra kall, og det er verdt å si hvorfor:
+`buildSharedSnapshot` tar bare med filer slidene faktisk viser, og en delt
+presentasjon publiseres på nytt av den samme skrivingen som lagrer den. Et
+asset som er slettbart er derfor per definisjon et asset det publiserte
+snapshotet ikke lister, og en sletting kan ikke gjøre en delt lenke ødelagt.
+
+`delete_unused_references` krever `presentations:write`, som `delete_reference`:
+en referanse bor i dokumentet, ikke i fillageret. Kvitteringen er id-ene som
+faktisk ble fjernet og ingenting mer – samme grense som for `move_zone_content`,
+og den biter her: et svar som listet titler og forfattere ville vært en lesing
+av dekket utført av en skriving. Et dekk uten noe å rydde svarer med en tom
+liste og den samme revisjonen som før, så operasjonen kan kalles på rutine uten
+å gjøre noen andres `expectedRevision` utdatert.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
@@ -3583,9 +3720,10 @@ ikke mekanisk:
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
   uten at scope-spørsmålet er tenkt igjennom.
-- **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
-  opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
-  fjerne.
+- **Inline bilder i rik tekst.** `delete_asset` respekterer dem – de teller som
+  bruk, og en fil som bare ligger inline kan ikke slettes – men tekstformatet en
+  agent *skriver* har fortsatt ingen bildeblokk. En agent kan altså ikke lage
+  det den nå må ta hensyn til; editoren kan.
 - **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
   menneske som bygger med musen, den andre en notatflate som aldri forlater
   arbeidskopien.

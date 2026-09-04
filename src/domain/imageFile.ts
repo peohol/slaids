@@ -35,7 +35,12 @@ import { SVG_MIME_TYPE } from './svg'
 
 export interface RasterImage {
   mimeType: string
-  /** Intrinsic size, always read from the bitstream and always > 0. */
+  /**
+   * Intrinsic size, always read from the bitstream and always > 0 — and always
+   * the size the picture is *drawn* at: a JPEG that carries an EXIF orientation
+   * turning it a quarter turn is reported transposed, because that is what
+   * every renderer shows. See `readExifOrientation`.
+   */
   width: number
   height: number
 }
@@ -242,9 +247,57 @@ function isFrameMarker(marker: number): boolean {
   return marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)
 }
 
+/**
+ * The orientation an EXIF segment asks for, or `null` when it carries none that
+ * can be read.
+ *
+ * A photograph from a phone is stored the way the sensor read it and turned by
+ * a tag, so the frame header's width and height are not the picture's: a
+ * browser draws it rotated, because `image-orientation: from-image` is the
+ * default. Reading the tag is what makes "the size out of the bitstream" mean
+ * the size it is drawn at — which is the only size worth recording, and the
+ * only one a renderer that has to agree with a browser can use.
+ *
+ * Every step is bounds-checked against the segment: what is being parsed here
+ * is whatever the file happened to contain.
+ */
+function readExifOrientation(bytes: Uint8Array, start: number, end: number): number | null {
+  if (ascii(bytes, start, 6) !== 'Exif\u0000\u0000') return null
+  const tiff = start + 6
+  if (tiff + 8 > end) return null
+
+  const order = ascii(bytes, tiff, 2)
+  if (order !== 'II' && order !== 'MM') return null
+  const little = order === 'II'
+  const u16 = (at: number): number => (little ? le16(bytes, at) : be16(bytes, at))
+  const u32 = (at: number): number => (little ? le32(bytes, at) : be32(bytes, at))
+  if (u16(tiff + 2) !== 0x002a) return null
+
+  // Offsets inside an EXIF block are relative to the TIFF header, not the file.
+  const ifd = tiff + u32(tiff + 4)
+  if (ifd < tiff || ifd + 2 > end) return null
+  const entries = u16(ifd)
+  for (let i = 0; i < entries; i += 1) {
+    const entry = ifd + 2 + i * 12
+    if (entry + 12 > end) return null
+    if (u16(entry) !== EXIF_ORIENTATION_TAG) continue
+    const value = u16(entry + 8)
+    return value >= 1 && value <= 8 ? value : null
+  }
+  return null
+}
+
+const EXIF_ORIENTATION_TAG = 0x0112
+
+/** 5 through 8 turn the picture a quarter turn, so it is drawn transposed. */
+function transposes(orientation: number | null): boolean {
+  return orientation !== null && orientation >= 5 && orientation <= 8
+}
+
 function validateJpeg(bytes: Uint8Array): Result<Size> {
   let offset = 2
   let size: Size | null = null
+  let orientation: number | null = null
   let scanned = false
 
   while (offset + 1 < bytes.length) {
@@ -259,7 +312,9 @@ function validateJpeg(bytes: Uint8Array): Result<Size> {
     if (marker === 0xd9) {
       if (!size) return broken('bildets størrelse mangler')
       if (!scanned) return broken('bildedataene mangler')
-      return ok(size)
+      return ok(
+        transposes(orientation) ? { width: size.height, height: size.width } : size,
+      )
     }
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue
 
@@ -270,6 +325,11 @@ function validateJpeg(bytes: Uint8Array): Result<Size> {
     if (isFrameMarker(marker)) {
       if (length < 7) return broken('rammehodet er avkortet')
       size = { width: be16(bytes, offset + 5), height: be16(bytes, offset + 3) }
+    }
+    // APP1 normally comes before the frame, but nothing says it must, so the
+    // turn is applied once at the end rather than to whichever came first.
+    if (marker === 0xe1) {
+      orientation = readExifOrientation(bytes, offset + 2, offset + length) ?? orientation
     }
 
     offset += length

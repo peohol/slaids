@@ -16,6 +16,7 @@ import type { Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
 import { PlainPasteExtension } from './PlainPasteExtension'
+import { TrailingLineExtension } from './TrailingLineExtension'
 import { TypographyExtension } from './TypographyExtension'
 
 /** Tags we accept from an external paste. Everything else is unwrapped. */
@@ -142,6 +143,10 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
       // Slaids uses its own horizontal separators between subfields.
       horizontalRule: false,
       dropcursor: { color: '#4f8ef7', width: 2 },
+      // The line that keeps a caret reachable after a picture is Slaids' own:
+      // StarterKit's writes it into the document, and a line of nothing at the
+      // end of a field is chrome, not content. See `TrailingLineExtension`.
+      trailingNode: false,
       // See `NO_LOCAL_HISTORY` below.
       undoRedo: false,
     }),
@@ -158,6 +163,9 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     CitationExtension,
     SlaidsImageExtension,
     PlainPasteExtension,
+    // The line below a picture, in place of StarterKit's: editor-only, and
+    // only while the field is being edited.
+    TrailingLineExtension,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),
   ]
   if (options.enableTables !== false) {

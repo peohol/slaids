@@ -157,9 +157,9 @@
 }
 
 .image-panel__empty {
+  display: flex;
   width: 100%;
   height: 100%;
-  display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(128, 128, 128, 0.22);
@@ -260,14 +260,6 @@
 .rich-doc .ProseMirror {
   outline: none;
   min-height: 100%;
-}
-
-.rich-doc > :first-child {
-  margin-top: 0;
-}
-
-.rich-doc > :last-child {
-  margin-bottom: 0;
 }
 
 .rich-doc :is(p, .rd-p) {
@@ -528,6 +520,31 @@
 .rich-doc :is(th, .rd-th) {
   background: rgba(128, 128, 128, 0.18);
   font-weight: 600;
+}
+
+/*
+ * The outermost margins are not a distance between two things.
+ *
+ * Every block carries a bottom margin so that two blocks are separated by one
+ * distance. The first block's top margin and the last block's bottom margin
+ * separate the text from nothing at all — and a field aligns its whole flow,
+ * margins included, so that trailing margin is exactly why centred text sat a
+ * few pixels high with more air below it than above. Between two list items the
+ * same argument applies to the last item's own margin.
+ *
+ * The class is doubled on purpose. `:is(p, .rd-p)` takes the specificity of its
+ * most specific argument, so a plain `.rich-doc > :last-child` *ties* with every
+ * block rule above and loses on source order — which is what happened, silently.
+ * At one class more this wins wherever it sits in the file, so a block rule
+ * added later cannot quietly bring the margin back.
+ */
+.rich-doc.rich-doc > :first-child {
+  margin-top: 0;
+}
+
+.rich-doc.rich-doc > :last-child,
+.rich-doc.rich-doc :is(li, .rd-li):last-child {
+  margin-bottom: 0;
 }
 
 .rich-doc--title {

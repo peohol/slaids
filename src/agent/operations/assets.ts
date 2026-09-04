@@ -10,17 +10,21 @@
  * zone edge to edge and is cropped, never letterboxed.
  *
  * There is deliberately no `generate_image_asset`.
+ *
+ * `delete_asset` is the way back out, and it is the operation with the sharpest
+ * rule on it: a file may only leave once the deck shows it nowhere, so cleaning
+ * up can never be what breaks a slide.
  */
 
 import { z } from 'zod'
-import { setImageAsset, setZoneContent, usedAssetIds } from '../../domain/commands'
+import { removeAsset, setImageAsset, setZoneContent, usedAssetIds } from '../../domain/commands'
 import { createImage, imagePanelOf } from '../../domain/content'
 import { findLeaf } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { AssetRef } from '../../domain/types'
 import { fileContentSchema, readFileContent, transportFileContentSchema } from '../binary'
-import { storeAsset, type StoredAssetResult } from '../assetStore'
+import { deleteAssetFile, storeAsset, type StoredAssetResult } from '../assetStore'
 import {
   assetIdSchema,
   assetNameSchema,
@@ -260,4 +264,61 @@ export const listAssets = defineOperation({
   },
 })
 
-export const assetOperations = [uploadAsset, createSvgAsset, setZoneAsset, listAssets]
+/* ------------------------------------------------------------------ *
+ * delete_asset
+ * ------------------------------------------------------------------ */
+
+export interface DeletedAsset {
+  presentationId: string
+  assetId: string
+  /**
+   * Whether the stored bytes went with the reference.
+   *
+   * The document is written first and the file second, because those two
+   * failures cost different things: bytes nothing points at are reclaimed with
+   * the presentation, while a document pointing at bytes that are gone is a
+   * slide with a hole in it. So `false` here means the file left the deck and
+   * an orphan blob was left in the store — the deletion stands, and a caller
+   * that cares can retry it. It is never a dangling reference.
+   */
+  fileRemoved: boolean
+}
+
+export const deleteAsset = defineOperation({
+  name: 'delete_asset',
+  summary:
+    'Slett en fil fra en presentasjon, både referansen og selve bytene. Avvises med ASSET_IN_USE så lenge filen vises et sted i dekket.',
+  mutates: true,
+  // The mirror of `upload_asset`, and the same scope: the authority that put a
+  // file in is the authority that takes it out. It is enough *because* the
+  // operation is confined to the file list — it refuses while anything shows
+  // the file, so it can never remove a picture from a slide, and a token that
+  // may only store files cannot use it to edit a deck.
+  scopes: ['assets:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    assetId: assetIdSchema,
+  }),
+  async run(context, input): Promise<AgentResult<DeletedAsset & { revision: string }>> {
+    // Two writes, and the order is the whole safety argument. The document goes
+    // first: `removeAsset` refuses while the deck still shows the file, so by
+    // the time the store is touched the bytes are provably unreferenced. A
+    // refusal returns before either write — the document is never saved and the
+    // file is never touched — which is what makes the rejection atomic without
+    // a transaction spanning two stores.
+    const removed = await mutatePresentation(context, input, (presentation) => {
+      const without = removeAsset(presentation, input.assetId)
+      if (!without.ok) return without
+      return ok({
+        presentation: without.value,
+        value: { presentationId: presentation.id, assetId: input.assetId },
+      })
+    })
+    if (!removed.ok) return removed
+
+    return agentOk({ ...removed.value, fileRemoved: await deleteAssetFile(context, input.assetId) })
+  },
+})
+
+export const assetOperations = [uploadAsset, createSvgAsset, setZoneAsset, listAssets, deleteAsset]

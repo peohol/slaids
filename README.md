@@ -450,19 +450,22 @@ museklikk eller databasetilgang:
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_cover`, `set_cover_color`, `set_presentation_title`  | utseendet og navnet på hele dekket            |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
+| `delete_unused_references`                                             | rydder bort referanser ingenting siterer      |
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
 | `render_slide_preview`                                                 | tegner én side som PNG, slik publikum ser den |
 
-For bilder finnes det nøyaktig to dører inn, og to operasjoner for å bestemme
-hvordan bildet står i sonen etterpå:
+For bilder finnes det nøyaktig to dører inn, to operasjoner for å bestemme
+hvordan bildet står i sonen etterpå, og én vei ut igjen:
 
-| Operasjon          | Hva agenten sender                          | Hva den får      |
-| ------------------ | ------------------------------------------- | ---------------- |
-| `upload_asset`      | metadata + filinnhold (base64, bytes, blob) | `assetId`        |
-| `create_svg_asset`  | `name` + `svgMarkup`                        | `assetId`        |
-| `set_zone_asset`    | `assetId` + slide og sone                   | plassert innhold |
-| `set_image_focus`   | `x` og `y` mellom 0 og 1                    | utsnittet        |
-| `set_image_caption` | posisjon, tekst og farge                    | bildeteksten     |
+| Operasjon           | Hva agenten sender                          | Hva den får                    |
+| ------------------- | ------------------------------------------- | ------------------------------ |
+| `upload_asset`      | metadata + filinnhold (base64, bytes, blob) | `assetId`                      |
+| `create_svg_asset`  | `name` + `svgMarkup`                        | `assetId`                      |
+| `set_zone_asset`    | `assetId` + slide og sone                   | plassert innhold               |
+| `set_image_focus`   | `x` og `y` mellom 0 og 1                    | utsnittet                      |
+| `set_image_caption` | posisjon, tekst og farge                    | bildeteksten                   |
+| `list_assets`       | `presentationId`                            | filene, med `used`             |
+| `delete_asset`      | `assetId`                                   | filen ut av dekket, bytene med |
 
 - **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
   hva kalleren kaller filen – og hele filen gås gjennom, ikke bare filhodet: en
@@ -560,6 +563,21 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   vanlige: målet må være en tom bladsone (kildesonen er selv opptatt), kopien må
   få plass der, og en kopi som gir en referanse en tidligere første forekomst må
   også gjennom den globale fit-guarden.
+- **Og ryddes bort igjen.** En agent som laster opp en figur den senere
+  erstatter, etterlot til nå en foreldreløs fil den ikke kunne fjerne.
+  `delete_asset` tar filen ut av dekket og sletter bytene i samme operasjon, og
+  `delete_unused_references` fjerner referanser ingenting siterer. Begge er
+  smale med vilje: `delete_asset` avvises med `ASSET_IN_USE` så lenge filen
+  vises et sted – som innholdet i en sone, inline i en tekst, eller fra
+  innhold som ligger parkert i sandkassen – og feilen sier hvor mange steder av
+  hvert slag, så agenten vet hva den må rydde først. Ingenting halveis: en
+  avvisning lagrer verken dokumentet eller rører filen, og en godkjent sletting
+  skriver dokumentet først og bytene etterpå, fordi en fil ingen peker på koster
+  lagring mens et dokument som peker på en fil som er borte koster sliden.
+  `fileRemoved` sier om det siste faktisk skjedde – lest av lagringen selv, ikke
+  utledet av at kallet gikk igjennom. `delete_unused_references`
+  regner sandkassen som bruk, av samme grunn, og er idempotent: et andre kall
+  fjerner ingenting og flytter ingen revisjon.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
   avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
   citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`
@@ -717,7 +735,7 @@ koden, aldri en tredje mening:
 | `409`  | noen skrev etter at du leste (`CONFLICT`), eller sonen er allerede opptatt |
 | `413`  | forespørselen eller filen er for stor                                     |
 | `415`  | filtypen støttes ikke                                                     |
-| `422`  | forstått, og avvist av reglene (`CONTENT_DOES_NOT_FIT`, `UNSAFE_SVG` …)   |
+| `422`  | forstått, og avvist av reglene (`CONTENT_DOES_NOT_FIT`, `ASSET_IN_USE`, `UNSAFE_SVG` …) |
 | `501`  | denne installasjonen gjør ikke dette (`SHARING_UNAVAILABLE`, `PREVIEW_UNAVAILABLE`) |
 | `502`  | lagringen eller previewrendereren svarte ikke                             |
 | `503`  | serveren er ikke satt opp mot Supabase                                    |
@@ -808,13 +826,23 @@ Scopene er fire, og de er skilt fra hverandre med vilje:
 | ---------------------- | ----------------------------------------------------- |
 | `presentations:read`   | lese, inspisere og validere                            |
 | `presentations:write`  | lage og endre presentasjoner, slides, soner, referanser |
-| `assets:write`         | laste opp bilder og lage SVG-figurer                   |
+| `assets:write`         | laste opp bilder, lage SVG-figurer og slette filer      |
 | `sharing:write`        | publisere en presentasjon på en delingslenke           |
 
 **Vanlig redigering gir ikke rett til å publisere.** Et token som skal bygge
 slides trenger ikke `sharing:write`, og får det ikke med mindre du krysser det
 av. Håndhevingen skjer serverside på hver forespørsel, ut fra det samme feltet
 katalogen publiserer.
+
+**Å slette en fil krever det samme som å laste den opp.** `delete_asset` er
+speilbildet av `upload_asset` og krever `assets:write`, ikke
+`presentations:write` – og det holder nettopp fordi operasjonen er innelukket i
+fillisten: den avvises så lenge noe viser filen, så den kan aldri fjerne et
+bilde fra en slide. Et token som bare får lagre filer kan heller ikke lese dekket
+gjennom den. Verken kvitteringen eller avvisningen navngir en slide eller en
+sone; avvisningen sier hvor mange steder filen vises, av hvert slag, og resten
+finner en agent med `list_assets` og `inspect_slide` – som krever
+`presentations:read`.
 
 Et token er en delegasjon fra Slaids-eieren, ikke en ny bruker: raden navngir
 eieren, og det er derfra `owner_id` kommer på hver skriving.

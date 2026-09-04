@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readRasterImage } from './imageFile'
-import { IMAGE_HEIGHT, IMAGE_WIDTH, realImages } from './testImages'
+import { IMAGE_HEIGHT, IMAGE_WIDTH, jpegWithExifOrientation, realImages } from './testImages'
 
 const formats = Object.entries(realImages) as [keyof typeof realImages, () => Uint8Array][]
 
@@ -132,5 +132,52 @@ describe('readRasterImage – forfalskninger', () => {
   it('sender SVG videre til sin egen validator i stedet for å gjette', () => {
     const svg = new TextEncoder().encode('<svg viewBox="0 0 1 1"/>')
     expect(rejected(svg).code).toBe('INVALID_ARGUMENT')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * EXIF orientation
+ * ------------------------------------------------------------------ */
+
+describe('readRasterImage – EXIF-orientering', () => {
+  it('rapporterer størrelsen slik bildet faktisk tegnes', () => {
+    // A phone photograph is stored the way the sensor read it and turned by a
+    // tag. Every renderer draws it turned, so the frame header's numbers are
+    // not the picture's — and a preview that trusted them would frame the photo
+    // in a box of the wrong shape while the editor framed it correctly.
+    for (const orientation of [5, 6, 7, 8]) {
+      expect(accepted(jpegWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_HEIGHT,
+        height: IMAGE_WIDTH,
+      })
+    }
+  })
+
+  it('lar et bilde som ikke er snudd være i fred', () => {
+    for (const orientation of [1, 2, 3, 4]) {
+      expect(accepted(jpegWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_WIDTH,
+        height: IMAGE_HEIGHT,
+      })
+    }
+  })
+
+  it('leser begge byterekkefølgene EXIF tillater', () => {
+    expect(accepted(jpegWithExifOrientation(6, false))).toMatchObject({
+      width: IMAGE_HEIGHT,
+      height: IMAGE_WIDTH,
+    })
+  })
+
+  it('lar en uleselig orientering stå: en ødelagt tagg snur ingenting', () => {
+    // Bounds and shape are checked at every step — what is parsed here is
+    // whatever the file happened to contain, and it must never decide the size
+    // on a guess.
+    const broken = jpegWithExifOrientation(6)
+    broken[2 + 4] = 0x41 // "Exif" becomes "Axif"
+    expect(accepted(broken)).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+
+    const nonsense = jpegWithExifOrientation(99)
+    expect(accepted(nonsense)).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
   })
 })
