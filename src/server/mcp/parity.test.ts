@@ -32,7 +32,9 @@ import { agentImage } from '../../agent/image'
 import type { SlidePreviewRenderer } from '../../agent/preview'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
 import type { AgentScope } from '../../agent/types'
+import { newFolderId } from '../../domain/ids'
 import { realImages } from '../../domain/testImages'
+import type { Folder } from '../../domain/types'
 import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import {
   callFailure,
@@ -1244,5 +1246,212 @@ describe('opprydding er de samme operasjonene begge veier', () => {
     expect(serialized).not.toContain('Hemmelig tittel')
     expect(serialized).not.toContain('Hemmelig forfatter')
     expect(serialized).not.toContain('hemmelig.example')
+  })
+})
+
+
+describe('bibliotekets livsløp er det samme begge veier', () => {
+  /** A folder put straight into the harness's store, the way the library makes one. */
+  async function folderIn(harnessed: Harness, name: string): Promise<Folder> {
+    const folder: Folder = { id: newFolderId(), name, createdAt: '2026-09-01T09:00:00.000Z' }
+    await harnessed.context.repository.saveFolder(folder)
+    return folder
+  }
+
+  it('list_folders svarer med de samme mappene', async () => {
+    const harnessed = harness()
+    const folder = await folderIn(harnessed, 'Kundemøter')
+
+    const both = await bothWays(harnessed, 'list_folders', {})
+    expect(both.restData).toEqual(both.mcpData)
+    expect((both.restData as { folders: Folder[] }).folders).toEqual([folder])
+  })
+
+  it('move_presentation svarer likt, og er den samme no-op andre gangen', async () => {
+    // Comparable field for field precisely because a move into the folder the
+    // deck already sits in changes nothing: MCP asks for the state REST just
+    // produced, so the two answers have to match down to the revision.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Flyttet begge veier')
+    const folder = await folderIn(harnessed, 'Kundemøter')
+
+    const both = await bothWays(harnessed, 'move_presentation', {
+      presentationId: deck.presentationId,
+      folderId: folder.id,
+    })
+    expect(both.restData).toEqual(both.mcpData)
+    expect(both.restData).toMatchObject({ presentationId: deck.presentationId, folderId: folder.id })
+
+    // And the deck underneath says the same thing to both readers.
+    const read = await bothWays(harnessed, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    expect((read.restData as { folderId: string }).folderId).toBe(folder.id)
+  })
+
+  it('avviser en ukjent mappe likt, som verktøyresultat i MCP', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+    const both = await refusedBothWays(harnessed, 'move_presentation', {
+      presentationId: deck.presentationId,
+      folderId: 'fl_finnes_ikke',
+    })
+
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('FOLDER_NOT_FOUND')
+    // A real operation ran and said no, so it is an answer an agent acts on.
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(404)
+  })
+
+  it('duplicate_presentation lager to selvstendige kopier med det samme svaret', async () => {
+    // A duplication cannot be asked for twice and compared field for field: each
+    // call mints a new deck. What has to match is the shape of the answer and
+    // everything in it that is not an identity — and that both copies are real,
+    // separate decks in the one store both transports write to.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Kilde')
+
+    const overRest = await rest(harnessed, 'duplicate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    const overMcp = await callTool(harnessed, tool('duplicate_presentation'), {
+      presentationId: deck.presentationId,
+    })
+    const fromRest = overRest.body.data as Record<string, unknown>
+    const fromMcp = overMcp.structuredContent as Record<string, unknown>
+
+    expect(Object.keys(fromRest).sort()).toEqual(Object.keys(fromMcp).sort())
+    for (const field of ['title', 'slideCount', 'assetCount', 'referenceCount', 'folderId']) {
+      expect({ field, value: fromRest[field] }).toEqual({ field, value: fromMcp[field] })
+    }
+    expect(fromRest.title).toBe('Kilde (kopi)')
+    expect(fromRest.presentationId).not.toBe(fromMcp.presentationId)
+
+    // Three decks in one library: the source and one copy from each transport.
+    const listed = await rest(harnessed, 'list_presentations', {})
+    expect((listed.body.data as { presentations: unknown[] }).presentations).toHaveLength(3)
+  })
+
+  it('delete_presentation gir den samme kvitteringen og den samme feilen etterpå', async () => {
+    const harnessed = harness()
+    const overRest = await newPresentation(harnessed, 'Slettes over REST')
+    const overMcp = await newPresentation(harnessed, 'Slettes over MCP')
+
+    const byRest = await rest(harnessed, 'delete_presentation', {
+      presentationId: overRest.presentationId,
+    })
+    const byMcp = await callTool(harnessed, tool('delete_presentation'), {
+      presentationId: overMcp.presentationId,
+    })
+    expect(byMcp.isError).toBeFalsy()
+    expect(byRest.body.data).toEqual({ presentationId: overRest.presentationId, deleted: true })
+    expect(byMcp.structuredContent).toEqual({
+      presentationId: overMcp.presentationId,
+      deleted: true,
+    })
+    // No revision in either: there is no document left to write against, and
+    // the REST envelope therefore lifts none out of the answer.
+    expect(byRest.body.revision).toBeUndefined()
+
+    // Both decks are really gone, in the one store.
+    const listed = await rest(harnessed, 'list_presentations', {})
+    expect((listed.body.data as { presentations: unknown[] }).presentations).toEqual([])
+
+    // And asking again says the same thing on both sides.
+    const again = await refusedBothWays(harnessed, 'delete_presentation', {
+      presentationId: overRest.presentationId,
+    })
+    expect(again.rest).toEqual(again.mcp)
+    expect(again.rest.code).toBe('PRESENTATION_NOT_FOUND')
+    expect(again.envelope).toBe('result')
+    expect(again.status).toBe(404)
+  })
+
+  it('avviser en gammel revisjon på en sletting likt, med CONFLICT', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+    await rest(harnessed, 'set_presentation_title', {
+      presentationId: deck.presentationId,
+      title: 'Endret av noen andre',
+    })
+
+    const both = await refusedBothWays(harnessed, 'delete_presentation', {
+      presentationId: deck.presentationId,
+      expectedRevision: deck.revision,
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('CONFLICT')
+    expect(both.status).toBe(409)
+    // Nothing was deleted by either attempt.
+    const listed = await rest(harnessed, 'list_presentations', {})
+    expect((listed.body.data as { presentations: unknown[] }).presentations).toHaveLength(1)
+  })
+
+  it('krever begge skriveautoritetene for en sletting, likt over begge transportene', async () => {
+    // A deletion destroys the document *and* every file stored under it, which
+    // are exactly the two things the two write scopes protect. Missing either
+    // one is a refusal, and the refusal names the one that is missing.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Beskyttet av to scopes')
+
+    for (const [scopes, missing] of [
+      [['presentations:write'], 'assets:write'],
+      [['assets:write'], 'presentations:write'],
+    ] as [AgentScope[], string][]) {
+      const narrow = withScopes(harnessed, scopes)
+      const both = await refusedBothWays(narrow, 'delete_presentation', {
+        presentationId: deck.presentationId,
+      })
+      expect(both.rest).toEqual(both.mcp)
+      expect(both.rest.code).toBe('FORBIDDEN_SCOPE')
+      expect(both.rest.details).toMatchObject({ missing: [missing] })
+      expect(both.status).toBe(403)
+    }
+
+    // And the deck is still there, which is what the scope was protecting.
+    const listed = await rest(harnessed, 'list_presentations', {})
+    expect((listed.body.data as { presentations: unknown[] }).presentations).toHaveLength(1)
+  })
+
+  it('lar et token uten lesescope flytte og slette, men ikke kopiere', async () => {
+    // The scope boundary that separates the three. A move writes one field and
+    // answers with the two ids the caller sent; a deletion answers with an id
+    // and a boolean. A copy answers with the deck the way `get_presentation`
+    // would, so it needs the read scope too — otherwise a write-only token
+    // could learn a deck's title and structure by copying it.
+    const full = harness()
+    const deck = await newPresentation(full, 'Hemmelig tittel')
+    const folder = await folderIn(full, 'Kundemøter')
+    const writeOnly = withScopes(full, ['presentations:write', 'assets:write'])
+
+    expect((await rest(writeOnly, 'get_presentation', { presentationId: deck.presentationId })).status).toBe(403)
+    expect((await rest(writeOnly, 'list_folders', {})).status).toBe(403)
+
+    const moved = await rest(writeOnly, 'move_presentation', {
+      presentationId: deck.presentationId,
+      folderId: folder.id,
+    })
+    expect(moved.status).toBe(200)
+    expect(Object.keys(moved.body.data as object).sort()).toEqual([
+      'folderId',
+      'presentationId',
+      'revision',
+    ])
+    // Not even the folder's name, which is a reading of the library.
+    expect(JSON.stringify(moved.body.data)).not.toContain('Kundemøter')
+
+    const copied = await rest(writeOnly, 'duplicate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(copied.status).toBe(403)
+    expect(copied.body.error?.details).toMatchObject({ missing: ['presentations:read'] })
+
+    const deleted = await rest(writeOnly, 'delete_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(deleted.status).toBe(200)
+    expect(JSON.stringify(deleted.body.data)).not.toContain('Hemmelig tittel')
   })
 })

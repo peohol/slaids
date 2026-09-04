@@ -26,6 +26,7 @@ import { getSupabaseClient } from '../supabase/client'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { SupabaseSlaidsRepository } from './supabaseRepository'
 import type {
+  SaveGuard,
   ShareState,
   SharingRepository,
   SlaidsRepository,
@@ -143,9 +144,13 @@ function onSharing<T>(call: (repository: SharingRepository) => Promise<T>): Prom
 export const repository: SlaidsRepository = {
   listPresentations: (): Promise<PresentationSummary[]> => on((repo) => repo.listPresentations()),
   loadPresentation: (id: string): Promise<Presentation> => on((repo) => repo.loadPresentation(id)),
-  savePresentation: (presentation: Presentation): Promise<void> =>
-    on((repo) => repo.savePresentation(presentation)),
-  deletePresentation: (id: string): Promise<void> => on((repo) => repo.deletePresentation(id)),
+  // Both preconditions are forwarded rather than dropped. The editor never
+  // passes one, but the façade is the interface for everyone: a guard silently
+  // lost here would be an optimistic lock that quietly does not happen.
+  savePresentation: (presentation: Presentation, guard?: SaveGuard): Promise<void> =>
+    on((repo) => repo.savePresentation(presentation, guard)),
+  deletePresentation: (id: string, guard?: SaveGuard): Promise<void> =>
+    on((repo) => repo.deletePresentation(id, guard)),
 
   listFolders: (): Promise<Folder[]> => on((repo) => repo.listFolders()),
   saveFolder: (folder: Folder): Promise<void> => on((repo) => repo.saveFolder(folder)),

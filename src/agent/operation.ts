@@ -66,6 +66,20 @@ export const dispositionSchema = z
   .default('sandbox')
   .describe('`sandbox` tar vare på innhold som fortrenges, `delete` forkaster det.')
 
+/**
+ * Where in the library a presentation lives.
+ *
+ * `null` is the root, and it is a value rather than an absence: a move has to be
+ * able to say "out of every folder", and an omitted field would say "leave it
+ * where it is". Which of the two an operation wants is the operation's own
+ * choice — `create_presentation` allows the omission, `move_presentation` does
+ * not — so this schema carries the id and the two of them add the rest.
+ */
+export const folderIdSchema = z
+  .string()
+  .min(1)
+  .describe('Id-en til en mappe i biblioteket, fra list_folders.')
+
 export const assetIdSchema = z.string().min(1).describe('Id-en til en fil i presentasjonen.')
 
 export const assetNameSchema = z

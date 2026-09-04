@@ -255,6 +255,59 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   kvitterer med id-ene den fjernet og ingenting mer – en liste med titler ville
   vært en lesing utført av en skriving. Sandkassen teller som bruk i begge, og
   et andre kall er en no-op som ikke flytter revisjonen.
+- **Bibliotekets livsløp er bibliotekets regler, ikke agentens.**
+  `list_folders`, `move_presentation`, `duplicate_presentation` og
+  `delete_presentation` legger ingen ny bibliotek-, mappe- eller
+  slettelogikk oppå: mappemodellen er repositoryets egen, flyttingen er
+  `setFolder` (som editoren nå også bruker), dupliseringen er
+  `duplicatePresentation` i `src/persistence/library.ts` – flyttet ned fra
+  `src/state/` og parameterisert på repositoryet, slik at editoren og agenten
+  kaller den samme funksjonen – og slettingen er ett repository-kall.
+  Scope-grensen er tegnet per operasjon og de fire er ikke like:
+  `presentations:read` for å liste mapper, `presentations:write` alene for en
+  flytting (som svarer med de to id-ene kalleren sendte og aldri et mappenavn),
+  `presentations:read` **i tillegg** for en duplisering (som svarer med kopien
+  slik `get_presentation` ville lest den), og `presentations:write` **og**
+  `assets:write` for en sletting – nøyaktig de to tingene den ødelegger.
+  `sharing:write` kreves av ingen av dem: ingenting her publiserer noe, og en
+  sletting tar en publisert lenke *ned*. En `folderId` som ikke finnes er
+  `FOLDER_NOT_FOUND` før noe skrives – et dekk i en mappe som ikke finnes vises
+  ingen steder – og sjekken (`missingFolder` i `src/agent/presentation.ts`)
+  deles med `create_presentation`, som også kan navngi en mappe. En flytting til
+  mappen dekket allerede ligger i er en no-op som ikke flytter revisjonen.
+- **En sletting er uangrelig, og derfor ett kall og ikke en sekvens.**
+  `SlaidsRepository.deletePresentation` tar dokumentet, filradene, bytene og en
+  eventuell publisert kopi ned sammen – i Supabase fordi filradene henger på
+  raden gjennom en fremmednøkkel og delingsstatusen er kolonner *på* den, i
+  Dexie fordi de to tabellene ryddes i én transaksjon. En andre slettesekvens i
+  agentlaget ville vært en andre sjanse til å etterlate en halv presentasjon.
+  Metoden tar den samme `SaveGuard` som `savePresentation`, og agentoperasjonen
+  sender alltid med revisjonen den nettopp leste – ikke bare når kalleren oppga
+  en. En rad som ikke finnes er `PRESENTATION_NOT_FOUND` og ikke et stille `ok`:
+  begge lagrene sletter på id og bryr seg ikke om at id-en ikke er der.
+  Kvitteringen er `{ presentationId, deleted: true }` og bevisst uten
+  `revision` – det finnes ikke et dokument igjen å skrive mot – og uten tittel,
+  sidetall eller delingsstatus, som er lesinger operasjonens scopes ikke gir.
+- **En kopi er selvstendig i to betydninger.** Filene kopieres i stedet for å
+  deles, fordi en asset-rad er nøklet på id-en alene og filer slettes med dekket
+  som eier dem – en kopi som pekte på originalens filer ville vært én sletting
+  unna manglende bilder. Og hver id inne i dokumentet er ny: slides, soner,
+  innhold, subfelt og sandkasse-elementer. Det siste er strengere enn lagringen
+  krever, og strengheten er poenget – «ingen identitet er delt med originalen»
+  kan sjekkes, «delt, men bare der det ikke betyr noe» må argumenteres på nytt.
+  Referanse- og idé-id-ene er unntaket: en citation navngir referansen sin med id
+  inne i rik tekst, så å fornye dem er en omskriving uten gevinst.
+  `duplicatePresentationDocument` i `src/domain/presentation.ts` avgjør hva en
+  kopi *er*; `src/persistence/library.ts` avgjør rekkefølgen de to lagrene
+  skrives i – dokumentet først, filene etterpå, og kopien tas ut igjen hvis ikke
+  alle filene kom fram. Den tar imot dokumentet og ikke en id, slik at revisjonen
+  som ble sjekket er revisjonen som ble kopiert.
+- **En mutasjon som ikke endret noe lagrer ingenting.** Gir en operasjon
+  dokumentet den fikk uendret tilbake fra `apply`, hopper `mutatePresentation`
+  over skrivingen og svarer med lesingens egen revisjon. Det er én regel, ikke en
+  gren per operasjon: en `UPDATE` med identisk innhold flytter likevel radens
+  `version` i Supabase, og ville dermed gjort en annens `expectedRevision`
+  utdatert for en endring som aldri skjedde.
 - **En flytting er en flytting, ikke en gjenoppbygging.** `move_zone_content` er en
   tynn innpakning rundt `moveZoneContent`, og poenget er at det samme
   `ZoneContent`-objektet havner i den nye sonen: content-id, subfelt-id-er,

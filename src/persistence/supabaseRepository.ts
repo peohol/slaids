@@ -484,23 +484,72 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     }
   }
 
-  async deletePresentation(id: string): Promise<void> {
-    // The row goes first, and the files after it. Removing the files first
-    // would, if the row delete then failed, leave a presentation that is still
-    // listed and still opens — with its pictures permanently gone. Losing data
-    // something still points at is worse than leaving data nothing points at,
-    // and the latter is what `deleteOrphanAssets` reclaims.
+  /**
+   * Delete the row, then reclaim the objects it pointed at.
+   *
+   * The row carries more than the document: the asset rows hang off it through
+   * a foreign key, and `is_shared`, `share_token` and `shared_document` are
+   * columns on it. So one `DELETE` takes the presentation, its file list and its
+   * published copy at once — a shared deck stops being reachable through the
+   * public function in the same statement, with no separate revocation to
+   * forget.
+   *
+   * The row goes first and the stored bytes after it. Removing the files first
+   * would, if the row delete then failed, leave a presentation that is still
+   * listed and still opens — with its pictures permanently gone. Losing data
+   * something still points at is worse than leaving data nothing points at, and
+   * the latter is what `deleteOrphanAssets` reclaims.
+   */
+  async deletePresentation(id: string, guard?: SaveGuard): Promise<void> {
     const paths = await this.assetPaths(id)
     // The asset rows go with the presentation through the foreign key.
-    const { error } = await this.scoped(
-      this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
-    )
-    if (error) fail('Kunne ikke slette presentasjonen', error)
+    if (guard) {
+      await this.deleteGuarded(id, guard)
+    } else {
+      const { error } = await this.scoped(
+        this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
+      )
+      if (error) fail('Kunne ikke slette presentasjonen', error)
+    }
     // Deleting through this repository is a local decision, so this is the one
     // place the row may be forgotten: a later save of the same id really is new.
     this.knownVersions.delete(id)
     this.knownShared.delete(id)
     await this.reclaimObjects(paths)
+  }
+
+  /**
+   * The conditional delete, which is `updateGuarded` with nothing left to write.
+   *
+   * The version comes from the *named reading* rather than from
+   * `knownVersions`, for the reason spelled out there: a number a later write
+   * can refresh is not a guard. An unknown revision is refused outright — this
+   * session cannot prove which version the caller read, and guessing one on a
+   * delete is the one guess with no way back.
+   *
+   * Nothing matching means the row moved on or is already gone. Both are a
+   * conflict here rather than a silent success, because the caller named a
+   * reading: it is asking to delete *that* document, and this is no longer it.
+   * An unguarded delete of an absent row still succeeds, as it always did.
+   */
+  private async deleteGuarded(id: string, guard: SaveGuard): Promise<void> {
+    const version = this.versionOfReading.get(readingKey(id, guard.expectedRevision))
+    if (version === undefined) {
+      throw new RepositoryConflictError(
+        `Presentasjonen «${id}» ble ikke lest av denne økten, eller lesingen er for gammel til å slettes mot. Les den på nytt før du sletter den.`,
+      )
+    }
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
+    )
+      .eq('version', version)
+      .select('id')
+    if (error) fail('Kunne ikke slette presentasjonen', error)
+    if (((data ?? []) as unknown[]).length === 0) {
+      throw new RepositoryConflictError(
+        `Presentasjonen «${id}» er endret eller slettet et annet sted siden den ble lest. Les den på nytt før du sletter den.`,
+      )
+    }
   }
 
   /* ---------------------------------------------------------------- *

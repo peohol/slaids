@@ -43,6 +43,9 @@ layoutet er nestet.
   bak det samme tokenet – verktøylisten bygges av det samme registeret, og begge
   transportene kaller den samme koden
 - tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
+- **bibliotekets livsløp**: se mappene, flytte en presentasjon mellom dem,
+  duplisere en presentasjon med filene sine, og slette en for godt – med
+  scope-grensen tegnet per operasjon og en vaktet, uangrelig sletting
 - binær filopplasting uten base64, og `409 CONFLICT` når noen skrev først
 - **rendret preview** (`render_slide_preview`): én side som PNG, tegnet av
   Slaids' egne komponenter og stilark i en ekte Chromium, så en agent kan se på
@@ -782,6 +785,68 @@ Ett unntak, med vilje: å *trekke tilbake* en delingslenke sjekker ingen revisjo
 og leser ikke dokumentet. En gammel revisjon – eller et dokument som ikke lar seg
 lese – skal aldri kunne holde en offentlig lenke i live.
 
+### Biblioteket: mapper, kopier og sletting
+
+Fire operasjoner arbeider på presentasjonen utenfra i stedet for inni den, og de
+bruker bibliotekets egne regler – ikke en parallell modell for API-et.
+
+```bash
+# Hvilke mapper finnes?
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{}' "$SLAIDS_API/operations/list_folders"
+
+# Legg dekket i en mappe. `null` flytter det ut til rotnivå igjen.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","folderId":"fl_…"}' \
+     "$SLAIDS_API/operations/move_presentation"
+
+# Kopier hele dekket, filene inkludert, og gi kopien et navn
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","title":"Variant for styret"}' \
+     "$SLAIDS_API/operations/duplicate_presentation"
+
+# Slett for godt, mot revisjonen du så
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","expectedRevision":"…"}' \
+     "$SLAIDS_API/operations/delete_presentation"
+```
+
+**Scopene er ikke de samme for de fire**, og forskjellene er med vilje:
+
+| Operasjon                | Krever                                    |
+| ------------------------ | ----------------------------------------- |
+| `list_folders`           | `presentations:read`                      |
+| `move_presentation`      | `presentations:write`                     |
+| `duplicate_presentation` | `presentations:read` + `presentations:write` |
+| `delete_presentation`    | `presentations:write` + `assets:write`    |
+
+En kopi er en lesing av hele dokumentet fulgt av en skriving, og den svarer med
+kopien slik `get_presentation` ville lest den – derfor lesescopet. En sletting
+ødelegger både dokumentet og hver eneste fil under det, som er nøyaktig de to
+tingene de to skrivescopene beskytter. `sharing:write` kreves av ingen av dem:
+ingenting her publiserer noe, og en sletting tar en publisert lenke *ned*.
+
+**En sletting kan ikke angres**, og det som følger med er dokumentet, slidene,
+filradene, bytene i lagringen og en eventuell delingslenke – lenken fordi
+delingsstatusen er kolonner på den samme raden som slettes. Den er vaktet mot
+revisjonen operasjonen leste, også når du ikke oppgir en, og en id som ikke
+finnes svarer `PRESENTATION_NOT_FOUND` i stedet for et stille `ok`. Kvitteringen
+er `{ "presentationId": "…", "deleted": true }` – ingen `revision`, siden det
+ikke finnes et dokument igjen å skrive mot.
+
+**En kopi er selvstendig.** Filene kopieres i stedet for å deles, så kopien
+overlever at originalen slettes, og hver id inne i dokumentet – slide, sone,
+innhold, subfelt, sandkasse – er ny. Kopien arver aldri delingen: den starter
+som ikke delt, som en duplisering i biblioteket. `expectedRevision` gjelder
+kilden og betyr «kopier nøyaktig den lesingen jeg så».
+
+**En mappe må finnes fra før.** Slaids lager den ikke, og en `folderId` som ikke
+finnes avvises med `FOLDER_NOT_FOUND` (404) før noe skrives – et dekk i en mappe
+som ikke finnes ville ikke vært synlig noe sted, verken på rotnivå eller i en
+mappe. Det gjelder begge dørene inn: `create_presentation` tar den samme
+sjekken. Å flytte et dekk til mappen det allerede ligger i er en lovlig no-op som
+ikke flytter revisjonen.
+
 ### Filer
 
 En fil trenger ikke være base64 over REST. Det publiserte JSON Schema-et
@@ -1175,3 +1240,10 @@ skrivetilgang for andre enn eieren.
 Én kjent skjevhet står igjen: editorens opplastingsdialog lagrer fortsatt en SVG
 en bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret
 bør på sikt være én dør.
+
+Agentflaten har tre hull igjen mot editoren, alle bevisste: en agent kan *bruke*
+bibliotekets mapper, men ikke opprette eller slette dem; tekstformatet en agent
+skriver har ingen bildeblokk, så innfelte bilder i rik tekst kan bare leses;
+og layoutmaler og idéflaten er utenfor med vilje – den første er en snarvei for
+noen som bygger med musen, den andre en notatflate som aldri forlater
+arbeidskopien.

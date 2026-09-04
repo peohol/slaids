@@ -4,6 +4,7 @@ import { DexieSlaidsRepository } from './dexieRepository'
 import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from './backup'
 import { createPresentation } from '../domain/presentation'
+import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
 import { createContainer, createUntitledCard } from '../domain/content'
@@ -194,6 +195,39 @@ describe('DexieSlaidsRepository', () => {
     await repository.deletePresentation(presentation.id)
     expect(await repository.getAsset(assetRef.id)).toBeNull()
     expect(await repository.listPresentations()).toHaveLength(0)
+  })
+
+  it('sletter mot en revisjon, og nekter når den lagrede har flyttet seg', async () => {
+    // The same precondition `savePresentation` takes, and it matters more here:
+    // an overwrite can be argued about afterwards, a deletion cannot.
+    const repository = freshRepository()
+    const presentation = samplePresentation()
+    await repository.savePresentation(presentation)
+    const stale = presentationRevision(presentation)
+    await repository.savePresentation({ ...presentation, title: 'Skrevet av en annen' })
+
+    await expect(
+      repository.deletePresentation(presentation.id, { expectedRevision: stale }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(await repository.listPresentations()).toHaveLength(1)
+
+    const current = await repository.loadPresentation(presentation.id)
+    await repository.deletePresentation(presentation.id, {
+      expectedRevision: presentationRevision(current),
+    })
+    expect(await repository.listPresentations()).toHaveLength(0)
+  })
+
+  it('avviser en vaktet sletting av en rad som ikke er der, og lar en uvaktet gå', async () => {
+    // The two guards differ here on purpose. A guarded delete names a document —
+    // remove the one I read — and a row somebody else already removed is not it.
+    // Unguarded, a delete is idempotent: that is what the duplication rollback
+    // and the library's own delete rely on.
+    const repository = freshRepository()
+    await expect(
+      repository.deletePresentation('p_finnes_ikke', { expectedRevision: 'hva-som-helst' }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    await expect(repository.deletePresentation('p_finnes_ikke')).resolves.toBeUndefined()
   })
 
   it('round-trips asset blobs', async () => {

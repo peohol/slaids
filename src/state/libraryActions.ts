@@ -1,90 +1,37 @@
 /**
- * Library-level operations that span the repository and the domain.
+ * The library's actions, bound to the browser's repository.
+ *
+ * Everything that *decides* lives one layer down — `persistence/library.ts` for
+ * a duplication, `domain/commands` for a rename or a move — so this file is the
+ * binding and nothing else. An agent reaches the same functions with its own
+ * repository; if a rule lived here, that would be a rule the agent does not have.
  */
 
-import { cloneSubtreeWithNewIds } from '../domain/layout'
-import { newAssetId, newPresentationId, newSlideId } from '../domain/ids'
-import { remapAssetIds } from '../domain/docs'
+import { setFolder, setPresentationTitle } from '../domain/commands'
+import { duplicatePresentation as duplicateIn } from '../persistence/library'
 import { repository } from '../persistence/activeRepository'
 import type { Presentation } from '../domain/types'
 
-/**
- * Deep-copy a presentation, including its assets.
- *
- * Assets are copied rather than shared: assets belong to a presentation and are
- * deleted with it, so a shared reference would break the copy later.
- */
+/** Deep-copy a presentation, including its files. */
 export async function duplicatePresentation(sourceId: string): Promise<Presentation> {
-  const source = await repository.loadPresentation(sourceId)
-  const now = new Date().toISOString()
-
-  const assetMap = new Map<string, string>()
-  for (const asset of source.assets) assetMap.set(asset.id, newAssetId())
-
-  let copy: Presentation = {
-    ...source,
-    id: newPresentationId(),
-    title: `${source.title} (kopi)`,
-    createdAt: now,
-    updatedAt: now,
-    // Cloned rather than shared: two documents that point at one cover object
-    // are one edit away from being the same cover.
-    cover: structuredClone(source.cover),
-    slides: source.slides.map((slide) => ({
-      ...slide,
-      id: newSlideId(),
-      title: slide.title ? (structuredClone(slide.title) as typeof slide.title) : null,
-      root: cloneSubtreeWithNewIds(slide.root),
-    })),
-  }
-  copy = remapAssetIds(copy, assetMap)
-
-  // The presentation is written first so its assets always have an owner; an
-  // asset row whose presentation does not exist can never be cleaned up.
-  await repository.savePresentation(copy)
-
-  try {
-    for (const asset of source.assets) {
-      const stored = await repository.getAsset(asset.id)
-      if (!stored) continue
-      const targetId = assetMap.get(asset.id)
-      if (!targetId) continue
-      await repository.putAsset(copy.id, { ...stored.ref, id: targetId }, stored.blob)
-    }
-  } catch (error) {
-    // A copy whose files did not all make it is worse than no copy: the library
-    // says the duplication failed while a half-copied presentation shows up on
-    // the next refresh. Take it back out, files first.
-    try {
-      await repository.deleteAssetsForPresentation(copy.id)
-      await repository.deletePresentation(copy.id)
-    } catch {
-      // Nothing more to try; the original error is the one worth reporting.
-    }
-    throw error
-  }
-
-  return copy
+  return duplicateIn(repository, await repository.loadPresentation(sourceId))
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {
   const presentation = await repository.loadPresentation(id)
-  const trimmed = title.trim()
-  if (!trimmed) return
-  await repository.savePresentation({
-    ...presentation,
-    title: trimmed,
-    updatedAt: new Date().toISOString(),
-  })
+  const renamed = setPresentationTitle(presentation, title)
+  // An empty name is not a rename. The command already says so, and refusing it
+  // here as "nothing to do" is what the dialog wants: the field keeps the old
+  // name rather than the deck losing it.
+  if (!renamed.ok) return
+  await repository.savePresentation(renamed.value)
 }
 
 export async function movePresentationToFolder(id: string, folderId: string | null): Promise<void> {
   const presentation = await repository.loadPresentation(id)
-  await repository.savePresentation({
-    ...presentation,
-    folderId,
-    updatedAt: new Date().toISOString(),
-  })
+  const moved = setFolder(presentation, folderId)
+  if (!moved.ok) return
+  await repository.savePresentation(moved.value)
 }
 
 /** Trigger a browser download for a generated file. */

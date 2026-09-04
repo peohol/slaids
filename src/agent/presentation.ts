@@ -144,11 +144,51 @@ export function revisionConflict(
   )
 }
 
+/**
+ * Refuse a folder the library does not have.
+ *
+ * Not a formality, and not a rule the agent layer invented: `folderId` is both a
+ * column the library grid filters on and a field in the document, and a deck in
+ * a folder that does not exist is shown *nowhere* — not at the root, not in any
+ * folder. The library cannot produce that state, because it picks a folder from
+ * a list; a caller that names one can, so the name is checked before anything is
+ * read or written.
+ *
+ * Here rather than in one of the two operations that need it —
+ * `create_presentation` and `move_presentation` — so that "a folder id that
+ * reaches a document is a folder the library has" is a property of the surface
+ * instead of something each door remembers separately.
+ *
+ * The refusal carries the id the caller sent and nothing else. A list of the
+ * real folders would be helpful, and would also be `list_folders` answered
+ * without `presentations:read`.
+ */
+export async function missingFolder(
+  context: AgentContext,
+  folderId: string | null,
+): Promise<AgentResult<never> | null> {
+  if (folderId === null) return null
+  const folders = await context.repository.listFolders()
+  if (folders.some((folder) => folder.id === folderId)) return null
+  return agentErr('FOLDER_NOT_FOUND', 'Biblioteket har ingen mappe med den id-en.', { folderId })
+}
+
 /* ------------------------------------------------------------------ *
  * Mutation
  * ------------------------------------------------------------------ */
 
-/** The document a command produced, and whatever the operation wants to report. */
+/**
+ * The document a command produced, and whatever the operation wants to report.
+ *
+ * Handing back the document that was *passed in* — the same object, not an
+ * equal one — says the operation decided there was nothing to change, and
+ * `mutatePresentation` then stores nothing. Domain commands already speak that
+ * way (`deleteUnusedReferences` returns its input when every reference is
+ * cited), and the alternative is worse than a wasted round trip: in Supabase an
+ * UPDATE that writes the same document still moves the row's `version`, so a
+ * no-op write would make somebody else's `expectedRevision` stale for a change
+ * that never happened.
+ */
 export interface Mutation<T> {
   presentation: Presentation
   value: T
@@ -231,6 +271,13 @@ export async function mutatePresentation<T extends object>(
 
   const applied = apply(loaded.value)
   if (!applied.ok) return { ok: false, error: describeFailure(loaded.value, applied.error, request, context) }
+
+  // Nothing to store: the operation was asked for a state the document is
+  // already in. It answers with the reading it has, which is the same reading
+  // anybody else is holding — see `Mutation`.
+  if (applied.value.presentation === loaded.value) {
+    return agentOk({ ...applied.value.value, revision: loadedRevision })
+  }
 
   const saved = await savePresentation(context, applied.value.presentation, loadedRevision)
   if (!saved.ok) return saved

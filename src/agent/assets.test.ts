@@ -622,6 +622,7 @@ describe('delete_asset', () => {
       await setZoneAsset.run(context, {
         ...seeded,
         fit: 'contain',
+        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),
@@ -678,6 +679,7 @@ describe('delete_asset', () => {
       await setZoneAsset.run(context, {
         ...seeded,
         fit: 'contain',
+        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),
