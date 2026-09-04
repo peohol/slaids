@@ -2746,6 +2746,34 @@ isolerte kall:
 - REST og MCP er enige om sandkassen, id for id, og den offisielle
   MCP-klienten godtar `list_sandbox_items`- og `place_sandbox_item`-verktøyene.
 
+For fase 6, oppryddingen, i tillegg – og her er avvisningene viktigere enn
+suksessene, fordi de er de eneste som kan ødelegge et dekk:
+
+- et ubrukt asset slettes: `AssetRef`-en forlater dokumentet *og* bytene
+  forlater lagringen, og revisjonen i kvitteringen er den lagrede;
+- et asset som er innholdet i en sone avvises med `ASSET_IN_USE`;
+- et asset som bare ligger inline i rik tekst avvises på samme måte – det er
+  tilfellet en sjekk på soneinnhold alene ville sluppet gjennom;
+- et asset som bare vises fra innhold i sandkassen avvises også;
+- etter hver avvisning er både dokumentet og assetlageret nøyaktig som før,
+  sammenlignet mot lagret tilstand og ikke mot et kall på en stubb;
+- avvisningen navngir aldri en slide, en sone eller et sandkasseelement, bare
+  hvor mange steder av hvert slag filen vises;
+- en fil som ikke lot seg slette fra lagringen etter at dokumentet var skrevet
+  rapporteres som `fileRemoved: false` – aldri som en feil, og aldri ved å
+  legge referansen tilbake;
+- `delete_unused_references` rydder én ubrukt referanse, flere ubrukte
+  referanser, og lar de siterte stå – også når de tre tilfellene er i det samme
+  dekket, og også når det som siterer er en slidetittel eller innhold i
+  sandkassen;
+- et andre kall er en no-op som fjerner ingenting og ikke flytter revisjonen;
+- en utdatert `expectedRevision` gir `CONFLICT` på begge, uten å rydde noe;
+- et token med bare `assets:write` kan slette en fil uten å kunne lese dekket,
+  og et token med bare `presentations:write` kan rydde referanser uten at
+  kvitteringen bærer en eneste tittel, forfatter eller lenke;
+- REST og MCP svarer med den samme kvitteringen, den samme feilkoden, de samme
+  tallene og den samme MCP-konvolutten.
+
 ### Ferdigkriterium
 
 Agentfunksjonen er ikke ferdig bare fordi en agent kan lage gyldig JSON.
@@ -3551,6 +3579,71 @@ gren mellom de to: én innpakningsfunksjon bygger begge operasjonene og får
 domenekommandoen inn som argument, så det finnes ikke noe sted der en kopi kunne
 få en flyttings semantikk.
 
+Opprydding var det siste hullet der agenten kunne *lage* noe den ikke kunne
+fjerne igjen. En agent som lastet opp en figur, plasserte den og senere byttet
+den ut, etterlot en foreldreløs fil for alltid: `list_assets` viste den, og
+ingen operasjon kunne ta den bort. Det samme gjaldt en referanse som ble lagt
+inn og aldri sitert. `delete_asset` og `delete_unused_references` lukker begge,
+og begge er tynne innpakninger over kommandoer domenet allerede hadde
+(`removeAsset` og `deleteUnusedReferences`) – ingen ny opprydningslogikk i
+agentlaget.
+
+Det interessante er avvisningene, ikke slettingene. `delete_asset` skal aldri
+kunne etterlate dokumentet med en referanse til en fil som ikke finnes, så
+domenet nekter så lenge dekket viser filen – og «viser» betyr alle fire
+måtene: som innholdet i en sone, inline i rik tekst, og hver av de to fra
+innhold som ligger parkert i sandkassen. En sjekk på soneinnhold alene ville
+sluppet gjennom nettopp den varianten editoren lager oftest. Sandkassen teller
+med av samme grunn som den teller med i `deleteUnusedReferences`: parkert
+innhold er uferdig arbeid, ikke slettet arbeid, og en fil slettet under det
+ville brutt elementet i det øyeblikket det ble satt tilbake på en slide.
+
+Feilen er `ASSET_IN_USE` (422 – forespørselen var forstått, og reglene sa nei),
+og den bærer hvor mange steder filen vises, delt på slide/sandkasse og
+soneinnhold/inline. Den navngir *ikke* sliden eller sonen, og det er en
+scope-grense: `delete_asset` krever `assets:write` – speilbildet av
+`upload_asset`, siden det er den samme autoriteten over den samme listen – og
+det holder nettopp fordi operasjonen er innelukket i fillisten og aldri kan
+fjerne noe fra en slide. Et token som bare får lagre filer skal ikke kunne
+kartlegge et dekk det ikke har lesetilgang til ved å prøve å slette hver fil.
+Tallene gjør avvisningen handlingsbar; adressene finner en agent med
+`list_assets` og `inspect_slide`, som krever `presentations:read`.
+
+Atomisiteten er to spørsmål, fordi det er to lagre. En avvisning rører ingen av
+dem: `mutatePresentation` returnerer før dokumentet skrives, og filen berøres
+først etterpå – så «verken presentasjonen eller assetlageret er endret» er sant
+ved konstruksjon og ikke ved opprydding. En godkjent sletting skriver dokumentet
+først og bytene etterpå, og det er den samme asymmetrien `storeAsset` snur den
+andre veien: bytes ingen peker på koster lagring til presentasjonen slettes,
+mens et dokument som peker på bytes som er borte koster sliden. Går den siste
+skrivingen galt, står slettingen likevel – `fileRemoved: false` sier at det ble
+liggende igjen en foreldreløs fil, aldri at referansen kom tilbake.
+
+Flagget må komme fra lagringen selv, og det er skarpere enn det ser ut. I
+Supabase er en filsletting to fjerninger – raden, så objektet – og en feilet
+objektfjerning feller med vilje ikke kallet: raden er borte, som er det kalleren
+ba om, og stien huskes for opprydningssveipet. «Husket» er et svakere løfte enn
+det høres ut som på serveren: `agentContextFor` bygger et nytt repository per
+forespørsel, så settet overlever ikke kallet, og sveipet rydder bare mapper til
+presentasjoner som er slettet. Derfor returnerer `SlaidsRepository.deleteAsset`
+en `boolean` i stedet for `void`, og `deleteAssetFile` leser den i stedet for å
+utlede `true` av at kallet ikke kastet – ellers ville `fileRemoved: true` vært
+en påstand om lagringen ingen har sjekket.
+
+Delingen tåler dette uten et eneste ekstra kall, og det er verdt å si hvorfor:
+`buildSharedSnapshot` tar bare med filer slidene faktisk viser, og en delt
+presentasjon publiseres på nytt av den samme skrivingen som lagrer den. Et
+asset som er slettbart er derfor per definisjon et asset det publiserte
+snapshotet ikke lister, og en sletting kan ikke gjøre en delt lenke ødelagt.
+
+`delete_unused_references` krever `presentations:write`, som `delete_reference`:
+en referanse bor i dokumentet, ikke i fillageret. Kvitteringen er id-ene som
+faktisk ble fjernet og ingenting mer – samme grense som for `move_zone_content`,
+og den biter her: et svar som listet titler og forfattere ville vært en lesing
+av dekket utført av en skriving. Et dekk uten noe å rydde svarer med en tom
+liste og den samme revisjonen som før, så operasjonen kan kalles på rutine uten
+å gjøre noen andres `expectedRevision` utdatert.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
@@ -3560,9 +3653,10 @@ ikke mekanisk:
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
   uten at scope-spørsmålet er tenkt igjennom.
-- **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
-  opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
-  fjerne.
+- **Inline bilder i rik tekst.** `delete_asset` respekterer dem – de teller som
+  bruk, og en fil som bare ligger inline kan ikke slettes – men tekstformatet en
+  agent *skriver* har fortsatt ingen bildeblokk. En agent kan altså ikke lage
+  det den nå må ta hensyn til; editoren kan.
 - **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
   menneske som bygger med musen, den andre en notatflate som aldri forlater
   arbeidskopien.

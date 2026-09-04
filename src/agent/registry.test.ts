@@ -209,6 +209,44 @@ describe('operasjonskatalogen', () => {
     expect(copy?.summary).not.toBe(findOperation('move_zone_content')?.summary)
   })
 
+  it('har fase 6: opprydding, med scopene ryddingen faktisk trenger', () => {
+    // `delete_asset` is the mirror of `upload_asset` and carries the same
+    // scope: the authority that put a file in is the authority that takes it
+    // out, and it is enough *because* the operation is confined to the file
+    // list — it refuses while anything shows the file, so a token that may only
+    // store files can never use it to edit a deck. Pruning references is the
+    // opposite: nothing about it touches the file store, and it is the same act
+    // `delete_reference` performs on a set the deck picks out itself.
+    const deleteAsset = findOperation('delete_asset')
+    expect(deleteAsset?.mutates).toBe(true)
+    expect(deleteAsset?.scopes).toEqual(['assets:write'])
+
+    const prune = findOperation('delete_unused_references')
+    expect(prune?.mutates).toBe(true)
+    expect(prune?.scopes).toEqual(['presentations:write'])
+
+    // Neither of them takes anything but the deck, the file and the reading the
+    // caller wrote against. A `force` flag on either would be a way to leave a
+    // dangling reference or to drop a citation nobody asked to drop.
+    const schemaFor = (name: string): { properties: Record<string, unknown>; required?: string[] } =>
+      describeOperations().find((entry) => entry.name === name)?.inputSchema as {
+        properties: Record<string, unknown>
+        required?: string[]
+      }
+    expect(Object.keys(schemaFor('delete_asset').properties).sort()).toEqual([
+      'assetId',
+      'expectedRevision',
+      'presentationId',
+    ])
+    expect(Object.keys(schemaFor('delete_unused_references').properties).sort()).toEqual([
+      'expectedRevision',
+      'presentationId',
+    ])
+    for (const name of ['delete_asset', 'delete_unused_references']) {
+      expect(JSON.stringify(schemaFor(name))).not.toContain('force')
+    }
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)

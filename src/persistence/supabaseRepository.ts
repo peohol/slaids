@@ -874,16 +874,20 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return ((data ?? []) as { id: string }[]).map((row) => row.id)
   }
 
-  async deleteAsset(id: string): Promise<void> {
+  async deleteAsset(id: string): Promise<boolean> {
     const { data, error } = await this.scoped(
       this.client.from(ASSETS_TABLE).select('object_path').eq('id', id),
     ).maybeSingle()
     if (error) fail('Kunne ikke hente filen', error)
-    if (!data) return
+    // No row means nothing points at any bytes here, so there is nothing left
+    // to remove — which is the state the caller asked for.
+    if (!data) return true
 
     const removed = await this.scoped(this.client.from(ASSETS_TABLE).delete().eq('id', id))
     if (removed.error) fail('Kunne ikke slette filen', removed.error)
-    await this.reclaimObjects([(data as { object_path: string }).object_path])
+    // The reclaim's own answer, passed on rather than swallowed. This is the
+    // one caller that reports the outcome to somebody — see the interface.
+    return this.reclaimObjects([(data as { object_path: string }).object_path])
   }
 
   async deleteAssetsForPresentation(presentationId: string): Promise<void> {
@@ -992,19 +996,30 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   /**
-   * Take objects out of Storage once nothing points at them. A failure here is
-   * not the caller's problem — what it asked for has already happened — so the
-   * paths are remembered for `deleteOrphanAssets` instead of turning a delete
-   * that succeeded into an error the user cannot act on.
+   * Take objects out of Storage once nothing points at them.
+   *
+   * A failure here never fails the caller's action — what it asked for has
+   * already happened, and the row is gone — so the paths are remembered for
+   * `deleteOrphanAssets` instead of turning a delete that succeeded into an
+   * error the user cannot act on.
+   *
+   * It is *reported*, though, which is a different thing from failing on it.
+   * `deleteAsset` passes the answer up to a caller that publishes it, and
+   * "remembered" is a weaker promise than it looks on the server: the
+   * repository is built per request there (`agentContextFor`), so the pending
+   * set does not outlive the call, and the sweep only reclaims folders whose
+   * presentation is gone. Saying `true` here would therefore be claiming the
+   * bytes were removed on the strength of nobody having checked.
    */
-  private async reclaimObjects(paths: readonly string[]): Promise<void> {
-    if (paths.length === 0) return
+  private async reclaimObjects(paths: readonly string[]): Promise<boolean> {
+    if (paths.length === 0) return true
     try {
       const { error } = await this.client.storage.from(ASSETS_BUCKET).remove([...paths])
-      if (!error) return
+      if (!error) return true
     } catch {
       // Same outcome as an error response: remember them and move on.
     }
     for (const path of paths) this.pendingObjectRemovals.add(path)
+    return false
   }
 }

@@ -163,7 +163,7 @@ export const repository: SlaidsRepository = {
     on((repo) => repo.listAssets(presentationId)),
   existingAssetIds: (ids: readonly string[]): Promise<string[]> =>
     on((repo) => repo.existingAssetIds(ids)),
-  deleteAsset: (id: string): Promise<void> => on((repo) => repo.deleteAsset(id)),
+  deleteAsset: (id: string): Promise<boolean> => on((repo) => repo.deleteAsset(id)),
   deleteAssetsForPresentation: (presentationId: string): Promise<void> =>
     on((repo) => repo.deleteAssetsForPresentation(presentationId)),
   deleteOrphanAssets: (): Promise<number> => on((repo) => repo.deleteOrphanAssets()),

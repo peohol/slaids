@@ -8,15 +8,18 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_ASSET_BYTES } from '../domain/constants'
-import { splitLeaf, unusedAssets, usedAssetIds } from '../domain/commands'
+import { setZoneContent, splitLeaf, unusedAssets, usedAssetIds } from '../domain/commands'
 import { createPresentation } from '../domain/presentation'
+import { createUntitledCard } from '../domain/content'
+import { imageNode } from '../domain/richdoc'
+import { presentationRevision } from '../domain/revision'
 import { blobToBytes } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
 import { RepositoryError } from '../persistence/repository'
 import { realImageBase64, realImages, IMAGE_HEIGHT, IMAGE_WIDTH } from '../domain/testImages'
-import type { Presentation } from '../domain/types'
-import { createSvgAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
+import type { Presentation, RichDoc, ZoneContent } from '../domain/types'
+import { createSvgAsset, deleteAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
 import { getPresentation, inspectSlide } from './operations/deck'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
@@ -520,6 +523,324 @@ describe('asset-invariants', () => {
 
     const after = expectOk(await listAssets.run(context, { presentationId: presentation.id }))
     expect(after.assets[0].used).toBe(true)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * delete_asset
+ * ------------------------------------------------------------------ */
+
+describe('delete_asset', () => {
+  /** A deck with one stored file that nothing shows yet. */
+  async function seedWithFile(context: AgentContext): Promise<{
+    presentationId: string
+    slideId: string
+    nodeId: string
+    assetId: string
+    revision: string
+  }> {
+    const presentation = await seed(context)
+    const stored = expectOk(
+      await createSvgAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'figur',
+        svgMarkup: SQUARE,
+      }),
+    )
+    return {
+      presentationId: presentation.id,
+      slideId: presentation.slides[0].id,
+      nodeId: presentation.slides[0].root.id,
+      assetId: stored.assetId,
+      revision: stored.revision,
+    }
+  }
+
+  /** Put `content` in the deck's one zone, past the agent surface. */
+  async function fillZone(
+    context: AgentContext,
+    seeded: { presentationId: string; slideId: string; nodeId: string },
+    content: ZoneContent,
+  ): Promise<void> {
+    const presentation = await context.repository.loadPresentation(seeded.presentationId)
+    const placed = setZoneContent(presentation, {
+      slideId: seeded.slideId,
+      nodeId: seeded.nodeId,
+      content,
+      replace: true,
+      replacedDisposition: 'delete',
+    })
+    if (!placed.ok) throw new Error(`kunne ikke fylle sonen: ${placed.error.code}`)
+    await context.repository.savePresentation(placed.value.presentation)
+  }
+
+  /**
+   * A card whose text holds an inline picture.
+   *
+   * Built with the domain's own helpers rather than through an operation,
+   * because the agent text surface has no inline image today — and the editor's
+   * documents are exactly the ones `delete_asset` has to keep intact.
+   */
+  function cardWithInlineImage(assetId: string): ZoneContent {
+    const card = createUntitledCard()
+    const doc: RichDoc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [imageNode(assetId, 'Figur')] }],
+    }
+    return { ...card, body: { ...card.body, subfields: [{ ...card.body.subfields[0], doc }] } }
+  }
+
+  it('sletter et ubrukt asset: både referansen og bytene', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+
+    const deleted = expectOk(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(deleted).toMatchObject({
+      presentationId: seeded.presentationId,
+      assetId: seeded.assetId,
+      fileRemoved: true,
+    })
+
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    expect(reloaded.assets).toEqual([])
+    expect(deleted.revision).toBe(presentationRevision(reloaded))
+    // The bytes are gone too — this is not a metadata-only deletion.
+    expect(await context.repository.getAsset(seeded.assetId)).toBeNull()
+    expect(await context.repository.listAssets(seeded.presentationId)).toEqual([])
+  })
+
+  it('avviser en fil som er innholdet i en sone, og lar alt stå', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    expectOk(
+      await setZoneAsset.run(context, {
+        ...seeded,
+        fit: 'contain',
+        replace: false,
+        replacedDisposition: 'sandbox',
+      }),
+    )
+    const before = await context.repository.loadPresentation(seeded.presentationId)
+
+    const error = expectErr(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(error.code).toBe('ASSET_IN_USE')
+    expect(error.details).toMatchObject({
+      assetId: seeded.assetId,
+      usage: { total: 1, slides: { zoneContent: 1, inlineText: 0 } },
+    })
+
+    // Neither store moved: the document is byte for byte the one that was
+    // there, and the file is still readable.
+    const after = await context.repository.loadPresentation(seeded.presentationId)
+    expect(after).toEqual(before)
+    expect(presentationRevision(after)).toBe(presentationRevision(before))
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+  })
+
+  it('avviser en fil som bare ligger inline i rik tekst, og lar alt stå', async () => {
+    // The case a zone-content check alone would miss: nothing in the layout
+    // tree points at the file, only a paragraph does.
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    await fillZone(context, seeded, cardWithInlineImage(seeded.assetId))
+    const before = await context.repository.loadPresentation(seeded.presentationId)
+
+    const error = expectErr(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(error.code).toBe('ASSET_IN_USE')
+    expect(error.details).toMatchObject({
+      usage: { total: 1, slides: { zoneContent: 0, inlineText: 1 } },
+    })
+
+    expect(await context.repository.loadPresentation(seeded.presentationId)).toEqual(before)
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+  })
+
+  it('avviser en fil som bare vises fra sandkassen', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    expectOk(
+      await setZoneAsset.run(context, {
+        ...seeded,
+        fit: 'contain',
+        replace: false,
+        replacedDisposition: 'sandbox',
+      }),
+    )
+    // Cleared with the default disposition, so the picture is parked rather
+    // than destroyed — and a parked picture is still a picture that is shown.
+    expectOk(
+      (await runOperation(context, 'clear_zone', {
+        presentationId: seeded.presentationId,
+        slideId: seeded.slideId,
+        nodeId: seeded.nodeId,
+      })) as AgentResult<unknown>,
+    )
+
+    const error = expectErr(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(error.code).toBe('ASSET_IN_USE')
+    expect(error.details).toMatchObject({
+      usage: { total: 1, sandbox: { zoneContent: 1, inlineText: 0 } },
+    })
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+  })
+
+  it('lar filen slettes så snart innholdet er borte', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    await fillZone(context, seeded, cardWithInlineImage(seeded.assetId))
+    expect(
+      expectErr(
+        await deleteAsset.run(context, {
+          presentationId: seeded.presentationId,
+          assetId: seeded.assetId,
+        }),
+      ).code,
+    ).toBe('ASSET_IN_USE')
+
+    await fillZone(context, seeded, createUntitledCard())
+    expect(
+      expectOk(
+        await deleteAsset.run(context, {
+          presentationId: seeded.presentationId,
+          assetId: seeded.assetId,
+        }),
+      ).fileRemoved,
+    ).toBe(true)
+    expect(await context.repository.getAsset(seeded.assetId)).toBeNull()
+  })
+
+  it('sier ASSET_NOT_FOUND på en id presentasjonen ikke har, uten å røre noe', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    const before = await context.repository.loadPresentation(seeded.presentationId)
+
+    const error = expectErr(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: 'a_finnes_ikke',
+      }),
+    )
+    expect(error.code).toBe('ASSET_NOT_FOUND')
+    expect(error.details).toMatchObject({ assetId: 'a_finnes_ikke' })
+    expect(await context.repository.loadPresentation(seeded.presentationId)).toEqual(before)
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+  })
+
+  it('avviser en utdatert expectedRevision, og lar filen ligge', async () => {
+    const context = freshContext()
+    const seeded = await seedWithFile(context)
+    // Somebody else writes, so the caller's reading is stale.
+    expectOk(
+      (await runOperation(context, 'set_presentation_title', {
+        presentationId: seeded.presentationId,
+        title: 'Endret av noen andre',
+      })) as AgentResult<unknown>,
+    )
+
+    const error = expectErr(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+        expectedRevision: seeded.revision,
+      }),
+    )
+    expect(error.code).toBe('CONFLICT')
+
+    const after = await context.repository.loadPresentation(seeded.presentationId)
+    expect(after.assets.map((asset) => asset.id)).toEqual([seeded.assetId])
+    expect(await context.repository.getAsset(seeded.assetId)).not.toBeNull()
+
+    // And the deletion goes through against the revision that is current.
+    expectOk(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+        expectedRevision: presentationRevision(after),
+      }),
+    )
+    expect(await context.repository.getAsset(seeded.assetId)).toBeNull()
+  })
+
+  /** A deck in `database`, past the operation that would refuse to build it. */
+  async function orphanCase(
+    make: (database: SlaidsDatabase) => DexieSlaidsRepository,
+  ): Promise<{ context: AgentContext; seeded: Awaited<ReturnType<typeof seedWithFile>> }> {
+    counter += 1
+    const database = new SlaidsDatabase(`slaids-agent-orphan-${counter}`)
+    databases.push(database)
+    const context: AgentContext = { repository: make(database) }
+    return { context, seeded: await seedWithFile(context) }
+  }
+
+  it('melder fileRemoved: false når slettingen kastet', async () => {
+    // The document is written first on purpose: an orphan blob costs storage,
+    // while a document pointing at bytes that are gone costs the slide. So a
+    // store that refuses the delete does not undo the deletion — it is reported.
+    class StubbornStore extends DexieSlaidsRepository {
+      override deleteAsset(): Promise<never> {
+        return Promise.reject(new RepositoryError('Filen kunne ikke slettes.'))
+      }
+    }
+    const { context, seeded } = await orphanCase((database) => new StubbornStore(database))
+
+    const deleted = expectOk(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(deleted.fileRemoved).toBe(false)
+
+    // The deck no longer lists the file — that part landed and stands.
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    expect(reloaded.assets).toEqual([])
+    expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(false)
+  })
+
+  it('melder fileRemoved: false når slettingen gikk bra og bytene likevel ble liggende', async () => {
+    // The case a `try/catch` alone would report as a success, and the one that
+    // actually happens in Supabase: deleting a file there is two removals, and
+    // a failed object removal deliberately does not fail the call — the row is
+    // gone, which is what the caller asked for. The bytes are still there, so
+    // the answer has to come from the repository rather than from "it did not
+    // throw". See `SlaidsRepository.deleteAsset`.
+    class LeavesTheBytes extends DexieSlaidsRepository {
+      override async deleteAsset(id: string): Promise<boolean> {
+        await super.deleteAsset(id)
+        return false
+      }
+    }
+    const { context, seeded } = await orphanCase((database) => new LeavesTheBytes(database))
+
+    const deleted = expectOk(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(deleted.fileRemoved).toBe(false)
+    expect((await context.repository.loadPresentation(seeded.presentationId)).assets).toEqual([])
   })
 })
 
