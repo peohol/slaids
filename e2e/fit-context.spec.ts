@@ -12,7 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { expect, familiesFrom, localFaceCss, test, type Page } from './fixtures'
+import { expect, familiesFrom, localFaceCss, test, type Locator, type Page } from './fixtures'
 import {
   addContentToZone,
   createPresentation,
@@ -269,12 +269,88 @@ test.describe('restoring a slide title', () => {
  * ------------------------------------------------------------------ */
 
 test.describe('citation numbering and fit', () => {
+  /**
+   * Put the caret in a field that has a citation in it.
+   *
+   * Never the middle: a citation pill is a button in the editor — clicking one
+   * opens the reference modal — and a short, centred line is mostly pill. The
+   * corner is text, or the empty run before it.
+   */
+  async function caretInto(field: Locator): Promise<void> {
+    await field.click({ position: { x: 4, y: 4 } })
+  }
+
+  /**
+   * Type into a one-line field until it will not take any more.
+   *
+   * Coarse first, then one narrow glyph at a time: a rejected insert rolls back
+   * whole, so a big chunk leaves as much slack as the chunk is long, and that
+   * slack is exactly what the next assertion is trying to observe.
+   */
+  async function fillLineToCapacity(page: Page, field: Locator): Promise<void> {
+    await caretInto(field)
+    for (let i = 0; i < 30; i += 1) {
+      await page.keyboard.insertText('ord ord ')
+      await page.waitForTimeout(20)
+    }
+    for (let i = 0; i < 40; i += 1) {
+      await page.keyboard.insertText('i')
+      await page.waitForTimeout(20)
+    }
+  }
+
+  /**
+   * Create several references in one visit, each cited where the caret is.
+   *
+   * The modal stays open between saves, and saving inserts the citation — so
+   * they land side by side and merge into one pill, which is what makes the
+   * label wide enough for a browser to have an opinion about it.
+   */
+  async function citeNewReferences(page: Page, field: Locator, titles: string[]): Promise<void> {
+    await field.click()
+    await page.getByTestId('open-references').click()
+    for (const title of titles) {
+      await page.getByTestId('reference-title').fill(title)
+      await page.getByTestId('save-reference').click()
+    }
+    await closeReferences(page)
+  }
+
+  /** Cite references that already exist, side by side, so they merge into one pill. */
+  async function citeExisting(page: Page, field: Locator, titles: string[]): Promise<void> {
+    await caretInto(field)
+    await page.getByTestId('open-references').click()
+    for (const title of titles) {
+      await page
+        .getByTestId('reference-row')
+        .filter({ hasText: title })
+        .getByTestId('insert-citation')
+        .click()
+    }
+    await closeReferences(page)
+  }
+
   /** Create a reference and drop a citation for it where the caret is. */
   async function citeNewReference(page: Page, title: string): Promise<void> {
     await page.getByTestId('open-references').click()
     await page.getByTestId('reference-title').fill(title)
     await page.getByTestId('save-reference').click()
+    await closeReferences(page)
+  }
+
+  /**
+   * Close the modal and wait for it to be gone.
+   *
+   * Waited for rather than slept off: the overlay stays in the tree through its
+   * closing animation and swallows the next click, which a caller that opens the
+   * modal twice in a row finds out about and one that does not never does.
+   */
+  async function closeReferences(page: Page): Promise<void> {
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await expect(page.getByTestId('reference-modal')).toHaveCount(0)
+    // The overlay outlives the dialog it dims, and it is the overlay that eats
+    // the next click.
+    await expect(page.locator('.dialog-overlay')).toHaveCount(0)
     await page.waitForTimeout(150)
   }
 
@@ -296,6 +372,82 @@ test.describe('citation numbering and fit', () => {
     await citeNewReference(page, 'Kilde nummer to')
     await expect(toast(page, 'får ikke plass')).toBeVisible()
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+  })
+
+  test('refuses to remove a citing title when the renumbering fills another slide', async ({
+    page,
+  }) => {
+    // The editor's own path, end to end. Removing a title zone gives *this*
+    // slide more room, which is why it looks like a change that cannot hide
+    // anything — and why it went through the guard without measurers for a
+    // while, which is the same as not going through it at all.
+    //
+    // What it can hide sits on another slide. The pill built below reads `1–4`
+    // while slide 1's title cites the first two references, and `1, 2, 5, 6`
+    // once that title is gone: runs of two are listed rather than ranged, so
+    // three glyphs become ten. It sits in a *title*, which is one line and
+    // fails horizontally — so the extra width is the overflow, with none of the
+    // guesswork about where a wrapped paragraph happens to break.
+    await createPresentation(page, 'Tittel med citation')
+
+    // Slide 1's title cites the first two references, so they are 1 and 2.
+    const titleField = stage(page).locator('[data-testid="slide-title"] .tiptap')
+    await titleField.click()
+    await page.keyboard.type('Kilder')
+    await citeNewReferences(page, titleField, ['Kilde A1', 'Kilde A2'])
+    await expect(stage(page).locator('[data-testid="slide-title"] .rd-citation')).toHaveText('1, 2')
+
+    // Slide 2 cites four more, which are 3–6 while that title still stands.
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    const second = (await zoneRects(page))[0]
+    await addContentToZone(page, second.id, 'untitled-card')
+    const secondField = stage(page)
+      .locator(`.slide-zone[data-node-id="${second.id}"] .tiptap`)
+      .first()
+    await citeNewReferences(page, secondField, ['Kilde B1', 'Kilde B2', 'Kilde C', 'Kilde D'])
+
+    // Slide 3's own title holds one pill citing A1, A2, B1 and B2 — consecutive
+    // today — and is then filled to the last character it will take.
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
+    await fillLineToCapacity(page, titleField)
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+
+    // Back to slide 1, and take its title away.
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('toggle-title').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+
+    // Refused, in the guard's own words, and the title is still there — with
+    // its citation, so the numbering the rest of the deck reads is unchanged.
+    await expect(toast(page, 'renummererer citations')).toBeVisible()
+    await expect(page.getByTestId('slide-title')).toBeVisible()
+    await expect(stage(page).locator('[data-testid="slide-title"] .rd-citation')).toHaveText('1, 2')
+
+    // Give slide 3's title room again, keeping its pill, and the same removal
+    // lands.
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
+    await caretInto(titleField)
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.insertText('Kort ')
+    await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
+
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('toggle-title').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('slide-title')).toHaveCount(0)
+
+    // And the renumbering the refusal was about is now visible on slide 3: the
+    // same four references, two of them numbered after everything else.
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1, 2, 5, 6')
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 
   test('renumbers citations across slides when the deck is reordered', async ({ page }) => {

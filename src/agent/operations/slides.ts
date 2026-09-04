@@ -10,10 +10,26 @@
  *
  * `set_slide_title` takes spans rather than a string because a title may cite a
  * reference, and a citation is an id, not a number. See `../text.ts`.
+ *
+ * `set_slide_has_title` is the one thing an agent could previously only decide
+ * when a slide was created. Whether a slide has a title zone is a composition
+ * choice — a full-bleed figure wants the whole 1600 × 900 — and it is not a
+ * property of the text: removing the zone gives the content the height the zone
+ * took, which is why it is a structural command with a fit guard rather than
+ * `set_slide_title('')`. Both directions are gated, including the one that only
+ * frees space: a title may cite, and a citation that goes away renumbers the
+ * deck. See `domain/commands/fitGuard.ts`.
  */
 
 import { z } from 'zod'
-import { addSlide, deleteSlide, duplicateSlide, moveSlide, setSlideTitle } from '../../domain/commands'
+import {
+  addSlide,
+  deleteSlide,
+  duplicateSlide,
+  moveSlide,
+  setSlideHasTitle,
+  setSlideTitle,
+} from '../../domain/commands'
 import { findSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { Presentation } from '../../domain/types'
@@ -222,10 +238,55 @@ export const setSlideTitleOperation = defineOperation({
   },
 })
 
+/* ------------------------------------------------------------------ *
+ * set_slide_has_title
+ * ------------------------------------------------------------------ */
+
+export const setSlideHasTitleOperation = defineOperation({
+  name: 'set_slide_has_title',
+  summary:
+    'Slå tittelsonen på en slide av eller på. Å legge den til krymper innholdsområdet og kan derfor avvises; å fjerne den frigjør høyden den tok. Fjerner du en overskrift som siterer, renummereres citations i hele dekket, og kallet avvises hvis det gjør innhold på en annen slide for stort. Teksten settes med set_slide_title.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    slideId: slideIdSchema,
+    hasTitle: z.boolean().describe('Om sliden skal ha en overskriftssone.'),
+    force: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Fjern sonen selv om overskriften har tekst. Uten den avvises et slikt kall med INVALID_ARGUMENT, så teksten ikke forsvinner ved et uhell.',
+      ),
+  }),
+  run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string; hasTitle: boolean }>> {
+    return mutatePresentation(context, input, (presentation) => {
+      // The command owns both halves: the main area has to keep fitting its
+      // content when the zone appears, and a title that is already there is not
+      // thrown away without being asked for.
+      const changed = setSlideHasTitle(presentation, input.slideId, input.hasTitle, {
+        force: input.force,
+        ...structuralOptions(context),
+      })
+      if (!changed.ok) return changed
+      return ok({
+        presentation: changed.value,
+        value: {
+          presentationId: presentation.id,
+          slideId: input.slideId,
+          hasTitle: input.hasTitle,
+        },
+      })
+    })
+  },
+})
+
 export const slideOperations = [
   addSlideOperation,
   duplicateSlideOperation,
   moveSlideOperation,
   deleteSlideOperation,
   setSlideTitleOperation,
+  setSlideHasTitleOperation,
 ]

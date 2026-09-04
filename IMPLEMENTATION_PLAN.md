@@ -611,6 +611,19 @@ utledningen – ellers glir de fra hverandre. Begge skalaene er derfor
 fit-relevante: en temaendring som ikke er en font må måle decket på nytt på
 samme måte som en font gjør.
 
+Begge skalaene er kontinuerlige i domenet. `SPACING_RANGE` og
+`FONT_SCALE_RANGE` er de virkelige grensene, og fit-guarden avgjør hva som er
+brukbart innenfor dem. Editoren tilbyr fire navngitte trinn på hver, fordi et
+menneske vil ha knapper og ikke en glidebryter – men trinnene er et utvalg, ikke
+en regel. De er derfor deklarert i `src/domain/metrics.ts` sammen med
+intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
+API-et siterer den samme listen når det forteller en agent hva «normal» er, og
+én liste er det som holder de to fra å si forskjellige ting.
+
+Fontkatalogen (`src/domain/fonts.ts`) er på samme måte det ene stedet en font
+er navngitt. Både editorens velger, den hodeløse estimatorens glyffbredder og
+agentkontraktens publiserte fontenum leses ut av den.
+
 Temaet kan lagres som standard for nye presentasjoner. Det er en lokal
 preferanse (localStorage, som vindusgeometri), ikke presentasjonsdata, og
 valideres på vei ut igjen.
@@ -1898,6 +1911,9 @@ Eksempler:
 list_presentations
 get_presentation
 create_presentation
+set_presentation_title
+
+set_theme
 
 set_cover
 set_cover_color
@@ -1908,6 +1924,7 @@ move_slide
 duplicate_slide
 delete_slide
 set_slide_title
+set_slide_has_title
 
 split_zone
 adjust_split
@@ -2006,6 +2023,102 @@ set_zone_text
 → set_zone_text
 → OK
 ```
+
+### Tema
+
+Temaet er globalt: bakgrunnsfarge, font for titler, font for brødtekst, luft og
+skriftstørrelse gjelder hele presentasjonen, og en enkelt slide kan ikke avvike.
+En agent som ikke kan styre det, kan bare lage innhold i standardtemaet – og da
+er «lag en gjennomført presentasjon» ikke en oppgave den kan gjøre ferdig.
+
+Kontrakten er derfor:
+
+- **Lesing hører hjemme i `get_presentation`.** Temaet er lite, globalt og noe
+  enhver plan for en slide avhenger av, så en agent som har lest presentasjonen
+  har lest temaet. Ingen egen `get_theme`; API-flaten skal være liten og
+  ortogonal.
+- **Skriving er én operasjon**, `set_theme`, over den eksisterende
+  `setTheme`-kommandoen. Ingen validering, ingen klamping og ingen temalogikk i
+  agentlaget – det som avgjør er kommandoen editoren også bruker.
+- **Fonter navngis med id fra fontkatalogen**, og det publiserte JSON
+  Schema-et er et enum generert fra `src/domain/fonts.ts`. Det gjør de gyldige
+  valgene oppdagbare i `tools/list`, og det finnes ingen andre liste som kan
+  havne bak katalogen. Enumet er katalogens **garanterte** halvdel – se
+  «Webfonter, hodeløs fit-måling og hva et preview kan love» under.
+- **Skalaene publiseres med domenets eget intervall.** Editorens fire trinn er
+  navn en agent kan bruke for å si «normal», ikke grensene den må holde seg til;
+  de siteres i beskrivelsen fra `SPACING_PRESETS` og `FONT_SCALE_PRESETS`. En
+  agent som ber om 1.12 har bedt om noe lovlig, og fit-guarden avgjør resten.
+- **Bakgrunnsfargen er en vanlig hex-farge**, som `set_cover_color`. Editorens
+  palett er en måte å klikke en farge på, ikke en begrensning domenet har.
+- **Endringen er atomisk.** En temaendring måler hele dekket på nytt mot det
+  prospektive temaet, og en endring som ville skjult innhold avvises med
+  `CONTENT_DOES_NOT_FIT` – hele endringen, også feltene som i seg selv var
+  harmløse. Ingenting lagres. `expectedRevision` virker som ved enhver annen
+  mutasjon.
+- **Luft og skriftstørrelse er to spørsmål, ikke ett.** De flytter geometrien
+  selv – gapet mellom soner og høyden på tittelsonen – og fit-guarden måler
+  innhold: en tom sone har ingenting som kan bli skjult, så et større gap kan
+  presse en sju-delt slide under minstemålet uten at ett tegn forsvinner.
+  `setTheme` spør derfor først om geometrien (`findGeometryRegression`, som
+  bruker den samme `validateSlideGeometry` som `validate_presentation`) og
+  svarer `ZONE_TOO_SMALL` med slide og sone. Et tema guarden slipper gjennom kan
+  dermed ikke være et valideringen avviser. Begge guardene er regresjonssjekker:
+  et dekk som allerede er for trangt – en import, eller et dokument fra før en
+  token endret seg – må fortsatt kunne repareres.
+- **Rektangelet en avvisning bærer er det prospektive.** `guardFit` legger ved
+  rektangelet fra dokumentet som ble avvist, ikke fra det som fortsatt står:
+  målingen feilet mot gapet og tittelhøyden det *nye* temaet gir, og rommet en
+  sone hadde før ville sendt agenten på å korte ned med feil mengde.
+
+#### Webfonter, hodeløs fit-måling og hva et preview kan love
+
+En font avgjør hvor mye tekst som får plass, så «hvilken font ble dette godkjent
+mot?» må ha ett svar – og bildet agenten deretter ser på må være i den samme
+fonten. Tre mekanismer, og de er bare enige fordi inndataene er begrenset:
+
+- **I nettleseren** måler fit-gaten den ekte DOM-en, altså den fonten som er
+  lastet i det øyeblikket. Derfor venter `ThemeModal` på `ensureWebFonts` før
+  den kaller `setTheme`: måles endringen midt i nedlastingen, godkjennes den mot
+  reservefonten og tegnes i noe annet et øyeblikk senere.
+- **Hodeløst – som er hvert eneste agentkall** – måles ingenting. Estimatoren
+  leser `advanceRatioFor(stack)`, et tall katalogen oppgir for *den* fonten, og
+  det er det samme tallet enten fontens bytes noen gang kommer eller ikke. Et
+  fit-svar beskriver derfor alltid fonten som ble navngitt.
+- **Et rendret preview** tegnes av en hodeløs Chromium, som har de fontene
+  Slaids ga den og ingen andre.
+
+Det siste punktet er grunnen til at katalogen skiller eksplisitt mellom to
+slags fonter, og at agenten bare får den ene:
+
+- en **webfont** navngir en Google Fonts-familie, så Slaids henter ansiktene
+  selv – nettleseren gjennom `ui/fonts.ts`, rendreren gjennom
+  `render/fonts.ts`. Den kan gis til hvem som helst som skal tegne dekket, og
+  en henting som feiler *rapporteres* i stedet for å byttes ut i stillhet;
+- en **lokal font** er en maskinen enten har eller ikke har: Calibri, Segoe UI,
+  Times New Roman. Den hører hjemme i editoren, der forfatteren ser resultatet
+  på sin egen maskin og Slaids måler nettopp den DOM-en. Den kan ikke sendes
+  noe sted, og en serverless Linux-container har ingen av dem.
+
+En lokal font var derfor det ene tilfellet der de tre kunne bli uenige uten at
+noen merket det: det finnes ingenting å hente, så hentingen lykkes trivielt,
+rasterizeren har ingen familie å vente på – og «ingenting å vente på» svarte
+`fontsReady: true` mens containeren tegnet noe annet. Fit-svaret beskrev
+Calibri, bildet viste en reservefont, og API-et sa at alt var i orden.
+
+Kontrakten er derfor:
+
+- `set_theme` publiserer `GUARANTEED_FONT_IDS`, ikke hele katalogen. En agent
+  kan ikke velge en font previewet ville byttet ut. Listen genereres fra
+  katalogen (`isGuaranteedFont`), aldri skrevet ut på nytt.
+- Et dekk kan fortsatt *inneholde* en lokal font, fordi et menneske kan velge
+  den i editoren. `get_presentation` leser den som før, og markerer den med
+  `guaranteed: false` – så agenten vet både at `set_theme` ikke tar den tilbake
+  og at et preview ikke er tegnet i den.
+- `fontsReady: true` betyr at bildet er i dekkets egen skrift. Den er `false`
+  av begge grunner den kan være det: en webfont som ikke kom fram, og en font
+  som aldri kunne komme fram. `warnings` sier hvilken.
+- Editoren er uendret og tilbyr fortsatt hele katalogen.
 
 ### Validering
 
@@ -2486,12 +2599,14 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   save, med fit-sjekkerne som aldri utelates; `text.ts` er det agentvennlige
   tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
   `operations/` er selve operasjonene.
-- Lesing: `list_presentations`, `get_presentation`, `inspect_slide`,
-  `list_assets`, `validate_slide`, `validate_presentation`.
+- Lesing: `list_presentations`, `get_presentation` (som også bærer temaet),
+  `inspect_slide`, `list_assets`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
-- Skriving: `create_presentation`, `set_cover`, `set_cover_color`, `add_slide`,
+- Skriving: `create_presentation`, `set_presentation_title`, `set_theme`,
+  `set_cover`, `set_cover_color`, `add_slide`,
   `duplicate_slide`, `move_slide`,
-  `delete_slide`, `set_slide_title`, `split_zone`, `adjust_split`, `delete_zone`,
+  `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
+  `adjust_split`, `delete_zone`,
   `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
   `create_svg_asset`, `set_zone_asset`.
@@ -3102,6 +3217,47 @@ som ikke er det noen ser.
 Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
 bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
 på sikt være én dør.
+
+#### Fase 6: temaet, og hva som fortsatt mangler mot editoren
+
+Temaet er nå agentstyrt: `get_presentation` bærer det, `set_theme` setter det, og
+begge går gjennom de samme kommandoene og den samme fit-guarden som modalen. Se
+«Tema» over for kontrakten. Sammen med det kom to hull som var i veien for at en
+agent kunne *vedlikeholde* et dekk den hadde laget: `set_slide_has_title` (en
+tittelsone kunne bare bestemmes idet sliden ble laget) og
+`set_presentation_title` (navnet i biblioteket kunne bare settes ved
+opprettelse). Begge retninger av `setSlideHasTitle` er fit-gatet: å fjerne
+tittelsonen gir *denne* sliden mer plass, men en tittel kan sitere, og en
+citation som forsvinner tar en referanses første forekomst med seg – da
+renummereres citations på slides ingen har rørt. Se kommandolisten i
+`fitGuard.ts`.
+
+En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
+Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
+tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
+ikke mekanisk:
+
+- **Retning og forholdstall på subfelt.** `set_zone_card` tar `subfieldCount`,
+  men `setBodyAxis` og `setBodyWeights` har ingen operasjon: en agents subfelt
+  ligger alltid stablet nedover med like vekter. To tekstkolonner *inne i* det
+  samme kortet er derfor en komposisjon editoren tilbyr og agenten må erstatte
+  med to soner og et gap.
+- **Sandkassen.** En agent kan sende innhold dit (`disposition: 'sandbox'`, som
+  er standarden), men ikke se, hente tilbake eller slette det etterpå. Det er
+  det eneste stedet i flaten der en operasjons egen standardverdi legger noe et
+  sted API-et ikke når.
+- **Livsløp utover navnet.** Slette, duplisere og flytte en presentasjon mellom
+  mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
+  Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
+  uten at scope-spørsmålet er tenkt igjennom.
+- **Flytting av innhold mellom soner.** `moveZoneContent` finnes i domenet;
+  agenten må i dag tømme og bygge opp igjen, som mister id-er.
+- **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
+  opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
+  fjerne.
+- **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
+  menneske som bygger med musen, den andre en notatflate som aldri forlater
+  arbeidskopien.
 
 ---
 

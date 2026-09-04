@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { setTheme } from '../../domain/commands'
 import { FONT_OPTIONS, findFontByStack } from '../../domain/fonts'
+import { FONT_SCALE_PRESETS, SPACING_PRESETS, type ThemeScalePreset } from '../../domain/metrics'
 import { bestTextColor } from '../../domain/color'
 import { domFitCheckers } from '../../state/measure'
 import { notify } from '../../state/toast'
@@ -13,27 +14,16 @@ import { Modal } from '../components/Modal'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 
 /**
- * Luft: one multiplier on every distance — the global gap, card padding, the
- * space between subfields and between blocks of text. They move together, so a
- * roomier deck is still a deck with exactly one gap in it.
+ * Which of the named settings is in force.
+ *
+ * Luft is one multiplier on every distance and skriftstørrelse one on every
+ * type size. Both are continuous in the domain; the chooser offers the four
+ * named values `domain/metrics.ts` declares — declared there rather than here
+ * because the agent contract quotes the same list, and one list is what keeps
+ * the two saying the same thing. A stored value between two of them highlights
+ * the nearest.
  */
-const SPACING_STEPS: { label: string; value: number }[] = [
-  { label: 'Tett', value: 0.75 },
-  { label: 'Normal', value: 1 },
-  { label: 'Luftig', value: 1.3 },
-  { label: 'Ekstra luftig', value: 1.6 },
-]
-
-/** Skriftstørrelse: one multiplier on every type size on the slide. */
-const FONT_STEPS: { label: string; value: number }[] = [
-  { label: 'Liten', value: 0.85 },
-  { label: 'Normal', value: 1 },
-  { label: 'Stor', value: 1.15 },
-  { label: 'Ekstra stor', value: 1.3 },
-]
-
-/** Steps are discrete, so the nearest one is the one to highlight. */
-function isCurrent(value: number, current: number, steps: { value: number }[]): boolean {
+function isCurrent(value: number, current: number, steps: readonly ThemeScalePreset[]): boolean {
   const nearest = steps.reduce((best, step) =>
     Math.abs(step.value - current) < Math.abs(best.value - current) ? step : best,
   )
@@ -168,17 +158,17 @@ export function ThemeModal({
       <div className="field">
         <label>Luft</label>
         <div className="inspector__actions">
-          {SPACING_STEPS.map((step) => (
+          {SPACING_PRESETS.map((step) => (
             <button
               key={step.value}
               type="button"
               className={
-                isCurrent(step.value, theme.spacing, SPACING_STEPS)
+                isCurrent(step.value, theme.spacing, SPACING_PRESETS)
                   ? 'btn btn--sm btn--active'
                   : 'btn btn--sm'
               }
               data-testid={`theme-spacing-${step.value}`}
-              aria-pressed={isCurrent(step.value, theme.spacing, SPACING_STEPS)}
+              aria-pressed={isCurrent(step.value, theme.spacing, SPACING_PRESETS)}
               onClick={() =>
                 run('theme-spacing', (current) =>
                   setTheme(current, { spacing: step.value }, domFitCheckers),
@@ -198,17 +188,17 @@ export function ThemeModal({
       <div className="field">
         <label>Skriftstørrelse</label>
         <div className="inspector__actions">
-          {FONT_STEPS.map((step) => (
+          {FONT_SCALE_PRESETS.map((step) => (
             <button
               key={step.value}
               type="button"
               className={
-                isCurrent(step.value, theme.fontScale, FONT_STEPS)
+                isCurrent(step.value, theme.fontScale, FONT_SCALE_PRESETS)
                   ? 'btn btn--sm btn--active'
                   : 'btn btn--sm'
               }
               data-testid={`theme-font-scale-${step.value}`}
-              aria-pressed={isCurrent(step.value, theme.fontScale, FONT_STEPS)}
+              aria-pressed={isCurrent(step.value, theme.fontScale, FONT_SCALE_PRESETS)}
               onClick={() =>
                 run('theme-font-scale', (current) =>
                   setTheme(current, { fontScale: step.value }, domFitCheckers),

@@ -38,7 +38,15 @@
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
  *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
  *    `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
- *    `setSlideTitle`, `setSlideHasTitle`, `setCoverTitle`, `setCoverSubtitle`,
+ *    `setSlideTitle`, `setSlideHasTitle` — **both directions**, and the
+ *    removing one is the easy half to get wrong: it can only give *this* slide
+ *    room, so it looks like it cannot hide anything. A title may cite, and
+ *    removing it takes a reference's first occurrence away, which renumbers
+ *    every citation after it on slides nobody touched. It is gated rather than
+ *    listed with the removals below because the same citation is already gated
+ *    when `setSlideTitle` edits it out of the text, and one way of dropping a
+ *    citation must not be the way around the other —
+ *    `setCoverTitle`, `setCoverSubtitle`,
  *    `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.
@@ -92,16 +100,18 @@ import {
   computeLayoutRects,
   computeSlideGeometry,
   TITLE_NODE_ID,
+  validateSlideGeometry,
 } from '../geometry'
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
-import { FIT_TOLERANCE } from '../constants'
+import { FIT_TOLERANCE, GEOMETRY_EPSILON, MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH } from '../constants'
 import { coverGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
 import { COVER_PAGE_ID } from '../pages'
 import { walkRichNodes } from '../richdoc'
 import { err, ok, type Result } from '../result'
+import type { GeometryOptions } from '../geometry'
 import type {
   DeckCover,
   LayoutNode,
@@ -327,6 +337,112 @@ export function findFitRegressions(
 }
 
 /**
+ * A zone that stops satisfying the minimum size because the geometry moved.
+ *
+ * `findFitRegressions` measures *content*, and an empty zone has none: a bigger
+ * gap can push a seven-way split below the minimum zone width without hiding a
+ * single character, and the document would then be committed in a state
+ * `findSlideIssues` immediately reports as `ZONE_TOO_SMALL`. The theme is what
+ * moves those numbers — the gap and the title zone's height — so this is the
+ * question a theme change has to ask in addition to the fit one.
+ *
+ * It is the same `validateSlideGeometry` the read-only validator runs, against
+ * the prospective geometry, so the guard and the validator cannot disagree
+ * about what "too small" means.
+ *
+ * A regression, like everything else here: a document that is already too tight
+ * — an import, or one from before a token changed — must not be locked out of
+ * the very change that would repair it. Measured as a *size*, not as a set of
+ * ids: a zone that is already 1 px too narrow and would become 40 px too narrow
+ * is worse, and comparing which nodes are on the list would call that no change
+ * at all. The same shape `overflowRegressions` uses for content, one axis at a
+ * time — a change that helps one dimension by hurting the other is not an
+ * improvement.
+ *
+ * The rect comes back with it, and it is the *prospective* one — the size the
+ * zone has under the theme that was refused, which is the size that broke the
+ * rule. Reported here for the same reason `guardFit` reports its own: a caller
+ * measuring afterwards has only the document that still stands, and would
+ * answer with a zone comfortably above the minimum while holding an error that
+ * says it is below it.
+ */
+export interface GeometryRegression {
+  slideId: string
+  nodeId: NodeId
+  rect: Rect | null
+}
+
+export function findGeometryRegression(
+  before: Presentation,
+  after: Presentation,
+  options: StructuralOptions = {},
+): GeometryRegression | null {
+  const afterGeometry = { ...geometryForTheme(after.theme), ...options.geometry }
+  const beforeGeometry = { ...geometryForTheme(before.theme), ...options.geometry }
+  const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
+
+  for (const slide of after.slides) {
+    const now = belowMinimum(slide, afterGeometry)
+    if (now.size === 0) continue
+    const old = previous.get(slide.id)
+    // Measured only when something is wrong now, and only then: the baseline
+    // costs a full geometry pass per slide.
+    let already: Map<NodeId, Undersized> | null = null
+    for (const [nodeId, entry] of now) {
+      already ??= old ? belowMinimum(old, beforeGeometry) : new Map()
+      const was = already.get(nodeId)
+      if (
+        was &&
+        entry.short.width <= was.short.width + GEOMETRY_EPSILON &&
+        entry.short.height <= was.short.height + GEOMETRY_EPSILON
+      ) {
+        continue
+      }
+      return { slideId: slide.id, nodeId, rect: entry.rect }
+    }
+  }
+  return null
+}
+
+/** A zone under the minimum, and by how much on each axis. */
+interface Undersized {
+  rect: Rect
+  short: { width: number; height: number }
+}
+
+/**
+ * The undersized zones on a slide, in tree order.
+ *
+ * *Whether* a zone is too small is `validateSlideGeometry`'s answer, so the
+ * guard and the read-only validator cannot disagree about it. *How much* is
+ * arithmetic on the same rect, and it exists only to compare two states with
+ * each other — never to decide the question itself.
+ */
+function belowMinimum(slide: Slide, geometry: GeometryOptions): Map<NodeId, Undersized> {
+  const undersized = new Map<NodeId, Undersized>()
+  const violations = validateSlideGeometry(slide, geometry).filter(
+    (violation) => violation.kind === 'below-minimum',
+  )
+  if (violations.length === 0) return undersized
+
+  const rects = computeSlideGeometry(slide, geometry).rects
+  const minWidth = geometry.minZoneWidth ?? MIN_ZONE_WIDTH
+  const minHeight = geometry.minZoneHeight ?? MIN_ZONE_HEIGHT
+  for (const violation of violations) {
+    const rect = rects.get(violation.nodeId)
+    if (!rect) continue
+    undersized.set(violation.nodeId, {
+      rect,
+      short: {
+        width: Math.max(0, minWidth - rect.width),
+        height: Math.max(0, minHeight - rect.height),
+      },
+    })
+  }
+  return undersized
+}
+
+/**
  * Commit `after` only if it does not hide content that `before` showed.
  *
  * Every command that can shrink the space available to existing content ends
@@ -342,11 +458,45 @@ export function guardFit(
   const regressions = findFitRegressions(before, after, options)
   if (regressions.length === 0) return ok(after)
   const worst = regressions.reduce((a, b) => (b.overflow > a.overflow ? b : a))
+  const rect = failingRect(after, worst, options)
   return err('CONTENT_DOES_NOT_FIT', message, {
     slideId: worst.slideId,
     nodeId: worst.nodeId,
     overflow: worst.overflow,
     previousOverflow: worst.previousOverflow,
     zones: regressions.length,
+    ...(rect ? { rect } : {}),
   })
+}
+
+/**
+ * The rectangle the refusal is about, in the document that was refused.
+ *
+ * Reported by the guard rather than left to the caller, because the caller only
+ * has the document as it still stands. That is the same rect for most commands
+ * and the wrong one for a theme change: the measurement failed against the gap
+ * and the title height the *new* theme implies, and answering with the room a
+ * zone had before it grew would tell an agent to shorten text by an amount that
+ * is not the amount missing. The prospective child of a split is the same case
+ * from the other direction — a node the previous document does not have at all.
+ */
+function failingRect(
+  after: Presentation,
+  regression: FitRegression,
+  options: StructuralOptions,
+): Rect | null {
+  if (regression.slideId === COVER_PAGE_ID) {
+    const cover = computeCoverGeometry({
+      ...coverGeometryForTheme(after.theme),
+      ...options.geometry,
+    })
+    if (regression.nodeId === COVER_TITLE_NODE_ID) return cover.titleRect
+    if (regression.nodeId === COVER_SUBTITLE_NODE_ID) return cover.subtitleRect
+    return null
+  }
+
+  const slide = after.slides.find((candidate) => candidate.id === regression.slideId)
+  if (!slide) return null
+  const geometry = { ...geometryForTheme(after.theme), ...options.geometry }
+  return computeSlideGeometry(slide, geometry).rects.get(regression.nodeId) ?? null
 }

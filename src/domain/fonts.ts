@@ -3,13 +3,36 @@
  *
  * Fonts are a presentation-global choice; there is no way to end up with a
  * random font mix across slides.
+ *
+ * The catalogue holds two kinds, and the difference is not cosmetic:
+ *
+ *  - **Web fonts** name a Google Fonts family, so Slaids fetches the faces
+ *    itself — the browser through `ui/fonts.ts`, the headless renderer through
+ *    `render/fonts.ts`. Whoever draws the deck can therefore have the real
+ *    type, and a fetch that fails is *reported* rather than quietly swapped.
+ *  - **Local fonts** are the ones a machine either has or has not: Calibri,
+ *    Segoe UI, Times New Roman. They are here because a person writing on a
+ *    Windows machine may want the deck set in the type their audience reads,
+ *    and the editor measures the real DOM, so choosing one there is honest.
+ *    Nothing can install one, and a serverless Linux container has none of
+ *    them.
+ *
+ * Everything that has to promise something about a font — which ones an agent
+ * may choose, and whether a rendered picture is really in the deck's type —
+ * asks that one question, and asks it here. See `isGuaranteedFont`.
  */
 
 export interface FontOption {
   id: string
   label: string
   stack: string
-  /** Google Fonts family name, when the font is a web font. */
+  /**
+   * Google Fonts family name, when Slaids can fetch the faces itself.
+   *
+   * Present is what makes a font *guaranteed*: it is the difference between a
+   * font Slaids can put in front of any renderer and one that depends on the
+   * machine. Absent is a local font — see the note above.
+   */
   webFont?: string
   /**
    * Average glyph advance as a fraction of the font size.
@@ -25,7 +48,16 @@ export interface FontOption {
 /** Fallback advance for a stack that is not one of ours (e.g. an old document). */
 export const DEFAULT_ADVANCE_RATIO = 0.5
 
-export const FONT_OPTIONS: FontOption[] = [
+/**
+ * The catalogue, and the only place a font is named.
+ *
+ * `as const` is load-bearing rather than decorative: it is what turns the ids
+ * into a union type, so an agent operation can publish them as an enum and a
+ * caller that names a font is checked against the same list the editor's
+ * chooser is built from. One catalogue, three consumers — the chooser, the
+ * agent contract and the headless estimator.
+ */
+const CATALOGUE = [
   {
     id: 'quicksand',
     label: 'Quicksand',
@@ -90,19 +122,68 @@ export const FONT_OPTIONS: FontOption[] = [
     webFont: 'Space Grotesk',
     advance: 0.53,
   },
-]
+] as const satisfies readonly FontOption[]
 
-function stackFor(id: string): string {
-  const font = FONT_OPTIONS.find((option) => option.id === id)
+/** A font, named the short way: what a chooser stores and an agent sends. */
+export type FontId = (typeof CATALOGUE)[number]['id']
+
+/** A catalogue entry: an option whose id is known to be one of ours. */
+export type CatalogueFont = FontOption & { id: FontId }
+
+export const FONT_OPTIONS: readonly CatalogueFont[] = CATALOGUE
+
+export function findFontById(id: string): CatalogueFont | undefined {
+  return FONT_OPTIONS.find((font) => font.id === id)
+}
+
+/**
+ * Whether Slaids can draw this font anywhere, or only where it is installed.
+ *
+ * Derived from `webFont` rather than declared beside it: a second field would
+ * be a second truth, and the way it would break is that a font added with a
+ * Google family but no flag becomes invisible to the agent for no reason
+ * anybody could see. "Guaranteed" means Slaids fetches the faces itself — a
+ * network that refuses them is a reported `fontsReady: false`, never a silent
+ * substitution.
+ */
+export function isGuaranteedFont(font: FontOption): boolean {
+  return font.webFont !== undefined
+}
+
+/**
+ * The fonts an agent may choose, in catalogue order.
+ *
+ * The editor offers all of them, because a person picking a font sees the
+ * result on their own machine and Slaids measures that machine's DOM. A
+ * headless caller sees neither: it measures with the catalogue's own metrics
+ * and looks at a picture drawn in a container that has no Calibri. Offering it
+ * one would be offering a font the preview silently replaces — so the agent
+ * contract is built from this list, generated here rather than written out
+ * again wherever it is published.
+ */
+export const GUARANTEED_FONT_IDS: FontId[] = FONT_OPTIONS.filter(isGuaranteedFont).map(
+  (font) => font.id,
+)
+
+/**
+ * The CSS stack a font id names.
+ *
+ * Throws rather than falling back, and the throw is unreachable by design: the
+ * argument is a `FontId`, so a caller either passed one of ours or went through
+ * a schema that only accepts one. A silent fallback here would be a deck set in
+ * a font nobody chose.
+ */
+export function fontStackFor(id: FontId): string {
+  const font = findFontById(id)
   if (!font) throw new Error(`unknown font: ${id}`)
   return font.stack
 }
 
 /** Titles and headings default to Quicksand, body text to Atkinson Hyperlegible Next. */
-export const DEFAULT_HEADING_FONT = stackFor('quicksand')
-export const DEFAULT_BODY_FONT = stackFor('atkinson')
+export const DEFAULT_HEADING_FONT = fontStackFor('quicksand')
+export const DEFAULT_BODY_FONT = fontStackFor('atkinson')
 
-export function findFontByStack(stack: string): FontOption | undefined {
+export function findFontByStack(stack: string): CatalogueFont | undefined {
   return FONT_OPTIONS.find((font) => font.stack === stack)
 }
 
@@ -123,6 +204,29 @@ export function webFontsFor(stacks: string[]): string[] {
     if (font?.webFont) families.add(font.webFont)
   }
   return [...families]
+}
+
+/**
+ * The other half of `webFontsFor`: what a renderer cannot be given.
+ *
+ * Every stack here is one whose type depends on the machine drawing it — a
+ * local font from the catalogue, or a stack from outside it entirely (an older
+ * document, or one imported from a Slaids with a different catalogue). Named by
+ * label, because the answer is shown to a person or an agent rather than used
+ * to fetch anything.
+ *
+ * A preview that has any of these in its theme is drawn in whatever the
+ * rendering machine happened to substitute, which is precisely what
+ * `fontsReady` exists to deny.
+ */
+export function localFontsFor(stacks: readonly string[]): string[] {
+  const names = new Set<string>()
+  for (const stack of stacks) {
+    const font = findFontByStack(stack)
+    if (font && isGuaranteedFont(font)) continue
+    names.add(font?.label ?? stack)
+  }
+  return [...names]
 }
 
 /**

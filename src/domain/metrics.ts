@@ -60,6 +60,37 @@ export const FONT_SCALE_RANGE = { min: 0.7, max: 1.6 } as const
 export const DEFAULT_SPACING = 1
 export const DEFAULT_FONT_SCALE = 1
 
+/** A named setting on one of the two scales. */
+export interface ThemeScalePreset {
+  label: string
+  value: number
+}
+
+/**
+ * The settings the theme chooser offers, and the values they stand for.
+ *
+ * The scales themselves are continuous — `SPACING_RANGE` and `FONT_SCALE_RANGE`
+ * are the real limits, and the fit guard decides what is usable inside them.
+ * A person picking a theme wants four buttons rather than a slider, so these
+ * are the four, named. They live here beside the ranges rather than in the
+ * modal because they are not only a button layout: they are the vocabulary the
+ * agent contract quotes when it tells a caller what «normal» means, and one
+ * list is what keeps the two saying the same thing.
+ */
+export const SPACING_PRESETS: readonly ThemeScalePreset[] = [
+  { label: 'Tett', value: 0.75 },
+  { label: 'Normal', value: DEFAULT_SPACING },
+  { label: 'Luftig', value: 1.3 },
+  { label: 'Ekstra luftig', value: 1.6 },
+]
+
+export const FONT_SCALE_PRESETS: readonly ThemeScalePreset[] = [
+  { label: 'Liten', value: 0.85 },
+  { label: 'Normal', value: DEFAULT_FONT_SCALE },
+  { label: 'Stor', value: 1.15 },
+  { label: 'Ekstra stor', value: 1.3 },
+]
+
 function clamp(value: number, range: { min: number; max: number }, fallback: number): number {
   if (!Number.isFinite(value)) return fallback
   return Math.min(range.max, Math.max(range.min, value))

@@ -40,6 +40,7 @@ import { previewDocument } from './document'
 import {
   googleFontLoader,
   previewFontFamilies,
+  previewLocalFonts,
   type PreviewFontLoader,
 } from './fonts'
 import { PreviewBrowserUnavailableError, chromiumRasterizer, type ChromiumRasterizerOptions } from './chromium'
@@ -58,6 +59,11 @@ export function slidePreviewRenderer(
 
   return async function render(request: SlidePreviewRequest): Promise<SlidePreviewOutcome> {
     try {
+      // Fonts the deck names that this renderer cannot be given at all. They are
+      // never fetched and never waited for, so nothing downstream can notice
+      // them: an empty family list is indistinguishable from a family list that
+      // arrived. Read here, and folded into the answer below.
+      const localFonts = previewLocalFonts(request.presentation.theme)
       const fonts = await loadFonts(previewFontFamilies(request.presentation.theme))
       const assets = await loadPreviewAssets(request.page, request.assets)
       const document = previewDocument({
@@ -103,10 +109,15 @@ export function slidePreviewRenderer(
             width: raster.width,
             height: raster.height,
           }),
-          fontsReady: raster.fontsReady,
+          // Two ways the picture can be in the wrong type, and `fontsReady` has
+          // to deny both. The rasterizer answers for the faces it was asked to
+          // wait for; a local font was never among them, because there was
+          // nothing to fetch — and a renderer with nothing to wait for waits
+          // successfully. So the deck's own fonts decide too.
+          fontsReady: raster.fontsReady && localFonts.length === 0,
           // The asset warnings first: a missing file changes what is in the
           // picture, where a missing font only changes the face it is set in.
-          warnings: [...assets.warnings, ...raster.warnings],
+          warnings: [...assets.warnings, ...raster.warnings, ...localFontWarning(localFonts)],
         },
       }
     } catch (error) {
@@ -135,6 +146,22 @@ export function chromiumSlidePreviewRenderer(
   options: ChromiumRasterizerOptions & SlidePreviewRendererOptions = {},
 ): SlidePreviewRenderer {
   return slidePreviewRenderer(chromiumRasterizer(options), options)
+}
+
+/**
+ * What to say about a font nobody can send.
+ *
+ * Deliberately not an error: the picture is worth looking at — the layout, the
+ * colours and the composition are the deck's — and refusing to draw a deck
+ * because it is set in Calibri would make the whole loop unusable for documents
+ * written in the editor. What must not happen is the picture being passed off
+ * as the deck's own type, which is why this comes with `fontsReady: false`.
+ */
+function localFontWarning(localFonts: readonly string[]): string[] {
+  if (localFonts.length === 0) return []
+  return [
+    `Temaet bruker ${localFonts.map((name) => `«${name}»`).join(' og ')}, som ikke er webfonter Slaids kan hente – de må være installert på maskinen som tegner. Previewet er derfor tegnet med en reservefont: komposisjonen stemmer, men linjelengder kan avvike.`,
+  ]
 }
 
 function messageOf(error: unknown): string {

@@ -15,6 +15,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createPresentation } from '../domain/presentation'
 import { docToPlainText } from '../domain/richdoc'
+import { computeReferenceNumbering } from '../domain/references'
 import { presentationRevision } from '../domain/revision'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
@@ -126,6 +127,11 @@ async function fillToCapacity(
 
 async function stored(context: AgentContext, presentationId: string): Promise<Presentation> {
   return context.repository.loadPresentation(presentationId)
+}
+
+/** What number a reference renders as, from the deck's own numbering. */
+function citationNumber(presentation: Presentation, referenceId: string): number | undefined {
+  return computeReferenceNumbering(presentation).get(referenceId)
 }
 
 function firstZone(inspection: SlideInspection): string {
@@ -698,6 +704,113 @@ describe('citations kan ikke omgå fit-guarden', () => {
 
     const after = await stored(context, deck.presentationId)
     expect(after.slides.map((slide) => slide.id)).toEqual(before.slides.map((slide) => slide.id))
+  })
+
+  it('avviser at en tittel med citation fjernes når det gjør en annen slide for trang', async () => {
+    // A title may cite, and a citation is a reference's *first occurrence*. Take
+    // the title away and every reference numbered after it moves up — on slides
+    // nobody touched. The removal frees room on this slide and can still hide
+    // text on another, which is why it is gated like every other citation edit
+    // rather than waved through as a removal. See `commands/fitGuard.ts`.
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const titled = deck.slides[0].slideId
+
+    const references: string[] = []
+    for (let i = 0; i < 10; i += 1) {
+      const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+        presentationId: deck.presentationId,
+        title: `Kilde ${i}`,
+      })
+      references.push(reference.id)
+    }
+
+    // Slide 1's *title* is the first occurrence of reference 0, so it is `1`.
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId: titled,
+      spans: [{ text: 'Med kilde' }, { citation: [references[0]] }],
+    })
+
+    // Slide 2 cites the other nine, which are therefore 2..10.
+    const middle = await ok<SlidePlacement>(context, 'add_slide', {
+      presentationId: deck.presentationId,
+      hasTitle: false,
+    })
+    const middleNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: middle.slideId,
+      }),
+    )
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: middle.slideId,
+      nodeId: middleNode,
+      blocks: [
+        { type: 'paragraph', spans: references.slice(1).map((id) => ({ citation: [id] })) },
+      ],
+    })
+
+    // Slide 3 is full of pills that all read `1`. Drop the title and reference 0
+    // is first cited *here* instead — number 10, two digits, thirty times.
+    const last = await ok<SlidePlacement>(context, 'add_slide', {
+      presentationId: deck.presentationId,
+      hasTitle: false,
+    })
+    const lastNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: last.slideId,
+      }),
+    )
+    const pills = 30
+    await fillToCapacity(
+      context,
+      { presentationId: deck.presentationId, slideId: last.slideId, nodeId: lastNode },
+      (text) => [
+        {
+          type: 'paragraph',
+          spans: Array.from({ length: pills }, () => [
+            { text: 'x'.repeat(Math.max(1, Math.ceil(text.length / pills))) },
+            { citation: [references[0]] },
+          ]).flat(),
+        },
+      ],
+    )
+
+    const before = await stored(context, deck.presentationId)
+    const failure = await fails(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId: titled,
+      hasTitle: false,
+      force: true,
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    // The slide that suffers is not the slide that changed.
+    expect(failure.details).toMatchObject({ slideId: last.slideId, nodeId: lastNode })
+    expect((await stored(context, deck.presentationId)).slides[0].title).not.toBeNull()
+
+    // And the repair is the ordinary one: shorten the slide that no longer has
+    // room, then the title can go. The numbering really does move — which is
+    // what made the refusal above a real one and not an accident of the setup.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: last.slideId,
+      nodeId: lastNode,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Kort' }, { citation: [references[0]] }] }],
+    })
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId: titled,
+      hasTitle: false,
+      force: true,
+    })
+
+    const after = await stored(context, deck.presentationId)
+    expect(after.slides[0].title).toBeNull()
+    expect(citationNumber(before, references[0])).toBe(1)
+    expect(citationNumber(after, references[0])).toBe(10)
   })
 
   it('avviser en citation som peker på en referanse som ikke finnes', async () => {
@@ -1349,5 +1462,142 @@ describe('forsiden', () => {
       presentationId: deck.presentationId,
       color: 'blå',
     })).code).toBe('INVALID_ARGUMENT')
+  })
+})
+
+
+/* ------------------------------------------------------------------ *
+ * Editor actions an agent used to be unable to reach
+ * ------------------------------------------------------------------ */
+
+describe('tittelsonen på en slide', () => {
+  it('kan slås av og på etter at sliden er laget', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+
+    const removed = await ok<{ hasTitle: boolean }>(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    expect(removed.hasTitle).toBe(false)
+    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+
+    // And back: the zone returns empty, which is what `set_slide_title` writes into.
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: true,
+    })
+    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(inspected.hasTitle).toBe(true)
+  })
+
+  it('gir sonen dens høyde tilbake til innholdet', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const withTitle = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    const without = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    // The geometry an agent plans against moves with it, so this is a
+    // composition choice and not a cosmetic one.
+    expect(without.zones[0].rect.height).toBeGreaterThan(withTitle.zones[0].rect.height)
+  })
+
+  it('kaster ikke en overskrift med tekst uten at det er bedt om', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Noe som står der' }],
+    })
+
+    const refused = await fails(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+    })
+    expect(refused.code).toBe('INVALID_ARGUMENT')
+    expect((await stored(context, deck.presentationId)).slides[0].title).not.toBeNull()
+
+    // `force` is the confirmation the editor asks a person for.
+    await ok(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      hasTitle: false,
+      force: true,
+    })
+    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+  })
+
+  it('sier fra når sonen allerede er slik den bes om å bli', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const refused = await fails(context, 'set_slide_has_title', {
+      presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
+      hasTitle: true,
+    })
+    expect(refused.code).toBe('TITLE_ALREADY_PRESENT')
+  })
+})
+
+describe('navnet presentasjonen har i biblioteket', () => {
+  it('kan endres uten at forsiden endres', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    await ok(context, 'set_presentation_title', {
+      presentationId: deck.presentationId,
+      title: 'Nytt navn',
+    })
+
+    const after = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(after.title).toBe('Nytt navn')
+    // The two started out the same and are two decisions from then on.
+    expect(after.cover.title).toBe('Agentdekk')
+    expect((await context.repository.listPresentations())[0].title).toBe('Nytt navn')
+  })
+
+  it('avviser et tomt navn, og en utdatert revisjon', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    expect(
+      (await fails(context, 'set_presentation_title', {
+        presentationId: deck.presentationId,
+        title: '   ',
+      })).code,
+    ).toBe('INVALID_INPUT')
+
+    await ok(context, 'set_presentation_title', {
+      presentationId: deck.presentationId,
+      title: 'Først',
+    })
+    expect(
+      (await fails(context, 'set_presentation_title', {
+        presentationId: deck.presentationId,
+        expectedRevision: deck.revision,
+        title: 'Etterpå',
+      })).code,
+    ).toBe('CONFLICT')
   })
 })

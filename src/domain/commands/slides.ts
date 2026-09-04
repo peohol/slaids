@@ -11,7 +11,13 @@ import {
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
-import { coverOverflow, fitContextFor, guardFit, subtreeOverflow } from './fitGuard'
+import {
+  coverOverflow,
+  findGeometryRegression,
+  fitContextFor,
+  guardFit,
+  subtreeOverflow,
+} from './fitGuard'
 import { FIT_TOLERANCE } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
@@ -222,7 +228,21 @@ export function setSlideHasTitle(
         'Overskriften har tekst. Bekreft at den skal fjernes (force).',
       )
     }
-    return ok(withSlide(presentation, { ...slide, title: null }))
+
+    // Guarded, even though this slide can only gain room by it. A title may
+    // cite, and a citation that disappears takes its reference's first
+    // occurrence with it: every reference numbered after it moves up, and a
+    // label that was `1–2` can come back as `1, 3` — wider, on a slide nobody
+    // touched. That is the same rule `setSlideTitle` follows when the *text* of
+    // a title drops a citation, and dropping the whole zone must not be the way
+    // around it. See the command list in `fitGuard.ts`.
+    const without = withSlide(presentation, { ...slide, title: null })
+    return guardFit(
+      presentation,
+      without,
+      options,
+      'Å fjerne overskriften renummererer citations, og da får innhold på en annen slide ikke lenger plass. Kort ned der først.',
+    )
   }
 
   // Adding a title shrinks the main area by TITLE_ZONE_HEIGHT + G, so both the
@@ -333,16 +353,53 @@ export function setTheme(
     next.fontScale = theme.fontScale
   }
 
+  const updated = touch({ ...presentation, theme: next })
+
+  // Two questions, and the fit one cannot answer the first. Luft and
+  // skriftstørrelse move the geometry itself — the gap between zones and the
+  // height of the title zone — so a change can leave a zone smaller than the
+  // minimum without hiding a single character, and an empty zone would sail
+  // through a check that measures content. Asked first, because a zone that is
+  // too small to exist is not something shorter text would fix.
+  const tooSmall = findGeometryRegression(presentation, updated, options)
+  if (tooSmall) {
+    // The rect is the one the theme *would* have given the zone. The zone as it
+    // stands is above the minimum — that is why the change was allowed to be
+    // attempted — so answering with today's rect would contradict the error.
+    return err('ZONE_TOO_SMALL', minimumRefusalMessage(theme), {
+      slideId: tooSmall.slideId,
+      nodeId: tooSmall.nodeId,
+      ...(tooSmall.rect ? { rect: tooSmall.rect } : {}),
+    })
+  }
+
   // Every part of a theme is global: a wider font, more air or larger type can
   // push text out of every zone in the deck at once. The guard measures only
   // the slides the change can affect and only reports zones that got worse, so
   // a change that *reduces* overflow stays available as a repair.
-  const updated = touch({ ...presentation, theme: next })
   return guardFit(presentation, updated, options, refusalMessage(theme))
 }
 
 function inRange(value: number, range: { min: number; max: number }): boolean {
   return Number.isFinite(value) && value >= range.min && value <= range.max
+}
+
+/**
+ * Name the dial that made a zone too small.
+ *
+ * Only the two scales can: a font changes how wide a glyph is, never where a
+ * zone's edges are.
+ */
+function minimumRefusalMessage(patch: Partial<PresentationTheme>): string {
+  const spacing = patch.spacing !== undefined
+  const size = patch.fontScale !== undefined
+  if (spacing && !size) {
+    return 'Så mye luft gjør at soner blir mindre enn minstemålet. Velg mindre luft, eller del sliden i færre soner først.'
+  }
+  if (size && !spacing) {
+    return 'Denne skriftstørrelsen gjør tittelsonen så høy at soner blir mindre enn minstemålet. Velg en mindre størrelse, eller del sliden i færre soner først.'
+  }
+  return 'Denne endringen gjør at soner blir mindre enn minstemålet. Del sliden i færre soner først.'
 }
 
 /** Name the setting that would hide something, and how to get around it. */

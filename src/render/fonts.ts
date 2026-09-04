@@ -31,7 +31,7 @@
  * being well-behaved.
  */
 
-import { googleFontsHref, webFontsFor } from '../domain/fonts'
+import { googleFontsHref, localFontsFor, webFontsFor } from '../domain/fonts'
 import type { PresentationTheme } from '../domain/types'
 import { encodeBase64 } from '../agent/binary'
 
@@ -50,6 +50,20 @@ export type PreviewFontLoader = (families: readonly string[]) => Promise<Preview
 /** The web fonts a theme names. Nothing is fetched for a system stack. */
 export function previewFontFamilies(theme: PresentationTheme): string[] {
   return webFontsFor([theme.headingFontFamily, theme.bodyFontFamily])
+}
+
+/**
+ * The fonts in this theme that no renderer can be handed.
+ *
+ * The mirror image of the line above, and the reason it has to exist: a theme
+ * set in Calibri asks for *nothing*, so everything about fetching succeeds
+ * trivially and a rasterizer with an empty family list has nothing to wait for
+ * and reports readiness. The document is still drawn in whatever the container
+ * substituted. Asking the catalogue which fonts are local is what turns that
+ * silence into an answer — see `preview.ts`.
+ */
+export function previewLocalFonts(theme: PresentationTheme): string[] {
+  return localFontsFor([theme.headingFontFamily, theme.bodyFontFamily])
 }
 
 /** No fonts at all: a system stack, or a caller that wants none fetched. */
