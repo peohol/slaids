@@ -31,6 +31,7 @@ import type {
   Rect,
   Slide,
   VerticalAlign,
+  ZoneContent,
   ZoneContentKind,
 } from '../../domain/types'
 import { ok } from '../../domain/result'
@@ -105,6 +106,8 @@ export interface PresentationView {
   slideCount: number
   assetCount: number
   referenceCount: number
+  /** How much is parked in the sandbox. `list_sandbox_items` reads it. */
+  sandboxCount: number
   slides: SlideSummary[]
 }
 
@@ -133,6 +136,7 @@ export function presentationView(presentation: Presentation): PresentationView {
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
     referenceCount: presentation.references.length,
+    sandboxCount: presentation.sandbox.length,
     slides: presentation.slides.map(summarizeSlide),
   }
 }
@@ -280,6 +284,48 @@ export interface SlideInspection extends SlideSummary {
   zones: ZoneInspection[]
 }
 
+/**
+ * A zone's content, in the same agent-friendly vocabulary everywhere it is
+ * read: on a slide, from `inspect_slide`, and parked in the sandbox, from
+ * `list_sandbox_items`. One function, so the two can never drift into
+ * describing the same `ZoneContent` two different ways.
+ */
+export interface ContentInspection {
+  contentKind: ZoneContentKind
+  /** Containers only: whether the zone holds text fields or a file. */
+  payload?: 'fields' | 'asset'
+  /** Titled cards only: the card's own heading, and how it is aligned. */
+  cardTitle?: TextSpan[]
+  cardTitleAlign?: TextAlign
+  /** The text fields inside the content, addressable in a later call. */
+  subfields: SubfieldInspection[]
+  /** Files and references this content shows. */
+  assetIds: string[]
+  referenceIds: string[]
+}
+
+export function inspectContent(content: ZoneContent): ContentInspection {
+  const body = bodyOf(content)
+  return {
+    contentKind: content.kind,
+    ...(content.kind === 'container' ? { payload: content.payload.type } : {}),
+    ...(content.kind === 'titled-card'
+      ? {
+          cardTitle: docToTitleSpans(content.title),
+          ...(docToTitleAlign(content.title) ? { cardTitleAlign: docToTitleAlign(content.title) } : {}),
+        }
+      : {}),
+    subfields:
+      body?.subfields.map((field) => ({
+        subfieldId: field.id,
+        verticalAlign: field.verticalAlign ?? 'top',
+        blocks: docToBlocks(field.doc),
+      })) ?? [],
+    assetIds: contentAssetIds(content),
+    referenceIds: contentCitationIds(content),
+  }
+}
+
 export const inspectSlide = defineOperation({
   name: 'inspect_slide',
   summary: 'Strukturen i én slide: soner, sone-id-er, geometri, tekst og hva som ligger i dem.',
@@ -357,7 +403,6 @@ function collectZones(
   }
 
   const content = node.content
-  const body = bodyOf(content)
   // The same checker the commands run under, so "does it fit" has one answer.
   const fit = (context.fits ?? estimateFit)(content, rect, fitContext)
   out.push({
@@ -365,24 +410,7 @@ function collectZones(
     kind: 'leaf',
     rect,
     empty: false,
-    contentKind: content.kind,
-    ...(content.kind === 'container' ? { payload: content.payload.type } : {}),
-    ...(content.kind === 'titled-card'
-      ? {
-          cardTitle: docToTitleSpans(content.title),
-          ...(docToTitleAlign(content.title)
-            ? { cardTitleAlign: docToTitleAlign(content.title) }
-            : {}),
-        }
-      : {}),
-    subfields:
-      body?.subfields.map((field) => ({
-        subfieldId: field.id,
-        verticalAlign: field.verticalAlign ?? 'top',
-        blocks: docToBlocks(field.doc),
-      })) ?? [],
-    assetIds: contentAssetIds(content),
-    referenceIds: contentCitationIds(content),
+    ...inspectContent(content),
     fits: fit.fits,
     overflow: fit.overflow,
   })

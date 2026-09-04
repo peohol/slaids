@@ -99,6 +99,23 @@ describe('operasjonskatalogen', () => {
     expect(preview?.scopes).toEqual(['presentations:read'])
   })
 
+  it('har fase 6: hele sandkasseflaten, med lesing og skriving delt riktig', () => {
+    // A structural change can park content in the sandbox with nothing more
+    // than the default `disposition`, so the read has to need no more than
+    // `presentations:read`, and every mutation has to need `presentations:write`
+    // — the same split as the rest of the surface, never a scope of its own.
+    const read = findOperation('list_sandbox_items')
+    expect(read?.mutates).toBe(false)
+    expect(read?.scopes).toEqual(['presentations:read'])
+
+    for (const name of ['place_sandbox_item', 'duplicate_sandbox_item', 'delete_sandbox_item']) {
+      const operation = findOperation(name)
+      expect(operation, name).toBeTruthy()
+      expect(operation?.mutates, name).toBe(true)
+      expect(operation?.scopes, name).toEqual(['presentations:write'])
+    }
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)

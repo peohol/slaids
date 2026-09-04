@@ -17,6 +17,7 @@ import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
 import { previewOperations } from './operations/preview'
 import { referenceOperations } from './operations/references'
+import { sandboxOperations } from './operations/sandbox'
 import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
 import { themeOperations } from './operations/theme'
@@ -46,6 +47,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...slideOperations,
   ...layoutOperations,
   ...contentOperations,
+  ...sandboxOperations,
   ...referenceOperations,
   ...sharingOperations,
   ...assetOperations,

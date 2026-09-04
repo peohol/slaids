@@ -23,6 +23,7 @@ import type { Presentation, Rect } from '../domain/types'
 import type { ZoneChange } from './operations/layout'
 import type { CoverView } from './operations/cover'
 import type { PresentationView, SlideInspection } from './operations/deck'
+import type { SandboxItemView, SandboxPlacement } from './operations/sandbox'
 import type { SlidePlacement } from './operations/slides'
 import type { ValidationReport } from './operations/validation'
 import { runOperation } from './registry'
@@ -1599,5 +1600,384 @@ describe('navnet presentasjonen har i biblioteket', () => {
         title: 'Etterpå',
       })).code,
     ).toBe('CONFLICT')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Sandkassen
+ * ------------------------------------------------------------------ */
+
+describe('sandkassen', () => {
+  it('leser, plasserer, dupliserer og sletter sandkasseelementer', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideA = deck.slides[0].slideId
+    const rootA = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: slideA,
+      }),
+    )
+
+    // 1. Bygg innhold på en slide.
+    const blocks = paragraph('Innhold som midlertidig mister sonen sin')
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+      nodeId: rootA,
+      blocks,
+    })
+
+    // 2. En strukturendring sender innholdet til sandkassen — disposisjonen er
+    // «sandbox» som standard, og svaret bærer id-en direkte.
+    const cleared = await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+      nodeId: rootA,
+    })
+    expect(cleared.movedToSandbox).toBe(1)
+    expect(cleared.sandboxItemIds).toHaveLength(1)
+    const itemId = cleared.sandboxItemIds[0]
+
+    // 3. Les sandkassen og finn elementet igjen, i samme tekstformat som
+    // inspect_slide bruker.
+    const listed = await ok<{ items: SandboxItemView[] }>(context, 'list_sandbox_items', {
+      presentationId: deck.presentationId,
+    })
+    expect(listed.items).toHaveLength(1)
+    const item = listed.items.find((entry) => entry.itemId === itemId)
+    expect(item?.subfields[0].blocks).toEqual(blocks)
+    expect(item?.contentKind).toBe('container')
+
+    // I mellomtiden er slide A's sone tom.
+    const emptied = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+    })
+    expect(emptied.zones.find((zone) => zone.nodeId === rootA)?.empty).toBe(true)
+
+    // 4. Plasser elementet i en tom sone på en annen slide.
+    const slideB = (
+      await ok<SlidePlacement>(context, 'add_slide', { presentationId: deck.presentationId })
+    ).slideId
+    const rootB = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: slideB,
+      }),
+    )
+    const placed = await ok<SandboxPlacement>(context, 'place_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId,
+      slideId: slideB,
+      nodeId: rootB,
+    })
+    expect(placed).toMatchObject({
+      itemId,
+      slideId: slideB,
+      nodeId: rootB,
+      displacedSandboxItemId: null,
+    })
+
+    // 5. Borte fra sandkassen, og korrekt tilbake på sliden.
+    expect(
+      (
+        await ok<{ items: SandboxItemView[] }>(context, 'list_sandbox_items', {
+          presentationId: deck.presentationId,
+        })
+      ).items,
+    ).toHaveLength(0)
+    expect(
+      (
+        await ok<PresentationView>(context, 'get_presentation', {
+          presentationId: deck.presentationId,
+        })
+      ).sandboxCount,
+    ).toBe(0)
+    const onSlideB = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: slideB,
+    })
+    expect(onSlideB.zones.find((zone) => zone.nodeId === rootB)?.subfields?.[0].blocks).toEqual(
+      blocks,
+    )
+
+    // 6. Duplisering og sletting.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+      nodeId: rootA,
+      blocks: paragraph('Nok et element'),
+    })
+    const clearedAgain = await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+      nodeId: rootA,
+    })
+    const secondItemId = clearedAgain.sandboxItemIds[0]
+
+    const duplicated = await ok<{ itemId: string; newItemId: string }>(
+      context,
+      'duplicate_sandbox_item',
+      { presentationId: deck.presentationId, itemId: secondItemId },
+    )
+    expect(duplicated.newItemId).not.toBe(secondItemId)
+
+    const afterDuplicate = await ok<{ items: SandboxItemView[] }>(context, 'list_sandbox_items', {
+      presentationId: deck.presentationId,
+    })
+    const original = afterDuplicate.items.find((entry) => entry.itemId === secondItemId)
+    const copy = afterDuplicate.items.find((entry) => entry.itemId === duplicated.newItemId)
+    // Samme tekst, i to elementer med hver sin item-id.
+    expect(original?.subfields[0].blocks).toEqual(copy?.subfields[0].blocks)
+    expect(original?.itemId).not.toBe(copy?.itemId)
+
+    const deletedFirst = await ok<{ sandboxCount: number }>(context, 'delete_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId: secondItemId,
+    })
+    expect(deletedFirst.sandboxCount).toBe(1)
+    const deletedSecond = await ok<{ sandboxCount: number }>(context, 'delete_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId: duplicated.newItemId,
+    })
+    expect(deletedSecond.sandboxCount).toBe(0)
+  })
+
+  it('avviser en utdatert revisjon og en ukjent item-id, uten å skrive noe', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('Skal parkeres'),
+    })
+    const cleared = await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+    })
+    const itemId = cleared.sandboxItemIds[0]
+
+    // 7. En utdatert expectedRevision.
+    const staleFailure = await fails(context, 'place_sandbox_item', {
+      presentationId: deck.presentationId,
+      expectedRevision: deck.revision,
+      itemId,
+      slideId,
+      nodeId,
+    })
+    expect(staleFailure.code).toBe('CONFLICT')
+
+    // 8. En itemId som ikke finnes, for alle tre mutasjonene.
+    expect(
+      (
+        await fails(context, 'place_sandbox_item', {
+          presentationId: deck.presentationId,
+          itemId: 'sb_finnes_ikke',
+          slideId,
+          nodeId,
+        })
+      ).code,
+    ).toBe('SANDBOX_ITEM_NOT_FOUND')
+    expect(
+      (
+        await fails(context, 'duplicate_sandbox_item', {
+          presentationId: deck.presentationId,
+          itemId: 'sb_finnes_ikke',
+        })
+      ).code,
+    ).toBe('SANDBOX_ITEM_NOT_FOUND')
+    expect(
+      (
+        await fails(context, 'delete_sandbox_item', {
+          presentationId: deck.presentationId,
+          itemId: 'sb_finnes_ikke',
+        })
+      ).code,
+    ).toBe('SANDBOX_ITEM_NOT_FOUND')
+
+    // Ingen av de avviste kallene skrev noe: elementet ligger fortsatt der.
+    expect((await stored(context, deck.presentationId)).sandbox).toHaveLength(1)
+  })
+
+  it('avviser et element som ikke får plass i målsonen, uten noen delvis mutasjon', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideA = deck.slides[0].slideId
+    const rootA = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: slideA,
+      }),
+    )
+    await fillToCapacity(
+      context,
+      { presentationId: deck.presentationId, slideId: slideA, nodeId: rootA },
+      paragraph,
+    )
+    const cleared = await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: slideA,
+      nodeId: rootA,
+    })
+    const itemId = cleared.sandboxItemIds[0]
+
+    const slideB = (
+      await ok<SlidePlacement>(context, 'add_slide', {
+        presentationId: deck.presentationId,
+        hasTitle: false,
+      })
+    ).slideId
+    const rootB = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: slideB,
+      }),
+    )
+    // En kvart så bred sone som den innholdet ble skrevet for — det er ikke
+    // nok plass til den samme teksten.
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: slideB,
+      nodeId: rootB,
+      axis: 'x',
+      weights: [1, 1, 1, 1],
+    })
+    const smallZone = split.childNodeIds[0]
+    const before = await stored(context, deck.presentationId)
+
+    // 9. Avvist uten delvis mutasjon.
+    const failure = await fails(context, 'place_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId,
+      slideId: slideB,
+      nodeId: smallZone,
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(failure.details).toMatchObject({ slideId: slideB, nodeId: smallZone })
+    expect(failure.details?.overflow).toBeGreaterThan(0)
+    expect(failure.details?.rect).toMatchObject({ width: expect.any(Number) })
+
+    const after = await stored(context, deck.presentationId)
+    expect(presentationRevision(after)).toBe(presentationRevision(before))
+    expect(after.sandbox.map((entry) => entry.id)).toEqual([itemId])
+    const afterInspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: slideB,
+    })
+    expect(afterInspection.zones.find((zone) => zone.nodeId === smallZone)?.empty).toBe(true)
+  })
+
+  it('må gjennom den globale fit-guarden når tilbakeplassering renummererer citations andre steder', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slide0 = deck.slides[0].slideId
+    const node0 = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: slide0,
+      }),
+    )
+
+    const references: string[] = []
+    for (let i = 0; i < 10; i += 1) {
+      const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+        presentationId: deck.presentationId,
+        title: `Kilde ${i}`,
+      })
+      references.push(reference.id)
+    }
+
+    // Ni citations bygges på den første sliden — tidligst i dekket — og
+    // flyttes rett i sandkassen igjen, så de foreløpig ikke er nummerert.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: slide0,
+      nodeId: node0,
+      blocks: [
+        { type: 'paragraph', spans: references.slice(1).map((id) => ({ citation: [id] })) },
+      ],
+    })
+    const cleared = await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: slide0,
+      nodeId: node0,
+    })
+    const itemId = cleared.sandboxItemIds[0]
+
+    // En ny, senere slide med 30 pills som alle siterer references[0] — i dag
+    // dekkets eneste citation, så den blir «1», og pillene er akkurat trange
+    // nok til det.
+    const pillsSlide = await ok<SlidePlacement>(context, 'add_slide', {
+      presentationId: deck.presentationId,
+      hasTitle: false,
+    })
+    const pillsNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: pillsSlide.slideId,
+      }),
+    )
+    const pills = 30
+    await fillToCapacity(
+      context,
+      { presentationId: deck.presentationId, slideId: pillsSlide.slideId, nodeId: pillsNode },
+      (text) => [
+        {
+          type: 'paragraph',
+          spans: Array.from({ length: pills }, () => [
+            { text: 'x'.repeat(Math.max(1, Math.ceil(text.length / pills))) },
+            { citation: [references[0]] },
+          ]).flat(),
+        },
+      ],
+    )
+    const before = await stored(context, deck.presentationId)
+
+    // 10. Tilbakeplassering på slide 0 — tidligere i dekket enn pill-sliden —
+    // gjør de ni referansene til de ni første forekomstene, og references[0]
+    // hopper fra nummer 1 til nummer 10: for bredt for de 30 pillene, selv om
+    // ingen av dem endret et eneste tegn.
+    const failure = await fails(context, 'place_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId,
+      slideId: slide0,
+      nodeId: node0,
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(failure.details).toMatchObject({ slideId: pillsSlide.slideId, nodeId: pillsNode })
+
+    const after = await stored(context, deck.presentationId)
+    expect(presentationRevision(after)).toBe(presentationRevision(before))
+    expect(after.sandbox.map((entry) => entry.id)).toEqual([itemId])
+
+    // Reparasjonen er den vanlige: kort ned pill-sliden, så går plasseringen
+    // gjennom, og nummereringen har virkelig flyttet seg.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: pillsSlide.slideId,
+      nodeId: pillsNode,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Kort' }, { citation: [references[0]] }] }],
+    })
+    await ok(context, 'place_sandbox_item', {
+      presentationId: deck.presentationId,
+      itemId,
+      slideId: slide0,
+      nodeId: node0,
+    })
+
+    const finalDoc = await stored(context, deck.presentationId)
+    expect(citationNumber(finalDoc, references[0])).toBe(10)
+    expect(citationNumber(finalDoc, references[1])).toBe(1)
+    expect(finalDoc.sandbox).toHaveLength(0)
   })
 })

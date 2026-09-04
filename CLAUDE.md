@@ -196,6 +196,25 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   og for en font som aldri kunne komme fram. Et dekk kan fortsatt inneholde en
   lokal font fra editoren; da leser `get_presentation` den med
   `guaranteed: false`, og previewet advarer i stedet for å påstå paritet.
+- **Sandkassen er en sammenhengende del av agentflaten, ikke bare et sted
+  strukturelle operasjoner kan sende innhold.** `list_sandbox_items` leser alle
+  elementene, med stabile `itemId`-er og innhold beskrevet av samme funksjon
+  (`inspectContent` i `src/agent/operations/deck.ts`) `inspect_slide` bruker for
+  en sone – én kilde til «hvordan et agentkall beskriver `ZoneContent`», ikke to
+  som kan gli fra hverandre. `place_sandbox_item`, `duplicate_sandbox_item` og
+  `delete_sandbox_item` er tynne innpakninger rundt de likelydende
+  domenekommandoene: fit-gating, citation-renummerering, atomisitet og
+  `expectedRevision` kommer derfra, uendret – agentlaget legger ikke sandkasse-,
+  fit- eller layoutlogikk oppå. `get_presentation` bærer bare `sandboxCount`, av
+  samme grunn som `assetCount`: telling hører hjemme i oversikten, innhold i en
+  egen lesing. Sandkasse-id-ene et strukturelt kall selv la til (`sandboxItemIds`
+  på `split_zone`, `adjust_split`, `delete_zone`, `clear_zone` og
+  `set_zone_asset`, og `displacedSandboxItemId` på `place_sandbox_item`) regnes
+  ut ved å sammenligne dokumentets `sandbox`-liste før og etter kallet
+  (`sandboxIdsAdded` i `src/agent/presentation.ts`) – aldri ved at en
+  domenekommando begynner å returnere id-er den ikke returnerte før – så en
+  agent som nettopp flyttet noe dit kan fortsette direkte, uten en ekstra
+  lesing bare for å finne id-en den selv utløste.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.

@@ -33,7 +33,7 @@ import {
   presentationIdSchema,
   slideIdSchema,
 } from '../operation'
-import { mutatePresentation, structuralOptions } from '../presentation'
+import { mutatePresentation, sandboxIdsAdded, structuralOptions } from '../presentation'
 import type { AgentResult } from '../types'
 
 const axisSchema = z
@@ -55,9 +55,12 @@ export interface ZoneChange {
   nodeId: string
   movedToSandbox: number
   discarded: number
+  /** The sandbox items this call actually created, so a later read is not required to keep going. */
+  sandboxItemIds: string[]
 }
 
 function zoneChange(
+  before: Presentation,
   input: { presentationId: string; slideId: string; nodeId: string },
   outcome: StructuralOutcome,
 ): ZoneChange {
@@ -67,6 +70,7 @@ function zoneChange(
     nodeId: input.nodeId,
     movedToSandbox: outcome.movedToSandbox.length,
     discarded: outcome.discarded.length,
+    sandboxItemIds: sandboxIdsAdded(before, outcome.presentation),
   }
 }
 
@@ -121,7 +125,7 @@ export const splitZone = defineOperation({
       const children = childNodeIds(split.value.presentation, input.slideId, input.nodeId)
       return ok({
         presentation: split.value.presentation,
-        value: { ...zoneChange(input, split.value), childNodeIds: children },
+        value: { ...zoneChange(presentation, input, split.value), childNodeIds: children },
       })
     })
   },
@@ -170,7 +174,7 @@ export const adjustSplit = defineOperation({
       return ok({
         presentation: updated.value.presentation,
         value: {
-          ...zoneChange(input, updated.value),
+          ...zoneChange(presentation, input, updated.value),
           childNodeIds: childNodeIds(updated.value.presentation, input.slideId, input.nodeId),
         },
       })
@@ -204,7 +208,10 @@ export const deleteZone = defineOperation({
         ...structuralOptions(context),
       })
       if (!deleted.ok) return deleted
-      return ok({ presentation: deleted.value.presentation, value: zoneChange(input, deleted.value) })
+      return ok({
+        presentation: deleted.value.presentation,
+        value: zoneChange(presentation, input, deleted.value),
+      })
     })
   },
 })
@@ -234,7 +241,10 @@ export const clearZone = defineOperation({
         ...structuralOptions(context),
       })
       if (!cleared.ok) return cleared
-      return ok({ presentation: cleared.value.presentation, value: zoneChange(input, cleared.value) })
+      return ok({
+        presentation: cleared.value.presentation,
+        value: zoneChange(presentation, input, cleared.value),
+      })
     })
   },
 })

@@ -438,6 +438,7 @@ museklikk eller databasetilgang:
 | `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
+| `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_cover`, `set_cover_color`, `set_presentation_title`  | utseendet og navnet på hele dekket            |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
@@ -478,7 +479,7 @@ For bilder finnes det nøyaktig to dører inn:
 - Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
   sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
-Fire ting til er verdt å vite om hvordan laget oppfører seg:
+Noen ting til er verdt å vite om hvordan laget oppfører seg:
 
 - **Agenten styrer temaet, ikke bare innholdet.** `get_presentation` bærer
   bakgrunnsfargen, de to fontene, luften og skriftstørrelsen, og `set_theme`
@@ -521,6 +522,15 @@ Fire ting til er verdt å vite om hvordan laget oppfører seg:
   alltid låst mot nøyaktig den lesingen operasjonen bygget på – ikke mot den
   nyeste versjonen lagringslaget tilfeldigvis kjenner – så to samtidige kall
   ikke kan lande oppå hverandre.
+- **Sandkassen er ikke en blindvei.** Enhver strukturendring med
+  `disposition: 'sandbox'` (standarden) svarer med `sandboxItemIds` – id-ene
+  til det som faktisk ble parkert – så en agent kan fortsette direkte i stedet
+  for å lese sandkassen på nytt bare for å finne dem. `list_sandbox_items`
+  leser resten tilbake i samme tekstformat som `inspect_slide`, og
+  `place_sandbox_item` setter et element tilbake i en sone med de samme
+  reglene som all annen plassering: fit-gating, en global sjekk av om
+  citation-nummereringen fortsatt holder andre steder i dekket, og full
+  atomisitet.
 
 Se `IMPLEMENTATION_PLAN.md` §44 for hele kontrakten.
 
