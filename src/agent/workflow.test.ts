@@ -23,6 +23,7 @@ import type { Presentation, Rect } from '../domain/types'
 import type { ZoneChange } from './operations/layout'
 import type { CoverView } from './operations/cover'
 import type { PresentationView, SlideInspection } from './operations/deck'
+import type { SubfieldLayout } from './operations/content'
 import type { SandboxItemView, SandboxPlacement } from './operations/sandbox'
 import type { SlidePlacement } from './operations/slides'
 import type { ValidationReport } from './operations/validation'
@@ -1979,5 +1980,407 @@ describe('sandkassen', () => {
     expect(citationNumber(finalDoc, references[0])).toBe(10)
     expect(citationNumber(finalDoc, references[1])).toBe(1)
     expect(finalDoc.sandbox).toHaveLength(0)
+  })
+})
+
+
+/* ------------------------------------------------------------------ *
+ * Subfield layout
+ * ------------------------------------------------------------------ */
+
+/**
+ * Two text columns *inside* one card, and a figure that gets two thirds of it.
+ *
+ * The zone tree divides a slide; the subfield layout divides one card. They are
+ * different compositions — two zones have a card each and a gap between them,
+ * two subfields share one card and one background — and until `adjust_subfields`
+ * an agent could only reach the first. Everything here goes through the same
+ * `setBodyLayout` the inspector's buttons call, so a layout the editor refuses
+ * is a layout the agent is refused too, and the other way round.
+ */
+describe('subfeltlayout inne i ett kort', () => {
+  /** A deck whose only zone holds a card with `count` subfields. */
+  async function cardDeck(
+    context: AgentContext,
+    count = 2,
+  ): Promise<{ presentationId: string; slideId: string; nodeId: string; subfieldIds: string[] }> {
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const nodeId = firstZone(inspection)
+    const card = await ok<{ subfieldIds: string[] }>(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'untitled-card',
+      subfieldCount: count,
+    })
+    return { presentationId: deck.presentationId, slideId, nodeId, subfieldIds: card.subfieldIds }
+  }
+
+  /** The zone as `inspect_slide` sees it, which is the agent's only view of it. */
+  async function zoneView(
+    context: AgentContext,
+    target: { presentationId: string; slideId: string; nodeId: string },
+  ): Promise<SlideInspection['zones'][number]> {
+    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+    })
+    const zone = inspection.zones.find((candidate) => candidate.nodeId === target.nodeId)
+    if (!zone) throw new Error('Fant ikke sonen i inspeksjonen.')
+    return zone
+  }
+
+  it('bytter et kort med to subfelt mellom stående og liggende retning', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+
+    // The default is stacked, which is what makes the flip worth having.
+    expect((await zoneView(context, card)).subfieldAxis).toBe('y')
+
+    const sideways = await ok<SubfieldLayout>(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'x',
+    })
+    expect(sideways.axis).toBe('x')
+    expect(sideways.subfieldIds).toEqual(card.subfieldIds)
+    expect((await zoneView(context, card)).subfieldAxis).toBe('x')
+
+    const stacked = await ok<SubfieldLayout>(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'y',
+    })
+    expect(stacked.axis).toBe('y')
+    // Flipping back and forth is not a way to lose the text fields.
+    expect(stacked.subfieldIds).toEqual(card.subfieldIds)
+  })
+
+  it('lar forholdstallene faktisk flytte plassen, ikke bare tallene', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+    await ok(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'x',
+      weights: [1, 1],
+    })
+
+    // Fill the left column to the brim at an even split. What "full" means is
+    // whatever the fit checker says, so it is bisected rather than computed.
+    const evenCapacity = await fillToCapacity(
+      context,
+      { presentationId: card.presentationId, slideId: card.slideId, nodeId: card.nodeId },
+      paragraph,
+    )
+
+    // Three quarters of the card instead of half: strictly more room, so the
+    // same text still fits — and measurably more of it fits afterwards.
+    await ok(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      weights: [3, 1],
+    })
+    const wideCapacity = await fillToCapacity(
+      context,
+      { presentationId: card.presentationId, slideId: card.slideId, nodeId: card.nodeId },
+      paragraph,
+    )
+    expect(wideCapacity).toBeGreaterThan(evenCapacity)
+
+    // And the other direction is refused rather than silently clipping: the
+    // text that filled three quarters cannot fit in one.
+    const squeezed = await fails(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      weights: [1, 3],
+    })
+    expect(squeezed.code).toBe('CONTENT_DOES_NOT_FIT')
+  })
+
+  it('rapporterer retning og forholdstall i inspect_slide, og de overlever en ny lesing', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context, 3)
+    await ok(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'x',
+      weights: [3, 2, 1],
+    })
+
+    const zone = await zoneView(context, card)
+    expect(zone.subfieldAxis).toBe('x')
+    expect(zone.subfieldWeights).toEqual([3, 2, 1])
+    expect(zone.subfields?.map((field) => field.subfieldId)).toEqual(card.subfieldIds)
+
+    // Not just in the answer: in the document, read back from the store the way
+    // a later session would read it.
+    const document = await stored(context, card.presentationId)
+    const content = document.slides[0].root
+    if (content.kind !== 'leaf' || content.content?.kind !== 'untitled-card') {
+      throw new Error('Forventet et kort i hovedsonen.')
+    }
+    expect(content.content.body.axis).toBe('x')
+    expect(content.content.body.weights).toEqual([3, 2, 1])
+  })
+
+  it('endrer antall, retning og forholdstall i ett kall, målt én gang', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context, 1)
+
+    const layout = await ok<SubfieldLayout>(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      subfieldCount: 3,
+      axis: 'x',
+      weights: [2, 1, 1],
+    })
+    expect(layout.subfieldIds).toHaveLength(3)
+    expect(layout.axis).toBe('x')
+    expect(layout.weights).toEqual([2, 1, 1])
+    // The field that was already there keeps its id, so text written into it
+    // before the change is still addressable after it.
+    expect(layout.subfieldIds[0]).toBe(card.subfieldIds[0])
+  })
+
+  it('avviser ugyldige forholdstall og feil antall av dem', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+    const target = {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+    }
+
+    // Zero, negative and non-finite never reach a command: the schema publishes
+    // "positive, finite" and rejects them as INVALID_INPUT.
+    for (const weights of [[1, 0], [1, -2]]) {
+      expect((await fails(context, 'adjust_subfields', { ...target, weights })).code).toBe(
+        'INVALID_INPUT',
+      )
+    }
+
+    // The wrong *number* of them is a domain question — how many subfields the
+    // call ends with — so it comes back with the domain's own code.
+    const tooFew = await fails(context, 'adjust_subfields', { ...target, weights: [1] })
+    expect(tooFew.code).toBe('INVALID_WEIGHTS')
+    expect(tooFew.details).toMatchObject({ expected: 2, received: 1 })
+
+    const tooMany = await fails(context, 'adjust_subfields', { ...target, weights: [1, 1, 1] })
+    expect(tooMany.code).toBe('INVALID_WEIGHTS')
+
+    // Counted against the state the call *ends* in, not the one it starts in.
+    expect(
+      (await fails(context, 'adjust_subfields', { ...target, subfieldCount: 3, weights: [1, 1] }))
+        .code,
+    ).toBe('INVALID_WEIGHTS')
+    await ok(context, 'adjust_subfields', { ...target, subfieldCount: 3, weights: [1, 1, 1] })
+  })
+
+  it('avviser vekter som hver for seg er endelige, men som ikke er det til sammen', async () => {
+    // The schema can only say "positive and finite" about one number at a time.
+    // Whether they add up is a property of the array, and it is the property
+    // the geometry actually needs: every share is a division by the total, so a
+    // total of Infinity makes every rectangle NaN — which fails every
+    // comparison, so the fit guard reads it as "nothing overflowed" and stores
+    // a layout that has no geometry at all.
+    const context = freshContext()
+    const card = await cardDeck(context)
+    const target = {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+    }
+
+    const before = await stored(context, card.presentationId)
+    const refused = await fails(context, 'adjust_subfields', {
+      ...target,
+      weights: [1e308, 1e308],
+    })
+    expect(refused.code).toBe('INVALID_WEIGHTS')
+    expect(await stored(context, card.presentationId)).toEqual(before)
+
+    // The same rule one level up, where the sum divides the slide itself.
+    const split = await fails(context, 'split_zone', {
+      ...target,
+      axis: 'x',
+      weights: [Number.MAX_VALUE, Number.MAX_VALUE],
+    })
+    expect(split.code).toBe('INVALID_WEIGHTS')
+    expect(await stored(context, card.presentationId)).toEqual(before)
+
+    // Large is still allowed — it is the sum that has to land somewhere — and
+    // what comes back has real numbers in it.
+    await ok(context, 'adjust_subfields', { ...target, axis: 'x', weights: [1e307, 1e307] })
+    const zone = await zoneView(context, card)
+    for (const value of [zone.rect.x, zone.rect.y, zone.rect.width, zone.rect.height]) {
+      expect(Number.isFinite(value)).toBe(true)
+    }
+    expect(zone.fits).toBe(true)
+  })
+
+  it('krever at kallet ber om noe, og at sonen har subfelt å ordne', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+    const target = {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+    }
+    expect((await fails(context, 'adjust_subfields', target)).code).toBe('INVALID_ARGUMENT')
+
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const emptySlide = deck.slides[0].slideId
+    const emptyZone = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: emptySlide,
+      }),
+    )
+    expect(
+      (
+        await fails(context, 'adjust_subfields', {
+          presentationId: deck.presentationId,
+          slideId: emptySlide,
+          nodeId: emptyZone,
+          axis: 'x',
+        })
+      ).code,
+    ).toBe('TARGET_EMPTY')
+  })
+
+  it('avviser en utdatert revisjon, og skriver ingenting', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+    const before = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+    })
+
+    // Somebody else writes in between.
+    await ok(context, 'set_presentation_title', {
+      presentationId: card.presentationId,
+      title: 'Endret av en annen',
+    })
+
+    const document = await stored(context, card.presentationId)
+    const conflict = await fails(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      expectedRevision: before.revision,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'x',
+      weights: [3, 1],
+    })
+    expect(conflict.code).toBe('CONFLICT')
+    expect(await stored(context, card.presentationId)).toEqual(document)
+  })
+
+  it('avviser hele endringen atomisk når innholdet ikke får plass etterpå', async () => {
+    const context = freshContext()
+    const card = await cardDeck(context)
+    await ok(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'x',
+      weights: [3, 1],
+    })
+    await fillToCapacity(
+      context,
+      { presentationId: card.presentationId, slideId: card.slideId, nodeId: card.nodeId },
+      paragraph,
+    )
+
+    const before = await stored(context, card.presentationId)
+    // Axis and weights in the same call. The weights alone would be fine; the
+    // pair is not — and neither half is stored.
+    const refused = await fails(context, 'adjust_subfields', {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+      axis: 'y',
+      weights: [1, 1],
+    })
+    expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(refused.details).toMatchObject({ slideId: card.slideId, nodeId: card.nodeId })
+    expect(refused.details?.rect).toBeDefined()
+    expect(await stored(context, card.presentationId)).toEqual(before)
+  })
+
+  it('går den hele veien: to kolonner med ulik vekt, fylt og validert', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'To kolonner', firstSlideHasTitle: true })
+    const slideId = deck.slides[0].slideId
+
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: [{ text: 'Figur og forklaring' }],
+    })
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+
+    // One card, not two zones with a gap between them: the whole point of the
+    // subfield layout is a composition the zone tree cannot express.
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      title: [{ text: 'To spalter' }],
+      color: '#33475b',
+    })
+    const layout = await ok<SubfieldLayout>(context, 'adjust_subfields', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      subfieldCount: 2,
+      axis: 'x',
+      weights: [2, 1],
+    })
+    expect(layout.subfieldIds).toHaveLength(2)
+
+    for (const [index, subfieldId] of layout.subfieldIds.entries()) {
+      await ok(context, 'set_zone_text', {
+        presentationId: deck.presentationId,
+        slideId,
+        nodeId,
+        subfieldId,
+        blocks: paragraph(index === 0 ? 'Den brede spalten bærer hovedteksten.' : 'Den smale.'),
+      })
+    }
+
+    const zone = await zoneView(context, { presentationId: deck.presentationId, slideId, nodeId })
+    expect(zone.contentKind).toBe('titled-card')
+    expect(zone.subfieldAxis).toBe('x')
+    expect(zone.subfieldWeights).toEqual([2, 1])
+    expect(zone.subfields?.map((field) => field.blocks)).toEqual([
+      paragraph('Den brede spalten bærer hovedteksten.'),
+      paragraph('Den smale.'),
+    ])
+    expect(zone.fits).toBe(true)
+
+    const report = await ok<ValidationReport>(context, 'validate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(report.valid).toBe(true)
+    expect(report.issues).toEqual([])
   })
 })

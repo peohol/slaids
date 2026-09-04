@@ -14,10 +14,16 @@
  * transparent container with one field — so the common case is one call. An
  * agent that wants a card asks for one with `set_zone_card` first; the text
  * survives the conversion either way.
+ *
+ * `adjust_subfields` is the other half of that: `set_zone_card` decides what
+ * kind of thing holds the text, and `adjust_subfields` decides how the fields
+ * inside it divide the room — the same pair as `split_zone` and `adjust_split`
+ * one level up.
  */
 
 import { z } from 'zod'
 import {
+  setBodyLayout,
   setCardColor,
   setCardTitle,
   setContentKind,
@@ -30,7 +36,7 @@ import { bodyOf, containerWithDoc, createContentOfKind } from '../../domain/cont
 import { findLeaf, findNode } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
-import type { CardBody, LeafNode, Presentation, ZoneContent } from '../../domain/types'
+import type { Axis, CardBody, LeafNode, Presentation, ZoneContent } from '../../domain/types'
 import {
   defineOperation,
   expectedRevisionSchema,
@@ -285,6 +291,100 @@ function mapOutcome(
 }
 
 /* ------------------------------------------------------------------ *
+ * adjust_subfields
+ * ------------------------------------------------------------------ */
+
+/** The subfield layout a call ended with, read back off the stored document. */
+export interface SubfieldLayout {
+  presentationId: string
+  slideId: string
+  nodeId: string
+  axis: Axis
+  weights: number[]
+  /** In layout order, so the next `set_zone_text` knows which field is which. */
+  subfieldIds: string[]
+}
+
+const subfieldAxisSchema = z
+  .enum(['x', 'y'])
+  .describe('`x` legger subfeltene side om side som kolonner, `y` over hverandre som rader.')
+
+const subfieldWeightsSchema = z
+  .array(z.number().positive().finite())
+  .min(1)
+  .max(6)
+  .describe(
+    'Ett forholdstall per subfelt, i rekkefølge. [1, 1] gir like store felt, [2, 1] gir det første dobbelt så mye plass som det andre. Antallet må matche antall subfelt kallet ender med.',
+  )
+
+export const adjustSubfields = defineOperation({
+  name: 'adjust_subfields',
+  summary:
+    'Sett retning, forholdstall og antall subfelt inne i ett kort eller én beholder – to tekstkolonner i samme kort, eller en figur som får 2/3 og forklaringen 1/3. Alt måles samlet.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    slideId: slideIdSchema,
+    nodeId: nodeIdSchema,
+    axis: subfieldAxisSchema.optional().describe('Utelatt beholder retningen kortet har.'),
+    weights: subfieldWeightsSchema
+      .optional()
+      .describe('Utelatt beholder forholdstallene kortet har.'),
+    subfieldCount: z
+      .number()
+      .int()
+      .min(1)
+      .max(6)
+      .optional()
+      .describe('Nytt antall subfelt. Felt som forsvinner må være tomme.'),
+  }),
+  run(context, input): Promise<AgentResult<SubfieldLayout>> {
+    return mutatePresentation(context, input, (presentation) => {
+      // The three are optional so a call can change one of them, but a call that
+      // changes none of them is a mistake, not a no-op worth storing.
+      if (
+        input.axis === undefined &&
+        input.weights === undefined &&
+        input.subfieldCount === undefined
+      ) {
+        return err('INVALID_ARGUMENT', 'Oppgi minst én av axis, weights og subfieldCount.')
+      }
+
+      // One domain command, one fit measurement, against the layout that was
+      // asked for. Splitting this into "set the count", "set the axis", "set the
+      // weights" would gate each half-finished layout on its own, and a card
+      // whose two columns fit could be unreachable because its two rows do not.
+      const updated = setBodyLayout(presentation, {
+        slideId: input.slideId,
+        nodeId: input.nodeId,
+        ...(input.axis === undefined ? {} : { axis: input.axis }),
+        ...(input.weights === undefined ? {} : { weights: input.weights }),
+        ...(input.subfieldCount === undefined ? {} : { subfieldCount: input.subfieldCount }),
+        ...structuralOptions(context),
+      })
+      if (!updated.ok) return updated
+
+      const written = findZone(updated.value, input.slideId, input.nodeId)
+      const body = written.ok && written.value.content ? bodyOf(written.value.content) : null
+      if (!body) return err('INVALID_CONTENT', 'Sonen har ingen subfelt.')
+      return ok({
+        presentation: updated.value,
+        value: {
+          presentationId: presentation.id,
+          slideId: input.slideId,
+          nodeId: input.nodeId,
+          axis: body.axis,
+          weights: [...body.weights],
+          subfieldIds: body.subfields.map((field) => field.id),
+        },
+      })
+    })
+  },
+})
+
+/* ------------------------------------------------------------------ *
  * set_vertical_alignment
  * ------------------------------------------------------------------ */
 
@@ -344,4 +444,4 @@ export const setVerticalAlignment = defineOperation({
   },
 })
 
-export const contentOperations = [setZoneText, setZoneCard, setVerticalAlignment]
+export const contentOperations = [setZoneText, setZoneCard, adjustSubfields, setVerticalAlignment]

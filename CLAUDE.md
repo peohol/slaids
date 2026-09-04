@@ -215,6 +215,19 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   domenekommando begynner å returnere id-er den ikke returnerte før – så en
   agent som nettopp flyttet noe dit kan fortsette direkte, uten en ekstra
   lesing bare for å finne id-en den selv utløste.
+- **Retning, forholdstall og antall subfelt er ett spørsmål, og derfor én
+  kommando.** `setBodyLayout` i `src/domain/commands/content.ts` tar alle tre og
+  kjører fit-guarden én gang, mot layouten som faktisk ble bedt om – slik
+  `updateSplit` alltid har gjort for en splitting. `applySteps` gjør *lagringen*
+  atomisk, ikke *målingen*: tre kommandoer etter hverandre ville målt hver
+  mellomtilstand for seg, og to subfelt over hverandre kan være for lave for noe
+  to subfelt ved siden av hverandre bærer fint – da er måltilstanden ikke
+  tungvint, den er uoppnåelig. `setSubfieldCount`, `setBodyAxis` og
+  `setBodyWeights` er den samme kommandoen med ett felt fylt ut, så editoren, som
+  endrer én ting av gangen, og `adjust_subfields`, som endrer alt på én gang,
+  møter nøyaktig den samme guarden. `inspect_slide` rapporterer kortets layout som
+  `subfieldAxis`/`subfieldWeights` – aldri som `axis`/`weights`, som er
+  soneinndelingens og ligger ett nivå over.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.

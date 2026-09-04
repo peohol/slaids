@@ -25,6 +25,7 @@ import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
 import type { FitContext } from '../../domain/fit'
 import type {
+  Axis,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -264,6 +265,13 @@ export interface ZoneInspection {
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
+  /**
+   * How the text fields inside the content divide it, and in what proportions —
+   * the card's own layout, one level below the `axis`/`weights` a split reports.
+   * `adjust_subfields` takes exactly these two back.
+   */
+  subfieldAxis?: Axis
+  subfieldWeights?: number[]
   /** The text fields inside the content, addressable in a later call. */
   subfields?: SubfieldInspection[]
   /** Files and references this zone shows. */
@@ -297,6 +305,16 @@ export interface ContentInspection {
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
+  /**
+   * The subfield layout: which way the fields run and how they share the room.
+   *
+   * Reported even for a single field, because that is the layout a later
+   * `adjust_subfields` is written against — an agent that has to guess whether
+   * a card is stacked or side by side is an agent that flips it by accident.
+   * Absent only when there is no body at all, which is a zone showing a file.
+   */
+  subfieldAxis?: Axis
+  subfieldWeights?: number[]
   /** The text fields inside the content, addressable in a later call. */
   subfields: SubfieldInspection[]
   /** Files and references this content shows. */
@@ -315,6 +333,7 @@ export function inspectContent(content: ZoneContent): ContentInspection {
           ...(docToTitleAlign(content.title) ? { cardTitleAlign: docToTitleAlign(content.title) } : {}),
         }
       : {}),
+    ...(body ? { subfieldAxis: body.axis, subfieldWeights: [...body.weights] } : {}),
     subfields:
       body?.subfields.map((field) => ({
         subfieldId: field.id,

@@ -31,6 +31,7 @@ function fieldsPayload(doc: RichDoc): ContainerPayload {
 }
 import {
   setBodyAxis,
+  setBodyLayout,
   setBodyWeights,
   setCardColor,
   setContainerPayload,
@@ -288,6 +289,29 @@ describe('card body layout', () => {
     expect(setBodyAxis(presentation, { ...target(presentation), axis: 'x', ...checkers }).ok).toBe(
       true,
     )
+  })
+
+  it('reaches in one gated step a layout the same layout in two steps cannot', () => {
+    // This is why count, axis and weights are one command. Two subfields side
+    // by side hold a figure that two stacked subfields do not: stacking halves
+    // the height the figure needs all of, while splitting sideways makes it
+    // narrower and therefore shorter. Asking for the count first and the axis
+    // second never arrives — the intermediate is measured on its own terms and
+    // refused — so the destination would be unreachable, not merely awkward.
+    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1', '', 70)] }
+    const presentation = deckWith(cardWith([figure]))
+
+    expectRefused(
+      setSubfieldCount(presentation, { ...target(presentation), count: 2, ...checkers }),
+    )
+    expect(
+      setBodyLayout(presentation, {
+        ...target(presentation),
+        subfieldCount: 2,
+        axis: 'x',
+        ...checkers,
+      }).ok,
+    ).toBe(true)
   })
 })
 

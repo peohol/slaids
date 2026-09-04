@@ -27,8 +27,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
+import { CARD_PADDING, SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
 import { COVER_PAGE_ID } from '../domain/pages'
+import type { Rect } from '../domain/types'
 import {
   TOKEN,
   closeHarnessDatabases,
@@ -454,6 +455,119 @@ describe('en agent bygger, ser og retter', () => {
       const afterBitmap = decodePng(after.bytes)
       expect(hasColourNear(afterBitmap, RUST.rgb, BACKGROUND_REGION)).toBe(true)
       expect(hasColourNear(afterBitmap, [255, 255, 255], BACKGROUND_REGION)).toBe(false)
+
+      await client.close()
+    },
+    BROWSER_TIMEOUT_MS,
+  )
+
+  it(
+    'legger to subfelt side om side i det forholdet det ba om, og ser det i bildet',
+    async () => {
+      const client = await agentClient()
+
+      /* ---- 1. one card, two subfields, side by side at 2:1 ---- */
+
+      const created = await call<{ presentationId: string; slides: { slideId: string }[] }>(
+        client,
+        'create_presentation',
+        { title: 'To spalter i ett kort', firstSlideHasTitle: false },
+      )
+      const presentationId = created.presentationId
+      const slideId = created.slides[0].slideId
+      const inspected = await call<{ rootNodeId: string }>(client, 'inspect_slide', {
+        presentationId,
+        slideId,
+      })
+      const zone = { presentationId, slideId, nodeId: inspected.rootNodeId }
+
+      await call(client, 'set_zone_card', { ...zone, kind: 'untitled-card', color: '#ffffff' })
+      const layout = await call<{ axis: string; weights: number[]; subfieldIds: string[] }>(
+        client,
+        'adjust_subfields',
+        { ...zone, subfieldCount: 2, axis: 'x', weights: [2, 1] },
+      )
+      expect(layout).toMatchObject({ axis: 'x', weights: [2, 1] })
+      expect(layout.subfieldIds).toHaveLength(2)
+
+      // Only the wide column is filled. The narrow one stays empty on purpose:
+      // an empty column is what makes "where does the text stop" readable off
+      // the picture at all.
+      await call(client, 'set_zone_text', {
+        ...zone,
+        subfieldId: layout.subfieldIds[0],
+        blocks: [
+          {
+            type: 'paragraph',
+            spans: [{ text: 'Spalten er bredere enn halve kortet. '.repeat(24) }],
+          },
+        ],
+      })
+
+      /* ---- 2. and the agent reads its own layout back ---- */
+
+      const readBack = await call<{
+        zones: { nodeId: string; rect: Rect; subfieldAxis?: string; subfieldWeights?: number[] }[]
+      }>(client, 'inspect_slide', { presentationId, slideId })
+      const card = readBack.zones.find((candidate) => candidate.nodeId === zone.nodeId)
+      expect(card).toMatchObject({ subfieldAxis: 'x', subfieldWeights: [2, 1] })
+
+      /* ---- 3. the pixels say the same thing ---- */
+
+      // Where the boundary between the two columns falls if the ratio is real.
+      // Derived from the rect the geometry engine reported and the card's own
+      // padding, so the probes move with the design space rather than pinning it.
+      const rect = card?.rect as Rect
+      const inner = rect.width - CARD_PADDING * 2
+      const boundary = rect.x + CARD_PADDING + (inner * 2) / 3
+      const halfway = rect.x + CARD_PADDING + inner / 2
+      expect(boundary).toBeGreaterThan(halfway)
+
+      // Text on the far side of the halfway mark: only a column wider than half
+      // the card can put ink here, so this is the 2:1 itself, measured.
+      const pastHalfway = {
+        x: Math.round(halfway + 60),
+        y: Math.round(rect.y + CARD_PADDING + 10),
+        width: 120,
+        height: 260,
+      }
+      // Well inside the empty column: side by side means the text stops here.
+      const emptyColumn = {
+        x: Math.round(boundary + 60),
+        y: Math.round(rect.y + CARD_PADDING + 10),
+        width: Math.round(rect.x + rect.width - CARD_PADDING - 40 - (boundary + 60)),
+        height: 260,
+      }
+
+      const columns = await renderPreview(client, { presentationId, slideId })
+      const columnsBitmap = decodePng(columns.bytes)
+      expect(distinctColours(columnsBitmap, pastHalfway)).toBeGreaterThan(3)
+      expect(distinctColours(columnsBitmap, emptyColumn)).toBeLessThanOrEqual(2)
+
+      /* ---- 4. flip the direction, and the same probe changes its answer ---- */
+
+      await call(client, 'adjust_subfields', { ...zone, axis: 'y' })
+      const rows = await renderPreview(client, { presentationId, slideId })
+      expect(rows.bytes).not.toEqual(columns.bytes)
+      // Stacked, the filled field is the full width of the card, so the region
+      // that was blank because it belonged to the empty column now holds text.
+      expect(distinctColours(decodePng(rows.bytes), emptyColumn)).toBeGreaterThan(3)
+
+      /* ---- 5. and a ratio that would hide the text is refused whole ---- */
+
+      const before = await deployment.context.repository.loadPresentation(presentationId)
+      const refused = (await client.callTool({
+        name: 'slaids_adjust_subfields',
+        arguments: { ...zone, axis: 'x', weights: [1, 30] },
+      })) as { isError?: boolean; structuredContent?: { error?: { code: string } } }
+      expect(refused.isError).toBe(true)
+      expect(refused.structuredContent?.error?.code).toBe('CONTENT_DOES_NOT_FIT')
+
+      // Neither the direction nor the ratio was stored: half a layout is not a
+      // state anybody asked for, and the picture is the one from before.
+      expect(await deployment.context.repository.loadPresentation(presentationId)).toEqual(before)
+      const after = await renderPreview(client, { presentationId, slideId })
+      expect(after.bytes).toEqual(rows.bytes)
 
       await client.close()
     },
