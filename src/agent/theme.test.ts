@@ -21,7 +21,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { FONT_OPTIONS, GUARANTEED_FONT_IDS, findFontById, isGuaranteedFont } from '../domain/fonts'
 import { MIN_ZONE_WIDTH } from '../domain/constants'
 import { computeMainRect, computeSlideGeometry } from '../domain/geometry'
-import { FONT_SCALE_RANGE, SPACING_RANGE, geometryForTheme } from '../domain/metrics'
+import {
+  DEFAULT_FONT_SCALE,
+  DEFAULT_SPACING,
+  FONT_SCALE_RANGE,
+  SPACING_RANGE,
+  geometryForTheme,
+} from '../domain/metrics'
 import { COVER_PAGE_ID } from '../domain/pages'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
@@ -100,10 +106,10 @@ function words(chars: number): string {
 /**
  * A deck whose one zone is close enough to full that the theme decides.
  *
- * The length is the one `commands/fitGuard.test.ts` uses for the same purpose:
- * it fits at the default typography and does not at a font 16 % wider. Asserted
- * rather than assumed — the point of every case below is what happens *from*
- * this state, so it has to be the state.
+ * The length is chosen so the text fits at the deck's own typography and stops
+ * fitting the moment either dial is turned up. Asserted rather than assumed —
+ * the point of every case below is what happens *from* this state, so it has to
+ * be the state.
  */
 async function filledDeck(
   context: AgentContext,
@@ -111,7 +117,7 @@ async function filledDeck(
   const deck = await newDeck(context)
   await ok(context, 'set_zone_text', {
     ...deck,
-    blocks: [{ type: 'paragraph', spans: [{ text: words(3600) }] }],
+    blocks: [{ type: 'paragraph', spans: [{ text: words(2800) }] }],
   })
   return deck
 }
@@ -142,8 +148,8 @@ describe('å lese temaet', () => {
         stack: expect.any(String),
         guaranteed: true,
       },
-      spacing: 1,
-      fontScale: 1,
+      spacing: DEFAULT_SPACING,
+      fontScale: DEFAULT_FONT_SCALE,
     })
     // The id is the name `set_theme` takes back, and the stack is what the
     // document stores — an agent can see both without being handed the JSON.
@@ -175,14 +181,14 @@ describe('set_theme', () => {
       headingFont: 'space-grotesk',
       bodyFont: 'source-sans',
       spacing: 1.3,
-      fontScale: 0.85,
+      fontScale: 1.45,
     })
     expect(result.theme).toMatchObject({
       backgroundColor: '#101828',
       headingFont: { fontId: 'space-grotesk' },
       bodyFont: { fontId: 'source-sans' },
       spacing: 1.3,
-      fontScale: 0.85,
+      fontScale: 1.45,
     })
 
     const document = await stored(context, deck.presentationId)
@@ -191,7 +197,7 @@ describe('set_theme', () => {
       headingFontFamily: findFontById('space-grotesk')?.stack,
       bodyFontFamily: findFontById('source-sans')?.stack,
       spacing: 1.3,
-      fontScale: 0.85,
+      fontScale: 1.45,
     })
     // And the answer is a reading an agent can write against straight away.
     expect(result.revision).toBe(
@@ -472,7 +478,7 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
       slideId: deck.slideId,
       nodeId: expect.any(String),
     })
-    expect((await stored(context, deck.presentationId)).theme.spacing).toBe(1)
+    expect((await stored(context, deck.presentationId)).theme.spacing).toBe(DEFAULT_SPACING)
 
     // The rect is the one the refused theme would have given the zone, not the
     // one it has today — today's is comfortably above the minimum, which is

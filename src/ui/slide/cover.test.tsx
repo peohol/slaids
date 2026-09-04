@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { bestTextColor } from '../../domain/color'
-import { deckPages } from '../../domain/pages'
+import { deckPages, deckProgress } from '../../domain/pages'
 import { createPresentation } from '../../domain/presentation'
 import { titleDoc } from '../../domain/richdoc'
 import { createLeaf } from '../../domain/layout'
@@ -69,6 +69,7 @@ function render(presentation: Presentation, node: React.ReactNode): string {
         theme: presentation.theme,
         numbering: new Map(),
         headingPillColor: presentation.cover.pillColor,
+        progress: deckProgress(deckPages(presentation)),
         isStatic: true,
       }}
     >

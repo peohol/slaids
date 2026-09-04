@@ -367,6 +367,57 @@ regrediere fra – og avviser med samme feilkode som en for lang slide-tittel.
 
 ---
 
+## 8.6\. Fremdriftsindikator
+
+Hver side unntatt forsiden har en fremdriftsindikator, og den er **obligatorisk**.
+
+At den ikke kan slås av er ikke en forenkling, det er hele poenget. Et valg
+ville betydd at et dekk kunne bygges uten den og få den på etterpå – og da
+mister hver eneste slide en stripe med plass de allerede er fulle av, på en
+gang, uten at noen har redigert dem. Er den alltid der, reserverer
+geometrimotoren stripen én gang, før noe innhold er plassert, og spørsmålet kan
+ikke oppstå.
+
+Formen er en lav stripe i bunnen av sliden:
+
+```text
+[ title zone ]
+G
+[ main zone  ]
+G
+[▓▓▓▓▓▓▓░░░░░]   ← PROGRESS_BAR_HEIGHT, helt ut til begge kanter
+```
+
+- Full slidebredde, helt inntil bunnkanten: ingen luft under og ingen på
+  sidene.
+- Nøyaktig én luft over seg, og det er dekkets eget gap. Reservasjonen i
+  `computeMainRect` er derfor `PROGRESS_BAR_HEIGHT` og ikke
+  `PROGRESS_BAR_HEIGHT + G`: gapet over den er bunninnrykket innholdsområdet
+  allerede hadde.
+- Høyden er en tykkelse og ikke en avstand mellom to ting, så `spacing` skalerer
+  den ikke – på samme måte som den ikke skalerer en kortradius eller en
+  skillestrek.
+- En beholder i forsidens pillefarge med 30 % opacity, og en voksende del i den
+  samme fargen med full opacity. De to er søsken i DOM-en, ikke forelder og
+  barn: `opacity` gjelder for hele gruppen, så en voksende del inni en beholder
+  på 30 % ville selv blitt 30 %.
+- Rund i den enden som vokser, rett i den den vokser fra. Ingen skygge, ingen
+  tall, ingen tekst.
+- Den voksende delen beveger seg til sin nye posisjon over 600 ms med
+  `ease-in-out` i stedet for å hoppe dit.
+
+Hvor langt ut i dekket en side er, er noe bare dekket vet – nøyaktig som et
+citation-nummer – så det ligger i `SlideRenderContext` ved siden av
+`numbering`, utledet av `deckProgress(deckPages(...))`. Da tegner scenen,
+filmstripen, presentasjonsmodus, den delte visningen og et rendret preview den
+samme indikatoren uten at fem kallsteder må huske å sende den videre.
+
+Tellingen følger sidene, ikke de lagrede slidene: **forsiden telles ikke**, den
+første vanlige sliden er side 1, og den siste siden er full – uansett om det er
+en vanlig slide, en referanseside eller QR-siden.
+
+---
+
 ## 9\. Soneredigeringsmodus
 
 Appen har to hovedmodi:
@@ -615,7 +666,22 @@ Begge skalaene er kontinuerlige i domenet. `SPACING_RANGE` og
 `FONT_SCALE_RANGE` er de virkelige grensene, og fit-guarden avgjør hva som er
 brukbart innenfor dem. Editoren tilbyr fire navngitte trinn på hver, fordi et
 menneske vil ha knapper og ikke en glidebryter – men trinnene er et utvalg, ikke
-en regel. De er derfor deklarert i `src/domain/metrics.ts` sammen med
+en regel.
+
+Begge stigene ligger et hakk høyere enn de opprinnelig gjorde: det tetteste et
+dekk kan settes i er luftigere enn det gamle normaltrinnet, og det luftigste er
+luftigere enn det gamle maksimum. Basistallene i `constants.ts` er ikke rørt –
+det som er flyttet, er multiplikatoren, og det er det ærlige stedet å flytte
+den: en lagret `spacing` betyr fortsatt nøyaktig det den betydde, den tilbys
+bare ikke lenger under det nye gulvet.
+
+Derfor er `DEFAULT_SPACING` ikke lenger det samme tallet som «basistokenene
+uskalert». Et dekk som ble lagret før temaet hadde disse skalaene ble tegnet på
+`NEUTRAL_SCALE`, og det er *det* en migrering fyller inn – aldri `DEFAULT_*`,
+som er det et **nytt** dekk åpner i. Å gjenskape et lagret dekk og å style et
+nytt er to forskjellige jobber, og de så bare like ut så lenge standarden
+tilfeldigvis var nøytral. Begge stigene når fortsatt ned til den, som er det som
+gjør et eldre dekk uttrykkbart i det hele tatt etter forskyvningen. De er derfor deklarert i `src/domain/metrics.ts` sammen med
 intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
 API-et siterer den samme listen når det forteller en agent hva «normal» er, og
 én liste er det som holder de to fra å si forskjellige ting.

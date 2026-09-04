@@ -19,6 +19,7 @@ import {
   G,
   MIN_ZONE_HEIGHT,
   MIN_ZONE_WIDTH,
+  PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_INSET,
   SLIDE_WIDTH,
@@ -52,6 +53,14 @@ export interface GeometryOptions {
   slideHeight?: number
   inset?: number
   titleHeight?: number
+  /**
+   * The strip the progress indicator occupies along the bottom edge.
+   *
+   * It is reserved on every slide unconditionally, because every slide has one
+   * — see `PROGRESS_BAR_HEIGHT`. The option exists so a caller can measure a
+   * page that has no indicator (pass `0`), not so a deck can turn it off.
+   */
+  progressHeight?: number
   minZoneWidth?: number
   minZoneHeight?: number
 }
@@ -62,6 +71,7 @@ interface ResolvedOptions {
   slideHeight: number
   inset: number
   titleHeight: number
+  progressHeight: number
   minZoneWidth: number
   minZoneHeight: number
 }
@@ -73,6 +83,7 @@ export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
     slideHeight: options.slideHeight ?? SLIDE_HEIGHT,
     inset: options.inset ?? SLIDE_INSET,
     titleHeight: options.titleHeight ?? TITLE_ZONE_HEIGHT,
+    progressHeight: options.progressHeight ?? PROGRESS_BAR_HEIGHT,
     minZoneWidth: options.minZoneWidth ?? MIN_ZONE_WIDTH,
     minZoneHeight: options.minZoneHeight ?? MIN_ZONE_HEIGHT,
   }
@@ -215,11 +226,18 @@ export function computeTitleRect(hasTitle: boolean, options: GeometryOptions = {
   }
 }
 
-/** Rect of the main layout area, accounting for the optional title zone. */
+/**
+ * Rect of the main layout area, accounting for the optional title zone and the
+ * progress indicator every slide carries along its bottom edge.
+ *
+ * The indicator sits flush with the bottom of the slide with one gap above it,
+ * and the bottom inset *is* that gap — so the strip is subtracted once and the
+ * content area simply ends where the indicator begins.
+ */
 export function computeMainRect(hasTitle: boolean, options: GeometryOptions = {}): Rect {
   const o = resolveOptions(options)
   const contentWidth = o.slideWidth - o.inset * 2
-  const contentHeight = o.slideHeight - o.inset * 2
+  const contentHeight = o.slideHeight - o.inset * 2 - o.progressHeight
   if (!hasTitle) {
     return { x: o.inset, y: o.inset, width: contentWidth, height: contentHeight }
   }

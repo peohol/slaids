@@ -54,11 +54,36 @@ export interface ThemeMetrics {
   titleZoneHeight: number
 }
 
-export const SPACING_RANGE = { min: 0.6, max: 2 } as const
-export const FONT_SCALE_RANGE = { min: 0.7, max: 1.6 } as const
+/**
+ * The two dials, and where they may stand.
+ *
+ * Both ladders sit one rung higher than they used to: the tightest setting a
+ * deck can be put in is airier than the old normal, and the loosest is looser
+ * than the old maximum. The base numbers in `constants.ts` did not move — what
+ * moved is the multiplier, which is the honest place to move it: a stored
+ * `spacing` still means exactly what it meant, it is simply no longer offered
+ * below the new floor.
+ */
+export const SPACING_RANGE = { min: 1, max: 2.4 } as const
+export const FONT_SCALE_RANGE = { min: 1, max: 1.7 } as const
 
-export const DEFAULT_SPACING = 1
-export const DEFAULT_FONT_SCALE = 1
+/** What a new deck opens in: the «Normal» rung on each ladder. */
+export const DEFAULT_SPACING = 1.3
+export const DEFAULT_FONT_SCALE = 1.15
+
+/**
+ * The multiplier that means «the base tokens, unscaled».
+ *
+ * It is what a deck stored before the theme had these dials was drawn at, so a
+ * migration that fills them in fills in *this* — never `DEFAULT_SPACING`, which
+ * is what a new deck opens in. Reproducing a stored deck and styling a new one
+ * are two different jobs, and they only looked like one while the default
+ * happened to be neutral.
+ *
+ * Both ladders reach down to it, which is why an older deck is still something
+ * the theme can express at all after the shift.
+ */
+export const NEUTRAL_SCALE = 1
 
 /** A named setting on one of the two scales. */
 export interface ThemeScalePreset {
@@ -78,17 +103,17 @@ export interface ThemeScalePreset {
  * list is what keeps the two saying the same thing.
  */
 export const SPACING_PRESETS: readonly ThemeScalePreset[] = [
-  { label: 'Tett', value: 0.75 },
+  { label: 'Tett', value: SPACING_RANGE.min },
   { label: 'Normal', value: DEFAULT_SPACING },
-  { label: 'Luftig', value: 1.3 },
-  { label: 'Ekstra luftig', value: 1.6 },
+  { label: 'Luftig', value: 1.6 },
+  { label: 'Ekstra luftig', value: 2 },
 ]
 
 export const FONT_SCALE_PRESETS: readonly ThemeScalePreset[] = [
-  { label: 'Liten', value: 0.85 },
+  { label: 'Liten', value: FONT_SCALE_RANGE.min },
   { label: 'Normal', value: DEFAULT_FONT_SCALE },
-  { label: 'Stor', value: 1.15 },
-  { label: 'Ekstra stor', value: 1.3 },
+  { label: 'Stor', value: 1.3 },
+  { label: 'Ekstra stor', value: 1.45 },
 ]
 
 function clamp(value: number, range: { min: number; max: number }, fallback: number): number {

@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { deckPages } from '../../domain/pages'
+import { deckPages, deckProgress } from '../../domain/pages'
 import { computeReferenceNumbering } from '../../domain/references'
 import type { DeckSource } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
@@ -45,6 +45,7 @@ export function PresentationPlayer({
   onExit = null,
 }: PresentationPlayerProps) {
   const pages = useMemo(() => deckPages(deck, { shareUrl }), [deck, shareUrl])
+  const progress = useMemo(() => deckProgress(pages), [pages])
   const numbering = useMemo(() => computeReferenceNumbering(deck), [deck])
   const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), pages.length - 1))
   const hostRef = useRef<HTMLDivElement>(null)
@@ -134,6 +135,7 @@ export function PresentationPlayer({
           theme: deck.theme,
           numbering,
           headingPillColor: deck.cover.pillColor,
+          progress,
           isStatic: true,
         }}
       >

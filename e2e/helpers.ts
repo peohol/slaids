@@ -1,8 +1,27 @@
 import { expect, type Locator, type Page } from '@playwright/test'
+import {
+  PROGRESS_BAR_HEIGHT,
+  SLIDE_HEIGHT as LOGICAL_SLIDE_HEIGHT,
+  SLIDE_WIDTH as LOGICAL_SLIDE_WIDTH,
+} from '../src/domain/constants'
+import { themeMetrics } from '../src/domain/metrics'
+import { defaultTheme } from '../src/domain/presentation'
 
-export const SLIDE_WIDTH = 1600
-export const SLIDE_HEIGHT = 900
-export const G = 24
+export const SLIDE_WIDTH = LOGICAL_SLIDE_WIDTH
+export const SLIDE_HEIGHT = LOGICAL_SLIDE_HEIGHT
+
+/**
+ * The gap a new deck is actually drawn with.
+ *
+ * Read from the domain rather than written out here: the base token is one
+ * number and the theme scales it, so a suite that restated `24` would be
+ * asserting a distance no deck has had since the theme's «Normal» stopped
+ * meaning «unscaled».
+ */
+export const G = themeMetrics(defaultTheme()).gap
+
+/** The strip the progress indicator takes along the bottom edge of every slide. */
+export const PROGRESS_HEIGHT = PROGRESS_BAR_HEIGHT
 
 export interface ZoneRect {
   id: string

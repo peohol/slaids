@@ -19,6 +19,7 @@ import {
   createUntitledCard,
 } from '../content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
+import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import { findPresentationIssues } from '../validation'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
@@ -180,7 +181,7 @@ describe('setTheme', () => {
     const blank = createPresentation({ title: 'Fit' })
     const slideId = blank.slides[0].id
     const presentation = unwrap(
-      setSlideTitle(blank, slideId, titleDoc('A'.repeat(62)), checkers),
+      setSlideTitle(blank, slideId, titleDoc('A'.repeat(54)), checkers),
     )
 
     expectRefused(setTheme(presentation, { headingFontFamily: stack('verdana') }, checkers))
@@ -207,12 +208,12 @@ describe('setTheme', () => {
     // More air takes room from the same text twice over: a wider gap shrinks
     // every zone, and more card padding shrinks what is left inside it.
     expectRefused(setTheme(filled(), { spacing: 1.6 }, checkers))
-    expect(setTheme(filled(), { spacing: 0.75 }, checkers).ok).toBe(true)
+    expect(setTheme(filled(), { spacing: SPACING_RANGE.min }, checkers).ok).toBe(true)
   })
 
   it('refuses type larger than the content can afford', () => {
     expectRefused(setTheme(filled(), { fontScale: 1.3 }, checkers))
-    expect(setTheme(filled(), { fontScale: 0.85 }, checkers).ok).toBe(true)
+    expect(setTheme(filled(), { fontScale: FONT_SCALE_RANGE.min }, checkers).ok).toBe(true)
   })
 
   it('refuses a scale outside the supported range outright', () => {
@@ -225,11 +226,11 @@ describe('setTheme', () => {
     const blank = createPresentation({ title: 'Fit' })
     const slideId = blank.slides[0].id
     const presentation = unwrap(
-      setSlideTitle(blank, slideId, titleDoc('A'.repeat(62)), checkers),
+      setSlideTitle(blank, slideId, titleDoc('A'.repeat(54)), checkers),
     )
     // The title zone grows with the type, but not as fast as the glyphs do.
     expectRefused(setTheme(presentation, { fontScale: 1.3 }, checkers))
-    expect(setTheme(presentation, { fontScale: 0.85 }, checkers).ok).toBe(true)
+    expect(setTheme(presentation, { fontScale: FONT_SCALE_RANGE.min }, checkers).ok).toBe(true)
   })
 
   it('does not re-measure the deck for a colour-only change', () => {
@@ -257,7 +258,7 @@ describe('card body layout', () => {
   })
 
   it('accepts a subfield count the existing text still fits', () => {
-    const presentation = deckWith(cardWith([paragraphDoc(words(1200))]))
+    const presentation = deckWith(cardWith([paragraphDoc(words(900))]))
     expect(
       setSubfieldCount(presentation, { ...target(presentation), count: 2, ...checkers }).ok,
     ).toBe(true)
@@ -298,19 +299,20 @@ describe('card body layout', () => {
 describe('setContentKind', () => {
   // A container gives the whole zone to content; an untitled card spends
   // 2 * CARD_PADDING on chrome and a titled card another CARD_HEADER_HEIGHT on
-  // top. The two lengths sit on either side of that difference.
+  // top. One length is enough to show the difference: the same text that still
+  // fits an untitled card no longer fits once a header is added.
   const filled = (chars: number): Presentation =>
     deckWith(containerWithDoc(paragraphDoc(words(chars))))
 
   it('refuses a conversion that adds chrome the content cannot afford', () => {
-    const presentation = filled(3600)
+    const presentation = filled(2400)
     expectRefused(
       setContentKind(presentation, { ...target(presentation), kind: 'titled-card', ...checkers }),
     )
   })
 
   it('accepts a conversion the content still fits', () => {
-    const presentation = filled(3400)
+    const presentation = filled(2400)
     const result = setContentKind(presentation, {
       ...target(presentation),
       kind: 'untitled-card',

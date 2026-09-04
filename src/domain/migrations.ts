@@ -19,6 +19,7 @@ import {
   DEFAULT_FONT_SCALE,
   DEFAULT_SPACING,
   FONT_SCALE_RANGE,
+  NEUTRAL_SCALE,
   SPACING_RANGE,
 } from './metrics'
 
@@ -189,8 +190,9 @@ function isRichdocPayload(value: unknown): boolean {
 /**
  * A theme gains its two scales.
  *
- * Luft and skriftstørrelse are multipliers, so `1` is exactly what every
- * existing presentation already looks like.
+ * Luft and skriftstørrelse are multipliers, so the neutral one is exactly what
+ * every existing presentation already looks like — see `NEUTRAL_SCALE`. What a
+ * new deck opens in is a different question, and not this one.
  */
 const migrate4to5: MigrationFn = (data) => {
   const theme = (data.theme ?? {}) as Raw
@@ -199,8 +201,8 @@ const migrate4to5: MigrationFn = (data) => {
     schemaVersion: 5,
     theme: {
       ...theme,
-      spacing: asNumber(theme.spacing, DEFAULT_SPACING),
-      fontScale: asNumber(theme.fontScale, DEFAULT_FONT_SCALE),
+      spacing: asNumber(theme.spacing, NEUTRAL_SCALE),
+      fontScale: asNumber(theme.fontScale, NEUTRAL_SCALE),
     },
   }
 }

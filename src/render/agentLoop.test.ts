@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
+import { DEFAULT_FONT_SCALE, DEFAULT_SPACING, FONT_SCALE_RANGE } from '../domain/metrics'
 import { COVER_PAGE_ID } from '../domain/pages'
 import {
   TOKEN,
@@ -372,8 +373,8 @@ describe('en agent bygger, ser og retter', () => {
       expect(read.theme).toMatchObject({
         headingFont: { fontId: 'quicksand' },
         bodyFont: { fontId: 'atkinson' },
-        spacing: 1,
-        fontScale: 1,
+        spacing: DEFAULT_SPACING,
+        fontScale: DEFAULT_FONT_SCALE,
       })
 
       const inspected = await call<{ rootNodeId: string }>(client, 'inspect_slide', {
@@ -413,7 +414,7 @@ describe('en agent bygger, ser og retter', () => {
       await call(client, 'set_theme', {
         presentationId,
         backgroundColor: RUST.hex,
-        fontScale: 0.85,
+        fontScale: FONT_SCALE_RANGE.min,
       })
       const rust = await renderPreview(client, { presentationId, slideId })
 

@@ -153,3 +153,28 @@ export const DEFAULT_BACKGROUND_COLOR = '#667788'
  * product, not of whoever happens to be uploading.
  */
 export const MAX_ASSET_BYTES = 25 * 1024 * 1024
+
+/**
+ * The progress indicator.
+ *
+ * Every page but the cover carries one, and it is not optional: a deck that
+ * could be laid out without it and have it switched on later would be a deck
+ * whose slides suddenly lost a strip of room they were already full of. Making
+ * it unconditional is what lets the geometry engine reserve the strip once, for
+ * every slide, before any content is ever placed.
+ *
+ * The bar is flush with the bottom edge and with both sides — it has no gap
+ * below it and none beside it — and exactly one gap above it, which is the
+ * deck's own `G`. That is why the reservation is `PROGRESS_BAR_HEIGHT` and not
+ * `PROGRESS_BAR_HEIGHT + G`: the gap above it is the bottom inset the content
+ * area already had.
+ *
+ * The height is a thickness rather than a distance between two things, so the
+ * theme's `spacing` does not scale it, exactly as it does not scale a card's
+ * radius or a divider's stroke.
+ */
+export const PROGRESS_BAR_HEIGHT = 10
+/** The track behind the fill: the same colour, carrying less of it. */
+export const PROGRESS_TRACK_OPACITY = 0.3
+/** How long the fill takes to reach the position a page turn gave it. */
+export const PROGRESS_TRANSITION_MS = 600

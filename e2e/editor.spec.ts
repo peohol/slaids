@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures'
 import {
+  G,
   addContentToZone,
   createPresentation,
   enterContentMode,
@@ -64,7 +65,7 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('slide-title')).toHaveCount(0)
     const withoutTitle = (await zoneRects(page))[0]
     expect(withoutTitle.h).toBeGreaterThan(withTitle.h)
-    expect(withoutTitle.y).toBeCloseTo(24, 0)
+    expect(withoutTitle.y).toBeCloseTo(G, 0)
 
     await page.getByTestId('toggle-title').click()
     await expect(page.getByTestId('slide-title')).toBeVisible()

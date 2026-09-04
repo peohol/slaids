@@ -12,10 +12,17 @@
  */
 
 import { QRCodeSVG } from 'qrcode.react'
-import { SLIDE_HEIGHT, SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
+import {
+  PROGRESS_BAR_HEIGHT,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  TITLE_LINE_HEIGHT,
+} from '../../domain/constants'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { QR_PAGE_ID } from '../../domain/pages'
 import { useSlideRender } from './SlideRenderContext'
+import { SlideProgressBar } from './SlideProgressBar'
 import { slideTokenStyle } from './SlideView'
 
 /** Big enough to scan across a room, small enough to leave the page airy. */
@@ -24,10 +31,14 @@ const QR_SIZE = 380
 const QR_PADDING = 28
 
 export function QrPageView({ url }: { url: string }) {
-  const { theme } = useSlideRender()
+  const { theme, headingPillColor, progress } = useSlideRender()
   const metrics = themeMetrics(theme)
   const gap = geometryForTheme(theme).gap
   const foreground = bestTextColor(theme.backgroundColor)
+  // The QR page is the last page of a shared deck, so its indicator is full.
+  // It is looked up rather than assumed: the page exists only while sharing is
+  // on, and the deck it belongs to is what decides that.
+  const position = progress.get(QR_PAGE_ID)
 
   return (
     <div
@@ -38,6 +49,10 @@ export function QrPageView({ url }: { url: string }) {
         height: SLIDE_HEIGHT,
         background: theme.backgroundColor,
         gap,
+        // The page has no zone tree to reserve the indicator's strip in, so the
+        // one column it does have is kept clear of it here instead.
+        paddingBottom: PROGRESS_BAR_HEIGHT,
+        boxSizing: 'border-box',
         ...slideTokenStyle(theme),
       }}
     >
@@ -72,6 +87,10 @@ export function QrPageView({ url }: { url: string }) {
       >
         {url}
       </p>
+
+      {position !== undefined && (
+        <SlideProgressBar progress={position} color={headingPillColor} />
+      )}
     </div>
   )
 }

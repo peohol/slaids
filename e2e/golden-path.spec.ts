@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures'
 import {
   G,
+  PROGRESS_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   addContentToZone,
@@ -73,7 +74,9 @@ test('golden path slide keeps exactly one gap everywhere', async ({ page }, test
   expect(title.y).toBeCloseTo(G, 0)
   expectGap(l.x, 'slide edge to content (left)')
   expectGap(SLIDE_WIDTH - (tr.x + tr.w), 'slide edge to content (right)')
-  expectGap(SLIDE_HEIGHT - (l.y + l.h), 'slide edge to content (bottom)')
+  // The bottom distance is one gap too — to the progress indicator, which is
+  // flush with the slide edge on every slide.
+  expectGap(SLIDE_HEIGHT - PROGRESS_HEIGHT - (l.y + l.h), 'content to progress bar (bottom)')
   expectGap(l.y - (title.y + title.h), 'title to main')
   expectGap(tr.x - (l.x + l.w), 'left to right')
   expectGap(br.x - (l.x + l.w), 'left to bottom-right (nesting adds no gap)')

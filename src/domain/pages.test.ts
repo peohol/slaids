@@ -5,6 +5,7 @@ import {
   COVER_PAGE_ID,
   QR_PAGE_ID,
   deckPages,
+  deckProgress,
   derivedPageNote,
   derivedPages,
   isDerivedPage,
@@ -126,5 +127,53 @@ describe('derivedPageNote', () => {
     expect(derivedPageNote(reference)).toMatch(/referansene/i)
     expect(derivedPageNote(qr)).toMatch(/Del/)
     expect(derivedPageNote(qr)).toMatch(/kan ikke redigeres/i)
+  })
+})
+
+describe('deckProgress', () => {
+  it('teller forsiden ut: første vanlige slide er side 1', () => {
+    const presentation = createPresentation({ title: 'Tre sider' })
+    const withSlides: Presentation = {
+      ...presentation,
+      slides: [
+        presentation.slides[0],
+        { ...presentation.slides[0], id: 's2' },
+        { ...presentation.slides[0], id: 's3' },
+      ],
+    }
+    const pages = deckPages(withSlides)
+    const progress = deckProgress(pages)
+
+    expect(progress.has(COVER_PAGE_ID)).toBe(false)
+    expect(progress.get(withSlides.slides[0].id)).toBeCloseTo(1 / 3, 9)
+    expect(progress.get('s2')).toBeCloseTo(2 / 3, 9)
+    expect(progress.get('s3')).toBe(1)
+  })
+
+  it('lar den siste siden være full, uansett hva slags side det er', () => {
+    const shared = deckPages(withCitation(), { shareUrl: SHARE_URL })
+    const progress = deckProgress(shared)
+    expect(progress.get(QR_PAGE_ID)).toBe(1)
+
+    // Uten deling er referansesiden den siste, og da er det den som er full.
+    const unshared = deckPages(withCitation(), { shareUrl: null })
+    const last = unshared[unshared.length - 1]
+    expect(last.kind).toBe('reference-slide')
+    expect(deckProgress(unshared).get(last.id)).toBe(1)
+  })
+
+  it('teller de avledede sidene med, så bare første halvdel er authored', () => {
+    const pages = deckPages(withCitation(), { shareUrl: SHARE_URL })
+    const progress = deckProgress(pages)
+    const authored = pages.find((page) => page.kind === 'authored-slide')
+    // Én authored slide, én referanseside og én QR-side: den authored er 1 av 3.
+    expect(progress.get(authored?.id ?? '')).toBeCloseTo(1 / 3, 9)
+  })
+
+  it('gir en tom presentasjon ingen fremdrift å tegne', () => {
+    const pages = deckPages(createPresentation({ title: 'x' })).filter(
+      (page) => page.kind === 'cover',
+    )
+    expect(deckProgress(pages).size).toBe(0)
   })
 })

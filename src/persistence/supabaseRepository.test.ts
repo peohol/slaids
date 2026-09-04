@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
-import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from '../domain/metrics'
+import { NEUTRAL_SCALE } from '../domain/metrics'
 import { newAssetId } from '../domain/ids'
 import type { AssetRef, Presentation } from '../domain/types'
 import { RepositoryConflictError, RepositoryError } from './repository'
@@ -117,8 +117,10 @@ describe('SupabaseSlaidsRepository – lesing', () => {
     expect(loaded.id).toBe(current.id)
     expect(loaded.title).toBe('Fra Supabase')
     expect(loaded.slides).toHaveLength(1)
-    expect(loaded.theme.spacing).toBe(DEFAULT_SPACING)
-    expect(loaded.theme.fontScale).toBe(DEFAULT_FONT_SCALE)
+    // Migrated to what the row already looked like, not to what a new deck
+    // would open in.
+    expect(loaded.theme.spacing).toBe(NEUTRAL_SCALE)
+    expect(loaded.theme.fontScale).toBe(NEUTRAL_SCALE)
   })
 
   it('avviser et ugyldig remote dokument i stedet for å slippe det inn i domenet', async () => {

@@ -126,6 +126,36 @@ async function fillToCapacity(
   return low
 }
 
+/**
+ * A paragraph of citation pills of one reference, separated so no two merge,
+ * with a run of filler whose length the caller controls.
+ *
+ * The filler is one span of its own rather than a share of every pill's text,
+ * and that is the point: these cases turn a one-digit label into a two-digit
+ * one, which widens each pill by a fraction of a character. Spread across the
+ * pills, one step of `fillToCapacity`'s search moved the paragraph by a whole
+ * character *per pill* — several times the width the pills themselves gain — so
+ * whether the change was caught came down to where the search happened to stop.
+ * With the filler in one span, a step is one character and the pills' own
+ * growth is the larger of the two.
+ */
+const PILL_COUNT = 30
+
+function pillParagraph(referenceId: string, text: string): TextBlock[] {
+  return [
+    {
+      type: 'paragraph',
+      spans: [
+        { text },
+        ...Array.from({ length: PILL_COUNT }, () => [
+          { text: 'x' },
+          { citation: [referenceId] },
+        ]).flat(),
+      ],
+    },
+  ]
+}
+
 async function stored(context: AgentContext, presentationId: string): Promise<Presentation> {
   return context.repository.loadPresentation(presentationId)
 }
@@ -679,19 +709,10 @@ describe('citations kan ikke omgå fit-guarden', () => {
     // Thirty separate pills, so one digit becoming two is a real difference.
     // Separated by text on purpose: citations standing next to each other are
     // merged into one, exactly as they are in the editor.
-    const pills = 30
     await fillToCapacity(
       context,
       { presentationId: deck.presentationId, slideId: cited, nodeId: citedNode },
-      (text) => [
-        {
-          type: 'paragraph',
-          spans: Array.from({ length: pills }, () => [
-            { text: 'x'.repeat(Math.max(1, Math.ceil(text.length / pills))) },
-            { citation: [references[0]] },
-          ]).flat(),
-        },
-      ],
+      (text) => pillParagraph(references[0], text),
     )
     const before = await stored(context, deck.presentationId)
 
@@ -765,19 +786,10 @@ describe('citations kan ikke omgå fit-guarden', () => {
         slideId: last.slideId,
       }),
     )
-    const pills = 30
     await fillToCapacity(
       context,
       { presentationId: deck.presentationId, slideId: last.slideId, nodeId: lastNode },
-      (text) => [
-        {
-          type: 'paragraph',
-          spans: Array.from({ length: pills }, () => [
-            { text: 'x'.repeat(Math.max(1, Math.ceil(text.length / pills))) },
-            { citation: [references[0]] },
-          ]).flat(),
-        },
-      ],
+      (text) => pillParagraph(references[0], text),
     )
 
     const before = await stored(context, deck.presentationId)
@@ -1927,19 +1939,10 @@ describe('sandkassen', () => {
         slideId: pillsSlide.slideId,
       }),
     )
-    const pills = 30
     await fillToCapacity(
       context,
       { presentationId: deck.presentationId, slideId: pillsSlide.slideId, nodeId: pillsNode },
-      (text) => [
-        {
-          type: 'paragraph',
-          spans: Array.from({ length: pills }, () => [
-            { text: 'x'.repeat(Math.max(1, Math.ceil(text.length / pills))) },
-            { citation: [references[0]] },
-          ]).flat(),
-        },
-      ],
+      (text) => pillParagraph(references[0], text),
     )
     const before = await stored(context, deck.presentationId)
 

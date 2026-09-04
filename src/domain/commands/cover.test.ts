@@ -93,7 +93,7 @@ describe('creating a deck', () => {
   })
 
   it('measures against the theme the deck is actually created with', () => {
-    const near = { title: 'Kvartalsrapport for hele konsernet'.padEnd(60, ' x') }
+    const near = { title: 'Kvartalsrapport for hele konsernet'.padEnd(52, ' x') }
     expect(createDeck(near, checkers).ok).toBe(true)
     expect(
       createDeck({ ...near, theme: { headingFontFamily: stack('verdana') } }, checkers).ok,
@@ -136,9 +136,10 @@ describe('cover text', () => {
   })
 
   it('refuses a theme that would clip a cover line that fits today', () => {
-    // Long enough for the default heading font and no longer: 60 characters at
-    // 46 px fills the pill, and Verdana is 12 % wider per glyph.
-    const near = 'Kvartalsrapport for hele konsernet'.padEnd(60, ' x')
+    // Long enough for the default heading font and no longer: this many
+    // characters fill the pill at the deck's own type size, and Verdana is
+    // 12 % wider per glyph.
+    const near = 'Kvartalsrapport for hele konsernet'.padEnd(52, ' x')
     const presentation = unwrap(setCoverTitle(deck(), titleDoc(near), checkers))
 
     // Nothing about the cover changes here — the type it is set in does, and

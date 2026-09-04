@@ -56,6 +56,26 @@ export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): Deck
   return pages
 }
 
+/**
+ * How far through the deck each page sits, as a fraction in `(0, 1]`.
+ *
+ * The cover is not in the map: it is the way in to the deck rather than a step
+ * through it, and it carries no progress indicator. Everything after it counts,
+ * derived pages included — the first authored slide is page one, and whatever
+ * happens to be last (an authored slide, a reference slide, the QR page) is the
+ * end of the deck and reads as full.
+ *
+ * Keyed by page id rather than by index so a renderer that was handed one page
+ * — a thumbnail, the stage, a rendered preview — can still say where in the
+ * deck it belongs, without the caller having to count for it.
+ */
+export type DeckProgress = ReadonlyMap<string, number>
+
+export function deckProgress(pages: readonly DeckPage[]): DeckProgress {
+  const counted = pages.filter((page) => page.kind !== 'cover')
+  return new Map(counted.map((page, index) => [page.id, (index + 1) / counted.length]))
+}
+
 /** The generated pages only: what the filmstrip lists below the authored ones. */
 export function derivedPages(deck: DeckSource, options: DeckPageOptions = {}): DeckPage[] {
   return deckPages(deck, options).filter(isDerivedPage)

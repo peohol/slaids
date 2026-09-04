@@ -38,7 +38,7 @@ import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
-import { derivedPageNote, derivedPages } from '../../domain/pages'
+import { deckPages, deckProgress, derivedPageNote, isDerivedPage } from '../../domain/pages'
 import {
   cloneSubtreeWithNewIds,
   collectLeaves,
@@ -317,10 +317,17 @@ export function EditorView({
    * turning `Del` off makes the QR page disappear by itself, because nothing
    * ever put it in `presentation.slides`.
    */
-  const derived = useMemo(
-    () => (presentation ? derivedPages(presentation, { shareUrl }) : []),
+  const pages = useMemo(
+    () => (presentation ? deckPages(presentation, { shareUrl }) : []),
     [presentation, shareUrl],
   )
+  const derived = useMemo(() => pages.filter(isDerivedPage), [pages])
+  /**
+   * The editor draws the same progress indicator the audience sees, on the
+   * stage and on every thumbnail — a deck being edited is a deck, and the strip
+   * it takes is reserved on every slide whether or not anyone is watching.
+   */
+  const progress = useMemo(() => deckProgress(pages), [pages])
 
   /**
    * Derived by construction rather than synchronised. Selecting an authored
@@ -811,6 +818,7 @@ export function EditorView({
         theme: presentation.theme,
         numbering,
         headingPillColor: presentation.cover.pillColor,
+        progress,
         isStatic: false,
         // A citation is the shortest path to the source it stands for: one
         // reference opens on that reference, several open the list.

@@ -22,6 +22,7 @@ import { bestTextColor, textShadowFor } from '../../domain/color'
 import type { LeafNode, PresentationTheme, Rect, Slide } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
+import { SlideProgressBar } from './SlideProgressBar'
 import { ZoneContentView } from './ZoneContentView'
 
 /**
@@ -90,7 +91,11 @@ export function SlideView({
   children,
   className,
 }: SlideViewProps) {
-  const { theme, headingPillColor } = useSlideRender()
+  const { theme, headingPillColor, progress } = useSlideRender()
+  // The indicator is drawn for whichever page of the deck this slide is. A
+  // slide the renderer was handed outside a deck — offscreen measurement — is
+  // not a page of anything, and draws none.
+  const position = progress.get(slide.id)
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(theme),
     ...geometryOptions,
@@ -144,6 +149,10 @@ export function SlideView({
       })}
 
       {children}
+
+      {position !== undefined && (
+        <SlideProgressBar progress={position} color={headingPillColor} />
+      )}
     </div>
   )
 }

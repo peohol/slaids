@@ -1,5 +1,7 @@
-import { expect, test } from './fixtures'
+import { expect, test, type Page } from './fixtures'
 import {
+  PROGRESS_HEIGHT,
+  SLIDE_WIDTH,
   addContentToZone,
   createPresentation,
   stage,
@@ -7,6 +9,42 @@ import {
   watchForErrors,
   zoneRects,
 } from './helpers'
+
+/**
+ * The progress indicator on the page currently being presented, measured in
+ * logical slide pixels against the slide it is drawn on.
+ */
+async function progressBar(page: Page): Promise<{
+  present: boolean
+  left: number
+  right: number
+  bottom: number
+  height: number
+  fillWidth: number
+  transition: string
+} | null> {
+  return page.evaluate(() => {
+    const slide = document.querySelector('[data-testid="present-view"] .slide') as HTMLElement
+    if (!slide) return null
+    const slideBox = slide.getBoundingClientRect()
+    const scale = slideBox.width / 1600
+    const bar = slide.querySelector('[data-testid="slide-progress"]') as HTMLElement | null
+    if (!bar) {
+      return { present: false, left: 0, right: 0, bottom: 0, height: 0, fillWidth: 0, transition: '' }
+    }
+    const box = bar.getBoundingClientRect()
+    const fill = slide.querySelector('[data-testid="slide-progress-fill"]') as HTMLElement
+    return {
+      present: true,
+      left: (box.left - slideBox.left) / scale,
+      right: (slideBox.right - box.right) / scale,
+      bottom: (slideBox.bottom - box.bottom) / scale,
+      height: box.height / scale,
+      fillWidth: fill.getBoundingClientRect().width / scale,
+      transition: `${getComputedStyle(fill).transitionProperty} ${getComputedStyle(fill).transitionDuration} ${getComputedStyle(fill).transitionTimingFunction}`,
+    }
+  })
+}
 
 test.describe('presentation mode', () => {
   test('navigates slides with the keyboard and exits with Escape', async ({ page }) => {
@@ -210,5 +248,46 @@ test.describe('presentation mode', () => {
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(0)
     await expect(page.getByTestId('filmstrip-derived')).toHaveCount(0)
+  })
+
+  test('draws a progress indicator on every page but the cover', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Fremdrift')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+
+    await page.getByTestId('present').click()
+    await page.keyboard.press('Home')
+    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
+    // The cover is the way in to the deck, not a step through it.
+    expect((await progressBar(page))?.present).toBe(false)
+
+    // Three slides after the cover, so the first of them is one third of the way.
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('present-counter')).toHaveText('2 / 4')
+    const first = await progressBar(page)
+    expect(first?.present).toBe(true)
+    // Flush with the bottom and with both sides; only the gap above it is air.
+    expect(first?.left).toBeCloseTo(0, 0)
+    expect(first?.right).toBeCloseTo(0, 0)
+    expect(first?.bottom).toBeCloseTo(0, 0)
+    expect(first?.height).toBeCloseTo(PROGRESS_HEIGHT, 0)
+    expect(first?.fillWidth).toBeCloseTo(SLIDE_WIDTH / 3, 0)
+    expect(first?.transition).toBe('width 0.6s ease-in-out')
+
+    await page.keyboard.press('End')
+    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
+    // Polled rather than read once: the fill moves to its new position instead
+    // of jumping there, so right after a page turn it is still on its way.
+    expect((await progressBar(page))?.fillWidth).toBeLessThan(SLIDE_WIDTH)
+    // The last page is the end of the deck, whatever kind of page it is.
+    await expect
+      .poll(async () => (await progressBar(page))?.fillWidth)
+      .toBeCloseTo(SLIDE_WIDTH, 0)
+
+    await page.keyboard.press('Escape')
+    expect(guard.errors).toEqual([])
   })
 })

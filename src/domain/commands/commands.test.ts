@@ -781,8 +781,9 @@ describe('content fit on structural changes', () => {
       setZoneContent(presentation, {
         slideId,
         nodeId: presentation.slides[0].root.id,
-        // Fits the full-height main zone, but not once the title zone takes 96 px.
-        content: filledCard('ord '.repeat(900)),
+        // Fits the full-height main zone, but not once the title zone and the
+        // gap under it take their share off the top.
+        content: filledCard('ord '.repeat(600)),
         fits: estimateFitChecker,
       }),
     ).presentation

@@ -531,3 +531,41 @@
   border-radius: var(--slaids-card-radius);
   line-height: 0;
 }
+
+/* ----------------------------------------------------------------- *
+ * The progress indicator
+ *
+ * Flush with the bottom edge and with both sides — the only distance around it
+ * is the one above it, and that is the slide's own bottom inset, which the
+ * geometry engine already keeps clear. Sizes and colours are inline styles from
+ * `SlideProgressBar`, so the tokens stay in `src/domain/constants.ts`.
+ * ----------------------------------------------------------------- */
+.slide-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Chrome, not content: a click on a slide is a click on the slide. */
+  pointer-events: none;
+}
+
+.slide-progress__track,
+.slide-progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+}
+
+.slide-progress__track {
+  width: 100%;
+}
+
+/*
+ * The fill moves to where the new page put it rather than jumping there. The
+ * element itself survives a page turn — one page of a deck replaces another in
+ * the same slot — which is what gives the transition something to run from.
+ * The duration comes from `PROGRESS_TRANSITION_MS` as an inline style.
+ */
+.slide-progress__fill {
+  transition-property: width;
+  transition-timing-function: ease-in-out;
+}
