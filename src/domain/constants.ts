@@ -128,6 +128,33 @@ export const CAPTION_BLUR_PX = 3
 export const IMAGE_FOCUS_SNAP_PX = 10
 
 /**
+ * A picture standing in the text, as a share of the column it sits in.
+ *
+ * A share and not a length: 100 % is exactly the field, so a picture can never
+ * grow wider than the text around it, and the height follows from the file's
+ * own proportions rather than being set separately — which is what keeps a
+ * picture from being squashed no matter how the handle is dragged. The floor is
+ * the point below which a picture stops being one, and the default is half the
+ * column, so a new picture leaves room for the words beside it.
+ *
+ * One place, because both doors write the same node: the resize handle in the
+ * editor, and the `image` block in the agent's text format.
+ */
+export const INLINE_IMAGE_MIN_WIDTH_PERCENT = 10
+export const INLINE_IMAGE_MAX_WIDTH_PERCENT = 100
+export const INLINE_IMAGE_DEFAULT_WIDTH_PERCENT = 50
+
+/**
+ * The proportions a picture is drawn with when the document does not say.
+ *
+ * The same fallback the stylesheet applies (`--slaids-image-aspect` in
+ * `slide.css`), so the headless estimator reserves the box the browser will
+ * actually draw. A stored `aspect` always wins: it is the file's own ratio,
+ * taken from the bitstream when the file was stored.
+ */
+export const INLINE_IMAGE_DEFAULT_ASPECT = 16 / 9
+
+/**
  * Dividers between subfields inside a card.
  *
  * Deliberately independent of the card's header colour: a divider is structure,

@@ -457,18 +457,20 @@ museklikk eller databasetilgang:
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
 | `render_slide_preview`                                                 | tegner én side som PNG, slik publikum ser den |
 
-For bilder finnes det nøyaktig to dører inn, to operasjoner for å bestemme
-hvordan bildet står i sonen etterpå, og én vei ut igjen:
+For bilder finnes det nøyaktig to dører inn, to steder et bilde kan stå, to
+operasjoner for å bestemme hvordan et bilde som fyller sonen er beskåret, og én
+vei ut igjen:
 
-| Operasjon           | Hva agenten sender                          | Hva den får                    |
-| ------------------- | ------------------------------------------- | ------------------------------ |
-| `upload_asset`      | metadata + filinnhold (base64, bytes, blob) | `assetId`                      |
-| `create_svg_asset`  | `name` + `svgMarkup`                        | `assetId`                      |
-| `set_zone_asset`    | `assetId` + slide og sone                   | plassert innhold               |
-| `set_image_focus`   | `x` og `y` mellom 0 og 1                    | utsnittet                      |
-| `set_image_caption` | posisjon, tekst og farge                    | bildeteksten                   |
-| `list_assets`       | `presentationId`                            | filene, med `used`             |
-| `delete_asset`      | `assetId`                                   | filen ut av dekket, bytene med |
+| Operasjon           | Hva agenten sender                                     | Hva den får                    |
+| ------------------- | ------------------------------------------------------ | ------------------------------ |
+| `upload_asset`      | metadata + filinnhold (base64, bytes, blob)            | `assetId`                      |
+| `create_svg_asset`  | `name` + `svgMarkup`                                   | `assetId`                      |
+| `set_zone_asset`    | `assetId` + slide og sone                              | bildet som hele sonens innhold |
+| `set_zone_text`     | en `image`-blokk med `assetId`, blant tekstblokkene    | bildet stående i teksten       |
+| `set_image_focus`   | `x` og `y` mellom 0 og 1                               | utsnittet                      |
+| `set_image_caption` | posisjon, tekst og farge                               | bildeteksten                   |
+| `list_assets`       | `presentationId`                                       | filene, med `used`             |
+| `delete_asset`      | `assetId`                                              | filen ut av dekket, bytene med |
 
 - **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
   hva kalleren kaller filen – og hele filen gås gjennom, ikke bare filhodet: en
@@ -488,6 +490,51 @@ hvordan bildet står i sonen etterpå, og én vei ut igjen:
   av funksjoner og uten CSS-escapes. En SVG uten kjent
   størrelsesforhold avvises også: uten `viewBox` eller `width`/`height` finnes
   det ingen riktig måte å legge den ut på.
+- **Et bilde kan også stå inne i teksten.** Det er ikke en annen bildemodell,
+  men en blokk til i det samme tekstformatet – den samme noden editoren skriver
+  når noen setter inn et bilde i et tekstfelt. Blokken navngir en fil som
+  allerede ligger i presentasjonen; bytes finnes aldri i tekstformatet:
+
+  ```json
+  {
+    "presentationId": "p_…", "slideId": "s_…", "nodeId": "n_…",
+    "expectedRevision": "…",
+    "blocks": [
+      { "type": "heading", "spans": [{ "text": "Resultatet" }] },
+      { "type": "paragraph", "spans": [
+          { "text": "Målingen", "bold": true },
+          { "text": " peker samme vei" },
+          { "citation": ["ref_1"] }
+      ]},
+      { "type": "image", "assetId": "as_…", "alt": "Figur 1", "widthPercent": 60, "align": "center" },
+      { "type": "paragraph", "spans": [{ "text": "Kilden er beskrevet under." }] }
+    ]
+  }
+  ```
+
+  `widthPercent` er andelen av kolonnen bildet står i – 100 er hele feltet, og
+  standarden er 50, som lar det stå tekst ved siden av. Høyden settes ikke:
+  den følger av filens egne proporsjoner, lest ut av bytene da filen ble lagret.
+  `inspect_slide` leser den samme blokken tilbake, så en agent kan lese, endre og
+  skrive uten å konstruere noe den ikke selv har fått utlevert.
+- **En figur er alltid innelukket av feltet sitt, og er derfor aldri det som
+  ikke får plass.** Et bilde tegnes aldri høyere enn feltet det står i, uansett
+  hvor høy filen er – et portrettfotografi i full bredde fyller feltet i stedet
+  for å flyte ut av det. Fit-gaten måler det samme taket, så den avviser aldri
+  en figur den ekte rendereren tegner helt fint. Det som *kan* bli avvist, er
+  teksten rundt: en linje over en figur som fyller feltet har ingen steder å
+  gjøre av seg, og da svarer kallet `CONTENT_DOES_NOT_FIT` med hvor mye som ble
+  til overs – smalere figur, eller kortere tekst, og neste forsøk går gjennom.
+  At de to målingene faktisk er enige er ikke et resonnement: en test
+  sammenligner den hodeløse målingen med en ekte Chromium.
+- **Filen må være presentasjonens egen.** `assetId` slås opp i dekkets egen
+  filliste før noe skrives; en id fra en annen presentasjon finnes ikke der og
+  gir `ASSET_NOT_FOUND` (404) med id-ene som ikke ble funnet. Å *vise* en fil som
+  allerede finnes krever bare `presentations:write` – ingen bytes skrives, leses
+  eller fjernes – mens `upload_asset` og `create_svg_asset` fortsatt krever
+  `assets:write`. Referansen er den samme som editorens, så `delete_asset` nekter
+  å slette en fil som bare står inline, og en duplisering peker kopien på kopiens
+  egen fil.
 - **Ingen bildegenererende operasjon** – ingen `generate_image(prompt)` som
   sender prompten videre til en bildeleverandør. Skal Slaids noen gang generere
   et bilde, er det en endring av `IMPLEMENTATION_PLAN.md` §44 først.
@@ -782,6 +829,15 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
      -d '{"presentationId":"p_…","slideId":"s_…","nodeId":"n_…","expectedRevision":"…",
           "subfieldCount":2,"axis":"x","weights":[2,1]}' \
      "$SLAIDS_API/operations/adjust_subfields"
+
+# Sett et bilde inn i teksten. Filen må allerede ligge i presentasjonen –
+# assetId-en kommer fra upload_asset eller create_svg_asset – og bredden er
+# andelen av kolonnen. Høyden følger av filens egne proporsjoner.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…","nodeId":"n_…","expectedRevision":"…",
+          "blocks":[{"type":"paragraph","spans":[{"text":"Figuren viser tre trinn."}]},
+                    {"type":"image","assetId":"as_…","alt":"Figur 1","widthPercent":60}]}' \
+     "$SLAIDS_API/operations/set_zone_text"
 ```
 
 ### Samtidighet over ledningen
@@ -1257,9 +1313,7 @@ skrivetilgang for andre enn eieren.
 en bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret
 bør på sikt være én dør.
 
-Agentflaten har tre hull igjen mot editoren, alle bevisste: en agent kan *bruke*
-bibliotekets mapper, men ikke opprette eller slette dem; tekstformatet en agent
-skriver har ingen bildeblokk, så innfelte bilder i rik tekst kan bare leses;
-og layoutmaler og idéflaten er utenfor med vilje – den første er en snarvei for
-noen som bygger med musen, den andre en notatflate som aldri forlater
-arbeidskopien.
+Agentflaten har to hull igjen mot editoren, begge bevisste: en agent kan *bruke*
+bibliotekets mapper, men ikke opprette eller slette dem; og layoutmaler og
+idéflaten er utenfor med vilje – den første er en snarvei for noen som bygger med
+musen, den andre en notatflate som aldri forlater arbeidskopien.

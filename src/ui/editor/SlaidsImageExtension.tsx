@@ -9,6 +9,13 @@ import { useRef, useState } from 'react'
 import { Node, mergeAttributes, type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
+import {
+  INLINE_IMAGE_DEFAULT_ASPECT,
+  INLINE_IMAGE_DEFAULT_WIDTH_PERCENT,
+  INLINE_IMAGE_MAX_WIDTH_PERCENT,
+  INLINE_IMAGE_MIN_WIDTH_PERCENT,
+} from '../../domain/constants'
+import { IMAGE_NODE } from '../../domain/richdoc'
 import { InlineAssetImage } from '../slide/AssetImage'
 
 declare module '@tiptap/core' {
@@ -27,8 +34,12 @@ declare module '@tiptap/core' {
 
 export const IMAGE_WIDTH_PRESETS = [25, 50, 75, 100] as const
 
-/** The node's name, written once so the schema and the guard below cannot drift. */
-const IMAGE_NODE_NAME = 'slaidsImage'
+/**
+ * The node's name, from the domain's own vocabulary: the editor writes the same
+ * node the static renderer, the fit estimator and the agent's text format read,
+ * so the name is theirs rather than a second copy of it here.
+ */
+const IMAGE_NODE_NAME = IMAGE_NODE
 
 /**
  * Whether a picture can go into this editor at all.
@@ -49,13 +60,13 @@ export function acceptsInlineImage(editor: Editor | null | undefined): editor is
 }
 
 /**
- * A picture may shrink a long way but never outgrow the field it sits in: the
- * width is a share of the column, so 100 % is exactly the column, and the
- * height follows from the aspect ratio rather than being set separately. That
- * is what keeps the proportions right no matter how the handle is dragged.
+ * A picture may shrink a long way but never outgrow the field it sits in — see
+ * `INLINE_IMAGE_MIN_WIDTH_PERCENT` in `domain/constants.ts`, which is where the
+ * range lives so the drag handle and the agent's `image` block cannot disagree
+ * about how wide a picture may be.
  */
-const MIN_WIDTH_PERCENT = 10
-const MAX_WIDTH_PERCENT = 100
+const MIN_WIDTH_PERCENT = INLINE_IMAGE_MIN_WIDTH_PERCENT
+const MAX_WIDTH_PERCENT = INLINE_IMAGE_MAX_WIDTH_PERCENT
 
 function clampPercent(percent: number): number {
   if (!Number.isFinite(percent)) return MAX_WIDTH_PERCENT
@@ -63,7 +74,7 @@ function clampPercent(percent: number): number {
 }
 
 /** Width a freshly inserted image gets when the field has room to spare. */
-export const DEFAULT_IMAGE_WIDTH_PERCENT = 50
+export const DEFAULT_IMAGE_WIDTH_PERCENT = INLINE_IMAGE_DEFAULT_WIDTH_PERCENT
 
 /**
  * How tall the flowed content is, whatever box it is aligned inside.
@@ -126,7 +137,7 @@ export function fittingImageWidthPercent(editor: Editor, aspect: number): number
   if (column <= 0) return DEFAULT_IMAGE_WIDTH_PERCENT
   // No clipping box to measure against — leave the size to the fit guard.
   if (!box || box === dom) return DEFAULT_IMAGE_WIDTH_PERCENT
-  const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9
+  const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : INLINE_IMAGE_DEFAULT_ASPECT
 
   // The flow's own height rather than the field's: the text is what it is even
   // when the field is already clipping it. Three things will exist afterwards
@@ -297,7 +308,7 @@ export const SlaidsImageExtension = Node.create({
       assetId: { default: null },
       alt: { default: '' },
       /** Half width by default, so an image leaves room for the text around it. */
-      widthPercent: { default: 50 },
+      widthPercent: { default: INLINE_IMAGE_DEFAULT_WIDTH_PERCENT },
       /** Intrinsic width / height, so the box has a size before the file loads. */
       aspect: { default: null },
     }

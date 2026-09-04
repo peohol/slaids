@@ -61,7 +61,7 @@ function cardWithInlineImage(assetId: string, times = 1): ZoneContent {
     content: [
       {
         type: 'paragraph',
-        content: Array.from({ length: times }, () => imageNode(assetId, 'Figur')),
+        content: Array.from({ length: times }, () => imageNode(assetId, { alt: 'Figur' })),
       },
     ],
   }

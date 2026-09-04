@@ -9,6 +9,7 @@
 import { Fragment, type ReactNode } from 'react'
 import { citationLabel } from '../../domain/references'
 import { bestTextColor } from '../../domain/color'
+import { inlineImageOf } from '../../domain/richdoc'
 import type { RichDoc, RichMark, RichNode } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
@@ -70,23 +71,23 @@ function Citation({ node }: { node: RichNode }) {
 }
 
 function SlaidsImage({ node }: { node: RichNode }) {
-  const assetId = typeof node.attrs?.assetId === 'string' ? node.attrs.assetId : null
-  const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : ''
-  const percent = Number(node.attrs?.widthPercent)
-  const aspect = Number(node.attrs?.aspect)
-  const width = `${Number.isFinite(percent) && percent > 0 ? percent : 100}%`
+  // `inlineImageOf` is the one reading of the stored node, so this renderer,
+  // the fit estimator and the agent's text format cannot disagree about what a
+  // picture is. A node with no file behind it is not drawn at all.
+  const image = inlineImageOf(node)
+  if (!image) return null
   return (
     <div
       className="rd-image-wrapper"
       style={
         {
-          width,
-          '--slaids-image-aspect': Number.isFinite(aspect) && aspect > 0 ? String(aspect) : undefined,
-          ...alignStyle(node),
+          width: `${image.widthPercent}%`,
+          '--slaids-image-aspect': image.aspect === null ? undefined : String(image.aspect),
+          ...(image.align ? { textAlign: image.align } : {}),
         } as React.CSSProperties
       }
     >
-      <InlineAssetImage assetId={assetId} alt={alt} />
+      <InlineAssetImage assetId={image.assetId} alt={image.alt} />
     </div>
   )
 }

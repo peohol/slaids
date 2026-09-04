@@ -404,6 +404,26 @@ describe('feilene er de samme feilene', () => {
     expect(both.status).toBe(422)
   })
 
+  it('en fil teksten viser, men som ikke finnes, gir samme ASSET_NOT_FOUND', async () => {
+    // A picture in the text is part of the same block format, so its refusal
+    // has to behave like every other one: a real tool ran and said no, which
+    // is a *result* in MCP and a 404 over REST, with the same payload in both.
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed)
+
+    const both = await refusedBothWays(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      blocks: [{ type: 'image', assetId: 'as_finnes_ikke' }],
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('ASSET_NOT_FOUND')
+    expect(both.rest.details?.assetIds).toEqual(['as_finnes_ikke'])
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(404)
+  })
+
   it('en temaendring som skjuler innhold gir samme kode og de samme tallene', async () => {
     // The global counterpart of the case above: a fit refusal that no zone was
     // addressed in, so the details come entirely from the guard.

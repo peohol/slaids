@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
 import {
   containerWithDoc,
+  createCaption,
   createImage,
   createUntitledCard,
 } from '../content'
@@ -72,6 +73,26 @@ function cardWith(docs: RichDoc[], axis: CardBody['axis'] = 'y', weights?: numbe
       weights: weights ?? docs.map(() => 1),
       subfields: docs.map((doc, index) => ({ id: `field-${index}`, doc })),
     },
+  }
+}
+
+/**
+ * A wide banner with one line of text under it.
+ *
+ * The shape every layout case below is built on, because it is the one where a
+ * figure's own rule bites: `.rd-image-wrapper` is capped at the height of its
+ * field, so the picture is never what overflows — it takes the room it is
+ * given and the text under it is what has nowhere to go. A figure on its own
+ * would fit every layout there is, which is exactly the invariant
+ * `en figur er alltid innelukket av feltet sitt` states.
+ */
+function bannerAndLine(aspect = 4): RichDoc {
+  return {
+    type: 'doc',
+    content: [
+      imageNode('asset-1', { aspect }),
+      { type: 'paragraph', content: [{ type: 'text', text: 'En bildetekst.' }] },
+    ],
   }
 }
 
@@ -282,30 +303,55 @@ describe('card body layout', () => {
   })
 
   it('refuses an axis flip that shrinks the space the content needs', () => {
-    // A full-width figure is as tall as its column is wide, so stacking two
-    // side-by-side subfields costs it more height than it gains.
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1')] }
-    const presentation = deckWith(cardWith([figure, paragraphDoc('')], 'x', [1, 1]))
+    // A figure is contained by its field and can never overflow on its own, so
+    // what runs out of room is the line under it. Stacking gives the field half
+    // the height; the banner grows to fill whatever it is given, and the
+    // sentence below it is what falls off the bottom.
+    const presentation = deckWith(cardWith([bannerAndLine(), paragraphDoc('')], 'x', [1, 1]))
     expectRefused(setBodyAxis(presentation, { ...target(presentation), axis: 'y', ...checkers }))
   })
 
   it('accepts an axis flip the content still fits', () => {
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1')] }
-    const presentation = deckWith(cardWith([figure, paragraphDoc('')], 'y', [1, 1]))
+    // The same shape with a flatter banner: it is shorter than the stacked
+    // field to begin with, so the flip changes nothing that has to fit.
+    const presentation = deckWith(cardWith([bannerAndLine(8), paragraphDoc('')], 'y', [1, 1]))
     expect(setBodyAxis(presentation, { ...target(presentation), axis: 'x', ...checkers }).ok).toBe(
       true,
     )
   })
 
+  it('lets a figure fill whatever field it is given, because it is contained by it', () => {
+    // The rule the three cases above are built on, stated on its own. A
+    // portrait photograph is three times as tall as it is wide, so uncapped it
+    // would need three columns' worth of height — but `.rd-image-wrapper` is
+    // `max-height: 100%`, so the browser draws it at the height of the field
+    // and nothing is hidden. Every layout below therefore fits, and an
+    // estimator that said otherwise would refuse slides the renderer draws
+    // perfectly. Checked against a real browser in `src/render/fitParity.test.ts`.
+    const portrait: RichDoc = { type: 'doc', content: [imageNode('asset-1', { aspect: 1 / 3 })] }
+    const presentation = deckWith(cardWith([portrait]))
+    const where = target(presentation)
+
+    expect(setSubfieldCount(presentation, { ...where, count: 2, ...checkers }).ok).toBe(true)
+    expect(
+      setBodyLayout(presentation, { ...where, subfieldCount: 3, axis: 'y', ...checkers }).ok,
+    ).toBe(true)
+    expect(
+      setBodyLayout(presentation, { ...where, subfieldCount: 2, axis: 'x', weights: [9, 1], ...checkers })
+        .ok,
+    ).toBe(true)
+  })
+
   it('reaches in one gated step a layout the same layout in two steps cannot', () => {
     // This is why count, axis and weights are one command. Two subfields side
-    // by side hold a figure that two stacked subfields do not: stacking halves
-    // the height the figure needs all of, while splitting sideways makes it
-    // narrower and therefore shorter. Asking for the count first and the axis
-    // second never arrives — the intermediate is measured on its own terms and
-    // refused — so the destination would be unreachable, not merely awkward.
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1', '', 70)] }
-    const presentation = deckWith(cardWith([figure]))
+    // by side hold what two stacked subfields do not: stacking halves the
+    // height, and a figure fills all of whatever height it is given, so the
+    // line under it is pushed out — while splitting sideways makes the figure
+    // narrower and therefore shorter, and leaves the line room. Asking for the
+    // count first and the axis second never arrives — the intermediate is
+    // measured on its own terms and refused — so the destination would be
+    // unreachable, not merely awkward.
+    const presentation = deckWith(cardWith([bannerAndLine()]))
 
     expectRefused(
       setSubfieldCount(presentation, { ...target(presentation), count: 2, ...checkers }),
@@ -350,11 +396,17 @@ describe('setContentKind', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('refuses turning a picture into text it has no room for', () => {
-    // A picture filling a zone is cropped to it and can never overflow; the
-    // same file *inline* is as tall as the zone is wide, and the zone is far
-    // wider than it is tall. So the conversion is where it stops fitting.
-    const presentation = deckWith(createImage('asset-1'))
+  it('refuses turning a captioned picture into text it has no room for', () => {
+    // Both halves of the conversion are contained on their own: the picture
+    // filling the zone is cropped to it, and the same file inline is capped at
+    // the height of the field. The caption is what has nowhere to go — over the
+    // picture it is a label floating on top of it, and under it as text it is a
+    // paragraph below a figure that already fills the field.
+    const picture = createImage('asset-1')
+    const presentation = deckWith({
+      ...picture,
+      image: { ...picture.image, caption: createCaption('bottom', paragraphDoc(words(400))) },
+    })
     expectRefused(
       setContentKind(presentation, { ...target(presentation), kind: 'container', ...checkers }),
     )

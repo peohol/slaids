@@ -2193,7 +2193,8 @@ Agentkontrakten skal tilby et enkelt format for eksempelvis:
 - punktlister;
 - nummererte lister;
 - fet/kursiv der dette støttes;
-- citations koblet til reference-ID.
+- citations koblet til reference-ID;
+- bilder som står mellom avsnittene, med `assetId` til en fil dekket allerede har.
 
 Agent Core oversetter dette til Slaids' interne rich-text-format.
 
@@ -2829,6 +2830,34 @@ isolerte kall:
 - REST og MCP er enige om sandkassen, id for id, og den offisielle
   MCP-klienten godtar `list_sandbox_items`- og `place_sandbox_item`-verktøyene.
 
+For bilder inne i teksten, i tillegg – tekstformatets egen retning inn og ut, og
+livsløpet rundt filen:
+
+- agentformat → `RichDoc` skriver editorens egen node, med filens proporsjoner
+  fra `AssetRef` og ingen bytes noe sted;
+- `RichDoc` → agentformat leser den samme blokken tilbake, og en roundtrip
+  bevarer `assetId`, bredden, alt-teksten og justeringen;
+- tekst før og etter bildet, og et bilde sammen med citations og formattert
+  tekst, overlever begge veier;
+- en node uten fil bak seg er fortsatt `unsupported`, og en tabell, en kodeblokk
+  og en nøstet liste er det fremdeles;
+- `set_zone_text` gjennom den ekte operasjonen skriver bildet, og
+  `inspect_slide` viser det;
+- en figur fyller feltet uten å flyte over, uansett hvor høy filen er, i enhver
+  subfeltlayout – og det er teksten over en fylt figur som avvises;
+- estimatet og en ekte Chromium er enige om alle tre: portrettfiguren som fyller
+  feltet, linjen over den som ikke får plass, og banneret som er lavere enn
+  feltet;
+- en ukjent `assetId`, og en `assetId` som tilhører en annen presentasjon, gir
+  `ASSET_NOT_FOUND` uten at noe skrives – og REST og MCP svarer det samme;
+- et bilde som ikke får plass gir `CONTENT_DOES_NOT_FIT` atomisk, og et smalere
+  bilde lykkes på neste forsøk;
+- `delete_asset` ser inline-referansen som bruk, og slipper filen når teksten
+  skrives om uten den;
+- en duplisering remapper bildet, og kopien viser sin egen fil også etter at
+  originalen er slettet;
+- `set_zone_text` krever fortsatt bare `presentations:write`.
+
 For fase 6, oppryddingen, i tillegg – og her er avvisningene viktigere enn
 suksessene, fordi de er de eneste som kan ødelegge et dekk:
 
@@ -3052,10 +3081,13 @@ en feilskrevet nøkkel er en avvisning og ikke et felt som ikke gjør noe.
 Bevisst ikke markdown: en markdown-parser er en andre, uformell grammatikk med
 egne kanttilfeller, og feilene den gjør er stille – feil struktur, ikke en feil.
 
+Et bilde som står inne i teksten er en blokk til: `image`, med `assetId` til en
+fil presentasjonen allerede har. Se «Bilder inne i teksten» under.
+
 To ting formatet ikke kan uttrykke, og hva som skjer med dem:
 
 - **Struktur editoren kan lage og formatet ikke kan** – tabell, kodeblokk,
-  innfelt bilde, nøstet liste. Lesing gir en `unsupported`-blokk som navngir
+  nøstet liste. Lesing gir en `unsupported`-blokk som navngir
   noden og bærer teksten dens, slik at en agent ser at noe er der og at det ville
   bli erstattet. Den er ikke en del av det en agent kan *sende*: å finne på en
   skrivevei for en form formatet ikke modellerer er der stille ødeleggelse
@@ -3070,10 +3102,75 @@ rendereren lager en ekte `<a href>` av en link-mark, så en `javascript:`-lenke 
 avvises før den blir et dokument – ikke etterpå.
 
 Justering hører til linja, ikke til teksten, og følger derfor blokken: `align` på
-et avsnitt eller en overskrift, og `align`/`titleAlign` på operasjonene som setter
-en tittel. Utelates den, beholdes justeringen tittelen allerede hadde – en agent
-som er bedt om å endre ordene har ikke bedt om å midtstille dem tilbake til
-venstre.
+et avsnitt, en overskrift eller et bilde, og `align`/`titleAlign` på operasjonene
+som setter en tittel. Utelates den, beholdes justeringen tittelen allerede hadde –
+en agent som er bedt om å endre ordene har ikke bedt om å midtstille dem tilbake
+til venstre.
+
+#### Bilder inne i teksten
+
+Et bilde kan stå på to steder, og de er to forskjellige ting. Det ene er hele
+sonens innhold: `set_zone_asset`, der bildet fyller sonen ut til kantene og
+beskjæres, og `set_image_focus`/`set_image_caption` bestemmer utsnittet og
+teksten over det. Det andre er en figur som står mellom avsnittene i et
+tekstfelt, og *den* er en blokk i tekstformatet:
+
+```json
+{ "type": "image", "assetId": "as_…", "alt": "Figur 1", "widthPercent": 60, "align": "center" }
+```
+
+Fire ting gjør dette til én modell og ikke to:
+
+- **Det er editorens egen node.** Blokken oversettes til `slaidsImage` med de
+  samme attributtene editorens innsettingsknapp skriver, og
+  `src/domain/richdoc.ts` er det ene stedet de attributtene leses – av den
+  statiske rendereren, av den hodeløse fit-estimatoren og av tekstformatet.
+  Det er dét som gjør at `delete_asset` teller bildet som bruk, at en
+  duplisering peker kopien på kopiens egen fil, og at import og paste
+  remapper den, uten at noen av dem trengte å lære en agentspesifikk
+  referanse å kjenne.
+- **Aldri bytes i tekstformatet.** Blokken navngir en fil som allerede ligger i
+  presentasjonen; `upload_asset` og `create_svg_asset` er fortsatt de to eneste
+  dørene bytes kommer inn gjennom. Derfor krever det ingen `assets:write` å vise
+  en fil som allerede finnes: ingenting skrives til, leses fra eller fjernes fra
+  fillageret, og en referanse til en fil er en helt vanlig redigering av
+  dokumentet. Å legge filscopet på `set_zone_text` ville gitt hver eneste
+  tekstendring rett til å fylle lageret.
+- **Filen må være dekkets egen.** `assetId` slås opp i presentasjonens egen
+  filliste (`unknownAssetIds`, samme utledning som `set_zone_asset` og
+  `setImageAsset` bruker) *før* noen kommando kjører, så en id fra en annen
+  presentasjon er `ASSET_NOT_FOUND` og ingenting lagres. Assets tilhører én
+  presentasjon, så det finnes ingen egen regel for «en fil fra et annet dekk» –
+  det er den samme sjekken.
+- **Proporsjonene er filens, ikke kallerens.** Skjemaet har ingen `aspect`:
+  høyden følger av `AssetRef`-ens `width`/`height`, som ble lest ut av
+  bitstrømmen da filen ble lagret. Et forholdstall en kaller oppga ville vært en
+  påstand, og en påstand er nøyaktig det som ville fått fit-målingen og den
+  tegnede sliden til å være uenige. `widthPercent` er andelen av kolonnen –
+  `INLINE_IMAGE_MIN_WIDTH_PERCENT`–100, standard 50 – så et bilde kan aldri bli
+  bredere enn feltet rundt det.
+- **Og en figur er alltid innelukket av feltet sitt.** `.rd-image-wrapper` er
+  `max-height: 100%` i et felt med en bestemt høyde, så nettleseren tegner den
+  aldri høyere enn feltet: «a figure can never be the cause of an overflow», som
+  `slide.css` sier det. Estimatoren måler derfor `min(bredde / aspect,
+  felthøyde)`. Bare det første leddet ville avvist et portrettfotografi ved
+  *enhver* bredde – taket er det samme ved enhver bredde – for innhold den ekte
+  rendereren tegner helt fint. Taket er hele feltets høyde og ikke plassen som
+  er igjen under blokkene over, fordi det er dét en prosentandel regnes mot: en
+  linje over en fylt figur flyter over med nøyaktig sin egen høyde. Inne i et
+  listepunkt eller et sitat finnes taket ikke, fordi prosenten der regnes mot en
+  `auto`-høyde, og figuren er da så høy som proporsjonene gjør den.
+  Det som avvises er altså teksten rundt figuren, ikke figuren:
+  `CONTENT_DOES_NOT_FIT` med sonens rect og overflow, akkurat som for mye tekst,
+  og løkken agenten kjører er den samme – bare med bredden som ett av det som
+  kan kortes ned.
+- **To målinger av det samme spørsmålet må sjekkes mot hverandre, ikke
+  resonneres om.** Den hodeløse estimatoren gater hvert agentkall og
+  DOM-målingen gater editoren; der de er uenige blir en slide enten avvist selv
+  om den tegnes perfekt, eller godtatt selv om den klippes – og ingen av delene
+  sier fra. Figuren var nettopp et slikt sted. `src/render/fitParity.test.ts`
+  sammenligner derfor estimatet med `scrollHeight - clientHeight` i en ekte
+  Chromium, på den samme markupen `DeckPageView` tegner.
 
 #### Revisjon er ikke en ny lås
 
@@ -3950,10 +4047,12 @@ Supabase gjorde den det ikke, fordi en `UPDATE` med identisk innhold likevel
 flytter radens `version` og dermed gjør en annens `expectedRevision` utdatert.
 Nå står den virkelig stille.
 
-En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
-Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
-tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
-ikke mekanisk:
+Inline bilder i rik tekst var det tredje hullet her, og er lukket: tekstformatet
+har en `image`-blokk, og den skriver editorens egen node (se «Bilder inne i
+teksten» over). En systematisk sammenligning mot editorens handlinger etterlater
+disse hullene. Ingen av dem er en mangel ved denne fasen; de står her fordi de er
+de neste tingene som faktisk stopper en agent, og fordi flaten skal vokse med
+vilje og ikke mekanisk:
 
 - **Mapper kan velges, men ikke lages.** `list_folders` og `move_presentation`
   lar en agent bruke bibliotekets mapper; å opprette, gi nytt navn til eller
@@ -3961,10 +4060,6 @@ ikke mekanisk:
   står igjen, og den er ikke tatt med her fordi den ikke stopper noen: en agent
   som ikke har en mappe legger dekket på rotnivå, som er der biblioteket uansett
   begynner.
-- **Inline bilder i rik tekst.** `delete_asset` respekterer dem – de teller som
-  bruk, og en fil som bare ligger inline kan ikke slettes – men tekstformatet en
-  agent *skriver* har fortsatt ingen bildeblokk. En agent kan altså ikke lage
-  det den nå må ta hensyn til; editoren kan.
 - **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
   menneske som bygger med musen, den andre en notatflate som aldri forlater
   arbeidskopien.

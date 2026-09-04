@@ -29,6 +29,35 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   aldri en liste over felttyper: en liste svarer riktig i dag og må vedlikeholdes for hånd
   den dagen en femte felttype dukker opp – og første tegn på at ingen gjorde det, er at
   `insertSlaidsImage` ikke finnes, kastet *etter* at filen alt er lagret.
+- **Et bilde inne i teksten er den samme noden uansett hvem som skrev den.**
+  Editorens innsettingsknapp og agentens `image`-blokk i `src/agent/text.ts`
+  ender begge i `slaidsImage` med en `assetId` til en fil dekket allerede har –
+  aldri bytes i tekstformatet, og aldri en agentspesifikk referanse. Derfor er
+  «`delete_asset` teller det som bruk», «en duplisering remapper det» og «import
+  og paste ser det» egenskaper ved koden i stedet for tre steder som må huske
+  det samme. `src/domain/richdoc.ts` (`imageNode`/`inlineImageOf`) er den ene
+  lesingen av nodens attributter; den statiske rendereren, fit-estimatoren og
+  tekstformatet går alle gjennom den. Proporsjonene er filens og ikke
+  kallerens: høyden utledes av `AssetRef`-ens `width`/`height`, lest ut av
+  bitstrømmen da filen ble lagret. Et forholdstall en kaller oppga ville vært en
+  påstand, og det er påstanden som ville fått målingen og sliden til å bli
+  uenige. **Og en figur er alltid innelukket av feltet sitt**: `.rd-image-wrapper`
+  er `max-height: 100%` i et felt med en bestemt høyde, så nettleseren tegner den
+  aldri høyere enn feltet – «a figure can never be the cause of an overflow», som
+  `slide.css` sier det. Estimatoren måler derfor `min(bredde / aspect, felthøyde)`,
+  ikke bare det første: et portrettbilde ville ellers blitt avvist ved *enhver*
+  bredde, siden taket er det samme ved enhver bredde. Taket er hele feltets høyde
+  og ikke plassen som er igjen under blokkene over – det er dét en prosentandel
+  regnes mot – så tekst over en fylt figur flyter over med nøyaktig sin egen
+  høyde, og en figur inne i et listepunkt eller et sitat har ikke noe tak i det
+  hele tatt, fordi prosenten der regnes mot en `auto`-høyde. To målinger av det
+  samme spørsmålet kan gli fra hverandre i stillhet, så
+  `src/render/fitParity.test.ts` sammenligner estimatoren med en ekte Chromium.
+  `assetId` slås opp med `unknownAssetIds` før noen kommando kjører, så
+  en fil fra et annet dekk er `ASSET_NOT_FOUND` og ingenting lagres. Å vise en
+  fil som allerede finnes krever bare `presentations:write`: ingen bytes
+  skrives, leses eller fjernes, og filscopet på hver tekstendring ville gitt
+  enhver redigering rett til å fylle lageret.
 - **Det finnes ikke en tom bildetekst.** En ny bildetekst tar markøren, og en som forlates
   tom fjerner seg selv – derfor er det trygt at *enhver* tom bildetekst autofokuseres: en
   tom kan bare være en helt fersk. Bildeteksten er alltid midtstilt, hvit med skygge

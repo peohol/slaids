@@ -639,7 +639,7 @@ describe('delete_asset', () => {
     const card = createUntitledCard()
     const doc: RichDoc = {
       type: 'doc',
-      content: [{ type: 'paragraph', content: [imageNode(assetId, 'Figur')] }],
+      content: [{ type: 'paragraph', content: [imageNode(assetId, { alt: 'Figur' })] }],
     }
     return { ...card, body: { ...card.body, subfields: [{ ...card.body.subfields[0], doc }] } }
   }
