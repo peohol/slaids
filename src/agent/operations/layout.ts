@@ -25,6 +25,7 @@ import {
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
+import { bodyOf } from '../../domain/content'
 import { findLeaf, findSplit } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
@@ -40,7 +41,6 @@ import {
 } from '../operation'
 import { mutatePresentation, sandboxIdsAdded, structuralOptions } from '../presentation'
 import type { AgentResult } from '../types'
-import { inspectContent, type ContentInspection } from './deck'
 
 const axisSchema = z
   .enum(['x', 'y'])
@@ -259,7 +259,18 @@ export const clearZone = defineOperation({
  * move_zone_content
  * ------------------------------------------------------------------ */
 
-/** Where the content came from, where it went, and what it is now. */
+/**
+ * Where the content came from, where it went, and the ids that survived.
+ *
+ * Ids and nothing else, which is the same shape every other mutation answers in
+ * (`set_zone_card` and `adjust_subfields` report `subfieldIds` too) and is a
+ * scope boundary as much as a convention: `presentations:read` and
+ * `presentations:write` are independent on a token, so a write-only caller must
+ * not be handed content it cannot read. It would be — `moveZoneContent` treats a
+ * move onto the zone the content already sits in as a no-op, so an answer that
+ * described the content would make this operation an `inspect_slide` without the
+ * read scope. Describing what a zone *holds* belongs to the reads.
+ */
 export interface ZoneContentMove {
   presentationId: string
   fromSlideId: string
@@ -268,14 +279,14 @@ export interface ZoneContentMove {
   toSlideId: string
   toNodeId: string
   /**
-   * What now sits in the target zone, in the same vocabulary `inspect_slide`
-   * uses — so the ids that survived the move come back with the answer.
+   * The text fields inside the content that moved, in layout order.
    *
-   * The point of the whole operation is that these are the *same* ids: a
-   * subfield an agent wrote before the move is the subfield it writes after it,
-   * without a re-read and without rebuilding anything.
+   * The point of the whole operation is that these are the *same* ids as before
+   * the move: a subfield an agent wrote into beforehand is the subfield it
+   * writes into afterwards, at the new address and without a re-read. Empty for
+   * a zone showing a file, which has no fields.
    */
-  content: ContentInspection
+  subfieldIds: string[]
 }
 
 /** The content a leaf holds, in the document a command produced. */
@@ -344,7 +355,7 @@ export const moveZoneContentOperation = defineOperation({
             fromNodeId: input.fromNodeId,
             toSlideId,
             toNodeId: input.toNodeId,
-            content: inspectContent(content),
+            subfieldIds: bodyOf(content)?.subfields.map((field) => field.id) ?? [],
           },
         })
       },

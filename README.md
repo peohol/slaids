@@ -528,8 +528,12 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   bygge innholdet opp igjen et annet sted gir noe som ser likt ut og er
   adresserbart av ingenting agenten allerede holder. Kilde og mål navngis hver
   for seg – `fromSlideId`/`fromNodeId` og `toSlideId`/`toNodeId`, der `toSlideId`
-  utelatt betyr den samme sliden – og svaret bærer målsonen og innholdet i samme
-  format som `inspect_slide`, så en ekstra lesing ikke trengs. Reglene er
+  utelatt betyr den samme sliden – og svaret bærer målsonen og subfelt-id-ene, så
+  agenten kan skrive videre uten en ekstra lesing. Id-er og ingenting mer:
+  `presentations:read` og `presentations:write` er uavhengige på et token, og et
+  svar som beskrev innholdet ville gjort flyttingen til et `inspect_slide` uten
+  lesescopet – å flytte innhold til den sonen det allerede står i er en lovlig
+  no-op. Reglene er
   plasseringens vanlige: målet må være en tom bladsone, innholdet må få plass
   der, og en flytting som endrer hvilken citation som forekommer først må også
   gjennom den globale fit-guarden. Å *kopiere* innhold er ikke med – det er en
