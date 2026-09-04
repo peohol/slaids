@@ -28,7 +28,7 @@ import {
 } from '../content'
 import { areWeightsValid } from '../geometry'
 import { findLeaf, findNode, replaceNode } from '../layout'
-import { collectDocAssetIds, docToPlainText, emptyDoc, imageNode, isDocEmpty, titleDoc } from '../richdoc'
+import { CITATION_NODE, collectDocAssetIds, emptyDoc, imageNode, isDocEmpty } from '../richdoc'
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
@@ -410,8 +410,10 @@ export function setCardColor(
       if (color === null) return err('INVALID_CONTENT', 'Kort uten tittel har ingen arvet farge.')
       return ok({ ...content, backgroundColor: color })
     }
-    if (content.kind === 'titled-card') return ok({ ...content, headerColor: color })
-    return err('INVALID_CONTENT', 'Beholdere har ingen bakgrunnsfarge.')
+    // The same header a titled card has, down to the inheritance — so both
+    // titled kinds answer here rather than only the one that came first.
+    if (hasCardTitle(content)) return ok({ ...content, headerColor: color })
+    return err('INVALID_CONTENT', 'Denne innholdstypen har ingen fargeflate.')
   })
 }
 
@@ -511,33 +513,72 @@ function bodyFrom(content: ZoneContent, carriedTitle: RichDoc | null): CardBody 
  * The picture panel a conversion into a picture kind ends up with.
  *
  * The file is the first inline image the source shows, so a card with a figure
- * in it becomes that figure. The caption is everything the source said in
- * words, flattened to one line — a caption is one line that wraps, so a body
- * of several paragraphs arrives as one, and if it is too long for the picture
- * the fit gate says so rather than this function trimming it.
+ * in it becomes that figure. Everything the source said in words becomes the
+ * caption — the card's own title included, when the target has no title panel
+ * to keep it in. A caption is one line that wraps, so a body of several
+ * paragraphs arrives as one, and if it is too long for the picture the fit gate
+ * says so rather than this function trimming it.
  */
 function imagePanelFrom(content: ZoneContent, carriedTitle: RichDoc | null): ImagePanel {
   const existing = imagePanelOf(content)
-  if (existing) {
-    return carriedTitle && !existing.caption
-      ? { ...existing, caption: captionFromText(docToPlainText(carriedTitle)) }
-      : existing
-  }
-
-  const text = [carriedTitle, ...contentDocs(content)]
-    .map((doc) => (doc ? docToPlainText(doc) : ''))
-    .filter((line) => line.length > 0)
-    .join(' ')
-  return {
-    assetId: firstInlineAssetId(content),
-    focus: { ...CENTRED_FOCUS },
-    caption: captionFromText(text),
-  }
+  // `spokenDocs` deliberately leaves the card title out: it is carried
+  // separately, because whether it survives as a title or folds into the
+  // caption is the target's decision, not this function's.
+  const caption = captionFrom([carriedTitle, ...spokenDocs(content)], existing?.caption ?? null)
+  if (existing) return caption === existing.caption ? existing : { ...existing, caption }
+  return { assetId: firstInlineAssetId(content), focus: { ...CENTRED_FOCUS }, caption }
 }
 
-function captionFromText(text: string): ImageCaption | null {
-  const trimmed = text.trim()
-  return trimmed.length === 0 ? null : createCaption('bottom', titleDoc(trimmed))
+/** Everything the content says in words, apart from its own card title. */
+function spokenDocs(content: ZoneContent): RichDoc[] {
+  const body = bodyOf(content)
+  if (body) return body.subfields.map((field) => field.doc)
+  const caption = imagePanelOf(content)?.caption
+  return caption ? [caption.doc] : []
+}
+
+/**
+ * One caption from everything the source said.
+ *
+ * Built from **inline nodes**, not from plain text. A citation is not
+ * characters: flattening it away would delete a reference's first occurrence
+ * and renumber every label after it, on slides nobody touched — which is the
+ * one thing a conversion must never do quietly. Marks do go, because a caption
+ * is plain text and its schema has no bold in it, but every glyph survives.
+ *
+ * Nothing to say leaves the caption exactly as it was, so a conversion between
+ * two picture kinds is not a rewrite of the caption that is already there.
+ */
+function captionFrom(
+  docs: (RichDoc | null)[],
+  existing: ImageCaption | null,
+): ImageCaption | null {
+  const inline = joinInline(docs.map((doc) => (doc ? captionInline(doc) : [])))
+  if (inline.length === 0) return existing
+  const doc: RichDoc = { type: 'doc', content: [{ type: 'paragraph', content: inline }] }
+  return existing ? { ...existing, doc } : createCaption('bottom', doc)
+}
+
+/** A document as a caption may hold it: one run of text and citations. */
+function captionInline(doc: RichDoc): RichNode[] {
+  return joinInline((doc.content ?? []).map(captionLeaves))
+}
+
+function captionLeaves(node: RichNode): RichNode[] {
+  if (node.type === CITATION_NODE) return [{ ...node }]
+  if (node.type === 'text') return node.text ? [{ type: 'text', text: node.text }] : []
+  return (node.content ?? []).flatMap(captionLeaves)
+}
+
+/** One run, with a space wherever two blocks meet so words do not run together. */
+function joinInline(runs: RichNode[][]): RichNode[] {
+  const out: RichNode[] = []
+  for (const run of runs) {
+    if (run.length === 0) continue
+    if (out.length > 0) out.push({ type: 'text', text: ' ' })
+    out.push(...run)
+  }
+  return out
 }
 
 /** The first figure the content shows in its text, if any. */

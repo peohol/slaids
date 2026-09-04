@@ -341,6 +341,59 @@ describe('set_zone_asset', () => {
     expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(true)
   })
 
+  it('krever tekst når en agent lager en bildetekst', async () => {
+    // There is no such thing as an empty caption. The editor may hold one for a
+    // moment because the caret goes straight into it and leaving it empty
+    // removes it again; an agent has no such moment, so an empty one it created
+    // would simply be stored — and steal the caret from whoever opens the slide.
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    await setZoneAsset.run(context, { ...seeded, ...placement })
+    const zone = { presentationId: seeded.presentationId, slideId: seeded.slideId, nodeId: seeded.nodeId }
+
+    const refused = expectErr(
+      await runOperation(context, 'set_image_caption', { ...zone, position: 'bottom' }),
+    )
+    expect(refused.code).toBe('INVALID_ARGUMENT')
+
+    expectOk(
+      await runOperation(context, 'set_image_caption', {
+        ...zone,
+        position: 'bottom',
+        spans: [{ text: 'Et fotografi' }],
+      }),
+    )
+    // With one there, moving or recolouring it needs no text of its own.
+    expectOk(await runOperation(context, 'set_image_caption', { ...zone, position: 'middle' }))
+
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    const root = reloaded.slides[0].root
+    expect(root.kind === 'leaf' && root.content?.kind === 'image' && root.content.image.caption)
+      .toMatchObject({ position: 'middle' })
+  })
+
+  it('flytter utsnittet uten å røre filen', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    await setZoneAsset.run(context, { ...seeded, ...placement })
+
+    expectOk(
+      await runOperation(context, 'set_image_focus', {
+        presentationId: seeded.presentationId,
+        slideId: seeded.slideId,
+        nodeId: seeded.nodeId,
+        x: 0,
+        y: 0.75,
+      }),
+    )
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    const root = reloaded.slides[0].root
+    expect(root.kind === 'leaf' && root.content).toMatchObject({
+      kind: 'image',
+      image: { assetId: seeded.assetId, focus: { x: 0, y: 0.75 } },
+    })
+  })
+
   it('avviser en assetId presentasjonen ikke har', async () => {
     const context = freshContext()
     const seeded = await seedWithAsset(context)

@@ -17,11 +17,17 @@ import {
   createUntitledCard,
   imagePanelOf,
 } from '../content'
-import { convertContentKind, setImageCaption, setImageFocus, setImageAsset } from './content'
+import {
+  convertContentKind,
+  setCardColor,
+  setImageAsset,
+  setImageCaption,
+  setImageFocus,
+} from './content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { createPresentation } from '../presentation'
 import { createLeaf } from '../layout'
-import { docToPlainText, paragraphDoc, titleDoc } from '../richdoc'
+import { collectCitationIds, docToPlainText, paragraphDoc, titleDoc } from '../richdoc'
 import type { AssetRef, Presentation, ZoneContent } from '../types'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
@@ -154,6 +160,30 @@ describe('a caption', () => {
   })
 })
 
+describe('a card header', () => {
+  it('is the same header on both titled kinds, colour and inheritance alike', () => {
+    // The inspector offers the picker for both, so the command has to answer
+    // for both — otherwise every colour click on a picture card is a refusal.
+    const presentation = deckWith(createTitledImageCard('a1', 'Overskrift'))
+    const coloured = unwrap(
+      setCardColor(presentation, { ...target(presentation), color: '#112233' }),
+    )
+    const card = contentOf(coloured)
+    expect(card.kind === 'titled-image-card' && card.headerColor).toBe('#112233')
+
+    const inherited = unwrap(setCardColor(coloured, { ...target(coloured), color: null }))
+    const back = contentOf(inherited)
+    expect(back.kind === 'titled-image-card' && back.headerColor).toBeNull()
+  })
+
+  it('is refused on content that has no panel to colour', () => {
+    const presentation = deckWith(createImage('a1'))
+    const refused = setCardColor(presentation, { ...target(presentation), color: '#112233' })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.error.code).toBe('INVALID_CONTENT')
+  })
+})
+
 describe('converting to and from a picture', () => {
   it('carries the picture into a card as an inline figure, and the caption as text', () => {
     const source = createImage('a1')
@@ -217,6 +247,73 @@ describe('converting to and from a picture', () => {
     const converted = convertContentKind(framed, 'titled-image-card')
     if (converted.kind !== 'titled-image-card') throw new Error('forventet et bildekort')
     expect(converted.image).toEqual(framed.image)
+  })
+
+  it('keeps the card title when a titled image card already has a caption', () => {
+    // The title panel goes away, so the title has nowhere left to be but the
+    // caption — and a caption that was already there is not a reason to drop it.
+    const source = createTitledImageCard('a1', 'Overskrift')
+    const withCaption: ZoneContent = {
+      ...source,
+      image: {
+        ...source.image,
+        caption: { doc: titleDoc('Fjord'), position: 'bottom', color: null },
+      },
+    }
+    const converted = convertContentKind(withCaption, 'image')
+    if (converted.kind !== 'image') throw new Error('forventet et bilde')
+    const text = docToPlainText(converted.image.caption?.doc ?? null)
+    expect(text).toContain('Overskrift')
+    expect(text).toContain('Fjord')
+  })
+
+  it('keeps citations when text becomes a caption', () => {
+    // A citation is not characters. Flattening it away would delete a
+    // reference's first occurrence and renumber every label after it, on
+    // slides nobody touched.
+    const card = createUntitledCard()
+    const citing: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [
+          {
+            ...card.body.subfields[0],
+            doc: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    { type: 'text', text: 'Se ' },
+                    { type: 'citation', attrs: { referenceIds: ['r1'] } },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    }
+    const converted = convertContentKind(citing, 'image')
+    if (converted.kind !== 'image') throw new Error('forventet et bilde')
+    expect(collectCitationIds(converted.image.caption?.doc ?? null)).toEqual(['r1'])
+  })
+
+  it('says a titled card\'s title once, not twice', () => {
+    const card = createTitledCard('Overskrift')
+    const withBody: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc('Brødtekst') }],
+      },
+    }
+    const converted = convertContentKind(withBody, 'image')
+    if (converted.kind !== 'image') throw new Error('forventet et bilde')
+    const text = docToPlainText(converted.image.caption?.doc ?? null)
+    expect(text.match(/Overskrift/g)).toHaveLength(1)
+    expect(text).toContain('Brødtekst')
   })
 
   it('loses nothing when a text card becomes a picture and comes back', () => {

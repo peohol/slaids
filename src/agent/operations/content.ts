@@ -42,6 +42,7 @@ import {
   imagePanelOf,
 } from '../../domain/content'
 import { findLeaf, findNode } from '../../domain/layout'
+import { isDocEmpty } from '../../domain/richdoc'
 import { findSlide } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
 import type { Axis, CardBody, LeafNode, Presentation, ZoneContent } from '../../domain/types'
@@ -539,6 +540,17 @@ export const setImageCaptionOperation = defineOperation({
         return err('INVALID_CONTENT', 'Sonen viser ikke et bilde.')
       }
       if (!input.remove) {
+        /*
+         * A caption with nothing in it does not exist — see `ImageCaption`. The
+         * editor may create one for a moment because the caret goes straight
+         * into it and leaving it empty removes it again; an agent has no such
+         * moment, so an empty one it created would simply be stored, and would
+         * then steal the caret from whoever opens that slide next.
+         */
+        if (!panel.caption && isDocEmpty(titleSpansToDoc(input.spans ?? []))) {
+          return err('INVALID_ARGUMENT', 'En ny bildetekst må ha tekst. Send `spans`.')
+        }
+
         const cited = unknownReferenceIds(presentation, citedIdsInSpans(input.spans ?? []))
         if (cited.length > 0) {
           return err('REFERENCE_NOT_FOUND', 'Bildeteksten siterer referanser som ikke finnes.', {
