@@ -247,6 +247,89 @@ describe('operasjonskatalogen', () => {
     }
   })
 
+  it('har fase 7: bibliotekets livsløp, med scope-grensen tegnet per operasjon', () => {
+    // The four calls that act on a presentation from the outside. Each of them
+    // asks for exactly the authority the act consumes, and the differences are
+    // the contract rather than a detail:
+    //  - listing folders is a reading of the library, which a read token has;
+    //  - a move writes one field and answers with the two ids the caller sent;
+    //  - a copy reads the whole document and answers with it, *and* stores a new
+    //    file for every file the source has, so it needs all three: a write-only
+    //    token must not learn a deck's title by copying it, and a token denied
+    //    `upload_asset` must not fill the store by copying either;
+    //  - a deletion destroys the document *and* every file stored under it,
+    //    which are precisely the two things the two write scopes protect.
+    const expected: Record<string, { mutates: boolean; scopes: string[] }> = {
+      list_folders: { mutates: false, scopes: ['presentations:read'] },
+      move_presentation: { mutates: true, scopes: ['presentations:write'] },
+      duplicate_presentation: {
+        mutates: true,
+        scopes: ['presentations:read', 'presentations:write', 'assets:write'],
+      },
+      delete_presentation: { mutates: true, scopes: ['presentations:write', 'assets:write'] },
+    }
+    for (const [name, contract] of Object.entries(expected)) {
+      const operation = findOperation(name)
+      expect(operation, name).toBeTruthy()
+      expect({ name, mutates: operation?.mutates, scopes: [...(operation?.scopes ?? [])] }).toEqual({
+        name,
+        ...contract,
+      })
+    }
+
+    const schemaFor = (
+      name: string,
+    ): { properties: Record<string, unknown>; required?: string[] } =>
+      describeOperations().find((entry) => entry.name === name)?.inputSchema as {
+        properties: Record<string, unknown>
+        required?: string[]
+      }
+
+    // A move must say where. Omitting the field would have to mean "leave it
+    // where it is", which is not a move, so `null` is how you say "the root".
+    const move = schemaFor('move_presentation')
+    expect(Object.keys(move.properties).sort()).toEqual([
+      'expectedRevision',
+      'folderId',
+      'presentationId',
+    ])
+    expect([...(move.required ?? [])].sort()).toEqual(['folderId', 'presentationId'])
+    expect(JSON.stringify(move.properties.folderId)).toContain('null')
+
+    // Nothing but the deck and the reading it is deleted against. A `force`
+    // flag here would be a way past the one guard a deletion has.
+    const remove = schemaFor('delete_presentation')
+    expect(Object.keys(remove.properties).sort()).toEqual(['expectedRevision', 'presentationId'])
+    expect(JSON.stringify(remove)).not.toContain('force')
+
+    // The copy may be named on the way in, so building a variant is one call
+    // rather than a duplication followed by a rename.
+    expect(Object.keys(schemaFor('duplicate_presentation').properties).sort()).toEqual([
+      'expectedRevision',
+      'presentationId',
+      'title',
+    ])
+    // Listing folders takes nothing: it is the whole library or nothing.
+    expect(Object.keys(schemaFor('list_folders').properties ?? {})).toEqual([])
+
+    // The one rule that ties the file scope to the file store: every operation
+    // that can put bytes into it or take them out asks for `assets:write`.
+    // Generated from the registry rather than listed, so an operation that
+    // starts writing files without saying so fails here.
+    for (const name of [
+      'upload_asset',
+      'create_svg_asset',
+      'delete_asset',
+      'duplicate_presentation',
+      'delete_presentation',
+    ]) {
+      expect({ name, scopes: findOperation(name)?.scopes }).toMatchObject({
+        name,
+        scopes: expect.arrayContaining(['assets:write']),
+      })
+    }
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)

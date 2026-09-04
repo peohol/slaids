@@ -385,6 +385,68 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     ])
   })
 
+  it('sletter mot versjonen lesingen kom fra, og lar raden stå når den har flyttet seg', async () => {
+    // The delete is the same conditional statement the guarded save is — the
+    // version travels in the WHERE clause, so the comparison happens in the
+    // database rather than between two round trips here.
+    const presentation = createPresentation({ title: 'Vaktet sletting' })
+    let remoteVersion = 1
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.table === ASSETS_TABLE) return { data: [] }
+        if (record.op === 'select') {
+          return { data: { document: presentation, version: remoteVersion, is_shared: false } }
+        }
+        if (record.op !== 'delete') return { data: [] }
+        return filterValue(record, 'version') === remoteVersion ? { data: [{ id: presentation.id }] } : { data: [] }
+      },
+    })
+
+    const read = await repository.loadPresentation(presentation.id)
+    const guard = { expectedRevision: presentationRevision(read) }
+    // Somebody else writes in the meantime; the row is now at version 2.
+    remoteVersion = 2
+
+    await expect(repository.deletePresentation(presentation.id, guard)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    const refused = fake.queries.find((query) => query.op === 'delete')
+    expect(filterValue(refused as QueryRecord, 'version')).toBe(1)
+    // Nothing was reclaimed either: a refused delete touches neither store.
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toEqual([])
+
+    remoteVersion = 1
+    await expect(repository.deletePresentation(presentation.id, guard)).resolves.toBeUndefined()
+  })
+
+  it('avviser en vaktet sletting av en lesing denne økten ikke har gjort', async () => {
+    // The same answer the guarded save gives, and for a sharper reason: there is
+    // no version to guard with, and guessing one on a delete is the one guess
+    // with no way back.
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [] }) })
+
+    await expect(
+      repository.deletePresentation('p1', { expectedRevision: 'en-revisjon-vi-aldri-leste' }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(fake.queries.some((query) => query.op === 'delete')).toBe(false)
+  })
+
+  it('tar delingen med seg fordi den ligger på den samme raden', async () => {
+    // `is_shared`, `share_token` and `shared_document` are columns on the
+    // presentation row, so one DELETE takes the published copy down with the
+    // document. No separate revocation to forget, and none is made.
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => (record.op === 'select' ? { data: [] } : { data: null }),
+    })
+
+    await repository.deletePresentation('p1')
+
+    const writes = fake.queries.filter((query) => query.op !== 'select')
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ table: PRESENTATIONS_TABLE, op: 'delete' })
+    expect(filterValue(writes[0], 'id')).toBe('p1')
+  })
+
   it('lar ikke en feilet filopprydding velte en sletting som gikk igjennom', async () => {
     let storageDown = true
     const { repository, fake } = repositoryFor({

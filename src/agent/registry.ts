@@ -15,6 +15,7 @@ import { contentOperations } from './operations/content'
 import { coverOperations } from './operations/cover'
 import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
+import { libraryOperations } from './operations/library'
 import { previewOperations } from './operations/preview'
 import { referenceOperations } from './operations/references'
 import { sandboxOperations } from './operations/sandbox'
@@ -42,6 +43,7 @@ export const AGENT_TOOL_PREFIX = 'slaids_'
 
 export const operations: readonly AnyAgentOperation[] = [
   ...deckOperations,
+  ...libraryOperations,
   ...themeOperations,
   ...coverOperations,
   ...slideOperations,

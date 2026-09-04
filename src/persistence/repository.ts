@@ -46,7 +46,30 @@ export interface SlaidsRepository {
    * wants: it owns the document it is editing and re-saves it continuously.
    */
   savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void>
-  deletePresentation(id: string): Promise<void>
+  /**
+   * Take the presentation down, and everything that only existed because of it:
+   * its asset rows, the bytes behind them, and — where the store has one — the
+   * published copy and the share token, which live on the same row.
+   *
+   * One call rather than a sequence a caller assembles, because the parts have
+   * to go in an order that never leaves a document pointing at files that are
+   * gone, and a second caller writing that sequence out again is a second
+   * chance to get it wrong. There is no undo: what this removes is removed.
+   *
+   * With a `guard`, refuse — `RepositoryConflictError` — if the stored copy is no
+   * longer the revision the guard names. The same precondition
+   * `savePresentation` takes, and it matters more here: an overwrite can be
+   * argued about afterwards, and a deletion cannot.
+   *
+   * "No longer that revision" includes a row that is not there at all, which is
+   * the one place the two guards differ. A guarded *save* of an absent row is an
+   * insert, and an insert is not a lost update; a guarded *delete* names a
+   * document — remove the one I read — and a row somebody else already removed
+   * is not it. Without a guard the delete is unconditional and idempotent: an id
+   * that is not there is not an error, which is what a rollback and the library's
+   * own delete rely on.
+   */
+  deletePresentation(id: string, guard?: SaveGuard): Promise<void>
 
   listFolders(): Promise<Folder[]>
   saveFolder(folder: Folder): Promise<void>

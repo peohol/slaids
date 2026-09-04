@@ -2132,6 +2132,11 @@ list_presentations
 get_presentation
 create_presentation
 set_presentation_title
+move_presentation
+duplicate_presentation
+delete_presentation
+
+list_folders
 
 set_theme
 
@@ -2852,6 +2857,36 @@ suksessene, fordi de er de eneste som kan ødelegge et dekk:
 - REST og MCP svarer med den samme kvitteringen, den samme feilkoden, de samme
   tallene og den samme MCP-konvolutten.
 
+For bibliotekets livsløp i tillegg:
+
+- mappene listes, også når det ikke finnes noen;
+- en presentasjon flyttes inn i en mappe – både i dokumentet og i kolonnen
+  oversikten filtrerer på – og tilbake til roten med `null`;
+- en mappe som ikke finnes avvises med `FOLDER_NOT_FOUND` før noe skrives, og
+  avvisningen bærer aldri et mappenavn;
+- en flytting til mappen dekket allerede ligger i er en no-op som ikke flytter
+  revisjonen;
+- en duplisering tar med innhold, referanser, citations og filer, og kopien får
+  nye id-er hele veien – slides, soner, innhold, subfelt, sandkasse og filer;
+- originalen står bit for bit uendret etter at kopien er redigert, og kopiens
+  filer overlever at originalen slettes;
+- en duplisering som ikke gikk igjennom etterlater ingen halv kopi – når en
+  filskriving feiler, når en kildefil forsvinner fra lagringen etter at
+  revisjonen er sjekket, og når selve kopiraden ble skrevet mens svaret forsvant;
+- tilbakerullingen fjerner kopien også når filoppryddingen i lagringen er ødelagt;
+- en vanlig presentasjon slettes; en med filer tar radene og bytene med seg; en
+  publisert slettes uten `sharing:write`;
+- en sletting av noe som ikke finnes er `PRESENTATION_NOT_FOUND`, ikke et stille
+  `ok`;
+- en utdatert `expectedRevision` gir `CONFLICT` på flytting, duplisering og
+  sletting, uten å endre noe – og slettingen vaktes mot lesingen operasjonen selv
+  tok, også når kalleren ikke oppga en;
+- en sletting krever begge skriveautoritetene, en duplisering krever lesescopet,
+  og et token uten lesescope kan flytte og slette uten at kvitteringen bærer en
+  tittel eller et mappenavn;
+- REST og MCP svarer med den samme kvitteringen, den samme feilkoden og den
+  samme MCP-konvolutten.
+
 ### Ferdigkriterium
 
 Agentfunksjonen er ikke ferdig bare fordi en agent kan lage gyldig JSON.
@@ -2886,7 +2921,8 @@ sliden – og endrer seg når dekket gjør det.
 
 ### Status: hva som er bygget
 
-Fase 1, 2, 3, 4 og 5 er på plass:
+Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
+«Fase 6» og «Fase 7» nedenfor):
 
 - `src/agent/` – Agent Core. `registry.ts` er katalogen og den ene veien inn
   (`runOperation` kaster aldri); `types.ts` er konteksten, konvolutten og
@@ -2894,12 +2930,13 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   save, med fit-sjekkerne som aldri utelates; `text.ts` er det agentvennlige
   tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
   `operations/` er selve operasjonene.
-- Lesing: `list_presentations`, `get_presentation` (som også bærer temaet og
-  `sandboxCount`), `inspect_slide`, `list_assets`, `list_sandbox_items`,
-  `validate_slide`, `validate_presentation`.
+- Lesing: `list_presentations`, `list_folders`, `get_presentation` (som også
+  bærer temaet og `sandboxCount`), `inspect_slide`, `list_assets`,
+  `list_sandbox_items`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
-- Skriving: `create_presentation`, `set_presentation_title`, `set_theme`,
-  `set_cover`, `set_cover_color`, `add_slide`,
+- Skriving: `create_presentation`, `set_presentation_title`,
+  `move_presentation`, `duplicate_presentation`, `delete_presentation`,
+  `set_theme`, `set_cover`, `set_cover_color`, `add_slide`,
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
   `adjust_split`, `delete_zone`,
@@ -3722,15 +3759,208 @@ av dekket utført av en skriving. Et dekk uten noe å rydde svarer med en tom
 liste og den samme revisjonen som før, så operasjonen kan kalles på rutine uten
 å gjøre noen andres `expectedRevision` utdatert.
 
+#### Fase 7: bibliotekets livsløp
+
+Alt annet i agentflaten arbeider *inne i* ett dekk. Fire operasjoner arbeider på
+dekket utenfra – `list_folders`, `move_presentation`, `duplicate_presentation` og
+`delete_presentation` – og de lukker det siste hullet der en agent kunne lage
+noe den ikke kunne rydde opp i eller organisere.
+
+Ingen av dem er en ny implementasjon av biblioteket. Mappemodellen er
+repositoryets egen (`listFolders`), flyttingen er domenekommandoen `setFolder`
+som editoren nå også bruker, dupliseringen er den funksjonen bibliotekrutenettet
+kaller, og slettingen er ett repository-kall. Det som *var* i veien var at
+dupliseringen lå i `src/state/` og importerte nettleserens repository direkte:
+den ble flyttet ned til `src/persistence/library.ts` og tar repositoryet som
+argument, slik at editoren og agenten kaller den samme funksjonen med hvert sitt.
+Den rene halvdelen – hva en kopi *er* – ligger i
+`domain/presentation.ts` (`duplicatePresentationDocument`).
+
+**Scope-grensen er tegnet per operasjon, og de fire er ikke like.**
+
+- `list_folders` er `presentations:read`. `list_presentations` sier allerede
+  hvilken mappe hvert dekk ligger i, så navnene er den manglende halvdelen av en
+  lesing et lesetoken allerede har.
+- `move_presentation` er `presentations:write` alene. Den skriver ett felt og
+  svarer med de to id-ene kalleren selv sendte. En mappes *navn* er en lesing, og
+  operasjonen returnerer aldri et – heller ikke i avvisningen for en mappe som
+  ikke finnes, som bare bærer id-en kalleren oppga. En liste over de ekte mappene
+  ville vært `list_folders` besvart uten scopet sitt.
+- `duplicate_presentation` krever alle tre: `presentations:read`, fordi en kopi
+  er en lesing av hele dokumentet og svarer med kopien slik `get_presentation`
+  ville lest den – et token som får skrive, men ikke lese, skal ikke kunne lære
+  et dekks tittel, slidetall eller struktur ved å kopiere det;
+  `presentations:write`, fordi den lagrer et nytt dokument; og `assets:write`,
+  fordi den lagrer en ny *fil* for hver fil kilden har. Det siste er speilbildet
+  av regelen under og ikke et tillegg: er autoriteten som tar en fil ut av
+  lageret `assets:write`, er det den samme som legger en inn, og en kopi legger
+  inn like mange som kilden har. Uten det kunne et token nektet `upload_asset`
+  likevel fylle lageret, én duplisering av et bildetungt dekk om gangen. Kravet
+  er ubetinget, også for et dekk uten filer: scopes håndheves av transporten før
+  operasjonen kjører, og Agent Core får aldri vite hvilke kalleren har, så et
+  krav som var avhengig av kildens innhold ville vært et krav ingen katalog kunne
+  publisere og ingen kaller kunne forutse.
+- `delete_presentation` krever `presentations:write` **og** `assets:write`, fordi
+  det er nøyaktig de to tingene den ødelegger: dokumentet, og hver eneste fil
+  lagret under det. `delete_asset` trekker allerede den linjen – autoriteten som
+  legger en fil inn er autoriteten som tar den ut – og en sletting tar ut alle
+  sammen på én gang. Det er ikke ekstra autoritet; det er all autoriteten
+  handlingen bruker, og en sletting er det ene kallet det ikke går an å
+  diskutere i etterkant.
+
+`sharing:write` er bevisst ikke med i noen av dem. Det scopet finnes for at
+vanlig redigering ikke skal kunne publisere et dekk til internett, og ingen av
+disse publiserer noe: en sletting tar en publisert kopi *ned*, som er den trygge
+retningen, og en kopi er aldri delt – delingsstatus bor på raden og arves aldri.
+Å kreve det ville betydd at et token som får slette hvert dekk ikke får slette
+det ene som tilfeldigvis er delt, og det er ingen beskyttelse, bare et dekk ingen
+kan rydde bort.
+
+**Slettesemantikken.** Det som skal bort er dokumentet, slidene, filradene,
+bytene i objektlageret og en eventuell publisert kopi. Alt det gjør
+`SlaidsRepository.deletePresentation` allerede, og det er hele grunnen til at
+agentoperasjonen er ett kall og ikke en sekvens: Dexie tar dokumentet og
+filradene i én `rw`-transaksjon, og Supabase sletter raden – filradene henger på
+den gjennom en fremmednøkkel, og `is_shared`, `share_token` og `shared_document`
+er kolonner *på* den, så den delte lenken dør i den samme setningen. En andre
+slettesekvens skrevet i agentlaget ville vært en andre sjanse til å etterlate en
+halv presentasjon. Rekkefølgen er den samme som overalt ellers: raden først,
+bytene etterpå, fordi data ingen peker på koster lagring mens en peker uten mål
+koster sliden.
+
+To ting operasjonen legger til på egen hånd, og begge er om det som *ikke* skjer:
+
+- **En rad som ikke finnes er `PRESENTATION_NOT_FOUND`.** Begge lagrene sletter
+  på id og bryr seg ikke om at id-en ikke er der, så uten lesingen først ville en
+  sletting av noe som aldri fantes svart `ok`. En agent må kunne skille «den er
+  borte nå» fra «den var aldri der».
+- **Slettingen er vaktet.** `SlaidsRepository.deletePresentation` tar den samme
+  `SaveGuard` som `savePresentation`, og agentoperasjonen sender alltid med
+  revisjonen den nettopp leste – ikke bare når kalleren oppga en. Det er de to
+  samme vinduene som for enhver annen skriving, av en sterkere grunn. Dexie
+  sammenligner inne i transaksjonen som sletter; Supabase legger versjonen
+  *lesingen kom fra* i `WHERE`-klausulen, slik den vaktede lagringen gjør. En rad
+  som allerede er borte er ikke en konflikt for en uvaktet sletting – kalleren
+  ville at den ikke skulle være der.
+
+Kvitteringen er `{ presentationId, deleted: true }` og ikke noe mer. Særlig ingen
+`revision`: hver annen mutasjon svarer med lesingen den produserte slik at neste
+kall kan skrives mot den, og her finnes det verken et neste kall eller et
+dokument å ha en lesing av. Og ingen tittel, sidetall eller delingsstatus – dette
+er en operasjon uten `presentations:read`, og en kvittering er et dårlig sted å
+dele ut det tokenet ikke får spørre om.
+
+**Dupliseringssemantikken.** Kopien er selvstendig i to forskjellige
+betydninger, og de har hver sin begrunnelse:
+
+- **Filene kopieres, de deles ikke.** En asset-rad er nøklet på id-en alene,
+  uansett hvilken presentasjon den hører til, og filer slettes sammen med dekket
+  som eier dem. En kopi som pekte på originalens filer ville vært én sletting
+  unna et dekk fullt av manglende bilder. Derfor får hver fil en ny id, bytene
+  skrives på nytt, og dokumentet remappes med `remapAssetIds` – den samme
+  funksjonen import og lim inn bruker, som også når sandkassen og innfelte bilder
+  i rik tekst.
+- **Hver id inne i dokumentet er ny.** Slides, soner, innhold, subfelt og
+  sandkasse-elementer. Det er strengere enn lagringen krever – de id-ene slås
+  bare opp innenfor ett dokument – og strengheten er poenget: «ingen identitet er
+  delt med originalen» er en egenskap som kan sjekkes, mens «delt, men bare der
+  det tilfeldigvis ikke betyr noe» må argumenteres på nytt hver gang en av sidene
+  får en ny funksjon.
+
+Referanse- og idé-id-ene er det bevisste unntaket. En citation navngir referansen
+sin med id inne i rik tekst, så å fornye en betyr å skrive om hver citation som
+peker på den: kopien blir identisk uansett, og det eneste man vinner er et
+navnebytte som kan gå galt.
+
+Rekkefølgen er dokumentet først, filene etterpå – motsatt av `storeAsset`, og av
+samme grunn: en fil uten en presentasjon å høre til kan aldri ryddes bort av
+sveipet, som arbeider ved å sammenligne filer mot presentasjonene som fortsatt
+finnes. Kommer ikke alle filene fram, tas kopien ut igjen – med **ett** kall,
+`deletePresentation`, som tar dokumentet og filradene sammen. En egen
+filopprydding foran den var overflødig og svakere: feilet den, kjørte aldri
+dokumentslettingen, og tilbakerullingen endte i nøyaktig den tilstanden den
+finnes for å hindre. Det er den samme regelen `delete_presentation` bygger på –
+en andre slettesekvens ved siden av lagringens egen er en andre sjanse til å
+etterlate en halv presentasjon – og den gjaldt like fullt her. En kopi
+som mangler bilder er verre enn ingen kopi: kalleren får vite at dupliseringen
+feilet, mens et halvkopiert dekk dukker opp i biblioteket ved neste oppfriskning.
+
+«Kom ikke fram» dekker tre ting, og bare den første er åpenbar.
+
+En skriving som feiler underveis er den enkle. Den **første** skrivingen –
+dokumentet – er ikke like enkel, fordi en feilet respons ikke er bevis for at
+serveren ikke skrev: Supabase kan committe raden og miste svaret på veien
+tilbake, og da finnes kopien, med et dokument som allerede peker på asset-id-er
+ingenting har lagret ennå, siden filløkken aldri kjørte. Det er nøyaktig den
+samme tvetydigheten `resolveAmbiguousRegistration` resonnerer om den andre
+veien. Derfor fjernes kopi-id-en i stedet for å antas fraværende, og det er
+trygt uten å lese noe tilbake først: id-en ble laget noen linjer før, den er
+ikke gitt til noen, og en uvaktet sletting av en rad som ikke er der er en
+no-op – så slettingen kan bare fjerne en kopi som ikke skulle finnes. Unntaket
+er en `RepositoryConflictError`, som er lagringen som sier at id-en allerede er
+tatt, av en rad dupliseringen ikke laget: den raden er noens ekte presentasjon.
+Unntaket gjelder bare den første skrivingen – en konflikt fra `putAsset` er en
+*asset*-id som er tatt, og presentasjonen den skulle hørt til er fortsatt vår og
+skal fortsatt bort.
+
+En **kildefil lagringen ikke har** er den tredje: løkken ber om bytene til hver fil dokumentet lister, og et svar som ikke
+finnes måtte enten hoppes over eller feile. Å hoppe over den er stille
+ødeleggelse – kopiens dokument lister allerede filen under sin nye id og peker
+slides på den, så svaret ville vært `ok` med et dekk som viser et bilde som
+aldri kan lastes. Det er heller ikke et hypotetisk kappløp: kilden kan ha vært
+helt konsistent da revisjonen ble sjekket, og en samtidig `delete_asset` eller
+`delete_presentation` kan ha tatt filen mellom lesingen og kopieringen. Derfor
+er det en avvisning som utløser den samme tilbakerullingen, og feilen navngir
+filen fra dokumentet – den ene siden som fortsatt har et navn på den. Prisen er
+at et dekk som allerede *er* inkonsistent ikke kan dupliseres før pekeren uten
+mål er fjernet, og det er riktig vei: `delete_asset` kan fjerne den, så dekket
+står ikke fast.
+
+`duplicate_presentation` tar imot et navn på kopien, slik at en variant er ett
+kall og ikke en duplisering fulgt av en omdøping, og svarer med den samme
+`PresentationView` som `create_presentation`: en agent som nettopp har laget et
+dekk har slide-id-ene og revisjonen sin uten en ny lesing, uansett hvilken av de
+to veiene den laget det.
+
+`expectedRevision` gjelder kilden, og vakter ikke en skriving – den nye raden er
+en insert som ingen kan tape et kappløp mot. Den betyr «kopier nøyaktig den
+lesingen jeg så», som er den samme formen publisering har, av den samme grunnen:
+et snapshot er et bilde av én bestemt versjon. Derfor tar
+`persistence/library.ts` imot dokumentet i stedet for en id – en id ville
+betydd at revisjonen ble sjekket på én lesing og kopien laget av en annen.
+
+**Mappe-/flyttesemantikken.** `folderId` er påkrevd og nullbar. Å utelate det
+måtte betydd «la den ligge der den ligger», som ikke er en flytting; `null` er
+måten å si «ut av alle mapper». Mappen valideres mot bibliotekets egen liste før
+noe leses eller skrives, fordi et dekk i en mappe som ikke finnes vises *ingen
+steder* – verken på rotnivå eller i noen mappe – og det er en feil som ellers
+ville vært helt stille. Slaids lager ikke mappen; `FOLDER_NOT_FOUND` (404) sier
+at den ikke finnes. Sjekken ligger i `agent/presentation.ts` og ikke i
+operasjonen, fordi `create_presentation` også kan navngi en mappe: «en `folderId`
+som når et dokument er en mappe biblioteket har» er verdt å være en egenskap ved
+flaten framfor noe hver dør husker for seg.
+
+En flytting til mappen dekket allerede ligger i er en lovlig no-op som ikke
+flytter revisjonen. Det gjøres ved at operasjonen gir dokumentet uendret
+tilbake, og `mutatePresentation` lagrer da ingenting – en generell regel, ikke en
+gren for denne operasjonen: en kommando som returnerer objektet den fikk, har
+bestemt at det ikke er noe å endre. `deleteUnusedReferences` gjorde allerede det
+på et dekk uten noe å rydde, og lovet i teksten at revisjonen sto stille; i
+Supabase gjorde den det ikke, fordi en `UPDATE` med identisk innhold likevel
+flytter radens `version` og dermed gjør en annens `expectedRevision` utdatert.
+Nå står den virkelig stille.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
 ikke mekanisk:
 
-- **Livsløp utover navnet.** Slette, duplisere og flytte en presentasjon mellom
-  mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
-  Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
-  uten at scope-spørsmålet er tenkt igjennom.
+- **Mapper kan velges, men ikke lages.** `list_folders` og `move_presentation`
+  lar en agent bruke bibliotekets mapper; å opprette, gi nytt navn til eller
+  slette en mappe er fortsatt bare editorens. Det er den minste av de tre som
+  står igjen, og den er ikke tatt med her fordi den ikke stopper noen: en agent
+  som ikke har en mappe legger dekket på rotnivå, som er der biblioteket uansett
+  begynner.
 - **Inline bilder i rik tekst.** `delete_asset` respekterer dem – de teller som
   bruk, og en fil som bare ligger inline kan ikke slettes – men tekstformatet en
   agent *skriver* har fortsatt ingen bildeblokk. En agent kan altså ikke lage

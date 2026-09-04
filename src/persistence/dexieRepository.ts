@@ -88,8 +88,33 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     })
   }
 
-  async deletePresentation(id: string): Promise<void> {
+  /**
+   * The document and its files, in one transaction.
+   *
+   * A `guard` is compared inside that same transaction, for exactly the reason
+   * `savePresentation` compares there: reading the document, agreeing it is the
+   * one the caller read, and *then* deleting is not a guard — the other writer
+   * can land in between. IndexedDB serialises `rw` transactions on a store, so
+   * this is a real compare-and-delete.
+   *
+   * A row that is not there fails the guard, and that is not the same rule as
+   * the one `savePresentation` uses. A guarded save of an absent row is an
+   * insert, which is not a lost update; a guarded delete names a document —
+   * "remove the one I read" — and a row that is gone is not it. Somebody else
+   * removed it, and the caller should read again rather than be told its own
+   * delete is what happened. An *unguarded* delete is unchanged and still
+   * idempotent, which is what the duplication rollback and the library rely on.
+   */
+  async deletePresentation(id: string, guard?: SaveGuard): Promise<void> {
     await this.database.transaction('rw', this.database.presentations, this.database.assets, async () => {
+      if (guard) {
+        const stored = await this.database.presentations.get(id)
+        if (!stored || presentationRevision(stored.data) !== guard.expectedRevision) {
+          throw new RepositoryConflictError(
+            `«${stored?.title ?? id}» er endret eller slettet et annet sted siden den ble lest. Les den på nytt før du sletter den.`,
+          )
+        }
+      }
       await this.database.presentations.delete(id)
       await this.database.assets.where('presentationId').equals(id).delete()
     })

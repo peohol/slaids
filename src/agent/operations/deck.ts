@@ -51,6 +51,7 @@ import {
 } from '../operation'
 import {
   loadPresentation,
+  missingFolder,
   mutatePresentation,
   savePresentation,
   structuralOptions,
@@ -191,6 +192,13 @@ export const createPresentationOperation = defineOperation({
     coverSubtitle: z.string().max(400).optional().describe('Undertittelen på forsiden.'),
   }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
+    // A named folder has to be one the library actually has, for the same reason
+    // `move_presentation` checks: a deck whose `folderId` points at nothing is
+    // shown neither at the root nor in any folder. Same check, same code, so the
+    // two doors into a folder cannot disagree.
+    const missing = await missingFolder(context, input.folderId ?? null)
+    if (missing) return missing
+
     // The same command the library uses, so an agent's presentation is not a
     // second kind of presentation: same schema version, same default theme, same
     // single empty slide — and the same refusal when a name or a cover line is
