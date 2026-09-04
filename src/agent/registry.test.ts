@@ -158,6 +158,57 @@ describe('operasjonskatalogen', () => {
     expect(published.required).not.toContain('toSlideId')
   })
 
+  it('har fase 6: kopiering av innhold, som en egen operasjon og ikke et flagg', () => {
+    // Flytting og kopiering adresseres likt og lover forskjellige ting: en
+    // flytting bevarer id-ene, en kopi lager nye. En «flytt» som noen ganger
+    // gjorde det siste ville vært to operasjoner med ett navn, så de er to –
+    // slik `move_slide` og `duplicate_slide` er det. Kontrakten pinnes felt for
+    // felt her, så den ikke kan gli utilsiktet.
+    const copy = findOperation('copy_zone_content')
+    expect(copy?.mutates).toBe(true)
+    expect(copy?.scopes).toEqual(['presentations:write'])
+
+    const schemaFor = (
+      name: string,
+    ): { properties: Record<string, unknown>; required?: string[]; additionalProperties?: unknown } =>
+      describeOperations().find((entry) => entry.name === name)?.inputSchema as {
+        properties: Record<string, unknown>
+        required?: string[]
+        additionalProperties?: unknown
+      }
+
+    const published = schemaFor('copy_zone_content')
+    expect(Object.keys(published.properties).sort()).toEqual([
+      'expectedRevision',
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'toNodeId',
+      'toSlideId',
+    ])
+    expect([...(published.required ?? [])].sort()).toEqual([
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'toNodeId',
+    ])
+    // Et felt som ikke finnes skal avvises, ikke ignoreres stille.
+    expect(published.additionalProperties).toBe(false)
+
+    // De to har den samme adresseringen — fire navngitte id-er, `toSlideId`
+    // valgfri — og ingen av dem har et `copy`-flagg noe sted.
+    const move = schemaFor('move_zone_content')
+    expect(Object.keys(move.properties).sort()).toEqual(Object.keys(published.properties).sort())
+    expect(move.required).toEqual(published.required)
+    for (const schema of [published, move]) {
+      expect(JSON.stringify(schema)).not.toContain('"copy"')
+      expect(schema.properties).not.toHaveProperty('slideId')
+      expect(schema.properties).not.toHaveProperty('nodeId')
+    }
+    // Og de sier hver sin ting om id-ene, som er hele forskjellen mellom dem.
+    expect(copy?.summary).not.toBe(findOperation('move_zone_content')?.summary)
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)

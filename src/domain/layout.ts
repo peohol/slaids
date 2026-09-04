@@ -5,6 +5,7 @@
  * what makes snapshot-based undo/redo and React rendering safe.
  */
 
+import { bodyOf, withBody } from './content'
 import { newContentId, newNodeId, newSubfieldId } from './ids'
 import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { areWeightsValid } from './geometry'
@@ -215,18 +216,30 @@ export function cloneSubtreeWithNewIds(node: LayoutNode): LayoutNode {
   }
 }
 
-/** Deep clone zone content with new ids. Asset references are preserved. */
+/**
+ * Deep clone zone content with new ids. Asset references are preserved.
+ *
+ * Every id inside has to be new, and *every* kind that has a body has one: a
+ * plain text zone is a container whose payload is a `CardBody`, with subfields
+ * addressable by id exactly like a card's. Asking `bodyOf`/`withBody` rather
+ * than listing the kinds is what makes that true by construction — the two
+ * card kinds spelled out here left a text zone's subfields sharing their ids
+ * with the original, so a copy was not independent and a caller handed those
+ * ids back was handed the source's.
+ *
+ * A file reference is deliberately not renewed: a file is not duplicated by
+ * being shown in two places.
+ */
 export function cloneContentWithNewIds(content: ZoneContent): ZoneContent {
   const base = structuredCloneSafe(content)
   base.id = newContentId()
-  if (base.kind === 'untitled-card' || base.kind === 'titled-card') {
-    base.body = {
-      ...base.body,
-      weights: [...base.body.weights],
-      subfields: base.body.subfields.map((field) => ({ ...field, id: newSubfieldId() })),
-    }
-  }
-  return base
+  const body = bodyOf(base)
+  if (!body) return base
+  // `base` is already a deep clone, so only the ids are left to replace.
+  return withBody(base, {
+    ...body,
+    subfields: body.subfields.map((field) => ({ ...field, id: newSubfieldId() })),
+  })
 }
 
 function structuredCloneSafe<T>(value: T): T {

@@ -100,7 +100,7 @@ skjult. Det håndheves i to former, begge i domenelaget:
 
 - **Plassering** – kan dette innholdet ligge i den sonen? Absolutt sjekk, brukt av
   kommandoene som plasserer innhold (`setZoneContent`, `moveZoneContent`,
-  `placeSandboxItem`, `splitLeaf`, `addSlide`).
+  `copyZoneContent`, `placeSandboxItem`, `splitLeaf`, `addSlide`).
 - **Regresjon** – gjør denne endringen at innhold som allerede ligger på sliden får
   *dårligere* plass? Det er hva en global fontendring, en forholdstallsendring, et
   nytt antall subfelt, en orienteringsendring eller en konvertering mellom
@@ -438,6 +438,7 @@ museklikk eller databasetilgang:
 | `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
 | `move_zone_content`                                                    | flytter et helt innhold fra én sone til en annen, med id-ene i behold |
+| `copy_zone_content`                                                    | kopierer et helt innhold til en tom sone; kilden blir stående, kopien får nye id-er |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
 | `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
@@ -536,8 +537,20 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   no-op. Reglene er
   plasseringens vanlige: målet må være en tom bladsone, innholdet må få plass
   der, og en flytting som endrer hvilken citation som forekommer først må også
-  gjennom den globale fit-guarden. Å *kopiere* innhold er ikke med – det er en
-  egen operasjon den dagen den kommer, ikke et flagg på denne.
+  gjennom den globale fit-guarden.
+- **Og kopieres, med nye id-er.** `copy_zone_content` adresseres nøyaktig som
+  `move_zone_content` og kvitterer på samme måte, men lover det motsatte om
+  id-ene: kilden blir stående bit for bit som den var, og kopien er et eget
+  innholdsobjekt med ny content-id og nye subfelt-id-er. Derfor er det to
+  operasjoner og ikke et flagg – en «flytt» som noen ganger lager nye id-er er
+  to operasjoner med ett navn – på samme måte som `move_slide` og
+  `duplicate_slide` er to. Kopiens subfelt-id-er er de eneste id-ene agenten
+  ikke kunne visst om på forhånd, så de står i svaret: den kan skrive rett inn i
+  kopien uten en ekstra lesing. Filen en sone viser dupliseres ikke – begge
+  sonene peker på den samme assetet – og reglene er ellers plasseringens
+  vanlige: målet må være en tom bladsone (kildesonen er selv opptatt), kopien må
+  få plass der, og en kopi som gir en referanse en tidligere første forekomst må
+  også gjennom den globale fit-guarden.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
   avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
   citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`

@@ -12,14 +12,18 @@
  * `split_zone` answers with the ids of the zones it created, so the common
  * sequence (split, then fill) does not need a second `inspect_slide` in between.
  *
- * `move_zone_content` is the one operation here that does not change the tree at
- * all: it moves an existing content object from one leaf to another, which is
- * how an agent rearranges a slide without losing the ids it is holding.
+ * `move_zone_content` and `copy_zone_content` are the two operations here that
+ * do not change the tree at all: they put an existing content object into
+ * another empty leaf. A move takes the object itself, which is how an agent
+ * rearranges a slide without losing the ids it is holding; a copy leaves the
+ * source alone and answers with the new ids the domain minted for the copy.
+ * Two operations and not one flag, because the ids are the whole difference.
  */
 
 import { z } from 'zod'
 import {
   clearLayoutNode,
+  copyZoneContent,
   deleteLayoutNode,
   moveZoneContent,
   splitLeaf,
@@ -256,11 +260,19 @@ export const clearZone = defineOperation({
 })
 
 /* ------------------------------------------------------------------ *
- * move_zone_content
+ * move_zone_content / copy_zone_content
  * ------------------------------------------------------------------ */
 
 /**
- * Where the content came from, where it went, and the ids that survived.
+ * Where the content came from, where it landed, and the ids to write with next.
+ *
+ * One shape for both transfers, because what an agent does next is the same
+ * either way: it writes into the zone the content now sits in, through the
+ * subfield ids in this receipt. What differs is what those ids *are* — a move
+ * carries the very same ones across, a copy answers with the fresh ones the
+ * domain minted — and that difference is exactly why the two are separate
+ * operations rather than one with a flag, the way `move_slide` and
+ * `duplicate_slide` are.
  *
  * Ids and nothing else, which is the same shape every other mutation answers in
  * (`set_zone_card` and `adjust_subfields` report `subfieldIds` too) and is a
@@ -268,10 +280,12 @@ export const clearZone = defineOperation({
  * `presentations:write` are independent on a token, so a write-only caller must
  * not be handed content it cannot read. It would be — `moveZoneContent` treats a
  * move onto the zone the content already sits in as a no-op, so an answer that
- * described the content would make this operation an `inspect_slide` without the
- * read scope. Describing what a zone *holds* belongs to the reads.
+ * described the content would make that operation an `inspect_slide` without the
+ * read scope. A copy is refused there rather than waved through, and is no
+ * looser for it: it is the one mutation that could plead a reason to describe
+ * what it just made. Describing what a zone *holds* belongs to the reads.
  */
-export interface ZoneContentMove {
+export interface ZoneContentTransfer {
   presentationId: string
   fromSlideId: string
   fromNodeId: string
@@ -279,15 +293,24 @@ export interface ZoneContentMove {
   toSlideId: string
   toNodeId: string
   /**
-   * The text fields inside the content that moved, in layout order.
+   * The text fields inside the content that landed, in layout order.
    *
-   * The point of the whole operation is that these are the *same* ids as before
-   * the move: a subfield an agent wrote into beforehand is the subfield it
-   * writes into afterwards, at the new address and without a re-read. Empty for
-   * a zone showing a file, which has no fields.
+   * After a move these are the *same* ids as before it: a subfield an agent
+   * wrote into beforehand is the subfield it writes into afterwards, at the new
+   * address and without a re-read. After a copy they are new, because two zones
+   * sharing one subfield id would be one field written from two addresses — and
+   * reporting them is what lets an agent fill the copy in without an
+   * `inspect_slide` to look up ids it has never seen. Empty for a zone showing a
+   * file, which has no fields.
    */
   subfieldIds: string[]
 }
+
+/** A move: the ids in the receipt are the ones the content already had. */
+export type ZoneContentMove = ZoneContentTransfer
+
+/** A copy: the ids in the receipt are the new ones the copy was given. */
+export type ZoneContentCopy = ZoneContentTransfer
 
 /** The content a leaf holds, in the document a command produced. */
 function contentAt(
@@ -300,67 +323,116 @@ function contentAt(
   return leaf?.content ?? null
 }
 
-export const moveZoneContentOperation = defineOperation({
-  name: 'move_zone_content',
-  summary:
-    'Flytt hele innholdet i én bladsone til en annen, tom bladsone – på samme slide eller på en annen. Innholdet beholder id-ene sine.',
-  mutates: true,
-  scopes: ['presentations:write'],
-  input: z.strictObject({
-    presentationId: presentationIdSchema,
-    expectedRevision: expectedRevisionSchema,
-    // Four separate names rather than `slideId`/`nodeId` plus two: both sides
-    // need ids here, and a bare `slideId` next to a `toSlideId` would leave the
-    // caller to guess which end the unprefixed one belongs to.
-    fromSlideId: slideIdSchema.describe('Sliden innholdet ligger på nå.'),
-    fromNodeId: nodeIdSchema.describe('Sonen innholdet ligger i nå. Må ha innhold.'),
-    toSlideId: slideIdSchema
-      .optional()
-      .describe('Sliden innholdet skal til. Utelatt betyr den samme sliden som kilden.'),
-    toNodeId: nodeIdSchema.describe('Sonen innholdet skal til. Må være en tom bladsone.'),
-  }),
-  run(context, input): Promise<AgentResult<ZoneContentMove>> {
-    // No `disposition` here, and there is nothing missing: the target has to be
-    // empty, so a move never displaces anything and has nothing to park.
-    return mutatePresentation(
-      context,
-      // Deliberately without `slideId`/`nodeId`: those are `mutatePresentation`'s
-      // fallback for a command that did not say which zone it refused, and with
-      // two zones in play a fallback would label a source-side refusal with the
-      // target. `moveZoneContent` names the side itself, on every failure.
-      { presentationId: input.presentationId, expectedRevision: input.expectedRevision },
-      (presentation) => {
-        const toSlideId = input.toSlideId ?? input.fromSlideId
-        const moved = moveZoneContent(presentation, {
-          slideId: input.fromSlideId,
-          fromNodeId: input.fromNodeId,
-          toSlideId,
-          toNodeId: input.toNodeId,
-          ...structuralOptions(context),
-        })
-        if (!moved.ok) return moved
+/** Both commands take the same input and answer the same way. */
+type ZoneContentTransferCommand = typeof moveZoneContent
 
-        const content = contentAt(moved.value.presentation, toSlideId, input.toNodeId)
-        if (!content) {
-          return err('NODE_NOT_FOUND', 'Fant ikke innholdet i målsonen etter flyttingen.', {
-            slideId: toSlideId,
-            nodeId: input.toNodeId,
-          })
-        }
-        return ok({
-          presentation: moved.value.presentation,
-          value: {
-            presentationId: presentation.id,
-            fromSlideId: input.fromSlideId,
+/**
+ * The two transfers, which differ in the domain command they call and nothing
+ * else.
+ *
+ * The command is handed in rather than selected from a flag, so there is no
+ * branch here that could give a copy a move's semantics: whatever the domain
+ * does about ids, fit, citation renumbering and atomicity is what the operation
+ * does, and the agent layer only names the zones and reads the ids back out of
+ * the document the command produced.
+ */
+function zoneContentTransfer(spec: {
+  name: string
+  summary: string
+  transfer: ZoneContentTransferCommand
+  /** What the four ids mean for this verb, as the published schema says it. */
+  fields: { fromSlideId: string; fromNodeId: string; toSlideId: string; toNodeId: string }
+  /** The refusal for the case that cannot happen: the target came back empty. */
+  missing: string
+}) {
+  return defineOperation({
+    name: spec.name,
+    summary: spec.summary,
+    mutates: true,
+    scopes: ['presentations:write'],
+    input: z.strictObject({
+      presentationId: presentationIdSchema,
+      expectedRevision: expectedRevisionSchema,
+      // Four separate names rather than `slideId`/`nodeId` plus two: both sides
+      // need ids here, and a bare `slideId` next to a `toSlideId` would leave the
+      // caller to guess which end the unprefixed one belongs to.
+      fromSlideId: slideIdSchema.describe(spec.fields.fromSlideId),
+      fromNodeId: nodeIdSchema.describe(spec.fields.fromNodeId),
+      toSlideId: slideIdSchema.optional().describe(spec.fields.toSlideId),
+      toNodeId: nodeIdSchema.describe(spec.fields.toNodeId),
+    }),
+    run(context, input): Promise<AgentResult<ZoneContentTransfer>> {
+      // No `disposition` here, and there is nothing missing: the target has to be
+      // empty, so a transfer never displaces anything and has nothing to park.
+      return mutatePresentation(
+        context,
+        // Deliberately without `slideId`/`nodeId`: those are `mutatePresentation`'s
+        // fallback for a command that did not say which zone it refused, and with
+        // two zones in play a fallback would label a source-side refusal with the
+        // target. The domain command names the side itself, on every failure.
+        { presentationId: input.presentationId, expectedRevision: input.expectedRevision },
+        (presentation) => {
+          const toSlideId = input.toSlideId ?? input.fromSlideId
+          const transferred = spec.transfer(presentation, {
+            slideId: input.fromSlideId,
             fromNodeId: input.fromNodeId,
             toSlideId,
             toNodeId: input.toNodeId,
-            subfieldIds: bodyOf(content)?.subfields.map((field) => field.id) ?? [],
-          },
-        })
-      },
-    )
+            ...structuralOptions(context),
+          })
+          if (!transferred.ok) return transferred
+
+          const content = contentAt(transferred.value.presentation, toSlideId, input.toNodeId)
+          if (!content) {
+            return err('NODE_NOT_FOUND', spec.missing, {
+              slideId: toSlideId,
+              nodeId: input.toNodeId,
+            })
+          }
+          return ok({
+            presentation: transferred.value.presentation,
+            value: {
+              presentationId: presentation.id,
+              fromSlideId: input.fromSlideId,
+              fromNodeId: input.fromNodeId,
+              toSlideId,
+              toNodeId: input.toNodeId,
+              subfieldIds: bodyOf(content)?.subfields.map((field) => field.id) ?? [],
+            },
+          })
+        },
+      )
+    },
+  })
+}
+
+export const moveZoneContentOperation = zoneContentTransfer({
+  name: 'move_zone_content',
+  summary:
+    'Flytt hele innholdet i én bladsone til en annen, tom bladsone – på samme slide eller på en annen. Innholdet beholder id-ene sine.',
+  transfer: moveZoneContent,
+  fields: {
+    fromSlideId: 'Sliden innholdet ligger på nå.',
+    fromNodeId: 'Sonen innholdet ligger i nå. Må ha innhold.',
+    toSlideId: 'Sliden innholdet skal til. Utelatt betyr den samme sliden som kilden.',
+    toNodeId: 'Sonen innholdet skal til. Må være en tom bladsone.',
   },
+  missing: 'Fant ikke innholdet i målsonen etter flyttingen.',
+})
+
+export const copyZoneContentOperation = zoneContentTransfer({
+  name: 'copy_zone_content',
+  summary:
+    'Kopier hele innholdet i én bladsone til en annen, tom bladsone – på samme slide eller på en annen. Kilden blir stående, og kopien får nye id-er.',
+  transfer: copyZoneContent,
+  fields: {
+    fromSlideId: 'Sliden innholdet som skal kopieres ligger på.',
+    fromNodeId: 'Sonen det kopieres fra. Må ha innhold, og blir stående uendret.',
+    toSlideId: 'Sliden kopien skal til. Utelatt betyr den samme sliden som kilden.',
+    toNodeId:
+      'Sonen kopien skal til. Må være en tom bladsone, og kan ikke være kildesonen – den er allerede opptatt.',
+  },
+  missing: 'Fant ikke innholdet i målsonen etter kopieringen.',
 })
 
 export const layoutOperations = [
@@ -369,4 +441,5 @@ export const layoutOperations = [
   deleteZone,
   clearZone,
   moveZoneContentOperation,
+  copyZoneContentOperation,
 ]

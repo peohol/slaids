@@ -383,25 +383,65 @@ export function setZoneContent(
   return ok(outcome(guarded.value, disposed.movedToSandbox, disposed.discarded))
 }
 
-export interface MoveContentInput extends StructuralOptions {
+/**
+ * Which of the two transfers a caller asked for.
+ *
+ * Never a flag on one command: a "move" that sometimes mints new ids instead
+ * of carrying them across is two operations behind one name, and the ids are
+ * precisely what a caller mid-edit is holding. `moveZoneContent` and
+ * `copyZoneContent` are two exported names over one implementation, the way
+ * `moveSlide` and `duplicateSlide` are two commands and not one with a flag.
+ */
+type TransferMode = 'move' | 'copy'
+
+export interface ZoneContentTransferInput extends StructuralOptions {
+  /** The slide the content sits on now. */
   slideId: string
   fromNodeId: NodeId
   toNodeId: NodeId
   /** Optional destination slide; defaults to the source slide. */
   toSlideId?: string
-  copy?: boolean
 }
 
 /**
- * Move (or copy) a whole zone's content to another empty leaf.
+ * Move a whole zone's content to another empty leaf.
  *
  * A move keeps the very same `ZoneContent` object, which is the point: the
  * content id, the subfield ids, the citations and the asset references travel
  * with it, so whoever is holding those ids — an inspector panel, an agent
  * mid-edit — can keep using them afterwards. Clearing the source and building
  * the content again somewhere else would produce something that looks the same
- * and is addressable by nothing the caller already knows. Only `copy` mints new
- * ids, and it has to: two leaves carrying one content id is a corrupt document.
+ * and is addressable by nothing the caller already knows.
+ */
+export function moveZoneContent(
+  presentation: Presentation,
+  input: ZoneContentTransferInput,
+): Result<StructuralOutcome> {
+  return transferZoneContent(presentation, input, 'move')
+}
+
+/**
+ * Copy a whole zone's content into another empty leaf, leaving the source be.
+ *
+ * A real, independent copy: `cloneContentWithNewIds` mints a fresh content id
+ * and fresh subfield ids, and it has to — two leaves carrying one content id is
+ * a corrupt document, and a caller writing into "the" subfield would be writing
+ * into both zones at once. Asset references are deliberately *not* renewed: a
+ * file is not duplicated by being shown in two places.
+ *
+ * The source is left exactly as it was, which is the other half of the promise
+ * and the reason a copy cannot be a move with a flag: the two differ in what
+ * survives, not in how hard they work.
+ */
+export function copyZoneContent(
+  presentation: Presentation,
+  input: ZoneContentTransferInput,
+): Result<StructuralOutcome> {
+  return transferZoneContent(presentation, input, 'copy')
+}
+
+/**
+ * The single implementation behind both names.
  *
  * Every refusal names the side it is about — `slideId` and `nodeId` in the
  * details — because "the source" and "the target" are two zones here and a
@@ -411,10 +451,12 @@ export interface MoveContentInput extends StructuralOptions {
  * caller acting on the first as if it were the second would go looking for a
  * split that does not exist.
  */
-export function moveZoneContent(
+function transferZoneContent(
   presentation: Presentation,
-  input: MoveContentInput,
+  input: ZoneContentTransferInput,
+  mode: TransferMode,
 ): Result<StructuralOutcome> {
+  const copying = mode === 'copy'
   const sourceSlide = findSlide(presentation, input.slideId)
   if (!sourceSlide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.', { slideId: input.slideId })
   const targetSlideId = input.toSlideId ?? input.slideId
@@ -439,7 +481,14 @@ export function moveZoneContent(
       ? err('NODE_NOT_LEAF', 'Målet må være en bladsone.', target)
       : err('NODE_NOT_FOUND', 'Fant ikke målsonen.', target)
   }
-  if (to.id === from.id && targetSlideId === input.slideId) return ok(outcome(presentation))
+  const ontoItself = to.id === from.id && targetSlideId === input.slideId
+  // Moving content onto the zone it already sits in asks for a state the
+  // document is already in, so there is nothing to do and nothing to refuse.
+  // A *copy* onto it is a different question with a different answer: the zone
+  // is occupied — by the very content being copied — and answering "done" to a
+  // copy that copied nothing would leave the caller looking for a second
+  // content object that was never made.
+  if (ontoItself && !copying) return ok(outcome(presentation))
   if (to.content) return err('TARGET_OCCUPIED', 'Målsonen har allerede innhold.', target)
 
   const area = rectForNode(targetSlide, input.toNodeId, geometryFor(presentation, input.geometry))
@@ -448,8 +497,8 @@ export function moveZoneContent(
   let next = presentation
   // A copy gets fresh ids; sharing them would put the same content id on two
   // leaves and corrupt the document.
-  const placed = input.copy ? cloneContentWithNewIds(from.content) : from.content
-  if (!input.copy) {
+  const placed = copying ? cloneContentWithNewIds(from.content) : from.content
+  if (!copying) {
     const clearedRoot = replaceNode(sourceSlide.root, from.id, { ...from, content: null })
     next = withSlide(next, { ...sourceSlide, root: clearedRoot })
   }
@@ -461,7 +510,8 @@ export function moveZoneContent(
   next = touch(withSlide(next, { ...refreshedTarget, root: targetRoot }))
 
   // Moving citation-bearing content between slides changes first-occurrence
-  // order, so the label this very content renders can differ before and after.
+  // order, and copying it adds an occurrence, so the label this very content
+  // renders can differ before and after.
   const fit = input.fits?.(placed, area, fitContextFor(next))
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
@@ -475,7 +525,7 @@ export function moveZoneContent(
     presentation,
     next,
     input,
-    'Flyttingen endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+    `${copying ? 'Kopieringen' : 'Flyttingen'} endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.`,
   )
   if (!guarded.ok) return guarded
   return ok(outcome(guarded.value))
