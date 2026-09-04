@@ -27,6 +27,27 @@ declare module '@tiptap/core' {
 
 export const IMAGE_WIDTH_PRESETS = [25, 50, 75, 100] as const
 
+/** The node's name, written once so the schema and the guard below cannot drift. */
+const IMAGE_NODE_NAME = 'slaidsImage'
+
+/**
+ * Whether a picture can go into this editor at all.
+ *
+ * Only `bodyExtensions` registers this node. A slide title, a cover line and a
+ * caption are one line of text by construction, so `titleExtensions` leaves it
+ * out of the schema rather than hiding a button — and an editor without the
+ * node has no `insertSlaidsImage` command either.
+ *
+ * Asking the schema is what keeps that decision and the upload dialog from
+ * drifting apart. A list of field kinds would answer the same question today
+ * and would have to be extended by hand the day a fifth kind of field appears;
+ * the first sign that nobody did is `insertSlaidsImage is not a function`,
+ * thrown *after* the file has already been stored in the presentation.
+ */
+export function acceptsInlineImage(editor: Editor | null | undefined): editor is Editor {
+  return Boolean(editor && editor.schema.nodes[IMAGE_NODE_NAME])
+}
+
 /**
  * A picture may shrink a long way but never outgrow the field it sits in: the
  * width is a share of the column, so 100 % is exactly the column, and the
@@ -266,7 +287,7 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
 }
 
 export const SlaidsImageExtension = Node.create({
-  name: 'slaidsImage',
+  name: IMAGE_NODE_NAME,
   group: 'block',
   atom: true,
   draggable: true,

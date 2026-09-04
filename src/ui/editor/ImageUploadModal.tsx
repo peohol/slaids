@@ -14,9 +14,19 @@
  * picture goes. Asking again there let a text field that happened to have the
  * caret a moment earlier win, and the file went into the text instead of into
  * the picture the user was pointing at.
+ *
+ * The other case is not a question either, for the opposite reason: a title, a
+ * cover line and a caption are one line of text, and their schema has no
+ * picture node in it. Having the caret in one of those is not an inline target,
+ * and offering it was a crash waiting for somebody to stand in a caption and
+ * press the button — the file was stored, and *then* the insert failed on a
+ * command that field's editor does not have. `acceptsInlineImage` asks the
+ * editor rather than listing the kinds of field, so the answer stays right on
+ * its own.
  */
 
 import { useRef, useState } from 'react'
+import type { Editor } from '@tiptap/react'
 import { MAX_ASSET_BYTES } from '../../domain/constants'
 import { newAssetId } from '../../domain/ids'
 import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
@@ -31,7 +41,7 @@ import { notify } from '../../state/toast'
 import type { AssetRef } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
-import { fittingImageWidthPercent } from './SlaidsImageExtension'
+import { acceptsInlineImage, fittingImageWidthPercent } from './SlaidsImageExtension'
 
 const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
 const MAX_MEGABYTES = Math.round(MAX_ASSET_BYTES / (1024 * 1024))
@@ -59,10 +69,19 @@ export function ImageUploadModal({
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // The dialog takes focus the moment it opens, so the field that had it is
-  // captured on mount — the parent only renders this while it is open. Zone
-  // mode has no field being edited, so there is nowhere inline to go.
-  const [target] = useState(() => (activeField && !fillZone ? editor : null))
+  /*
+   * The field the caret was in, and — when there was one that cannot hold a
+   * picture — the fact that it was refused rather than absent. Both are read on
+   * mount, because the dialog takes the focus the moment it opens and the
+   * parent only renders it while it is open. Zone mode has no field being
+   * edited at all, so there is nowhere inline to go.
+   */
+  const [inline] = useState<{ target: Editor | null; refused: boolean }>(() => {
+    if (fillZone || !activeField || !editor) return { target: null, refused: false }
+    if (acceptsInlineImage(editor)) return { target: editor, refused: false }
+    return { target: null, refused: true }
+  })
+  const target = inline.target
   const canInline = Boolean(target)
   const canFillZone = Boolean(zoneNodeId && slideId)
   const [placement, setPlacement] = useState<Placement>(canInline ? 'inline' : 'zone')
@@ -184,6 +203,11 @@ export function ImageUploadModal({
           type="button"
           className={effective === 'inline' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
           disabled={!canInline}
+          title={
+            inline.refused
+              ? 'Feltet du står i er én linje tekst og kan ikke inneholde bilder.'
+              : undefined
+          }
           onClick={() => setPlacement('inline')}
           data-testid="image-placement-inline"
           aria-pressed={effective === 'inline'}

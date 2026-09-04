@@ -641,6 +641,17 @@ utsnittet tilbake.
 Fordi et bilde alltid er beskåret til rammen sin, kan det aldri flyte over.
 Det eneste fit-guarden har en mening om her er **bildeteksten**.
 
+Et bilde kan også settes inn *inne i* en tekst, og de to veiene møtes i
+opplastingsdialogen: «Fyll sonen» eller «I tekstfeltet». Om det siste er mulig,
+avgjøres av feltets eget skjema (`acceptsInlineImage`), ikke av hvilken felttype
+markøren står i. Bare `bodyExtensions` registrerer `slaidsImage`; en slide-tittel,
+en forsidelinje og en bildetekst er én linje tekst, og `titleExtensions` lar noden
+være ute i stedet for å skjule en knapp. Å spørre editoren i stedet for å liste
+felttyper er det som holder skjemaet og dialogen sammen: en liste svarer riktig i
+dag, må vedlikeholdes for hånd den dagen en femte felttype dukker opp, og første
+tegn på at ingen gjorde det er at `insertSlaidsImage` ikke finnes — kastet *etter*
+at filen alt er lagret i presentasjonen.
+
 ### 13.5 Bildetekst
 
 En valgfri tekst over bildet, i en beholder som

@@ -53,6 +53,28 @@ async function fillZoneWithPicture(page: Page): Promise<void> {
   await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
 }
 
+/**
+ * Add a caption and write in it.
+ *
+ * A new caption takes the caret by itself, which is the whole point of it — but
+ * the editor mounts a frame or two after the click that created it, and a
+ * keystroke sent the instant the box appears lands nowhere. The lost letter is
+ * the first one, so the assertion fails on «ildetekst» and reads like the
+ * typing broke rather than the waiting. Waiting for the field to actually hold
+ * the focus is what makes this deterministic; a human cannot type inside two
+ * frames, so there is nothing here for the app to fix.
+ */
+async function captionWith(
+  page: Page,
+  position: 'top' | 'middle' | 'bottom',
+  text: string,
+): Promise<void> {
+  await page.getByTestId(`caption-position-${position}`).click()
+  await expect(stage(page).locator('.image-caption .tiptap')).toBeFocused()
+  await page.keyboard.type(text)
+  await expect(stage(page).locator('.image-caption')).toContainText(text)
+}
+
 test.describe('pictures', () => {
   test('offers a picture as a content type and fills the zone with it', async ({ page }) => {
     const guard = watchForErrors(page)
@@ -150,10 +172,7 @@ test.describe('pictures', () => {
     await createPresentation(page, 'Bildetekst')
     await fillZoneWithPicture(page)
 
-    await page.getByTestId('caption-position-bottom').click()
-    // A new caption takes the caret, so there is nothing to click before typing.
-    await page.keyboard.type('Fire bånd')
-    await expect(stage(page).locator('.image-caption')).toContainText('Fire bånd')
+    await captionWith(page, 'bottom', 'Fire bånd')
 
     const shape = async (): Promise<{ radius: string; top: number; bottom: number }> =>
       page.evaluate(() => {
@@ -204,6 +223,39 @@ test.describe('pictures', () => {
     // empty caption, only a box drawn over a picture for no reason.
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
     await expect(stage(page).locator('.image-caption')).toHaveCount(0)
+  })
+
+  test('will not send a file into a caption, which has nowhere to put it', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Bilde i bildetekst')
+    await fillZoneWithPicture(page)
+
+    await captionWith(page, 'bottom', 'En bildetekst')
+
+    // The caret is in the caption, which is one line of text: its schema has no
+    // picture node and its editor no insert command. Offering the field anyway
+    // stored the file and *then* threw.
+    await page.getByTestId('open-image').click()
+    await expect(page.getByTestId('image-modal')).toBeVisible()
+    await expect(page.getByTestId('image-placement-inline')).toBeDisabled()
+    await expect(page.getByTestId('image-placement-zone')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'ny.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(WIDE_SVG.replace('#c04040', '#101010')),
+    })
+    await expect(page.getByTestId('image-modal')).toBeHidden()
+
+    // The file went where the only room for it was: the zone. The caption is
+    // still text, and nothing was thrown on the way.
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await expect(stage(page).locator('.image-caption')).toContainText('En bildetekst')
+    await expect(stage(page).locator('.image-caption figure')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
   })
 
   test('selects the zone it belongs to when a picture is pressed', async ({ page }) => {

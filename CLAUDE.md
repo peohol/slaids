@@ -22,6 +22,13 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   et vindu inn i filen og kan flyttes når som helst. Fordi et bilde alltid er beskåret til
   rammen sin, kan det aldri flyte over: det eneste fit-guarden har en mening om her er
   bildeteksten.
+- **Hvorvidt et felt kan ta imot et bilde inne i teksten, avgjøres av feltets eget skjema.**
+  Bare `bodyExtensions` registrerer `slaidsImage`; en slide-tittel, en forsidelinje og en
+  bildetekst er én linje tekst, og `titleExtensions` lar noden være ute i stedet for å
+  skjule en knapp. Opplastingsdialogen spør derfor editoren (`acceptsInlineImage`) og
+  aldri en liste over felttyper: en liste svarer riktig i dag og må vedlikeholdes for hånd
+  den dagen en femte felttype dukker opp – og første tegn på at ingen gjorde det, er at
+  `insertSlaidsImage` ikke finnes, kastet *etter* at filen alt er lagret.
 - **Det finnes ikke en tom bildetekst.** En ny bildetekst tar markøren, og en som forlates
   tom fjerner seg selv – derfor er det trygt at *enhver* tom bildetekst autofokuseres: en
   tom kan bare være en helt fersk. Bildeteksten er alltid midtstilt, hvit med skygge
