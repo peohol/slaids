@@ -437,6 +437,7 @@ museklikk eller databasetilgang:
 | `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`, `delete_slide` | bygger dekket                     |
 | `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
+| `move_zone_content`                                                    | flytter et helt innhold fra én sone til en annen, med id-ene i behold |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
 | `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
@@ -519,6 +520,20 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   endringen lagret. `inspect_slide` leser den samme layouten tilbake som
   `subfieldAxis` og `subfieldWeights`, ved siden av `axis` og `weights` for
   selve soneinndelingen.
+- **Innhold kan flyttes, ikke bare bygges opp igjen.** `move_zone_content` tar
+  hele innholdet i én bladsone og setter det i en annen, tom bladsone – på den
+  samme sliden eller på en annen. Det er det samme innholdsobjektet som flytter
+  seg, så content-id, subfelt-id-er, citations og filreferanser følger med, og
+  agenten kan skrive videre inn i det samme subfeltet etterpå. Å tømme sonen og
+  bygge innholdet opp igjen et annet sted gir noe som ser likt ut og er
+  adresserbart av ingenting agenten allerede holder. Kilde og mål navngis hver
+  for seg – `fromSlideId`/`fromNodeId` og `toSlideId`/`toNodeId`, der `toSlideId`
+  utelatt betyr den samme sliden – og svaret bærer målsonen og innholdet i samme
+  format som `inspect_slide`, så en ekstra lesing ikke trengs. Reglene er
+  plasseringens vanlige: målet må være en tom bladsone, innholdet må få plass
+  der, og en flytting som endrer hvilken citation som forekommer først må også
+  gjennom den globale fit-guarden. Å *kopiere* innhold er ikke med – det er en
+  egen operasjon den dagen den kommer, ikke et flagg på denne.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
   avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
   citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`

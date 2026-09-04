@@ -554,6 +554,139 @@ describe('subfeltlayout er den samme operasjonen begge veier', () => {
   })
 })
 
+describe('flytting av innhold er den samme operasjonen begge veier', () => {
+  /** A slide split in two, with text in the left half. */
+  async function filledPair(
+    harnessed: Harness,
+  ): Promise<{ presentationId: string; slideId: string; left: string; right: string }> {
+    const deck = await newPresentation(harnessed, 'Flytting begge veier')
+    const split = await rest(harnessed, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      axis: 'x',
+      weights: [1, 1],
+    })
+    const [left, right] = (split.body.data as { childNodeIds: string[] }).childNodeIds
+    await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: left,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Innhold som flyttes' }] }],
+    })
+    return { presentationId: deck.presentationId, slideId: deck.slideId, left, right }
+  }
+
+  it('flytter over REST og tilbake over MCP, med de samme id-ene begge veier', async () => {
+    // A move cannot be asked for twice — the source is empty afterwards — so
+    // the comparison is the move and its mirror image: what REST reports on the
+    // way over has to be what MCP reports on the way back, id for id.
+    const harnessed = harness()
+    const deck = await filledPair(harnessed)
+    const target = {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.left,
+      toNodeId: deck.right,
+    }
+
+    const over = await rest(harnessed, 'move_zone_content', target)
+    const overData = over.body.data as {
+      toSlideId: string
+      toNodeId: string
+      content: { subfields: { subfieldId: string }[] }
+    }
+    expect(over.status).toBe(200)
+    expect(overData).toMatchObject({ toSlideId: deck.slideId, toNodeId: deck.right })
+    const subfieldIds = overData.content.subfields.map((field) => field.subfieldId)
+
+    const back = await callTool(harnessed, tool('move_zone_content'), {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.right,
+      toNodeId: deck.left,
+    })
+    expect(back.isError).toBeFalsy()
+    const backData = back.structuredContent as {
+      toNodeId: string
+      content: { subfields: { subfieldId: string }[] }
+    }
+    expect(backData.toNodeId).toBe(deck.left)
+    // The same subfields came back: neither transport rebuilt the content.
+    expect(backData.content.subfields.map((field) => field.subfieldId)).toEqual(subfieldIds)
+
+    // And it is one document underneath, read identically by both.
+    const read = await bothWays(harnessed, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    const zones = (read.restData as { zones: { nodeId: string; empty?: boolean }[] }).zones
+    expect(zones.find((zone) => zone.nodeId === deck.left)?.empty).toBe(false)
+    expect(zones.find((zone) => zone.nodeId === deck.right)?.empty).toBe(true)
+  })
+
+  it('avviser en opptatt målsone og innhold som ikke får plass med de samme feilene', async () => {
+    // Both refusals leave the document untouched, which is what makes them
+    // comparable at all: the second transport is asked the same question about
+    // the same state, not about what the first one left behind.
+    const harnessed = harness()
+    const deck = await filledPair(harnessed)
+    await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.right,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Opptatt' }] }],
+    })
+
+    const occupied = await refusedBothWays(harnessed, 'move_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.left,
+      toNodeId: deck.right,
+    })
+    expect(occupied.rest).toEqual(occupied.mcp)
+    expect(occupied.rest.code).toBe('TARGET_OCCUPIED')
+    expect(occupied.envelope).toBe('result')
+    expect(occupied.status).toBe(409)
+
+    // A fit refusal carries numbers, and the numbers have to match too. The
+    // source is a full-height half of the slide; the target is a fifth of the
+    // other half, so the same text cannot possibly follow it there.
+    const filled = await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.left,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(50) }] }],
+    })
+    expect(filled.status).toBe(200)
+    const rows = await rest(harnessed, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.right,
+      axis: 'y',
+      weights: [1, 1, 1, 1, 1],
+      // The one line already sitting there goes to the bottom row, leaving the
+      // top one empty — an occupied target would refuse before the fit gate.
+      contentTargetIndex: 4,
+    })
+    expect(rows.status).toBe(200)
+    const [empty] = (rows.body.data as { childNodeIds: string[] }).childNodeIds
+
+    const tooBig = await refusedBothWays(harnessed, 'move_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.left,
+      toNodeId: empty,
+    })
+    expect(tooBig.rest).toEqual(tooBig.mcp)
+    expect(tooBig.rest.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(tooBig.rest.details).toMatchObject({ slideId: deck.slideId, nodeId: empty })
+    expect(tooBig.envelope).toBe('result')
+    expect(tooBig.status).toBe(422)
+  })
+})
+
 describe('hele flaten er nåbar begge veier', () => {
   it('svarer på hver eneste operasjon over MCP, med den samme feilen REST gir', async () => {
     // Called with no arguments at all, which almost every operation refuses.

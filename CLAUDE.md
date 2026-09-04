@@ -215,6 +215,18 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   domenekommando begynner å returnere id-er den ikke returnerte før – så en
   agent som nettopp flyttet noe dit kan fortsette direkte, uten en ekstra
   lesing bare for å finne id-en den selv utløste.
+- **En flytting er en flytting, ikke en gjenoppbygging.** `move_zone_content` er en
+  tynn innpakning rundt `moveZoneContent`, og poenget er at det samme
+  `ZoneContent`-objektet havner i den nye sonen: content-id, subfelt-id-er,
+  citations og assetreferanser følger med, så en agent kan skrive videre gjennom
+  id-ene den allerede holder. `clear_zone` etterfulgt av `set_zone_*` gir noe som
+  ser likt ut og er adresserbart av ingenting kalleren kjenner. Kilde og mål er to
+  soner, så de navngis hver for seg (`fromSlideId`/`fromNodeId`,
+  `toSlideId`/`toNodeId`), og `moveZoneContent` navngir selv siden hver avvisning
+  gjelder – derfor sender agentlaget ingen `slideId`/`nodeId` inn i
+  `mutatePresentation`, siden den fallbacken ville merket en kildefeil med
+  målsonen. Domenets `copy` er bevisst ikke eksponert: en «flytt» som noen ganger
+  lager nye id-er er to operasjoner med ett navn.
 - **Retning, forholdstall og antall subfelt er ett spørsmål, og derfor én
   kommando.** `setBodyLayout` i `src/domain/commands/content.ts` tar alle tre og
   kjører fit-guarden én gang, mot layouten som faktisk ble bedt om – slik

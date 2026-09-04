@@ -478,6 +478,65 @@ describe('content placement', () => {
     expect(findLeaf(nextRoot, nextRoot.children[1].id)?.content).not.toBeNull()
   })
 
+  it('says which side of a move it refused, and tells missing apart from split', () => {
+    // Two zones are addressed here, so a code alone cannot say which one the
+    // caller has to fix. Every refusal carries the slide and node it is about.
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const split = unwrap(
+      splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
+    ).presentation
+    const root = split.slides[0].root as SplitNode
+    const filled = unwrap(
+      setZoneContent(split, { slideId: slide.id, nodeId: root.children[0].id, content: createUntitledCard() }),
+    ).presentation
+
+    const refusal = (
+      from: string,
+      to: string,
+    ): { code: string; details?: Record<string, unknown> } => {
+      const result = moveZoneContent(filled, { slideId: slide.id, fromNodeId: from, toNodeId: to })
+      if (result.ok) throw new Error('Expected a refusal')
+      return result.error
+    }
+
+    // An empty source, named as the source.
+    expect(refusal(root.children[1].id, root.children[0].id)).toMatchObject({
+      code: 'TARGET_EMPTY',
+      details: { slideId: slide.id, nodeId: root.children[1].id },
+    })
+    // An occupied target, named as the target.
+    const occupied = unwrap(
+      setZoneContent(filled, { slideId: slide.id, nodeId: root.children[1].id, content: createUntitledCard() }),
+    ).presentation
+    const both = moveZoneContent(occupied, {
+      slideId: slide.id,
+      fromNodeId: root.children[0].id,
+      toNodeId: root.children[1].id,
+    })
+    expect(both.ok).toBe(false)
+    if (!both.ok) {
+      expect(both.error).toMatchObject({
+        code: 'TARGET_OCCUPIED',
+        details: { slideId: slide.id, nodeId: root.children[1].id },
+      })
+    }
+
+    // A split node is there but unusable; an unknown id is not there at all,
+    // and a caller told the first about the second would go looking for a
+    // split that does not exist.
+    expect(refusal(root.id, root.children[1].id).code).toBe('NODE_NOT_LEAF')
+    expect(refusal(root.children[0].id, root.id).code).toBe('NODE_NOT_LEAF')
+    expect(refusal('n_missing', root.children[1].id)).toMatchObject({
+      code: 'NODE_NOT_FOUND',
+      details: { nodeId: 'n_missing' },
+    })
+    expect(refusal(root.children[0].id, 'n_missing')).toMatchObject({
+      code: 'NODE_NOT_FOUND',
+      details: { nodeId: 'n_missing' },
+    })
+  })
+
   it('converts a container into a titled card, keeping the text', () => {
     const presentation = base()
     const slide = presentation.slides[0]

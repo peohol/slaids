@@ -3324,6 +3324,42 @@ oppdelingen, `adjust_split` former den; `set_zone_card` lager kortet,
 med hvert sitt navn (`axis`/`weights` for en splitting, `subfieldAxis`/
 `subfieldWeights` for et kort), slik at ingen leser det ene som det andre.
 
+Flytting av innhold var det siste hullet der agenten kunne nå målet, men ikke
+uten å ødelegge noe på veien: `moveZoneContent` har alltid ligget i domenet, men
+uten en operasjon over den måtte en agent tømme sonen og bygge innholdet opp
+igjen et annet sted. Resultatet ser likt ut og er noe annet – content-id-en,
+subfelt-id-ene, citationene og filreferansen er alle nye, så hver id agenten
+holdt, inkludert de den nettopp hadde bestemt seg for å skrive inn i, peker på
+noe som ikke finnes lenger. `move_zone_content` flytter i stedet selve
+`ZoneContent`-objektet, og det er hele poenget: id-ene følger med, og en agent
+kan skrive videre gjennom dem uten en ny `inspect_slide`. Svaret bærer likevel
+målsonens identitet og innholdet beskrevet av den samme `inspectContent`
+`inspect_slide` og `list_sandbox_items` bruker, så et kall som *ble* etterfulgt
+av en lesing slipper den.
+
+Kilde og mål er to soner, og det avgjør kontrakten: `fromSlideId`/`fromNodeId`
+og `toSlideId`/`toNodeId`, aldri et enslig `slideId` som leseren må gjette
+tilhørigheten til. `toSlideId` er valgfri fordi «samme slide» er det vanlige,
+men den er alltid utfylt i svaret. Av samme grunn sender agentlaget ingen
+`slideId`/`nodeId` inn i `mutatePresentation`: de feltene er fallbacken for en
+kommando som ikke sa hvilken sone den avviste, og med to soner i spill ville en
+fallback merket en kildefeil med målsonen. `moveZoneContent` navngir i stedet
+siden selv på hver eneste avvisning, og skiller nå «finnes ikke»
+(`NODE_NOT_FOUND`) fra «finnes, men er delt» (`NODE_NOT_LEAF`) på begge sider –
+en kaller som fikk den første som den andre ville lett etter en oppdeling som
+ikke er der. Alt annet er kommandoens eget, uendret: målet må være en tom
+bladsone, plasseringen måles absolutt mot målsonens rektangel, og en flytting
+mellom slides som endrer hvilken referanse som forekommer først går gjennom den
+globale fit-guarden – den kan gjøre en citation-pille bredere på en slide ingen
+rørte.
+
+`moveZoneContent` har også en `copy`, og den er bevisst ikke eksponert. En
+«flytt» som noen ganger lager nye id-er i stedet for å bevare dem er to
+operasjoner med ett navn, og bevaringen er nettopp det denne lover. En egen
+`copy_zone_content` er den riktige formen den dagen den trengs – slik
+`duplicate_slide` og `move_slide` er to operasjoner, og `duplicate_sandbox_item`
+og `place_sandbox_item` er det.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
@@ -3333,8 +3369,9 @@ ikke mekanisk:
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
   uten at scope-spørsmålet er tenkt igjennom.
-- **Flytting av innhold mellom soner.** `moveZoneContent` finnes i domenet;
-  agenten må i dag tømme og bygge opp igjen, som mister id-er.
+- **Kopiering av innhold mellom soner.** `moveZoneContent` har allerede en
+  `copy`, men den hører hjemme i en egen operasjon: en flytting lover at id-ene
+  overlever, og en kopi må lage nye.
 - **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
   opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
   fjerne.
