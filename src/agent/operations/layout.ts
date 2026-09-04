@@ -11,20 +11,25 @@
  *
  * `split_zone` answers with the ids of the zones it created, so the common
  * sequence (split, then fill) does not need a second `inspect_slide` in between.
+ *
+ * `move_zone_content` is the one operation here that does not change the tree at
+ * all: it moves an existing content object from one leaf to another, which is
+ * how an agent rearranges a slide without losing the ids it is holding.
  */
 
 import { z } from 'zod'
 import {
   clearLayoutNode,
   deleteLayoutNode,
+  moveZoneContent,
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
-import { findSplit } from '../../domain/layout'
+import { findLeaf, findSplit } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
-import { ok } from '../../domain/result'
+import { err, ok } from '../../domain/result'
 import type { StructuralOutcome } from '../../domain/commands'
-import type { Presentation } from '../../domain/types'
+import type { Presentation, ZoneContent } from '../../domain/types'
 import {
   defineOperation,
   dispositionSchema,
@@ -35,6 +40,7 @@ import {
 } from '../operation'
 import { mutatePresentation, sandboxIdsAdded, structuralOptions } from '../presentation'
 import type { AgentResult } from '../types'
+import { inspectContent, type ContentInspection } from './deck'
 
 const axisSchema = z
   .enum(['x', 'y'])
@@ -249,4 +255,107 @@ export const clearZone = defineOperation({
   },
 })
 
-export const layoutOperations = [splitZone, adjustSplit, deleteZone, clearZone]
+/* ------------------------------------------------------------------ *
+ * move_zone_content
+ * ------------------------------------------------------------------ */
+
+/** Where the content came from, where it went, and what it is now. */
+export interface ZoneContentMove {
+  presentationId: string
+  fromSlideId: string
+  fromNodeId: string
+  /** Always resolved, even when the call left it out to mean "the same slide". */
+  toSlideId: string
+  toNodeId: string
+  /**
+   * What now sits in the target zone, in the same vocabulary `inspect_slide`
+   * uses — so the ids that survived the move come back with the answer.
+   *
+   * The point of the whole operation is that these are the *same* ids: a
+   * subfield an agent wrote before the move is the subfield it writes after it,
+   * without a re-read and without rebuilding anything.
+   */
+  content: ContentInspection
+}
+
+/** The content a leaf holds, in the document a command produced. */
+function contentAt(
+  presentation: Presentation,
+  slideId: string,
+  nodeId: string,
+): ZoneContent | null {
+  const slide = findSlide(presentation, slideId)
+  const leaf = slide ? findLeaf(slide.root, nodeId) : null
+  return leaf?.content ?? null
+}
+
+export const moveZoneContentOperation = defineOperation({
+  name: 'move_zone_content',
+  summary:
+    'Flytt hele innholdet i én bladsone til en annen, tom bladsone – på samme slide eller på en annen. Innholdet beholder id-ene sine.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    // Four separate names rather than `slideId`/`nodeId` plus two: both sides
+    // need ids here, and a bare `slideId` next to a `toSlideId` would leave the
+    // caller to guess which end the unprefixed one belongs to.
+    fromSlideId: slideIdSchema.describe('Sliden innholdet ligger på nå.'),
+    fromNodeId: nodeIdSchema.describe('Sonen innholdet ligger i nå. Må ha innhold.'),
+    toSlideId: slideIdSchema
+      .optional()
+      .describe('Sliden innholdet skal til. Utelatt betyr den samme sliden som kilden.'),
+    toNodeId: nodeIdSchema.describe('Sonen innholdet skal til. Må være en tom bladsone.'),
+  }),
+  run(context, input): Promise<AgentResult<ZoneContentMove>> {
+    // No `disposition` here, and there is nothing missing: the target has to be
+    // empty, so a move never displaces anything and has nothing to park.
+    return mutatePresentation(
+      context,
+      // Deliberately without `slideId`/`nodeId`: those are `mutatePresentation`'s
+      // fallback for a command that did not say which zone it refused, and with
+      // two zones in play a fallback would label a source-side refusal with the
+      // target. `moveZoneContent` names the side itself, on every failure.
+      { presentationId: input.presentationId, expectedRevision: input.expectedRevision },
+      (presentation) => {
+        const toSlideId = input.toSlideId ?? input.fromSlideId
+        const moved = moveZoneContent(presentation, {
+          slideId: input.fromSlideId,
+          fromNodeId: input.fromNodeId,
+          toSlideId,
+          toNodeId: input.toNodeId,
+          ...structuralOptions(context),
+        })
+        if (!moved.ok) return moved
+
+        const content = contentAt(moved.value.presentation, toSlideId, input.toNodeId)
+        if (!content) {
+          return err('NODE_NOT_FOUND', 'Fant ikke innholdet i målsonen etter flyttingen.', {
+            slideId: toSlideId,
+            nodeId: input.toNodeId,
+          })
+        }
+        return ok({
+          presentation: moved.value.presentation,
+          value: {
+            presentationId: presentation.id,
+            fromSlideId: input.fromSlideId,
+            fromNodeId: input.fromNodeId,
+            toSlideId,
+            toNodeId: input.toNodeId,
+            content: inspectContent(content),
+          },
+        })
+      },
+    )
+  },
+})
+
+export const layoutOperations = [
+  splitZone,
+  adjustSplit,
+  deleteZone,
+  clearZone,
+  moveZoneContentOperation,
+]

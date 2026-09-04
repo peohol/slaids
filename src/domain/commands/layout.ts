@@ -392,26 +392,58 @@ export interface MoveContentInput extends StructuralOptions {
   copy?: boolean
 }
 
+/**
+ * Move (or copy) a whole zone's content to another empty leaf.
+ *
+ * A move keeps the very same `ZoneContent` object, which is the point: the
+ * content id, the subfield ids, the citations and the asset references travel
+ * with it, so whoever is holding those ids — an inspector panel, an agent
+ * mid-edit — can keep using them afterwards. Clearing the source and building
+ * the content again somewhere else would produce something that looks the same
+ * and is addressable by nothing the caller already knows. Only `copy` mints new
+ * ids, and it has to: two leaves carrying one content id is a corrupt document.
+ *
+ * Every refusal names the side it is about — `slideId` and `nodeId` in the
+ * details — because "the source" and "the target" are two zones here and a
+ * code alone cannot say which one failed. That is also why the two ways a node
+ * can be unusable are told apart: a node that is not in the tree is
+ * `NODE_NOT_FOUND`, a node that is there but split is `NODE_NOT_LEAF`, and a
+ * caller acting on the first as if it were the second would go looking for a
+ * split that does not exist.
+ */
 export function moveZoneContent(
   presentation: Presentation,
   input: MoveContentInput,
 ): Result<StructuralOutcome> {
   const sourceSlide = findSlide(presentation, input.slideId)
-  if (!sourceSlide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  if (!sourceSlide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.', { slideId: input.slideId })
   const targetSlideId = input.toSlideId ?? input.slideId
   const targetSlide = findSlide(presentation, targetSlideId)
-  if (!targetSlide) return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.')
+  if (!targetSlide) {
+    return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.', { slideId: targetSlideId })
+  }
+
+  const source = { slideId: input.slideId, nodeId: input.fromNodeId }
+  const target = { slideId: targetSlideId, nodeId: input.toNodeId }
 
   const from = findLeaf(sourceSlide.root, input.fromNodeId)
-  if (!from) return err('NODE_NOT_LEAF', 'Kilden må være en bladsone.')
-  if (!from.content) return err('TARGET_EMPTY', 'Kildesonen har ikke innhold.')
+  if (!from) {
+    return findNode(sourceSlide.root, input.fromNodeId)
+      ? err('NODE_NOT_LEAF', 'Kilden må være en bladsone.', source)
+      : err('NODE_NOT_FOUND', 'Fant ikke kildesonen.', source)
+  }
+  if (!from.content) return err('TARGET_EMPTY', 'Kildesonen har ikke innhold.', source)
   const to = findLeaf(targetSlide.root, input.toNodeId)
-  if (!to) return err('NODE_NOT_LEAF', 'Målet må være en bladsone.')
+  if (!to) {
+    return findNode(targetSlide.root, input.toNodeId)
+      ? err('NODE_NOT_LEAF', 'Målet må være en bladsone.', target)
+      : err('NODE_NOT_FOUND', 'Fant ikke målsonen.', target)
+  }
   if (to.id === from.id && targetSlideId === input.slideId) return ok(outcome(presentation))
-  if (to.content) return err('TARGET_OCCUPIED', 'Målsonen har allerede innhold.')
+  if (to.content) return err('TARGET_OCCUPIED', 'Målsonen har allerede innhold.', target)
 
   const area = rectForNode(targetSlide, input.toNodeId, geometryFor(presentation, input.geometry))
-  if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.')
+  if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.', target)
 
   let next = presentation
   // A copy gets fresh ids; sharing them would put the same content id on two
@@ -422,7 +454,9 @@ export function moveZoneContent(
     next = withSlide(next, { ...sourceSlide, root: clearedRoot })
   }
   const refreshedTarget = findSlide(next, targetSlideId)
-  if (!refreshedTarget) return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.')
+  if (!refreshedTarget) {
+    return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.', { slideId: targetSlideId })
+  }
   const targetRoot = replaceNode(refreshedTarget.root, to.id, { ...to, content: placed })
   next = touch(withSlide(next, { ...refreshedTarget, root: targetRoot }))
 

@@ -134,6 +134,30 @@ describe('operasjonskatalogen', () => {
     expect((properties.axis as { enum: string[] }).enum).toEqual(['x', 'y'])
   })
 
+  it('har fase 6: flytting av innhold, med kilde og mål navngitt hver for seg', () => {
+    // Både kilden og målet trenger id-er her, så et enslig `slideId` eller
+    // `nodeId` ville vært tvetydig. Kontrakten er fire navngitte felter, og
+    // `toSlideId` er valgfri fordi «samme slide» er det vanlige tilfellet.
+    const move = findOperation('move_zone_content')
+    expect(move?.mutates).toBe(true)
+    expect(move?.scopes).toEqual(['presentations:write'])
+
+    const schema = describeOperations().find((entry) => entry.name === 'move_zone_content')
+    const published = schema?.inputSchema as {
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+    expect(Object.keys(published.properties)).toEqual(
+      expect.arrayContaining(['fromSlideId', 'fromNodeId', 'toSlideId', 'toNodeId']),
+    )
+    expect(published.properties).not.toHaveProperty('slideId')
+    expect(published.properties).not.toHaveProperty('nodeId')
+    expect(published.required).toEqual(
+      expect.arrayContaining(['fromSlideId', 'fromNodeId', 'toNodeId']),
+    )
+    expect(published.required).not.toContain('toSlideId')
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)
