@@ -35,6 +35,69 @@ test.describe('slides and content', () => {
     expect(guard.errors).toEqual([])
   })
 
+  /*
+   * The regression this covers: the strip is a column flex container, and its
+   * items used to shrink instead of it scrolling. Past about six slides the
+   * duplicate and delete buttons were squeezed out of every item's clipped box,
+   * so there was no way left to delete a slide at all.
+   */
+  test('keeps every slide\'s tools reachable once the strip overflows', async ({ page }) => {
+    await createPresentation(page, 'Lang filmstripe')
+    for (let i = 0; i < 7; i += 1) {
+      await page.getByTestId('add-slide').click()
+      await page.getByTestId('new-slide-without-title').click()
+    }
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(8)
+
+    // The list scrolls rather than squeezing what it holds.
+    const scrolls = await page.evaluate(() => {
+      const list = document.querySelector('.filmstrip__list') as HTMLElement
+      return list.scrollHeight > list.clientHeight + 1
+    })
+    expect(scrolls).toBe(true)
+
+    for (const button of await page.getByTestId('delete-slide').all()) {
+      await expect(button).toBeVisible()
+    }
+    await page.getByTestId('delete-slide').last().click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(7)
+  })
+
+  test('clicking a thumbnail navigates, holding it reorders', async ({ page }) => {
+    await createPresentation(page, 'Dra slides')
+    for (let i = 0; i < 2; i += 1) {
+      await page.getByTestId('add-slide').click()
+      await page.getByTestId('new-slide-without-title').click()
+    }
+    const order = async (): Promise<string[]> =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="filmstrip-item"]')].map(
+          (item) => (item as HTMLElement).dataset.slideId as string,
+        ),
+      )
+    const before = await order()
+
+    // A plain click is navigation, not a drag.
+    await page.getByTestId('filmstrip-thumb').nth(2).click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+    expect(await order()).toEqual(before)
+
+    // The same surface, pressed and held, is the drag handle.
+    const first = await page.getByTestId('filmstrip-thumb').nth(0).boundingBox()
+    const third = await page.getByTestId('filmstrip-thumb').nth(2).boundingBox()
+    if (!first || !third) throw new Error('Fant ikke miniatyrene.')
+    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(350)
+    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2 + 20, { steps: 4 })
+    await page.mouse.move(third.x + third.width / 2, third.y + third.height / 2, { steps: 10 })
+    await page.mouse.up()
+
+    await expect.poll(order).not.toEqual(before)
+    expect((await order()).sort()).toEqual([...before].sort())
+  })
+
   test('switches between slides from the filmstrip', async ({ page }) => {
     await createPresentation(page, 'Navigasjon')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()

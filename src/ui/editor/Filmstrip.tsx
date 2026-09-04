@@ -84,6 +84,17 @@ function CoverThumb({
   )
 }
 
+/**
+ * One authored slide in the strip.
+ *
+ * The thumbnail is both the way to the slide and the way to move it: a click
+ * navigates, a press held for a moment starts the drag. Which of the two a
+ * press becomes is decided by `data-drag-activation` — see
+ * `dragActivation.ts` — so the button can carry the drag listeners without
+ * ever swallowing an ordinary click. The grip keeps the immediate activation a
+ * dedicated handle should have, and is the affordance that says the strip can
+ * be reordered at all.
+ */
 function SlideThumb({
   slide,
   index,
@@ -117,15 +128,14 @@ function SlideThumb({
       <div className="filmstrip__index">
         {/* The cover is page one, so slide 1 is page two. */}
         <span>{index + 2}</span>
-        <button
-          type="button"
+        <span
           className="filmstrip__grip"
-          aria-label="Flytt slide"
-          {...attributes}
+          aria-hidden="true"
+          data-drag-activation="immediate"
           {...listeners}
         >
           <Icon name="grip" size={14} />
-        </button>
+        </span>
       </div>
       <button
         type="button"
@@ -133,7 +143,10 @@ function SlideThumb({
         style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
         onClick={onSelect}
         data-testid="filmstrip-thumb"
+        data-drag-activation="hold"
         aria-label={`Slide ${index + 1}`}
+        {...attributes}
+        {...listeners}
       >
         <Thumb>
           <SlideView slide={slide}>

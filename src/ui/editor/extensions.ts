@@ -16,6 +16,7 @@ import type { Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
 import { PlainPasteExtension } from './PlainPasteExtension'
+import { TypographyExtension } from './TypographyExtension'
 
 /** Tags we accept from an external paste. Everything else is unwrapped. */
 const ALLOWED_TAGS = new Set([
@@ -141,8 +142,11 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
       // Slaids uses its own horizontal separators between subfields.
       horizontalRule: false,
       dropcursor: { color: '#4f8ef7', width: 2 },
+      // See `NO_LOCAL_HISTORY` below.
+      undoRedo: false,
     }),
     SlaidsHeading,
+    TypographyExtension,
     // Alignment is per block, so a selection spanning three paragraphs aligns
     // three paragraphs and a caret in one aligns that one. An image is a block
     // among the others, and is aligned the same way — it is narrower than the
@@ -206,7 +210,32 @@ export function titleExtensions(placeholder?: string, variant: TitleVariant = 's
       link: false,
       dropcursor: false,
       gapcursor: false,
+      // See `NO_LOCAL_HISTORY` below.
+      undoRedo: false,
     }),
+    // A title is text somebody types, so it gets the same substitutions the
+    // body does — there is no reading of «Del 1 - konklusjon» in which the
+    // hyphen was meant.
+    TypographyExtension,
     ...(cover ? [] : [CitationExtension]),
   ]
 }
+
+/**
+ * Why no editor keeps a history of its own.
+ *
+ * Undo in Slaids is the *deck's*: `useEditorStore` snapshots the whole
+ * presentation, so one Ctrl+Z steps back through structural changes and typing
+ * alike, in the order they happened. A per-field ProseMirror history is a
+ * second, competing record of the same edits — and because a keystroke reaches
+ * both, Ctrl+Z in a text field used to run both: ProseMirror rolled the field
+ * back, the store rolled the document back, and ProseMirror's rollback was then
+ * committed on top as a fresh change. Which of the two the user saw depended on
+ * where the caret happened to be, which is exactly why the toolbar buttons
+ * always worked and the shortcut did not.
+ *
+ * The editors therefore keep no history, and `EditorView` handles the shortcut
+ * in the capture phase. Input rules are still individually undoable through
+ * Backspace (`undoInputRule`), which needs no history plugin.
+ */
+export const NO_LOCAL_HISTORY = true

@@ -182,7 +182,18 @@
   gap: 10px;
 }
 
+/*
+ * `flex: 0 0 auto` is not decoration.
+ *
+ * The list is a column flex container that scrolls, and a flex item shrinks by
+ * default. `overflow: hidden` here makes the item's automatic minimum size zero
+ * — so once the strip held more slides than fitted, every item was squeezed
+ * instead of the list scrolling, and the first thing squeezed off the bottom of
+ * each item was the row holding its duplicate and delete buttons. Refusing to
+ * shrink is what gives the list something to scroll.
+ */
 .filmstrip__item {
+  flex: 0 0 auto;
   border: 1px solid var(--chrome-border);
   border-radius: var(--radius-md);
   background: var(--chrome-bg-raised);
@@ -204,21 +215,30 @@
 }
 
 .filmstrip__grip {
-  border: none;
-  background: transparent;
   color: var(--chrome-text-dim);
   cursor: grab;
   padding: 2px;
   display: flex;
+  touch-action: none;
 }
 
+/*
+ * The thumbnail is a click target and a drag surface at once, so it says so:
+ * `grab` on hover, and `touch-action: manipulation` to keep a press that turns
+ * into a drag from also scrolling the strip under it.
+ */
 .filmstrip__thumb {
   border: none;
   padding: 0;
   background: #000;
-  cursor: pointer;
+  cursor: grab;
   overflow: hidden;
   display: block;
+  touch-action: manipulation;
+}
+
+.filmstrip__thumb:active {
+  cursor: grabbing;
 }
 
 .filmstrip__tools {
