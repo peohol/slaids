@@ -131,6 +131,27 @@ describe('editorens opplasting av SVG', () => {
     expect(await repository.deleteOrphanAssets()).toBe(0)
   })
 
+  it('bevarer teksten i en fil som oppgir en annen tegnkoding enn UTF-8', async () => {
+    const repository = freshRepository()
+    const presentation = await seed(repository)
+
+    // An older Illustrator export on Windows. Read as UTF-8 every accented
+    // letter comes back as U+FFFD, and the figure that gets stored has mangled
+    // text in it — worse than a refusal, because nobody is told.
+    const markup = `<?xml version="1.0" encoding="ISO-8859-1"?><svg viewBox="0 0 100 50"><text>Blåbærsyltetøy</text></svg>`
+    const latin1 = new Uint8Array(markup.length)
+    for (let i = 0; i < markup.length; i += 1) latin1[i] = markup.charCodeAt(i)
+
+    const stored = await storeUploadedFile(presentation.id, picked(latin1, 'figur.svg', 'image/svg+xml'))
+    expect(stored.ok).toBe(true)
+    if (!stored.ok) return
+
+    const file = await repository.getAsset(stored.value.ref.id)
+    const text = await file!.blob.text()
+    expect(text).toContain('Blåbærsyltetøy')
+    expect(text).not.toContain('\uFFFD')
+  })
+
   it('leser formatet av bytene, ikke av filnavnet', async () => {
     const repository = freshRepository()
     const presentation = await seed(repository)

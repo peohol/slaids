@@ -40,7 +40,7 @@
  */
 
 import { MAX_ASSET_BYTES } from './constants'
-import { probeImageFormat } from './imageBytes'
+import { declaredTextEncoding, probeImageFormat } from './imageBytes'
 import { readRasterImage } from './imageFile'
 import { err, ok, type Result } from './result'
 import { sanitizeSvg, SVG_MIME_TYPE, type SvgSanitizeReport } from './svg'
@@ -160,9 +160,10 @@ export function acceptAsset(
 }
 
 function acceptSvg(input: Uint8Array): Result<AcceptedAsset> {
-  // `TextDecoder` drops a UTF-8 byte order mark, which is a byte and not a
-  // character, so the parser never sees one in front of the root element.
-  const clean = sanitizeSvg(new TextDecoder().decode(input))
+  const text = decodeXml(input)
+  if (!text.ok) return text
+
+  const clean = sanitizeSvg(text.value)
   if (!clean.ok) return clean
 
   const bytes = new TextEncoder().encode(clean.value.markup)
@@ -179,6 +180,39 @@ function acceptSvg(input: Uint8Array): Result<AcceptedAsset> {
     size: { width: clean.value.width, height: clean.value.height },
     report: clean.value.report,
   })
+}
+
+/**
+ * An SVG document as text, read in the encoding the file itself declares.
+ *
+ * An SVG is XML, and XML says how it is written — a byte order mark, or the
+ * `encoding="…"` of its declaration. Decoding everything as UTF-8 is right for
+ * almost every file and silently wrong for the rest: every accented letter in a
+ * Windows-1252 export comes back as U+FFFD, and what would be stored is a
+ * figure with mangled text in it. That is worse than a refusal, because nobody
+ * is told.
+ *
+ * What is stored is always UTF-8, and nothing has to remember that: the
+ * re-serialisation is built from the parsed tree, which drops the XML
+ * declaration along with every other processing instruction — and a document
+ * with no declaration is UTF-8 by definition. So this is a read, not a
+ * conversion with a second half somewhere else.
+ *
+ * An encoding `TextDecoder` will not take is refused by name rather than
+ * guessed at, for the same reason.
+ */
+function decodeXml(bytes: Uint8Array): Result<string> {
+  const encoding = declaredTextEncoding(bytes)
+  try {
+    // A byte order mark is bytes and not a character, and `TextDecoder` drops
+    // it, so the parser never sees one in front of the root element.
+    return ok(new TextDecoder(encoding).decode(bytes))
+  } catch {
+    return err(
+      'INVALID_SVG',
+      `SVG-en oppgir tegnkodingen «${encoding}», som ikke kan leses. Lagre filen som UTF-8.`,
+    )
+  }
 }
 
 /**

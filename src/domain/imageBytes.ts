@@ -112,11 +112,54 @@ function isAvif(bytes: Uint8Array): boolean {
 /**
  * SVG is text, so it is sniffed rather than matched against a signature. The
  * real validation is `sanitizeSvg`, which parses the whole document.
+ *
+ * The head is read the way the file says it is written, not as bytes that
+ * happen to look like ASCII: a UTF-16 document has a zero between every letter
+ * and does not look like anything at all, so an SVG that plainly is one would
+ * be answered with "not an image format".
  */
 function isSvgText(bytes: Uint8Array): boolean {
-  // A UTF-8 byte order mark is bytes, not a character, so it is skipped here
-  // rather than trimmed off the decoded string.
-  const start = startsWith(bytes, [0xef, 0xbb, 0xbf]) ? 3 : 0
-  const head = ascii(bytes, start, Math.min(bytes.length - start, 1024)).trimStart()
+  const head = decodeHead(bytes).trimStart()
   return head.startsWith('<') && /<svg[\s>/]/i.test(head)
+}
+
+/** Enough of a text file to recognise it by, in its own encoding. */
+function decodeHead(bytes: Uint8Array): string {
+  const head = bytes.subarray(0, Math.min(bytes.length, 1024))
+  try {
+    // A byte order mark is bytes and not a character, and `TextDecoder` drops
+    // it, so nothing is left in front of the root element.
+    return new TextDecoder(declaredTextEncoding(bytes)).decode(head)
+  } catch {
+    // A label nothing can decode is still a document that may say `<svg` in
+    // ASCII. Recognising it here is what lets `assetIngress.ts` answer with the
+    // encoding that is the problem instead of "unknown file type".
+    return new TextDecoder().decode(head)
+  }
+}
+
+/**
+ * Which encoding a text file says it is in: a byte order mark, or the
+ * `encoding="…"` of an XML declaration. Anything else is UTF-8, which is what
+ * XML means by no declaration at all.
+ *
+ * Exported because two places must get the same answer — the sniffer above, and
+ * `domain/assetIngress.ts`, which decodes the whole document before handing it
+ * to the sanitiser. Reading a Windows-1252 export as UTF-8 turns every accented
+ * letter into U+FFFD, and what gets stored is then a figure with mangled text
+ * in it. The label is returned rather than the decoded text: only the caller
+ * knows how much of the file it needs, and only it can say what a label
+ * `TextDecoder` refuses should mean.
+ */
+export function declaredTextEncoding(bytes: Uint8Array): string {
+  if (startsWith(bytes, [0xef, 0xbb, 0xbf])) return 'utf-8'
+  if (startsWith(bytes, [0xff, 0xfe])) return 'utf-16le'
+  if (startsWith(bytes, [0xfe, 0xff])) return 'utf-16be'
+  // A mark wins over a declaration, as XML says it does. Without one, the
+  // declaration is read as ASCII — it is ASCII in every encoding it can be
+  // written in — with the zero bytes of an unmarked UTF-16 document dropped, so
+  // a label that is only ever letters, digits and dashes still comes through.
+  const head = ascii(bytes, 0, Math.min(bytes.length, 256)).replaceAll('\u0000', '')
+  const declared = /^\s*<\?xml\s[^>]*\bencoding\s*=\s*["']([A-Za-z0-9._-]+)["']/i.exec(head)
+  return declared ? declared[1] : 'utf-8'
 }

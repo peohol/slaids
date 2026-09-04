@@ -103,6 +103,85 @@ describe('acceptAsset – SVG', () => {
   })
 })
 
+describe('acceptAsset – tegnkoding', () => {
+  /*
+   * An SVG is XML, and XML says how it is written. Reading every file as UTF-8
+   * is right for almost all of them and silently wrong for the rest: an older
+   * Illustrator export on Windows declares `iso-8859-1`, and every accented
+   * letter in it comes back as U+FFFD. A stored figure with mangled text in it
+   * is worse than a refusal, because nobody is told.
+   */
+  const TEXT = 'Blåbærsyltetøy'
+
+  function encodeLatin1(text: string): Uint8Array {
+    const out = new Uint8Array(text.length)
+    for (let i = 0; i < text.length; i += 1) out[i] = text.charCodeAt(i)
+    return out
+  }
+
+  function encodeUtf16le(text: string, bom: boolean): Uint8Array {
+    const out = new Uint8Array((text.length + (bom ? 1 : 0)) * 2)
+    const view = new DataView(out.buffer)
+    let offset = 0
+    if (bom) {
+      view.setUint16(0, 0xfeff, true)
+      offset = 2
+    }
+    for (let i = 0; i < text.length; i += 1) view.setUint16(offset + i * 2, text.charCodeAt(i), true)
+    return out
+  }
+
+  function concat(...parts: Uint8Array[]): Uint8Array {
+    const out = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+    let offset = 0
+    for (const part of parts) {
+      out.set(part, offset)
+      offset += part.byteLength
+    }
+    return out
+  }
+
+  const document = (declaration: string) =>
+    `${declaration}<svg viewBox="0 0 10 10"><text>${TEXT}</text></svg>`
+
+  it('leser en fil i tegnkodingen den selv oppgir', () => {
+    const latin1 = encodeLatin1(document('<?xml version="1.0" encoding="ISO-8859-1"?>'))
+    const result = accepted(latin1)
+
+    // Stored as UTF-8, with the text intact: the re-serialisation drops the XML
+    // declaration along with every other processing instruction, and a document
+    // without one is UTF-8 by definition.
+    expect(new TextDecoder('utf-8', { fatal: true }).decode(result.bytes)).toContain(TEXT)
+    expect(new TextDecoder().decode(result.bytes)).not.toContain('\uFFFD')
+  })
+
+  it('leser en UTF-8-BOM uten å la den stå foran rotelementet', () => {
+    const withBom = concat(new Uint8Array([0xef, 0xbb, 0xbf]), utf8(document('')))
+    const result = accepted(withBom)
+    expect(new TextDecoder().decode(result.bytes).startsWith('<svg')).toBe(true)
+  })
+
+  it('godtar og saniterer en UTF-16-fil i stedet for å kalle den et ukjent format', () => {
+    const utf16 = encodeUtf16le(document('<?xml version="1.0" encoding="UTF-16"?>'), true)
+    const result = accepted(utf16)
+    expect(new TextDecoder().decode(result.bytes)).toContain(TEXT)
+    expect(result.size).toEqual({ width: 10, height: 10 })
+  })
+
+  it('avviser en tegnkoding som ikke kan leses, ved navn', () => {
+    const odd = utf8(document('<?xml version="1.0" encoding="x-tull-9"?>'))
+    const error = rejection(odd)
+    expect(error.code).toBe('INVALID_SVG')
+    expect(error.message).toContain('x-tull-9')
+  })
+
+  it('holder sikkerhetsreglene uansett tegnkoding', () => {
+    const hostile = `<?xml version="1.0" encoding="ISO-8859-1"?><svg viewBox="0 0 1 1"><script>alert(1)</script></svg>`
+    expect(rejection(encodeLatin1(hostile)).code).toBe('UNSAFE_SVG')
+    expect(rejection(encodeUtf16le(hostile, true)).code).toBe('UNSAFE_SVG')
+  })
+})
+
 describe('acceptAsset – raster', () => {
   it('lar bytene stå urørt og leser størrelsen ut av bitstrømmen', () => {
     const png = realImages.png()

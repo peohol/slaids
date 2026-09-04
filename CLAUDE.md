@@ -539,7 +539,15 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   MIME-typen en lagret fil serveres med som gjør den til aktivt innhold), og hva
   som får lagres (raster → `imageFile.ts`, SVG → `svg.ts`). Den returnerer
   *bytes* og ikke en dom, fordi en kaller ikke kan glemme å bruke den saniterte
-  versjonen når den saniterte versjonen er den eneste den får. Størrelsesgrensen
+  versjonen når den saniterte versjonen er den eneste den får. En SVG er XML og
+  leses i tegnkodingen filen selv oppgir – en BOM, eller `encoding="…"` i
+  XML-deklarasjonen (`declaredTextEncoding` i `imageBytes.ts`, delt med
+  snifferen). Å lese alt som UTF-8 er riktig for nesten alle filer og stille
+  galt for resten: hver aksenttegn i en Windows-1252-eksport kommer tilbake som
+  U+FFFD, og det som lagres er en figur med ødelagt tekst. Det som lagres er
+  alltid UTF-8, og ingen trenger å huske det: reserialiseringen bygges av det
+  parsede treet og dropper XML-deklarasjonen med alle andre
+  prosesseringsinstruksjoner, og et dokument uten deklarasjon *er* UTF-8. Størrelsesgrensen
   hører hjemme der av samme grunn, og måles for en SVG både på det som kom inn og
   på det som lagres. Innganger: editorens opplastingsdialog gjennom
   `src/state/assetUpload.ts` (lagt utenfor komponenten fordi en sikkerhetsgrense

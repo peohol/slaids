@@ -3133,6 +3133,20 @@ Størrelsesgrensen (`MAX_ASSET_BYTES`) hører hjemme her av samme grunn, og mål
 to ganger for en SVG: på det som kom inn, og på det som faktisk lagres.
 Reserialisering kan vokse en fil – hver `&` kommer tilbake som `&amp;`.
 
+**En SVG leses i tegnkodingen den selv oppgir.** SVG er XML, og XML sier hvordan
+det er skrevet: en byte order mark, eller `encoding="…"` i deklarasjonen.
+`declaredTextEncoding` i `imageBytes.ts` er den ene lesingen av det, delt av
+snifferen – som ellers ikke ville kjent igjen en UTF-16-fil, der hver andre byte
+er null – og av døren. Å lese alt som UTF-8 er riktig for nesten hver fil og
+stille galt for resten: hvert aksenttegn i en Windows-1252-eksport fra
+Illustrator kommer tilbake som U+FFFD, og det som lagres er en figur med ødelagt
+tekst i seg. Det er verre enn en avvisning, fordi ingen får vite det. En
+tegnkoding `TextDecoder` ikke tar imot avvises ved navn i stedet for å gjettes
+på. Det som lagres er alltid UTF-8, og ingen trenger å huske det:
+reserialiseringen bygges av det parsede treet og dropper XML-deklarasjonen
+sammen med alle andre prosesseringsinstruksjoner, og et dokument uten
+deklarasjon er UTF-8 per definisjon.
+
 Det eneste som varierer mellom dørene, er hvordan *raster* måles, og det er
 nettleserens dekoder og ikke en andre policy:
 
