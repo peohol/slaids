@@ -7,6 +7,7 @@
 
 import { newContentId, newNodeId, newSubfieldId } from './ids'
 import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
+import { areWeightsValid } from './geometry'
 import type { LayoutNode, LeafNode, NodeId, SplitNode, ZoneContent, Axis } from './types'
 
 export function createLeaf(content: ZoneContent | null = null): LeafNode {
@@ -321,8 +322,12 @@ export function validateTree(root: LayoutNode): TreeViolation[] {
       if (node.children.length > MAX_SPLIT_CHILDREN) {
         violations.push({ nodeId: node.id, message: 'split has more than 10 children' })
       }
-      if (!node.weights.every((w) => Number.isFinite(w) && w > 0)) {
-        violations.push({ nodeId: node.id, message: 'weights must be finite and > 0' })
+      // The same predicate the commands and the geometry engine use, rather
+      // than a second copy of it here: a stored tree whose weights `splitRect`
+      // would refuse has to be reported as broken, not measured — see
+      // `findSlideIssues`, which skips the geometry when the tree is.
+      if (!areWeightsValid(node.weights)) {
+        violations.push({ nodeId: node.id, message: 'weights must be finite, > 0 and sum to a finite number' })
       }
     }
   })

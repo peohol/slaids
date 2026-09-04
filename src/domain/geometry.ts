@@ -121,9 +121,22 @@ export function rectContainsRect(outer: Rect, inner: Rect, epsilon = GEOMETRY_EP
  * Weights
  * ------------------------------------------------------------------ */
 
+/**
+ * Weights are ratios, so their magnitudes are free — but only within what a
+ * double can add up.
+ *
+ * Finite one by one is **not** the same property as finite in total, and the
+ * difference is the whole check: `[1e308, 1e308]` passes the first and sums to
+ * `Infinity`. Everything downstream divides by that sum — `splitRect` for a
+ * zone, `estimateBodyOverflow` for a card's subfields — so an infinite total
+ * turns every share into `NaN`, and `NaN` is the one wrong answer nothing
+ * catches: it fails every comparison, so the fit guard reads it as "no
+ * overflow" and stores it, and the layout it stored has no rectangles.
+ */
 export function areWeightsValid(weights: readonly number[]): boolean {
   if (weights.length === 0) return false
-  return weights.every((w) => Number.isFinite(w) && w > 0)
+  if (!weights.every((w) => Number.isFinite(w) && w > 0)) return false
+  return Number.isFinite(sumWeights(weights))
 }
 
 export function sumWeights(weights: readonly number[]): number {
@@ -166,9 +179,15 @@ export function splitRect(
   const result: Rect[] = []
   let cumulative = 0
   for (let i = 0; i < count; i += 1) {
-    const start = origin + (usable * cumulative) / total + effectiveGap * i
+    // The fraction first, the length second. `(usable * cumulative) / total`
+    // overflows to `Infinity / total` — and so to a `NaN` rect — for weights
+    // that are individually finite and merely large, while `cumulative / total`
+    // is a ratio in [0, 1] whatever the magnitudes are. It also makes the last
+    // child land on the parent's edge exactly rather than nearly: its ratio is
+    // 1 by construction.
+    const start = origin + usable * (cumulative / total) + effectiveGap * i
     cumulative += weights[i]
-    const end = origin + (usable * cumulative) / total + effectiveGap * i
+    const end = origin + usable * (cumulative / total) + effectiveGap * i
     const length = end - start
     result.push(
       axis === 'x'

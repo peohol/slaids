@@ -27,6 +27,7 @@ import {
   rectBottom,
   rectContainsRect,
   rectRight,
+  areWeightsValid,
   splitRect,
   subtreeFitsInRect,
   validateSlideGeometry,
@@ -41,6 +42,37 @@ const EPS = 1e-9
 function leaf(): LayoutNode {
   return createLeaf()
 }
+
+describe('weights that are finite one by one but not together', () => {
+  // Individually finite is a weaker property than finite in total, and every
+  // share is a division by the total. A `NaN` rect is the worst possible
+  // outcome because it fails every comparison: the fit guard reads it as "no
+  // overflow", stores it, and the stored layout has no geometry at all.
+  it('rejects a weight array whose sum overflows to Infinity', () => {
+    expect(areWeightsValid([1e308, 1e308])).toBe(false)
+    expect(areWeightsValid([Number.MAX_VALUE, Number.MAX_VALUE, 1])).toBe(false)
+    // Large is still fine. It is the sum that has to land somewhere.
+    expect(areWeightsValid([1e307, 1e307])).toBe(true)
+    expect(areWeightsValid([1, 1e6])).toBe(true)
+  })
+
+  it('keeps every rectangle a number for weights that are merely huge', () => {
+    // The other way the arithmetic overflows: `usable * cumulative` is
+    // `Infinity` long before the sum is, so the fraction has to come first.
+    const source: Rect = { x: 0, y: 0, width: 1000, height: 400 }
+    for (const weights of [[1e307, 1e307], [1, Number.MAX_VALUE / 4], [1e-6, 1e6]]) {
+      const rects = splitRect(source, 'x', weights, G)
+      for (const rect of rects) {
+        for (const value of [rect.x, rect.y, rect.width, rect.height]) {
+          expect(Number.isFinite(value), JSON.stringify({ weights, rect })).toBe(true)
+        }
+      }
+      // And they still fill the parent exactly, edge to edge.
+      expect(rects[0].x).toBeCloseTo(source.x, 9)
+      expect(rectRight(rects[rects.length - 1])).toBeCloseTo(rectRight(source), 9)
+    }
+  })
+})
 
 describe('splitRect', () => {
   it('places exactly one gap between adjacent children', () => {

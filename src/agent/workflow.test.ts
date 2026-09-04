@@ -2189,6 +2189,48 @@ describe('subfeltlayout inne i ett kort', () => {
     await ok(context, 'adjust_subfields', { ...target, subfieldCount: 3, weights: [1, 1, 1] })
   })
 
+  it('avviser vekter som hver for seg er endelige, men som ikke er det til sammen', async () => {
+    // The schema can only say "positive and finite" about one number at a time.
+    // Whether they add up is a property of the array, and it is the property
+    // the geometry actually needs: every share is a division by the total, so a
+    // total of Infinity makes every rectangle NaN — which fails every
+    // comparison, so the fit guard reads it as "nothing overflowed" and stores
+    // a layout that has no geometry at all.
+    const context = freshContext()
+    const card = await cardDeck(context)
+    const target = {
+      presentationId: card.presentationId,
+      slideId: card.slideId,
+      nodeId: card.nodeId,
+    }
+
+    const before = await stored(context, card.presentationId)
+    const refused = await fails(context, 'adjust_subfields', {
+      ...target,
+      weights: [1e308, 1e308],
+    })
+    expect(refused.code).toBe('INVALID_WEIGHTS')
+    expect(await stored(context, card.presentationId)).toEqual(before)
+
+    // The same rule one level up, where the sum divides the slide itself.
+    const split = await fails(context, 'split_zone', {
+      ...target,
+      axis: 'x',
+      weights: [Number.MAX_VALUE, Number.MAX_VALUE],
+    })
+    expect(split.code).toBe('INVALID_WEIGHTS')
+    expect(await stored(context, card.presentationId)).toEqual(before)
+
+    // Large is still allowed — it is the sum that has to land somewhere — and
+    // what comes back has real numbers in it.
+    await ok(context, 'adjust_subfields', { ...target, axis: 'x', weights: [1e307, 1e307] })
+    const zone = await zoneView(context, card)
+    for (const value of [zone.rect.x, zone.rect.y, zone.rect.width, zone.rect.height]) {
+      expect(Number.isFinite(value)).toBe(true)
+    }
+    expect(zone.fits).toBe(true)
+  })
+
   it('krever at kallet ber om noe, og at sonen har subfelt å ordne', async () => {
     const context = freshContext()
     const card = await cardDeck(context)
