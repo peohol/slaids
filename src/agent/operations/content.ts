@@ -207,8 +207,13 @@ export const setZoneCard = defineOperation({
     color: z
       .string()
       .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)
+      .nullable()
       .optional()
-      .describe('Bakgrunnsfarge på kortet, eller fargen på tittellinjen. Ikke for beholdere.'),
+      .describe(
+        'Bakgrunnsfarge på kortet, eller fargen på tittellinjen. Ikke for beholdere. ' +
+          '`null` nullstiller et kort med tittel til forsidens pillefarge; et kort uten ' +
+          'tittel har ingen arvet farge å nullstille til.',
+      ),
     subfieldCount: z
       .number()
       .int()

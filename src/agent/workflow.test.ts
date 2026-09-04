@@ -2970,3 +2970,72 @@ describe('subfeltlayout inne i ett kort', () => {
     expect(report.issues).toEqual([])
   })
 })
+
+describe('fargen på et kort med tittel', () => {
+  it('kan nullstilles til forsidens farge gjennom set_zone_card', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Kortfarge' })
+    const slideId = deck.slides[0].slideId
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      title: [{ text: 'Tittel' }],
+      color: '#204060',
+    })
+
+    const withColor = await stored(context, deck.presentationId)
+    const coloured = findLeaf(withColor.slides[0].root, nodeId)
+    if (coloured?.content?.kind !== 'titled-card') throw new Error('expected titled-card')
+    expect(coloured.content.headerColor).toBe('#204060')
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      color: null,
+    })
+
+    const reset = await stored(context, deck.presentationId)
+    const inherited = findLeaf(reset.slides[0].root, nodeId)
+    if (inherited?.content?.kind !== 'titled-card') throw new Error('expected titled-card')
+    expect(inherited.content.headerColor).toBeNull()
+  })
+
+  it('avvises for et kort uten tittel, som ikke har noen arvet farge', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { title: 'Kortfarge' })
+    const slideId = deck.slides[0].slideId
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'untitled-card',
+    })
+
+    const error = await fails(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'untitled-card',
+      color: null,
+    })
+    expect(error.code).toBe('INVALID_CONTENT')
+  })
+})
