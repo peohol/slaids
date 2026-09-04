@@ -12,6 +12,7 @@ import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import { emptyDoc, mergeAdjacentCitations, titleDoc, trimTrailingBlankLines } from './richdoc'
 import { newSubfieldId } from './ids'
+import { quantizeStoredRatios } from './ratios'
 import { normalizeIdeas } from './ideas'
 import type { DeckCover, Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
@@ -497,6 +498,27 @@ function coverFrom(value: unknown, presentationTitle: string): DeckCover {
   }
 }
 
+/**
+ * A zone ratio is a whole number from now on.
+ *
+ * Until now a split stored whatever positive numbers it was given — the ratio
+ * dialog accepted decimals and a released drag handle wrote down wherever the
+ * pointer happened to stop, so decks are full of ratios like
+ * `0.3125 : 0.625 : 0.3125` that no author ever typed and none of them can read
+ * back. The layout those describe is kept: each split is replaced by the
+ * closest ratio the new ladder can express, which for the overwhelming majority
+ * of decks is the same geometry to within a rounding error and for the rest is
+ * the nearest thing to it.
+ *
+ * `quantizeStoredRatios` is the repair, shared with the template validator and
+ * built on the very function the commands use, so "what a stored deck holds"
+ * and "what an edit produces" cannot drift apart.
+ */
+const migrate11to12: MigrationFn = (data) => ({
+  ...(quantizeStoredRatios(data) as Raw),
+  schemaVersion: 12,
+})
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -510,6 +532,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   8: migrate8to9,
   9: migrate9to10,
   10: migrate10to11,
+  11: migrate11to12,
 }
 
 /**

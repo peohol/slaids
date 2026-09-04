@@ -268,7 +268,7 @@ export interface ZoneInspection {
   kind: 'split' | 'leaf'
   /** The zone's rectangle in the logical 1600 × 900 design space. */
   rect: Rect
-  /** Split only: how it divides, and into what. */
+  /** Split only: how it divides, and into what. Ratios are whole, 1–10. */
   axis?: 'x' | 'y'
   weights?: number[]
   childNodeIds?: string[]

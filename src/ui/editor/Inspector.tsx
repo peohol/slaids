@@ -116,8 +116,16 @@ export function Inspector({
       {node.kind === 'split' && (
         <section className="inspector__section">
           <h2 className="inspector__heading">Forholdstall</h2>
-          <p className="hint">{node.weights.map((weight) => round(weight)).join(' : ')}</p>
-          <p className="hint">Dra i mellomrommet mellom subsonene for å justere.</p>
+          {/* Printed as they are stored, because they are whole numbers: a
+              zone ratio that needed rounding to be read would be a ratio the
+              author could not type back in. */}
+          <p className="hint" data-testid="zone-ratios">
+            {node.weights.join(' : ')}
+          </p>
+          <p className="hint">
+            Dra i mellomrommet mellom subsonene for å justere. Layouten låses til nærmeste
+            heltallsforhold når du slipper.
+          </p>
         </section>
       )}
 

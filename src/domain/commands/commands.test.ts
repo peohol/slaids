@@ -1271,3 +1271,124 @@ describe('reference pruning', () => {
     expect(unwrap(deleteUnusedReferences(pruned))).toBe(pruned)
   })
 })
+
+/**
+ * Whole ratios.
+ *
+ * The commands are where the rule is made true rather than merely checked: a
+ * caller may ask for any positive relative weights, and what gets stored is the
+ * closest ratio the deck can be written in. Everything downstream — the schema,
+ * `validateTree`, the agent API — can then simply insist on it.
+ */
+describe('zone ratios', () => {
+  const splitWith = (weights: number[]): SplitNode => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const outcome = unwrap(
+      splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights }),
+    )
+    return outcome.presentation.slides[0].root as SplitNode
+  }
+
+  const whole = (weights: readonly number[]): boolean =>
+    weights.every((weight) => Number.isInteger(weight) && weight >= 1 && weight <= 10)
+
+  it('stores whole numbers for a wish written in decimals', () => {
+    expect(splitWith([0.2, 0.3]).weights).toEqual([2, 3])
+    expect(splitWith([0.25, 0.5, 0.25]).weights).toEqual([1, 2, 1])
+    expect(whole(splitWith([1.6, 3.14159]).weights)).toBe(true)
+    expect(splitWith([1.6, 3.14159]).weights).toEqual([1, 2])
+  })
+
+  it('gives proportionally equal wishes the same layout', () => {
+    expect(splitWith([10, 20, 10]).weights).toEqual([1, 2, 1])
+    expect(splitWith([0.5, 1, 0.5]).weights).toEqual([1, 2, 1])
+    expect(splitWith([2, 4, 2]).weights).toEqual([1, 2, 1])
+  })
+
+  it('measures the layout it will store, not the one it was asked for', () => {
+    // A hair too lopsided to be legal as asked — the first zone would fall
+    // under the minimum — but the ratio it is stored as is not.
+    const split = splitWith([1, 7.4])
+    expect(split.weights).toEqual([1, 7])
+  })
+
+  it('still refuses a wish whose nearest whole ratio is too lopsided', () => {
+    const presentation = base()
+    const result = splitLeaf(presentation, {
+      slideId: presentation.slides[0].id,
+      nodeId: presentation.slides[0].root.id,
+      axis: 'x',
+      weights: [1, 40],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('writes whole ratios into a split that predates the rule, whatever was changed', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    // A split as an older version of Slaids could have stored it.
+    const legacy = createSplit('x', [1.5, 2.5], [createLeaf(), createLeaf()])
+    const stored: Presentation = {
+      ...presentation,
+      slides: [{ ...slide, root: { ...legacy, id: slide.root.id } }],
+    }
+    const outcome = unwrap(
+      updateSplit(stored, { slideId: slide.id, nodeId: slide.root.id, axis: 'y' }),
+    )
+    const root = outcome.presentation.slides[0].root as SplitNode
+    expect(root.axis).toBe('y')
+    expect(root.weights).toEqual([3, 5])
+  })
+
+  it('keeps whole ratios when a child is added or removed', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const split = unwrap(
+      splitLeaf(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        axis: 'x',
+        weights: [1, 2],
+      }),
+    ).presentation
+    const grown = unwrap(
+      updateSplit(split, { slideId: slide.id, nodeId: slide.root.id, childCount: 3 }),
+    ).presentation
+    expect((grown.slides[0].root as SplitNode).weights).toEqual([1, 2, 1])
+    const shrunk = unwrap(
+      updateSplit(grown, { slideId: slide.id, nodeId: slide.root.id, childCount: 2 }),
+    ).presentation
+    expect((shrunk.slides[0].root as SplitNode).weights).toEqual([1, 2])
+  })
+
+  it('never commits anything but whole ratios in range', () => {
+    let random = 12345
+    const next = (): number => {
+      random = (random * 1664525 + 1013904223) >>> 0
+      return random / 0x100000000
+    }
+    let accepted = 0
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      const count = 2 + Math.floor(next() * 3)
+      const weights = Array.from({ length: count }, () => 0.05 + next() * 30)
+      const presentation = base()
+      const slide = presentation.slides[0]
+      const result = splitLeaf(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        axis: next() < 0.5 ? 'x' : 'y',
+        weights,
+      })
+      // A wish can still be refused for being too lopsided to fit; what it can
+      // never do is be accepted and stored as something other than a ratio.
+      if (!result.ok || !result.value) continue
+      accepted += 1
+      const root = result.value.presentation.slides[0].root as SplitNode
+      expect(whole(root.weights), weights.join(':')).toBe(true)
+      expect(root.weights).toHaveLength(count)
+    }
+    expect(accepted).toBeGreaterThan(20)
+  })
+})

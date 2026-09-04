@@ -8,11 +8,17 @@
 
 import { z } from 'zod'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from './metrics'
-import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
+import {
+  MAX_SPLIT_CHILDREN,
+  MAX_ZONE_RATIO,
+  MIN_SPLIT_CHILDREN,
+  MIN_ZONE_RATIO,
+} from './constants'
 import { validateTree } from './layout'
+import { quantizeStoredRatios } from './ratios'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 11
+export const CURRENT_SCHEMA_VERSION = 12
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -120,8 +126,12 @@ export const layoutNodeSchema: z.ZodType<LayoutNode> = z.lazy(() =>
       id: z.string().min(1),
       kind: z.literal('split'),
       axis: axisSchema,
+      /* Whole ratios, not any positive number: what a finished layout is
+         stored with is the ladder an author can read back and type in again.
+         Decimals from before the rule are quantised by the migration chain, so
+         nothing that was readable becomes unopenable — see `migrate11to12`. */
       weights: z
-        .array(z.number().finite().positive())
+        .array(z.number().int().min(MIN_ZONE_RATIO).max(MAX_ZONE_RATIO))
         .min(MIN_SPLIT_CHILDREN)
         .max(MAX_SPLIT_CHILDREN),
       children: z.array(layoutNodeSchema).min(MIN_SPLIT_CHILDREN).max(MAX_SPLIT_CHILDREN),
@@ -276,8 +286,18 @@ export function validatePresentation(input: unknown): SchemaResult<Presentation>
   return { ok: true, value: parsed.data as Presentation, issues: [] }
 }
 
+/**
+ * Validate a stored template, repairing the one thing about it that changed.
+ *
+ * A template is layout and nothing else, and it carries no `schemaVersion` to
+ * migrate on — so this, the single gate every reader and writer of a template
+ * passes through, is where a template saved before whole ratios were the rule
+ * gets rewritten in them. Callers must therefore keep `value`, not the object
+ * they passed in: dropping a template from the list because its ratios were
+ * written the old way would delete work over a number nobody typed.
+ */
 export function validateLayoutTemplate(input: unknown): SchemaResult<z.infer<typeof layoutTemplateSchema>> {
-  const parsed = layoutTemplateSchema.safeParse(input)
+  const parsed = layoutTemplateSchema.safeParse(quantizeStoredRatios(input))
   if (!parsed.success) return { ok: false, issues: toIssues(parsed.error) }
   const issues = validateTree(parsed.data.root).map((violation) => ({
     path: violation.nodeId,

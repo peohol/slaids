@@ -4,15 +4,29 @@
  * The preview is not a drawing: it is the geometry engine run against the real
  * target rect, so what the dialog shows is exactly what committing will produce.
  * Apply stays disabled until the proposed geometry is legal.
+ *
+ * That is why the fields are free and the preview is not. An author may type
+ * `0.25`, `1.6` or `3.14159` — they are relative weights, and holding them to
+ * whole numbers while typing would make the dialog argue with a wish it is
+ * perfectly able to honour. What gets committed is the nearest ratio the layout
+ * can actually be written in, so the preview, the minimum-size check and the
+ * Apply button all work on *that* rather than on the typed numbers, and the
+ * result is named under the fields so nobody has to guess what `0.25` became.
  */
 
 import { useMemo, useState } from 'react'
 import * as ToggleGroup from '@radix-ui/react-toggle-group'
-import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../../domain/constants'
+import {
+  MAX_SPLIT_CHILDREN,
+  MAX_ZONE_RATIO,
+  MIN_SPLIT_CHILDREN,
+  MIN_ZONE_RATIO,
+} from '../../domain/constants'
 import { themeMetrics } from '../../domain/metrics'
 import { useEditorStore } from '../../state/store'
-import { computeLayoutRects, previewSplit } from '../../domain/geometry'
+import { areWeightsValid, computeLayoutRects, previewSplit } from '../../domain/geometry'
 import { collectNodes, countContent, createLeaf } from '../../domain/layout'
+import { quantizeRatios } from '../../domain/ratios'
 import type { Axis, LayoutNode, Rect } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
@@ -83,8 +97,16 @@ export function SplitModal({
     setContentTargetIndex((current) => Math.min(current, clamped - 1))
   }
 
-  const weights = weightInputs.map(parseWeight)
-  const weightsValid = weights.length === count && weights.every((w) => Number.isFinite(w) && w > 0)
+  const typed = weightInputs.map(parseWeight)
+  // The geometry engine's own predicate rather than a second reading of it: it
+  // also rules out the pair of enormous numbers whose *sum* is not finite,
+  // which quantisation cannot answer either.
+  const weightsValid = typed.length === count && areWeightsValid(typed)
+  // The layout this dialog is really proposing: the typed wish, quantised.
+  // Cheap enough to redo on every keystroke — the search is a few thousand
+  // additions over at most ten zones — so it is not worth a memo whose key
+  // would be the field contents anyway.
+  const weights = weightsValid ? quantizeRatios(typed) : null
 
   const proposedChildren: LayoutNode[] = useMemo(() => {
     const kept = existingChildren.slice(0, count)
@@ -92,14 +114,14 @@ export function SplitModal({
     return [...kept, ...Array.from({ length: added }, () => createLeaf())]
   }, [count, existingChildren])
 
-  const preview = weightsValid
+  const preview = weights
     ? previewSplit(targetRect, axis, weights, {}, mode === 'edit' ? proposedChildren : undefined)
     : null
 
   const removedChildren = existingChildren.slice(count)
   const removedContentCount = removedChildren.reduce((total, child) => total + countContent(child), 0)
 
-  const previewNode: LayoutNode | null = weightsValid
+  const previewNode: LayoutNode | null = weights
     ? { id: '__preview__', kind: 'split', axis, weights, children: proposedChildren }
     : null
 
@@ -114,7 +136,7 @@ export function SplitModal({
         )
       : null
 
-  const canApply = Boolean(weightsValid && preview?.valid)
+  const canApply = Boolean(weights && preview?.valid)
 
   return (
     <Modal
@@ -139,7 +161,7 @@ export function SplitModal({
             disabled={!canApply}
             data-testid="split-apply"
             onClick={() =>
-              onApply({ axis, weights, contentTargetIndex, removedDisposition })
+              weights && onApply({ axis, weights, contentTargetIndex, removedDisposition })
             }
           >
             Bruk
@@ -204,8 +226,10 @@ export function SplitModal({
             />
           ))}
         </div>
-        <span className="hint">
-          [1, 2] gir dobbelt så stor andre sone. [0.5, 1] og [2, 4] gir nøyaktig samme resultat.
+        <span className="hint" data-testid="split-quantized">
+          Tallene er relative, så [1, 2], [0.5, 1] og [2, 4] beskriver samme layout. Den lagres
+          som nærmeste heltallsforhold mellom {MIN_ZONE_RATIO} og {MAX_ZONE_RATIO}
+          {weights ? `: ${weights.join(' : ')}.` : '.'}
         </span>
       </div>
 

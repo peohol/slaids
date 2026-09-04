@@ -7,8 +7,9 @@
 
 import { bodyOf, withBody } from './content'
 import { newContentId, newNodeId, newSubfieldId } from './ids'
-import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
+import { MAX_SPLIT_CHILDREN, MAX_ZONE_RATIO, MIN_SPLIT_CHILDREN, MIN_ZONE_RATIO } from './constants'
 import { areWeightsValid } from './geometry'
+import { areRatiosQuantized, quantizeRatios } from './ratios'
 import type { LayoutNode, LeafNode, NodeId, SplitNode, ZoneContent, Axis } from './types'
 
 export function createLeaf(content: ZoneContent | null = null): LeafNode {
@@ -198,6 +199,28 @@ export function normalizeTree(root: LayoutNode): LayoutNode {
   return unchanged ? root : { ...root, children, weights }
 }
 
+/**
+ * A copy of the tree whose splits carry whole ratios.
+ *
+ * For a tree that already obeys the rule this returns the very same object, so
+ * it costs nothing on the paths where it cannot matter. It exists for the one
+ * place a layout arrives from outside rather than from a command — `addSlide`
+ * takes a root, for the editor's templates but also for any headless caller —
+ * and that door is exactly where the invariant would otherwise be walked past.
+ * Splits whose weights are not usable at all are left alone for validation to
+ * report; this rewrites numbers, it does not rebuild trees.
+ */
+export function withQuantizedRatios(node: LayoutNode): LayoutNode {
+  if (node.kind === 'leaf') return node
+  const children = node.children.map(withQuantizedRatios)
+  const usable = node.weights.length === node.children.length && areWeightsValid(node.weights)
+  const weights =
+    usable && !areRatiosQuantized(node.weights) ? quantizeRatios(node.weights) : node.weights
+  const unchanged =
+    weights === node.weights && children.every((child, index) => child === node.children[index])
+  return unchanged ? node : { ...node, weights, children }
+}
+
 /** Deep clone a subtree with brand new ids for every node, content and subfield. */
 export function cloneSubtreeWithNewIds(node: LayoutNode): LayoutNode {
   if (node.kind === 'leaf') {
@@ -341,6 +364,15 @@ export function validateTree(root: LayoutNode): TreeViolation[] {
       // `findSlideIssues`, which skips the geometry when the tree is.
       if (!areWeightsValid(node.weights)) {
         violations.push({ nodeId: node.id, message: 'weights must be finite, > 0 and sum to a finite number' })
+      } else if (!areRatiosQuantized(node.weights)) {
+        // A committed layout is written in whole ratios. The geometry engine
+        // would happily measure decimals — the drag preview feeds it nothing
+        // else — but a *stored* tree carrying them is one the commands could
+        // not have produced, so it is reported rather than quietly measured.
+        violations.push({
+          nodeId: node.id,
+          message: `weights must be whole numbers between ${MIN_ZONE_RATIO} and ${MAX_ZONE_RATIO}`,
+        })
       }
     }
   })

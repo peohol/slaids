@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { CURRENT_SCHEMA_VERSION, validateClipboardPayload, validatePresentation } from './schema'
+import {
+  CURRENT_SCHEMA_VERSION,
+  validateClipboardPayload,
+  validateLayoutTemplate,
+  validatePresentation,
+} from './schema'
 import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
 import { createTitledCard, createUntitledCard } from './content'
@@ -596,5 +601,113 @@ describe('repair on load', () => {
       ],
     }
     expect(migratePresentation(broken).ok).toBe(false)
+  })
+})
+
+
+/**
+ * Whole zone ratios, coming and going.
+ *
+ * The rule arrived after decks had already been saved, so the two halves are
+ * tested together: a stored deck written the old way is *kept* — rewritten in
+ * the ratio closest to what it described — while a document at the current
+ * version cannot claim anything else.
+ */
+describe('zone ratios in stored data', () => {
+  const storedWithWeights = (weights: number[], version = CURRENT_SCHEMA_VERSION - 1): Record<string, unknown> => {
+    const stored = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
+    stored.schemaVersion = version
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as Record<string, unknown>
+    root.weights = weights
+    return stored
+  }
+
+  it('rewrites a deck stored with decimal ratios into whole ones', () => {
+    const result = migratePresentation(storedWithWeights([0.3125, 0.6875]))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const root = result.value.slides[0].root
+    if (root.kind !== 'split') throw new Error('expected a split')
+    // 0.3125 : 0.6875 is 5 : 11 exactly, and 11 is off the ladder. 4 : 9 is
+    // the closest layout that can be written down — nearer than 5 : 10, which
+    // is what rounding the numbers rather than the distribution would give.
+    expect(root.weights).toEqual([4, 9])
+    expect(result.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+  })
+
+  it('keeps a layout that was already expressible exactly as it looked', () => {
+    const stored = storedWithWeights([1.5, 2.5, 1.5])
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: unknown[] }
+    root.children = [...root.children, { id: 'third', kind: 'leaf', content: null }]
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    expect(migrated.weights).toEqual([3, 5, 3])
+  })
+
+  it('leaves a split whose shape is broken for validation to refuse', () => {
+    // Two weights, three children: a migration that "fixed" this would be
+    // rebuilding a slide rather than rewriting a number.
+    const stored = storedWithWeights([0.5, 0.25])
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: unknown[] }
+    root.children = [...root.children, { id: 'extra', kind: 'leaf', content: null }]
+    expect(migratePresentation(stored).ok).toBe(false)
+  })
+
+  it('refuses rather than throws on ratios that cannot be read at all', () => {
+    // Individually finite, but their sum is not, so there is no distribution to
+    // rewrite. The migration has to leave it be and let validation answer.
+    const result = migratePresentation(storedWithWeights([1e308, 1e308]))
+    expect(result.ok).toBe(false)
+  })
+
+  it('refuses a current-version document whose ratios are not whole numbers', () => {
+    for (const weights of [[0.5, 1], [0, 1], [-1, 2], [1, 11], [1.5, 2]]) {
+      const broken = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
+      const slides = broken.slides as Array<Record<string, unknown>>
+      ;(slides[0].root as Record<string, unknown>).weights = weights
+      expect(validatePresentation(broken).ok, weights.join(':')).toBe(false)
+    }
+  })
+
+  it('accepts every whole ratio on the ladder', () => {
+    for (const weights of [[1, 1], [1, 10], [10, 1], [7, 3]]) {
+      const deck = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
+      const slides = deck.slides as Array<Record<string, unknown>>
+      ;(slides[0].root as Record<string, unknown>).weights = weights
+      expect(validatePresentation(deck).ok, weights.join(':')).toBe(true)
+    }
+  })
+
+  it('brings a template saved before the rule up to it instead of dropping it', () => {
+    const template = {
+      id: 't_1',
+      name: 'To spalter',
+      hasTitle: true,
+      root: {
+        id: 'root',
+        kind: 'split',
+        axis: 'x',
+        weights: [0.4, 0.6],
+        children: [
+          { id: 'a', kind: 'leaf', content: null },
+          { id: 'b', kind: 'leaf', content: null },
+        ],
+      },
+      createdAt: new Date().toISOString(),
+    }
+    // A template carries no schemaVersion, so validating it is the only place
+    // the repair can happen — and it must repair rather than refuse, or the
+    // template silently disappears from the list.
+    const result = validateLayoutTemplate(template)
+    expect(result.ok).toBe(true)
+    const root = result.value?.root
+    if (!root || root.kind !== 'split') throw new Error('expected a split')
+    expect(root.weights).toEqual([2, 3])
   })
 })

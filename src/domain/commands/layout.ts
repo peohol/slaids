@@ -20,6 +20,7 @@ import {
   replaceNode,
 } from '../layout'
 import { findSlide, touch, withSlide } from '../presentation'
+import { quantizeRatios } from '../ratios'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
 import { fitContextFor, guardFit } from './fitGuard'
@@ -85,11 +86,16 @@ export function splitLeaf(
   if (!areWeightsValid(input.weights)) {
     return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
   }
+  // The caller's numbers are a *wish*: any positive relative weights, decimals
+  // and all. What gets measured, previewed and stored is the integer ratio
+  // closest to that wish, so the geometry checked below is the geometry the
+  // slide ends up with rather than one nobody can write down.
+  const weights = quantizeRatios(input.weights)
 
   const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
-  const preview = previewSplit(area, input.axis, input.weights, input.geometry)
+  const preview = previewSplit(area, input.axis, weights, input.geometry)
   if (!preview.valid) {
     return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små.', {
       slideId: input.slideId,
@@ -98,7 +104,7 @@ export function splitLeaf(
     })
   }
 
-  const children: LeafNode[] = input.weights.map(() => createLeaf())
+  const children: LeafNode[] = weights.map(() => createLeaf())
   let movedToSandbox: ZoneContent[] = []
   let discarded: ZoneContent[] = []
   let next = presentation
@@ -139,7 +145,7 @@ export function splitLeaf(
     id: leaf.id,
     kind: 'split',
     axis: input.axis,
-    weights: [...input.weights],
+    weights,
     children,
   }
   const root = normalizeTree(replaceNode(slide.root, leaf.id, split))
@@ -177,16 +183,21 @@ export function updateSplit(
   const countCheck = validateChildCount(targetCount)
   if (!countCheck.ok) return countCheck
 
-  const weights: number[] = []
+  const wanted: number[] = []
   for (let i = 0; i < targetCount; i += 1) {
-    weights.push(input.weights ? input.weights[i] : (split.weights[i] ?? 1))
+    wanted.push(input.weights ? input.weights[i] : (split.weights[i] ?? 1))
   }
   if (input.weights && input.weights.length !== targetCount) {
     return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subsoner.')
   }
-  if (!areWeightsValid(weights)) {
+  if (!areWeightsValid(wanted)) {
     return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
   }
+  // Quantised before anything is measured, for the same reason as in
+  // `splitLeaf`, and also when the caller changed only the axis or the child
+  // count: a split that has been carrying decimals since before the rule
+  // existed is written down properly the next time it is touched.
+  const weights = quantizeRatios(wanted)
 
   const axis = input.axis ?? split.axis
   const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))

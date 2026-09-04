@@ -272,8 +272,12 @@ export async function importSlaidsArchive(
       const parsed = JSON.parse(strFromU8(entries['templates.json']))
       const templates = Array.isArray(parsed) ? (parsed as LayoutTemplate[]) : []
       const existingTemplates = new Set((await repository.listTemplates()).map((entry) => entry.id))
-      for (const template of templates) {
-        if (!validateLayoutTemplate(template).ok) continue
+      for (const stored of templates) {
+        const validated = validateLayoutTemplate(stored)
+        if (!validated.ok || !validated.value) continue
+        // The validated value, because validating a template also rewrites
+        // ratios saved before they had to be whole numbers.
+        const template = validated.value as LayoutTemplate
         // A local template with the same id may have been edited since the
         // backup was taken, so it is never overwritten.
         const clash = existingTemplates.has(template.id)

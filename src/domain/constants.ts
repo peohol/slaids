@@ -256,3 +256,20 @@ export const PROGRESS_BAR_HEIGHT = 10
 export const PROGRESS_TRACK_OPACITY = 0.3
 /** How long the fill takes to reach the position a page turn gave it. */
 export const PROGRESS_TRANSITION_MS = 600
+
+/**
+ * The committed zone ratio.
+ *
+ * A ratio is what the author reads and types — `1 : 2 : 1`, never
+ * `0.3125 : 0.625 : 0.3125` — so the numbers a finished layout is stored with
+ * are integers in this range, and nothing else. The bound is what makes the
+ * ladder of representable layouts finite and therefore snappable: a drag ends
+ * on the nearest rung rather than wherever the pointer happened to stop, and
+ * two decks that look the same are written down the same way.
+ *
+ * Deliberately not `MAX_SPLIT_CHILDREN`, which is also ten: how many subzones a
+ * split may have and how lopsided two of them may be are two different limits
+ * that happen to share a number today.
+ */
+export const MIN_ZONE_RATIO = 1
+export const MAX_ZONE_RATIO = 10

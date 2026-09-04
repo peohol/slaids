@@ -149,7 +149,9 @@ type LeafNode = {
 - En `LeafNode` kan ha innhold og **aldri barn**.
 - `children.length === weights.length`.
 - En split har minst 2 og maks 10 barn.
-- Alle vekter er endelige tall `> 0`.
+- Alle vekter er **hele tall mellom 1 og 10**. En lagret layout inneholder
+  aldri desimaler, 0, negative tall eller tall over 10; ønsker som ikke er det
+  kvantiseres til nærmeste lovlige forhold før de måles og lagres. Se §11.5.
 - Roten for hovedområdet kan ikke slettes.
 - Layouttreet normaliseres etter strukturelle endringer.
 
@@ -515,19 +517,116 @@ Splitt-dialogen skal vise valgt sone med riktig aspektforhold og live preview.
 3. **Forholdstall**
    - ett input per barn;
    - default 1;
-   - tillat positive desimaltall;
-   - normalisering er matematisk, ikke lagringsmessig nødvendig:
-     - `[1, 2]`, `[0.5, 1]` og `[2, 4]` er geometrisk ekvivalente.
+   - tillat positive desimaltall, tall under 1 og tall over 10 – feltene
+     begrenses ikke mens man skriver;
+   - tallene er relative: `[1, 2]`, `[0.5, 1]` og `[2, 4]` beskriver samme
+     layout;
+   - det som lagres er nærmeste hele forhold 1–10 (§11.5), og dialogen viser
+     hvilket under feltene.
 
 ### Live preview
 
 Endringer skal forhåndsvises umiddelbart.
+
+Previewet – og minstemålskontrollen bak «Bruk» – kjøres på de **kvantiserte**
+forholdstallene, ikke på de innskrevne: det dialogen viser skal være nøyaktig
+det commit produserer.
 
 «Bruk»-knappen er disabled hvis:
 
 - input er ugyldig;
 - et barn blir mindre enn minimum;
 - eksisterende innhold ikke kan plasseres lovlig.
+
+
+---
+
+## 11.5\. Forholdstall er heltall 1–10
+
+En ferdig layout lagres alltid med hele forholdstall mellom 1 og 10 – aldri
+desimaler, aldri 0, aldri negative tall, aldri over 10. Dette gjelder uansett
+hvordan forholdstallene ble satt: dra-håndtaket, «Rediger soner», en mal, en
+import eller et agentkall.
+
+### Hvorfor
+
+Et forholdstall er noe forfatteren leser og skriver ned. `0.3125 : 0.625 :
+0.3125` er ikke det, og det var akkurat den slags tall en sluppet
+dra-operasjon lagret: pekeren stoppet et sted, og tallet ble stående. Med et
+endelig sett lovlige forhold får dekket en stige å feste seg til – to layouter
+som ser like ut skrives likt, og en drag-operasjon kan snappe til nærmeste
+trinn i stedet for å bevare en tilfeldighet.
+
+### Kvantiseringen
+
+`src/domain/ratios.ts` er **eneste** implementasjon. Begge redigeringsmåtene går
+gjennom den, og det gjør domenekommandoene også, slik at ingen vei rundt den kan
+lagre noe annet.
+
+Ønsket normaliseres først til proporsjoner `p_i = x_i / Σx`. Kvantiseringen
+finner heltallene `r_i ∈ [1, 10]` der de normaliserte kandidatproporsjonene
+`q_i = r_i / Σr` ligger nærmest, målt som `loss = Σ (p_i - q_i)²`.
+
+Det er **ikke** avrunding av hvert tall for seg: `[0.25, 1.6, 3.14]` avrundet
+individuelt er `[0, 2, 3]` – en sone borte, og en form ingen ba om. Det som
+tilnærmes er fordelingen.
+
+Søket er eksakt uten å være `10^n`. Med totalen `S = Σ r_i` låst er
+
+```text
+loss = (1/S²) · Σ (S·p_i - r_i)²
+```
+
+separabel, så for hver av de høyst 91 mulige totalene er beste vektor et lite
+bounded knapsack-problem – velg `r_i ∈ [1, 10]` som minimerer en kostnad per
+sone under `Σ r_i = S` – løst med dynamisk programmering over den løpende
+summen. Hver lovlig vektor er et gyldig punkt i delproblemet for sin egen total,
+så den beste av vinnerne er global beste.
+
+Ved lik loss vinner den minste totalen: `1 : 2 : 1` foretrekkes framfor
+`2 : 4 : 2`, som beskriver nøyaktig samme layout. Det gjør også kvantiseringen
+stabil – en layout som allerede er lovlig kommer uendret tilbake i stedet for å
+drive mot en større ekvivalent av seg selv. Resten brytes av den minste vektoren
+i rekkefølge, så samme input gir alltid samme output.
+
+### Dragging: trinnløst under, snapp ved slipp
+
+Mens pekeren er nede kvantiseres ingenting. Grensen følger pekeren nøyaktig, og
+bare de to sonene den ligger mellom endres – summen deres er bevart, så resten
+av splitten står stille. Å snappe underveis ville gitt et hakkete håndtak og
+målt fit på tilstander forfatteren bare er innom.
+
+Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
+
+> Soner som hadde samme forholdstall før dragingen, og som den dratte
+> separatoren ikke ligger mellom, skal ha samme forholdstall etterpå.
+
+`2 : 5 : 3 : 3 : 3` med den første separatoren dratt vurderer altså bare
+løsninger på formen `a : b : c : c : c`. Gruppene leses fra forholdstallene
+**før** gesten – aldri fra midlertidige flyttallsbredder, som aldri er nøyaktig
+like. Paret på hver side av den dratte separatoren er unntatt: `2 : 2 : 5` med
+separatoren mellom de to første dratt *skal* kunne ende med ulike tall, fordi
+det er nettopp det forfatteren ba om.
+
+Nærmeste trinn kan fortsatt bli avvist av minstemål eller fit-guarden. Da prøves
+de nest nærmeste i tur (`RATIO_SNAP_CANDIDATES`), og først når alle er avvist
+får forfatteren avvisningen fra det nærmeste – et håndtak som ikke gjør noe
+fordi snappet bommet med en hårsbredd, leser som ødelagt.
+
+### Håndhevelse og bakoverkompatibilitet
+
+- `splitLeaf` og `updateSplit` kvantiserer **før** de måler, så geometrien som
+  valideres er geometrien som lagres. `addSlide` gjør det samme med et
+  layouttre den får utenfra.
+- Zod krever heltall 1–10 i `layoutNodeSchema`, og `validateTree` rapporterer
+  alt annet som strukturbrudd.
+- Migrasjon 11 → 12 skriver om lagrede dekk, og `validateLayoutTemplate` gjør
+  det samme for maler, som ikke har noen `schemaVersion` å migrere på. Ingen
+  eksisterende layout blir uleselig: den skrives om til det nærmeste den kan
+  uttrykkes som, og en mal med gamle tall repareres i stedet for å forsvinne fra
+  listen.
+- Agent-API-et tar fortsatt imot vilkårlige positive vekter – kontrakten er
+  uendret – og `inspect_slide` svarer med heltallene som faktisk ble lagret.
 
 ---
 
@@ -546,7 +645,9 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
 
-Direkte drag handles for ratios kan implementeres senere, etter at den numeriske modellen er stabil.
+Direkte drag handles for ratios finnes: separatoren mellom to soner kan dras.
+Under dragingen er bevegelsen trinnløs, ved slipp snapper layouten til nærmeste
+lovlige forhold. Se §11.5.
 
 ---
 
