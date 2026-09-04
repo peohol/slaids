@@ -9,7 +9,17 @@
 
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { createPresentation, stage, waitForSaved, watchForErrors, zoneRects } from './helpers'
+import {
+  addContentToZone,
+  createPresentation,
+  enterContentMode,
+  enterZoneMode,
+  splitSelected,
+  stage,
+  waitForSaved,
+  watchForErrors,
+  zoneRects,
+} from './helpers'
 
 /**
  * A file far wider than any zone, so `cover` has to hide something. The bands
@@ -174,6 +184,28 @@ test.describe('pictures', () => {
     // empty caption, only a box drawn over a picture for no reason.
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
     await expect(stage(page).locator('.image-caption')).toHaveCount(0)
+  })
+
+  test('selects the zone it belongs to when a picture is pressed', async ({ page }) => {
+    await createPresentation(page, 'Valg av bildesone')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+    await enterContentMode(page)
+
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await stage(page)
+      .locator(`.slide-zone[data-node-id="${zones[1].id}"] [data-testid="empty-zone-image"]`)
+      .click()
+    await expect(page.getByTestId('caption-panel')).toBeVisible()
+
+    // A picture has no text field to focus, so without a press of its own the
+    // inspector would keep showing whichever zone was selected last.
+    await stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).first().click()
+    await expect(page.getByTestId('caption-panel')).toHaveCount(0)
+
+    await panel(page).click()
+    await expect(page.getByTestId('caption-panel')).toBeVisible()
   })
 
   test('puts a title panel over a picture, with the caption below it', async ({ page }) => {

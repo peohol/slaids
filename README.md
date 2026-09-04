@@ -76,11 +76,17 @@ layoutet er nestet.
 
 **Innhold**
 
-- beholder (transparent), kort uten tittel, kort med tittel
+- beholder (transparent), kort uten tittel, kort med tittel, bilde,
+  kort med tittel og bilde
 - 1–6 subfelt per kort med egne forholdstall, orientering og skillelinjer
 - rik tekst via Tiptap: avsnitt, overskrift (pilledesign), fet/kursiv/understreket,
   punktlister, nummererte lister, sitat, kode, lenker og tabeller med rad-/kolonnekontroller
 - bilder og SVG som filer i lagringen (Supabase Storage eller IndexedDB), med breddevalg i prosent
+- et bilde som fyller en sone fyller den helt ut til kantene, med kortets hjørner
+  og skygge, og **beskjæres** når formatet ikke passer: hover viser de skjulte
+  delene utenfor rammen, og et dra flytter utsnittet, med en magnet i midten
+- bildetekst over bildet – øverst, i midten eller nederst – midtstilt, i en tonet
+  boks med backdrop-blur som følger forsidens pillefarge til noen velger en annen
 - enkle vektorfigurer, både som hel sone og inline i tekst
 - 12 × 4-fargepalett med automatisk tekstfarge etter kontrast
 - referanser med avledet nummerering (`1–3, 5, 6, 8–10`) og automatisk genererte
@@ -447,13 +453,16 @@ museklikk eller databasetilgang:
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
 | `render_slide_preview`                                                 | tegner én side som PNG, slik publikum ser den |
 
-For bilder finnes det nøyaktig to dører inn:
+For bilder finnes det nøyaktig to dører inn, og to operasjoner for å bestemme
+hvordan bildet står i sonen etterpå:
 
 | Operasjon          | Hva agenten sender                          | Hva den får      |
 | ------------------ | ------------------------------------------- | ---------------- |
-| `upload_asset`     | metadata + filinnhold (base64, bytes, blob) | `assetId`        |
-| `create_svg_asset` | `name` + `svgMarkup`                        | `assetId`        |
-| `set_zone_asset`   | `assetId` + slide og sone                   | plassert innhold |
+| `upload_asset`      | metadata + filinnhold (base64, bytes, blob) | `assetId`        |
+| `create_svg_asset`  | `name` + `svgMarkup`                        | `assetId`        |
+| `set_zone_asset`    | `assetId` + slide og sone                   | plassert innhold |
+| `set_image_focus`   | `x` og `y` mellom 0 og 1                    | utsnittet        |
+| `set_image_caption` | posisjon, tekst og farge                    | bildeteksten     |
 
 - **Agenten kan laste opp ferdige bilder.** Formatet leses ut av bytene, ikke av
   hva kalleren kaller filen – og hele filen gås gjennom, ikke bare filhodet: en

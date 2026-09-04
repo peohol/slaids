@@ -109,6 +109,7 @@ export function EditableImagePanel({
   onPickImage: () => void
 }) {
   const run = useEditorStore((state) => state.run)
+  const selectNode = useEditorStore((state) => state.selectNode)
   const hostRef = useRef<HTMLDivElement>(null)
   const url = useAssetUrl(panel.assetId)
   /**
@@ -145,6 +146,21 @@ export function EditableImagePanel({
 
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): void => {
+      /*
+       * A press inside the caption belongs to the caption. It is text, and the
+       * default this handler prevents further down is the very thing that puts
+       * the caret in it.
+       */
+      if (event.target instanceof Element && event.target.closest('.image-caption')) return
+
+      /*
+       * Pressing a picture selects its zone, exactly as putting the caret in a
+       * text field does. A picture has no field to focus, so without this the
+       * inspector would keep showing whichever zone was selected last — and the
+       * caption controls would belong to a zone the user is not looking at.
+       */
+      selectNode(nodeId)
+
       if (!panel.assetId) {
         onPickImage()
         return
@@ -194,7 +210,7 @@ export function EditableImagePanel({
       target.addEventListener('pointerup', end)
       target.addEventListener('pointercancel', end)
     },
-    [cropped, geometry, nodeId, onPickImage, panel.assetId, panel.focus, run, slideId],
+    [cropped, geometry, nodeId, onPickImage, panel.assetId, panel.focus, run, selectNode, slideId],
   )
 
   /*
