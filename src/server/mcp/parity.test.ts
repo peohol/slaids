@@ -579,6 +579,38 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     return { presentationId: deck.presentationId, slideId: deck.slideId, left, right }
   }
 
+  /**
+   * The longest paragraph this zone accepts, left in place.
+   *
+   * Bisected through the operation rather than written as a literal length.
+   * How much text fits depends on the theme's defaults, so a hardcoded string
+   * is a test that goes red the day somebody changes the default air — which
+   * is exactly what happened when the spacing ladder moved up a step.
+   */
+  async function fillToCapacity(
+    harnessed: Harness,
+    target: { presentationId: string; slideId: string; nodeId: string },
+  ): Promise<void> {
+    const accepts = async (length: number): Promise<boolean> =>
+      (
+        await rest(harnessed, 'set_zone_text', {
+          ...target,
+          blocks: [{ type: 'paragraph', spans: [{ text: 'x'.repeat(length) }] }],
+        })
+      ).status === 200
+
+    let low = 1
+    let high = 20000
+    if (!(await accepts(low))) throw new Error('Sonen tar ikke imot noe tekst i det hele tatt.')
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2)
+      if (await accepts(middle)) low = middle
+      else high = middle
+    }
+    // End on the accepted state: the zone is now exactly full.
+    await accepts(low)
+  }
+
   it('flytter over REST og tilbake over MCP, med de samme id-ene begge veier', async () => {
     // A move cannot be asked for twice — the source is empty afterwards — so
     // the comparison is the move and its mirror image: what REST reports on the
@@ -724,24 +756,23 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     expect(occupied.status).toBe(409)
 
     // A fit refusal carries numbers, and the numbers have to match too. The
-    // source is a full-height half of the slide; the target is a fifth of the
-    // other half, so the same text cannot possibly follow it there.
-    const filled = await rest(harnessed, 'set_zone_text', {
+    // source is filled to the brim at full height; the target is half that
+    // height, so the same text cannot possibly follow it there — a relation
+    // that holds whatever the theme's defaults happen to be.
+    await fillToCapacity(harnessed, {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
       nodeId: deck.left,
-      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(50) }] }],
     })
-    expect(filled.status).toBe(200)
     const rows = await rest(harnessed, 'split_zone', {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
       nodeId: deck.right,
       axis: 'y',
-      weights: [1, 1, 1, 1, 1],
+      weights: [1, 1],
       // The one line already sitting there goes to the bottom row, leaving the
       // top one empty — an occupied target would refuse before the fit gate.
-      contentTargetIndex: 4,
+      contentTargetIndex: 1,
     })
     expect(rows.status).toBe(200)
     const [empty] = (rows.body.data as { childNodeIds: string[] }).childNodeIds
