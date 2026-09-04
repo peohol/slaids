@@ -28,12 +28,16 @@ async function progressBar(page: Page): Promise<{
     if (!slide) return null
     const slideBox = slide.getBoundingClientRect()
     const scale = slideBox.width / 1600
-    const bar = slide.querySelector('[data-testid="slide-progress"]') as HTMLElement | null
+    // The indicator belongs to the page rather than to the slide, so it hangs
+    // in the page box beside it — see `DeckPageView`. Measured against the
+    // slide all the same: that is the box it has to be flush with.
+    const host = slide.closest('.deck-page') ?? slide
+    const bar = host.querySelector('[data-testid="slide-progress"]') as HTMLElement | null
     if (!bar) {
       return { present: false, left: 0, right: 0, bottom: 0, height: 0, fillWidth: 0, transition: '' }
     }
     const box = bar.getBoundingClientRect()
-    const fill = slide.querySelector('[data-testid="slide-progress-fill"]') as HTMLElement
+    const fill = host.querySelector('[data-testid="slide-progress-fill"]') as HTMLElement
     return {
       present: true,
       left: (box.left - slideBox.left) / scale,

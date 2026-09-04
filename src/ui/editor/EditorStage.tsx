@@ -34,6 +34,7 @@ import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { Editor } from '@tiptap/react'
 import type { LayoutNode, NodeId, Rect, Slide, ZoneContentKind } from '../../domain/types'
+import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
@@ -379,6 +380,14 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                 handleGap={tokens.gap}
               />
             )}
+
+            {/*
+              The editor draws the page the audience will see, indicator and
+              all. Placed by its host rather than by `SlideView`, for the reason
+              `DeckPageView` states: the stripe belongs to the page, and the
+              slide is only one kind of page.
+            */}
+            <SlideProgressBar pageId={slide.id} />
           </SlideView>
         </div>
       </div>

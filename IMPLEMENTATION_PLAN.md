@@ -408,9 +408,14 @@ G
 
 Hvor langt ut i dekket en side er, er noe bare dekket vet – nøyaktig som et
 citation-nummer – så det ligger i `SlideRenderContext` ved siden av
-`numbering`, utledet av `deckProgress(deckPages(...))`. Da tegner scenen,
-filmstripen, presentasjonsmodus, den delte visningen og et rendret preview den
-samme indikatoren uten at fem kallsteder må huske å sende den videre.
+`numbering`, utledet av `deckProgress(deckPages(...))`. Komponenten slår det opp
+selv, så et kallsted sier bare *hvilken side* den tegner.
+
+Indikatoren henger i sidens egen boks (`DeckPageView`), ikke inne i sliden. Det
+er dét som holder den montert gjennom et sidebytte: sidetypene er forskjellige
+komponenter, så React bytter ut selve visningen når dekket går fra siste slide
+til QR-siden – og en indikator som fulgte med ville vært et nytt element uten
+noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
 
 Tellingen følger sidene, ikke de lagrede slidene: **forsiden telles ikke**, den
 første vanlige sliden er side 1, og den siste siden er full – uansett om det er

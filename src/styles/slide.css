@@ -540,6 +540,16 @@
  * geometry engine already keeps clear. Sizes and colours are inline styles from
  * `SlideProgressBar`, so the tokens stay in `src/domain/constants.ts`.
  * ----------------------------------------------------------------- */
+/*
+ * The page box: the slide, and the indicator that belongs to the page rather
+ * than to the slide. It is exactly the slide's own size, set inline from the
+ * design space, so the stripe's `left: 0; right: 0; bottom: 0` is the slide's
+ * three edges.
+ */
+.deck-page {
+  position: relative;
+}
+
 .slide-progress {
   position: absolute;
   left: 0;

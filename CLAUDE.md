@@ -27,8 +27,12 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   Reservasjonen er `PROGRESS_BAR_HEIGHT` og ikke `PROGRESS_BAR_HEIGHT + G`: luften over
   den er bunninnrykket innholdsområdet allerede hadde. Hvor langt ut i dekket en side er,
   er noe bare dekket vet – som et citation-nummer – så det ligger i `SlideRenderContext`
-  ved siden av `numbering`. Forsiden telles ikke, første vanlige slide er side 1, og
-  siste side er full uansett hva slags side det er. Se `IMPLEMENTATION_PLAN.md` §8.6.
+  ved siden av `numbering`, og komponenten slår det opp selv. Indikatoren henger i
+  sidens egen boks (`DeckPageView`), aldri inne i sliden: sidetypene er forskjellige
+  komponenter, så en indikator inni visningen ville blitt et nytt element – uten noen
+  forrige bredde å animere fra – nøyaktig på sidebyttet fra siste slide til QR-siden.
+  Forsiden telles ikke, første vanlige slide er side 1, og siste side er full uansett
+  hva slags side det er. Se `IMPLEMENTATION_PLAN.md` §8.6.
 - `src/domain/geometry.ts` er eneste sannhetskilde for rects – både rendering og hit-testing.
 - Persistens har to moduser, og valget tas ett sted: `src/persistence/activeRepository.ts`.
   Finnes både `VITE_SUPABASE_URL` og `VITE_SUPABASE_PUBLISHABLE_KEY` er Supabase primærlagring;

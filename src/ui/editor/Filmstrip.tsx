@@ -14,6 +14,7 @@ import { CoverPageView } from '../slide/CoverPageView'
 import { useEditorStore } from '../../state/store'
 import type { DeckCover, Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
+import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
@@ -135,7 +136,10 @@ function SlideThumb({
         aria-label={`Slide ${index + 1}`}
       >
         <Thumb>
-          <SlideView slide={slide} />
+          <SlideView slide={slide}>
+            {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
+            <SlideProgressBar pageId={slide.id} />
+          </SlideView>
         </Thumb>
       </button>
       <div className="filmstrip__tools">

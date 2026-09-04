@@ -6,6 +6,11 @@
  * at full opacity that grows to the right as the deck advances. Nothing else —
  * no number, no shadow, no label.
  *
+ * How far through the deck a page sits is deck-wide knowledge, so the fraction
+ * is looked up here from the render context rather than passed in: a host says
+ * *which page* it is drawing, and a page the deck does not list — the cover,
+ * and a slide being measured offscreen — draws nothing.
+ *
  * The track and the fill are siblings rather than parent and child, and that is
  * the whole reason this is two elements: `opacity` on a parent applies to the
  * group, so a fill nested inside a 30 % track would be 30 % too, however
@@ -22,6 +27,7 @@ import {
   PROGRESS_TRACK_OPACITY,
   PROGRESS_TRANSITION_MS,
 } from '../../domain/constants'
+import { useSlideRender } from './SlideRenderContext'
 
 /**
  * The fill, in per cent of the slide.
@@ -35,7 +41,11 @@ function fillWidth(progress: number): string {
   return `${Math.min(1, Math.max(0, progress)) * 100}%`
 }
 
-export function SlideProgressBar({ progress, color }: { progress: number; color: string }) {
+export function SlideProgressBar({ pageId }: { pageId: string }) {
+  const { headingPillColor, progress } = useSlideRender()
+  const position = progress.get(pageId)
+  if (position === undefined) return null
+
   return (
     <div
       className="slide-progress"
@@ -45,14 +55,14 @@ export function SlideProgressBar({ progress, color }: { progress: number; color:
     >
       <div
         className="slide-progress__track"
-        style={{ background: color, opacity: PROGRESS_TRACK_OPACITY }}
+        style={{ background: headingPillColor, opacity: PROGRESS_TRACK_OPACITY }}
       />
       <div
         className="slide-progress__fill"
         data-testid="slide-progress-fill"
         style={{
-          background: color,
-          width: fillWidth(progress),
+          background: headingPillColor,
+          width: fillWidth(position),
           // Rounded where it grows, square where it starts: the right end is
           // the only end that ever moves.
           borderRadius: `0 ${PROGRESS_BAR_HEIGHT / 2}px ${PROGRESS_BAR_HEIGHT / 2}px 0`,

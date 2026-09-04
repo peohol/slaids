@@ -7,14 +7,16 @@
  * end up on the fill.
  */
 
-import { describe, expect, it } from 'vitest'
+import { act } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   PROGRESS_BAR_HEIGHT,
   PROGRESS_TRACK_OPACITY,
   PROGRESS_TRANSITION_MS,
 } from '../../domain/constants'
-import { deckPages, deckProgress } from '../../domain/pages'
+import { deckPages, deckProgress, type DeckPage } from '../../domain/pages'
 import { createPresentation } from '../../domain/presentation'
 import type { Presentation } from '../../domain/types'
 import { DeckPageView } from './DeckPageView'
@@ -53,6 +55,31 @@ function pageMarkup(presentation: Presentation, shareUrl: string | null = null):
         <DeckPageView page={page} />
       </SlideRenderProvider>,
     ),
+  )
+}
+
+/** The same provider, for the cases that need a live DOM rather than markup. */
+function Deck({
+  presentation,
+  page,
+  shareUrl,
+}: {
+  presentation: Presentation
+  page: DeckPage
+  shareUrl: string | null
+}) {
+  return (
+    <SlideRenderProvider
+      value={{
+        theme: presentation.theme,
+        numbering: new Map(),
+        headingPillColor: presentation.cover.pillColor,
+        progress: deckProgress(deckPages(presentation, { shareUrl })),
+        isStatic: true,
+      }}
+    >
+      <DeckPageView page={page} />
+    </SlideRenderProvider>
   )
 }
 
@@ -117,5 +144,73 @@ describe('fremdriftsindikatoren', () => {
     // Rounded where it grows and square where it starts.
     expect(first).toContain(`border-radius:0 ${PROGRESS_BAR_HEIGHT / 2}px ${PROGRESS_BAR_HEIGHT / 2}px 0`)
     expect(first).toContain(`transition-duration:${PROGRESS_TRANSITION_MS}ms`)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The one thing the markup cannot show: what survives a page turn
+ * ------------------------------------------------------------------ */
+
+let container: HTMLDivElement | null = null
+let root: Root | null = null
+
+afterEach(() => {
+  if (root) act(() => root!.unmount())
+  container?.remove()
+  root = null
+  container = null
+})
+
+function mount(node: React.ReactNode): HTMLElement {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  act(() => root!.render(node))
+  return container
+}
+
+function fillElement(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>('[data-testid="slide-progress-fill"]')
+}
+
+describe('fremdriftsindikatoren over et sidebytte', () => {
+  it('beholder det samme elementet når siden bytter type', () => {
+    // The animation is a CSS transition, and a transition needs a previous
+    // computed width to run from. A brand new element has none — so an
+    // indicator that lived inside the page view would jump on exactly the page
+    // turn where the deck changes kind: the last slide to the QR page, and back.
+    const presentation = deck()
+    const shareUrl = SHARE_URL
+    const pages = deckPages(presentation, { shareUrl })
+    const lastSlide = pages[pages.length - 2]
+    const qr = pages[pages.length - 1]
+    expect(lastSlide.kind).toBe('authored-slide')
+    expect(qr.kind).toBe('qr')
+
+    const host = mount(<Deck presentation={presentation} page={lastSlide} shareUrl={shareUrl} />)
+    const before = fillElement(host)
+    expect(before).not.toBeNull()
+    const beforeWidth = before?.style.width
+
+    act(() => root!.render(<Deck presentation={presentation} page={qr} shareUrl={shareUrl} />))
+
+    // The page itself was replaced — the QR page is not a slide.
+    expect(host.querySelector('[data-testid="qr-page"]')).not.toBeNull()
+    // The indicator was not: same node, new width, so the browser has something
+    // to animate from.
+    expect(fillElement(host)).toBe(before)
+    expect(fillElement(host)?.style.width).not.toBe(beforeWidth)
+    expect(fillElement(host)?.style.width).toBe('100%')
+  })
+
+  it('lar forsiden bytte til en vanlig side uten å etterlate en indikator', () => {
+    const presentation = deck()
+    const pages = deckPages(presentation)
+    const host = mount(<Deck presentation={presentation} page={pages[0]} shareUrl={null} />)
+    expect(fillElement(host)).toBeNull()
+
+    act(() => root!.render(<Deck presentation={presentation} page={pages[1]} shareUrl={null} />))
+    expect(fillElement(host)).not.toBeNull()
   })
 })
