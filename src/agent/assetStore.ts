@@ -224,12 +224,36 @@ function tooLarge(bytes: Uint8Array): AgentFailure | null {
   }
 }
 
-async function discard(context: AgentContext, assetId: string): Promise<void> {
+/**
+ * Remove the stored bytes of a file nothing references any more.
+ *
+ * Never throws, and says whether it worked. Both callers need exactly that and
+ * neither of them can do anything else with a failure: the rollback path below
+ * is already reporting a failed write, and `delete_asset` has *already* stored
+ * a document that no longer lists the file — undoing that would put the
+ * `AssetRef` back and be a second write to fix a cleanup.
+ *
+ * The asymmetry is the same one `resolveAmbiguousRegistration` turns on, in
+ * the other direction: bytes nothing points at cost storage until the
+ * presentation is deleted with them, while a document pointing at bytes that
+ * are gone costs the slide. So the document is always written first and this
+ * always comes second — and a `false` here is an orphan, never a broken deck.
+ */
+export async function deleteAssetFile(
+  context: AgentContext,
+  assetId: string,
+): Promise<boolean> {
   try {
     await context.repository.deleteAsset(assetId)
+    return true
   } catch {
-    // Best effort, and only ever called once the file is known to be
-    // unreferenced: the caller is already being told the write failed, and the
-    // orphan sweeper reclaims whatever is left behind.
+    return false
   }
+}
+
+async function discard(context: AgentContext, assetId: string): Promise<void> {
+  // Best effort, and only ever called once the file is known to be
+  // unreferenced: the caller is already being told the write failed, and the
+  // orphan sweeper reclaims whatever is left behind.
+  await deleteAssetFile(context, assetId)
 }

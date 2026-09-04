@@ -1143,6 +1143,31 @@ describe('theme validation', () => {
   })
 })
 
+/** A card whose single text field is one citation pill. */
+function citedCard(referenceId: string) {
+  const card = createUntitledCard()
+  return {
+    ...card,
+    body: {
+      ...card.body,
+      subfields: [
+        {
+          ...card.body.subfields[0],
+          doc: {
+            type: 'doc' as const,
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'citation', attrs: { referenceIds: [referenceId] } }],
+              },
+            ],
+          },
+        },
+      ],
+    },
+  }
+}
+
 describe('reference pruning', () => {
   it('keeps a reference that is only cited from the sandbox', () => {
     const presentation = base()
@@ -1180,5 +1205,69 @@ describe('reference pruning', () => {
   it('still prunes a reference nothing cites', () => {
     const added = unwrap(addReference(base(), { title: 'Ubrukt', authors: '', url: '', year: '' }))
     expect(unwrap(deleteUnusedReferences(added.presentation)).references).toHaveLength(0)
+  })
+
+  it('prunes several unused references in one pass', () => {
+    let presentation = base()
+    for (const title of ['En', 'To', 'Tre']) {
+      presentation = unwrap(addReference(presentation, { title, authors: '', url: '', year: '' }))
+        .presentation
+    }
+    expect(presentation.references).toHaveLength(3)
+    expect(unwrap(deleteUnusedReferences(presentation)).references).toEqual([])
+  })
+
+  it('keeps the cited ones and drops the rest, in one call', () => {
+    // The mixed case is the one that matters: pruning is defined by what the
+    // deck cites, not by insertion order or by how many there are.
+    let presentation = base()
+    const ids: string[] = []
+    for (const title of ['Sitert', 'Ubrukt', 'Sitert i tittelen']) {
+      const added = unwrap(addReference(presentation, { title, authors: '', url: '', year: '' }))
+      presentation = added.presentation
+      ids.push(added.reference.id)
+    }
+    const [cited, unused, citedInTitle] = ids
+
+    // One citation in a zone's text, one in a slide title: both count.
+    presentation = unwrap(
+      setZoneContent(presentation, {
+        slideId: presentation.slides[0].id,
+        nodeId: presentation.slides[0].root.id,
+        content: citedCard(cited),
+        replace: true,
+      }),
+    ).presentation
+    presentation = unwrap(
+      setSlideTitle(presentation, presentation.slides[0].id, {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'citation', attrs: { referenceIds: [citedInTitle] } }],
+          },
+        ],
+      }),
+    )
+
+    const pruned = unwrap(deleteUnusedReferences(presentation))
+    expect(pruned.references.map((reference) => reference.id).sort()).toEqual(
+      [cited, citedInTitle].sort(),
+    )
+    expect(pruned.references.map((reference) => reference.id)).not.toContain(unused)
+  })
+
+  it('is a no-op when there is nothing to prune, down to the object itself', () => {
+    // Idempotence is what makes this safe to call on a schedule: a second run
+    // must not rewrite the document, because a rewrite is a new revision and a
+    // new `updatedAt` for a change nobody made.
+    const presentation = base()
+    const once = unwrap(deleteUnusedReferences(presentation))
+    expect(once).toBe(presentation)
+
+    const added = unwrap(addReference(presentation, { title: 'Ubrukt', authors: '', url: '', year: '' }))
+    const pruned = unwrap(deleteUnusedReferences(added.presentation))
+    expect(pruned.references).toEqual([])
+    expect(unwrap(deleteUnusedReferences(pruned))).toBe(pruned)
   })
 })
