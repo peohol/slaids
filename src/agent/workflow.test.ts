@@ -21,7 +21,7 @@ import { presentationRevision } from '../domain/revision'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation, Rect, ZoneContent } from '../domain/types'
-import type { ZoneChange, ZoneContentMove } from './operations/layout'
+import type { ZoneChange, ZoneContentCopy, ZoneContentMove } from './operations/layout'
 import type { CoverView } from './operations/cover'
 import type { PresentationView, SlideInspection, ZoneInspection } from './operations/deck'
 import type { Mutated } from './presentation'
@@ -172,6 +172,56 @@ function firstZone(inspection: SlideInspection): string {
   const leaf = inspection.zones.find((zone) => zone.kind === 'leaf')
   if (!leaf) throw new Error('Sliden har ingen bladsone.')
   return leaf.nodeId
+}
+
+function zoneOf(inspection: SlideInspection, nodeId: string): ZoneInspection {
+  const zone = inspection.zones.find((entry) => entry.nodeId === nodeId)
+  if (!zone) throw new Error(`Sonen ${nodeId} finnes ikke på sliden.`)
+  return zone
+}
+
+/** A slide split in two, with the ids of both halves. */
+async function twoZones(
+  context: AgentContext,
+  presentationId: string,
+  slideId: string,
+): Promise<[string, string]> {
+  const root = firstZone(
+    await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+  )
+  const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+    presentationId,
+    slideId,
+    nodeId: root,
+    axis: 'x',
+    weights: [1, 1],
+  })
+  return [split.childNodeIds[0], split.childNodeIds[1]]
+}
+
+/** The content object a leaf holds in the stored document, id and all. */
+function storedContent(
+  presentation: Presentation,
+  slideId: string,
+  nodeId: string,
+): ZoneContent | null {
+  const slide = presentation.slides.find((entry) => entry.id === slideId)
+  const leaf = slide ? findLeaf(slide.root, nodeId) : null
+  return leaf?.content ?? null
+}
+
+/** A fresh empty slide, and the id of its one zone. */
+async function emptySlide(
+  context: AgentContext,
+  presentationId: string,
+): Promise<{ slideId: string; nodeId: string }> {
+  const slideId = (
+    await ok<SlidePlacement>(context, 'add_slide', { presentationId, hasTitle: false })
+  ).slideId
+  const nodeId = firstZone(
+    await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+  )
+  return { slideId, nodeId }
 }
 
 /* ------------------------------------------------------------------ *
@@ -2008,42 +2058,6 @@ describe('sandkassen', () => {
  * around it.
  */
 describe('flytting av innhold mellom soner', () => {
-  /** A slide split in two, with the ids of both halves. */
-  async function twoZones(
-    context: AgentContext,
-    presentationId: string,
-    slideId: string,
-  ): Promise<[string, string]> {
-    const root = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
-    )
-    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
-      presentationId,
-      slideId,
-      nodeId: root,
-      axis: 'x',
-      weights: [1, 1],
-    })
-    return [split.childNodeIds[0], split.childNodeIds[1]]
-  }
-
-  /** The content object a leaf holds in the stored document, id and all. */
-  function storedContent(
-    presentation: Presentation,
-    slideId: string,
-    nodeId: string,
-  ): ZoneContent | null {
-    const slide = presentation.slides.find((entry) => entry.id === slideId)
-    const leaf = slide ? findLeaf(slide.root, nodeId) : null
-    return leaf?.content ?? null
-  }
-
-  function zoneOf(inspection: SlideInspection, nodeId: string): ZoneInspection {
-    const zone = inspection.zones.find((entry) => entry.nodeId === nodeId)
-    if (!zone) throw new Error(`Sonen ${nodeId} finnes ikke på sliden.`)
-    return zone
-  }
-
   it('flytter et helt kort innenfor én slide, og lar id-ene følge med', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
@@ -2591,6 +2605,585 @@ describe('flytting av innhold mellom soner', () => {
       toNodeId: right,
     })
     const after = await stored(context, deck.presentationId)
+    expect(storedContent(after, slideId, right)).not.toBeNull()
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Copying content between zones
+ * ------------------------------------------------------------------ */
+
+/**
+ * The same content, a second time, addressable on its own.
+ *
+ * A copy is the other half of `move_zone_content`, and deliberately not a flag
+ * on it: the two differ in precisely the thing a caller is holding. A move
+ * carries the content id and the subfield ids across, so an agent can keep
+ * writing through the ids it already has; a copy has to mint new ones — two
+ * leaves sharing one subfield id would be a single field written from two
+ * addresses — so the ids it answers with are the ones an agent has never seen
+ * before, and the receipt is the only place it gets them without a re-read.
+ *
+ * Everything underneath is `copyZoneContent`'s own, unchanged: the target must
+ * be an empty leaf, the copy is measured against that leaf's rectangle, a copy
+ * that gives a reference an earlier first occurrence goes through the global
+ * citation guard, and nothing is stored when any of that says no. The tests
+ * here are about the agent layer not stepping around any of it — and about the
+ * one promise the copy adds: the source is left exactly as it was.
+ */
+describe('kopiering av innhold mellom soner', () => {
+  it('kopierer et helt kort innenfor én slide, og gir kopien nye id-er', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const [left, right] = await twoZones(context, deck.presentationId, slideId)
+
+    const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Kilden kortet siterer',
+    })
+
+    // 6. Et kort med tittel, to subfelt, tekst og en citation — hele det
+    // innholdet en agent ellers måtte bygget opp igjen felt for felt.
+    const card = await ok<{ subfieldIds: string[] }>(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      kind: 'titled-card',
+      title: [{ text: 'Funn' }],
+      subfieldCount: 2,
+    })
+    const [firstField, secondField] = card.subfieldIds
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      subfieldId: firstField,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Første felt' }, { citation: [reference.id] }] }],
+    })
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      subfieldId: secondField,
+      blocks: paragraph('Andre felt'),
+    })
+    const before = await stored(context, deck.presentationId)
+    const contentBefore = storedContent(before, slideId, left)
+
+    // 1. Kopieringen selv, innenfor én slide. `toSlideId` er utelatt, som
+    // betyr «den samme sliden».
+    const copied = await ok<Mutated<ZoneContentCopy>>(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: slideId,
+      fromNodeId: left,
+      toNodeId: right,
+    })
+    expect(copied).toMatchObject({
+      presentationId: deck.presentationId,
+      fromSlideId: slideId,
+      fromNodeId: left,
+      toSlideId: slideId,
+      toNodeId: right,
+    })
+
+    // 4. Nye subfelt-id-er, og de er med i svaret: dette er de eneste id-ene
+    // agenten ikke kunne visst om på forhånd.
+    expect(copied.subfieldIds).toHaveLength(2)
+    expect(copied.subfieldIds).not.toContain(firstField)
+    expect(copied.subfieldIds).not.toContain(secondField)
+
+    // Og ingenting mer enn id-er, av samme grunn som i en flytting:
+    // `presentations:read` og `presentations:write` er uavhengige på et token,
+    // så en mutasjon som beskrev innholdet ville vært et inspect_slide uten
+    // lesescopet.
+    expect(Object.keys(copied).sort()).toEqual([
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'revision',
+      'subfieldIds',
+      'toNodeId',
+      'toSlideId',
+    ])
+    expect(JSON.stringify(copied)).not.toContain('Første felt')
+    expect(JSON.stringify(copied)).not.toContain('Funn')
+    expect(JSON.stringify(copied)).not.toContain(reference.id)
+
+    // 3. Kilden står bit for bit som den sto — id-ene inkludert, som er det en
+    // sammenligning felt for felt fanger og «det står fortsatt noe der» ikke
+    // gjør.
+    const after = await stored(context, deck.presentationId)
+    expect(storedContent(after, slideId, left)).toEqual(contentBefore)
+
+    // 4. Kopien er et eget innholdsobjekt: samme innhold, nye id-er hele veien.
+    const copy = storedContent(after, slideId, right)
+    expect(copy).not.toBeNull()
+    expect(copy?.id).not.toBe(contentBefore?.id)
+    expect(copy?.kind).toBe(contentBefore?.kind)
+
+    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    for (const nodeId of [left, right]) {
+      expect(zoneOf(inspected, nodeId)).toMatchObject({
+        empty: false,
+        contentKind: 'titled-card',
+        referenceIds: [reference.id],
+      })
+      expect(zoneOf(inspected, nodeId).subfields?.[0].blocks).toEqual([
+        { type: 'paragraph', spans: [{ text: 'Første felt' }, { citation: [reference.id] }] },
+      ])
+      expect(zoneOf(inspected, nodeId).subfields?.[1].blocks).toEqual(paragraph('Andre felt'))
+    }
+    expect(zoneOf(inspected, right).subfields?.map((field) => field.subfieldId)).toEqual(
+      copied.subfieldIds,
+    )
+    // Den samme referansen sitert to steder er fortsatt én referanse med ett
+    // nummer: en kopi legger til en forekomst, ikke en kilde.
+    expect(citationNumber(after, reference.id)).toBe(1)
+  })
+
+  it('kopierer mellom to slides, og deler filen i stedet for å laste den opp på nytt', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const source = deck.slides[0].slideId
+    const sourceNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: source,
+      }),
+    )
+    const { assetId } = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: deck.presentationId,
+      name: 'figur',
+      svgMarkup: '<svg viewBox="0 0 10 5"><rect width="10" height="5"/></svg>',
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId: deck.presentationId,
+      slideId: source,
+      nodeId: sourceNode,
+      assetId,
+    })
+    const contentBefore = storedContent(
+      await stored(context, deck.presentationId),
+      source,
+      sourceNode,
+    )
+    const target = await emptySlide(context, deck.presentationId)
+
+    // 2. Over en slidegrense, med begge sider navngitt eksplisitt.
+    const copied = await ok<ZoneContentCopy>(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: source,
+      fromNodeId: sourceNode,
+      toSlideId: target.slideId,
+      toNodeId: target.nodeId,
+    })
+    expect(copied).toMatchObject({ toSlideId: target.slideId, toNodeId: target.nodeId })
+    // En sone som viser en fil har ingen tekstfelt, og svaret later ikke som
+    // noe annet — filens id hører hjemme i en lesing, ikke i kvitteringen.
+    expect(copied.subfieldIds).toEqual([])
+    expect(JSON.stringify(copied)).not.toContain(assetId)
+
+    // 7. Filen er ikke duplisert, og begge sonene viser den samme filen: en
+    // asset-referanse fornyes ikke av en kopi.
+    expect(
+      (
+        await ok<PresentationView>(context, 'get_presentation', {
+          presentationId: deck.presentationId,
+        })
+      ).assetCount,
+    ).toBe(1)
+
+    const after = await stored(context, deck.presentationId)
+    expect(storedContent(after, source, sourceNode)).toEqual(contentBefore)
+    const copy = storedContent(after, target.slideId, target.nodeId)
+    expect(copy?.id).not.toBe(contentBefore?.id)
+
+    for (const [slideId, nodeId] of [
+      [source, sourceNode],
+      [target.slideId, target.nodeId],
+    ]) {
+      const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+      expect(zoneOf(inspected, nodeId)).toMatchObject({
+        contentKind: 'container',
+        payload: 'asset',
+        assetIds: [assetId],
+      })
+    }
+  })
+
+  it('lar agenten skrive i kopien gjennom de returnerte subfelt-id-ene, uten å røre originalen', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const source = deck.slides[0].slideId
+    const sourceNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: source,
+      }),
+    )
+    const card = await ok<{ subfieldIds: string[] }>(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId: source,
+      nodeId: sourceNode,
+      kind: 'untitled-card',
+      subfieldCount: 2,
+    })
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: source,
+      nodeId: sourceNode,
+      subfieldId: card.subfieldIds[1],
+      blocks: paragraph('Skrevet før kopieringen'),
+    })
+    const target = await emptySlide(context, deck.presentationId)
+
+    const copied = await ok<Mutated<ZoneContentCopy>>(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: source,
+      fromNodeId: sourceNode,
+      toSlideId: target.slideId,
+      toNodeId: target.nodeId,
+    })
+
+    // 5. Den sammenhengende arbeidsflyten: id-ene fra kvitteringen er nok til å
+    // skrive videre i kopien med én gang, uten en obligatorisk inspect_slide.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      expectedRevision: copied.revision,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      subfieldId: copied.subfieldIds[0],
+      blocks: paragraph('Skrevet i kopien'),
+    })
+    await ok(context, 'adjust_subfields', {
+      presentationId: deck.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      axis: 'x',
+      weights: [2, 1],
+    })
+
+    const copyZone = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: target.slideId,
+      }),
+      target.nodeId,
+    )
+    expect(copyZone.subfieldAxis).toBe('x')
+    expect(copyZone.subfieldWeights).toEqual([2, 1])
+    expect(copyZone.subfields?.map((field) => field.subfieldId)).toEqual(copied.subfieldIds)
+    expect(copyZone.subfields?.[0].blocks).toEqual(paragraph('Skrevet i kopien'))
+    expect(copyZone.subfields?.[1].blocks).toEqual(paragraph('Skrevet før kopieringen'))
+
+    // Originalen er ikke rørt av noe av det: to selvstendige kort.
+    const original = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: source,
+      }),
+      sourceNode,
+    )
+    expect(original.subfieldAxis).toBe('y')
+    expect(original.subfields?.map((field) => field.subfieldId)).toEqual(card.subfieldIds)
+    // Tomt, som det var: skrivingen i kopien nådde ikke hit.
+    expect(original.subfields?.[0].blocks).toEqual([{ type: 'paragraph', spans: [] }])
+    expect(original.subfields?.[1].blocks).toEqual(paragraph('Skrevet før kopieringen'))
+  })
+
+  it('avviser en opptatt målsone, en tom kilde og soner som ikke er blad, uten å endre noe', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const rootNodeId = (
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+    const [left, right] = await twoZones(context, deck.presentationId, slideId)
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      blocks: paragraph('Venstre'),
+    })
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: right,
+      blocks: paragraph('Høyre'),
+    })
+    const copy = (extra: Record<string, unknown>): Record<string, unknown> => ({
+      presentationId: deck.presentationId,
+      fromSlideId: slideId,
+      ...extra,
+    })
+
+    // 8. Målsonen har innhold.
+    const filled = await stored(context, deck.presentationId)
+    const occupied = await fails(context, 'copy_zone_content', copy({ fromNodeId: left, toNodeId: right }))
+    expect(occupied.code).toBe('TARGET_OCCUPIED')
+    expect(occupied.details).toMatchObject({ slideId, nodeId: right })
+
+    // Og kildesonen er også en opptatt målsone. En flytting dit er en lovlig
+    // no-op fordi dokumentet allerede er i den tilstanden; en kopi dit er ikke
+    // det, og et `ok` ville sendt agenten på leting etter en kopi som aldri ble
+    // laget.
+    const ontoItself = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: left, toNodeId: left }),
+    )
+    expect(ontoItself.code).toBe('TARGET_OCCUPIED')
+    expect(ontoItself.details).toMatchObject({ slideId, nodeId: left })
+    expect(await stored(context, deck.presentationId)).toEqual(filled)
+
+    // 9. Kilden har ikke noe å kopiere. Tømmingen er den siste tillatte
+    // skrivingen i testen; alt etter den skal la dokumentet stå.
+    await ok<ZoneChange>(context, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: right,
+    })
+    const before = await stored(context, deck.presentationId)
+    const empty = await fails(context, 'copy_zone_content', copy({ fromNodeId: right, toNodeId: left }))
+    expect(empty.code).toBe('TARGET_EMPTY')
+    expect(empty.details).toMatchObject({ slideId, nodeId: right })
+
+    // 10. En delt sone er ikke et blad, på hver sin side av kopieringen.
+    const notLeafSource = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: rootNodeId, toNodeId: right }),
+    )
+    expect(notLeafSource.code).toBe('NODE_NOT_LEAF')
+    expect(notLeafSource.details).toMatchObject({ slideId, nodeId: rootNodeId })
+
+    const notLeafTarget = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: left, toNodeId: rootNodeId }),
+    )
+    expect(notLeafTarget.code).toBe('NODE_NOT_LEAF')
+    expect(notLeafTarget.details).toMatchObject({ slideId, nodeId: rootNodeId })
+
+    // 11. En id som ikke finnes er noe annet enn en som finnes og er ubrukelig,
+    // og feilen navngir siden den gjelder — på begge sider, slide som sone.
+    const unknownSourceNode = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: 'n_nei', toNodeId: right }),
+    )
+    expect(unknownSourceNode.code).toBe('NODE_NOT_FOUND')
+    expect(unknownSourceNode.details).toMatchObject({ slideId, nodeId: 'n_nei' })
+
+    const unknownTargetNode = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: left, toNodeId: 'n_nei' }),
+    )
+    expect(unknownTargetNode.code).toBe('NODE_NOT_FOUND')
+    expect(unknownTargetNode.details).toMatchObject({ slideId, nodeId: 'n_nei' })
+
+    const unknownSourceSlide = await fails(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: 's_nei',
+      fromNodeId: left,
+      toNodeId: right,
+    })
+    expect(unknownSourceSlide.code).toBe('SLIDE_NOT_FOUND')
+    expect(unknownSourceSlide.details).toMatchObject({ slideId: 's_nei' })
+
+    const unknownTargetSlide = await fails(
+      context,
+      'copy_zone_content',
+      copy({ fromNodeId: left, toSlideId: 's_nei', toNodeId: right }),
+    )
+    expect(unknownTargetSlide.code).toBe('SLIDE_NOT_FOUND')
+    expect(unknownTargetSlide.details).toMatchObject({ slideId: 's_nei' })
+
+    // Ingen av avvisningene skrev noe.
+    expect(await stored(context, deck.presentationId)).toEqual(before)
+  })
+
+  it('avviser en kopi som ikke får plass i målsonen, og lar dokumentet stå urørt', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const wide = deck.slides[0].slideId
+    const wideNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: wide,
+      }),
+    )
+    await fillToCapacity(
+      context,
+      { presentationId: deck.presentationId, slideId: wide, nodeId: wideNode },
+      paragraph,
+    )
+
+    const narrowSlide = await emptySlide(context, deck.presentationId)
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: narrowSlide.slideId,
+      nodeId: narrowSlide.nodeId,
+      axis: 'x',
+      weights: [1, 1, 1, 1],
+    })
+    const narrow = split.childNodeIds[0]
+    const before = await stored(context, deck.presentationId)
+
+    // 12. Fit-avvisningen beskriver målsonen: riktig slide, riktig sone, og
+    // rektangelet den faktisk har, ikke kildens.
+    const failure = await fails(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: wide,
+      fromNodeId: wideNode,
+      toSlideId: narrowSlide.slideId,
+      toNodeId: narrow,
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(failure.details).toMatchObject({
+      slideId: narrowSlide.slideId,
+      nodeId: narrow,
+      subject: 'zone-content',
+    })
+    expect(failure.details?.overflow).toBeGreaterThan(0)
+    const rect = failure.details?.rect as Rect
+    expect(rect).toEqual(
+      zoneOf(
+        await ok<SlideInspection>(context, 'inspect_slide', {
+          presentationId: deck.presentationId,
+          slideId: narrowSlide.slideId,
+        }),
+        narrow,
+      ).rect,
+    )
+
+    // Bit for bit det samme dokumentet: verken kilden eller målet er rørt.
+    expect(await stored(context, deck.presentationId)).toEqual(before)
+  })
+
+  it('må gjennom den globale fit-guarden når kopien endrer citation-nummereringen', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const first = deck.slides[0].slideId
+    const firstNode = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId: first,
+      }),
+    )
+
+    const references: string[] = []
+    for (let i = 0; i < 10; i += 1) {
+      const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+        presentationId: deck.presentationId,
+        title: `Kilde ${i}`,
+      })
+      references.push(reference.id)
+    }
+
+    // Dekket er: en tom slide, så en slide med pills, så en slide med ni
+    // citations. Rekkefølgen er hele poenget — nummereringen følger første
+    // forekomst gjennom dekket.
+    const pills = await emptySlide(context, deck.presentationId)
+    const last = await emptySlide(context, deck.presentationId)
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: last.slideId,
+      nodeId: last.nodeId,
+      blocks: [
+        { type: 'paragraph', spans: references.slice(1).map((id) => ({ citation: [id] })) },
+      ],
+    })
+    await fillToCapacity(
+      context,
+      { presentationId: deck.presentationId, slideId: pills.slideId, nodeId: pills.nodeId },
+      (text) => pillParagraph(references[0], text),
+    )
+    const before = await stored(context, deck.presentationId)
+    expect(citationNumber(before, references[0])).toBe(1)
+
+    // 13. Kopien lander foran pill-sliden, så de ni citationene får sine ni
+    // første forekomster der og references[0] faller fra 1 til 10 — bredere,
+    // på en slide ingen rørte. En kopi *legger til* en forekomst i stedet for å
+    // flytte en, og den kan derfor renummerere selv om kilden blir stående.
+    const failure = await fails(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: last.slideId,
+      fromNodeId: last.nodeId,
+      toSlideId: first,
+      toNodeId: firstNode,
+    })
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(failure.details).toMatchObject({ slideId: pills.slideId, nodeId: pills.nodeId })
+    expect(await stored(context, deck.presentationId)).toEqual(before)
+
+    // Reparasjonen er den vanlige: kort ned pill-sliden, og kopien går gjennom
+    // — med nummereringen virkelig flyttet, og begge forekomstene på plass.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: pills.slideId,
+      nodeId: pills.nodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Kort' }, { citation: [references[0]] }] }],
+    })
+    await ok(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: last.slideId,
+      fromNodeId: last.nodeId,
+      toSlideId: first,
+      toNodeId: firstNode,
+    })
+    const finalDoc = await stored(context, deck.presentationId)
+    expect(citationNumber(finalDoc, references[0])).toBe(10)
+    expect(citationNumber(finalDoc, references[1])).toBe(1)
+    expect(storedContent(finalDoc, first, firstNode)).not.toBeNull()
+    expect(storedContent(finalDoc, last.slideId, last.nodeId)).not.toBeNull()
+  })
+
+  it('avviser en utdatert expectedRevision med CONFLICT, uten å kopiere noe', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const [left, right] = await twoZones(context, deck.presentationId, slideId)
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      blocks: paragraph('Står stille'),
+    })
+    const before = await stored(context, deck.presentationId)
+
+    // 14. Revisjonen fra da dekket ble opprettet er utdatert nå.
+    const stale = await fails(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      expectedRevision: deck.revision,
+      fromSlideId: slideId,
+      fromNodeId: left,
+      toNodeId: right,
+    })
+    expect(stale.code).toBe('CONFLICT')
+    expect(await stored(context, deck.presentationId)).toEqual(before)
+
+    // Med den ferske revisjonen går den samme kopieringen gjennom.
+    await ok<ZoneContentCopy>(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      expectedRevision: presentationRevision(before),
+      fromSlideId: slideId,
+      fromNodeId: left,
+      toNodeId: right,
+    })
+    const after = await stored(context, deck.presentationId)
+    expect(storedContent(after, slideId, left)).not.toBeNull()
     expect(storedContent(after, slideId, right)).not.toBeNull()
   })
 })

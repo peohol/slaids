@@ -241,9 +241,25 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   målsonen. Svaret er id-er og ingenting mer: `presentations:read` og
   `presentations:write` er uavhengige på et token, og en flytting til den sonen
   innholdet allerede står i er en lovlig no-op, så en mutasjon som beskrev
-  innholdet ville vært et `inspect_slide` uten lesescopet. Domenets `copy` er
-  bevisst ikke eksponert: en «flytt» som noen ganger lager nye id-er er to
-  operasjoner med ett navn.
+  innholdet ville vært et `inspect_slide` uten lesescopet.
+- **En kopi er en annen operasjon, fordi den lover det motsatte om id-ene.**
+  `copy_zone_content` er den samme adresseringen og den samme kvitteringen som
+  `move_zone_content`, over `copyZoneContent` i stedet for `moveZoneContent` –
+  én innpakningsfunksjon i `src/agent/operations/layout.ts` bygger begge, så
+  ingen gren i agentlaget kan gi en kopi en flyttings semantikk. Domenet er to
+  navn over én implementasjon (`transferZoneContent`), aldri én kommando med et
+  `copy`-flagg: en «flytt» som noen ganger lager nye id-er er to operasjoner med
+  ett navn, slik `move_slide` og `duplicate_slide` er to. Kilden blir stående
+  bit for bit som den var, kopien får nye content- og subfelt-id-er fra
+  `cloneContentWithNewIds` – to soner med samme content-id er et ødelagt
+  dokument – og assetreferansen fornyes ikke: en fil dupliseres ikke av å vises
+  to steder. Derfor er `subfieldIds` i svaret det eneste stedet agenten kan få
+  kopiens id-er uten en ny lesing. Den ene forskjellen i avvisninger er den som
+  følger av id-semantikken: en flytting til sonen innholdet allerede står i er
+  en lovlig no-op, mens en kopi dit er `TARGET_OCCUPIED` – et `ok` ville sendt
+  agenten på leting etter en kopi som aldri ble laget. Og fordi en kopi *legger
+  til* en citation-forekomst i stedet for å flytte en, går den gjennom den
+  globale fit-guarden på samme måte som en flytting.
 - **Retning, forholdstall og antall subfelt er ett spørsmål, og derfor én
   kommando.** `setBodyLayout` i `src/domain/commands/content.ts` tar alle tre og
   kjører fit-guarden én gang, mot layouten som faktisk ble bedt om – slik

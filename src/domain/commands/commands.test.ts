@@ -10,6 +10,7 @@ import {
   addSlide,
   deleteUnusedReferences,
   clearLayoutNode,
+  copyZoneContent,
   deleteLayoutNode,
   deleteReference,
   deleteSlide,
@@ -970,27 +971,33 @@ describe('content fit on structural changes', () => {
     expect(setSlideHasTitle(presentation, presentation.slides[0].id, false).ok).toBe(true)
   })
 
-  it('gives copied content fresh ids', () => {
-    let presentation = base()
+  /** A slide split in two, with a titled card in the left half. */
+  function filledPair(): { presentation: Presentation; slideId: string; root: SplitNode } {
+    const presentation = base()
     const slide = presentation.slides[0]
-    presentation = unwrap(
+    const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = presentation.slides[0].root as SplitNode
-    presentation = unwrap(
-      setZoneContent(presentation, {
+    const root = split.slides[0].root as SplitNode
+    const filled = unwrap(
+      setZoneContent(split, {
         slideId: slide.id,
         nodeId: root.children[0].id,
         content: createTitledCard('Kilde'),
       }),
     ).presentation
+    return { presentation: filled, slideId: slide.id, root }
+  }
+
+  it('gives copied content fresh ids and leaves the source exactly as it was', () => {
+    const { presentation, slideId, root } = filledPair()
+    const before = structuredClone(presentation)
 
     const copied = unwrap(
-      moveZoneContent(presentation, {
-        slideId: slide.id,
+      copyZoneContent(presentation, {
+        slideId,
         fromNodeId: root.children[0].id,
         toNodeId: root.children[1].id,
-        copy: true,
       }),
     ).presentation
 
@@ -1003,6 +1010,75 @@ describe('content fit on structural changes', () => {
     if (a?.kind === 'titled-card' && b?.kind === 'titled-card') {
       expect(a.body.subfields[0].id).not.toBe(b.body.subfields[0].id)
     }
+    // The source is not merely still there: it is the same object it was, ids
+    // included. A copy that renewed the source's ids would look identical on
+    // screen and break every id its caller was holding.
+    const sourceBefore = findLeaf(before.slides[0].root, root.children[0].id)?.content
+    expect(a).toEqual(sourceBefore)
+    // Commands are pure, so the document handed in is untouched too.
+    expect(presentation).toEqual(before)
+  })
+
+  it('refuses a copy onto the source zone instead of reporting a copy it never made', () => {
+    // A move onto the zone the content already sits in is a legal no-op: the
+    // document is already in the state asked for. A copy is not — the target
+    // is occupied, by the very content being copied — and answering `ok` would
+    // send the caller looking for a second content object that was never made.
+    const { presentation, slideId, root } = filledPair()
+    const onto = { slideId, fromNodeId: root.children[0].id, toNodeId: root.children[0].id }
+
+    const moved = moveZoneContent(presentation, onto)
+    expect(moved.ok).toBe(true)
+    if (moved.ok) expect(moved.value.presentation).toBe(presentation)
+
+    const copied = copyZoneContent(presentation, onto)
+    expect(copied.ok).toBe(false)
+    if (!copied.ok) {
+      expect(copied.error).toMatchObject({
+        code: 'TARGET_OCCUPIED',
+        details: { slideId, nodeId: root.children[0].id },
+      })
+    }
+  })
+
+  it('names the side of a copy it refused, on both sides', () => {
+    // The same rule as a move, and for the same reason: two zones are addressed,
+    // so a code alone cannot say which one the caller has to fix.
+    const { presentation, slideId, root } = filledPair()
+    const refusal = (from: string, to: string): { code: string; details?: Record<string, unknown> } => {
+      const result = copyZoneContent(presentation, { slideId, fromNodeId: from, toNodeId: to })
+      if (result.ok) throw new Error('Expected a refusal')
+      return result.error
+    }
+
+    expect(refusal(root.children[1].id, root.children[0].id)).toMatchObject({
+      code: 'TARGET_EMPTY',
+      details: { slideId, nodeId: root.children[1].id },
+    })
+    expect(refusal(root.id, root.children[1].id)).toMatchObject({
+      code: 'NODE_NOT_LEAF',
+      details: { slideId, nodeId: root.id },
+    })
+    expect(refusal(root.children[0].id, root.id)).toMatchObject({
+      code: 'NODE_NOT_LEAF',
+      details: { slideId, nodeId: root.id },
+    })
+    expect(refusal('n_missing', root.children[1].id)).toMatchObject({
+      code: 'NODE_NOT_FOUND',
+      details: { slideId, nodeId: 'n_missing' },
+    })
+    expect(refusal(root.children[0].id, 'n_missing')).toMatchObject({
+      code: 'NODE_NOT_FOUND',
+      details: { slideId, nodeId: 'n_missing' },
+    })
+    expect(
+      copyZoneContent(presentation, {
+        slideId,
+        fromNodeId: root.children[0].id,
+        toSlideId: 's_missing',
+        toNodeId: root.children[1].id,
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'SLIDE_NOT_FOUND', details: { slideId: 's_missing' } } })
   })
 })
 

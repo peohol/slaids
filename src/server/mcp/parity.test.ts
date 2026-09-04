@@ -556,61 +556,87 @@ describe('subfeltlayout er den samme operasjonen begge veier', () => {
   })
 })
 
+/** A slide split in two, with text in the left half. */
+async function filledPair(
+  harnessed: Harness,
+): Promise<{ presentationId: string; slideId: string; left: string; right: string }> {
+  const deck = await newPresentation(harnessed, 'Innhold begge veier')
+  const split = await rest(harnessed, 'split_zone', {
+    presentationId: deck.presentationId,
+    slideId: deck.slideId,
+    nodeId: deck.rootNodeId,
+    axis: 'x',
+    weights: [1, 1],
+  })
+  const [left, right] = (split.body.data as { childNodeIds: string[] }).childNodeIds
+  await rest(harnessed, 'set_zone_text', {
+    presentationId: deck.presentationId,
+    slideId: deck.slideId,
+    nodeId: left,
+    blocks: [{ type: 'paragraph', spans: [{ text: 'Innhold som flyttes' }] }],
+  })
+  return { presentationId: deck.presentationId, slideId: deck.slideId, left, right }
+}
+
+/**
+ * The longest paragraph this zone accepts, left in place.
+ *
+ * Bisected through the operation rather than written as a literal length.
+ * How much text fits depends on the theme's defaults, so a hardcoded string
+ * is a test that goes red the day somebody changes the default air — which
+ * is exactly what happened when the spacing ladder moved up a step.
+ */
+async function fillToCapacity(
+  harnessed: Harness,
+  /** A zone, or one field inside the card a zone holds. */
+  target: { presentationId: string; slideId: string; nodeId: string; subfieldId?: string },
+): Promise<void> {
+  const accepts = async (length: number): Promise<boolean> =>
+    (
+      await rest(harnessed, 'set_zone_text', {
+        ...target,
+        blocks: [{ type: 'paragraph', spans: [{ text: 'x'.repeat(length) }] }],
+      })
+    ).status === 200
+
+  let low = 1
+  let high = 20000
+  if (!(await accepts(low))) throw new Error('Sonen tar ikke imot noe tekst i det hele tatt.')
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2)
+    if (await accepts(middle)) low = middle
+    else high = middle
+  }
+  // End on the accepted state: the zone is now exactly full.
+  await accepts(low)
+}
+
+/**
+ * The same deployment and the same database, seen by a write-only token.
+ *
+ * `harness({ scopes })` would give a second database, and the claim here is
+ * about a token reading a deck that exists — so only the principal changes.
+ */
+function withoutReadScope(harnessed: Harness): Harness {
+  const principal: AgentPrincipal = {
+    tokenId: 'token-write-only',
+    tokenName: 'Skrivetoken',
+    ownerId: 'owner-1',
+    scopes: ['presentations:write'],
+  }
+  return {
+    ...harnessed,
+    deps: {
+      ...harnessed.deps,
+      authenticate: (presented): Promise<AuthOutcome> =>
+        Promise.resolve(
+          presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
+        ),
+    },
+  }
+}
+
 describe('flytting av innhold er den samme operasjonen begge veier', () => {
-  /** A slide split in two, with text in the left half. */
-  async function filledPair(
-    harnessed: Harness,
-  ): Promise<{ presentationId: string; slideId: string; left: string; right: string }> {
-    const deck = await newPresentation(harnessed, 'Flytting begge veier')
-    const split = await rest(harnessed, 'split_zone', {
-      presentationId: deck.presentationId,
-      slideId: deck.slideId,
-      nodeId: deck.rootNodeId,
-      axis: 'x',
-      weights: [1, 1],
-    })
-    const [left, right] = (split.body.data as { childNodeIds: string[] }).childNodeIds
-    await rest(harnessed, 'set_zone_text', {
-      presentationId: deck.presentationId,
-      slideId: deck.slideId,
-      nodeId: left,
-      blocks: [{ type: 'paragraph', spans: [{ text: 'Innhold som flyttes' }] }],
-    })
-    return { presentationId: deck.presentationId, slideId: deck.slideId, left, right }
-  }
-
-  /**
-   * The longest paragraph this zone accepts, left in place.
-   *
-   * Bisected through the operation rather than written as a literal length.
-   * How much text fits depends on the theme's defaults, so a hardcoded string
-   * is a test that goes red the day somebody changes the default air — which
-   * is exactly what happened when the spacing ladder moved up a step.
-   */
-  async function fillToCapacity(
-    harnessed: Harness,
-    target: { presentationId: string; slideId: string; nodeId: string },
-  ): Promise<void> {
-    const accepts = async (length: number): Promise<boolean> =>
-      (
-        await rest(harnessed, 'set_zone_text', {
-          ...target,
-          blocks: [{ type: 'paragraph', spans: [{ text: 'x'.repeat(length) }] }],
-        })
-      ).status === 200
-
-    let low = 1
-    let high = 20000
-    if (!(await accepts(low))) throw new Error('Sonen tar ikke imot noe tekst i det hele tatt.')
-    while (high - low > 1) {
-      const middle = Math.floor((low + high) / 2)
-      if (await accepts(middle)) low = middle
-      else high = middle
-    }
-    // End on the accepted state: the zone is now exactly full.
-    await accepts(low)
-  }
-
   it('flytter over REST og tilbake over MCP, med de samme id-ene begge veier', async () => {
     // A move cannot be asked for twice — the source is empty afterwards — so
     // the comparison is the move and its mirror image: what REST reports on the
@@ -656,31 +682,6 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     expect(zones.find((zone) => zone.nodeId === deck.left)?.empty).toBe(false)
     expect(zones.find((zone) => zone.nodeId === deck.right)?.empty).toBe(true)
   })
-
-  /**
-   * The same deployment and the same database, seen by a write-only token.
-   *
-   * `harness({ scopes })` would give a second database, and the claim here is
-   * about a token reading a deck that exists — so only the principal changes.
-   */
-  function withoutReadScope(harnessed: Harness): Harness {
-    const principal: AgentPrincipal = {
-      tokenId: 'token-write-only',
-      tokenName: 'Skrivetoken',
-      ownerId: 'owner-1',
-      scopes: ['presentations:write'],
-    }
-    return {
-      ...harnessed,
-      deps: {
-        ...harnessed.deps,
-        authenticate: (presented): Promise<AuthOutcome> =>
-          Promise.resolve(
-            presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
-          ),
-      },
-    }
-  }
 
   it('lar et token uten lesescope flytte, men ikke lese innholdet gjennom flyttingen', async () => {
     // `presentations:read` og `presentations:write` er uavhengige avkryssinger
@@ -786,6 +787,221 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     expect(tooBig.rest).toEqual(tooBig.mcp)
     expect(tooBig.rest.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(tooBig.rest.details).toMatchObject({ slideId: deck.slideId, nodeId: empty })
+    expect(tooBig.envelope).toBe('result')
+    expect(tooBig.status).toBe(422)
+  })
+})
+
+describe('kopiering av innhold er den samme operasjonen begge veier', () => {
+  /** A slide split in three, with a two-field card in the first zone. */
+  async function cardAndTwoEmptyZones(harnessed: Harness): Promise<{
+    presentationId: string
+    slideId: string
+    source: string
+    first: string
+    second: string
+    subfieldIds: string[]
+  }> {
+    const deck = await newPresentation(harnessed, 'Kopiering begge veier')
+    const split = await rest(harnessed, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      axis: 'x',
+      weights: [1, 1, 1],
+    })
+    const [source, first, second] = (split.body.data as { childNodeIds: string[] }).childNodeIds
+    const card = await rest(harnessed, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: source,
+      kind: 'titled-card',
+      title: [{ text: 'Korttittel' }],
+      subfieldCount: 2,
+    })
+    const { subfieldIds } = card.body.data as { subfieldIds: string[] }
+    await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: source,
+      subfieldId: subfieldIds[0],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Innhold som kopieres' }] }],
+    })
+    return {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      source,
+      first,
+      second,
+      subfieldIds,
+    }
+  }
+
+  it('kopierer over begge transportene, med nye id-er hver gang og kilden i behold', async () => {
+    // A copy *can* be asked for twice — the source survives it — so this is the
+    // same call over both transports against the same deck. What has to match is
+    // the shape and the promise: two independent copies, each with ids of its
+    // own, and an original neither of them touched.
+    const harnessed = harness()
+    const deck = await cardAndTwoEmptyZones(harnessed)
+    const target = (nodeId: string): Record<string, unknown> => ({
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.source,
+      toNodeId: nodeId,
+    })
+
+    const overRest = await rest(harnessed, 'copy_zone_content', target(deck.first))
+    expect(overRest.status).toBe(200)
+    const restData = overRest.body.data as { toNodeId: string; subfieldIds: string[] }
+
+    const overMcp = await callTool(harnessed, tool('copy_zone_content'), target(deck.second))
+    expect(overMcp.isError).toBeFalsy()
+    const mcpData = overMcp.structuredContent as { toNodeId: string; subfieldIds: string[] }
+
+    // The same receipt, field for field, apart from the zone each was aimed at.
+    expect(Object.keys(restData).sort()).toEqual(Object.keys(mcpData).sort())
+    expect(restData).toMatchObject({ toSlideId: deck.slideId, toNodeId: deck.first })
+    expect(mcpData).toMatchObject({ toSlideId: deck.slideId, toNodeId: deck.second })
+
+    // Neither transport handed back the source's ids, and the two copies do not
+    // share ids with each other: three cards, three sets of subfields.
+    const sets = [deck.subfieldIds, restData.subfieldIds, mcpData.subfieldIds]
+    for (const ids of sets) expect(ids).toHaveLength(2)
+    expect(new Set(sets.flat()).size).toBe(6)
+
+    // And it is one document underneath, read identically by both.
+    const read = await bothWays(harnessed, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    const zones = (
+      read.restData as {
+        zones: { nodeId: string; empty?: boolean; subfields?: { subfieldId: string }[] }[]
+      }
+    ).zones
+    for (const [nodeId, ids] of [
+      [deck.source, deck.subfieldIds],
+      [deck.first, restData.subfieldIds],
+      [deck.second, mcpData.subfieldIds],
+    ] as [string, string[]][]) {
+      const zone = zones.find((entry) => entry.nodeId === nodeId)
+      expect(zone?.empty).toBe(false)
+      expect(zone?.subfields?.map((field) => field.subfieldId)).toEqual(ids)
+    }
+  })
+
+  it('lar et token uten lesescope kopiere, men ikke lese innholdet gjennom kopien', async () => {
+    // The same scope boundary as a move, and it bites harder here: a copy hands
+    // back ids the caller has never seen, so the receipt is the one place it
+    // could leak what the zone holds. It must not — `presentations:read` and
+    // `presentations:write` are independent ticks on a token.
+    const full = harness()
+    const deck = await cardAndTwoEmptyZones(full)
+    const writeOnly = withoutReadScope(full)
+
+    const denied = await rest(writeOnly, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    expect(denied.status).toBe(403)
+    expect(denied.body.error?.code).toBe('FORBIDDEN_SCOPE')
+
+    const copied = await rest(writeOnly, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.source,
+      toNodeId: deck.first,
+    })
+    expect(copied.status).toBe(200)
+    expect(Object.keys(copied.body.data as object).sort()).toEqual([
+      'fromNodeId',
+      'fromSlideId',
+      'presentationId',
+      'revision',
+      'subfieldIds',
+      'toNodeId',
+      'toSlideId',
+    ])
+    const serialised = JSON.stringify(copied.body.data)
+    expect(serialised).not.toContain('Innhold som kopieres')
+    expect(serialised).not.toContain('Korttittel')
+    // Nor the ids of what the source is made of: only the copy's own.
+    for (const id of deck.subfieldIds) expect(serialised).not.toContain(id)
+
+    // The copy really happened, which is what makes the silence meaningful.
+    const zones = (
+      (
+        await rest(full, 'inspect_slide', {
+          presentationId: deck.presentationId,
+          slideId: deck.slideId,
+        })
+      ).body.data as { zones: { nodeId: string; empty?: boolean }[] }
+    ).zones
+    expect(zones.find((zone) => zone.nodeId === deck.first)?.empty).toBe(false)
+  })
+
+  it('avviser en opptatt målsone og en kopi som ikke får plass med de samme feilene', async () => {
+    const harnessed = harness()
+    const deck = await cardAndTwoEmptyZones(harnessed)
+
+    // The source zone is itself an occupied target. A *move* onto it is a legal
+    // no-op; a copy is refused, identically over both transports.
+    const ontoItself = await refusedBothWays(harnessed, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.source,
+      toNodeId: deck.source,
+    })
+    expect(ontoItself.rest).toEqual(ontoItself.mcp)
+    expect(ontoItself.rest.code).toBe('TARGET_OCCUPIED')
+    expect(ontoItself.envelope).toBe('result')
+    expect(ontoItself.status).toBe(409)
+
+    // A fit refusal carries numbers, and the numbers have to match too. The
+    // source is filled to the brim at full height; the target is half that
+    // height, so the same card cannot possibly fit there — a relation that
+    // holds whatever the theme's defaults happen to be.
+    await rest(harnessed, 'adjust_subfields', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.source,
+      subfieldCount: 1,
+    })
+    const single = (
+      (
+        await rest(harnessed, 'inspect_slide', {
+          presentationId: deck.presentationId,
+          slideId: deck.slideId,
+        })
+      ).body.data as { zones: { nodeId: string; subfields?: { subfieldId: string }[] }[] }
+    ).zones.find((zone) => zone.nodeId === deck.source)
+    await fillToCapacity(harnessed, {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.source,
+      subfieldId: single?.subfields?.[0].subfieldId,
+    })
+    const rows = await rest(harnessed, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.first,
+      axis: 'y',
+      weights: [1, 1],
+    })
+    expect(rows.status).toBe(200)
+    const [half] = (rows.body.data as { childNodeIds: string[] }).childNodeIds
+
+    const tooBig = await refusedBothWays(harnessed, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: deck.slideId,
+      fromNodeId: deck.source,
+      toNodeId: half,
+    })
+    expect(tooBig.rest).toEqual(tooBig.mcp)
+    expect(tooBig.rest.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(tooBig.rest.details).toMatchObject({ slideId: deck.slideId, nodeId: half })
     expect(tooBig.envelope).toBe('result')
     expect(tooBig.status).toBe(422)
   })
