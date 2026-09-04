@@ -1,6 +1,9 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { CARD_RADIUS } from '../src/domain/constants'
 import {
   addContentToZone,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
@@ -190,5 +193,84 @@ test.describe('assets', () => {
     await page.getByTestId('open-presentation').first().click()
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(stage(page).locator('img.asset-image')).toBeVisible()
+  })
+})
+
+/**
+ * A picture that fills a zone is drawn like a card: the same depth, and the
+ * same corners when they are asked for. Which means the box being painted has
+ * to be the picture itself — a shadow around the empty half of a letterboxed
+ * zone, or a radius on corners the picture does not reach, is a shadow and a
+ * radius nobody can see.
+ */
+test.describe('a picture that fills a zone', () => {
+  async function placeInZone(page: Page, title: string): Promise<void> {
+    await createPresentation(page, title)
+    await enterZoneMode(page)
+    await page.getByTestId('inspector-action-image').click()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'sone.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    await expect(stage(page).locator('img.asset-image')).toBeVisible()
+  }
+
+  const image = (page: Page) => stage(page).locator('img.asset-image')
+
+  test('is the picture, not the zone it is shown in', async ({ page }) => {
+    await placeInZone(page, 'Bildets egen boks')
+    // The file is 100 x 60 and the zone is nothing like it, so a box that keeps
+    // the file's proportions is a box that ends where the picture ends.
+    const box = await image(page).boundingBox()
+    if (!box) throw new Error('no picture')
+    expect(box.width / box.height).toBeCloseTo(100 / 60, 1)
+  })
+
+  test('casts the same shadow a card does', async ({ page }) => {
+    await placeInZone(page, 'Bildeskygge')
+    const filter = await image(page).evaluate((element) => getComputedStyle(element).filter)
+    // A filter rather than a box-shadow: it follows what is painted, so a
+    // picture that is transparent around its subject is not given the shadow of
+    // a rectangle that is not there.
+    expect(filter).toContain('drop-shadow')
+
+    // And nothing between the picture and the slide clips it away. The slide
+    // itself does clip: a shadow may fall into the gap, never off the slide.
+    const clipped = await page.evaluate(() => {
+      const picture = document.querySelector(
+        '[data-testid="stage-slide"] img.asset-image',
+      ) as HTMLElement
+      const slide = picture.closest('.slide') as HTMLElement
+      for (let node = picture.parentElement; node && node !== slide; node = node.parentElement) {
+        if (getComputedStyle(node).overflow !== 'visible') return node.className
+      }
+      return getComputedStyle(slide).overflow === 'hidden' ? null : 'slide does not clip'
+    })
+    expect(clipped).toBeNull()
+  })
+
+  test('rounds its corners when the side panel says so, and keeps it', async ({ page }) => {
+    await placeInZone(page, 'Avrundet bilde')
+    const radius = () => image(page).evaluate((element) => getComputedStyle(element).borderRadius)
+
+    // Square until somebody asks: a picture is not a card.
+    expect(await radius()).toBe('0px')
+
+    await page.getByTestId('asset-rounded').click()
+    await expect.poll(radius).toBe(`${CARD_RADIUS}px`)
+
+    // A choice about the document, so it survives a reload like any other.
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(image(page)).toBeVisible()
+    expect(await radius()).toBe(`${CARD_RADIUS}px`)
+
+    // And it is a toggle, not a one-way door.
+    await enterZoneMode(page)
+    await clickZone(page, (await zoneRects(page))[0])
+    await page.getByTestId('asset-rounded').click()
+    await expect.poll(radius).toBe('0px')
   })
 })

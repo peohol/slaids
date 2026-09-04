@@ -19,11 +19,13 @@
  */
 
 import { slideAssetIds } from '../domain/commands/assets'
+import { readRasterImage } from '../domain/imageFile'
 import { pageSlide, type DeckPage } from '../domain/pages'
 import { encodeBase64 } from '../agent/binary'
 import type { PreviewAssetReader } from '../agent/preview'
 import { blobToBytes } from '../persistence/blob'
 import type { StoredAsset } from '../persistence/repository'
+import type { AssetRef } from '../domain/types'
 import type { AssetUrlSource } from '../state/assetSource'
 
 export interface PreviewAssets {
@@ -44,6 +46,7 @@ export async function loadPreviewAssets(
   reader: PreviewAssetReader,
 ): Promise<PreviewAssets> {
   const urls = new Map<string, string>()
+  const ratios = new Map<string, number>()
   const warnings: string[] = []
 
   for (const id of pageAssetIds(page)) {
@@ -63,19 +66,47 @@ export async function loadPreviewAssets(
     }
     const bytes = await blobToBytes(stored.blob)
     urls.set(id, `data:${stored.ref.mimeType};base64,${encodeBase64(bytes)}`)
+    const ratio = displayedAspectRatio(bytes, stored.ref)
+    if (ratio) ratios.set(id, ratio)
   }
 
-  return { source: dataUrlAssetSource(urls), warnings }
+  return { source: dataUrlAssetSource(urls, ratios), warnings }
+}
+
+/**
+ * The proportions the browser will draw this file at.
+ *
+ * The preview document runs no script, so nothing inside it can read the
+ * proportions off the loaded picture the way the app does — and it has to end
+ * up with the same number, or a rounded corner and a shadow would trace a box
+ * the editor never drew.
+ *
+ * Read from the bytes rather than from the stored metadata, and that is not
+ * pedantry: a photograph whose EXIF orientation turns it a quarter turn is
+ * displayed transposed, and a deck stored before that tag was read carries the
+ * frame header's numbers instead. The bytes are the one answer both renderers
+ * can agree on, and both of them have them. The stored size is the fallback,
+ * and the right one for a vector file: an SVG has no bitstream to walk and no
+ * orientation to correct.
+ */
+function displayedAspectRatio(bytes: Uint8Array, ref: AssetRef): number | null {
+  const raster = readRasterImage(bytes)
+  if (raster.ok) return raster.value.width / raster.value.height
+  return ref.width > 0 && ref.height > 0 ? ref.width / ref.height : null
 }
 
 /**
  * The third asset source (see `state/assetSource.tsx`): one that already holds
  * every URL it will ever be asked for.
  */
-export function dataUrlAssetSource(urls: ReadonlyMap<string, string>): AssetUrlSource {
+export function dataUrlAssetSource(
+  urls: ReadonlyMap<string, string>,
+  ratios: ReadonlyMap<string, number> = new Map(),
+): AssetUrlSource {
   return {
     id: 'preview',
     resolveSync: (assetId) => urls.get(assetId) ?? null,
+    aspectRatio: (assetId) => ratios.get(assetId) ?? null,
     resolve: (assetId) => {
       const url = urls.get(assetId)
       return Promise.resolve(url ? { url } : null)

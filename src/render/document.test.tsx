@@ -29,7 +29,8 @@ import { collectLeaves } from '../domain/layout'
 import { geometryForTheme } from '../domain/metrics'
 import { COVER_PAGE_ID, deckPages, type DeckPage } from '../domain/pages'
 import { findSlide } from '../domain/presentation'
-import { realImageBase64 } from '../domain/testImages'
+import { jpegWithExifOrientation, realImageBase64 } from '../domain/testImages'
+import type { PreviewAssetReader } from '../agent/preview'
 import type { AgentContext } from '../agent/types'
 import type { Presentation } from '../domain/types'
 import { dataUrlAssetSource, loadPreviewAssets, pageAssetIds } from './assets'
@@ -231,10 +232,47 @@ describe('bilder og SVG', () => {
       page: pageFor(presentation, deck.slideId),
       assets: assets.source,
     })
-    expect(document.html).toContain('class="asset-image"')
-    expect(document.html).toContain(`src="${url}"`)
-    expect(document.html).toContain('object-fit:contain')
+    const img = document.html.match(/<img class="asset-image[^>]*>/)?.[0] ?? ''
+    expect(img).toContain(`src="${url}"`)
+    // How the picture is sized, aligned, rounded and shadowed is the
+    // stylesheet's — which is what makes the preview and the editor the same
+    // picture rather than two that happen to agree today. The one thing the
+    // markup carries is the file's proportions, because a preview document runs
+    // no script and so cannot read them off the picture the way a browser does.
+    expect(img).toContain('asset-image--framed')
+    expect(img).toContain('--slaids-asset-ratio')
+    expect(document.html).toContain('.asset-image {')
     expect(document.html).not.toContain('Laster figur')
+  })
+
+  it('leser proporsjonene ut av bytene, ikke ut av metadataene', async () => {
+    // A photograph turned a quarter turn by its EXIF tag is drawn transposed,
+    // and a deck stored before that tag was read carries the frame header's
+    // numbers instead. The preview has to agree with the editor, which reads
+    // the proportions off the picture the browser actually drew — so a stale
+    // `width`/`height` on the stored file must not decide the box.
+    const context = testAgentContext()
+    const { deck, assetId, presentation } = await deckWithAsset(context, 'raster')
+    const bytes = jpegWithExifOrientation(6)
+    const stale: PreviewAssetReader = {
+      getAsset: () =>
+        Promise.resolve({
+          ref: {
+            id: assetId,
+            name: 'foto.jpg',
+            mimeType: 'image/jpeg',
+            byteSize: bytes.length,
+            width: 3,
+            height: 2,
+            isVector: false,
+          },
+          blob: new Blob([bytes as BlobPart]),
+        }),
+    }
+
+    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), stale)
+    expect(assets.warnings).toEqual([])
+    expect(assets.source.aspectRatio?.(assetId)).toBeCloseTo(2 / 3, 5)
   })
 
   it('tegner en SVG gjennom img, aldri som markup i dokumentet', async () => {

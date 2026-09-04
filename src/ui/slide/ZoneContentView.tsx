@@ -11,7 +11,9 @@ export function ZoneContentView({ content }: { content: ZoneContent }) {
       content={content}
       renderTitle={(card) => <RichDocView doc={card.title} className="rich-doc--title" />}
       renderField={(field) => <RichDocView doc={field.doc} />}
-      renderAsset={(payload) => <AssetImage assetId={payload.assetId} fit={payload.fit} />}
+      renderAsset={(payload) => (
+          <AssetImage assetId={payload.assetId} fit={payload.fit} rounded={payload.rounded} />
+        )}
     />
   )
 }

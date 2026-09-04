@@ -51,6 +51,17 @@ export interface AssetUrlSource {
    * appears in a rendered preview at all.
    */
   resolveSync?(assetId: string): string | null
+  /**
+   * The file's proportions, now, for a source that already knows them.
+   *
+   * Same reason as `resolveSync`, one step further: a picture shown whole is
+   * drawn in a box that *is* the picture — that is what lets it be rounded and
+   * given a shadow of its own — and the only way to size that box is from the
+   * proportions. A browser can read them off the loaded `<img>`; a rendered
+   * preview cannot, because its document runs no script at all, so the source
+   * that already holds every file answers here instead.
+   */
+  aspectRatio?(assetId: string): number | null
 }
 
 /**

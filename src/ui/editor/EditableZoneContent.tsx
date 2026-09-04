@@ -84,7 +84,9 @@ export function EditableZoneContent({
             }
           />
         )}
-        renderAsset={(payload) => <AssetImage assetId={payload.assetId} fit={payload.fit} />}
+        renderAsset={(payload) => (
+          <AssetImage assetId={payload.assetId} fit={payload.fit} rounded={payload.rounded} />
+        )}
       />
     </div>
   )
