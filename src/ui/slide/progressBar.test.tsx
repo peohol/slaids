@@ -145,6 +145,17 @@ describe('fremdriftsindikatoren', () => {
     expect(first).toContain(`border-radius:0 ${PROGRESS_BAR_HEIGHT / 2}px ${PROGRESS_BAR_HEIGHT / 2}px 0`)
     expect(first).toContain(`transition-duration:${PROGRESS_TRANSITION_MS}ms`)
   })
+
+  it('dekker hele beholderen på den siste siden, uten runde hjørner igjen', () => {
+    // A rounded end sitting exactly on the track's own end would leave two
+    // slivers of track showing past it, and the last page is supposed to read
+    // as full.
+    const pages = pageMarkup(deck())
+    const last = pages[pages.length - 1]
+    expect(fillPercent(last)).toBe(100)
+    expect(last).toContain('border-radius:0 0px 0px 0')
+    expect(last).not.toContain(`border-radius:0 ${PROGRESS_BAR_HEIGHT / 2}px`)
+  })
 })
 
 /* ------------------------------------------------------------------ *

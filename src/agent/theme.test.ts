@@ -117,7 +117,7 @@ async function filledDeck(
   const deck = await newDeck(context)
   await ok(context, 'set_zone_text', {
     ...deck,
-    blocks: [{ type: 'paragraph', spans: [{ text: words(2800) }] }],
+    blocks: [{ type: 'paragraph', spans: [{ text: words(1600) }] }],
   })
   return deck
 }
@@ -180,15 +180,15 @@ describe('set_theme', () => {
       backgroundColor: '#101828',
       headingFont: 'space-grotesk',
       bodyFont: 'source-sans',
-      spacing: 1.3,
-      fontScale: 1.45,
+      spacing: 2.4,
+      fontScale: 1.75,
     })
     expect(result.theme).toMatchObject({
       backgroundColor: '#101828',
       headingFont: { fontId: 'space-grotesk' },
       bodyFont: { fontId: 'source-sans' },
-      spacing: 1.3,
-      fontScale: 1.45,
+      spacing: 2.4,
+      fontScale: 1.75,
     })
 
     const document = await stored(context, deck.presentationId)
@@ -196,8 +196,8 @@ describe('set_theme', () => {
       backgroundColor: '#101828',
       headingFontFamily: findFontById('space-grotesk')?.stack,
       bodyFontFamily: findFontById('source-sans')?.stack,
-      spacing: 1.3,
-      fontScale: 1.45,
+      spacing: 2.4,
+      fontScale: 1.75,
     })
     // And the answer is a reading an agent can write against straight away.
     expect(result.revision).toBe(
@@ -212,13 +212,13 @@ describe('set_theme', () => {
   it('lar utelatte felter stå', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    await ok(context, 'set_theme', { presentationId: deck.presentationId, spacing: 1.3 })
+    await ok(context, 'set_theme', { presentationId: deck.presentationId, spacing: 2.4 })
 
     const after = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
       backgroundColor: '#ffffff',
     })
-    expect(after.theme.spacing).toBe(1.3)
+    expect(after.theme.spacing).toBe(2.4)
     expect(after.theme.bodyFont.fontId).toBe('atkinson')
   })
 
@@ -249,7 +249,7 @@ describe('set_theme', () => {
     await ok(context, 'set_theme', {
       presentationId: deck.presentationId,
       expectedRevision: read.revision,
-      fontScale: 1.15,
+      fontScale: 1.6,
     })
 
     const conflict = await fails(context, 'set_theme', {
@@ -259,7 +259,7 @@ describe('set_theme', () => {
     })
     expect(conflict.code).toBe('CONFLICT')
     const document = await stored(context, deck.presentationId)
-    expect(document.theme.fontScale).toBe(1.15)
+    expect(document.theme.fontScale).toBe(1.6)
     expect(document.theme.backgroundColor).not.toBe('#000000')
   })
 })
@@ -313,7 +313,12 @@ describe('kontrakten set_theme publiserer', () => {
     })
     // The editor's named steps are quoted so an agent can say "normal" — as
     // examples inside the interval, not as the only values it accepts.
-    expect(properties.spacing).toMatchObject({ description: expect.stringContaining('normal 1') })
+    expect(properties.spacing).toMatchObject({
+      description: expect.stringContaining(`normal ${DEFAULT_SPACING}`),
+    })
+    expect(properties.fontScale).toMatchObject({
+      description: expect.stringContaining(`normal ${DEFAULT_FONT_SCALE}`),
+    })
   })
 
   it('avviser en font som ikke finnes, og et tall utenfor intervallet', async () => {
@@ -353,7 +358,7 @@ describe('en temaendring som ville skjult innhold', () => {
 
     const refused = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
-      fontScale: 1.3,
+      fontScale: 1.6,
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(refused.details).toMatchObject({
@@ -390,7 +395,7 @@ describe('en temaendring som ville skjult innhold', () => {
     const context = freshContext()
     const deck = await filledDeck(context)
     expect(
-      (await fails(context, 'set_theme', { presentationId: deck.presentationId, fontScale: 1.3 }))
+      (await fails(context, 'set_theme', { presentationId: deck.presentationId, fontScale: 1.6 }))
         .code,
     ).toBe('CONTENT_DOES_NOT_FIT')
 
@@ -400,9 +405,9 @@ describe('en temaendring som ville skjult innhold', () => {
     })
     const themed = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
-      fontScale: 1.3,
+      fontScale: 1.6,
     })
-    expect(themed.theme.fontScale).toBe(1.3)
+    expect(themed.theme.fontScale).toBe(1.6)
   })
 
   it('svarer med rektangelet det nye temaet ville gitt, ikke det gamle', async () => {
@@ -448,9 +453,16 @@ describe('en temaendring som ville skjult innhold', () => {
  * ------------------------------------------------------------------ */
 
 describe('en temaendring som ville gjort soner ulovlig små', () => {
-  /** A slide split as far across as the design space allows at the default gap. */
+  /**
+   * A slide split as far across as the design space allows — at the tightest
+   * setting the theme offers, which is the only one that allows this many.
+   */
   async function splitWide(context: AgentContext): Promise<{ presentationId: string; slideId: string }> {
     const deck = await newDeck(context)
+    await ok(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      spacing: SPACING_RANGE.min,
+    })
     await ok(context, 'split_zone', {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
@@ -478,7 +490,7 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
       slideId: deck.slideId,
       nodeId: expect.any(String),
     })
-    expect((await stored(context, deck.presentationId)).theme.spacing).toBe(DEFAULT_SPACING)
+    expect((await stored(context, deck.presentationId)).theme.spacing).toBe(SPACING_RANGE.min)
 
     // The rect is the one the refused theme would have given the zone, not the
     // one it has today — today's is comfortably above the minimum, which is
@@ -515,11 +527,14 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
   it('slipper igjennom en mindre økning som fortsatt holder minstemålet', async () => {
     const context = freshContext()
     const deck = await splitWide(context)
+    // Inside the interval rather than on a named rung: the next rung up
+    // already takes a zone under the minimum, and the scale is continuous.
+    const smallStep = SPACING_RANGE.min + 0.1
     const themed = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
-      spacing: 1.3,
+      spacing: smallStep,
     })
-    expect(themed.theme.spacing).toBe(1.3)
+    expect(themed.theme.spacing).toBe(smallStep)
   })
 })
 

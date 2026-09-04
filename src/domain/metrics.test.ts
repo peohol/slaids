@@ -12,7 +12,7 @@ import {
   G,
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
-  TITLE_ZONE_HEIGHT,
+  titleZoneHeightFor,
 } from './constants'
 import {
   DEFAULT_FONT_SCALE,
@@ -25,6 +25,10 @@ import {
   themeMetrics,
 } from './metrics'
 import { defaultTheme } from './presentation'
+
+/** Two settings inside the offered range, one on each ladder. */
+const AIRY = SPACING_PRESETS[2].value
+const BIG = FONT_SCALE_PRESETS[2].value
 
 describe('themeMetrics', () => {
   it('is the base tokens at the default settings', () => {
@@ -42,19 +46,20 @@ describe('themeMetrics', () => {
   })
 
   it('moves every distance together and leaves type alone', () => {
-    const airy = themeMetrics({ ...defaultTheme(), spacing: 1.5 })
-    expect(airy.gap).toBe(Math.round(G * 1.5))
-    expect(airy.cardPadding).toBe(Math.round(CARD_PADDING * 1.5))
-    expect(airy.subfieldGap).toBe(Math.round(SUBFIELD_GAP * 1.5))
-    expect(airy.blockSpacing).toBe(Math.round(BLOCK_SPACING * 1.5))
+    const airy = themeMetrics({ ...defaultTheme(), spacing: AIRY })
+    expect(airy.gap).toBe(Math.round(G * AIRY))
+    expect(airy.cardPadding).toBe(Math.round(CARD_PADDING * AIRY))
+    expect(airy.subfieldGap).toBe(Math.round(SUBFIELD_GAP * AIRY))
+    expect(airy.blockSpacing).toBe(Math.round(BLOCK_SPACING * AIRY))
     expect(airy.bodyFontSize).toBe(Math.round(BODY_FONT_SIZE * DEFAULT_FONT_SCALE))
   })
 
   it('grows the boxes whose height is dictated by type along with the type', () => {
-    const big = themeMetrics({ ...defaultTheme(), fontScale: 1.3 })
-    expect(big.titleFontSize).toBe(Math.round(TITLE_FONT_SIZE * 1.3))
-    // A bigger title must not land in a title zone built for a smaller one.
-    expect(big.titleZoneHeight).toBe(Math.round(TITLE_ZONE_HEIGHT * 1.3))
+    const big = themeMetrics({ ...defaultTheme(), fontScale: BIG })
+    expect(big.titleFontSize).toBe(Math.round(TITLE_FONT_SIZE * BIG))
+    // A bigger title must not land in a title zone built for a smaller one —
+    // which holds by construction: the zone *is* the line the title sits on.
+    expect(big.titleZoneHeight).toBe(titleZoneHeightFor(big.titleFontSize))
     expect(big.gap).toBe(Math.round(G * DEFAULT_SPACING))
   })
 
@@ -81,10 +86,10 @@ describe('themeMetrics', () => {
   })
 
   it('gives the geometry engine the gap and title zone the theme dictates', () => {
-    const geometry = geometryForTheme({ ...defaultTheme(), spacing: 1.5, fontScale: 1.3 })
-    expect(geometry.gap).toBe(Math.round(G * 1.5))
+    const geometry = geometryForTheme({ ...defaultTheme(), spacing: AIRY, fontScale: BIG })
+    expect(geometry.gap).toBe(Math.round(G * AIRY))
     // The inset equals the gap by definition, at every setting.
     expect(geometry.inset).toBe(geometry.gap)
-    expect(geometry.titleHeight).toBe(Math.round(TITLE_ZONE_HEIGHT * 1.3))
+    expect(geometry.titleHeight).toBe(titleZoneHeightFor(Math.round(TITLE_FONT_SIZE * BIG)))
   })
 })

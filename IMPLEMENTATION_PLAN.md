@@ -260,11 +260,23 @@ Tittelsone skal derfor være deterministisk:
 - én linje;
 - fast fontstørrelse;
 - fast line-height;
-- fast `TITLE_ZONE_HEIGHT`;
+- høyde = nøyaktig én linjeboks av sin egen type (`titleZoneHeightFor`);
 - ingen manuelle linjeskift;
 - ingen individuell fontformatering;
 - tekst som ikke får plass skal ikke kunne committes;
 - citations kan tillates i tittelen.
+
+Høyden er bevisst *ikke* et eget tall. En sone høyere enn linjen ville lagt slark
+over og under teksten som ingen har valgt: sliden ville lest som om den hadde én
+avstand over tittelen og en annen overalt ellers. Å utlede den fra typografien
+gjør dessuten «større tekst havner aldri i en boks bygget for mindre» sant ved
+konstruksjon, i stedet for ved at to konstanter holdes i takt.
+
+Det som blir igjen mellom glyfene og kanten av boksen er fontens egen
+half-leading — noen få piksler, og en egenskap ved skriftsnittet snarere enn en
+avstandsbeslutning. `TITLE_LINE_HEIGHT` ligger like over den største summen av
+ascent og descent i fontkatalogen, så en aksent eller en underlengde aldri
+klippes.
 
 Sliden har enten:
 
@@ -671,25 +683,29 @@ Begge skalaene er kontinuerlige i domenet. `SPACING_RANGE` og
 `FONT_SCALE_RANGE` er de virkelige grensene, og fit-guarden avgjør hva som er
 brukbart innenfor dem. Editoren tilbyr fire navngitte trinn på hver, fordi et
 menneske vil ha knapper og ikke en glidebryter – men trinnene er et utvalg, ikke
-en regel.
+en regel. De er derfor deklarert i `src/domain/metrics.ts` sammen med
+intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
+API-et siterer den samme listen når det forteller en agent hva «normal» er, og
+én liste er det som holder de to fra å si forskjellige ting.
 
-Begge stigene ligger et hakk høyere enn de opprinnelig gjorde: det tetteste et
-dekk kan settes i er luftigere enn det gamle normaltrinnet, og det luftigste er
-luftigere enn det gamle maksimum. Basistallene i `constants.ts` er ikke rørt –
-det som er flyttet, er multiplikatoren, og det er det ærlige stedet å flytte
-den: en lagret `spacing` betyr fortsatt nøyaktig det den betydde, den tilbys
-bare ikke lenger under det nye gulvet.
+Begge stigene er forskjøvet oppover: det tetteste et dekk kan settes i er det
+som en gang var «Luftig», og det luftigste er luftigere igjen enn det gamle
+maksimum. Basistallene i `constants.ts` er ikke rørt – det som er flyttet, er
+multiplikatoren, og det er det ærlige stedet å flytte den: en lagret `spacing`
+betyr fortsatt nøyaktig det den betydde, den tilbys bare ikke lenger under det
+nye gulvet.
 
 Derfor er `DEFAULT_SPACING` ikke lenger det samme tallet som «basistokenene
 uskalert». Et dekk som ble lagret før temaet hadde disse skalaene ble tegnet på
 `NEUTRAL_SCALE`, og det er *det* en migrering fyller inn – aldri `DEFAULT_*`,
 som er det et **nytt** dekk åpner i. Å gjenskape et lagret dekk og å style et
 nytt er to forskjellige jobber, og de så bare like ut så lenge standarden
-tilfeldigvis var nøytral. Begge stigene når fortsatt ned til den, som er det som
-gjør et eldre dekk uttrykkbart i det hele tatt etter forskyvningen. De er derfor deklarert i `src/domain/metrics.ts` sammen med
-intervallene (`SPACING_PRESETS`, `FONT_SCALE_PRESETS`), ikke i modalen: agent-
-API-et siterer den samme listen når det forteller en agent hva «normal» er, og
-én liste er det som holder de to fra å si forskjellige ting.
+tilfeldigvis var nøytral. Stigene har siden flyttet seg forbi den nøytrale
+verdien, så et slikt dekk kan ikke lenger tegnes nøyaktig som det var:
+`repairPresentation` klemmer det opp til det tetteste temaet fortsatt tilbyr.
+Det er en villet konsekvens av å heve gulvet, ikke et uhell – og det er derfor
+verdien fortsatt har et navn: hva en migrering fyller inn er et faktum om
+dokumentet, og hva klemmen så gjør med det er en egen beslutning.
 
 Fontkatalogen (`src/domain/fonts.ts`) er på samme måte det ene stedet en font
 er navngitt. Både editorens velger, den hodeløse estimatorens glyffbredder og
@@ -978,10 +994,13 @@ Krav:
 - ikke bygg separat «presentasjonslayout».
 
 > **Oppdatert:** presentasjonsmodus og den offentlige delte visningen er samme
-> komponent, `PresentationPlayer` (§ 43.5). Den lokale varianten har «Avslutt»;
-> den offentlige har ingen vei tilbake, fordi den ikke er montert i noe å gå
-> tilbake til. Sidelisten er felles og inkluderer de avledede referansesidene og,
-> når delingen er på, QR-siden.
+> komponent, `PresentationPlayer` (§ 43.5). Sidelisten er felles og inkluderer de
+> avledede referansesidene og, når delingen er på, QR-siden.
+>
+> Siden er hele skjermen: ingen teller, ingen avslutt-knapp, ingenting tegnet
+> oppå sliden. Hvor langt ut i dekket man er, er det fremdriftsindikatoren som
+> sier (§ 8.6), og veien ut er Escape — som bare finnes der `onExit` gjør det,
+> altså ikke i den delte visningen.
 
 ---
 

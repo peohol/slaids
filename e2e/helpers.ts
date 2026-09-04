@@ -185,6 +185,20 @@ export async function addContentToZone(
   await page.waitForTimeout(200)
 }
 
+/**
+ * Which page of the deck is on screen, and how many there are.
+ *
+ * Presentation mode draws no counter — the progress indicator is what says this
+ * to an audience — so the numbers are read from the view's own data instead.
+ */
+export async function presentedPage(page: Page): Promise<{ index: number; count: number }> {
+  const view = page.getByTestId('present-view')
+  return {
+    index: Number(await view.getAttribute('data-page')),
+    count: Number(await view.getAttribute('data-page-count')),
+  }
+}
+
 export function expectGap(actual: number, message: string): void {
   expect(actual, message).toBeGreaterThan(G - 0.2)
   expect(actual, message).toBeLessThan(G + 0.2)

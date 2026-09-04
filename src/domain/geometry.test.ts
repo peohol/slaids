@@ -12,7 +12,7 @@ import {
   SLIDE_WIDTH,
   TITLE_FONT_SIZE,
   TITLE_LINE_HEIGHT,
-  TITLE_ZONE_HEIGHT,
+  titleZoneHeightFor,
 } from './constants'
 import {
   computeCoverGeometry,
@@ -190,7 +190,9 @@ describe('slide framing', () => {
   it('gives the main zone the whole content area when there is no title', () => {
     const withTitle = computeMainRect(true)
     const withoutTitle = computeMainRect(false)
-    expect(withoutTitle.height - withTitle.height).toBe(TITLE_ZONE_HEIGHT + G)
+    expect(withoutTitle.height - withTitle.height).toBe(
+      titleZoneHeightFor(TITLE_FONT_SIZE) + G,
+    )
     expect(withoutTitle.width).toBe(withTitle.width)
   })
 })
@@ -408,13 +410,14 @@ describe('golden path geometry', () => {
   })
 
   it('matches the expected absolute rects', () => {
-    expect(titleRect).toEqual({ x: 24, y: 24, width: 1552, height: 72 })
-    // 900 - 24 (inset) - 72 (title) - 24 (gap) - 24 (inset) - 10 (indicator).
-    expect(geometry.mainRect).toEqual({ x: 24, y: 120, width: 1552, height: 746 })
+    // The title zone is one line of its own type: round(40 * 1.15).
+    expect(titleRect).toEqual({ x: 24, y: 24, width: 1552, height: 46 })
+    // 900 - 24 (inset) - 46 (title) - 24 (gap) - 24 (inset) - 10 (indicator).
+    expect(geometry.mainRect).toEqual({ x: 24, y: 94, width: 1552, height: 772 })
     expect(leftRect.width).toBeCloseTo(611.2, EPS)
     expect(rightRect.width).toBeCloseTo(916.8, EPS)
-    expect(topRightRect.height).toBeCloseTo(722 / 3, EPS)
-    expect(bottomRightRect.height).toBeCloseTo((722 * 2) / 3, EPS)
+    expect(topRightRect.height).toBeCloseTo(748 / 3, EPS)
+    expect(bottomRightRect.height).toBeCloseTo((748 * 2) / 3, EPS)
   })
 })
 

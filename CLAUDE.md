@@ -371,7 +371,14 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `DEFAULT_SPACING`/`DEFAULT_FONT_SCALE` er ikke `1`: standarden er «Normal»-trinnet et
   **nytt** dekk åpner i. `NEUTRAL_SCALE` er det et dekk lagret før skalaene fantes ble
   tegnet på, og det er dét migreringene fyller inn – å gjenskape et lagret dekk og å style
-  et nytt er to forskjellige jobber.
+  et nytt er to forskjellige jobber. Gulvet ligger nå over den nøytrale verdien, så
+  `repairPresentation` klemmer et slikt dekk opp til det tetteste temaet tilbyr.
+- Tittelsonen er nøyaktig én linjeboks av sin egen type (`titleZoneHeightFor`), aldri et
+  eget tall: slark over og under tittelen ville vært en avstand ingen har valgt, og
+  utledningen gjør «større tekst havner aldri i en boks bygget for mindre» sann ved
+  konstruksjon. Se `IMPLEMENTATION_PLAN.md` §8.
+- Presentasjonsmodus tegner ingenting oppå sliden – ingen teller, ingen avslutt-knapp.
+  Fremdriftsindikatoren sier hvor man er, og Escape er veien ut der `onExit` finnes.
 
 ## Kommandoer
 

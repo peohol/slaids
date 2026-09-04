@@ -25,7 +25,7 @@ import {
   SLIDE_WIDTH,
   TITLE_FONT_SIZE,
   TITLE_LINE_HEIGHT,
-  TITLE_ZONE_HEIGHT,
+  titleZoneHeightFor,
 } from './constants'
 import type { Axis, LayoutNode, NodeId, Rect, Slide } from './types'
 
@@ -82,7 +82,7 @@ export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
     slideWidth: options.slideWidth ?? SLIDE_WIDTH,
     slideHeight: options.slideHeight ?? SLIDE_HEIGHT,
     inset: options.inset ?? SLIDE_INSET,
-    titleHeight: options.titleHeight ?? TITLE_ZONE_HEIGHT,
+    titleHeight: options.titleHeight ?? titleZoneHeightFor(TITLE_FONT_SIZE),
     progressHeight: options.progressHeight ?? PROGRESS_BAR_HEIGHT,
     minZoneWidth: options.minZoneWidth ?? MIN_ZONE_WIDTH,
     minZoneHeight: options.minZoneHeight ?? MIN_ZONE_HEIGHT,

@@ -33,7 +33,7 @@ function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
 }
 
 /** Long enough to fit the default font but not Verdana, which is 16% wider. */
-const BORDERLINE_TITLE = 'Overskrift som akkurat får plass i sonen sin i dag'.padEnd(52, ' x')
+const BORDERLINE_TITLE = 'Overskrift som får plass i dag'.padEnd(46, ' x')
 
 function deckWithTitle(text: string): Presentation {
   const presentation = createPresentation({ title: 'Titler', firstSlideHasTitle: true })

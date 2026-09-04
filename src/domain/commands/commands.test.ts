@@ -847,7 +847,7 @@ describe('content fit on structural changes', () => {
       setZoneContent(presentation, {
         slideId: slide.id,
         nodeId: root.children[0].id,
-        content: filledCard('ord '.repeat(220)),
+        content: filledCard('ord '.repeat(120)),
         fits: estimateFitChecker,
       }),
     ).presentation
@@ -882,7 +882,7 @@ describe('content fit on structural changes', () => {
         nodeId: presentation.slides[0].root.id,
         // Fits the full-height main zone, but not once the title zone and the
         // gap under it take their share off the top.
-        content: filledCard('ord '.repeat(600)),
+        content: filledCard('ord '.repeat(300)),
         fits: estimateFitChecker,
       }),
     ).presentation

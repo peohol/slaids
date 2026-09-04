@@ -4,6 +4,7 @@ import {
   SLIDE_WIDTH,
   addContentToZone,
   createPresentation,
+  presentedPage,
   stage,
   waitForSaved,
   watchForErrors,
@@ -62,17 +63,17 @@ test.describe('presentation mode', () => {
     // Three slides, and the mandatory cover in front of them: four pages.
     await page.getByTestId('present').click()
     await expect(page.getByTestId('present-view')).toBeVisible()
-    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 4, count: 4 })
 
     await page.keyboard.press('Home')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 1, count: 4 })
     await expect(page.getByTestId('present-view')).toContainText('Visning')
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 4 })
     await page.keyboard.press('ArrowLeft')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 1, count: 4 })
     await page.keyboard.press('End')
-    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 4, count: 4 })
 
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('editor')).toBeVisible()
@@ -118,9 +119,9 @@ test.describe('presentation mode', () => {
 
     // Cover, the authored slide, then the derived reference slide.
     await page.getByTestId('present').click()
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 3 })
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 3, count: 3 })
     await expect(page.getByTestId('present-view')).toContainText('Referanser')
     await expect(page.getByTestId('present-view')).toContainText('En viktig kilde')
   })
@@ -171,20 +172,20 @@ test.describe('presentation mode', () => {
     await page.keyboard.press('Home')
     // Past the cover: the link is on the first authored slide.
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 3 })
 
     const link = page.getByTestId('present-view').locator('a').first()
     await expect(link).toBeVisible()
     const popup = page.context().waitForEvent('page').catch(() => null)
     await link.click()
     // The click belonged to the link, not to the deck.
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 3')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 3 })
     const opened = await popup
     if (opened) await opened.close()
 
     // A click on the slide itself still advances.
     await page.getByTestId('present-view').click({ position: { x: 5, y: 5 } })
-    await expect(page.getByTestId('present-counter')).toHaveText('3 / 3')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 3, count: 3 })
   })
 
   test('shows several sources cited together as one citation', async ({ page }) => {
@@ -264,13 +265,13 @@ test.describe('presentation mode', () => {
 
     await page.getByTestId('present').click()
     await page.keyboard.press('Home')
-    await expect(page.getByTestId('present-counter')).toHaveText('1 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 1, count: 4 })
     // The cover is the way in to the deck, not a step through it.
     expect((await progressBar(page))?.present).toBe(false)
 
     // Three slides after the cover, so the first of them is one third of the way.
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('present-counter')).toHaveText('2 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 4 })
     const first = await progressBar(page)
     expect(first?.present).toBe(true)
     // Flush with the bottom and with both sides; only the gap above it is air.
@@ -282,7 +283,7 @@ test.describe('presentation mode', () => {
     expect(first?.transition).toBe('width 0.6s ease-in-out')
 
     await page.keyboard.press('End')
-    await expect(page.getByTestId('present-counter')).toHaveText('4 / 4')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 4, count: 4 })
     // Polled rather than read once: the fill moves to its new position instead
     // of jumping there, so right after a page turn it is still on its way.
     expect((await progressBar(page))?.fillWidth).toBeLessThan(SLIDE_WIDTH)

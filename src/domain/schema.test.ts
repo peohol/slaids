@@ -400,10 +400,13 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    // The neutral multiplier is exactly what the deck already looked like —
-    // not the value a new deck would open in.
-    expect(result.value.theme.spacing).toBe(NEUTRAL_SCALE)
-    expect(result.value.theme.fontScale).toBe(NEUTRAL_SCALE)
+    // The migration fills in the neutral multiplier — what the deck already
+    // looked like — and the repair then clamps it into the range the theme
+    // still offers, which has since moved past it. Both steps are deliberate:
+    // one is a fact about the document, the other a decision about the ladder.
+    expect(NEUTRAL_SCALE).toBeLessThan(SPACING_RANGE.min)
+    expect(result.value.theme.spacing).toBe(SPACING_RANGE.min)
+    expect(result.value.theme.fontScale).toBe(FONT_SCALE_RANGE.min)
   })
 
   it('repairs a theme scale that is out of range rather than refusing the file', () => {

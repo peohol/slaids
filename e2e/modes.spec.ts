@@ -104,7 +104,7 @@ test.describe('rendering modes', () => {
 
     await enterContentMode(page)
     await page.keyboard.press('F5')
-    await expect(page.getByTestId('present-counter')).toBeVisible()
+    await expect(page.getByTestId('present-view')).toBeVisible()
     expect(await blocks(page, PRESENTED)).toEqual(editing)
 
     await page.keyboard.press('Escape')

@@ -18,7 +18,8 @@ import {
 } from './helpers'
 
 /** What «Luftig» comes to: one step above the «Normal» a new deck opens in. */
-const AIRY_GAP = Math.round(BASE_G * 1.6)
+const AIRY = 2.4
+const AIRY_GAP = Math.round(BASE_G * AIRY)
 
 /** The gap between two side-by-side zones, in logical slide pixels. */
 async function renderedGap(page: Page): Promise<number> {
@@ -63,7 +64,7 @@ test.describe('luft and skriftstørrelse', () => {
     const beforePadding = await padding()
 
     await page.getByTestId('open-theme').click()
-    await page.getByTestId('theme-spacing-1.6').click()
+    await page.getByTestId(`theme-spacing-${AIRY}`).click()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
     // One dial, every distance: the slide gap and the card padding move
@@ -88,7 +89,7 @@ test.describe('luft and skriftstørrelse', () => {
 
     const before = await renderedBodySize(page)
     await page.getByTestId('open-theme').click()
-    await page.getByTestId('theme-font-scale-1.3').click()
+    await page.getByTestId('theme-font-scale-1.6').click()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
     await expect.poll(() => renderedBodySize(page)).toBeGreaterThan(before)
@@ -103,7 +104,7 @@ test.describe('luft and skriftstørrelse', () => {
     const gapBefore = await renderedGap(page)
 
     await page.getByTestId('open-theme').click()
-    await page.getByTestId('theme-spacing-1.6').click()
+    await page.getByTestId(`theme-spacing-${AIRY}`).click()
 
     await expect(toast(page, 'får ikke plass')).toBeVisible()
     expect(await renderedGap(page)).toBe(gapBefore)
@@ -118,7 +119,7 @@ test.describe('luft and skriftstørrelse', () => {
     const before = await renderedBodySize(page)
 
     await page.getByTestId('open-theme').click()
-    await page.getByTestId('theme-font-scale-1.45').click()
+    await page.getByTestId('theme-font-scale-1.75').click()
 
     await expect(toast(page, 'får ikke plass')).toBeVisible()
     expect(await renderedBodySize(page)).toBe(before)
@@ -128,8 +129,8 @@ test.describe('luft and skriftstørrelse', () => {
   test('starts new presentations from the theme saved as the default', async ({ page }) => {
     await createPresentation(page, 'Standardtema')
     await page.getByTestId('open-theme').click()
-    await page.getByTestId('theme-spacing-1.6').click()
-    await page.getByTestId('theme-font-scale-1.3').click()
+    await page.getByTestId(`theme-spacing-${AIRY}`).click()
+    await page.getByTestId('theme-font-scale-1.6').click()
     await page.getByTestId('theme-as-default').click()
     await expect(toast(page, 'standard for nye presentasjoner')).toBeVisible()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()

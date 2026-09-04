@@ -402,7 +402,7 @@ describe('en agent bygger, ser og retter', () => {
         backgroundColor: DEEP_GREEN.hex,
         headingFont: 'merriweather',
         bodyFont: 'merriweather',
-        spacing: 1.3,
+        spacing: 2.4,
       })
 
       const green = await renderPreview(client, { presentationId, slideId })
@@ -441,7 +441,7 @@ describe('en agent bygger, ser og retter', () => {
           // A colour that could never hide anything, sent together with a type
           // size that would: half a theme is not a state anybody asked for.
           backgroundColor: '#ffffff',
-          fontScale: 1.6,
+          fontScale: FONT_SCALE_RANGE.max,
         },
       })) as { isError?: boolean; structuredContent?: { error?: { code: string } } }
       expect(refused.isError).toBe(true)

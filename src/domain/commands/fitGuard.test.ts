@@ -19,7 +19,7 @@ import {
   createUntitledCard,
 } from '../content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
-import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
+import { DEFAULT_SPACING, FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import { findPresentationIssues } from '../validation'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
@@ -102,9 +102,19 @@ function target(presentation: Presentation): { slideId: string; nodeId: string }
  * ------------------------------------------------------------------ */
 
 describe('setTheme og minstemålet for en sone', () => {
-  /** A slide split as far across as the design space allows at the default gap. */
+  /**
+   * A slide split as far across as the design space allows — at the tightest
+   * setting the theme offers, which is the only one that allows this many.
+   * Every step up the ladder from here takes a zone below the minimum.
+   */
+  const TIGHTEST = SPACING_RANGE.min
+
   function splitWide(): Presentation {
-    const presentation = createPresentation({ title: 'Minstemål', firstSlideHasTitle: false })
+    const presentation = createPresentation({
+      title: 'Minstemål',
+      firstSlideHasTitle: false,
+      theme: { spacing: TIGHTEST },
+    })
     const slide = presentation.slides[0]
     return unwrap(
       splitLeaf(presentation, {
@@ -120,28 +130,31 @@ describe('setTheme og minstemålet for en sone', () => {
   it('refuses air that would make the zones smaller than the minimum', () => {
     // The zones are empty, so nothing overflows and the fit guard has nothing to
     // say. Committed anyway, this is a deck `findSlideIssues` calls invalid.
-    const result = setTheme(splitWide(), { spacing: 2 }, checkers)
+    const result = setTheme(splitWide(), { spacing: DEFAULT_SPACING }, checkers)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
   })
 
   it('accepts air the zones still satisfy', () => {
-    expect(setTheme(splitWide(), { spacing: 1.3 }, checkers).ok).toBe(true)
+    expect(setTheme(splitWide(), { spacing: TIGHTEST + 0.1 }, checkers).ok).toBe(true)
   })
 
   it('refuses a change that makes an already too small zone smaller still', () => {
     // The case a set of node ids cannot see: the same zones are on the list
-    // before and after, and every one of them got worse. Luft 1.8 already
-    // leaves ~179 px per zone, a hair under the minimum; luft 2 takes it to
-    // ~174. Nothing is hidden by it — the zones are empty — so the fit guard
-    // has nothing to say either.
+    // before and after, and every one of them got worse. The «Normal» rung
+    // already leaves the seven zones a hair under the minimum; «Luftig» takes
+    // them further under. Nothing is hidden by it — the zones are empty — so
+    // the fit guard has nothing to say either.
     const tight = splitWide()
-    const alreadyBroken: Presentation = { ...tight, theme: { ...tight.theme, spacing: 1.8 } }
+    const alreadyBroken: Presentation = {
+      ...tight,
+      theme: { ...tight.theme, spacing: DEFAULT_SPACING },
+    }
     expect(findPresentationIssues(alreadyBroken).some((issue) => issue.code === 'ZONE_TOO_SMALL')).toBe(
       true,
     )
 
-    const worse = setTheme(alreadyBroken, { spacing: 2 }, checkers)
+    const worse = setTheme(alreadyBroken, { spacing: 2.4 }, checkers)
     expect(worse.ok).toBe(false)
     if (!worse.ok) expect(worse.error.code).toBe('ZONE_TOO_SMALL')
   })
@@ -150,10 +163,10 @@ describe('setTheme og minstemålet for en sone', () => {
     // A document from an import, or from before a token changed: refusing every
     // theme change here would leave it with no way back.
     const tight = splitWide()
-    const broken: Presentation = { ...tight, theme: { ...tight.theme, spacing: 2 } }
-    expect(setTheme(broken, { spacing: 1 }, checkers).ok).toBe(true)
+    const broken: Presentation = { ...tight, theme: { ...tight.theme, spacing: 2.4 } }
+    expect(setTheme(broken, { spacing: TIGHTEST }, checkers).ok).toBe(true)
     // Less wrong is still allowed, all the way down to right.
-    expect(setTheme(broken, { spacing: 1.8 }, checkers).ok).toBe(true)
+    expect(setTheme(broken, { spacing: DEFAULT_SPACING }, checkers).ok).toBe(true)
     // And a change that leaves it exactly as broken is not a new regression.
     expect(setTheme(broken, { backgroundColor: '#123456' }, checkers).ok).toBe(true)
   })
@@ -164,9 +177,9 @@ describe('setTheme og minstemålet for en sone', () => {
  * ------------------------------------------------------------------ */
 
 describe('setTheme', () => {
-  // 3600 characters fill the full-slide zone at the default advance but not at
-  // Verdana's, which is 16% wider.
-  const filled = (): Presentation => deckWith(cardWith([paragraphDoc(words(3600))]))
+  // This many characters fill the full-slide zone at the default advance but
+  // not at Verdana's, which is 16% wider.
+  const filled = (): Presentation => deckWith(cardWith([paragraphDoc(words(1600))]))
 
   it('refuses a body font that makes existing text too big', () => {
     expectRefused(setTheme(filled(), { bodyFontFamily: stack('verdana') }, checkers))
@@ -182,7 +195,7 @@ describe('setTheme', () => {
     const blank = createPresentation({ title: 'Fit' })
     const slideId = blank.slides[0].id
     const presentation = unwrap(
-      setSlideTitle(blank, slideId, titleDoc('A'.repeat(54)), checkers),
+      setSlideTitle(blank, slideId, titleDoc('A'.repeat(48)), checkers),
     )
 
     expectRefused(setTheme(presentation, { headingFontFamily: stack('verdana') }, checkers))
@@ -191,7 +204,7 @@ describe('setTheme', () => {
 
   it('still allows a font change that reduces an existing overflow', () => {
     // Already overflowing on Verdana — the user must be able to get out of it.
-    const overflowing = deckWith(cardWith([paragraphDoc(words(3600))]), {
+    const overflowing = deckWith(cardWith([paragraphDoc(words(1600))]), {
       bodyFontFamily: stack('verdana'),
     })
     expect(setTheme(overflowing, { bodyFontFamily: stack('merriweather') }, checkers).ok).toBe(true)
@@ -199,7 +212,7 @@ describe('setTheme', () => {
   })
 
   it('keeps enforcing the rule on content that already overflows', () => {
-    const overflowing = deckWith(cardWith([paragraphDoc(words(3600))]), {
+    const overflowing = deckWith(cardWith([paragraphDoc(words(1600))]), {
       bodyFontFamily: stack('merriweather'),
     })
     expectRefused(setTheme(overflowing, { bodyFontFamily: stack('verdana') }, checkers))
@@ -208,12 +221,12 @@ describe('setTheme', () => {
   it('refuses more air than the content can afford', () => {
     // More air takes room from the same text twice over: a wider gap shrinks
     // every zone, and more card padding shrinks what is left inside it.
-    expectRefused(setTheme(filled(), { spacing: 1.6 }, checkers))
+    expectRefused(setTheme(filled(), { spacing: 2.4 }, checkers))
     expect(setTheme(filled(), { spacing: SPACING_RANGE.min }, checkers).ok).toBe(true)
   })
 
   it('refuses type larger than the content can afford', () => {
-    expectRefused(setTheme(filled(), { fontScale: 1.3 }, checkers))
+    expectRefused(setTheme(filled(), { fontScale: 1.6 }, checkers))
     expect(setTheme(filled(), { fontScale: FONT_SCALE_RANGE.min }, checkers).ok).toBe(true)
   })
 
@@ -227,10 +240,10 @@ describe('setTheme', () => {
     const blank = createPresentation({ title: 'Fit' })
     const slideId = blank.slides[0].id
     const presentation = unwrap(
-      setSlideTitle(blank, slideId, titleDoc('A'.repeat(54)), checkers),
+      setSlideTitle(blank, slideId, titleDoc('A'.repeat(48)), checkers),
     )
     // The title zone grows with the type, but not as fast as the glyphs do.
-    expectRefused(setTheme(presentation, { fontScale: 1.3 }, checkers))
+    expectRefused(setTheme(presentation, { fontScale: 1.6 }, checkers))
     expect(setTheme(presentation, { fontScale: FONT_SCALE_RANGE.min }, checkers).ok).toBe(true)
   })
 
@@ -254,12 +267,12 @@ describe('setTheme', () => {
 
 describe('card body layout', () => {
   it('refuses a subfield count that leaves the existing text too little room', () => {
-    const presentation = deckWith(cardWith([paragraphDoc(words(2800))]))
+    const presentation = deckWith(cardWith([paragraphDoc(words(1600))]))
     expectRefused(setSubfieldCount(presentation, { ...target(presentation), count: 2, ...checkers }))
   })
 
   it('accepts a subfield count the existing text still fits', () => {
-    const presentation = deckWith(cardWith([paragraphDoc(words(900))]))
+    const presentation = deckWith(cardWith([paragraphDoc(words(600))]))
     expect(
       setSubfieldCount(presentation, { ...target(presentation), count: 2, ...checkers }).ok,
     ).toBe(true)
@@ -329,14 +342,14 @@ describe('setContentKind', () => {
     deckWith(containerWithDoc(paragraphDoc(words(chars))))
 
   it('refuses a conversion that adds chrome the content cannot afford', () => {
-    const presentation = filled(2400)
+    const presentation = filled(1300)
     expectRefused(
       setContentKind(presentation, { ...target(presentation), kind: 'titled-card', ...checkers }),
     )
   })
 
   it('accepts a conversion the content still fits', () => {
-    const presentation = filled(2400)
+    const presentation = filled(1300)
     const result = setContentKind(presentation, {
       ...target(presentation),
       kind: 'untitled-card',

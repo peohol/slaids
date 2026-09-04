@@ -36,15 +36,29 @@ import { useSlideRender } from './SlideRenderContext'
  * deck that can change under a renderer, and a bar wider than the slide would
  * be the one thing on the page painted outside it.
  */
-function fillWidth(progress: number): string {
-  if (!Number.isFinite(progress)) return '0%'
-  return `${Math.min(1, Math.max(0, progress)) * 100}%`
+function clampProgress(progress: number): number {
+  if (!Number.isFinite(progress)) return 0
+  return Math.min(1, Math.max(0, progress))
+}
+
+/**
+ * The fill's corners.
+ *
+ * Rounded where it grows, square where it starts — the right end is the only
+ * end that ever moves. At the end of the deck it is square there too: a rounded
+ * end sitting exactly on the track's own end would leave two slivers of track
+ * showing past it, and the last page is supposed to read as full.
+ */
+function fillRadius(progress: number): string {
+  const radius = progress < 1 ? PROGRESS_BAR_HEIGHT / 2 : 0
+  return `0 ${radius}px ${radius}px 0`
 }
 
 export function SlideProgressBar({ pageId }: { pageId: string }) {
   const { headingPillColor, progress } = useSlideRender()
   const position = progress.get(pageId)
   if (position === undefined) return null
+  const filled = clampProgress(position)
 
   return (
     <div
@@ -62,10 +76,8 @@ export function SlideProgressBar({ pageId }: { pageId: string }) {
         data-testid="slide-progress-fill"
         style={{
           background: headingPillColor,
-          width: fillWidth(position),
-          // Rounded where it grows, square where it starts: the right end is
-          // the only end that ever moves.
-          borderRadius: `0 ${PROGRESS_BAR_HEIGHT / 2}px ${PROGRESS_BAR_HEIGHT / 2}px 0`,
+          width: `${filled * 100}%`,
+          borderRadius: fillRadius(filled),
           transitionDuration: `${PROGRESS_TRANSITION_MS}ms`,
         }}
       />

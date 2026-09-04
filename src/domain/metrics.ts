@@ -30,7 +30,7 @@ import {
   LIST_INDENT,
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
-  TITLE_ZONE_HEIGHT,
+  titleZoneHeightFor,
 } from './constants'
 import type { PresentationTheme } from './types'
 
@@ -57,19 +57,19 @@ export interface ThemeMetrics {
 /**
  * The two dials, and where they may stand.
  *
- * Both ladders sit one rung higher than they used to: the tightest setting a
- * deck can be put in is airier than the old normal, and the loosest is looser
- * than the old maximum. The base numbers in `constants.ts` did not move — what
- * moved is the multiplier, which is the honest place to move it: a stored
- * `spacing` still means exactly what it meant, it is simply no longer offered
- * below the new floor.
+ * Both ladders have been shifted up, twice: what was «Luftig» is now the
+ * tightest a deck can be put in, and the top rung is looser again than the old
+ * one. The base numbers in `constants.ts` did not move — what moved is the
+ * multiplier, which is the honest place to move it: a stored `spacing` still
+ * means exactly what it meant, it is simply no longer offered below the new
+ * floor.
  */
-export const SPACING_RANGE = { min: 1, max: 2.4 } as const
-export const FONT_SCALE_RANGE = { min: 1, max: 1.7 } as const
+export const SPACING_RANGE = { min: 1.6, max: 3.2 } as const
+export const FONT_SCALE_RANGE = { min: 1.3, max: 2 } as const
 
 /** What a new deck opens in: the «Normal» rung on each ladder. */
-export const DEFAULT_SPACING = 1.3
-export const DEFAULT_FONT_SCALE = 1.15
+export const DEFAULT_SPACING = 2
+export const DEFAULT_FONT_SCALE = 1.45
 
 /**
  * The multiplier that means «the base tokens, unscaled».
@@ -80,8 +80,12 @@ export const DEFAULT_FONT_SCALE = 1.15
  * are two different jobs, and they only looked like one while the default
  * happened to be neutral.
  *
- * Both ladders reach down to it, which is why an older deck is still something
- * the theme can express at all after the shift.
+ * The ladders have since moved past it, so a deck stored before the scales
+ * existed can no longer be drawn exactly as it was: `repairPresentation` clamps
+ * it up to the tightest setting the theme still offers. That is a deliberate
+ * consequence of shifting the floor, not an accident — and it is why the value
+ * is still named: what a migration fills in is a historical fact about the
+ * document, and what the clamp then does to it is a separate decision.
  */
 export const NEUTRAL_SCALE = 1
 
@@ -105,15 +109,15 @@ export interface ThemeScalePreset {
 export const SPACING_PRESETS: readonly ThemeScalePreset[] = [
   { label: 'Tett', value: SPACING_RANGE.min },
   { label: 'Normal', value: DEFAULT_SPACING },
-  { label: 'Luftig', value: 1.6 },
-  { label: 'Ekstra luftig', value: 2 },
+  { label: 'Luftig', value: 2.4 },
+  { label: 'Ekstra luftig', value: 2.8 },
 ]
 
 export const FONT_SCALE_PRESETS: readonly ThemeScalePreset[] = [
   { label: 'Liten', value: FONT_SCALE_RANGE.min },
   { label: 'Normal', value: DEFAULT_FONT_SCALE },
-  { label: 'Stor', value: 1.3 },
-  { label: 'Ekstra stor', value: 1.45 },
+  { label: 'Stor', value: 1.6 },
+  { label: 'Ekstra stor', value: 1.75 },
 ]
 
 function clamp(value: number, range: { min: number; max: number }, fallback: number): number {
@@ -142,7 +146,8 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     coverSubtitleFontSize: scaled(COVER_SUBTITLE_FONT_SIZE, font),
     cardHeaderFontSize: scaled(CARD_HEADER_FONT_SIZE, font),
     cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
-    titleZoneHeight: scaled(TITLE_ZONE_HEIGHT, font),
+    // The line the title is set on, and nothing more — see `TITLE_LINE_HEIGHT`.
+    titleZoneHeight: titleZoneHeightFor(scaled(TITLE_FONT_SIZE, font)),
   }
 }
 

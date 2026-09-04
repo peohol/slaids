@@ -27,10 +27,28 @@ export const MIN_ZONE_HEIGHT = 120
 export const MIN_SPLIT_CHILDREN = 2
 export const MAX_SPLIT_CHILDREN = 10
 
-/** Deterministic, content-independent title zone. */
-export const TITLE_ZONE_HEIGHT = 72
-export const TITLE_FONT_SIZE = 46
-export const TITLE_LINE_HEIGHT = 1.2
+/**
+ * The title zone: deterministic, content-independent, and exactly one line tall.
+ *
+ * The height is not a number of its own — it is the line the title is set on.
+ * A zone taller than that would put slack above and below the text that is not
+ * a distance anybody chose: the slide would read as having two different gaps
+ * over the title and one everywhere else. Deriving it from the type also keeps
+ * "bigger text never lands in a box built for smaller text" true by
+ * construction rather than by two constants being kept in step.
+ *
+ * What is left between the glyphs and the edge of the box is the font's own
+ * half-leading — a few pixels, and a property of the typeface rather than a
+ * spacing decision. The line height is set just above the tallest ascent plus
+ * descent among the catalogue's fonts, so an accent or a descender is never
+ * clipped.
+ */
+export const TITLE_FONT_SIZE = 40
+export const TITLE_LINE_HEIGHT = 1.15
+
+export function titleZoneHeightFor(fontSize: number): number {
+  return Math.round(fontSize * TITLE_LINE_HEIGHT)
+}
 
 /**
  * The colour every pill starts out as.
@@ -51,7 +69,7 @@ export const DEFAULT_PILL_COLOR = '#33475b'
  * the two keep the same shape at every font scale and the deterministic width
  * a fit check needs is a pure function of the type size.
  */
-export const COVER_SUBTITLE_FONT_SIZE = 34
+export const COVER_SUBTITLE_FONT_SIZE = 30
 export const COVER_PILL_PADDING_X_EM = 0.6
 export const COVER_PILL_PADDING_Y_EM = 0.16
 
