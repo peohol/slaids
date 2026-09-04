@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CURRENT_SCHEMA_VERSION, validateClipboardPayload, validatePresentation } from './schema'
 import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
-import { createUntitledCard } from './content'
+import { createTitledCard, createUntitledCard } from './content'
 import { docToPlainText, paragraphDoc } from './richdoc'
 import { DEFAULT_PILL_COLOR } from './constants'
 import { createLeaf, createSplit } from './layout'
@@ -296,6 +296,33 @@ describe('migrations', () => {
     // was picked keeps exactly what it was given.
     expect(headings[0].attrs).not.toHaveProperty('color')
     expect(headings[1].attrs?.color).toBe('#a64d79')
+  })
+
+  it('lets a titled card that only ever had the default header colour follow the cover again', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 8
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    root.children[0] = { ...root.children[0], content: createTitledCard('Arvet', DEFAULT_PILL_COLOR) }
+    root.children[1] = { ...root.children[1], content: createTitledCard('Valgt', '#a64d79') }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const [first, second] = migrated.children
+    if (first.kind !== 'leaf' || first.content?.kind !== 'titled-card') {
+      throw new Error('expected a titled-card leaf')
+    }
+    if (second.kind !== 'leaf' || second.content?.kind !== 'titled-card') {
+      throw new Error('expected a titled-card leaf')
+    }
+    // The one nobody chose loses its colour and takes the cover's; the one
+    // that was picked keeps exactly what it was given.
+    expect(first.content.headerColor).toBeNull()
+    expect(second.content.headerColor).toBe('#a64d79')
   })
 
   it('refuses documents from a newer schema version', () => {

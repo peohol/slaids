@@ -283,15 +283,27 @@ export function setBodyWeights(
   return setBodyLayout(presentation, input)
 }
 
-/** Colour is the one content property that cannot change how much space content needs. */
+/**
+ * Colour is the one content property that cannot change how much space
+ * content needs.
+ *
+ * `color: null` only makes sense for a titled card's header: it clears the
+ * card's own colour and goes back to reading the deck's heading pill colour,
+ * the same "standard" choice a heading's colour picker offers. A card
+ * without a title has nothing to inherit from, so `null` there is refused
+ * rather than silently kept.
+ */
 export function setCardColor(
   presentation: Presentation,
-  input: { color: string } & ZoneContentTarget,
+  input: { color: string | null } & ZoneContentTarget,
 ): Result<Presentation> {
-  const color = normalizeHex(input.color)
-  if (!color) return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
+  const color = input.color === null ? null : normalizeHex(input.color)
+  if (input.color !== null && !color) return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
   return updateZoneContent(presentation, input, (content) => {
-    if (content.kind === 'untitled-card') return ok({ ...content, backgroundColor: color })
+    if (content.kind === 'untitled-card') {
+      if (color === null) return err('INVALID_CONTENT', 'Kort uten tittel har ingen arvet farge.')
+      return ok({ ...content, backgroundColor: color })
+    }
     if (content.kind === 'titled-card') return ok({ ...content, headerColor: color })
     return err('INVALID_CONTENT', 'Beholdere har ingen bakgrunnsfarge.')
   })

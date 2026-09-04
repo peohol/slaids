@@ -98,7 +98,13 @@ export interface UntitledCardContent {
 export interface TitledCardContent {
   id: string
   kind: 'titled-card'
-  headerColor: string
+  /**
+   * `null` means the panel carries no colour of its own and takes the deck's
+   * heading pill colour instead, the same way a heading with no stored colour
+   * does. A card that *was* given a colour keeps it regardless of what the
+   * cover does later.
+   */
+  headerColor: string | null
   title: TitleDoc
   body: CardBody
 }
