@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_ZONE_RATIO, MIN_ZONE_RATIO } from './constants'
 import {
+  MAX_RANKED_QUANTIZATIONS,
   areRatiosQuantized,
   equalityKeysForDrag,
   quantizeRatios,
@@ -38,22 +39,54 @@ function everyVector(length: number): number[][] {
   return out
 }
 
-function bruteForceBest(
+function greatestCommonDivisor(a: number, b: number): number {
+  return b === 0 ? a : greatestCommonDivisor(b, a % b)
+}
+
+/** `[2, 4, 2]` and `[1, 2, 1]` are one layout; this is the name they share. */
+function layoutOf(ratios: readonly number[]): string {
+  const divisor = ratios.reduce((current, ratio) => greatestCommonDivisor(current, ratio), 0)
+  return ratios.map((ratio) => ratio / divisor).join(':')
+}
+
+/**
+ * The `count` closest legal layouts, found by looking at every one of them.
+ *
+ * Written out here in full — sort everything, then take the front — because
+ * that is the definition the implementation is supposed to meet, and it must
+ * not share a line of reasoning with it. It is the only honest way to check a
+ * ranking whose whole point is that it cannot be assembled one total at a time.
+ */
+function bruteForceRanked(
   desired: readonly number[],
+  count: number,
   accept: (ratios: readonly number[]) => boolean = () => true,
-): { ratios: number[]; loss: number } {
-  let best: { ratios: number[]; loss: number } | null = null
-  for (const ratios of everyVector(desired.length)) {
-    if (!accept(ratios)) continue
-    const loss = lossOf(desired, ratios)
-    const total = ratios.reduce((sum, ratio) => sum + ratio, 0)
-    const bestTotal = best ? best.ratios.reduce((sum, ratio) => sum + ratio, 0) : 0
-    if (!best || loss < best.loss - 1e-12 || (Math.abs(loss - best.loss) <= 1e-12 && total < bestTotal)) {
-      best = { ratios, loss }
+): number[][] {
+  const scored = everyVector(desired.length)
+    .filter(accept)
+    .map((ratios) => ({
+      ratios,
+      loss: lossOf(desired, ratios),
+      total: ratios.reduce((sum, ratio) => sum + ratio, 0),
+    }))
+  scored.sort((a, b) => {
+    if (Math.abs(a.loss - b.loss) > 1e-12) return a.loss - b.loss
+    if (a.total !== b.total) return a.total - b.total
+    for (let index = 0; index < a.ratios.length; index += 1) {
+      if (a.ratios[index] !== b.ratios[index]) return a.ratios[index] - b.ratios[index]
     }
+    return 0
+  })
+  const out: number[][] = []
+  const seen = new Set<string>()
+  for (const candidate of scored) {
+    const layout = layoutOf(candidate.ratios)
+    if (seen.has(layout)) continue
+    seen.add(layout)
+    out.push(candidate.ratios)
+    if (out.length >= count) break
   }
-  if (!best) throw new Error('no legal vector')
-  return best
+  return out
 }
 
 /** Deterministic PRNG so a failure is always reproducible. */
@@ -93,8 +126,7 @@ describe('quantizeRatios', () => {
     const desired = [0.25, 1.6, 3.14159]
     const ratios = quantizeRatios(desired)
     expect(areRatiosQuantized(ratios)).toBe(true)
-    expect(lossOf(desired, ratios)).toBeCloseTo(bruteForceBest(desired).loss, 12)
-    expect(ratios).toEqual(bruteForceBest(desired).ratios)
+    expect(ratios).toEqual(bruteForceRanked(desired, 1)[0])
   })
 
   it('handles weights below one', () => {
@@ -139,9 +171,8 @@ describe('quantizeRatios', () => {
       const length = 2 + Math.floor(random() * 3)
       const desired = Array.from({ length }, () => 0.01 + random() * 40)
       const ratios = quantizeRatios(desired)
-      const best = bruteForceBest(desired)
       expect(areRatiosQuantized(ratios)).toBe(true)
-      expect(ratios).toEqual(best.ratios)
+      expect(ratios).toEqual(bruteForceRanked(desired, 1)[0])
     }
   })
 
@@ -192,19 +223,11 @@ describe('equality groups', () => {
     const before = [2, 5, 3, 3, 3]
     const dragged = [4.1, 2.9, 3, 3, 3]
     const keys = equalityKeysForDrag(before, 0)
-    const ratios = quantizeRatios(dragged, { equalityKeys: keys })
-    // Small enough to sweep: the three tied zones move as one.
-    let best: { ratios: number[]; loss: number } | null = null
-    for (const [a, b, c] of everyVector(3)) {
-      const candidate = [a, b, c, c, c]
-      const loss = lossOf(dragged, candidate)
-      const total = candidate.reduce((sum, value) => sum + value, 0)
-      const bestTotal = best ? best.ratios.reduce((sum, value) => sum + value, 0) : 0
-      if (!best || loss < best.loss - 1e-12 || (Math.abs(loss - best.loss) <= 1e-12 && total < bestTotal)) {
-        best = { ratios: candidate, loss }
-      }
-    }
-    expect(ratios).toEqual(best?.ratios)
+    const tied = (ratios: readonly number[]): boolean =>
+      ratios[2] === ratios[3] && ratios[3] === ratios[4]
+    expect(quantizeRatios(dragged, { equalityKeys: keys })).toEqual(
+      bruteForceRanked(dragged, 1, tied)[0],
+    )
   })
 
   it('never returns a total the group sizes cannot reach', () => {
@@ -217,7 +240,7 @@ describe('equality groups', () => {
 describe('rankedRatioQuantizations', () => {
   it('lists distinct layouts, closest first', () => {
     const desired = [1, 2.4]
-    const ranked = rankedRatioQuantizations(desired, {}, 5)
+    const ranked = rankedRatioQuantizations(desired, 5)
     expect(ranked.length).toBe(5)
     for (const ratios of ranked) expect(areRatiosQuantized(ratios)).toBe(true)
     const losses = ranked.map((ratios) => lossOf(desired, ratios))
@@ -227,7 +250,7 @@ describe('rankedRatioQuantizations', () => {
   })
 
   it('never offers the same geometry twice', () => {
-    const ranked = rankedRatioQuantizations([1, 2, 1], {}, 6)
+    const ranked = rankedRatioQuantizations([1, 2, 1], 6)
     const seen = new Set(ranked.map((ratios) => proportionsOf(ratios).join(':')))
     expect(seen.size).toBe(ranked.length)
     expect(ranked[0]).toEqual([1, 2, 1])
@@ -235,6 +258,44 @@ describe('rankedRatioQuantizations', () => {
 
   it('agrees with quantizeRatios about the best one', () => {
     const desired = [0.4, 3.3, 1.1]
-    expect(rankedRatioQuantizations(desired)[0]).toEqual(quantizeRatios(desired))
+    expect(rankedRatioQuantizations(desired, 1)[0]).toEqual(quantizeRatios(desired))
+  })
+
+  it('ranks by how close a layout is, not by which total it belongs to', () => {
+    // The list used to be built from one winner per total, which looks like a
+    // ranking and is not: `9 : 4 : 2` is closer than `7 : 3 : 1`, but total 15
+    // was already spoken for, so the further layout was offered and the nearer
+    // one never was. On a fallback list that decides which drags are accepted,
+    // that is the difference between a handle that works and one that does not.
+    const desired = [19.56, 7.177, 4.147]
+    const ranked = rankedRatioQuantizations(desired, 6)
+    expect(ranked).toEqual(bruteForceRanked(desired, 6))
+    expect(ranked.map((ratios) => ratios.join(':'))).toContain('9:4:2')
+  })
+
+  it('matches an exhaustive ranking for arbitrary wishes', () => {
+    const random = makeRandom(9176)
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const length = 2 + Math.floor(random() * 2)
+      const desired = Array.from({ length }, () => 0.05 + random() * 20)
+      expect(rankedRatioQuantizations(desired, 6), desired.join(',')).toEqual(
+        bruteForceRanked(desired, 6),
+      )
+    }
+  })
+
+  it('matches an exhaustive ranking when zones are tied together', () => {
+    const random = makeRandom(3313)
+    const tied = (ratios: readonly number[]): boolean => ratios[1] === ratios[2]
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const desired = Array.from({ length: 3 }, () => 0.05 + random() * 20)
+      const ranked = rankedRatioQuantizations(desired, 5, { equalityKeys: [null, 7, 7] })
+      expect(ranked, desired.join(',')).toEqual(bruteForceRanked(desired, 5, tied))
+    }
+  })
+
+  it('never hands back more than the search is built to hold', () => {
+    expect(rankedRatioQuantizations([1, 2], 1000)).toHaveLength(MAX_RANKED_QUANTIZATIONS)
+    expect(rankedRatioQuantizations([1, 2], 0)).toHaveLength(1)
   })
 })

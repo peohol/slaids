@@ -27,6 +27,15 @@
  * of the subproblem for its own total, so the best of the winners is the global
  * best.
  *
+ * A caller that wants alternatives — the drag handle, which has to try the next
+ * one when a snap is refused — needs more than that, and the difference is not
+ * a detail. One winner per total is not a ranking: a total's *second* best can
+ * be closer than another total's best, so a list built that way offers a
+ * further layout and never offers the nearer one. The dynamic program therefore
+ * keeps the `width` cheapest ways to finish in every state, not just the
+ * cheapest, and `width` is however many the caller asked for. At `width = 1` —
+ * the ratio dialog, on every keystroke — it is exactly the search above.
+ *
  * Two rules make the answer a single answer rather than one of several:
  *
  * - Equal loss prefers the smaller total, so `1 : 2 : 1` wins over `2 : 4 : 2`.
@@ -56,6 +65,16 @@ const LOSS_EPSILON = 1e-12
 
 /** How many values a single ratio can take. */
 const VALUE_COUNT = MAX_ZONE_RATIO - MIN_ZONE_RATIO + 1
+
+/**
+ * The longest ranked list the search will build.
+ *
+ * The list is not filtered out of a bigger search — it *is* the width of the
+ * search, kept at every step of it — so the ceiling is here rather than at the
+ * call site, and it is small because every caller wants a handful of
+ * alternatives and none wants a catalogue.
+ */
+export const MAX_RANKED_QUANTIZATIONS = 16
 
 export interface RatioQuantizeOptions {
   /**
@@ -102,12 +121,11 @@ export function quantizeRatios(
   desired: readonly number[],
   options: RatioQuantizeOptions = {},
 ): number[] {
-  const ranked = rankedRatioQuantizations(desired, options, 1)
-  return ranked[0]
+  return rankedRatioQuantizations(desired, 1, options)[0]
 }
 
 /**
- * The best `limit` distinct quantisations, closest first.
+ * The `limit` closest distinct quantisations, closest first.
  *
  * A caller that can be refused — a drag handle, whose snapped result still has
  * to clear minimum zone sizes and the content-fit guard — walks this list and
@@ -115,27 +133,39 @@ export function quantizeRatios(
  * gesture because the very nearest rung happened to be a hair too small.
  * "Distinct" means distinct *layouts*: `2 : 4 : 2` is not a second chance after
  * `1 : 2 : 1`, it is the same geometry written twice.
+ *
+ * `limit` is not a slice taken off the end of the search — it is the width of
+ * the search itself, because whether a vector belongs in the answer cannot be
+ * decided one total at a time. Keeping only each total's own best looks like it
+ * ranks correctly and does not: for `19.6 : 7.2 : 4.1` the second-best layout
+ * at total 15 (`9 : 4 : 2`) is closer than the best layout at total 11
+ * (`7 : 3 : 1`), so a list built from per-total winners offers the further one
+ * and never offers the nearer. That matters precisely here, where the list is a
+ * fallback: whether a layout is accepted depends on *which* zone grew, so the
+ * one left out can be the one that would have fitted.
+ *
+ * At most `MAX_RANKED_QUANTIZATIONS`; asking for more returns that many.
  */
 export function rankedRatioQuantizations(
   desired: readonly number[],
+  limit: number,
   options: RatioQuantizeOptions = {},
-  limit = Number.POSITIVE_INFINITY,
 ): number[][] {
   const proportions = toProportions(desired)
   const groups = groupsFor(proportions, options.equalityKeys)
+  const width = Math.max(1, Math.min(Math.floor(limit), MAX_RANKED_QUANTIZATIONS))
 
   const candidates: Candidate[] = []
   const minTotal = groups.reduce((total, group) => total + group.size * MIN_ZONE_RATIO, 0)
   const maxTotal = groups.reduce((total, group) => total + group.size * MAX_ZONE_RATIO, 0)
-  // One buffer for every total, rather than one per total: the search runs on
+  // One table for every total, rather than one per total: the search runs on
   // each keystroke in the ratio dialog, and ninety-one throwaway arrays per
   // keystroke is the whole cost of it.
-  const buffer = new Float64Array((groups.length + 1) * (maxTotal + 1))
+  const table = emptyTable(groups.length, maxTotal, width)
   for (let total = minTotal; total <= maxTotal; total += 1) {
-    const ratios = bestForTotal(groups, total, buffer)
-    if (ratios) {
-      const expanded = expand(groups, ratios, proportions.length)
-      candidates.push({ ratios: expanded, total, loss: lossOf(proportions, expanded) })
+    for (const values of bestForTotal(groups, total, table)) {
+      const ratios = expand(groups, values, proportions.length)
+      candidates.push({ ratios, total, loss: lossOf(proportions, ratios) })
     }
   }
 
@@ -148,7 +178,7 @@ export function rankedRatioQuantizations(
     if (seen.has(key)) continue
     seen.add(key)
     out.push(candidate.ratios)
-    if (out.length >= limit) break
+    if (out.length >= width) break
   }
   return out
 }
@@ -249,18 +279,49 @@ function groupsFor(
 }
 
 /**
- * The best value per group for a run that sums to exactly `total`, or `null`
- * when no assignment can reach it — three zones locked together can only ever
- * add up to a multiple of three.
+ * The table the search fills in: for every (group, remaining sum) it keeps the
+ * `width` cheapest ways to finish, cheapest first.
+ *
+ * Three flat arrays rather than objects, and one allocation for the whole run
+ * rather than one per total: this runs on every keystroke in the ratio dialog.
+ * `value` is the ratio that state hands to its own group and doubles as the
+ * "no such alternative" marker when it is `0`; `next` is which of the *next*
+ * group's alternatives the rest of the run continues into, which is what makes
+ * a whole ranked list reconstructible from the front.
+ */
+interface RankedTable {
+  cost: Float64Array
+  value: Int8Array
+  next: Int8Array
+  width: number
+}
+
+function emptyTable(count: number, maxTotal: number, width: number): RankedTable {
+  const size = (count + 1) * (maxTotal + 1) * width
+  return {
+    cost: new Float64Array(size),
+    value: new Int8Array(size),
+    next: new Int8Array(size),
+    width,
+  }
+}
+
+/**
+ * The `width` best assignments whose ratios sum to exactly `total`, cheapest
+ * first — empty when the total cannot be reached at all, which happens because
+ * three zones locked together can only ever add up to a multiple of three.
  *
  * With the total fixed, every group's cost is its own business: a group of
  * `size` zones sharing the value `v` wants `v` to be `total × (its share of the
  * proportions) / size`, and a miss costs `size × (v - want)²`. The only thing
  * tying the groups together is that their values must add up to `total` again,
- * which is a bounded knapsack — solved backwards over the groups so the forward
- * walk can pick the smallest value at each step among the ones that stay
- * optimal, making the result not merely optimal but the same optimum every
- * time.
+ * which is a bounded knapsack, solved backwards over the groups.
+ *
+ * Keeping `width` alternatives per state rather than one is what makes the
+ * *ranking* trustworthy and not just the winner. Each value's own alternatives
+ * are already in order, so the merge is a pointer per value and `width` rounds
+ * of "which head is cheapest" — no sorting, and ties always go to the smaller
+ * value, which is what makes the same input give the same list every time.
  *
  * The table is the caller's, and only the region this run touches is written, so
  * a stale value from a previous total is never read: every cell is assigned
@@ -269,11 +330,13 @@ function groupsFor(
 function bestForTotal(
   groups: readonly RatioGroup[],
   total: number,
-  /** suffix[group * stride + remaining]: best cost for groups[group..] summing to `remaining`. */
-  suffix: Float64Array,
-): number[] | null {
+  table: RankedTable,
+): number[][] {
   const count = groups.length
-  const stride = total + 1
+  const width = table.width
+  const stride = (total + 1) * width
+  const slotOf = (index: number, remaining: number, rank: number): number =>
+    index * stride + remaining * width + rank
 
   // What each group's values cost at this total, worked out once instead of
   // once per (group, remaining, value).
@@ -295,51 +358,85 @@ function bestForTotal(
     reach[index] = reach[index + 1] + groups[index].size
   }
 
-  suffix[count * stride] = 0
+  // Past the last group there is exactly one way to have nothing left: stop.
+  for (let rank = 0; rank < width; rank += 1) {
+    const slot = slotOf(count, 0, rank)
+    table.cost[slot] = rank === 0 ? 0 : Number.POSITIVE_INFINITY
+    table.value[slot] = 0
+    table.next[slot] = 0
+  }
+
+  const taken = new Int32Array(VALUE_COUNT)
   for (let index = count - 1; index >= 0; index -= 1) {
     const group = groups[index]
+    const size = group.size
     const low = reach[index] * MIN_ZONE_RATIO
     const high = Math.min(total, reach[index] * MAX_ZONE_RATIO)
+    const restLow = reach[index + 1] * MIN_ZONE_RATIO
+    const restHigh = reach[index + 1] * MAX_ZONE_RATIO
+    // The index arithmetic is hoisted rather than called: this is the loop the
+    // whole search spends its time in.
+    const base = index * stride
+    const nextBase = base + stride
+    const costBase = index * VALUE_COUNT
     for (let remaining = low; remaining <= high; remaining += 1) {
-      let best = Number.POSITIVE_INFINITY
-      for (let value = MIN_ZONE_RATIO; value <= MAX_ZONE_RATIO; value += 1) {
-        const rest = remaining - group.size * value
-        if (rest < 0) break
-        if (rest < reach[index + 1] * MIN_ZONE_RATIO) break
-        if (rest > reach[index + 1] * MAX_ZONE_RATIO) continue
-        const candidate =
-          costs[index * VALUE_COUNT + (value - MIN_ZONE_RATIO)] +
-          suffix[(index + 1) * stride + rest]
-        if (candidate < best) best = candidate
+      taken.fill(0)
+      const stateBase = base + remaining * width
+      for (let rank = 0; rank < width; rank += 1) {
+        let bestCost = Number.POSITIVE_INFINITY
+        let bestValue = 0
+        let bestNext = 0
+        for (let value = MIN_ZONE_RATIO; value <= MAX_ZONE_RATIO; value += 1) {
+          const rest = remaining - size * value
+          if (rest < restLow) break
+          if (rest > restHigh) continue
+          const nextRank = taken[value - MIN_ZONE_RATIO]
+          if (nextRank >= width) continue
+          const rested = table.cost[nextBase + rest * width + nextRank]
+          if (!Number.isFinite(rested)) continue
+          const candidate = costs[costBase + (value - MIN_ZONE_RATIO)] + rested
+          if (candidate < bestCost) {
+            bestCost = candidate
+            bestValue = value
+            bestNext = nextRank
+          }
+        }
+        const slot = stateBase + rank
+        table.cost[slot] = bestCost
+        table.value[slot] = bestValue
+        table.next[slot] = bestNext
+        if (bestValue === 0) {
+          // This state has run out of ways to finish; the rest of its slots say
+          // so, because a later run at another total will read them.
+          for (let empty = rank + 1; empty < width; empty += 1) {
+            table.cost[stateBase + empty] = Number.POSITIVE_INFINITY
+            table.value[stateBase + empty] = 0
+            table.next[stateBase + empty] = 0
+          }
+          break
+        }
+        taken[bestValue - MIN_ZONE_RATIO] += 1
       }
-      suffix[index * stride + remaining] = best
     }
   }
 
-  if (total < reach[0] * MIN_ZONE_RATIO || total > reach[0] * MAX_ZONE_RATIO) return null
-  const optimum = suffix[total]
-  if (!Number.isFinite(optimum)) return null
+  if (total < reach[0] * MIN_ZONE_RATIO || total > reach[0] * MAX_ZONE_RATIO) return []
 
-  const values = new Array<number>(count)
-  let remaining = total
-  for (let index = 0; index < count; index += 1) {
-    const group = groups[index]
-    const target = suffix[index * stride + remaining]
-    for (let value = MIN_ZONE_RATIO; value <= MAX_ZONE_RATIO; value += 1) {
-      const rest = remaining - group.size * value
-      if (rest < 0) break
-      if (rest < reach[index + 1] * MIN_ZONE_RATIO) break
-      if (rest > reach[index + 1] * MAX_ZONE_RATIO) continue
-      const candidate =
-        costs[index * VALUE_COUNT + (value - MIN_ZONE_RATIO)] + suffix[(index + 1) * stride + rest]
-      if (candidate <= target + LOSS_EPSILON) {
-        values[index] = value
-        remaining = rest
-        break
-      }
+  const out: number[][] = []
+  for (let rank = 0; rank < width; rank += 1) {
+    if (!Number.isFinite(table.cost[slotOf(0, total, rank)])) break
+    const values = new Array<number>(count)
+    let remaining = total
+    let cursor = rank
+    for (let index = 0; index < count; index += 1) {
+      const slot = slotOf(index, remaining, cursor)
+      values[index] = table.value[slot]
+      cursor = table.next[slot]
+      remaining -= groups[index].size * values[index]
     }
+    out.push(values)
   }
-  return values
+  return out
 }
 
 /** Group values back out to one ratio per zone. */

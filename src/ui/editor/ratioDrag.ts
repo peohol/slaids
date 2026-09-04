@@ -74,11 +74,9 @@ export function commitDraggedRatios(
   released: readonly number[],
   attempt: (weights: number[]) => Result<StructuralOutcome>,
 ): Result<StructuralOutcome> {
-  const candidates = rankedRatioQuantizations(
-    released,
-    { equalityKeys: equalityKeysForDrag(before, boundary) },
-    RATIO_SNAP_CANDIDATES,
-  )
+  const candidates = rankedRatioQuantizations(released, RATIO_SNAP_CANDIDATES, {
+    equalityKeys: equalityKeysForDrag(before, boundary),
+  })
   const nearest = attempt(candidates[0])
   if (nearest.ok) return nearest
   for (let index = 1; index < candidates.length; index += 1) {
