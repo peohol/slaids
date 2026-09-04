@@ -181,20 +181,15 @@ test.describe('zone editing', () => {
     await enterZoneMode(page)
     await clickZone(page, zones[0])
 
-    // The already-active type is a no-op, not a reset.
-    await page.getByTestId('container-payload-richdoc').click()
-    await expect(page.getByTestId('confirm-dialog')).toBeHidden()
-    await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
-
-    // Filling the zone with a picture instead is a real replacement, and the
-    // text it displaces lands in the sandbox rather than being thrown away.
+    // Filling the zone with a picture is a real replacement, and the text it
+    // displaces lands in the sandbox rather than being thrown away.
     await page.getByTestId('inspector-action-image').click()
     await page.getByTestId('image-input').setInputFiles({
       name: 'figur.svg',
       mimeType: 'image/svg+xml',
       buffer: Buffer.from(SVG),
     })
-    await expect(stage(page).locator('img.asset-image')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
     await expect(stage(page)).not.toContainText('Tekst som ikke skal forsvinne')
     await page.getByTestId('open-sandbox').click()
     await expect(

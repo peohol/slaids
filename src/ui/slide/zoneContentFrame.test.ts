@@ -1,13 +1,13 @@
 /**
  * Vertical alignment, as CSS.
  *
- * One stored value drives two very different boxes — a field of flowing text
- * and a zone filled edge to edge by a picture — so the mapping is worth
- * pinning down on its own.
+ * One stored value drives how a field of flowing text sits inside the room it
+ * was given, and the mapping is worth pinning down on its own — a picture has
+ * no flow to align and answers the question with a crop instead.
  */
 
 import { describe, expect, it } from 'vitest'
-import { assetAlign, flowAlign } from './ZoneContentFrame'
+import { flowAlign } from './ZoneContentFrame'
 
 describe('flowAlign', () => {
   it('defaults to the top of the field', () => {
@@ -25,20 +25,5 @@ describe('flowAlign', () => {
     }
     expect(flowAlign('middle')).toBe('safe center')
     expect(flowAlign('bottom')).toBe('safe end')
-  })
-})
-
-describe('assetAlign', () => {
-  it('leaves an unaligned picture where object-position puts it', () => {
-    // A picture has no flow to begin at the top of, so it stays centred in the
-    // box it fills until someone chooses otherwise. `undefined` is what lets
-    // the stylesheet's own default stand.
-    expect(assetAlign(undefined)).toBeUndefined()
-  })
-
-  it('places a picture that was aligned', () => {
-    expect(assetAlign('top')).toBe('top')
-    expect(assetAlign('middle')).toBe('center')
-    expect(assetAlign('bottom')).toBe('bottom')
   })
 })

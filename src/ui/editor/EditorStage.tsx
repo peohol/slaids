@@ -73,6 +73,8 @@ export interface EditorStageProps {
   slide: Slide
   actions: ZoneAction[]
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
+  /** Opens the upload dialog for a picture zone that has no file yet. */
+  onPickImage: (nodeId: NodeId) => void
   /** Zones that can accept the item currently being dragged, decided at drag start. */
   dropTargets: ReadonlySet<NodeId>
 }
@@ -92,7 +94,13 @@ function titleOverflow(host: HTMLElement | null): number {
   return boxes.reduce((worst, box) => Math.max(worst, box.scrollWidth - box.clientWidth), 0)
 }
 
-export function EditorStage({ slide, actions, onAddContent, dropTargets }: EditorStageProps) {
+export function EditorStage({
+  slide,
+  actions,
+  onAddContent,
+  onPickImage,
+  dropTargets,
+}: EditorStageProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
   const titleHostRef = useRef<HTMLDivElement>(null)
@@ -362,7 +370,12 @@ export function EditorStage({ slide, actions, onAddContent, dropTargets }: Edito
                 ) : mode === 'zone' ? (
                   <ZoneContentView content={leaf.content} />
                 ) : (
-                  <EditableZoneContent content={leaf.content} nodeId={leaf.id} slideId={slide.id} />
+                  <EditableZoneContent
+                    content={leaf.content}
+                    nodeId={leaf.id}
+                    slideId={slide.id}
+                    onPickImage={onPickImage}
+                  />
                 )}
               </ZoneDropZone>
             )}

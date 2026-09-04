@@ -1,0 +1,209 @@
+/**
+ * Pictures as a content type of their own.
+ *
+ * A picture in a zone fills it edge to edge and is cropped, never letterboxed,
+ * so the two things worth checking in a browser are the crop itself — which is
+ * the layout engine's, not ours — and the caption, whose shape depends on which
+ * edge it hangs from.
+ */
+
+import type { Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import { createPresentation, stage, waitForSaved, watchForErrors, zoneRects } from './helpers'
+
+/**
+ * A file far wider than any zone, so `cover` has to hide something. The bands
+ * make which part is on screen visible to a human reading a failure screenshot.
+ */
+const WIDE_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200">` +
+  `<rect width="200" height="200" fill="#c04040"/>` +
+  `<rect x="200" width="200" height="200" fill="#40a060"/>` +
+  `<rect x="400" width="200" height="200" fill="#4070d0"/>` +
+  `<rect x="600" width="200" height="200" fill="#d0b040"/>` +
+  `</svg>`
+
+/** The picture panel on the stage. Thumbnails draw the same markup. */
+function panel(page: Page) {
+  return stage(page).locator('.image-panel')
+}
+
+async function fillZoneWithPicture(page: Page): Promise<void> {
+  await page.getByTestId('empty-zone-image').click()
+  await expect(panel(page)).toBeVisible()
+  // A panel with no file yet is a click away from the upload dialog.
+  await panel(page).click()
+  await expect(page.getByTestId('image-modal')).toBeVisible()
+  await page.getByTestId('image-input').setInputFiles({
+    name: 'bånd.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(WIDE_SVG),
+  })
+  await expect(page.getByTestId('image-modal')).toBeHidden()
+  await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+}
+
+test.describe('pictures', () => {
+  test('offers a picture as a content type and fills the zone with it', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Bilde i sone')
+
+    await expect(page.getByTestId('empty-zone-image')).toBeVisible()
+    await expect(page.getByTestId('empty-zone-titled-image-card')).toBeVisible()
+    await fillZoneWithPicture(page)
+
+    const zones = await zoneRects(page)
+    const drawn = await page.evaluate(() => {
+      const element = document.querySelector(
+        '[data-testid="stage-slide"] .image-panel',
+      ) as HTMLElement
+      const image = element.querySelector('.image-panel__img') as HTMLElement
+      const style = getComputedStyle(image)
+      return {
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+        objectFit: style.objectFit,
+        objectPosition: style.objectPosition,
+        radius: getComputedStyle(element).borderTopLeftRadius,
+        shadow: getComputedStyle(element).boxShadow,
+        cropped: element.hasAttribute('data-image-cropped'),
+      }
+    })
+
+    // Edge to edge: the picture is the zone, not a figure inside it.
+    expect(Math.round(drawn.width)).toBe(Math.round(zones[0].w))
+    expect(Math.round(drawn.height)).toBe(Math.round(zones[0].h))
+    // Cropped rather than letterboxed, and centred until somebody drags it.
+    expect(drawn.objectFit).toBe('cover')
+    expect(drawn.objectPosition).toBe('50% 50%')
+    expect(drawn.cropped).toBe(true)
+    // A card filled to the brim with picture: rounded, and it casts a shadow.
+    expect(drawn.radius).not.toBe('0px')
+    expect(drawn.shadow).not.toBe('none')
+    expect(guard.errors).toEqual([])
+  })
+
+  test('drags the crop, and snaps back to the middle', async ({ page }) => {
+    await createPresentation(page, 'Utsnitt')
+    await fillZoneWithPicture(page)
+
+    const position = async (): Promise<string> =>
+      page.evaluate(
+        () =>
+          getComputedStyle(
+            document.querySelector('[data-testid="stage-slide"] .image-panel__img') as HTMLElement,
+          ).objectPosition,
+      )
+
+    const box = await panel(page).boundingBox()
+    if (!box) throw new Error('fant ikke bildepanelet')
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+
+    await page.mouse.move(centre.x, centre.y)
+    // Hovering a cropped picture shows what the frame is hiding.
+    await expect(stage(page).locator('.image-panel__ghost')).toHaveCSS('opacity', '0.32')
+
+    await page.mouse.down()
+    await page.mouse.move(centre.x - 220, centre.y, { steps: 10 })
+    await page.mouse.up()
+    await expect.poll(position).not.toBe('50% 50%')
+
+    // Nudged back towards the middle, it lands exactly on it.
+    await page.mouse.move(centre.x, centre.y)
+    await page.mouse.down()
+    await page.mouse.move(centre.x + 219, centre.y, { steps: 10 })
+    await page.mouse.up()
+    await expect.poll(position).toBe('50% 50%')
+  })
+
+  test('hangs a caption from the top, the middle or the floor', async ({ page }) => {
+    await createPresentation(page, 'Bildetekst')
+    await fillZoneWithPicture(page)
+
+    await page.getByTestId('caption-position-bottom').click()
+    // A new caption takes the caret, so there is nothing to click before typing.
+    await page.keyboard.type('Fire bånd')
+    await expect(stage(page).locator('.image-caption')).toContainText('Fire bånd')
+
+    const shape = async (): Promise<{ radius: string; top: number; bottom: number }> =>
+      page.evaluate(() => {
+        const caption = document.querySelector(
+          '[data-testid="stage-slide"] .image-caption',
+        ) as HTMLElement
+        const layer = caption.parentElement as HTMLElement
+        const a = caption.getBoundingClientRect()
+        const b = layer.getBoundingClientRect()
+        return {
+          radius: getComputedStyle(caption).borderRadius,
+          top: Math.round(a.top - b.top),
+          bottom: Math.round(b.bottom - a.bottom),
+        }
+      })
+
+    // On the floor: flush with the bottom edge, only the top corners rounded.
+    let laid = await shape()
+    expect(laid.bottom).toBe(0)
+    expect(laid.top).toBeGreaterThan(0)
+    expect(laid.radius).toMatch(/^\d+px \d+px 0px 0px$/)
+
+    await page.getByTestId('caption-position-top').click()
+    laid = await shape()
+    expect(laid.top).toBe(0)
+    expect(laid.radius).toMatch(/^0px 0px \d+px \d+px$/)
+
+    await page.getByTestId('caption-position-middle').click()
+    laid = await shape()
+    expect(laid.top).toBeGreaterThan(0)
+    expect(laid.bottom).toBeGreaterThan(0)
+    expect(laid.radius).toMatch(/^\d+px$/)
+
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(stage(page).locator('.image-caption')).toContainText('Fire bånd')
+  })
+
+  test('throws away a caption that is left empty', async ({ page }) => {
+    await createPresentation(page, 'Tom bildetekst')
+    await fillZoneWithPicture(page)
+
+    await page.getByTestId('caption-position-bottom').click()
+    await expect(stage(page).locator('.image-caption')).toBeVisible()
+
+    // Nothing typed, and the caret goes elsewhere: there is no such thing as an
+    // empty caption, only a box drawn over a picture for no reason.
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await expect(stage(page).locator('.image-caption')).toHaveCount(0)
+  })
+
+  test('puts a title panel over a picture, with the caption below it', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Kort med bilde')
+    await page.getByTestId('empty-zone-titled-image-card').click()
+    await expect(stage(page).locator('.card-header')).toBeVisible()
+
+    await stage(page).locator('.card-header .tiptap').click()
+    await page.keyboard.type('Med tittel')
+    await expect(stage(page).locator('.card-header')).toContainText('Med tittel')
+
+    // The header is already along the top edge, so the ceiling is not on offer.
+    await expect(page.getByTestId('caption-position-top')).toHaveCount(0)
+    await expect(page.getByTestId('caption-position-middle')).toBeVisible()
+    await expect(page.getByTestId('caption-position-bottom')).toBeVisible()
+
+    // The picture fills the body completely: no padding, no white beneath it.
+    const gaps = await page.evaluate(() => {
+      const body = document.querySelector(
+        '[data-testid="stage-slide"] .card-body--image',
+      ) as HTMLElement
+      const image = body.querySelector('.image-panel') as HTMLElement
+      const a = body.getBoundingClientRect()
+      const b = image.getBoundingClientRect()
+      return { left: b.left - a.left, top: b.top - a.top, width: a.width - b.width }
+    })
+    expect(Math.round(gaps.left)).toBe(0)
+    expect(Math.round(gaps.top)).toBe(0)
+    expect(Math.round(gaps.width)).toBe(0)
+    expect(guard.errors).toEqual([])
+  })
+})

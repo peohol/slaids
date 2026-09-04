@@ -14,8 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
 import {
   containerWithDoc,
-  createCardBody,
-  createContainer,
+  createImage,
   createUntitledCard,
 } from '../content'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
@@ -23,19 +22,12 @@ import { DEFAULT_SPACING, FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import { findPresentationIssues } from '../validation'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
-import type { CardBody, ContainerPayload, Presentation, RichDoc, ZoneContent } from '../types'
-
-/** A container payload holding one field with this document. */
-function fieldsPayload(doc: RichDoc): ContainerPayload {
-  const body = createCardBody(1)
-  return { type: 'fields', body: { ...body, subfields: [{ ...body.subfields[0], doc }] } }
-}
+import type { CardBody, Presentation, RichDoc, ZoneContent } from '../types'
 import {
   setBodyAxis,
   setBodyLayout,
   setBodyWeights,
   setCardColor,
-  setContainerPayload,
   setContentKind,
   setSlideTitle,
   setSubfieldCount,
@@ -358,26 +350,14 @@ describe('setContentKind', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('refuses a container payload that no longer fits', () => {
-    const presentation = deckWith(
-      createContainer({ type: 'asset', assetId: 'asset-1', fit: 'contain' }),
-    )
-    // An inline image is as tall as the zone is wide; the zone is far wider
-    // than it is tall, so the same picture stops fitting once it is inline.
+  it('refuses turning a picture into text it has no room for', () => {
+    // A picture filling a zone is cropped to it and can never overflow; the
+    // same file *inline* is as tall as the zone is wide, and the zone is far
+    // wider than it is tall. So the conversion is where it stops fitting.
+    const presentation = deckWith(createImage('asset-1'))
     expectRefused(
-      setContainerPayload(presentation, {
-        ...target(presentation),
-        payload: fieldsPayload({ type: 'doc', content: [imageNode('asset-1')] }),
-        ...checkers,
-      }),
+      setContentKind(presentation, { ...target(presentation), kind: 'container', ...checkers }),
     )
-    expect(
-      setContainerPayload(presentation, {
-        ...target(presentation),
-        payload: fieldsPayload(paragraphDoc(words(200))),
-        ...checkers,
-      }).ok,
-    ).toBe(true)
   })
 })
 

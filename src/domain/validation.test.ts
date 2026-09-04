@@ -44,10 +44,7 @@ function withContainer(presentation: Presentation, doc: RichDoc): Presentation {
           content: {
             id: 'c1',
             kind: 'container',
-            payload: {
-              type: 'fields',
-              body: { axis: 'y', weights: [1], subfields: [{ id: 'f1', doc }] },
-            },
+            body: { axis: 'y', weights: [1], subfields: [{ id: 'f1', doc }] },
           },
         },
       },
@@ -205,8 +202,8 @@ describe('referanser og filer', () => {
             kind: 'leaf',
             content: {
               id: 'c1',
-              kind: 'container',
-              payload: { type: 'asset', assetId: 'a_borte', fit: 'contain' },
+              kind: 'image',
+              image: { assetId: 'a_borte', focus: { x: 0.5, y: 0.5 }, caption: null },
             },
           },
         },
@@ -234,10 +231,7 @@ describe('referanser og filer', () => {
           content: {
             id: 'c1',
             kind: 'container',
-            payload: {
-              type: 'fields',
-              body: { axis: 'y', weights: [1], subfields: [{ id: 'f1', doc: citingDoc }] },
-            },
+            body: { axis: 'y', weights: [1], subfields: [{ id: 'f1', doc: citingDoc }] },
           },
         },
       ],

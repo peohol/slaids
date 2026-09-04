@@ -17,10 +17,23 @@ import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
 
 /**
- * `cover` is a title with the alignment and the citations taken out — see
- * `titleExtensions`. It lays out identically, so it shares the title's markup.
+ * The four kinds of field, and what separates them.
+ *
+ * `title` is one line of plain text that never wraps. `cover` is a title with
+ * the alignment and the citations taken out — see `titleExtensions` — and lays
+ * out identically, so it shares the title's markup. `caption` is the same
+ * restricted schema again, but it *does* wrap: a caption grows sideways until
+ * it nears the walls of the picture and then takes another line, which is the
+ * one thing a title may never do.
  */
-export type EditorVariant = 'body' | 'title' | 'cover'
+export type EditorVariant = 'body' | 'title' | 'cover' | 'caption'
+
+const FIELD_CLASS: Record<EditorVariant, string> = {
+  body: 'rich-doc tiptap',
+  title: 'rich-doc rich-doc--title tiptap',
+  cover: 'rich-doc rich-doc--title tiptap',
+  caption: 'rich-doc rich-doc--caption tiptap',
+}
 
 export interface RichTextEditorProps {
   doc: RichDoc
@@ -31,6 +44,8 @@ export interface RichTextEditorProps {
   className?: string
   autoFocus?: boolean
   onFocus?: () => void
+  /** Used by the caption, which deletes itself when it is left empty. */
+  onBlur?: () => void
   onEditorReady?: (editor: Editor | null) => void
   /**
    * Returns how much the surrounding zone currently overflows, in logical
@@ -55,6 +70,7 @@ export function RichTextEditor({
   className,
   autoFocus,
   onFocus,
+  onBlur,
   onEditorReady,
   measureOverflow,
   overflowMessage = 'Innholdet får ikke plass i sonen.',
@@ -210,9 +226,7 @@ export function RichTextEditor({
       editable,
       autofocus: autoFocus ? 'end' : false,
       editorProps: {
-        attributes: {
-          class: variant === 'body' ? 'rich-doc tiptap' : 'rich-doc rich-doc--title tiptap',
-        },
+        attributes: { class: FIELD_CLASS[variant] },
         transformPastedHTML: normalizePastedHtml,
         handleKeyDown: (_view, event) => {
           if (variant !== 'body' && event.key === 'Enter') {
@@ -232,6 +246,7 @@ export function RichTextEditor({
         scheduleValidate(instance)
       },
       onFocus: () => onFocus?.(),
+      onBlur: () => onBlur?.(),
     },
     [variant, placeholder],
   )

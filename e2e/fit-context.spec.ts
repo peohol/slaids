@@ -479,10 +479,10 @@ test.describe('citation numbering and fit', () => {
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
     await expect(stage(page).locator('.rd-citation')).toHaveText('2')
 
-    // Drag slide 2 above slide 1, by its grip.
+    // Drag slide 2 above slide 1, by its grip — the handle that drags on the
+    // first millimetre of movement, unlike the thumbnail, which asks to be held.
     const items = page.getByTestId('filmstrip-item')
-    const grip = items.nth(1).getByRole('button', { name: 'Flytt slide' })
-    const from = await grip.boundingBox()
+    const from = await items.nth(1).locator('.filmstrip__grip').boundingBox()
     const to = await items.nth(0).boundingBox()
     if (!from || !to) throw new Error('missing filmstrip geometry')
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)

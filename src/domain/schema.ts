@@ -12,7 +12,7 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from './constants'
 import { validateTree } from './layout'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 9
+export const CURRENT_SCHEMA_VERSION = 10
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -55,21 +55,32 @@ export const cardBodySchema = z
     message: 'Antall vekter må matche antall subfelt',
   })
 
-export const containerPayloadSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('fields'), body: cardBodySchema }),
-  z.object({
-    type: z.literal('asset'),
-    assetId: z.string().min(1),
-    fit: z.enum(['contain', 'cover']),
+export const captionPositionSchema = z.enum(['top', 'middle', 'bottom'])
+
+export const imageCaptionSchema = z.object({
+  doc: richDocSchema,
+  position: captionPositionSchema,
+  color: hexColor.nullable(),
+})
+
+/**
+ * The crop is a *view* onto the file, so both coordinates are bounded: a focus
+ * outside 0..1 would frame a part of the picture that does not exist.
+ */
+export const imagePanelSchema = z.object({
+  assetId: z.string().min(1).nullable(),
+  focus: z.object({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
   }),
-])
+  caption: imageCaptionSchema.nullable(),
+})
 
 export const zoneContentSchema = z.discriminatedUnion('kind', [
   z.object({
     id: z.string().min(1),
     kind: z.literal('container'),
-    payload: containerPayloadSchema,
-    verticalAlign: verticalAlignSchema.optional(),
+    body: cardBodySchema,
   }),
   z.object({
     id: z.string().min(1),
@@ -83,6 +94,18 @@ export const zoneContentSchema = z.discriminatedUnion('kind', [
     headerColor: hexColor.nullable(),
     title: richDocSchema,
     body: cardBodySchema,
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal('image'),
+    image: imagePanelSchema,
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal('titled-image-card'),
+    headerColor: hexColor.nullable(),
+    title: richDocSchema,
+    image: imagePanelSchema,
   }),
 ])
 

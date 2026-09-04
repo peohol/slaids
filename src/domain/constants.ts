@@ -95,6 +95,39 @@ export const CARD_HEADER_FONT_SIZE = 26
 export const CARD_SHADOW = '0 5px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.20)'
 
 /**
+ * The caption over a picture.
+ *
+ * A caption is chrome on a photograph rather than a paragraph on a slide, so it
+ * is set a step below the body text and padded in its own type — that is what
+ * keeps the box the same shape at every font scale. `SIDE_GAP` is the air
+ * between the box and the walls of the picture: without it the caption would
+ * meet the frame, and a caption that touches the edge reads as a band across
+ * the picture rather than as a label on it.
+ *
+ * The tint is deliberately weak and the blur deliberately small: the point is
+ * that the picture stays visible through the caption. Text is white with the
+ * standard shadow whatever the tint, because 30 % of a colour over an unknown
+ * photograph is not a background anything can be contrasted against.
+ */
+export const CAPTION_FONT_SIZE = 19
+export const CAPTION_PADDING_X_EM = 0.8
+export const CAPTION_PADDING_Y_EM = 0.32
+export const CAPTION_SIDE_GAP = 12
+export const CAPTION_RADIUS = 12
+export const CAPTION_TINT_OPACITY = 0.3
+export const CAPTION_BLUR_PX = 3
+
+/**
+ * How close to the middle a crop has to be dragged before it snaps there.
+ *
+ * In logical pixels of the picture's own overflow, so the pull feels the same
+ * whether the hidden part is a sliver or half the file. Centred is the crop a
+ * picture starts at and the one it is hardest to find again by hand, so it is
+ * the one position that is given a magnet.
+ */
+export const IMAGE_FOCUS_SNAP_PX = 10
+
+/**
  * Dividers between subfields inside a card.
  *
  * Deliberately independent of the card's header colour: a divider is structure,

@@ -7,19 +7,28 @@
 
 import {
   bodyOf,
+  CENTRED_FOCUS,
+  captionPositionsFor,
+  contentDocs,
+  createCaption,
   createCardBody,
   createContainer,
+  createImage,
   createTitledCard,
+  createTitledImageCard,
   createUntitledCard,
+  hasCardTitle,
+  hasImagePanel,
+  imagePanelOf,
   withBody,
   withBodyAxis,
+  withImagePanel,
   withSubfieldCount,
   withSubfieldDoc,
 } from '../content'
-import { imageNode } from '../richdoc'
 import { areWeightsValid } from '../geometry'
 import { findLeaf, findNode, replaceNode } from '../layout'
-import { emptyDoc, isDocEmpty } from '../richdoc'
+import { collectDocAssetIds, docToPlainText, emptyDoc, imageNode, isDocEmpty, titleDoc } from '../richdoc'
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
@@ -27,9 +36,10 @@ import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
 import type {
   Axis,
+  CaptionPosition,
   CardBody,
-  ContainerContent,
-  ContainerPayload,
+  ImageCaption,
+  ImagePanel,
   Presentation,
   RichDoc,
   RichNode,
@@ -97,23 +107,6 @@ export function setSubfieldDoc(
   })
 }
 
-export function setContainerPayload(
-  presentation: Presentation,
-  input: { payload: ContainerPayload } & ZoneContentTarget,
-): Result<Presentation> {
-  return updateZoneContent(
-    presentation,
-    input,
-    (content) => {
-      if (content.kind !== 'container') {
-        return err('INVALID_CONTENT', 'Sonen inneholder ikke en beholder.')
-      }
-      return ok({ ...content, payload: input.payload })
-    },
-    'Det nye innholdet får ikke plass i sonen.',
-  )
-}
-
 export function setCardTitle(
   presentation: Presentation,
   input: { doc: RichDoc } & ZoneContentTarget,
@@ -122,12 +115,130 @@ export function setCardTitle(
     presentation,
     input,
     (content) => {
-      if (content.kind !== 'titled-card') {
+      if (!hasCardTitle(content)) {
         return err('INVALID_CONTENT', 'Innholdet har ingen tittel.')
       }
       return ok({ ...content, title: input.doc })
     },
     'Korttittelen får ikke plass i kortet.',
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Pictures
+ * ------------------------------------------------------------------ */
+
+/** Everything a picture command needs, whichever kind holds the panel. */
+function updateImagePanel(
+  presentation: Presentation,
+  target: ZoneContentTarget,
+  updater: (panel: ImagePanel) => Result<ImagePanel>,
+  fitMessage?: string,
+): Result<Presentation> {
+  return updateZoneContent(
+    presentation,
+    target,
+    (content) => {
+      const panel = imagePanelOf(content)
+      if (!panel) return err('INVALID_CONTENT', 'Sonen viser ikke et bilde.')
+      const next = updater(panel)
+      if (!next.ok) return next
+      return ok(next.value === panel ? content : withImagePanel(content, next.value))
+    },
+    fitMessage ?? 'Innholdet får ikke plass i sonen etter endringen.',
+  )
+}
+
+/** Point a picture panel at a file, or clear it. Never changes the crop. */
+export function setImageAsset(
+  presentation: Presentation,
+  input: { assetId: string | null } & ZoneContentTarget,
+): Result<Presentation> {
+  if (input.assetId !== null && !presentation.assets.some((a) => a.id === input.assetId)) {
+    return err('ASSET_NOT_FOUND', 'Presentasjonen har ingen fil med den id-en.')
+  }
+  return updateImagePanel(presentation, input, (panel) =>
+    ok(panel.assetId === input.assetId ? panel : { ...panel, assetId: input.assetId }),
+  )
+}
+
+/**
+ * Move the crop.
+ *
+ * The frame is fixed and the picture slides behind it, so nothing here can make
+ * content overflow — but it goes through a command like everything else, so a
+ * headless caller has the same vocabulary the drag handle does. Both
+ * coordinates are clamped rather than refused: a drag that runs past the edge
+ * of the picture means «all the way», not «invalid».
+ */
+export function setImageFocus(
+  presentation: Presentation,
+  input: { focus: { x: number; y: number } } & ZoneContentTarget,
+): Result<Presentation> {
+  const x = clampFocus(input.focus.x)
+  const y = clampFocus(input.focus.y)
+  if (x === null || y === null) return err('INVALID_ARGUMENT', 'Utsnittet må være tall.')
+  return updateImagePanel(presentation, input, (panel) =>
+    ok(panel.focus.x === x && panel.focus.y === y ? panel : { ...panel, focus: { x, y } }),
+  )
+}
+
+function clampFocus(value: number): number | null {
+  if (!Number.isFinite(value)) return null
+  return Math.min(1, Math.max(0, value))
+}
+
+/**
+ * Add, move, recolour or remove the caption over a picture.
+ *
+ * `caption: null` removes it, which is also what an empty caption becomes:
+ * there is no such thing as an empty caption, only a box drawn over a
+ * photograph for no reason.
+ */
+export function setImageCaption(
+  presentation: Presentation,
+  input: {
+    position?: CaptionPosition
+    doc?: RichDoc
+    color?: string | null
+    remove?: boolean
+  } & ZoneContentTarget,
+): Result<Presentation> {
+  return updateZoneContent(
+    presentation,
+    input,
+    (content) => {
+      if (!hasImagePanel(content)) return err('INVALID_CONTENT', 'Sonen viser ikke et bilde.')
+      const panel = content.image
+      if (input.remove) {
+        return ok(panel.caption ? withImagePanel(content, { ...panel, caption: null }) : content)
+      }
+
+      const allowed = captionPositionsFor(content.kind)
+      const position = input.position ?? panel.caption?.position ?? allowed[allowed.length - 1]
+      if (!allowed.includes(position)) {
+        return err('INVALID_ARGUMENT', 'Bildeteksten kan ikke stå der på denne innholdstypen.', {
+          allowed: [...allowed],
+        })
+      }
+
+      let color = panel.caption?.color ?? null
+      if (input.color !== undefined) {
+        color = input.color === null ? null : normalizeHex(input.color)
+        if (input.color !== null && color === null) {
+          return err('INVALID_ARGUMENT', 'Ugyldig fargeverdi.')
+        }
+      }
+
+      const caption = {
+        ...(panel.caption ?? createCaption(position)),
+        ...(input.doc ? { doc: input.doc } : {}),
+        position,
+        color,
+      }
+      return ok(withImagePanel(content, { ...panel, caption }))
+    },
+    'Bildeteksten får ikke plass i bildet.',
   )
 }
 
@@ -241,22 +352,17 @@ export function setSubfieldCount(
  * make it stop fitting — but it goes through a command like everything else so
  * a headless caller has the same vocabulary as the toolbar.
  *
- * `subfieldId: null` targets a container's own field.
+ * Always a subfield: a picture has no flow to align, it fills the frame it was
+ * given, and where it sits inside itself is the crop's business.
  */
 export function setVerticalAlign(
   presentation: Presentation,
-  input: { subfieldId: string | null; align: VerticalAlign } & ZoneContentTarget,
+  input: { subfieldId: string; align: VerticalAlign } & ZoneContentTarget,
 ): Result<Presentation> {
   return updateZoneContent(
     presentation,
     input,
     (content) => {
-      if (input.subfieldId === null) {
-        if (content.kind !== 'container') {
-          return err('INVALID_CONTENT', 'Sonen har ingen beholder å justere.')
-        }
-        return ok({ ...content, verticalAlign: input.align })
-      }
       const body = bodyOf(content)
       if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
       const index = body.subfields.findIndex((field) => field.id === input.subfieldId)
@@ -312,43 +418,83 @@ export function setCardColor(
 /**
  * Convert content from one kind to another **without losing anything**.
  *
- * A card title becomes a heading when the target has no title of its own; a
- * container's image or figure becomes an inline node in the card body. Every
- * conversion is reversible in the sense that no user content disappears.
+ * Every kind is either text in subfields or a picture with a caption, and the
+ * conversion is the same story in both directions: what the source shows as
+ * one thing, the target shows as the other. A card title becomes a heading
+ * when the target has no title of its own; a picture becomes an inline image
+ * in the body; a caption becomes a paragraph; and going the other way, the
+ * first inline image in the body becomes the picture and what text there was
+ * becomes the caption.
+ *
+ * Text that will not fit in a caption is not silently dropped here — it is
+ * carried across in full, and the fit gate in `updateZoneContent` refuses the
+ * conversion with a message saying so. Refusing is the honest answer: a
+ * paragraph is not a caption, and a conversion that quietly ate it would be
+ * the one thing this function promises never to do.
  */
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
-  // Every kind now divides into the same subfields, so a conversion carries the
-  // whole body across instead of flattening it into a single document.
-  let docs: RichDoc[]
-  let axis: CardBody['axis'] = 'y'
-  let weights: number[] | null = null
-  let carriedTitle: RichDoc | null = null
+  const title = hasCardTitle(content) ? content.title : null
+  const headerColor = hasCardTitle(content) ? content.headerColor : null
+  const targetHasTitle = kind === 'titled-card' || kind === 'titled-image-card'
 
+  if (kind === 'image' || kind === 'titled-image-card') {
+    const panel = imagePanelFrom(content, targetHasTitle ? null : title)
+    if (kind === 'image') return { ...createImage(), image: panel }
+    return { ...createTitledImageCard(), headerColor, title: title ?? emptyDoc(), image: panel }
+  }
+
+  const body = bodyFrom(content, targetHasTitle ? null : title)
+  if (kind === 'container') return createContainer(body)
+  if (kind === 'untitled-card') {
+    const card = createUntitledCard(
+      content.kind === 'untitled-card' ? content.backgroundColor : undefined,
+    )
+    return { ...card, body }
+  }
+  return { ...createTitledCard(), body, title: title ?? emptyDoc(), headerColor }
+}
+
+/**
+ * The body a conversion into a text kind ends up with.
+ *
+ * `carriedTitle` is the source's card title when the target has no title panel
+ * to put it in; it becomes a heading at the top of the first field, which is
+ * the same thing said in the vocabulary the target has.
+ */
+function bodyFrom(content: ZoneContent, carriedTitle: RichDoc | null): CardBody {
   const source = bodyOf(content)
+  const panel = imagePanelOf(content)
+
+  let docs: RichDoc[]
+  let axis: Axis = 'y'
+  let weights: number[] | null = null
+
   if (source) {
     docs = source.subfields.map((field) => field.doc)
     axis = source.axis
     weights = [...source.weights]
   } else {
-    // A picture-filled container: the picture becomes an inline image.
-    docs = [{ type: 'doc', content: containerBlocks(content as ContainerContent) }]
+    // A picture: the file becomes an inline image and the caption the text
+    // under it, which is what a picture looks like written out as a field.
+    const blocks: RichNode[] = []
+    if (panel?.assetId) blocks.push(imageNode(panel.assetId))
+    if (panel?.caption && !isDocEmpty(panel.caption.doc)) {
+      blocks.push(...(panel.caption.doc.content ?? []))
+    }
+    docs = [{ type: 'doc', content: blocks }]
   }
 
-  if (content.kind === 'titled-card') {
-    if (kind === 'titled-card') {
-      carriedTitle = content.title
-    } else {
-      const heading = titleAsHeading(content.title)
-      if (heading) {
-        docs = [{ type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] }, ...docs.slice(1)]
-      }
+  if (carriedTitle) {
+    const heading = titleAsHeading(carriedTitle)
+    if (heading) {
+      docs = [{ type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] }, ...docs.slice(1)]
     }
   }
 
   const base = createCardBody(Math.max(1, docs.length), axis)
-  const body: CardBody = {
+  return {
     axis,
     weights: weights && weights.length === base.subfields.length ? weights : base.weights,
     subfields: base.subfields.map((field, index) => ({
@@ -359,23 +505,48 @@ export function convertContentKind(content: ZoneContent, kind: ZoneContentKind):
         : {}),
     })),
   }
+}
 
-  if (kind === 'container') return createContainer({ type: 'fields', body })
-
-  if (kind === 'untitled-card') {
-    const card = createUntitledCard(
-      content.kind === 'untitled-card' ? content.backgroundColor : undefined,
-    )
-    return { ...card, body }
+/**
+ * The picture panel a conversion into a picture kind ends up with.
+ *
+ * The file is the first inline image the source shows, so a card with a figure
+ * in it becomes that figure. The caption is everything the source said in
+ * words, flattened to one line — a caption is one line that wraps, so a body
+ * of several paragraphs arrives as one, and if it is too long for the picture
+ * the fit gate says so rather than this function trimming it.
+ */
+function imagePanelFrom(content: ZoneContent, carriedTitle: RichDoc | null): ImagePanel {
+  const existing = imagePanelOf(content)
+  if (existing) {
+    return carriedTitle && !existing.caption
+      ? { ...existing, caption: captionFromText(docToPlainText(carriedTitle)) }
+      : existing
   }
 
-  const card = createTitledCard()
+  const text = [carriedTitle, ...contentDocs(content)]
+    .map((doc) => (doc ? docToPlainText(doc) : ''))
+    .filter((line) => line.length > 0)
+    .join(' ')
   return {
-    ...card,
-    body,
-    ...(carriedTitle ? { title: carriedTitle } : {}),
-    ...(content.kind === 'titled-card' ? { headerColor: content.headerColor } : {}),
+    assetId: firstInlineAssetId(content),
+    focus: { ...CENTRED_FOCUS },
+    caption: captionFromText(text),
   }
+}
+
+function captionFromText(text: string): ImageCaption | null {
+  const trimmed = text.trim()
+  return trimmed.length === 0 ? null : createCaption('bottom', titleDoc(trimmed))
+}
+
+/** The first figure the content shows in its text, if any. */
+function firstInlineAssetId(content: ZoneContent): string | null {
+  for (const doc of contentDocs(content)) {
+    const [first] = collectDocAssetIds(doc)
+    if (first) return first
+  }
+  return null
 }
 
 /** A card title becomes a heading so its text survives the conversion. */
@@ -383,11 +554,6 @@ function titleAsHeading(title: RichDoc): RichNode | null {
   const inline = (title.content ?? []).flatMap((node) => node.content ?? [])
   if (inline.length === 0) return null
   return { type: 'heading', attrs: { level: 1 }, content: inline }
-}
-
-/** A picture-filled container as body blocks, so the picture is carried over. */
-function containerBlocks(content: ContainerContent): RichNode[] {
-  return content.payload.type === 'asset' ? [imageNode(content.payload.assetId)] : []
 }
 
 /**

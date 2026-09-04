@@ -7,18 +7,26 @@ import { newContentId, newSubfieldId } from './ids'
 import { collectCitationIds, collectDocAssetIds, emptyDoc, titleDoc } from './richdoc'
 import type {
   Axis,
+  CaptionPosition,
   CardBody,
   ContainerContent,
-  ContainerPayload,
+  ImageCaption,
+  ImageContent,
+  ImagePanel,
+  ImageZoneContent,
   RichDoc,
   Subfield,
   TitledCardContent,
+  TitledImageCardContent,
   UntitledCardContent,
   ZoneContent,
   ZoneContentKind,
 } from './types'
 
 export const DEFAULT_CARD_BACKGROUND = WHITE
+
+/** A picture with no crop offset: the frame sits over the middle of the file. */
+export const CENTRED_FOCUS = { x: 0.5, y: 0.5 } as const
 
 export function createSubfield(doc: RichDoc = emptyDoc()): Subfield {
   return { id: newSubfieldId(), doc }
@@ -33,21 +41,14 @@ export function createCardBody(subfieldCount = 1, axis: Axis = 'y'): CardBody {
   }
 }
 
-export function createContainer(payload?: ContainerPayload): ContainerContent {
-  return {
-    id: newContentId(),
-    kind: 'container',
-    payload: payload ?? { type: 'fields', body: createCardBody(1) },
-  }
+export function createContainer(body: CardBody = createCardBody(1)): ContainerContent {
+  return { id: newContentId(), kind: 'container', body }
 }
 
 /** A container holding one field with this document. */
 export function containerWithDoc(doc: RichDoc): ContainerContent {
   const body = createCardBody(1)
-  return createContainer({
-    type: 'fields',
-    body: { ...body, subfields: [{ ...body.subfields[0], doc }] },
-  })
+  return createContainer({ ...body, subfields: [{ ...body.subfields[0], doc }] })
 }
 
 export function createUntitledCard(backgroundColor = DEFAULT_CARD_BACKGROUND): UntitledCardContent {
@@ -79,6 +80,86 @@ export function createTitledCard(
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Pictures
+ * ------------------------------------------------------------------ */
+
+/**
+ * An empty picture panel.
+ *
+ * `assetId: null` is a real state, not a hole: a picture zone can be created
+ * before there is a file for it, exactly as a text field starts empty. What it
+ * draws until then is a placeholder that asks for one.
+ */
+export function createImagePanel(assetId: string | null = null): ImagePanel {
+  return { assetId, focus: { ...CENTRED_FOCUS }, caption: null }
+}
+
+export function createImage(assetId: string | null = null): ImageContent {
+  return { id: newContentId(), kind: 'image', image: createImagePanel(assetId) }
+}
+
+export function createTitledImageCard(
+  assetId: string | null = null,
+  title = '',
+  headerColor: string | null = null,
+): TitledImageCardContent {
+  return {
+    id: newContentId(),
+    kind: 'titled-image-card',
+    headerColor,
+    title: titleDoc(title),
+    image: createImagePanel(assetId),
+  }
+}
+
+export function createCaption(
+  position: CaptionPosition = 'bottom',
+  doc: RichDoc = emptyDoc(),
+): ImageCaption {
+  return { doc, position, color: null }
+}
+
+/** Content whose face is a picture, rather than text in fields. */
+export function hasImagePanel(content: ZoneContent): content is ImageZoneContent {
+  return content.kind === 'image' || content.kind === 'titled-image-card'
+}
+
+/** The picture panel of any content that has one. */
+export function imagePanelOf(content: ZoneContent): ImagePanel | null {
+  return hasImagePanel(content) ? content.image : null
+}
+
+/** The same content with a new picture panel, whichever kind it is. */
+export function withImagePanel<T extends ZoneContent>(content: T, image: ImagePanel): T {
+  return hasImagePanel(content) ? { ...content, image } : content
+}
+
+/**
+ * Where a caption may hang, per content kind.
+ *
+ * A titled image card has its header along the top edge already, so a caption
+ * hanging from the ceiling would sit under a panel of the same shape and read
+ * as a second, paler header.
+ */
+export const CAPTION_POSITIONS: readonly CaptionPosition[] = ['top', 'middle', 'bottom']
+
+export function captionPositionsFor(kind: ZoneContentKind): readonly CaptionPosition[] {
+  return kind === 'titled-image-card'
+    ? CAPTION_POSITIONS.filter((position) => position !== 'top')
+    : CAPTION_POSITIONS
+}
+
+export const CAPTION_POSITION_LABELS: Record<CaptionPosition, string> = {
+  top: 'Øverst',
+  middle: 'Midten',
+  bottom: 'Nederst',
+}
+
+/* ------------------------------------------------------------------ *
+ * Content kinds
+ * ------------------------------------------------------------------ */
+
 export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
   switch (kind) {
     case 'container':
@@ -87,6 +168,10 @@ export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
       return createUntitledCard()
     case 'titled-card':
       return createTitledCard()
+    case 'image':
+      return createImage()
+    case 'titled-image-card':
+      return createTitledImageCard()
   }
 }
 
@@ -94,6 +179,8 @@ export const CONTENT_KIND_LABELS: Record<ZoneContentKind, string> = {
   container: 'Beholder',
   'untitled-card': 'Kort uten tittel',
   'titled-card': 'Kort med tittel',
+  image: 'Bilde',
+  'titled-image-card': 'Kort med tittel og bilde',
 }
 
 export function contentLabel(content: ZoneContent): string {
@@ -106,24 +193,25 @@ export function hasCardBody(
   return content.kind === 'untitled-card' || content.kind === 'titled-card'
 }
 
+/** Content that carries a title panel of its own, with or without a picture. */
+export function hasCardTitle(
+  content: ZoneContent,
+): content is TitledCardContent | TitledImageCardContent {
+  return content.kind === 'titled-card' || content.kind === 'titled-image-card'
+}
+
 /**
- * The subfield body of any content that has one — a card always, a container
- * whenever it holds text rather than a picture.
+ * The subfield body of any content that has one — the text kinds. A picture
+ * has no fields, so a caller that wants to write text into one has to convert
+ * it first.
  */
 export function bodyOf(content: ZoneContent): CardBody | null {
-  if (content.kind === 'container') {
-    return content.payload.type === 'fields' ? content.payload.body : null
-  }
-  return content.body
+  return hasImagePanel(content) ? null : content.body
 }
 
 /** The same content with a new body, whichever kind it is. */
 export function withBody<T extends ZoneContent>(content: T, body: CardBody): T {
-  if (content.kind === 'container') {
-    if (content.payload.type !== 'fields') return content
-    return { ...content, payload: { type: 'fields', body } }
-  }
-  return { ...content, body }
+  return hasImagePanel(content) ? content : { ...content, body }
 }
 
 /* ------------------------------------------------------------------ *
@@ -167,16 +255,13 @@ export function withBodyAxis(body: CardBody, axis: Axis): CardBody {
  * ------------------------------------------------------------------ */
 
 export function contentDocs(content: ZoneContent): RichDoc[] {
-  switch (content.kind) {
-    case 'container':
-      return content.payload.type === 'fields'
-        ? content.payload.body.subfields.map((field) => field.doc)
-        : []
-    case 'untitled-card':
-      return content.body.subfields.map((field) => field.doc)
-    case 'titled-card':
-      return [content.title, ...content.body.subfields.map((field) => field.doc)]
-  }
+  const docs: RichDoc[] = []
+  if (hasCardTitle(content)) docs.push(content.title)
+  const body = bodyOf(content)
+  if (body) docs.push(...body.subfields.map((field) => field.doc))
+  const panel = imagePanelOf(content)
+  if (panel?.caption) docs.push(panel.caption.doc)
+  return docs
 }
 
 /** Reference ids used by this content, in document order. */
@@ -187,10 +272,8 @@ export function contentCitationIds(content: ZoneContent): string[] {
 /** Asset ids used by this content, including inline images. */
 export function contentAssetIds(content: ZoneContent): string[] {
   const ids: string[] = []
-  if (content.kind === 'container' && content.payload.type === 'asset') {
-    ids.push(content.payload.assetId)
-  }
+  const panel = imagePanelOf(content)
+  if (panel?.assetId) ids.push(panel.assetId)
   for (const doc of contentDocs(content)) ids.push(...collectDocAssetIds(doc))
   return ids
 }
-

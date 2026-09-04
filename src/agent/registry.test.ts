@@ -376,7 +376,8 @@ describe('runOperation', () => {
     const reloaded = await context.repository.loadPresentation(presentation.id)
     const root = reloaded.slides[0].root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
-      payload: { type: 'asset', fit: 'contain' },
+      kind: 'image',
+      image: { assetId, focus: { x: 0.5, y: 0.5 } },
     })
   })
 

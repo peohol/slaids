@@ -15,27 +15,37 @@ import {
 } from '../../domain/constants'
 import { themeMetrics } from '../../domain/metrics'
 import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
-import type { CardBody, Subfield, VerticalAlign, ZoneContent } from '../../domain/types'
+import type {
+  CardBody,
+  ImagePanel,
+  Subfield,
+  TitledCardContent,
+  TitledImageCardContent,
+  VerticalAlign,
+  ZoneContent,
+} from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 
 export interface ZoneContentFrameProps {
   content: ZoneContent
-  renderTitle: (content: Extract<ZoneContent, { kind: 'titled-card' }>) => ReactNode
+  renderTitle: (content: TitledCardContent | TitledImageCardContent) => ReactNode
   renderField: (field: Subfield, index: number) => ReactNode
-  /** Only for a container filled with a picture; its text goes through `renderField`. */
-  renderAsset: (payload: { assetId: string; fit: 'contain' | 'cover' }) => ReactNode
+  /**
+   * The picture panel of a picture kind. Both renderers draw the same
+   * `ImagePanelView`; the editor's version adds dragging and the ghost of the
+   * hidden parts, which is why it is a prop rather than a branch in here.
+   */
+  renderImage: (panel: ImagePanel, variant: 'card' | 'body') => ReactNode
 }
 
 /**
- * A vertical alignment in the two CSS forms it takes.
+ * Where a field's flowed content sits inside the field.
  *
  * A field's content box is always the full height of the field — that is what
  * bounds a figure to the field it sits in, and what lets a click anywhere in
  * the field land in the text — so the field has no free space to distribute
  * and aligning the box itself moved nothing. The alignment is handed to the
- * box as a custom property instead and applied to the flow inside it. A file
- * fills its zone outright, so there it is the picture within the box that
- * moves, which is `object-position`.
+ * box as a custom property instead and applied to the flow inside it.
  *
  * `safe` is what keeps the fit rule honest: with content taller than its
  * field, plain centring pushes the top of it out through the top edge, where
@@ -44,26 +54,14 @@ export interface ZoneContentFrameProps {
  * measured.
  */
 const VERTICAL_ALIGNMENT = {
-  top: { flow: 'start', object: 'top' },
-  middle: { flow: 'safe center', object: 'center' },
-  bottom: { flow: 'safe end', object: 'bottom' },
-} as const satisfies Record<VerticalAlign, { flow: string; object: string }>
+  top: 'start',
+  middle: 'safe center',
+  bottom: 'safe end',
+} as const satisfies Record<VerticalAlign, string>
 
 /** Where a field's flowed content sits, defaulting to the top of the field. */
 export function flowAlign(align: VerticalAlign | undefined): string {
-  return VERTICAL_ALIGNMENT[align ?? 'top'].flow
-}
-
-/**
- * Where a picture sits inside the box it fills.
- *
- * `undefined` when nothing was chosen, and the stylesheet then leaves
- * `object-position` at its own centred default: a picture has no flow to start
- * at the top of, so the middle of the box it was given is where one belongs
- * until someone says otherwise.
- */
-export function assetAlign(align: VerticalAlign | undefined): string | undefined {
-  return align && VERTICAL_ALIGNMENT[align].object
+  return VERTICAL_ALIGNMENT[align ?? 'top']
 }
 
 function SubfieldStack({
@@ -125,35 +123,16 @@ export function ZoneContentFrame({
   content,
   renderTitle,
   renderField,
-  renderAsset,
+  renderImage,
 }: ZoneContentFrameProps) {
   const { theme, headingPillColor } = useSlideRender()
   const tokens = themeMetrics(theme)
 
   if (content.kind === 'container') {
-    const color = bestTextColor(theme.backgroundColor)
-    if (content.payload.type === 'asset') {
-      return (
-        <div
-          className="zone-content zone-content--container"
-          data-content-kind="container"
-          data-fit-scroll=""
-          data-align={content.verticalAlign}
-          style={
-            {
-              color,
-              textShadow: textShadowFor(theme.backgroundColor),
-              '--slaids-asset-align': assetAlign(content.verticalAlign),
-            } as CSSProperties
-          }
-        >
-          {renderAsset(content.payload)}
-        </div>
-      )
-    }
     // A container is a card without the card: same subfields, same dividers,
     // but drawn on the slide background, so the divider follows the text colour
     // the background dictates rather than a card's own palette.
+    const color = bestTextColor(theme.backgroundColor)
     return (
       <div
         className="zone-content zone-content--container"
@@ -161,11 +140,25 @@ export function ZoneContentFrame({
         style={{ color, textShadow: textShadowFor(theme.backgroundColor) }}
       >
         <SubfieldStack
-          body={content.payload.body}
+          body={content.body}
           dividerColor={dividerColorFor(theme.backgroundColor)}
           gap={tokens.subfieldGap}
           renderField={renderField}
         />
+      </div>
+    )
+  }
+
+  /*
+   * A picture filling the zone is a card whose whole face is the picture: the
+   * same rounded corners and the same shadow, so it sits among the cards
+   * around it rather than reading as a hole cut in the slide. Nothing is
+   * letterboxed — see `ImagePanel`.
+   */
+  if (content.kind === 'image') {
+    return (
+      <div className="zone-content zone-content--image" data-content-kind="image">
+        {renderImage(content.image, 'card')}
       </div>
     )
   }
@@ -201,7 +194,8 @@ export function ZoneContentFrame({
    * changing the cover repaints every such title panel without touching a
    * single stored document.
    */
-  const headerColor = content.headerColor ?? headingPillColor
+  const titled = content
+  const headerColor = titled.headerColor ?? headingPillColor
   const headerText = bestTextColor(headerColor)
   return (
     /*
@@ -219,12 +213,19 @@ export function ZoneContentFrame({
      */
     <div
       className="zone-content zone-content--card zone-content--titled"
-      data-content-kind="titled-card"
+      data-content-kind={titled.kind}
       style={{
         borderRadius: CARD_RADIUS,
         boxShadow: CARD_SHADOW,
         background: 'transparent',
-        overflow: 'hidden',
+        /*
+         * The header and the body each carry their own corners, so the card
+         * has nothing of its own to clip — and a picture body needs the room:
+         * the editor draws the hidden parts of a crop *outside* the frame, and
+         * a clip here would hide the very thing that preview exists to show.
+         * A text body is clipped by `.card-body` either way.
+         */
+        overflow: titled.kind === 'titled-image-card' ? 'visible' : 'hidden',
       }}
     >
       <div
@@ -240,24 +241,33 @@ export function ZoneContentFrame({
           fontFamily: theme.headingFontFamily,
         }}
       >
-        {renderTitle(content)}
+        {renderTitle(titled)}
       </div>
-      <div
-        className="card-body"
-        style={{
-          background: WHITE,
-          padding: tokens.cardPadding,
-          borderRadius: `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px`,
-          color: '#000',
-        }}
-      >
-        <SubfieldStack
-          body={content.body}
-          dividerColor={CARD_DIVIDER_COLOR}
-          gap={tokens.subfieldGap}
-          renderField={renderField}
-        />
-      </div>
+      {titled.kind === 'titled-image-card' ? (
+        /*
+         * The picture *is* the body: no padding and no white beneath it, so the
+         * card reads as a title panel over a photograph rather than as a
+         * photograph mounted on a card.
+         */
+        <div className="card-body card-body--image">{renderImage(titled.image, 'body')}</div>
+      ) : (
+        <div
+          className="card-body"
+          style={{
+            background: WHITE,
+            padding: tokens.cardPadding,
+            borderRadius: `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px`,
+            color: '#000',
+          }}
+        >
+          <SubfieldStack
+            body={titled.body}
+            dividerColor={CARD_DIVIDER_COLOR}
+            gap={tokens.subfieldGap}
+            renderField={renderField}
+          />
+        </div>
+      )}
     </div>
   )
 }

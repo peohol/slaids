@@ -356,7 +356,7 @@ describe('migrations', () => {
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
       throw new Error('expected a container leaf')
     }
-    expect(leaf.content.payload.type).toBe('fields')
+    expect(leaf.content.body.subfields).toHaveLength(1)
   })
 
   it('drops an inline figure from a stored document', () => {
@@ -407,13 +407,84 @@ describe('migrations', () => {
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
       throw new Error('expected a container leaf')
     }
-    const payload = leaf.content.payload
-    if (payload.type !== 'fields') throw new Error('expected a fields payload')
-    expect(payload.body.subfields).toHaveLength(1)
-    expect(JSON.stringify(payload.body.subfields[0].doc)).toContain('Beholdertekst')
+    const body = leaf.content.body
+    expect(body.subfields).toHaveLength(1)
+    expect(JSON.stringify(body.subfields[0].doc)).toContain('Beholdertekst')
     // The container's own alignment belongs to the field it became.
-    expect(payload.body.subfields[0].verticalAlign).toBe('middle')
-    expect(leaf.content.verticalAlign).toBeUndefined()
+    expect(body.subfields[0].verticalAlign).toBe('middle')
+  })
+
+  it('lifts a picture out of the container it used to hide in', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 9
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    root.children[1] = {
+      ...root.children[1],
+      content: {
+        id: 'content-bilde',
+        kind: 'container',
+        // `contain` no longer exists: a picture in a zone now always fills it.
+        verticalAlign: 'bottom',
+        payload: { type: 'asset', assetId: 'a1', fit: 'contain' },
+      },
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const leaf = migrated.children[1]
+    if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'image') {
+      throw new Error('expected a picture leaf')
+    }
+    expect(leaf.content.image.assetId).toBe('a1')
+    // The container's alignment said which part of the file to frame, so that
+    // is what it becomes rather than being dropped.
+    expect(leaf.content.image.focus).toEqual({ x: 0.5, y: 1 })
+    expect(leaf.content.image.caption).toBeNull()
+  })
+
+  it('unwraps a text container without touching what is in it', () => {
+    const presentation = sample()
+    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+    stored.schemaVersion = 9
+    const slides = stored.slides as Array<Record<string, unknown>>
+    const root = slides[0].root as { children: Array<Record<string, unknown>> }
+    root.children[1] = {
+      ...root.children[1],
+      content: {
+        id: 'content-tekst',
+        kind: 'container',
+        payload: {
+          type: 'fields',
+          body: {
+            axis: 'x',
+            weights: [2, 1],
+            subfields: [
+              { id: 'f1', doc: paragraphDoc('Venstre') },
+              { id: 'f2', doc: paragraphDoc('Høyre'), verticalAlign: 'bottom' },
+            ],
+          },
+        },
+      },
+    }
+
+    const result = migratePresentation(stored)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const migrated = result.value.slides[0].root
+    if (migrated.kind !== 'split') throw new Error('expected a split')
+    const leaf = migrated.children[1]
+    if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
+      throw new Error('expected a container leaf')
+    }
+    expect(leaf.content.body.axis).toBe('x')
+    expect(leaf.content.body.weights).toEqual([2, 1])
+    expect(leaf.content.body.subfields.map((field) => field.id)).toEqual(['f1', 'f2'])
+    expect(leaf.content.body.subfields[1].verticalAlign).toBe('bottom')
   })
 
   it('gives an older theme the two scales at their neutral value', () => {

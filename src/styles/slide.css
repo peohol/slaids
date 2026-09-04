@@ -122,25 +122,125 @@
   flex: 0 0 auto;
 }
 
-/*
- * A file fills its zone, so the zone cannot move it: what an alignment moves is
- * the picture inside the box it is drawn in. Unaligned, it stays centred —
- * there is no flow here to begin at the top of.
- */
-.asset-image {
+/* ----------------------------------------------------------------- *
+ * A picture filling the box it is given
+ *
+ * The frame is the box; the picture covers it and whatever does not fit the
+ * frame's proportions is hidden, never letterboxed. Which part is hidden is
+ * `object-position`, written inline from the stored crop, so the browser does
+ * the arithmetic and there is no second implementation of it to drift.
+ * ----------------------------------------------------------------- */
+
+.image-panel {
+  position: relative;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: center var(--slaids-asset-align, center);
+  /*
+   * Deliberately *not* clipping: the frame inside it clips, and leaving this
+   * box unclipped is what lets the editor's ghost of the hidden parts be drawn
+   * outside it — the same reason a card's shadow may fall into the gap.
+   */
+  overflow: visible;
+}
+
+.image-panel__frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.image-panel__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
 }
 
-.asset-image--pending {
+.image-panel__empty {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.55;
-  font-size: 14px;
+  background: rgba(128, 128, 128, 0.22);
+  color: inherit;
+  opacity: 0.75;
+  font-size: 15px;
+}
+
+/*
+ * A picture that is the whole card is a card: the same corners and the same
+ * shadow, so it sits among the cards around it rather than reading as a hole
+ * cut in the slide. Radius and shadow are inline styles from the tokens.
+ */
+.zone-content--image {
+  overflow: visible;
+}
+
+/*
+ * The picture is the card's lower half: no padding and no white beneath it.
+ * Unclipped, because the picture's own frame is what clips — see
+ * `.image-panel` — and the editor's ghost of the hidden parts is drawn outside
+ * that frame on purpose.
+ */
+.card-body--image {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  display: flex;
+}
+
+/* ----------------------------------------------------------------- *
+ * The caption over a picture
+ *
+ * The layer is the whole picture and carries the alignment; the box inside it
+ * is only as wide as its text, up to the picture less the air on both sides.
+ * So the box grows sideways first and then takes another line, and which way it
+ * grows from is the layer's `align-items` — down from the ceiling, up from the
+ * floor, both ways from the middle.
+ * ----------------------------------------------------------------- */
+
+.image-caption__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.image-caption {
+  max-width: 100%;
+  color: #fff;
+  /*
+   * White with a shadow whatever the tint is. 30 % of a colour over an unknown
+   * photograph is not a background anything can be contrasted against, so the
+   * usual derive-from-the-background rule has nothing to derive from here.
+   */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  font-weight: 500;
+  line-height: 1.3;
+  /* The text is a click target even though the layer around it is not. */
+  pointer-events: auto;
+}
+
+.image-caption :is(p, .rd-p) {
+  margin: 0;
+  text-align: center;
+}
+
+.rich-doc--caption {
+  height: auto;
+  min-height: 0;
+  white-space: pre-wrap;
+}
+
+.rich-doc--caption.tiptap,
+.rich-doc--caption .ProseMirror {
+  min-height: 0;
+  outline: none;
 }
 
 /* ----------------------------------------------------------------- *

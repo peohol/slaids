@@ -564,7 +564,8 @@ Usynlig wrapper:
 - ingen box shadow;
 - ingen visuell kortflate;
 - ingen ytre padding som påvirker layoutgap;
-- kan inneholde subfelt med RichDoc, eller ett bilde/SVG som fyller sonen.
+- inneholder subfelt med RichDoc, og ingenting annet: et bilde som fyller
+  sonen er sin egen innholdstype (§13.4), ikke en beholder med en annen hatt.
 
 Tekstfarge velges automatisk mot slidebakgrunn.
 
@@ -608,6 +609,68 @@ Kort med:
 - støtte for flere body-subfields.
 
 Body-subfields skal ha intern layoutsemantikk som ikke blandes med slide-sonetreet.
+
+### 13.4 Bilde
+
+Et bilde som fyller en sone er et kort fylt til randen med bilde:
+
+- avrundede hjørner og box shadow, som ethvert annet kort — et bilde skal stå
+  blant kortene rundt seg, ikke lese som et hull skåret i sliden;
+- ingen padding og ingen letterboxing: bildet dekker sonen helt ut til kantene;
+- **beskjæres** når filens format ikke er sonens. Er bildets bredde:høyde
+  større enn sonens, strekkes det til å fylle høyden og det som går utenfor på
+  sidene skjules; er den mindre, gjelder det motsatte.
+
+Beskjæringen sletter ingenting. `focus` er to tall mellom 0 og 1 — hvor i filen
+vinduet står, `0.5` er midtstilt — så utsnittet er et *vindu inn i filen* og kan
+flyttes når som helst. `object-fit: cover` og `object-position` gjør regnestykket;
+`EditableImagePanel` utleder nøyaktig det samme for å tegne den skjulte delen på
+riktig sted.
+
+I editoren er utsnittet under pekeren: hover over et beskåret bilde viser de
+skjulte delene utenfor rammen med redusert opasitet, markøren er en åpen hånd, og
+et dra flytter filen bak vinduet. Midten har en magnet (`IMAGE_FOCUS_SNAP_PX`),
+fordi midtstilt er utsnittet et bilde begynner i og det eneste som er umulig å
+finne tilbake til for hånd. Hele draget er én kommando, så én Ctrl+Z setter
+utsnittet tilbake.
+
+Fordi et bilde alltid er beskåret til rammen sin, kan det aldri flyte over.
+Det eneste fit-guarden har en mening om her er **bildeteksten**.
+
+### 13.5 Bildetekst
+
+En valgfri tekst over bildet, i en beholder som
+
+- alltid er horisontalt midtstilt;
+- har valgfri bakgrunnsfarge med 30 % opasitet og 3px backdrop-blur. Fargen er
+  `null` til noen velger en, og leser da forsidens pillefarge — samme arv som en
+  overskrift og et titteldpanel. Teksten er hvit med skygge uansett: 30 % av en
+  farge over et ukjent fotografi er ingen bakgrunn å regne kontrast mot;
+- henger fra taket øverst (nedre hjørner avrundet), står på gulvet nederst
+  (øvre hjørner avrundet), og er avrundet hele veien rundt i midten;
+- vokser i bredden til den nærmer seg sonens vegger — det er alltid litt luft på
+  sidene — og bryter så til en ny linje. En toppjustert bildetekst vokser nedover,
+  en bunnjustert oppover, en midtstilt begge veier. Det går an å skrive helt til
+  det ikke er plass til mer, og da avviser fit-guarden.
+
+**Det finnes ikke en tom bildetekst.** En ny tar markøren, og en som forlates tom
+fjerner seg selv. Det er dét som gjør det trygt at *enhver* tom bildetekst
+autofokuseres: en tom kan bare være en helt fersk.
+
+### 13.6 Kort med tittel og bilde
+
+Et kort med tittel (§13.3) der innholdsfeltet i sin helhet er et bilde:
+
+- tittelpanelet er alltid øverst, og er nøyaktig det samme panelet — samme høyde,
+  samme fargearv;
+- bildet fyller bodyen 100 %, uten padding og uten hvit flate under seg, og
+  oppfører seg ellers som §13.4 i ett og alt;
+- bildeteksten kan bare stå i midten eller nederst. Øverst ligger tittelpanelet
+  allerede, og en bildetekst av samme form rett under det ville lest som en
+  blekere andre-header.
+
+De to bildetypene bærer den samme `ImagePanel`, så det finnes ett utsnitt, én
+bildetekst og én renderer (`ImagePanelView`) for begge.
 
 ---
 
@@ -1048,6 +1111,12 @@ Innhold refererer til `assetId`, ikke store base64-strenger i presentasjons-JSON
 Et bilde kan settes inn enten i et tekstfelt, sammen med teksten, eller som
 innhold som fyller hele sonen. Hvor det havner spørres om, det utledes ikke
 av hvilken modus editoren tilfeldigvis står i.
+
+Et bilde som fyller sonen er sin egen innholdstype – se §13.4, som eier
+beskjæringen, utsnittet og bildeteksten. Å velge en fil for en sone som
+allerede viser et bilde bytter bare filen: utsnittet, bildeteksten og, på et
+kort med tittel og bilde, tittelpanelet blir stående. Å erstatte hele innholdet
+ville kastet bort tre ting brukeren ikke ba om å miste.
 
 Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
 størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
@@ -2030,6 +2099,8 @@ set_zone_text
 set_zone_card
 adjust_subfields
 set_zone_asset
+set_image_focus
+set_image_caption
 set_vertical_alignment
 
 list_sandbox_items
@@ -2277,9 +2348,23 @@ upload_asset
 → assetId
 
 set_zone_asset(zoneId, assetId)
+set_image_focus(zoneId, x, y)
+set_image_caption(zoneId, position, spans, color)
 ```
 
 Assetopplasting og plassering er separate operasjoner. Et opplastet asset skal derfor kunne gjenbrukes og inspiseres før det plasseres.
+
+`set_zone_asset` plasserer bildet som §13.4 beskriver det: det fyller sonen helt
+og beskjæres. Utsnittet er derfor en redigering i seg selv, og den ene en agent
+ikke kan gjøre ved å velge en annen fil — derav `set_image_focus`. En sone som
+allerede *har* et bildepanel uten fil i seg er en sone som venter på en, ikke
+opptatt innhold: å fylle den beholder kortets tittel, utsnittet og bildeteksten,
+og `replace` har ingenting å beskytte. Et panel som allerede viser en fil er
+vanlig innhold og går gjennom den vanlige regelen.
+
+`inspect_slide` og `list_sandbox_items` leser bildet tilbake gjennom det samme
+`image`-feltet: filen, utsnittet som to tall, og bildeteksten som spans — nøyaktig
+det `set_image_focus` og `set_image_caption` tar imot igjen.
 
 ### Rasterbilder
 
@@ -2461,6 +2546,8 @@ slaids_split_zone
 slaids_adjust_split
 slaids_set_zone_text
 slaids_set_zone_asset
+slaids_set_image_focus
+slaids_set_image_caption
 slaids_add_reference
 slaids_upload_asset
 slaids_create_svg_asset
@@ -2735,7 +2822,7 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   `adjust_split`, `delete_zone`,
   `clear_zone`, `move_zone_content`, `copy_zone_content`, `set_zone_text`,
   `set_zone_card`, `adjust_subfields`,
-  `set_vertical_alignment`,
+  `set_image_focus`, `set_image_caption`, `set_vertical_alignment`,
   `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
   `create_svg_asset`, `set_zone_asset`.

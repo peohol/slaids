@@ -57,18 +57,19 @@ describe('setVerticalAlign', () => {
   })
 
   it('aligns a container through its own field', () => {
-    const presentation = deckWith(containerWithDoc(emptyDoc()))
+    const container = containerWithDoc(emptyDoc())
+    const presentation = deckWith(container)
     const slide = presentation.slides[0]
     const aligned = unwrap(
       setVerticalAlign(presentation, {
         slideId: slide.id,
         nodeId: slide.root.id,
-        subfieldId: null,
+        subfieldId: container.body.subfields[0].id,
         align: 'middle',
       }),
     )
     const content = aligned.slides[0].root.kind === 'leaf' ? aligned.slides[0].root.content : null
-    expect(content?.kind === 'container' && content.verticalAlign).toBe('middle')
+    expect(content?.kind === 'container' && content.body.subfields[0].verticalAlign).toBe('middle')
   })
 
   it('refuses a subfield that does not exist', () => {

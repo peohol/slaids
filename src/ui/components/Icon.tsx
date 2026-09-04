@@ -12,6 +12,7 @@ export type IconName =
   | 'container'
   | 'card'
   | 'card-titled'
+  | 'card-image'
   | 'image'
   | 'quote'
   | 'bullet-list'
@@ -65,6 +66,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   container: <path d="M4 5h16v14H4z" strokeDasharray="4 3" />,
   card: <path d="M4 5h16v14H4z" />,
   'card-titled': <path d="M4 5h16v14H4zM4 10h16" />,
+  'card-image': <path d="M4 5h16v14H4zM4 10h16M8 15l2.5 2 2-2.5L16 18H7z" />,
   image: <path d="M4 5h16v14H4zM8 11l3 3 3-4 3 5H7z" />,
   quote: <path d="M8 7C5 8 5 12 5 12h4v5H4V9M18 7c-3 1-3 5-3 5h4v5h-5V9" />,
   'bullet-list': <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />,

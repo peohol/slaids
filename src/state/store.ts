@@ -27,7 +27,7 @@ export interface ActiveField {
   nodeId: NodeId
   /** `null` addresses a card title; a subfield id addresses a body field. */
   subfieldId: string | null
-  kind: 'body' | 'card-title' | 'slide-title' | 'cover-title' | 'cover-subtitle'
+  kind: 'body' | 'card-title' | 'caption' | 'slide-title' | 'cover-title' | 'cover-subtitle'
 }
 
 /** Fields that are text on a page rather than a node in a layout tree. */

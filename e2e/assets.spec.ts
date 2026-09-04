@@ -29,14 +29,14 @@ test.describe('assets', () => {
     })
 
     await expect(page.getByTestId('image-modal')).toBeHidden()
-    const image = stage(page).locator('img.asset-image')
+    const image = stage(page).locator('img.image-panel__img')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^blob:/)
 
     await waitForSaved(page)
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
-    await expect(stage(page).locator('img.asset-image')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
     expect(guard.errors).toEqual([])
   })
 
@@ -175,7 +175,7 @@ test.describe('assets', () => {
       mimeType: 'image/svg+xml',
       buffer: Buffer.from(SVG),
     })
-    await expect(stage(page).locator('img.asset-image')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
     await waitForSaved(page)
 
     await page.getByTestId('back-to-library').click()
@@ -189,6 +189,6 @@ test.describe('assets', () => {
 
     await page.getByTestId('open-presentation').first().click()
     await expect(page.getByTestId('editor')).toBeVisible()
-    await expect(stage(page).locator('img.asset-image')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
   })
 })

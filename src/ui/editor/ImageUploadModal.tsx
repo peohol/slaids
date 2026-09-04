@@ -13,9 +13,10 @@
 import { useRef, useState } from 'react'
 import { MAX_ASSET_BYTES } from '../../domain/constants'
 import { newAssetId } from '../../domain/ids'
-import { registerAsset, setZoneContent } from '../../domain/commands'
+import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
 import { domFitCheckers } from '../../state/measure'
-import { createContainer } from '../../domain/content'
+import { createImage, imagePanelOf } from '../../domain/content'
+import { findLeaf } from '../../domain/layout'
 import { repository } from '../../persistence/activeRepository'
 import { readImageSize } from '../../state/assets'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -101,15 +102,36 @@ export function ImageUploadModal({
           .insertSlaidsImage({ assetId: ref.id, alt: file.name, aspect, widthPercent })
           .run()
       } else if (zoneNodeId && slideId) {
-        runStructural('place-asset', (current) =>
-          setZoneContent(current, {
-            slideId,
-            nodeId: zoneNodeId,
-            content: createContainer({ type: 'asset', assetId: ref.id, fit: 'contain' }),
-            replace: true,
-            ...domFitCheckers,
-          }),
-        )
+        /*
+         * A zone that is already a picture only changes file — its crop, its
+         * caption and, for a titled image card, its header all stay. Replacing
+         * the whole content would throw those away for what the user read as
+         * "pick a different photo".
+         */
+        const slide = useEditorStore
+          .getState()
+          .presentation?.slides.find((entry) => entry.id === slideId)
+        const existing = slide ? findLeaf(slide.root, zoneNodeId)?.content ?? null : null
+        if (existing && imagePanelOf(existing)) {
+          run('image-asset', (current) =>
+            setImageAsset(current, {
+              slideId,
+              nodeId: zoneNodeId,
+              assetId: ref.id,
+              ...domFitCheckers,
+            }),
+          )
+        } else {
+          runStructural('place-asset', (current) =>
+            setZoneContent(current, {
+              slideId,
+              nodeId: zoneNodeId,
+              content: createImage(ref.id),
+              replace: true,
+              ...domFitCheckers,
+            }),
+          )
+        }
       } else {
         notify.warning('Velg en sone eller et tekstfelt først.')
       }
@@ -173,7 +195,7 @@ export function ImageUploadModal({
       <p className="hint">
         {effective === 'inline'
           ? 'Bildet settes inn der markøren står, sammen med teksten.'
-          : 'Bildet fyller hele sonen. Innhold som ligger der fra før flyttes til sandkassen.'}
+          : 'Bildet fyller hele sonen, helt ut til kantene, og beskjæres om formatet ikke passer. Dra i bildet etterpå for å velge utsnitt.'}
       </p>
 
       <div

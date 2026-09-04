@@ -1491,3 +1491,58 @@
   font-size: 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
+
+/* ----------------------------------------------------------------- *
+ * Editing a picture's crop
+ *
+ * The frame hides whatever does not fit its proportions. On hover the hidden
+ * parts are drawn faintly outside it, so the crop reads as a window onto the
+ * file rather than as a guess about what is missing — and dragging moves the
+ * file behind the window. Everything here is editor chrome: it is drawn by
+ * `EditableImagePanel` and exists nowhere the audience can see.
+ * ----------------------------------------------------------------- */
+
+.image-panel[data-image-cropped] {
+  cursor: grab;
+}
+
+.image-panel[data-image-dragging] {
+  cursor: grabbing;
+}
+
+.image-panel[data-image-empty] {
+  cursor: pointer;
+}
+
+/*
+ * Painted before the frame and therefore under it — by document order, not by
+ * `z-index`. A negative z-index would put the ghost behind the *slide's* own
+ * background instead of behind the frame, because neither the panel nor the
+ * zone starts a stacking context, and it would then be invisible.
+ */
+.image-panel__ghost {
+  position: absolute;
+  max-width: none;
+  opacity: 0;
+  object-fit: fill;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.image-panel[data-image-cropped]:hover .image-panel__ghost,
+.image-panel[data-image-dragging] .image-panel__ghost {
+  opacity: 0.32;
+}
+
+/*
+ * The probe exists only to report the file's natural size — the visible picture
+ * is `object-fit: cover`, so its own box says nothing about the file's
+ * proportions. It must actually load, so it is hidden without `display: none`.
+ */
+.image-panel__probe {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

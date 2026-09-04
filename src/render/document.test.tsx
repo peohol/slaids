@@ -208,7 +208,6 @@ describe('bilder og SVG', () => {
       slideId: deck.slideId,
       nodeId: deck.rootNodeId,
       assetId: stored.assetId,
-      fit: 'contain',
     })
     return {
       deck,
@@ -231,10 +230,13 @@ describe('bilder og SVG', () => {
       page: pageFor(presentation, deck.slideId),
       assets: assets.source,
     })
-    expect(document.html).toContain('class="asset-image"')
+    expect(document.html).toContain('class="image-panel__img"')
     expect(document.html).toContain(`src="${url}"`)
-    expect(document.html).toContain('object-fit:contain')
-    expect(document.html).not.toContain('Laster figur')
+    // The crop is the only thing about a picture that is written inline; the
+    // covering itself is a stylesheet rule, so a preview and the editor cannot
+    // disagree about it.
+    expect(document.html).toContain('object-position:50% 50%')
+    expect(document.html).not.toContain('Laster bilde')
   })
 
   it('tegner en SVG gjennom img, aldri som markup i dokumentet', async () => {
@@ -281,7 +283,7 @@ describe('bilder og SVG', () => {
       assets: assets.source,
     })
     // The renderer's own placeholder, which is what the editor would show too.
-    expect(document.html).toContain('asset-image--pending')
+    expect(document.html).toContain('image-panel__empty')
   })
 })
 

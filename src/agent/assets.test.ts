@@ -323,7 +323,7 @@ describe('set_zone_asset', () => {
     return { presentationId: presentation.id, slideId: slide.id, nodeId: slide.root.id, assetId: stored.assetId }
   }
 
-  const placement = { fit: 'contain' as const, replace: false, replacedDisposition: 'sandbox' as const }
+  const placement = { replace: false, replacedDisposition: 'sandbox' as const }
 
   it('plasserer et eksisterende asset i en sone', async () => {
     const context = freshContext()
@@ -335,8 +335,8 @@ describe('set_zone_asset', () => {
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
     const root = reloaded.slides[0].root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
-      kind: 'container',
-      payload: { type: 'asset', assetId: seeded.assetId, fit: 'contain' },
+      kind: 'image',
+      image: { assetId: seeded.assetId, focus: { x: 0.5, y: 0.5 }, caption: null },
     })
     expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(true)
   })
@@ -421,10 +421,10 @@ describe('set_zone_asset', () => {
     const after = expectOk(await inspectSlide.run(context, inspection))
     expect(after.zones[0]).toMatchObject({
       empty: false,
-      contentKind: 'container',
+      contentKind: 'image',
       assetIds: [seeded.assetId],
       referenceIds: [],
-      payload: 'asset',
+      image: { assetId: seeded.assetId, focus: { x: 0.5, y: 0.5 } },
       subfields: [],
       fits: true,
     })
@@ -481,7 +481,6 @@ describe('asset-invariants', () => {
         slideId: presentation.slides[0].id,
         nodeId: presentation.slides[0].root.id,
         assetId: stored.assetId,
-        fit: 'contain',
         replace: false,
         replacedDisposition: 'sandbox',
       }),

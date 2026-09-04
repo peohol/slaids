@@ -178,7 +178,10 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     },
   ]
 
-  const verticalButtons = slideId ? (
+  // Only a body field reaches here (see the guard above), so it always names a
+  // subfield — a card title and a caption have no flow to align.
+  const subfieldId = activeField.subfieldId
+  const verticalButtons = slideId && subfieldId ? (
     <div className="text-toolbar__group" data-testid="vertical-align-tools">
       {(
         [
@@ -197,7 +200,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
                 setVerticalAlign(presentation, {
                   slideId,
                   nodeId: activeField.nodeId,
-                  subfieldId: activeField.subfieldId,
+                  subfieldId,
                   align: value,
                   ...domFitCheckers,
                 }),

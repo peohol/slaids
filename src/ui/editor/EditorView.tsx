@@ -956,6 +956,10 @@ export function EditorView({
                 slide={slide}
                 actions={zoneActions}
                 onAddContent={addContentTo}
+                onPickImage={(nodeId) => {
+                  useEditorStore.getState().selectNode(nodeId)
+                  setImageOpen(true)
+                }}
                 dropTargets={dropTargets}
               />
             )}

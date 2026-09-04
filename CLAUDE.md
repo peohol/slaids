@@ -13,6 +13,22 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Fast logisk designrom: `1600 × 900`. Skaleres uniformt til viewport.
 - Layout er et rekursivt tre: `split` har `children` og aldri `content`; `leaf` har `content` og aldri `children`.
 - Kort og beholdere deler den samme `CardBody`: en beholder er et gjennomsiktig kort.
+- **Et bilde er en egen innholdstype, ikke en beholder med en annen hatt.** `image` fyller
+  sonen helt ut til kantene og har kortets hjørner og skygge; `titled-image-card` er det
+  samme bildet under et vanlig tittelpanel. Begge bærer den samme `ImagePanel`, så ett
+  utsnitt, én bildetekst og én renderer (`ImagePanelView`) dekker begge. Bildet
+  **beskjæres**, aldri letterboxes: `object-fit: cover` bestemmer skaleringen og `focus`
+  (to tall mellom 0 og 1) hvilken del som er i vinduet. Ingenting slettes – utsnittet er
+  et vindu inn i filen og kan flyttes når som helst. Fordi et bilde alltid er beskåret til
+  rammen sin, kan det aldri flyte over: det eneste fit-guarden har en mening om her er
+  bildeteksten.
+- **Det finnes ikke en tom bildetekst.** En ny bildetekst tar markøren, og en som forlates
+  tom fjerner seg selv – derfor er det trygt at *enhver* tom bildetekst autofokuseres: en
+  tom kan bare være en helt fersk. Bildeteksten er alltid midtstilt, hvit med skygge
+  uansett fargetone (30 % av en farge over et ukjent fotografi er ingen bakgrunn å regne
+  kontrast mot), og fargen er `null` til noen velger en – da leser den forsidens pillefarge,
+  akkurat som en overskrift og et titteldpanel gjør. Et kort med tittel og bilde har
+  allerede et panel langs overkanten, så bildeteksten kan bare stå i midten eller nederst.
 - `children.length === weights.length`; 2–10 barn; alle weights er endelige tall `> 0`.
 - Nøyaktig ett globalt gap `G` mellom alt synlig innhold. Nesting skal aldri doble gap.
   Strukturelle noder har aldri egen margin/padding som påvirker layoutgeometri.
@@ -254,8 +270,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `cloneContentWithNewIds` – to soner med samme content-id er et ødelagt
   dokument – og assetreferansen fornyes ikke: en fil dupliseres ikke av å vises
   to steder. Kloningen spør `bodyOf`/`withBody` om hvor kroppen ligger i stedet
-  for å liste innholdstypene: en ren tekstsone er en `container` hvis payload
-  *er* en `CardBody`, og en liste over «de to korttypene» lot nettopp den dele
+  for å liste innholdstypene: en ren tekstsone er en `container` som *er* en
+  `CardBody`, og en liste over «de to korttypene» lot nettopp den dele
   subfelt-id-er med kilden sin. Derfor er `subfieldIds` i svaret det eneste stedet agenten kan få
   kopiens id-er uten en ny lesing. Den ene forskjellen i avvisninger er den som
   følger av id-semantikken: en flytting til sonen innholdet allerede står i er
@@ -366,7 +382,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - **Slaids genererer aldri bilder.** Ingen bildegenerering i appen, ingen ekstern
   bildetjeneste, ingen `generate_image(prompt)`. Et rasterbilde kommer inn ferdig
   (`upload_asset`), en figur kommer inn som SVG-markup (`create_svg_asset`), og
-  begge blir helt vanlige assets som `set_zone_asset` plasserer. SVG saneres i
+  begge blir helt vanlige assets som `set_zone_asset` plasserer – der de fyller sonen helt
+  og beskjæres, mens `set_image_focus` velger utsnittet og `set_image_caption` teksten over
+  det. SVG saneres i
   `src/domain/svg.ts` uansett hvilken av de to dørene den kom gjennom, og lagres
   som reserialisert markup – aldri kallerens streng. Formatet avgjøres av bytene
   (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen, og et

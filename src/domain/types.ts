@@ -53,16 +53,6 @@ export type TitleDoc = RichDoc
  * Zone content
  * ------------------------------------------------------------------ */
 
-/** What lives inside a transparent container zone. */
-export type ContainerPayload =
-  /**
-   * A container divides into subfields exactly like a card body does — same
-   * type, same commands, same dividers — because "a transparent card" is what
-   * a container is. One subfield is the ordinary case.
-   */
-  | { type: 'fields'; body: CardBody }
-  | { type: 'asset'; assetId: string; fit: 'contain' | 'cover' }
-
 /** Where content sits when it does not fill the height it is given. */
 export type VerticalAlign = 'top' | 'middle' | 'bottom'
 
@@ -80,12 +70,59 @@ export interface CardBody {
   subfields: Subfield[]
 }
 
+/**
+ * A container divides into subfields exactly like a card body does — same type,
+ * same commands, same dividers — because "a transparent card" is what a
+ * container is. One subfield is the ordinary case.
+ */
 export interface ContainerContent {
   id: string
   kind: 'container'
-  payload: ContainerPayload
-  /** Only meaningful for an `asset` payload; text aligns per subfield. */
-  verticalAlign?: VerticalAlign
+  body: CardBody
+}
+
+/* ------------------------------------------------------------------ *
+ * Pictures
+ * ------------------------------------------------------------------ */
+
+/** Where a caption hangs inside the picture it belongs to. */
+export type CaptionPosition = 'top' | 'middle' | 'bottom'
+
+/**
+ * A caption over a picture.
+ *
+ * One line of text that wraps — the same restricted schema a title uses, so it
+ * cannot grow lists, headings or line breaks it has no room for — in a tinted,
+ * blurred box that hangs from the top edge, floats in the middle, or stands on
+ * the floor of the picture.
+ *
+ * `color` is `null` by default and means the deck's heading pill colour, the
+ * same inheritance a titled card's header and an uncoloured heading follow: a
+ * caption nobody picked a colour for follows the cover, and one that was given
+ * a colour keeps it.
+ */
+export interface ImageCaption {
+  doc: TitleDoc
+  position: CaptionPosition
+  color: string | null
+}
+
+/**
+ * A picture that fills the box it is given, edge to edge.
+ *
+ * It always covers: the box is the frame, and whatever of the picture does not
+ * fit the frame's proportions is hidden rather than letterboxed. Nothing is
+ * thrown away — `focus` says which part of the picture the frame is over, from
+ * `0` (top/left edge) through `0.5` (centred) to `1` (bottom/right edge), so
+ * the crop is a view onto the file and can be moved at any time.
+ *
+ * `assetId` is `null` for a picture panel that has been created but not filled
+ * yet, exactly as an empty text field is a field with nothing in it.
+ */
+export interface ImagePanel {
+  assetId: string | null
+  focus: { x: number; y: number }
+  caption: ImageCaption | null
 }
 
 export interface UntitledCardContent {
@@ -109,9 +146,41 @@ export interface TitledCardContent {
   body: CardBody
 }
 
-export type ZoneContent = ContainerContent | UntitledCardContent | TitledCardContent
+/** A picture filling a whole zone: a card whose entire face is the picture. */
+export interface ImageContent {
+  id: string
+  kind: 'image'
+  image: ImagePanel
+}
+
+/**
+ * A titled card whose body is a picture instead of text.
+ *
+ * The header is a titled card's header, down to the colour inheritance; what
+ * changes is what sits under it. The picture fills the body completely — no
+ * padding, no letterboxing — so the card reads as a title panel over a
+ * photograph. Its caption cannot hang from the top, because the header is
+ * already there.
+ */
+export interface TitledImageCardContent {
+  id: string
+  kind: 'titled-image-card'
+  headerColor: string | null
+  title: TitleDoc
+  image: ImagePanel
+}
+
+export type ZoneContent =
+  | ContainerContent
+  | UntitledCardContent
+  | TitledCardContent
+  | ImageContent
+  | TitledImageCardContent
 
 export type ZoneContentKind = ZoneContent['kind']
+
+/** The content kinds whose face is a picture rather than text. */
+export type ImageZoneContent = ImageContent | TitledImageCardContent
 
 /* ------------------------------------------------------------------ *
  * Layout tree

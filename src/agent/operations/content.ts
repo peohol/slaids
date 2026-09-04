@@ -27,12 +27,20 @@ import {
   setCardColor,
   setCardTitle,
   setContentKind,
+  setImageCaption,
+  setImageFocus,
   setSubfieldCount,
   setSubfieldDoc,
   setVerticalAlign,
   setZoneContent,
 } from '../../domain/commands'
-import { bodyOf, containerWithDoc, createContentOfKind } from '../../domain/content'
+import {
+  bodyOf,
+  captionPositionsFor,
+  containerWithDoc,
+  createContentOfKind,
+  imagePanelOf,
+} from '../../domain/content'
 import { findLeaf, findNode } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
@@ -417,16 +425,16 @@ export const setVerticalAlignment = defineOperation({
       // `null` is the container's own alignment, which is what a zone showing a
       // file has instead of fields.
       const body = bodyOf(zone.value.content)
-      let subfieldId: string | null = null
-      if (body) {
-        const resolved = resolveSubfield(body, input.subfieldId)
-        if (!resolved.ok) return resolved
-        subfieldId = resolved.value
-      } else if (input.subfieldId !== undefined) {
-        return err('SUBFIELD_NOT_FOUND', 'Sonen viser en fil og har ingen tekstfelt.', {
-          subfieldId: input.subfieldId,
+      // Every alignment names a field: a picture has no flow to align, and a
+      // caption is centred by construction.
+      if (!body) {
+        return err('SUBFIELD_NOT_FOUND', 'Sonen viser et bilde og har ingen tekstfelt.', {
+          subfieldId: input.subfieldId ?? null,
         })
       }
+      const resolved = resolveSubfield(body, input.subfieldId)
+      if (!resolved.ok) return resolved
+      const subfieldId = resolved.value
 
       const aligned = setVerticalAlign(presentation, {
         slideId: input.slideId,
@@ -449,4 +457,138 @@ export const setVerticalAlignment = defineOperation({
   },
 })
 
-export const contentOperations = [setZoneText, setZoneCard, adjustSubfields, setVerticalAlignment]
+/* ------------------------------------------------------------------ *
+ * set_image_focus
+ * ------------------------------------------------------------------ */
+
+/**
+ * A picture in a zone always fills it and is cropped, so which part of the file
+ * is on screen is a real editorial decision — and the only one an agent cannot
+ * make by choosing a different file. Both coordinates run from 0 (the top or
+ * left edge of the file) through 0.5 (centred, the default) to 1.
+ */
+const focusCoordinate = z.number().min(0).max(1)
+
+export const setImageFocusOperation = defineOperation({
+  name: 'set_image_focus',
+  summary: 'Velg hvilken del av bildet som vises når det beskjæres av sonen.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    slideId: slideIdSchema,
+    nodeId: nodeIdSchema,
+    x: focusCoordinate.describe('0 = venstre kant av filen, 0.5 = midtstilt, 1 = høyre kant.'),
+    y: focusCoordinate.describe('0 = toppen av filen, 0.5 = midtstilt, 1 = bunnen.'),
+  }),
+  run(context, input): Promise<AgentResult<ZoneImageResult>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const moved = setImageFocus(presentation, {
+        slideId: input.slideId,
+        nodeId: input.nodeId,
+        focus: { x: input.x, y: input.y },
+        ...structuralOptions(context),
+      })
+      if (!moved.ok) return moved
+      return ok({ presentation: moved.value, value: zoneImageResult(presentation.id, input) })
+    })
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * set_image_caption
+ * ------------------------------------------------------------------ */
+
+export const setImageCaptionOperation = defineOperation({
+  name: 'set_image_caption',
+  summary:
+    'Legg til, flytt, farg eller fjern bildeteksten over et bilde. Avvises hvis teksten ikke får plass.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    slideId: slideIdSchema,
+    nodeId: nodeIdSchema,
+    position: z
+      .enum(['top', 'middle', 'bottom'])
+      .optional()
+      .describe(
+        'Hvor teksten henger i bildet. Et kort med tittel og bilde har allerede et panel øverst og tar bare `middle` og `bottom`.',
+      ),
+    spans: titleSpansSchema
+      .optional()
+      .describe('Selve teksten, som én linje som brytes. Utelatt beholder teksten som står der.'),
+    color: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        'Bakgrunnsfargen som hex. `null` betyr dekkets standardfarge fra forsiden, som er utgangspunktet.',
+      ),
+    remove: z.boolean().optional().describe('Sett til true for å fjerne bildeteksten.'),
+  }),
+  run(context, input): Promise<AgentResult<ZoneImageResult>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const zone = findZone(presentation, input.slideId, input.nodeId)
+      if (!zone.ok) return zone
+      const content = zone.value.content
+      const panel = content ? imagePanelOf(content) : null
+      if (!content || !panel) {
+        return err('INVALID_CONTENT', 'Sonen viser ikke et bilde.')
+      }
+      if (!input.remove) {
+        const cited = unknownReferenceIds(presentation, citedIdsInSpans(input.spans ?? []))
+        if (cited.length > 0) {
+          return err('REFERENCE_NOT_FOUND', 'Bildeteksten siterer referanser som ikke finnes.', {
+            referenceIds: cited,
+          })
+        }
+        // Said here as well as in the command, so the failure names what the
+        // caller may ask for instead of only what it may not.
+        const allowed = captionPositionsFor(content.kind)
+        if (input.position && !allowed.includes(input.position)) {
+          return err('INVALID_ARGUMENT', 'Bildeteksten kan ikke stå der på denne innholdstypen.', {
+            allowed: [...allowed],
+          })
+        }
+      }
+
+      const changed = setImageCaption(presentation, {
+        slideId: input.slideId,
+        nodeId: input.nodeId,
+        ...(input.position ? { position: input.position } : {}),
+        ...(input.spans ? { doc: titleSpansToDoc(input.spans) } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.remove ? { remove: true } : {}),
+        ...structuralOptions(context),
+      })
+      if (!changed.ok) return changed
+      return ok({ presentation: changed.value, value: zoneImageResult(presentation.id, input) })
+    })
+  },
+})
+
+/** Both picture operations answer with the zone they acted on, and nothing more. */
+interface ZoneImageResult {
+  presentationId: string
+  slideId: string
+  nodeId: string
+}
+
+function zoneImageResult(
+  presentationId: string,
+  input: { slideId: string; nodeId: string },
+): ZoneImageResult {
+  return { presentationId, slideId: input.slideId, nodeId: input.nodeId }
+}
+
+export const contentOperations = [
+  setZoneText,
+  setZoneCard,
+  adjustSubfields,
+  setVerticalAlignment,
+  setImageFocusOperation,
+  setImageCaptionOperation,
+]
