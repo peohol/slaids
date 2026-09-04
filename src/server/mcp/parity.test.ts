@@ -165,6 +165,59 @@ describe('lesing gir det samme over begge transportene', () => {
     expect((read.restData as { theme: { spacing: number } }).theme.spacing).toBe(1.3)
   })
 
+  it('sandkassen er den samme på tvers av transportene, id for id', async () => {
+    const harnessed = harness()
+    const deck = await newPresentation(harnessed, 'Sandkasse begge veier')
+
+    await rest(harnessed, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Parkert innhold' }] }],
+    })
+    // Sent to the sandbox over REST …
+    const cleared = await rest(harnessed, 'clear_zone', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+    })
+    const itemId = (cleared.body.data as { sandboxItemIds: string[] }).sandboxItemIds[0]
+
+    // … found again over MCP, in the same shape REST would have reported it.
+    const listedBothWays = await bothWays(harnessed, 'list_sandbox_items', {
+      presentationId: deck.presentationId,
+    })
+    expect(listedBothWays.restData).toEqual(listedBothWays.mcpData)
+    expect((listedBothWays.mcpData as { items: { itemId: string }[] }).items.map((i) => i.itemId)).toEqual([
+      itemId,
+    ])
+
+    // … and placed back over MCP, landing on the same document REST reads.
+    const other = await rest(harnessed, 'add_slide', { presentationId: deck.presentationId })
+    const otherSlideId = (other.body.data as { slideId: string }).slideId
+    const otherInspected = await rest(harnessed, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: otherSlideId,
+    })
+    const otherNodeId = (
+      otherInspected.body.data as { zones: { nodeId: string; kind: string }[] }
+    ).zones.find((zone) => zone.kind === 'leaf')?.nodeId as string
+
+    const placed = await callTool(harnessed, tool('place_sandbox_item'), {
+      presentationId: deck.presentationId,
+      itemId,
+      slideId: otherSlideId,
+      nodeId: otherNodeId,
+    })
+    expect(placed.isError).toBeFalsy()
+
+    const readBothWays = await bothWays(harnessed, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(readBothWays.restData).toEqual(readBothWays.mcpData)
+    expect((readBothWays.restData as { sandboxCount: number }).sandboxCount).toBe(0)
+  })
+
   it('lar en revisjon lest over den ene transporten skrive over den andre', async () => {
     const harnessed = harness()
     const deck = await newPresentation(harnessed)

@@ -937,6 +937,12 @@ Krav:
 
 Sandbox kommer rett etter content-fit i prioritert backlog.
 
+> **Oppdatert:** en agent har samme tilgang til sandkassen som editoren, gjennom
+> `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item` og
+> `delete_sandbox_item` i § 44 – tynne innpakninger over de samme
+> domenekommandoene (`placeSandboxItem` m.fl.) som drag-and-drop-flyten over
+> bruker, aldri en egen agentkopi av reglene.
+
 ---
 
 ## 26\. Bilder og SVG
@@ -1935,6 +1941,11 @@ set_zone_card
 set_zone_asset
 set_vertical_alignment
 
+list_sandbox_items
+place_sandbox_item
+duplicate_sandbox_item
+delete_sandbox_item
+
 add_reference
 update_reference
 delete_reference
@@ -2557,6 +2568,29 @@ hent previewet, og verifiser at det er en gyldig, ikke-tom PNG på 1600 × 900 m
 mer enn én farge der innholdet ligger – og at bildet endrer seg når dekket gjør
 det.
 
+For fase 6, sandkassen, i tillegg – som ett sammenhengende livsløp, ikke bare
+isolerte kall:
+
+- bygg innhold på en slide, utfør en strukturendring som sender det til
+  sandkassen, les sandkassen igjen og finn elementet med `list_sandbox_items`,
+  i samme tekstformat `inspect_slide` bruker;
+- plasser elementet i en ny sone med `place_sandbox_item`, og verifiser at det
+  er borte fra sandkassen og riktig til stede på sliden, begge veier lest
+  tilbake;
+- dupliser og slett et sandkasseelement;
+- en utdatert `expectedRevision` gir `CONFLICT` på `place_sandbox_item`, uten å
+  skrive noe;
+- en ukjent `itemId` gir `SANDBOX_ITEM_NOT_FOUND` på alle tre mutasjonene, uten
+  å skrive noe;
+- et element som ikke får plass i målsonen avvises med `CONTENT_DOES_NOT_FIT`,
+  atomisk – sandkassen og målsonen er uendret etterpå;
+- en tilbakeplassering som endrer citation-nummereringen på en helt annen slide
+  må gjennom den samme globale fit-guarden (`guardFit`) som enhver annen
+  citation-bærende endring, og avvises der innholdet selv ikke endret et
+  eneste tegn;
+- REST og MCP er enige om sandkassen, id for id, og den offisielle
+  MCP-klienten godtar `list_sandbox_items`- og `place_sandbox_item`-verktøyene.
+
 ### Ferdigkriterium
 
 Agentfunksjonen er ikke ferdig bare fordi en agent kan lage gyldig JSON.
@@ -2599,8 +2633,9 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   save, med fit-sjekkerne som aldri utelates; `text.ts` er det agentvennlige
   tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
   `operations/` er selve operasjonene.
-- Lesing: `list_presentations`, `get_presentation` (som også bærer temaet),
-  `inspect_slide`, `list_assets`, `validate_slide`, `validate_presentation`.
+- Lesing: `list_presentations`, `get_presentation` (som også bærer temaet og
+  `sandboxCount`), `inspect_slide`, `list_assets`, `list_sandbox_items`,
+  `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
 - Skriving: `create_presentation`, `set_presentation_title`, `set_theme`,
   `set_cover`, `set_cover_color`, `add_slide`,
@@ -2608,6 +2643,7 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
   `adjust_split`, `delete_zone`,
   `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
+  `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
   `create_svg_asset`, `set_zone_asset`.
 - Ingen av dem inneholder domenelogikk. Manglet det en kommando, ble den laget i
@@ -3232,6 +3268,30 @@ citation som forsvinner tar en referanses første forekomst med seg – da
 renummereres citations på slides ingen har rørt. Se kommandolisten i
 `fitGuard.ts`.
 
+Sandkassen var det eneste stedet i flaten der en operasjons egen standardverdi
+(`disposition: 'sandbox'`) la innhold et sted API-et ikke nådde: en agent kunne
+sende innhold dit, men verken se det, hente det tilbake, kopiere det eller
+kaste det. Fire operasjoner lukker det hullet, og ingen av dem legger
+sandkasse-, fit- eller layoutlogikk i agentlaget – alt av det bor fortsatt i
+domenekommandoene. `list_sandbox_items` leser hvert element med en stabil
+`itemId` og innholdet i den samme vokabularen `inspect_slide` bruker for en
+sone (`inspectContent`, delt av begge – én funksjon, ikke to som kan gli fra
+hverandre); telling alene bor i `get_presentation` som `sandboxCount`, av samme
+grunn `assetCount` gjør det. `place_sandbox_item`, `duplicate_sandbox_item` og
+`delete_sandbox_item` er tynne innpakninger over `placeSandboxItem`,
+`duplicateSandboxItem` og `deleteSandboxItem`: fit-gating (både den absolutte
+plasseringssjekken og den globale citation-guarden), håndtering av en opptatt
+målsone, atomisitet og `expectedRevision` er alt sammen kommandoenes egne,
+uendret. De strukturelle operasjonene som allerede sendte innhold til
+sandkassen (`split_zone`, `adjust_split`, `delete_zone`, `clear_zone`,
+`set_zone_asset`) svarer nå også med `sandboxItemIds` – og `place_sandbox_item`
+med `displacedSandboxItemId` – så en agent som nettopp forårsaket en
+sandkasseplassering kan fortsette direkte i stedet for å lese sandkassen på
+nytt bare for å finne id-en sitt eget kall utløste. Id-ene regnes ut ved å
+sammenligne dokumentets `sandbox`-liste før og etter kallet
+(`sandboxIdsAdded` i `src/agent/presentation.ts`), aldri ved at en
+domenekommando begynner å returnere noe den ikke returnerte før.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
@@ -3242,10 +3302,6 @@ ikke mekanisk:
   ligger alltid stablet nedover med like vekter. To tekstkolonner *inne i* det
   samme kortet er derfor en komposisjon editoren tilbyr og agenten må erstatte
   med to soner og et gap.
-- **Sandkassen.** En agent kan sende innhold dit (`disposition: 'sandbox'`, som
-  er standarden), men ikke se, hente tilbake eller slette det etterpå. Det er
-  det eneste stedet i flaten der en operasjons egen standardverdi legger noe et
-  sted API-et ikke når.
 - **Livsløp utover navnet.** Slette, duplisere og flytte en presentasjon mellom
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til

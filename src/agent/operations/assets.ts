@@ -28,7 +28,7 @@ import {
   presentationIdSchema,
   slideIdSchema,
 } from '../operation'
-import { loadPresentation, mutatePresentation, structuralOptions } from '../presentation'
+import { loadPresentation, mutatePresentation, sandboxIdsAdded, structuralOptions } from '../presentation'
 import { agentOk, fromDomainError, type AgentResult } from '../types'
 
 /* ------------------------------------------------------------------ *
@@ -154,6 +154,8 @@ export interface ZoneAssetPlacement {
   /** How many pieces of displaced content were parked in the sandbox. */
   movedToSandbox: number
   discarded: number
+  /** The sandbox items this call actually created. */
+  sandboxItemIds: string[]
 }
 
 export const setZoneAsset = defineOperation({
@@ -191,6 +193,7 @@ export const setZoneAsset = defineOperation({
           assetId: input.assetId,
           movedToSandbox: placed.value.movedToSandbox.length,
           discarded: placed.value.discarded.length,
+          sandboxItemIds: sandboxIdsAdded(presentation, placed.value.presentation),
         },
       })
     })

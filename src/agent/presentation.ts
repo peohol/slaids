@@ -173,6 +173,22 @@ export interface MutationRequest {
 export type Mutated<T> = T & { revision: string }
 
 /**
+ * The ids `appendToSandbox` gave content that just landed in the sandbox.
+ *
+ * Diffed rather than threaded through a command's own return value: content
+ * has no id of its own until `appendToSandbox` assigns one, and by the time a
+ * structural command returns, what it reports (`StructuralOutcome`'s
+ * `ZoneContent[]`, or the plain content `moveZoneContentToSandbox` displaced)
+ * has already lost it. A set difference finds the new ones regardless of
+ * whether the same call also removed other items — `placeSandboxItem` does
+ * both at once — because removing an id can never make it look new.
+ */
+export function sandboxIdsAdded(before: Presentation, after: Presentation): string[] {
+  const known = new Set(before.sandbox.map((item) => item.id))
+  return after.sandbox.filter((item) => !known.has(item.id)).map((item) => item.id)
+}
+
+/**
  * Run domain commands in order against one in-memory document.
  *
  * This is what makes a semantic operation that needs several domain steps
