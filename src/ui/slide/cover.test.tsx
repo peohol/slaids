@@ -16,7 +16,7 @@ import { deckPages, deckProgress } from '../../domain/pages'
 import { createPresentation } from '../../domain/presentation'
 import { titleDoc } from '../../domain/richdoc'
 import { createLeaf } from '../../domain/layout'
-import { createUntitledCard } from '../../domain/content'
+import { createTitledCard, createUntitledCard } from '../../domain/content'
 import type { Presentation, RichDoc } from '../../domain/types'
 import { DeckPageView } from './DeckPageView'
 import { RichDocView } from './RichDocView'
@@ -138,5 +138,42 @@ describe('a heading pill', () => {
     // …and the heading that was given a colour is untouched by either.
     expect(before).toContain(`background:${PICKED}`)
     expect(after).toContain(`background:${PICKED}`)
+  })
+})
+
+describe('a titled card’s header', () => {
+  function deckWithTitledCard(headerColor: string | null): Presentation {
+    const presentation = deck()
+    return {
+      ...presentation,
+      slides: [{ ...presentation.slides[0], root: createLeaf(createTitledCard('Tittel', headerColor)) }],
+    }
+  }
+
+  it('takes the deck’s pill colour when it carries none of its own', () => {
+    const presentation = deckWithTitledCard(null)
+    const markup = render(presentation, <SlideView slide={presentation.slides[0]} />)
+    expect(markup).toContain(`background:${COVER_COLOR}`)
+  })
+
+  it('keeps a colour that was picked by hand', () => {
+    const presentation = deckWithTitledCard(PICKED)
+    const markup = render(presentation, <SlideView slide={presentation.slides[0]} />)
+    expect(markup).toContain(`background:${PICKED}`)
+    expect(markup).not.toContain(`background:${COVER_COLOR}`)
+  })
+
+  it('follows a recoloured cover without the card storing anything', () => {
+    const presentation = deckWithTitledCard(null)
+    const recoloured: Presentation = {
+      ...presentation,
+      cover: { ...presentation.cover, pillColor: DEFAULT_PILL_COLOR },
+    }
+    expect(recoloured.slides).toBe(presentation.slides)
+
+    const before = render(presentation, <SlideView slide={presentation.slides[0]} />)
+    const after = render(recoloured, <SlideView slide={recoloured.slides[0]} />)
+    expect(before).toContain(`background:${COVER_COLOR}`)
+    expect(after).toContain(`background:${DEFAULT_PILL_COLOR}`)
   })
 })

@@ -127,7 +127,7 @@ export function ZoneContentFrame({
   renderField,
   renderAsset,
 }: ZoneContentFrameProps) {
-  const { theme } = useSlideRender()
+  const { theme, headingPillColor } = useSlideRender()
   const tokens = themeMetrics(theme)
 
   if (content.kind === 'container') {
@@ -195,7 +195,14 @@ export function ZoneContentFrame({
     )
   }
 
-  const headerText = bestTextColor(content.headerColor)
+  /*
+   * A card with no header colour of its own takes the deck's heading pill
+   * colour — the same rule a heading with no stored colour follows — so
+   * changing the cover repaints every such title panel without touching a
+   * single stored document.
+   */
+  const headerColor = content.headerColor ?? headingPillColor
+  const headerText = bestTextColor(headerColor)
   return (
     /*
      * The card paints nothing itself: the header and the body each carry their
@@ -224,12 +231,12 @@ export function ZoneContentFrame({
         className="card-header"
         data-fit-scroll=""
         style={{
-          background: content.headerColor,
+          background: headerColor,
           color: headerText,
           height: tokens.cardHeaderHeight,
           padding: `0 ${tokens.cardPadding}px`,
           borderRadius: `${CARD_RADIUS}px ${CARD_RADIUS}px 0 0`,
-          textShadow: textShadowFor(content.headerColor),
+          textShadow: textShadowFor(headerColor),
           fontFamily: theme.headingFontFamily,
         }}
       >

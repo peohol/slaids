@@ -326,6 +326,38 @@ const migrate7to8: MigrationFn = (data) => ({
  */
 const LEGACY_HEADING_COLOR = '#33475b'
 
+/**
+ * The same story as `migrate7to8`, one version later and for the other panel
+ * that carries a colour: a titled card's header. Until now `headerColor` was
+ * mandatory, so the factory wrote the same literal into every card whether or
+ * not anyone picked a colour. From here `headerColor` is `null` until somebody
+ * chooses one, and a card with none reads the cover's pill colour — so a
+ * stored colour that is exactly the old default is cleared, and any other
+ * colour is a real decision and is kept untouched.
+ */
+const migrate8to9: MigrationFn = (data) => ({
+  ...(dropDefaultHeaderColors(data) as Raw),
+  schemaVersion: 9,
+})
+
+function dropDefaultHeaderColors(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(dropDefaultHeaderColors)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = dropDefaultHeaderColors(entry)
+
+  if (
+    record.kind === 'titled-card' &&
+    typeof out.headerColor === 'string' &&
+    normalizeHex(out.headerColor) === LEGACY_HEADING_COLOR
+  ) {
+    out.headerColor = null
+  }
+  return out
+}
+
 function dropDefaultHeadingColors(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(dropDefaultHeadingColors)
   if (!value || typeof value !== 'object') return value
@@ -380,6 +412,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   5: migrate5to6,
   6: migrate6to7,
   7: migrate7to8,
+  8: migrate8to9,
 }
 
 /**

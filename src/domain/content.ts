@@ -19,7 +19,6 @@ import type {
 } from './types'
 
 export const DEFAULT_CARD_BACKGROUND = WHITE
-export const DEFAULT_HEADER_COLOR = '#33475b'
 
 export function createSubfield(doc: RichDoc = emptyDoc()): Subfield {
   return { id: newSubfieldId(), doc }
@@ -60,9 +59,15 @@ export function createUntitledCard(backgroundColor = DEFAULT_CARD_BACKGROUND): U
   }
 }
 
+/**
+ * A titled card with no colour of its own inherits the deck's heading pill
+ * colour (see `TitledCardContent.headerColor`), so `null` is the default
+ * rather than a literal shade that would then need migrating every time the
+ * cover's colour changes.
+ */
 export function createTitledCard(
   title = '',
-  headerColor = DEFAULT_HEADER_COLOR,
+  headerColor: string | null = null,
   subfieldCount = 1,
 ): TitledCardContent {
   return {

@@ -15,6 +15,7 @@ import {
   setSubfieldCount,
 } from '../../domain/commands'
 import { bodyOf, CONTENT_KIND_LABELS, createCardBody } from '../../domain/content'
+import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
@@ -50,6 +51,7 @@ export function Inspector({
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
+  const pillColor = useEditorStore((state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR)
   const run = useEditorStore((state) => state.run)
   /** A payload switch that would destroy content, waiting for confirmation. */
   const [pendingPayload, setPendingPayload] = useState<{
@@ -192,11 +194,32 @@ export function Inspector({
             {content.kind === 'titled-card' ? 'Tittelfarge' : 'Kortfarge'}
           </h2>
           <ColorSwatchGrid
-            value={content.kind === 'titled-card' ? content.headerColor : content.backgroundColor}
+            value={
+              content.kind === 'titled-card'
+                ? (content.headerColor ?? pillColor)
+                : content.backgroundColor
+            }
             onSelect={(color) =>
               run('card-color', (current) =>
                 setCardColor(current, { slideId: slide.id, nodeId: selectedNodeId, color }),
               )
+            }
+            inherited={
+              content.kind === 'titled-card'
+                ? {
+                    color: pillColor,
+                    label: 'Standard (fra forsiden)',
+                    active: content.headerColor === null,
+                    onSelect: () =>
+                      run('card-color', (current) =>
+                        setCardColor(current, {
+                          slideId: slide.id,
+                          nodeId: selectedNodeId,
+                          color: null,
+                        }),
+                      ),
+                  }
+                : undefined
             }
           />
         </section>
