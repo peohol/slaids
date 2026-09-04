@@ -2,43 +2,35 @@
  * Properties panel for the selected zone.
  *
  * This is where the zone-level and content-level domain commands are exposed:
- * split, clear, delete, content type, colours, subfields and container payload.
+ * split, clear, delete, content type, colours, subfields and captions.
  */
 
-import { useState } from 'react'
 import {
   setBodyAxis,
   setBodyWeights,
   setCardColor,
-  setContainerPayload,
   setContentKind,
+  setImageCaption,
   setSubfieldCount,
 } from '../../domain/commands'
-import { bodyOf, CONTENT_KIND_LABELS, createCardBody } from '../../domain/content'
+import {
+  bodyOf,
+  CAPTION_POSITION_LABELS,
+  CONTENT_KIND_LABELS,
+  captionPositionsFor,
+  imagePanelOf,
+} from '../../domain/content'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import { isDocEmpty } from '../../domain/richdoc'
 import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
-import type { Axis, ContainerPayload, Slide, ZoneContentKind } from '../../domain/types'
+import type { Axis, Slide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
-import { ConfirmDialog } from '../components/ConfirmDialog'
-import { Icon, type IconName } from '../components/Icon'
+import { Icon } from '../components/Icon'
+import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
 import type { ZoneAction } from './ZoneOverlay'
-
-const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
-  container: 'container',
-  'untitled-card': 'card',
-  'titled-card': 'card-titled',
-}
-
-/** Does replacing this payload throw away something the user made? */
-function payloadHasWork(payload: ContainerPayload): boolean {
-  if (payload.type === 'asset') return true
-  return payload.body.subfields.some((field) => !isDocEmpty(field.doc))
-}
 
 export function Inspector({
   slide,
@@ -51,18 +43,16 @@ export function Inspector({
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
-  const pillColor = useEditorStore((state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR)
+  const pillColor = useEditorStore(
+    (state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR,
+  )
   const run = useEditorStore((state) => state.run)
-  /** A payload switch that would destroy content, waiting for confirmation. */
-  const [pendingPayload, setPendingPayload] = useState<{
-    nodeId: string
-    payload: ContainerPayload
-  } | null>(null)
 
   const node = selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const leaf = selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
   const content = leaf?.content ?? null
   const body = content ? bodyOf(content) : null
+  const panel = content ? imagePanelOf(content) : null
   const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
@@ -75,26 +65,16 @@ export function Inspector({
     )
   }
 
-  const applyPayload = (nodeId: string, payload: ContainerPayload): void => {
-    run('container-payload', (current) =>
-      setContainerPayload(current, { slideId: slide.id, nodeId, payload, ...domFitCheckers }),
-    )
-  }
-
-  /**
-   * Picking the type that is already active must not wipe the container: an
-   * extra click on the highlighted button is the easiest mistake to make. A
-   * real switch away from authored content asks first.
-   */
-  const requestPayload = (payload: ContainerPayload): void => {
-    if (!content || content.kind !== 'container') return
-    if (content.payload.type === payload.type) return
-    if (payloadHasWork(content.payload)) {
-      setPendingPayload({ nodeId: selectedNodeId, payload })
-      return
-    }
-    applyPayload(selectedNodeId, payload)
-  }
+  /* A titled card and a titled image card carry the same header, down to the
+     inheritance; a card without a title has no deck-wide colour to fall back on,
+     and a container or a picture that is the whole card has no panel at all. */
+  const coloured =
+    content !== null &&
+    (content.kind === 'untitled-card' ||
+      content.kind === 'titled-card' ||
+      content.kind === 'titled-image-card')
+      ? content
+      : null
 
   return (
     <aside className="inspector" data-testid="inspector">
@@ -145,7 +125,7 @@ export function Inspector({
         <section className="inspector__section">
           <h2 className="inspector__heading">Innhold</h2>
           <div className="inspector__actions">
-            {(Object.keys(CONTENT_ICONS) as ZoneContentKind[]).map((kind) => (
+            {CONTENT_KINDS.map((kind) => (
               <button
                 key={kind}
                 type="button"
@@ -153,7 +133,7 @@ export function Inspector({
                 data-testid={`inspector-add-${kind}`}
                 onClick={() => onAddContent(selectedNodeId, kind)}
               >
-                <Icon name={CONTENT_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
+                <Icon name={CONTENT_KIND_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
               </button>
             ))}
           </div>
@@ -164,7 +144,7 @@ export function Inspector({
         <section className="inspector__section">
           <h2 className="inspector__heading">Innholdstype</h2>
           <div className="inspector__actions">
-            {(Object.keys(CONTENT_ICONS) as ZoneContentKind[]).map((kind) => (
+            {CONTENT_KINDS.map((kind) => (
               <button
                 key={kind}
                 type="button"
@@ -181,23 +161,23 @@ export function Inspector({
                   )
                 }
               >
-                <Icon name={CONTENT_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
+                <Icon name={CONTENT_KIND_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
               </button>
             ))}
           </div>
         </section>
       )}
 
-      {content && content.kind !== 'container' && (
+      {coloured && (
         <section className="inspector__section">
           <h2 className="inspector__heading">
-            {content.kind === 'titled-card' ? 'Tittelfarge' : 'Kortfarge'}
+            {coloured.kind === 'untitled-card' ? 'Kortfarge' : 'Tittelfarge'}
           </h2>
           <ColorSwatchGrid
             value={
-              content.kind === 'titled-card'
-                ? (content.headerColor ?? pillColor)
-                : content.backgroundColor
+              coloured.kind === 'untitled-card'
+                ? coloured.backgroundColor
+                : (coloured.headerColor ?? pillColor)
             }
             onSelect={(color) =>
               run('card-color', (current) =>
@@ -205,11 +185,12 @@ export function Inspector({
               )
             }
             inherited={
-              content.kind === 'titled-card'
-                ? {
+              coloured.kind === 'untitled-card'
+                ? undefined
+                : {
                     color: pillColor,
                     label: 'Standard (fra forsiden)',
-                    active: content.headerColor === null,
+                    active: coloured.headerColor === null,
                     onSelect: () =>
                       run('card-color', (current) =>
                         setCardColor(current, {
@@ -219,9 +200,97 @@ export function Inspector({
                         }),
                       ),
                   }
-                : undefined
             }
           />
+        </section>
+      )}
+
+      {/*
+        A picture's caption. Where it may hang is the content kind's rule — a
+        titled image card has a header along the top already — so the buttons
+        come from `captionPositionsFor` rather than from a list written here.
+      */}
+      {content && panel && (
+        <section className="inspector__section" data-testid="caption-panel">
+          <h2 className="inspector__heading">Bildetekst</h2>
+          <p className="hint">
+            {panel.caption
+              ? 'Klikk i bildeteksten for å skrive. En tom bildetekst forsvinner av seg selv.'
+              : 'Legg en tekst over bildet. Den er alltid midtstilt.'}
+          </p>
+          <div className="inspector__actions">
+            {captionPositionsFor(content.kind).map((position) => (
+              <button
+                key={position}
+                type="button"
+                className={
+                  panel.caption?.position === position ? 'btn btn--sm btn--active' : 'btn btn--sm'
+                }
+                data-testid={`caption-position-${position}`}
+                onClick={() =>
+                  run('caption-position', (current) =>
+                    setImageCaption(current, {
+                      slideId: slide.id,
+                      nodeId: selectedNodeId,
+                      position,
+                      ...domFitCheckers,
+                    }),
+                  )
+                }
+              >
+                {CAPTION_POSITION_LABELS[position]}
+              </button>
+            ))}
+            {panel.caption && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                data-testid="caption-remove"
+                onClick={() =>
+                  run('caption-remove', (current) =>
+                    setImageCaption(current, {
+                      slideId: slide.id,
+                      nodeId: selectedNodeId,
+                      remove: true,
+                    }),
+                  )
+                }
+              >
+                <Icon name="trash" size={14} /> Fjern
+              </button>
+            )}
+          </div>
+
+          {panel.caption && (
+            <>
+              <h3 className="inspector__subheading">Bakgrunnsfarge</h3>
+              <ColorSwatchGrid
+                value={panel.caption.color ?? pillColor}
+                onSelect={(color) =>
+                  run('caption-color', (current) =>
+                    setImageCaption(current, {
+                      slideId: slide.id,
+                      nodeId: selectedNodeId,
+                      color,
+                    }),
+                  )
+                }
+                inherited={{
+                  color: pillColor,
+                  label: 'Standard (fra forsiden)',
+                  active: panel.caption.color === null,
+                  onSelect: () =>
+                    run('caption-color', (current) =>
+                      setImageCaption(current, {
+                        slideId: slide.id,
+                        nodeId: selectedNodeId,
+                        color: null,
+                      }),
+                    ),
+                }}
+              />
+            </>
+          )}
         </section>
       )}
 
@@ -303,90 +372,6 @@ export function Inspector({
           )}
         </section>
       )}
-
-      {content?.kind === 'container' && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">Beholderinnhold</h2>
-          <div className="inspector__actions">
-            <button
-              type="button"
-              className={content.payload.type === 'fields' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-              data-testid="container-payload-richdoc"
-              onClick={() => requestPayload({ type: 'fields', body: createCardBody(1) })}
-            >
-              <Icon name="text" size={14} /> Tekst
-            </button>
-          </div>
-
-          {content.payload.type === 'asset' && (
-            <>
-              <div className="inspector__actions">
-                {(['contain', 'cover'] as const).map((fit) => {
-                  const payload = content.payload
-                  if (payload.type !== 'asset') return null
-                  return (
-                    <button
-                      key={fit}
-                      type="button"
-                      className={payload.fit === fit ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-                      data-testid={`asset-fit-${fit}`}
-                      onClick={() =>
-                        run('asset-fit', (current) =>
-                          setContainerPayload(current, {
-                            slideId: slide.id,
-                            nodeId: selectedNodeId,
-                            payload: { ...payload, fit },
-                          }),
-                        )
-                      }
-                    >
-                      {fit === 'contain' ? 'Vis hele' : 'Fyll sonen'}
-                    </button>
-                  )
-                })}
-              </div>
-              {/* The corners the rest of the app rounds things with. Stored as a
-                  flag rather than a radius, so a picture follows `CARD_RADIUS`
-                  wherever that goes. */}
-              <div className="inspector__actions">
-                <button
-                  type="button"
-                  className={
-                    content.payload.rounded ? 'btn btn--sm btn--active' : 'btn btn--sm'
-                  }
-                  data-testid="asset-rounded"
-                  aria-pressed={Boolean(content.payload.rounded)}
-                  onClick={() => {
-                    const payload = content.payload
-                    if (payload.type !== 'asset') return
-                    run('asset-rounded', (current) =>
-                      setContainerPayload(current, {
-                        slideId: slide.id,
-                        nodeId: selectedNodeId,
-                        payload: { ...payload, rounded: !payload.rounded },
-                      }),
-                    )
-                  }}
-                >
-                  <Icon name="card" size={14} /> Avrundede hjørner
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-      )}
-
-      <ConfirmDialog
-        open={pendingPayload !== null}
-        title="Bytt innholdstype"
-        message="Beholderen inneholder noe allerede. Bytter du type, erstattes det. Du kan angre med Ctrl+Z."
-        confirmLabel="Erstatt"
-        onConfirm={() => {
-          if (pendingPayload) applyPayload(pendingPayload.nodeId, pendingPayload.payload)
-          setPendingPayload(null)
-        }}
-        onCancel={() => setPendingPayload(null)}
-      />
     </aside>
   )
 }

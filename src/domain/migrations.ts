@@ -340,6 +340,64 @@ const migrate8to9: MigrationFn = (data) => ({
   schemaVersion: 9,
 })
 
+/**
+ * A picture is a content kind of its own.
+ *
+ * Until now a picture filling a zone was a *container* with an `asset` payload
+ * — the same object that otherwise holds text fields, wearing a different hat.
+ * It made a container two things at once, and it made "how does a zone show a
+ * picture" a question with an answer buried one level down. From here a
+ * picture is `image`, a container is text and nothing else, and the payload
+ * wrapper is gone from both.
+ *
+ * The crop moves with it. `fit: 'cover'` was already this: fill the zone and
+ * hide what does not fit, centred. `fit: 'contain'` was the other thing — the
+ * whole file, letterboxed — and it no longer exists, because a picture in a
+ * zone is now always a card filled to the edges. A container's `verticalAlign`
+ * went with `contain` and becomes the crop's vertical focus, which is what it
+ * always meant: `top` framed the top of the file, `bottom` the bottom.
+ *
+ * `rounded` goes with them. It was the choice between square corners and a
+ * card's, and a picture that fills its zone now always has the card's — so
+ * there is no longer a choice to carry over, only a flag to drop.
+ */
+const migrate10to11: MigrationFn = (data) => ({
+  ...(liftAssetContainers(data) as Raw),
+  schemaVersion: 11,
+})
+
+/** The vertical focus a container's alignment stood for. */
+const FOCUS_FOR_ALIGN: Record<string, number> = { top: 0, middle: 0.5, bottom: 1 }
+
+function liftAssetContainers(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(liftAssetContainers)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = liftAssetContainers(entry)
+
+  if (record.kind !== 'container' || !out.payload || typeof out.payload !== 'object') return out
+  const payload = out.payload as Raw
+
+  if (payload.type === 'asset') {
+    const align = typeof out.verticalAlign === 'string' ? out.verticalAlign : 'middle'
+    return {
+      id: out.id,
+      kind: 'image',
+      image: {
+        assetId: typeof payload.assetId === 'string' ? payload.assetId : null,
+        focus: { x: 0.5, y: FOCUS_FOR_ALIGN[align] ?? 0.5 },
+        caption: null,
+      },
+    }
+  }
+  // A text container: the wrapper goes, the body stays exactly as it was. The
+  // alignment goes with it — it never meant anything for text, which aligns
+  // per subfield.
+  return { id: out.id, kind: 'container', body: payload.body }
+}
+
 function dropDefaultHeaderColors(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(dropDefaultHeaderColors)
   if (!value || typeof value !== 'object') return value
@@ -451,6 +509,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   7: migrate7to8,
   8: migrate8to9,
   9: migrate9to10,
+  10: migrate10to11,
 }
 
 /**

@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures'
-import { createPresentation, splitSelected, watchForErrors, zoneRects } from './helpers'
+import {
+  addContentToZone,
+  createPresentation,
+  enterZoneMode,
+  splitSelected,
+  stage,
+  watchForErrors,
+  zoneRects,
+} from './helpers'
 
 test.describe('keyboard shortcuts', () => {
   test('Ctrl+E toggles zone mode and F5 starts the presentation', async ({ page }) => {
@@ -29,6 +37,77 @@ test.describe('keyboard shortcuts', () => {
     expect(await zoneRects(page)).toHaveLength(1)
     await page.keyboard.press('Control+Shift+z')
     expect(await zoneRects(page)).toHaveLength(2)
+  })
+
+  /*
+   * The regression this covers: the rich-text editors used to keep a
+   * ProseMirror history of their own, so a Ctrl+Z with the caret in a field ran
+   * that one *and* the deck's — and the toolbar button was the only thing that
+   * reliably undid anything.
+   */
+  test('Ctrl+Z undoes typing while the caret is still in the field', async ({ page }) => {
+    await createPresentation(page, 'Angre mens man skriver')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+
+    const field = stage(page).locator('.tiptap').last()
+    await field.click()
+    await page.keyboard.type('Første')
+    // Long enough that the two runs cannot coalesce into one undo step.
+    await page.waitForTimeout(900)
+    await page.keyboard.type(' andre')
+    await page.waitForTimeout(900)
+    await expect(field).toHaveText('Første andre')
+
+    await page.keyboard.press('Control+z')
+    await expect(field).toHaveText('Første')
+    await page.keyboard.press('Control+Shift+z')
+    await expect(field).toHaveText('Første andre')
+  })
+
+  test('substitutes dashes, ellipses and separators while typing', async ({ page }) => {
+    await createPresentation(page, 'Typografi')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+
+    const field = stage(page).locator('.tiptap').last()
+    await field.click()
+    await page.keyboard.type('Del 1 - to og... tre * fire')
+    await expect(field).toHaveText('Del 1 – to og… tre · fire')
+
+    // A hyphen without the spaces is a hyphen, and a line-initial dash is a list.
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('e-post 1-2')
+    await expect(field).toContainText('e-post 1-2')
+  })
+
+  test('arrow keys page through the deck, but not while typing', async ({ page }) => {
+    await createPresentation(page, 'Piltaster')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 2')
+
+    await page.keyboard.press('ArrowUp')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+    // One page further up is the cover, which is page one of the deck.
+    await page.keyboard.press('ArrowUp')
+    await expect(page.getByTestId('statusbar')).toContainText('Forside')
+    await page.keyboard.press('ArrowDown')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+
+    // With a caret in a field the arrows belong to the text.
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await stage(page).locator('.tiptap').last().click()
+    await page.keyboard.press('ArrowUp')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+  })
+
+  test('Escape leaves zone editing for content editing', async ({ page }) => {
+    await createPresentation(page, 'Escape ut av soner')
+    await enterZoneMode(page)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('zone-overlay')).toBeHidden()
   })
 
   test('shows the shortcut reference', async ({ page }) => {

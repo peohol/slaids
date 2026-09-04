@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { normalizePastedHtml } from './extensions'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Editor, type Extensions } from '@tiptap/core'
+import { acceptsInlineImage } from './SlaidsImageExtension'
+import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
 
 describe('normalizePastedHtml', () => {
   it('strips all inline styling', () => {
@@ -54,5 +56,48 @@ describe('normalizePastedHtml', () => {
 
   it('handles empty input', () => {
     expect(normalizePastedHtml('')).toBe('')
+  })
+})
+
+describe('a field that can hold a picture', () => {
+  const mounted: { editor: Editor; element: HTMLElement }[] = []
+
+  function editorWith(extensions: Extensions): Editor {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    const editor = new Editor({ element, extensions })
+    mounted.push({ editor, element })
+    return editor
+  }
+
+  afterEach(() => {
+    for (const { editor, element } of mounted.splice(0)) {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  it('is the body, and only the body', () => {
+    // The upload dialog asks this before it offers "in the text field". Get it
+    // wrong for a title, a cover line or a caption and the file is stored
+    // first, then the insert throws on a command that editor never had.
+    expect(acceptsInlineImage(editorWith(bodyExtensions({})))).toBe(true)
+    expect(acceptsInlineImage(editorWith(titleExtensions()))).toBe(false)
+    expect(acceptsInlineImage(editorWith(titleExtensions(undefined, 'cover')))).toBe(false)
+  })
+
+  it('is nothing at all when no field has the caret', () => {
+    expect(acceptsInlineImage(null)).toBe(false)
+    expect(acceptsInlineImage(undefined)).toBe(false)
+  })
+
+  it('answers the same question the insert command does', () => {
+    // The node and the command come from the same extension, so «has the node»
+    // and «has the command» can only ever disagree by mistake — and it is the
+    // command the dialog actually calls.
+    const body = editorWith(bodyExtensions({}))
+    const title = editorWith(titleExtensions())
+    expect(typeof body.commands.insertSlaidsImage).toBe('function')
+    expect(title.commands.insertSlaidsImage).toBeUndefined()
   })
 })

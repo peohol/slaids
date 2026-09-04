@@ -9,7 +9,6 @@
 import type { ReactNode } from 'react'
 import {
   BODY_LINE_HEIGHT,
-  CARD_DROP_SHADOW,
   CARD_RADIUS,
   DEFAULT_PILL_COLOR,
   SLIDE_HEIGHT,
@@ -60,7 +59,6 @@ export function slideTokenStyle(
     '--slaids-heading-font-size': `${tokens.headingFontSize}px`,
     '--slaids-card-header-font-size': `${tokens.cardHeaderFontSize}px`,
     '--slaids-card-radius': `${CARD_RADIUS}px`,
-    '--slaids-card-drop-shadow': CARD_DROP_SHADOW,
     '--slaids-card-padding': `${tokens.cardPadding}px`,
     '--slaids-block-spacing': `${tokens.blockSpacing}px`,
     '--slaids-heading-spacing': `${tokens.headingSpacing}px`,

@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
   closestCenter,
   pointerWithin,
   useSensor,
@@ -82,6 +81,7 @@ import { TextToolbar } from './TextToolbar'
 import { ThemeModal } from './ThemeModal'
 import { TopToolbar } from './TopToolbar'
 import { PresentView } from '../present/PresentView'
+import { DRAG_ACTIVATION, SurfacePointerSensor } from './dragActivation'
 import type { ZoneAction } from './ZoneOverlay'
 
 /**
@@ -94,6 +94,17 @@ import type { ZoneAction } from './ZoneOverlay'
 const dropTargetUnderPointer: CollisionDetection = (args) => {
   const pointer = pointerWithin(args)
   return pointer.length > 0 ? pointer : closestCenter(args)
+}
+
+/**
+ * Is a modal dialog on screen?
+ *
+ * Asked of the DOM rather than of a list of open-state flags: every dialog in
+ * the app is a Radix `Dialog`, which is what `role="dialog"` means here, and a
+ * list would have to be remembered every time a new one is added.
+ */
+function hasOpenDialog(): boolean {
+  return document.querySelector('[role="dialog"]') !== null
 }
 
 export function EditorView({
@@ -126,7 +137,13 @@ export function EditorView({
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
-  const [imageOpen, setImageOpen] = useState(false)
+  /**
+   * The image dialog, and whether it still has a question to ask.
+   *
+   * `'zone'` is a press on an empty picture panel: the user has pointed at
+   * where the picture goes, so the dialog does not offer the text field.
+   */
+  const [imageOpen, setImageOpen] = useState<false | 'ask' | 'zone'>(false)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
   const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
   const [renameOpen, setRenameOpen] = useState(false)
@@ -524,9 +541,17 @@ export function EditorView({
 
       const meta = event.ctrlKey || event.metaKey
 
-      if (meta && event.key.toLowerCase() === 'z') {
+      /*
+       * Undo and redo are the document's, always, and the editors inside it
+       * keep no history of their own (see `extensions.ts`). Capture phase and
+       * `stopImmediatePropagation` are what make that true no matter what has
+       * focus: a rich-text field, a dialog, a floating window — the deck is one
+       * document, so one Ctrl+Z steps back through one history.
+       */
+      if (meta && (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y')) {
         event.preventDefault()
-        if (event.shiftKey) redo()
+        event.stopImmediatePropagation()
+        if (event.key.toLowerCase() === 'y' || event.shiftKey) redo()
         else undo()
         return
       }
@@ -540,9 +565,36 @@ export function EditorView({
         setPresenting(true)
         return
       }
-      if (typing) return
 
       const state = useEditorStore.getState()
+
+      /*
+       * Escape leaves zone editing for content editing.
+       *
+       * Only when nothing is stacked on top: a dialog owns Escape while it is
+       * open, and closing it *and* dropping out of zone mode from one press
+       * would undo a mode the user did not ask to leave.
+       */
+      if (event.key === 'Escape' && state.mode === 'zone' && !hasOpenDialog()) {
+        event.preventDefault()
+        setMode('content')
+        return
+      }
+
+      if (typing) return
+
+      /*
+       * Up and down move through the deck — but not over the shoulder of
+       * someone editing text, where they move the caret between lines, and not
+       * in zone mode, where they walk the layout tree.
+       */
+      if (state.mode !== 'zone' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        setDerivedView(null)
+        state.stepPage(event.key === 'ArrowDown' ? 1 : -1)
+        return
+      }
+
       if (state.mode !== 'zone') return
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
@@ -630,15 +682,22 @@ export function EditorView({
       }
     }
 
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [presenting, redo, runStructural, toggleMode, undo])
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [presenting, redo, runStructural, setMode, toggleMode, undo])
 
   /* -------------------------------------------------------------- *
    * Drag and drop
    * -------------------------------------------------------------- */
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  /*
+   * The constraint here is the default for a surface that asks for nothing.
+   * A slide thumbnail is both a link and a drag handle and asks for `hold`
+   * instead — see `dragActivation.ts`.
+   */
+  const sensors = useSensors(
+    useSensor(SurfacePointerSensor, { activationConstraint: DRAG_ACTIVATION.immediate }),
+  )
 
   const handleDragStart = (event: DragStartEvent): void => {
     const data = event.active.data.current
@@ -764,7 +823,7 @@ export function EditorView({
         label: 'Sett inn bilde',
         icon: 'image',
         disabled: !isLeaf,
-        onSelect: () => setImageOpen(true),
+        onSelect: () => setImageOpen('ask'),
       },
     ]
   }, [applyContentKind, runStructural, selectedLeaf, selectedNode, selectedNodeId, slide])
@@ -869,7 +928,7 @@ export function EditorView({
             onSetContentKind={applyContentKind}
             onOpenReferences={() => setReferencesOpen(true)}
             onOpenTemplates={() => setTemplatesOpen(true)}
-            onOpenImage={() => setImageOpen(true)}
+            onOpenImage={() => setImageOpen('ask')}
             onToggleIdeas={() => setIdeasOpen((open) => !open)}
             onToggleSandbox={() => setSandboxOpen((open) => !open)}
             onPresent={() => setPresenting(true)}
@@ -903,6 +962,10 @@ export function EditorView({
                 slide={slide}
                 actions={zoneActions}
                 onAddContent={addContentTo}
+                onPickImage={(nodeId) => {
+                  useEditorStore.getState().selectNode(nodeId)
+                  setImageOpen('zone')
+                }}
                 dropTargets={dropTargets}
               />
             )}
@@ -1002,8 +1065,9 @@ export function EditorView({
       <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {imageOpen && (
         <ImageUploadModal
-          onOpenChange={setImageOpen}
+          onOpenChange={(open) => setImageOpen(open ? imageOpen : false)}
           zoneNodeId={selectedNode?.kind === 'leaf' ? selectedNodeId : null}
+          fillZone={imageOpen === 'zone'}
         />
       )}
 

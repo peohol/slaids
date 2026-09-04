@@ -7,9 +7,11 @@
  * has no citation node in it. A cover line has nothing for a transform to find.
  */
 
+import { imagePanelOf, withImagePanel } from './content'
 import { walkNodes } from './layout'
 import type {
   CardBody,
+  ImagePanel,
   LayoutNode,
   Presentation,
   RichDoc,
@@ -22,13 +24,7 @@ export type DocTransform = (doc: RichDoc) => RichDoc
 
 export function mapContentDocs(content: ZoneContent, transform: DocTransform): ZoneContent {
   switch (content.kind) {
-    case 'container': {
-      if (content.payload.type !== 'fields') return content
-      const body = mapBodyDocs(content.payload.body, transform)
-      return body === content.payload.body
-        ? content
-        : { ...content, payload: { type: 'fields', body } }
-    }
+    case 'container':
     case 'untitled-card': {
       const body = mapBodyDocs(content.body, transform)
       return body === content.body ? content : { ...content, body }
@@ -39,7 +35,24 @@ export function mapContentDocs(content: ZoneContent, transform: DocTransform): Z
       if (title === content.title && body === content.body) return content
       return { ...content, title, body }
     }
+    case 'image': {
+      const image = mapPanelDocs(content.image, transform)
+      return image === content.image ? content : { ...content, image }
+    }
+    case 'titled-image-card': {
+      const title = transform(content.title)
+      const image = mapPanelDocs(content.image, transform)
+      if (title === content.title && image === content.image) return content
+      return { ...content, title, image }
+    }
   }
+}
+
+/** A picture's only document is its caption, when it has one. */
+function mapPanelDocs(panel: ImagePanel, transform: DocTransform): ImagePanel {
+  if (!panel.caption) return panel
+  const doc = transform(panel.caption.doc)
+  return doc === panel.caption.doc ? panel : { ...panel, caption: { ...panel.caption, doc } }
 }
 
 function mapBodyDocs(body: CardBody, transform: DocTransform): CardBody {
@@ -122,11 +135,9 @@ export function remapContentAssetIds(
 ): ZoneContent {
   if (map.size === 0) return content
   const mapped = mapContentDocs(content, makeAssetDocRemapper(map))
-  if (mapped.kind === 'container' && mapped.payload.type === 'asset') {
-    const next = map.get(mapped.payload.assetId)
-    if (next) return { ...mapped, payload: { ...mapped.payload, assetId: next } }
-  }
-  return mapped
+  const panel = imagePanelOf(mapped)
+  const next = panel?.assetId ? map.get(panel.assetId) : undefined
+  return next && panel ? withImagePanel(mapped, { ...panel, assetId: next }) : mapped
 }
 
 function makeAssetDocRemapper(map: ReadonlyMap<string, string>): DocTransform {

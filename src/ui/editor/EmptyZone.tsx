@@ -1,19 +1,15 @@
 /**
  * Affordance shown in an empty leaf zone.
  *
- * Without this, an empty slide gives the user nothing to click; with it, the
- * three content types are one click away in either mode.
+ * Without this, an empty slide gives the user nothing to click; with it, every
+ * content type is one click away in either mode. The list is the shared one, so
+ * a kind added to the domain is offered here without this file being touched.
  */
 
 import { CONTENT_KIND_LABELS } from '../../domain/content'
 import type { ZoneContentKind } from '../../domain/types'
-import { Icon, type IconName } from '../components/Icon'
-
-const ICONS: Record<ZoneContentKind, IconName> = {
-  container: 'container',
-  'untitled-card': 'card',
-  'titled-card': 'card-titled',
-}
+import { Icon } from '../components/Icon'
+import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
 
 export function EmptyZone({
   nodeId,
@@ -35,7 +31,7 @@ export function EmptyZone({
     <div className="zone-empty zone-empty--interactive" data-testid="empty-zone">
       <span className="zone-empty__hint">Velg innholdstype</span>
       <div className="zone-empty__choices">
-        {(Object.keys(ICONS) as ZoneContentKind[]).map((kind) => (
+        {CONTENT_KINDS.map((kind) => (
           <button
             key={kind}
             type="button"
@@ -46,7 +42,7 @@ export function EmptyZone({
               onAdd(nodeId, kind)
             }}
           >
-            <Icon name={ICONS[kind]} size={15} /> {CONTENT_KIND_LABELS[kind]}
+            <Icon name={CONTENT_KIND_ICONS[kind]} size={15} /> {CONTENT_KIND_LABELS[kind]}
           </button>
         ))}
       </div>

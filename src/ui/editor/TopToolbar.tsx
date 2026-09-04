@@ -4,15 +4,10 @@ import { CONTENT_KIND_LABELS } from '../../domain/content'
 import type { ZoneContentKind } from '../../domain/types'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
-import { Icon, type IconName } from '../components/Icon'
+import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
-
-const CONTENT_ICONS: Record<ZoneContentKind, IconName> = {
-  container: 'container',
-  'untitled-card': 'card',
-  'titled-card': 'card-titled',
-}
 
 export interface TopToolbarProps {
   title: string
@@ -121,7 +116,7 @@ export function TopToolbar(props: TopToolbarProps) {
       </div>
 
       <div className="toolbar__group">
-        {(Object.keys(CONTENT_ICONS) as ZoneContentKind[]).map((kind) => (
+        {CONTENT_KINDS.map((kind) => (
           <Tooltip key={kind} label={CONTENT_KIND_LABELS[kind]}>
             <button
               type="button"
@@ -131,7 +126,7 @@ export function TopToolbar(props: TopToolbarProps) {
               data-testid={`content-kind-${kind}`}
               aria-label={CONTENT_KIND_LABELS[kind]}
             >
-              <Icon name={CONTENT_ICONS[kind]} size={15} />
+              <Icon name={CONTENT_KIND_ICONS[kind]} size={15} />
             </button>
           </Tooltip>
         ))}

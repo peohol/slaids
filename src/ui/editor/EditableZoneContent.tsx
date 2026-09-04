@@ -7,24 +7,29 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
-import { setCardTitle, setSubfieldDoc } from '../../domain/commands'
+import { setCardTitle, setImageCaption, setSubfieldDoc } from '../../domain/commands'
 import { measureElementOverflow } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
+import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
-import type { RichDoc, ZoneContent } from '../../domain/types'
+import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
-import { AssetImage } from '../slide/AssetImage'
+import { CaptionBox } from '../slide/ImagePanelView'
+import { EditableImagePanel } from './EditableImagePanel'
 import { RichTextEditor } from './RichTextEditor'
 
 export function EditableZoneContent({
   content,
   nodeId,
   slideId,
+  onPickImage,
 }: {
   content: ZoneContent
   nodeId: string
   slideId: string
+  /** Opens the upload dialog for a picture panel with no file in it yet. */
+  onPickImage: (nodeId: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
@@ -32,6 +37,17 @@ export function EditableZoneContent({
   const measureOverflow = useCallback(
     () => (hostRef.current ? measureElementOverflow(hostRef.current) : 0),
     [],
+  )
+
+  const renderCaption = (caption: ImageCaption) => (
+    <CaptionBox caption={caption}>
+      <CaptionEditor
+        caption={caption}
+        nodeId={nodeId}
+        slideId={slideId}
+        measureOverflow={measureOverflow}
+      />
+    </CaptionBox>
   )
 
   return (
@@ -84,11 +100,103 @@ export function EditableZoneContent({
             }
           />
         )}
-        renderAsset={(payload) => (
-          <AssetImage assetId={payload.assetId} fit={payload.fit} rounded={payload.rounded} />
+        renderImage={(panel, variant) => (
+          <EditableImagePanel
+            panel={panel}
+            variant={variant}
+            slideId={slideId}
+            nodeId={nodeId}
+            renderCaption={renderCaption}
+            onPickImage={() => onPickImage(nodeId)}
+          />
         )}
       />
     </div>
+  )
+}
+
+/**
+ * The caption over a picture.
+ *
+ * Two rules that are not a text field's ordinary ones, and both follow from
+ * "there is no such thing as an empty caption": a caption that has just been
+ * created takes the caret so the user can start typing, and one that is left
+ * empty removes itself when the caret goes elsewhere. Autofocusing *any* empty
+ * caption is safe precisely because the second rule means an empty one can
+ * only ever be a brand new one.
+ */
+function CaptionEditor({
+  caption,
+  nodeId,
+  slideId,
+  measureOverflow,
+}: {
+  caption: ImageCaption
+  nodeId: string
+  slideId: string
+  measureOverflow: () => number
+}) {
+  const run = useEditorStore((state) => state.run)
+  const setActiveField = useEditorStore((state) => state.setActiveField)
+  const selectNode = useEditorStore((state) => state.selectNode)
+  const setActiveEditor = useActiveEditor((state) => state.setEditor)
+  const editorRef = useRef<Editor | null>(null)
+  /* The blur handler runs long after this render, so it reads the caption from
+     a ref the render keeps up to date rather than from its own closure. */
+  const docRef = useRef(caption.doc)
+  useEffect(() => {
+    docRef.current = caption.doc
+  }, [caption.doc])
+
+  useEffect(() => {
+    return () => {
+      if (editorRef.current && useActiveEditor.getState().editor === editorRef.current) {
+        setActiveEditor(null)
+      }
+    }
+  }, [setActiveEditor])
+
+  return (
+    <RichTextEditor
+      doc={caption.doc}
+      variant="caption"
+      placeholder="Bildetekst"
+      autoFocus={isDocEmpty(caption.doc)}
+      className="image-caption__text"
+      measureOverflow={measureOverflow}
+      overflowMessage="Bildeteksten får ikke plass i bildet."
+      onEditorReady={(editor) => {
+        editorRef.current = editor
+      }}
+      onFocus={() => {
+        setActiveEditor(editorRef.current)
+        setActiveField({ nodeId, subfieldId: null, kind: 'caption' })
+        selectNode(nodeId)
+      }}
+      onBlur={() => {
+        if (!isDocEmpty(docRef.current)) return
+        run('caption-remove', (presentation) =>
+          setImageCaption(presentation, { slideId, nodeId, remove: true }),
+        )
+      }}
+      validateDoc={(next) =>
+        // A caption may cite, and a citation's number comes from where it first
+        // occurs in the whole deck — so an edit here can widen a label on a
+        // slide nobody touched. The local measurement cannot see that.
+        docEditRenumberProblem({
+          nodeId,
+          currentDoc: caption.doc,
+          nextDoc: next,
+          commit: (presentation, doc) =>
+            setImageCaption(presentation, { slideId, nodeId, doc }),
+        })
+      }
+      onChange={(doc) =>
+        run(`typing:${nodeId}:caption`, (presentation) =>
+          setImageCaption(presentation, { slideId, nodeId, doc }),
+        )
+      }
+    />
   )
 }
 

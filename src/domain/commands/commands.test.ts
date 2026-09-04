@@ -582,12 +582,12 @@ describe('content placement', () => {
       }),
     )
     const content = findLeaf(shaped.slides[0].root, slide.root.id)?.content
-    if (content?.kind !== 'container' || content.payload.type !== 'fields') {
+    if (content?.kind !== 'container') {
       throw new Error('expected a text container')
     }
-    expect(content.payload.body.axis).toBe('x')
-    expect(content.payload.body.weights).toEqual([2, 1])
-    expect(content.payload.body.subfields).toHaveLength(2)
+    expect(content.body.axis).toBe('x')
+    expect(content.body.weights).toEqual([2, 1])
+    expect(content.body.subfields).toHaveLength(2)
   })
 
   it('matches weights against the count the call ends with', () => {
@@ -705,29 +705,29 @@ describe('content placement', () => {
       setSubfieldCount(filled, { slideId: slide.id, nodeId: slide.root.id, count: 3 }),
     )
     const content = findLeaf(split.slides[0].root, slide.root.id)?.content
-    if (content?.kind !== 'container' || content.payload.type !== 'fields') {
+    if (content?.kind !== 'container') {
       throw new Error('expected a text container')
     }
-    expect(content.payload.body.subfields).toHaveLength(3)
-    expect(content.payload.body.weights).toEqual([1, 1, 1])
+    expect(content.body.subfields).toHaveLength(3)
+    expect(content.body.weights).toEqual([1, 1, 1])
     // The text that was already there stays in the first field.
-    expect(JSON.stringify(content.payload.body.subfields[0].doc)).toContain('Første')
+    expect(JSON.stringify(content.body.subfields[0].doc)).toContain('Første')
 
     const sideways = unwrap(
       setBodyAxis(split, { slideId: slide.id, nodeId: slide.root.id, axis: 'x' }),
     )
     const after = findLeaf(sideways.slides[0].root, slide.root.id)?.content
-    if (after?.kind !== 'container' || after.payload.type !== 'fields') {
+    if (after?.kind !== 'container') {
       throw new Error('expected a text container')
     }
-    expect(after.payload.body.axis).toBe('x')
+    expect(after.body.axis).toBe('x')
 
     // A field with text in it is not silently dropped by shrinking the count.
     const withText = unwrap(
       setSubfieldDoc(sideways, {
         slideId: slide.id,
         nodeId: slide.root.id,
-        subfieldId: after.payload.body.subfields[2].id,
+        subfieldId: after.body.subfields[2].id,
         doc: paragraphDoc('Tredje'),
       }),
     )

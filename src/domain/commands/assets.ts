@@ -4,7 +4,7 @@
  */
 
 import { allContent, slideContent } from '../docs'
-import { contentAssetIds, contentDocs } from '../content'
+import { contentAssetIds, contentDocs, imagePanelOf } from '../content'
 import { touch } from '../presentation'
 import { collectDocAssetIds } from '../richdoc'
 import { err, ok, type Result } from '../result'
@@ -80,13 +80,7 @@ function countUses(contents: readonly ZoneContent[], assetId: string): AssetUsag
   let zoneContent = 0
   let inlineText = 0
   for (const content of contents) {
-    if (
-      content.kind === 'container' &&
-      content.payload.type === 'asset' &&
-      content.payload.assetId === assetId
-    ) {
-      zoneContent += 1
-    }
+    if (imagePanelOf(content)?.assetId === assetId) zoneContent += 1
     for (const doc of contentDocs(content)) {
       inlineText += collectDocAssetIds(doc).filter((id) => id === assetId).length
     }

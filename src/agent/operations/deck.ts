@@ -16,7 +16,13 @@
 
 import { z } from 'zod'
 import { createDeck, fitContextFor, setPresentationTitle } from '../../domain/commands'
-import { bodyOf, contentAssetIds, contentCitationIds } from '../../domain/content'
+import {
+  bodyOf,
+  contentAssetIds,
+  contentCitationIds,
+  hasCardTitle,
+  imagePanelOf,
+} from '../../domain/content'
 import { estimateFit } from '../../domain/fit'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
@@ -26,6 +32,7 @@ import { docToPlainText } from '../../domain/richdoc'
 import type { FitContext } from '../../domain/fit'
 import type {
   Axis,
+  CaptionPosition,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -260,11 +267,11 @@ export interface ZoneInspection {
   /** Leaf only. */
   empty?: boolean
   contentKind?: ZoneContentKind
-  /** Containers only: whether the zone holds text fields or a file. */
-  payload?: 'fields' | 'asset'
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
+  /** Picture kinds only: the file, the crop and the caption over it. */
+  image?: InspectedImage
   /**
    * How the text fields inside the content divide it, and in what proportions —
    * the card's own layout, one level below the `axis`/`weights` a split reports.
@@ -298,13 +305,26 @@ export interface SlideInspection extends SlideSummary {
  * `list_sandbox_items`. One function, so the two can never drift into
  * describing the same `ZoneContent` two different ways.
  */
+/**
+ * A picture panel, as an agent reads it.
+ *
+ * The crop is two numbers between 0 and 1 rather than a description, because
+ * that is exactly what `set_image_focus` takes back — an agent that has read a
+ * zone can nudge the framing without a second lookup.
+ */
+export interface InspectedImage {
+  assetId: string | null
+  focus: { x: number; y: number }
+  caption?: { position: CaptionPosition; color: string | null; spans: TextSpan[] }
+}
+
 export interface ContentInspection {
   contentKind: ZoneContentKind
-  /** Containers only: whether the zone holds text fields or a file. */
-  payload?: 'fields' | 'asset'
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
+  /** Picture kinds only: the file, the crop and the caption over it. */
+  image?: InspectedImage
   /**
    * The subfield layout: which way the fields run and how they share the room.
    *
@@ -317,16 +337,6 @@ export interface ContentInspection {
   subfieldWeights?: number[]
   /** The text fields inside the content, addressable in a later call. */
   subfields: SubfieldInspection[]
-  /**
-   * A zone showing a file: how the picture is drawn.
-   *
-   * Reported here rather than left to be guessed from `assetIds`, because both
-   * are what a later `set_zone_asset` has to restate — a call that means to
-   * round the corners and says nothing about the fit would otherwise put the
-   * picture back to `contain`.
-   */
-  assetFit?: 'contain' | 'cover'
-  assetRounded?: boolean
   /** Files and references this content shows. */
   assetIds: string[]
   referenceIds: string[]
@@ -334,17 +344,31 @@ export interface ContentInspection {
 
 export function inspectContent(content: ZoneContent): ContentInspection {
   const body = bodyOf(content)
+  const panel = imagePanelOf(content)
   return {
     contentKind: content.kind,
-    ...(content.kind === 'container' ? { payload: content.payload.type } : {}),
-    ...(content.kind === 'titled-card'
+    ...(hasCardTitle(content)
       ? {
           cardTitle: docToTitleSpans(content.title),
           ...(docToTitleAlign(content.title) ? { cardTitleAlign: docToTitleAlign(content.title) } : {}),
         }
       : {}),
-    ...(content.kind === 'container' && content.payload.type === 'asset'
-      ? { assetFit: content.payload.fit, assetRounded: Boolean(content.payload.rounded) }
+    ...(panel
+      ? {
+          image: {
+            assetId: panel.assetId,
+            focus: { ...panel.focus },
+            ...(panel.caption
+              ? {
+                  caption: {
+                    position: panel.caption.position,
+                    color: panel.caption.color,
+                    spans: docToTitleSpans(panel.caption.doc),
+                  },
+                }
+              : {}),
+          },
+        }
       : {}),
     ...(body ? { subfieldAxis: body.axis, subfieldWeights: [...body.weights] } : {}),
     subfields:
