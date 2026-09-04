@@ -8,7 +8,8 @@
  *
  *  1. **Placement** — may this content go into that rect? Absolute, answered by
  *     the commands that place content (`setZoneContent`, `moveZoneContent`,
- *     `placeSandboxItem`, `splitLeaf`) by calling the fit checker directly.
+ *     `copyZoneContent`, `placeSandboxItem`, `splitLeaf`) by calling the fit
+ *     checker directly.
  *
  *  2. **Regression** — does this change make content that already lives on a
  *     slide fit *worse*? That is what a font swap, a ratio change, a subfield
@@ -52,10 +53,15 @@
  *    `setCoverTitle`, `setCoverSubtitle`,
  *    `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
- *    `moveSlide`, `setZoneContent`, `moveZoneContent` and `placeSandboxItem`.
+ *    `moveSlide`, `setZoneContent`, `moveZoneContent`, `copyZoneContent` and
+ *    `placeSandboxItem`. `copyZoneContent` belongs here and not with
+ *    `duplicateSlide` below: a copied slide lands right after its original, but
+ *    copied *content* can land anywhere, so it can give a reference an earlier
+ *    first occurrence and widen a pill on a slide nobody touched.
  *  - **Placement-gated as well** (calls the checker directly, absolutely,
  *    against the prospective document): `setZoneContent`, `moveZoneContent`,
- *    `canAcceptContent`, `splitLeaf`, `placeSandboxItem`, `addSlide`. Placement
+ *    `copyZoneContent`, `canAcceptContent`, `splitLeaf`, `placeSandboxItem`,
+ *    `addSlide`. Placement
  *    cannot be expressed as a regression: replacing content that already
  *    overflowed must not license content that overflows slightly less.
  *  - **Cannot shrink anything, deliberately ungated**: `duplicateSlide` (a copy

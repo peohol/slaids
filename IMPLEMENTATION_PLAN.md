@@ -2733,7 +2733,8 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
   `adjust_split`, `delete_zone`,
-  `clear_zone`, `set_zone_text`, `set_zone_card`, `adjust_subfields`,
+  `clear_zone`, `move_zone_content`, `copy_zone_content`, `set_zone_text`,
+  `set_zone_card`, `adjust_subfields`,
   `set_vertical_alignment`,
   `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
@@ -3448,12 +3449,43 @@ mellom slides som endrer hvilken referanse som forekommer først går gjennom de
 globale fit-guarden – den kan gjøre en citation-pille bredere på en slide ingen
 rørte.
 
-`moveZoneContent` har også en `copy`, og den er bevisst ikke eksponert. En
-«flytt» som noen ganger lager nye id-er i stedet for å bevare dem er to
-operasjoner med ett navn, og bevaringen er nettopp det denne lover. En egen
-`copy_zone_content` er den riktige formen den dagen den trengs – slik
-`duplicate_slide` og `move_slide` er to operasjoner, og `duplicate_sandbox_item`
-og `place_sandbox_item` er det.
+Kopiering er den samme adresseringen med det motsatte løftet, og derfor en egen
+operasjon. `copy_zone_content` tar de samme fire id-ene, kvitterer med den samme
+kontrakten og møter de samme reglene: målet må være en tom bladsone, kopien
+måles absolutt mot målsonens rektangel, og en kopi som gir en referanse en
+tidligere første forekomst må gjennom den globale fit-guarden. Det siste gjelder
+selv om kilden blir stående – en kopi *legger til* en citation-forekomst i
+stedet for å flytte en, og en tidligere forekomst renummererer alt etter seg.
+
+Forskjellen er id-ene, og den er hele grunnen til at dette ikke er et flagg på
+`move_zone_content`: en flytting lover at content-id-en og subfelt-id-ene
+overlever, en kopi må lage nye – to bladsoner med samme content-id er et ødelagt
+dokument, og et subfelt skrevet fra to adresser er ett felt. `cloneContentWithNewIds`
+spør derfor `bodyOf`/`withBody` om hvor kroppen ligger i stedet for å liste
+innholdstypene som har en: en ren tekstsone er en `container` hvis payload *er*
+en `CardBody`, så en liste over «de to korttypene» lot nettopp den dele
+subfelt-id-er med kilden sin – i en kopi *og* i en duplisert slide. En operasjon som
+noen ganger gjør det ene og noen ganger det andre er to operasjoner med ett
+navn, slik `duplicate_slide` og `move_slide` er to, og `duplicate_sandbox_item`
+og `place_sandbox_item` er det. Kilden blir stående bit for bit som den var,
+assetreferansen fornyes ikke (en fil dupliseres ikke av å vises to steder), og
+kopiens subfelt-id-er er de eneste id-ene agenten umulig kunne kjent på
+forhånd – derfor står de i svaret, og en `inspect_slide` etterpå er valgfri.
+Kvitteringen er fortsatt id-er og ingenting mer, og det betyr mer her enn i en
+flytting: en kopi er den ene mutasjonen som kunne hatt en unnskyldning for å
+beskrive innholdet sitt, og et skrivetoken skal fortsatt ikke kunne lese med
+den.
+
+Domenet fikk den samme behandlingen. `moveZoneContent` og `copyZoneContent` er
+to eksporterte navn over én implementasjon (`transferZoneContent`) i stedet for
+én kommando med et `copy`-flagg, og den ene semantiske forskjellen mellom dem
+bor der: en flytting til sonen innholdet allerede står i er en lovlig no-op
+(dokumentet er allerede i den tilstanden), mens en kopi dit er
+`TARGET_OCCUPIED` – å svare `ok` på en kopi som aldri ble laget ville sendt
+kalleren på leting etter et innholdsobjekt som ikke finnes. Agentlaget har ingen
+gren mellom de to: én innpakningsfunksjon bygger begge operasjonene og får
+domenekommandoen inn som argument, så det finnes ikke noe sted der en kopi kunne
+få en flyttings semantikk.
 
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
@@ -3464,9 +3496,6 @@ ikke mekanisk:
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til
   uten at scope-spørsmålet er tenkt igjennom.
-- **Kopiering av innhold mellom soner.** `moveZoneContent` har allerede en
-  `copy`, men den hører hjemme i en egen operasjon: en flytting lover at id-ene
-  overlever, og en kopi må lage nye.
 - **Rydding.** `delete_asset` og `deleteUnusedReferences` – en agent som laster
   opp en fil den senere erstatter, etterlater en foreldreløs fil den ikke kan
   fjerne.
