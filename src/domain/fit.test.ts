@@ -25,6 +25,48 @@ describe('estimateDocHeight', () => {
   })
 })
 
+describe('the same ratio, written large', () => {
+  /** A two-column card whose left field holds text that does not fit in half. */
+  function twoColumns(weights: number[]) {
+    const card = createUntitledCard()
+    return {
+      ...card,
+      body: {
+        axis: 'x' as const,
+        weights,
+        subfields: [
+          { id: 'a', doc: paragraphDoc('Tekst som må brytes over flere linjer. '.repeat(20)) },
+          { id: 'b', doc: emptyDoc() },
+        ],
+      },
+    }
+  }
+
+  it('measures huge balanced weights exactly like [1, 1]', () => {
+    // Weights are ratios, so `[1e307, 1e307]` *is* `[1, 1]` — and the sum is
+    // finite, so they are valid. What used to differ was the arithmetic:
+    // `usable * 1e307` overflowed to `Infinity`, the share came back infinite,
+    // and an infinitely wide subfield fits anything. The fit guard then let
+    // through a layout the same layout written `[1, 1]` is refused.
+    const rect: Rect = { x: 0, y: 0, width: 1000, height: 300 }
+    const even = estimateFit(twoColumns([1, 1]), rect)
+    expect(even.fits).toBe(false)
+
+    for (const weights of [[1e307, 1e307], [1e150, 1e150], [1e-8, 1e-8]]) {
+      const huge = estimateFit(twoColumns(weights), rect)
+      expect(huge.fits, JSON.stringify(weights)).toBe(false)
+      expect(huge.overflow, JSON.stringify(weights)).toBeCloseTo(even.overflow, 6)
+    }
+  })
+
+  it('keeps an uneven ratio the same however it is written', () => {
+    const rect: Rect = { x: 0, y: 0, width: 1000, height: 300 }
+    const small = estimateFit(twoColumns([3, 1]), rect)
+    const large = estimateFit(twoColumns([3e307 / 4, 1e307 / 4]), rect)
+    expect(large.overflow).toBeCloseTo(small.overflow, 6)
+  })
+})
+
 describe('estimateFit', () => {
   it('accepts empty content anywhere usable', () => {
     expect(estimateFit(createUntitledCard(), small).fits).toBe(true)

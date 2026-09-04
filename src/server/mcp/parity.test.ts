@@ -461,6 +461,99 @@ describe('feilene er de samme feilene', () => {
   })
 })
 
+describe('subfeltlayout er den samme operasjonen begge veier', () => {
+  /** A deck whose only zone holds a card divided into two subfields. */
+  async function twoFieldCard(harnessed: Harness): Promise<Record<string, string>> {
+    const deck = await newPresentation(harnessed, 'Subfelt begge veier')
+    const target = {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+    }
+    await rest(harnessed, 'set_zone_card', { ...target, kind: 'untitled-card', subfieldCount: 2 })
+    return target
+  }
+
+  it('svarer likt på en gyldig endring, og på begge måtene den kan avvises', async () => {
+    const harnessed = harness()
+    const target = await twoFieldCard(harnessed)
+
+    // Idempotent by construction: MCP asks for the layout REST just produced,
+    // so the two answers have to match down to the revision — which is what
+    // makes a mutation comparable field for field at all.
+    const both = await bothWays(harnessed, 'adjust_subfields', {
+      ...target,
+      axis: 'x',
+      weights: [2, 1],
+    })
+    expect(both.restData).toEqual(both.mcpData)
+    expect(both.mcpData).toMatchObject({ axis: 'x', weights: [2, 1] })
+
+    // And the document underneath says the same thing to both readers.
+    const read = await bothWays(harnessed, 'inspect_slide', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    const zone = (read.restData as { zones: { nodeId: string; subfieldWeights?: number[] }[] }).zones.find(
+      (candidate) => candidate.nodeId === target.nodeId,
+    )
+    expect(zone).toMatchObject({ subfieldAxis: 'x', subfieldWeights: [2, 1] })
+
+    // A weight the published schema itself forbids was never a valid call, so
+    // MCP puts it in a JSON-RPC error.
+    const negative = await refusedBothWays(harnessed, 'adjust_subfields', {
+      ...target,
+      weights: [1, -1],
+    })
+    expect(negative.rest).toEqual(negative.mcp)
+    expect(negative.rest.code).toBe('INVALID_INPUT')
+    expect(negative.envelope).toBe('protocol')
+    expect(negative.status).toBe(400)
+
+    // The wrong *number* of weights is a question only the document can answer,
+    // so a real operation decided it: a tool result, with the same code.
+    const wrongCount = await refusedBothWays(harnessed, 'adjust_subfields', {
+      ...target,
+      weights: [1],
+    })
+    expect(wrongCount.rest).toEqual(wrongCount.mcp)
+    expect(wrongCount.rest.code).toBe('INVALID_WEIGHTS')
+    expect(wrongCount.envelope).toBe('result')
+    expect(wrongCount.status).toBe(400)
+  })
+
+  it('avviser en endring som ville skjult innhold likt, med de samme tallene', async () => {
+    const harnessed = harness()
+    const target = await twoFieldCard(harnessed)
+    await rest(harnessed, 'adjust_subfields', { ...target, axis: 'x', weights: [3, 1] })
+    await rest(harnessed, 'set_zone_text', {
+      ...target,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(60) }] }],
+    })
+
+    const both = await refusedBothWays(harnessed, 'adjust_subfields', {
+      ...target,
+      weights: [1, 3],
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(both.envelope).toBe('result')
+    expect(both.status).toBe(422)
+
+    // Nothing was written by either attempt: the layout is still the one that
+    // held the text.
+    const after = await rest(harnessed, 'inspect_slide', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+    })
+    const zone = (after.body.data as { zones: { nodeId: string }[] }).zones.find(
+      (candidate) => candidate.nodeId === target.nodeId,
+    )
+    expect(zone).toMatchObject({ subfieldAxis: 'x', subfieldWeights: [3, 1] })
+  })
+})
+
 describe('hele flaten er nåbar begge veier', () => {
   it('svarer på hver eneste operasjon over MCP, med den samme feilen REST gir', async () => {
     // Called with no arguments at all, which almost every operation refuses.

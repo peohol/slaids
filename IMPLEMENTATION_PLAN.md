@@ -2009,6 +2009,7 @@ delete_zone
 
 set_zone_text
 set_zone_card
+adjust_subfields
 set_zone_asset
 set_vertical_alignment
 
@@ -2713,7 +2714,8 @@ Fase 1, 2, 3, 4 og 5 er på plass:
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
   `adjust_split`, `delete_zone`,
-  `clear_zone`, `set_zone_text`, `set_zone_card`, `set_vertical_alignment`,
+  `clear_zone`, `set_zone_text`, `set_zone_card`, `adjust_subfields`,
+  `set_vertical_alignment`,
   `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
   `create_svg_asset`, `set_zone_asset`.
@@ -2910,6 +2912,20 @@ sammensatt operasjon som `set_zone_card` (konverter, del i subfelt, sett
 korttittel, sett farge) kjeder dem i minnet med `applySteps` og lagrer én gang.
 Feiler et hvilket som helst steg, ble ingenting lagret – ikke fordi det rulles
 tilbake, men fordi det aldri ble skrevet.
+
+`applySteps` gjør *lagringen* atomisk, ikke *målingen*: hvert steg er fortsatt
+en egen kommando med sin egen fit-guard, så en mellomtilstand blir målt på egne
+premisser. Det er som regel riktig, og nøyaktig én gang er det galt – når to
+spørsmål gjelder det samme rektangelet. Retning, forholdstall og antall subfelt
+er et slikt tilfelle: to subfelt over hverandre kan være for lave for en figur
+to subfelt ved siden av hverandre bærer fint, så «sett antallet» etterfulgt av
+«sett retningen» kommer aldri fram – det første steget avvises på veien, og
+måltilstanden er ikke bare tungvint, den er uoppnåelig. Svaret er ikke å slå av
+guarden for mellomtilstanden, men å la kommandoen dekke hele spørsmålet:
+`setBodyLayout` tar alle tre og måler én gang, slik `updateSplit` alltid har
+gjort for en splitting. `setSubfieldCount`, `setBodyAxis` og `setBodyWeights` er
+den samme kommandoen med ett av feltene fylt ut, og editoren – som endrer én
+ting av gangen – bruker dem uendret.
 
 #### Fase 3: REST, tokens, scopes og audit
 
@@ -3363,16 +3379,27 @@ sammenligne dokumentets `sandbox`-liste før og etter kallet
 (`sandboxIdsAdded` i `src/agent/presentation.ts`), aldri ved at en
 domenekommando begynner å returnere noe den ikke returnerte før.
 
+Subfeltlayouten var det siste stedet der editoren kunne uttrykke en komposisjon
+agenten ikke kunne: `set_zone_card` tok `subfieldCount`, men retningen var
+alltid `y` og vektene alltid like, så to tekstkolonner *inne i* det samme kortet
+måtte erstattes med to soner og et gap – som er en annen komposisjon, med to
+bakgrunner i stedet for én. `adjust_subfields` lukker det, og gjør det med én
+operasjon i stedet for to fordi retning, forholdstall og antall er ett spørsmål
+mot det samme rektangelet: se «Atomisitet uten transaksjon» over for hvorfor
+`setBodyLayout` måtte bli én kommando i domenet, og hvorfor det er den samme
+kommandoen editorens tre knapper kaller. Agentlaget er en ren adapter: ingen
+layout-, normaliserings- eller fit-logikk, bare `expectedRevision` inn og
+`revision` ut. Paret er det samme ett nivå opp – `split_zone` lager
+oppdelingen, `adjust_split` former den; `set_zone_card` lager kortet,
+`adjust_subfields` former innmaten – og `inspect_slide` rapporterer begge nivåer
+med hvert sitt navn (`axis`/`weights` for en splitting, `subfieldAxis`/
+`subfieldWeights` for et kort), slik at ingen leser det ene som det andre.
+
 En systematisk sammenligning mot editorens handlinger etterlater disse hullene.
 Ingen av dem er en mangel ved denne fasen; de står her fordi de er de neste
 tingene som faktisk stopper en agent, og fordi flaten skal vokse med vilje og
 ikke mekanisk:
 
-- **Retning og forholdstall på subfelt.** `set_zone_card` tar `subfieldCount`,
-  men `setBodyAxis` og `setBodyWeights` har ingen operasjon: en agents subfelt
-  ligger alltid stablet nedover med like vekter. To tekstkolonner *inne i* det
-  samme kortet er derfor en komposisjon editoren tilbyr og agenten må erstatte
-  med to soner og et gap.
 - **Livsløp utover navnet.** Slette, duplisere og flytte en presentasjon mellom
   mapper – og i det hele tatt se hvilke mapper som finnes – er biblioteket sitt.
   Sletting er dessuten den ene handlingen uten anger, og den bør ikke legges til

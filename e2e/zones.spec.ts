@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import {
   G,
@@ -236,6 +237,50 @@ test.describe('zone editing', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('lays subfields side by side, in the ratio the inspector asks for', async ({ page }) => {
+    // The editor half of the subfield layout an agent reaches through
+    // `adjust_subfields`: same commands, same guard, and here measured on the
+    // real DOM rather than the estimator.
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Subfeltretning')
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+
+    await enterZoneMode(page)
+    await clickZone(page, zones[0])
+    await page.getByTestId('subfield-count').fill('2')
+    await expect(stage(page).locator('.subfield')).toHaveCount(2)
+
+    // Stacked by default: one column, two rows.
+    const stacked = await subfieldBoxes(page)
+    expect(Math.abs(stacked[0].x - stacked[1].x)).toBeLessThan(1)
+    expect(stacked[1].y).toBeGreaterThan(stacked[0].y + stacked[0].height - 1)
+
+    await page.getByTestId('subfield-axis-x').click()
+    const columns = await subfieldBoxes(page)
+    expect(Math.abs(columns[0].y - columns[1].y)).toBeLessThan(1)
+    expect(columns[1].x).toBeGreaterThan(columns[0].x + columns[0].width - 1)
+    expect(Math.abs(columns[0].width - columns[1].width)).toBeLessThan(1)
+
+    // Three to one, measured rather than asserted from the stored number.
+    await page.getByTestId('subfield-weight-0').fill('3')
+    await expect
+      .poll(async () => {
+        const boxes = await subfieldBoxes(page)
+        return Math.round((boxes[0].width / boxes[1].width) * 10) / 10
+      })
+      .toBe(3)
+
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    const reloaded = await subfieldBoxes(page)
+    expect(Math.abs(reloaded[0].y - reloaded[1].y)).toBeLessThan(1)
+    expect(reloaded[0].width / reloaded[1].width).toBeGreaterThan(2.8)
+    expect(guard.errors).toEqual([])
+  })
+
   test('follows the zone being edited in content mode', async ({ page }) => {
     await createPresentation(page, 'Sonepanel')
     await enterZoneMode(page)
@@ -281,3 +326,17 @@ test.describe('zone editing', () => {
     await expect(page.getByTestId('sandbox-window').getByText('Innhold som skal reddes')).toHaveCount(1)
   })
 })
+
+/** Every subfield's box on the stage, in viewport pixels, in document order. */
+async function subfieldBoxes(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }[]> {
+  return stage(page)
+    .locator('.subfield')
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      }),
+    )
+}

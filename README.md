@@ -438,6 +438,7 @@ museklikk eller databasetilgang:
 | `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
+| `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_cover`, `set_cover_color`, `set_presentation_title`  | utseendet og navnet på hele dekket            |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
@@ -505,6 +506,19 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   fit-måling dømmer alltid den fonten som ble navngitt – aldri en reservefont
   som tilfeldigvis er lastet – så et tema som ble godkjent er det samme temaet
   et senere preview tegner.
+- **Agenten kan dele opp innsiden av et kort, ikke bare sliden.** Et kort deler
+  seg i subfelt på samme måte som en slide deler seg i soner, og
+  `adjust_subfields` setter retningen (`x` gir kolonner, `y` gir rader),
+  forholdstallene og antallet – to tekstspalter i det samme kortet, eller en
+  figur som får 2/3 og forklaringen 1/3. Det er én operasjon og ikke tre fordi
+  de tre spørsmålene gjelder det samme rektangelet: to felt over hverandre kan
+  være for lave for noe to felt ved siden av hverandre bærer fint, så «sett
+  antallet» og deretter «sett retningen» ville blitt avvist på veien til en
+  layout som får plass. Ett kall måles én gang, mot layouten det faktisk ba om,
+  og avvises i sin helhet hvis noe ville blitt skjult – aldri med halve
+  endringen lagret. `inspect_slide` leser den samme layouten tilbake som
+  `subfieldAxis` og `subfieldWeights`, ved siden av `axis` og `weights` for
+  selve soneinndelingen.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –
   avsnitt, overskrift, sitat, punktliste, nummerert liste – med fet/kursiv og
   citations som peker på reference-ID-er, aldri på et nummer. `inspect_slide`
@@ -699,6 +713,13 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
      -d '{"presentationId":"p_…","slideId":"s_…","nodeId":"n_…","expectedRevision":"…",
           "blocks":[{"type":"paragraph","spans":[{"text":"Hei."}]}]}' \
      "$SLAIDS_API/operations/set_zone_text"
+
+# Gjør kortet i sonen til to spalter, den venstre dobbelt så bred.
+# Retning, forholdstall og antall i ett kall – de måles sammen.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"presentationId":"p_…","slideId":"s_…","nodeId":"n_…","expectedRevision":"…",
+          "subfieldCount":2,"axis":"x","weights":[2,1]}' \
+     "$SLAIDS_API/operations/adjust_subfields"
 ```
 
 ### Samtidighet over ledningen

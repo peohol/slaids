@@ -19,6 +19,7 @@ import {
   moveZoneContentToSandbox,
   placeSandboxItem,
   setBodyAxis,
+  setBodyLayout,
   setBodyWeights,
   setContentKind,
   setSlideHasTitle,
@@ -495,6 +496,104 @@ describe('content placement', () => {
     if (content?.kind === 'titled-card') {
       expect(JSON.stringify(content.body.subfields[0].doc)).toContain('Hei verden')
     }
+  })
+
+  it('sets count, axis and weights in one step, gated once', () => {
+    // The reason `setBodyLayout` exists: a card whose two columns fit can be
+    // unreachable if the three questions are asked one at a time, because the
+    // two *rows* it passes through on the way are measured on their own.
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: containerWithDoc(paragraphDoc('Første')),
+      }),
+    ).presentation
+
+    const shaped = unwrap(
+      setBodyLayout(filled, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        subfieldCount: 2,
+        axis: 'x',
+        weights: [2, 1],
+      }),
+    )
+    const content = findLeaf(shaped.slides[0].root, slide.root.id)?.content
+    if (content?.kind !== 'container' || content.payload.type !== 'fields') {
+      throw new Error('expected a text container')
+    }
+    expect(content.payload.body.axis).toBe('x')
+    expect(content.payload.body.weights).toEqual([2, 1])
+    expect(content.payload.body.subfields).toHaveLength(2)
+  })
+
+  it('matches weights against the count the call ends with', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: containerWithDoc(paragraphDoc('Første')),
+      }),
+    ).presentation
+    const target = { slideId: slide.id, nodeId: slide.root.id }
+
+    // One subfield today, three after the call: three weights is right, and
+    // one — the count it started with — is not.
+    expect(setBodyLayout(filled, { ...target, subfieldCount: 3, weights: [1, 2, 3] }).ok).toBe(true)
+    const stale = setBodyLayout(filled, { ...target, subfieldCount: 3, weights: [1] })
+    expect(stale.ok).toBe(false)
+    if (!stale.ok) {
+      expect(stale.error.code).toBe('INVALID_WEIGHTS')
+      expect(stale.error.details).toMatchObject({ expected: 3, received: 1 })
+    }
+  })
+
+  it('rejects weights that are not positive numbers, and leaves the document alone', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: createTitledCard('Kort', undefined, 2),
+      }),
+    ).presentation
+    const target = { slideId: slide.id, nodeId: slide.root.id }
+
+    for (const weights of [[1, 0], [1, -2], [1, Number.NaN], [1, Number.POSITIVE_INFINITY]]) {
+      const result = setBodyLayout(filled, { ...target, weights })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.code).toBe('INVALID_WEIGHTS')
+    }
+    expect(setBodyLayout(filled, { ...target, subfieldCount: 0 }).ok).toBe(false)
+    expect(setBodyLayout(filled, { ...target, subfieldCount: 7 }).ok).toBe(false)
+    expect(setBodyLayout(filled, { ...target, subfieldCount: 1.5 }).ok).toBe(false)
+  })
+
+  it('leaves updatedAt alone when the layout asked for is the one it already has', () => {
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: createTitledCard('Kort', undefined, 2),
+      }),
+    ).presentation
+    const same = unwrap(
+      setBodyLayout(filled, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        axis: 'y',
+        weights: [1, 1],
+      }),
+    )
+    expect(same).toBe(filled)
   })
 
   it('validates body weights against the subfield count', () => {
