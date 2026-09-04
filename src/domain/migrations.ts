@@ -10,7 +10,7 @@ import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from './constants'
 import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
-import { emptyDoc, mergeAdjacentCitations, titleDoc } from './richdoc'
+import { emptyDoc, mergeAdjacentCitations, titleDoc, trimTrailingBlankLines } from './richdoc'
 import { newSubfieldId } from './ids'
 import { normalizeIdeas } from './ideas'
 import type { DeckCover, Presentation, RichDoc } from './types'
@@ -381,6 +381,43 @@ function dropDefaultHeadingColors(value: unknown): unknown {
 }
 
 /**
+ * The blank line a field ends with is not content.
+ *
+ * Inserting a picture into a field split the paragraph it landed in and left
+ * an empty one behind it — every time, in every document written until now. It
+ * drew a full line of nothing under the picture, and because a field aligns
+ * its whole flow, it is also why centred content sat high with more air below
+ * it than above. The line still exists while editing, as the place the caret
+ * goes when somebody wants to write on; it is simply no longer part of the
+ * document. See `trimTrailingBlankLines`.
+ */
+const migrate9to10: MigrationFn = (data) => ({
+  ...(trimBlankLinesInRaw(data) as Raw),
+  schemaVersion: 10,
+})
+
+/**
+ * Apply `trimTrailingBlankLines` wherever a document lives in the raw data.
+ *
+ * The same walk `mergeCitationsInRaw` does, and for the same reason: migrations
+ * run before validation, so the shape cannot be trusted, and walking every
+ * `doc` covers slide titles, card titles, subfields, containers, the cover and
+ * the sandbox without knowing where any of them are.
+ */
+function trimBlankLinesInRaw(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(trimBlankLinesInRaw)
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as Raw
+  if (record.type === 'doc' && Array.isArray(record.content)) {
+    return { ...(trimTrailingBlankLines(record as unknown as RichDoc) as unknown as Raw) }
+  }
+  const out: Raw = {}
+  for (const [key, entry] of Object.entries(record)) out[key] = trimBlankLinesInRaw(entry)
+  return out
+}
+
+/**
  * A cover, from whatever is there.
  *
  * Used both by the migration and by `repairPresentation`, because a document
@@ -413,6 +450,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   6: migrate6to7,
   7: migrate7to8,
   8: migrate8to9,
+  9: migrate9to10,
 }
 
 /**

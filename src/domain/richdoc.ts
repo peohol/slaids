@@ -195,6 +195,48 @@ export function mergeAdjacentCitations(doc: RichDoc): RichDoc {
   return changed && content ? { ...doc, content } : doc
 }
 
+/**
+ * A paragraph that draws a line of nothing: no words, no citation, no picture.
+ *
+ * Whitespace counts as nothing, because a line of spaces is a typing artefact
+ * rather than something the author put there. A hard break is not whitespace:
+ * somebody asked for that line.
+ */
+function isBlankParagraph(node: RichNode): boolean {
+  if (node.type !== 'paragraph') return false
+  if (!node.content || node.content.length === 0) return true
+  return node.content.every(
+    (child) => child.type === 'text' && (child.text ?? '').trim().length === 0,
+  )
+}
+
+/**
+ * Drop the blank lines a document ends with.
+ *
+ * A blank line between two paragraphs is a distance the author chose; a blank
+ * line *after* the last one is not a distance to anything, and a field aligns
+ * its whole flow — so a trailing blank line is what pushes centred content up
+ * and leaves more air below it than above. Inserting a picture leaves exactly
+ * such a line behind every time, because a block node inserted into a
+ * paragraph splits it.
+ *
+ * The editor still keeps that line: it is where the caret goes when somebody
+ * wants to write on after a picture, and it is added back by
+ * `TrailingLineExtension` the moment it is needed. It simply never becomes part
+ * of the document — which is what makes it disappear again when it is left
+ * empty.
+ *
+ * A document is `block+`, so the last block survives even when it is blank.
+ * Unchanged documents come back identical, so callers can compare by reference.
+ */
+export function trimTrailingBlankLines(doc: RichDoc): RichDoc {
+  const content = doc.content
+  if (!content || content.length === 0) return doc
+  let end = content.length
+  while (end > 1 && isBlankParagraph(content[end - 1])) end -= 1
+  return end === content.length ? doc : { ...doc, content: content.slice(0, end) }
+}
+
 /** Approximate character count, used by the size estimator fallback. */
 export function docCharacterCount(doc: RichDoc | null | undefined): number {
   if (!doc) return 0

@@ -55,14 +55,14 @@ export const DEFAULT_IMAGE_WIDTH_PERCENT = 50
  * answer, and `offsetTop`/`offsetHeight` are logical pixels, so the stage's CSS
  * scale does not enter into it.
  *
- * Margin boxes, not border boxes: the outermost margins take up room in the
- * field like anything else, and the block rules that zero them out for a first
- * or last child are overridden by the ones a blockquote and a heading carry.
- * A flow that opens with a quote and closes with a heading would otherwise
- * measure a whole two margins short — far more than `INSERT_SAFETY` covers,
- * and enough to let a picture be sized past the field and then rolled back by
- * the fit guard. Margins between siblings collapse into the span already, so
- * the outermost margin box in each direction is the whole answer.
+ * Margin boxes, not border boxes: whatever margin a block actually has takes up
+ * room in the field like anything else, and reading it from the element rather
+ * than assuming it is what keeps this honest through the rules that zero the
+ * outermost ones. Margins between siblings collapse into the span already, so
+ * the outermost margin box in each direction is the whole answer — which is
+ * why a caller that is about to *add* a block has to hold back the margin the
+ * current last block regains by no longer being last. See
+ * `fittingImageWidthPercent`.
  *
  * Out-of-flow chrome (ProseMirror's gap cursor) is not content and is skipped.
  * With no blocks at all there is nothing to measure, and the box's own scroll
@@ -108,10 +108,16 @@ export function fittingImageWidthPercent(editor: Editor, aspect: number): number
   const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9
 
   // The flow's own height rather than the field's: the text is what it is even
-  // when the field is already clipping it. Inserting a block into a paragraph
-  // splits it, which can cost a line, so one is held back.
-  const line = Number.parseFloat(getComputedStyle(dom).lineHeight)
-  const reserve = (Number.isFinite(line) ? line : 0) + IMAGE_BLOCK_MARGIN + INSERT_SAFETY
+  // when the field is already clipping it. Three things will exist afterwards
+  // that do not exist now, and all three are held back: the line the split
+  // leaves behind (inserting a block into a paragraph costs one), the picture's
+  // own bottom margin, and the margin the block that is currently last regains
+  // the moment it stops being last — the outermost margins are zeroed, so the
+  // measured flow is one distance shorter than the flow it is about to become.
+  const style = getComputedStyle(dom)
+  const line = Number.parseFloat(style.lineHeight)
+  const spacing = blockSpacing(style)
+  const reserve = (Number.isFinite(line) ? line : 0) + spacing * 2 + INSERT_SAFETY
   const free = box.clientHeight - flowHeight(dom) - reserve
   if (free <= 0) return null
 
@@ -120,8 +126,17 @@ export function fittingImageWidthPercent(editor: Editor, aspect: number): number
   return Math.min(DEFAULT_IMAGE_WIDTH_PERCENT, percent)
 }
 
-/** Matches `.rd-image-wrapper`'s bottom margin in `slide.css`. */
-const IMAGE_BLOCK_MARGIN = 6
+/**
+ * The distance between two blocks, read from the element it is applied to.
+ *
+ * The theme scales it — `--slaids-block-spacing` is what `slide.css` actually
+ * uses — so a number written out here would be right only at one setting of the
+ * air, and quietly wrong at the three others.
+ */
+function blockSpacing(style: CSSStyleDeclaration): number {
+  const value = Number.parseFloat(style.getPropertyValue('--slaids-block-spacing'))
+  return Number.isFinite(value) ? value : 0
+}
 
 /**
  * Slack between this estimate and the fit guard's own measurement.
@@ -163,7 +178,9 @@ function resizeCeiling(editor: Editor, wrapper: HTMLElement): number {
   const height = wrapper.clientHeight
   if (height <= 0) return MAX_WIDTH_PERCENT
   const ratio = wrapper.clientWidth / height
-  const free = box.clientHeight - flowHeight(dom) - IMAGE_BLOCK_MARGIN - INSERT_SAFETY
+  // Nothing new appears while dragging — the picture and its margin are already
+  // in the flow — so what is left over is the whole ceiling, less the slack.
+  const free = box.clientHeight - flowHeight(dom) - INSERT_SAFETY
   const ceiling = ((height + Math.max(0, free)) * ratio * 100) / dom.clientWidth
   return clampPercent(Math.floor(ceiling))
 }

@@ -19,7 +19,7 @@ import {
 import { imageNode } from '../richdoc'
 import { areWeightsValid } from '../geometry'
 import { findLeaf, findNode, replaceNode } from '../layout'
-import { emptyDoc, isDocEmpty } from '../richdoc'
+import { emptyDoc, isDocEmpty, trimTrailingBlankLines } from '../richdoc'
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
@@ -93,7 +93,12 @@ export function setSubfieldDoc(
     if (!body.subfields.some((field) => field.id === input.subfieldId)) {
       return err('SUBFIELD_NOT_FOUND', 'Fant ikke subfeltet.')
     }
-    return ok(withBody(content, withSubfieldDoc(body, input.subfieldId, input.doc)))
+    // The blank line a document ends with is never content — see
+    // `trimTrailingBlankLines`. Trimmed here rather than in the editor so
+    // every door into a field (typing, paste, an agent) leaves the same
+    // document behind, and so the fit guard measures what will be drawn.
+    const doc = trimTrailingBlankLines(input.doc)
+    return ok(withBody(content, withSubfieldDoc(body, input.subfieldId, doc)))
   })
 }
 

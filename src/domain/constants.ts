@@ -92,7 +92,28 @@ export const CARD_HEADER_FONT_SIZE = 26
  * reaching each other's cards, and so a card at the slide edge keeps its shadow
  * within the slide inset.
  */
-export const CARD_SHADOW = '0 5px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.20)'
+const CARD_SHADOW_LAYERS = [
+  { y: 5, blur: 16, color: 'rgba(0, 0, 0, 0.28)' },
+  { y: 1, blur: 3, color: 'rgba(0, 0, 0, 0.20)' },
+] as const
+
+export const CARD_SHADOW = CARD_SHADOW_LAYERS.map(
+  (layer) => `0 ${layer.y}px ${layer.blur}px ${layer.color}`,
+).join(', ')
+
+/**
+ * The same depth, for something that is not a rectangle.
+ *
+ * A picture placed in a zone gets the card's shadow too, but a picture is only
+ * a box when it fills the zone: shown whole it is letterboxed, and a raster
+ * file may be transparent around its subject. `box-shadow` follows the border
+ * box and would draw the shadow of a rectangle that is not there, so the same
+ * two layers are expressed as a filter, which follows what is actually painted.
+ * One list of layers, two spellings, so the two depths cannot drift apart.
+ */
+export const CARD_DROP_SHADOW = CARD_SHADOW_LAYERS.map(
+  (layer) => `drop-shadow(0 ${layer.y}px ${layer.blur}px ${layer.color})`,
+).join(' ')
 
 /**
  * Dividers between subfields inside a card.

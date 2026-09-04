@@ -61,7 +61,15 @@ export type ContainerPayload =
    * a container is. One subfield is the ordinary case.
    */
   | { type: 'fields'; body: CardBody }
-  | { type: 'asset'; assetId: string; fit: 'contain' | 'cover' }
+  /**
+   * One file, drawn as large as the zone allows.
+   *
+   * `rounded` is the corners, and it is absent until somebody asks for them —
+   * a picture is not a card, so square is what it starts as. The radius itself
+   * is not stored: it is `CARD_RADIUS`, the one every rounded surface in the
+   * app uses, so a change there moves all of them at once.
+   */
+  | { type: 'asset'; assetId: string; fit: 'contain' | 'cover'; rounded?: boolean }
 
 /** Where content sits when it does not fill the height it is given. */
 export type VerticalAlign = 'top' | 'middle' | 'bottom'

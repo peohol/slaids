@@ -12,9 +12,24 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { FIT_TOLERANCE } from '../../domain/constants'
+import { trimTrailingBlankLines } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
 import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
+
+/**
+ * The document the editor currently *means*.
+ *
+ * Not quite what it holds: a field being edited keeps an empty line under a
+ * picture so there is somewhere to write on (see `TrailingLineExtension`), and
+ * that line is chrome rather than content. Reading through one function is what
+ * keeps the editor's idea of "unchanged" the same as the store's — otherwise
+ * every trimmed emission would come straight back as an external change and
+ * reset the editor under the caret.
+ */
+function currentDoc(editor: Editor): RichDoc {
+  return trimTrailingBlankLines(editor.getJSON() as RichDoc)
+}
 
 /**
  * `cover` is a title with the alignment and the citations taken out — see
@@ -99,7 +114,7 @@ export function RichTextEditor({
       const accept = (): void => {
         lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
         lastValid.current = {
-          doc: editor.getJSON() as RichDoc,
+          doc: currentDoc(editor),
           anchor: editor.state.selection.anchor,
         }
       }
@@ -111,7 +126,7 @@ export function RichTextEditor({
         editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
         lastOverflow.current = measure()
 
-        const restored = editor.getJSON() as RichDoc
+        const restored = currentDoc(editor)
         const serialized = JSON.stringify(restored)
         if (serialized !== lastEmitted.current) {
           lastEmitted.current = serialized
@@ -136,7 +151,7 @@ export function RichTextEditor({
 
       // Fits here, but this document is not the only thing it decides: a
       // citation added or moved renumbers labels across the deck.
-      const elsewhere = validateDocRef.current?.(editor.getJSON() as RichDoc) ?? null
+      const elsewhere = validateDocRef.current?.(currentDoc(editor)) ?? null
       if (elsewhere) {
         rollBack(elsewhere)
         return
@@ -174,7 +189,7 @@ export function RichTextEditor({
     const overflow = measure()
     lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
     lastValid.current = {
-      doc: editor.getJSON() as RichDoc,
+      doc: currentDoc(editor),
       anchor: editor.state.selection.anchor,
     }
   }, [])
@@ -223,7 +238,7 @@ export function RichTextEditor({
         },
       },
       onUpdate: ({ editor: instance }) => {
-        const json = instance.getJSON() as RichDoc
+        const json = currentDoc(instance)
         const serialized = JSON.stringify(json)
         if (serialized !== lastEmitted.current) {
           lastEmitted.current = serialized

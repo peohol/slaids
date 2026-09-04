@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { assetAlign, flowAlign } from './ZoneContentFrame'
+import { assetAlign, assetFlowAlign, flowAlign } from './ZoneContentFrame'
 
 describe('flowAlign', () => {
   it('defaults to the top of the field', () => {
@@ -40,5 +40,29 @@ describe('assetAlign', () => {
     expect(assetAlign('top')).toBe('top')
     expect(assetAlign('middle')).toBe('center')
     expect(assetAlign('bottom')).toBe('bottom')
+  })
+})
+
+describe('assetFlowAlign', () => {
+  it('centres a picture nobody aligned', () => {
+    // The other default than a field of text: a picture has no flow to begin at
+    // the top of, so the middle of the room it was given is where it belongs.
+    expect(assetFlowAlign(undefined)).toBe('safe center')
+    expect(flowAlign(undefined)).toBe('start')
+  })
+
+  it('places a picture that was aligned, in the same terms a field uses', () => {
+    // Shown whole, the element *is* the picture — so what moves is the box
+    // inside the zone, which is the very property a field of text aligns with.
+    for (const align of ['top', 'middle', 'bottom'] as const) {
+      expect(assetFlowAlign(align)).toBe(flowAlign(align))
+    }
+  })
+
+  it('is the other half of the choice `assetAlign` makes for a cropped picture', () => {
+    // Cropped to the zone, the element is the zone and the picture moves inside
+    // it. One stored value, two boxes: neither mapping is the other's fallback.
+    expect(assetAlign('bottom')).toBe('bottom')
+    expect(assetFlowAlign('bottom')).toBe('safe end')
   })
 })

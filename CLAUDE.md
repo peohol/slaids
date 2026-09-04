@@ -355,6 +355,33 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Et rendret
   preview er ikke et unntak: det er et fotografi av en slide som allerede finnes, aldri
   en generert illustrasjon. Se `IMPLEMENTATION_PLAN.md` §44.
+- **Den tomme linjen på slutten av et felt er ikke innhold.** Et felt justerer hele
+  flyten sin, så en blank linje til slutt – eller bunnmargen til den siste blokken –
+  er luft ingen har valgt, og det var dét som gjorde «midtstilt» litt for høyt.
+  Dokumentet bærer den aldri (`trimTrailingBlankLines`, håndhevet i `setSubfieldDoc`
+  og i migrasjonen), men editoren gjør det så lenge noen står i feltet: et bilde er
+  en atom, og et skrivemerke kan ikke stå på en linje som ikke finnes. Linjen legges
+  til ved fokus og gis tilbake ved blur (`TrailingLineExtension`; StarterKits egen
+  `trailingNode` er slått av, fordi den skrev linjen inn i dokumentet). At den
+  forsvinner ved blur er poenget: innholdsmodus, sonemodus og presentasjonsmodus
+  tegner det samme dokumentet gjennom den samme rammen, og fit-målingen leser den
+  samme rammen – så et felt ingen står i må se ut nøyaktig som sliden.
+- **Et bilde som fyller en sone males som et kort, men beholderen males ikke.**
+  Vist helt er elementet bildet, beskåret er elementet sonen – det avgjør både
+  hvor en radius runder og hva en loddrett justering flytter (`align-content`
+  mot `object-position`). Å trimme elementet ned til bildet krever
+  størrelsesforholdet, og det tas som regnestykke (`min(100%, 100cqh × ratio)`),
+  ikke som `max-width`/`max-height`: en maksgrense klemmer sin egen akse og lar
+  den andre stå, så hver eneste variant bygget på dem klemmer boksen flat i én
+  retning. Forholdet kommer fra den av de to som vet det først – kilden
+  (`AssetUrlSource.aspectRatio`) for en renderer hvis dokument ikke kan kjøre
+  noe, ellers `<img>`-en selv når nettleseren har den – og uten det tegnes
+  bildet som før, i hele sonen.
+  Skyggen er `CARD_SHADOW`s egne lag som `drop-shadow`, så den følger det som
+  faktisk males i stedet for en kantboks som ikke er der; klippingen løftes for
+  dette ene tilfellet, slik at skyggen når gapet, som et korts. Avrundede hjørner
+  er valgfrie og av som standard, og dokumentet lagrer bare `rounded` – radiusen er
+  `CARD_RADIUS`, den samme som alt annet avrundet i appen.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.

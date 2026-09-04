@@ -123,20 +123,81 @@
 }
 
 /*
- * A file fills its zone, so the zone cannot move it: what an alignment moves is
- * the picture inside the box it is drawn in. Unaligned, it stays centred —
- * there is no flow here to begin at the top of.
+ * A picture that fills a zone.
+ *
+ * Two very different boxes, and which one it is decides everything else.
+ * Filling the zone (`cover`) the picture *is* the zone's box: it is cropped, so
+ * what an alignment moves is the picture inside the box — `object-position`.
+ * Shown whole (`contain`) the box is the picture: it is sized down to fit
+ * inside the zone, so what an alignment moves is the box within the zone, which
+ * is the container's `align-content` — the same property a field of flowing
+ * text uses, defaulting to centred because a picture has no flow to begin at
+ * the top of.
+ *
+ * Trimming the element down to the picture is what a radius and a shadow of its
+ * own need — the corners a radius rounds and the outline a shadow follows are
+ * then the picture's, not the zone's. It takes the proportions, and it takes
+ * them as an arithmetic rather than as a constraint: `max-width` and
+ * `max-height` clamp the axis they are on and leave the other one where it was,
+ * so every spelling built on them squashes the box in one direction or the
+ * other. `min(100%, 100cqh × ratio)` picks the same winner "contain" picks, in
+ * both directions, whether or not the file declares an intrinsic size — which
+ * an SVG with nothing but a viewBox does not. `AssetImage` hands the ratio over
+ * and only asks for this box once it knows it; without it the picture is drawn
+ * the old way, in the whole zone, which is the same picture in the same place.
  */
+.zone-content--asset {
+  /*
+   * The clip is lifted for this one case, and only paint escapes: the picture
+   * can never leave the box — `cover` crops to it and `contain` is bounded by
+   * it — while its shadow needs the gap around the zone to fall into, exactly
+   * as a card's does.
+   *
+   * `container-type: size` is what makes the zone's own height quotable as
+   * `100cqh` by the picture inside it.
+   */
+  display: block;
+  overflow: visible;
+  container-type: size;
+  align-content: var(--slaids-flow-align, safe center);
+}
+
 .asset-image {
+  display: block;
   width: 100%;
   height: 100%;
+  margin-inline: auto;
   object-fit: contain;
+  /*
+   * The card's depth, expressed as a filter so it follows what is painted
+   * rather than the border box: a letterboxed picture, or one that is
+   * transparent around its subject, is not given the shadow of a rectangle that
+   * is not there. Same two layers as `CARD_SHADOW` — see `constants.ts`.
+   */
+  filter: var(--slaids-card-drop-shadow);
+}
+
+/* Shown whole, with the proportions known: the element is the picture. */
+.asset-image--framed {
+  width: min(100%, calc(100cqh * var(--slaids-asset-ratio)));
+  height: auto;
+  aspect-ratio: var(--slaids-asset-ratio);
+}
+
+.asset-image--cover {
+  object-fit: cover;
   object-position: center var(--slaids-asset-align, center);
-  display: block;
+}
+
+/* The radius every other rounded surface in the app uses. */
+.asset-image--rounded {
+  border-radius: var(--slaids-card-radius);
 }
 
 .asset-image--pending {
   display: flex;
+  width: 100%;
+  height: 100%;
   align-items: center;
   justify-content: center;
   opacity: 0.55;
@@ -160,14 +221,6 @@
 .rich-doc .ProseMirror {
   outline: none;
   min-height: 100%;
-}
-
-.rich-doc > :first-child {
-  margin-top: 0;
-}
-
-.rich-doc > :last-child {
-  margin-bottom: 0;
 }
 
 .rich-doc :is(p, .rd-p) {
@@ -428,6 +481,31 @@
 .rich-doc :is(th, .rd-th) {
   background: rgba(128, 128, 128, 0.18);
   font-weight: 600;
+}
+
+/*
+ * The outermost margins are not a distance between two things.
+ *
+ * Every block carries a bottom margin so that two blocks are separated by one
+ * distance. The first block's top margin and the last block's bottom margin
+ * separate the text from nothing at all — and a field aligns its whole flow,
+ * margins included, so that trailing margin is exactly why centred text sat a
+ * few pixels high with more air below it than above. Between two list items the
+ * same argument applies to the last item's own margin.
+ *
+ * The class is doubled on purpose. `:is(p, .rd-p)` takes the specificity of its
+ * most specific argument, so a plain `.rich-doc > :last-child` *ties* with every
+ * block rule above and loses on source order — which is what happened, silently.
+ * At one class more this wins wherever it sits in the file, so a block rule
+ * added later cannot quietly bring the margin back.
+ */
+.rich-doc.rich-doc > :first-child {
+  margin-top: 0;
+}
+
+.rich-doc.rich-doc > :last-child,
+.rich-doc.rich-doc :is(li, .rd-li):last-child {
+  margin-bottom: 0;
 }
 
 .rich-doc--title {

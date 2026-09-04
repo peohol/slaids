@@ -724,13 +724,17 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
     expect(occupied.status).toBe(409)
 
     // A fit refusal carries numbers, and the numbers have to match too. The
-    // source is a full-height half of the slide; the target is a fifth of the
-    // other half, so the same text cannot possibly follow it there.
+    // source is a full-height half of the slide; the target is a quarter of the
+    // other half, so the same text cannot possibly follow it there. The counts
+    // are held to what the deck's own spacing still allows: four rows is the
+    // most a half-slide column can be divided into and stay above the minimum
+    // zone height, so a fifth row would be refused for its size rather than for
+    // what is being moved into it.
     const filled = await rest(harnessed, 'set_zone_text', {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
       nodeId: deck.left,
-      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(50) }] }],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Ganske mye tekst. '.repeat(30) }] }],
     })
     expect(filled.status).toBe(200)
     const rows = await rest(harnessed, 'split_zone', {
@@ -738,10 +742,10 @@ describe('flytting av innhold er den samme operasjonen begge veier', () => {
       slideId: deck.slideId,
       nodeId: deck.right,
       axis: 'y',
-      weights: [1, 1, 1, 1, 1],
+      weights: [1, 1, 1, 1],
       // The one line already sitting there goes to the bottom row, leaving the
       // top one empty — an occupied target would refuse before the fit gate.
-      contentTargetIndex: 4,
+      contentTargetIndex: 3,
     })
     expect(rows.status).toBe(200)
     const [empty] = (rows.body.data as { childNodeIds: string[] }).childNodeIds

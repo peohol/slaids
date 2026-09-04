@@ -139,6 +139,10 @@ const setZoneAssetInput = z.strictObject({
     .enum(['contain', 'cover'])
     .default('contain')
     .describe('`contain` viser hele bildet, `cover` fyller sonen og beskjærer.'),
+  rounded: z
+    .boolean()
+    .default(false)
+    .describe('Avrundede hjørner, med den samme radiusen kort bruker.'),
   replace: z
     .boolean()
     .default(false)
@@ -177,7 +181,12 @@ export const setZoneAsset = defineOperation({
       const placed = setZoneContent(presentation, {
         slideId: input.slideId,
         nodeId: input.nodeId,
-        content: createContainer({ type: 'asset', assetId: input.assetId, fit: input.fit }),
+        content: createContainer({
+          type: 'asset',
+          assetId: input.assetId,
+          fit: input.fit,
+          rounded: input.rounded,
+        }),
         replace: input.replace,
         replacedDisposition: input.replacedDisposition,
         ...structuralOptions(context),

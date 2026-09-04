@@ -15,15 +15,24 @@ import {
 } from '../../domain/constants'
 import { themeMetrics } from '../../domain/metrics'
 import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
-import type { CardBody, Subfield, VerticalAlign, ZoneContent } from '../../domain/types'
+import type {
+  CardBody,
+  ContainerPayload,
+  Subfield,
+  VerticalAlign,
+  ZoneContent,
+} from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
+
+/** A container holding one file, rather than fields of text. */
+export type AssetPayload = Extract<ContainerPayload, { type: 'asset' }>
 
 export interface ZoneContentFrameProps {
   content: ZoneContent
   renderTitle: (content: Extract<ZoneContent, { kind: 'titled-card' }>) => ReactNode
   renderField: (field: Subfield, index: number) => ReactNode
   /** Only for a container filled with a picture; its text goes through `renderField`. */
-  renderAsset: (payload: { assetId: string; fit: 'contain' | 'cover' }) => ReactNode
+  renderAsset: (payload: AssetPayload) => ReactNode
 }
 
 /**
@@ -57,13 +66,28 @@ export function flowAlign(align: VerticalAlign | undefined): string {
 /**
  * Where a picture sits inside the box it fills.
  *
- * `undefined` when nothing was chosen, and the stylesheet then leaves
- * `object-position` at its own centred default: a picture has no flow to start
- * at the top of, so the middle of the box it was given is where one belongs
- * until someone says otherwise.
+ * Only meaningful for a picture that is cropped to the zone: then the element
+ * *is* the zone and what moves is the picture within it, which is
+ * `object-position`. `undefined` when nothing was chosen, and the stylesheet
+ * then leaves it at its own centred default: a picture has no flow to start at
+ * the top of, so the middle of the box it was given is where one belongs until
+ * someone says otherwise.
  */
 export function assetAlign(align: VerticalAlign | undefined): string | undefined {
   return align && VERTICAL_ALIGNMENT[align].object
+}
+
+/**
+ * Where a picture shown whole sits in its zone.
+ *
+ * The other half of the same choice: sized down to fit, the element is the
+ * picture, so what moves is the box within the zone — the same `align-content`
+ * a field of text uses. The default is the middle for the same reason
+ * `assetAlign`'s is: there is no flow here to begin at the top of, which is
+ * exactly where a field of text differs.
+ */
+export function assetFlowAlign(align: VerticalAlign | undefined): string {
+  return VERTICAL_ALIGNMENT[align ?? 'middle'].flow
 }
 
 function SubfieldStack({
@@ -135,7 +159,7 @@ export function ZoneContentFrame({
     if (content.payload.type === 'asset') {
       return (
         <div
-          className="zone-content zone-content--container"
+          className="zone-content zone-content--container zone-content--asset"
           data-content-kind="container"
           data-fit-scroll=""
           data-align={content.verticalAlign}
@@ -143,7 +167,11 @@ export function ZoneContentFrame({
             {
               color,
               textShadow: textShadowFor(theme.backgroundColor),
+              // Two alignments, one choice: which one does the work depends on
+              // whether the picture is the zone's box or its own — see
+              // `assetAlign` and `assetFlowAlign`.
               '--slaids-asset-align': assetAlign(content.verticalAlign),
+              '--slaids-flow-align': assetFlowAlign(content.verticalAlign),
             } as CSSProperties
           }
         >

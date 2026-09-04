@@ -561,10 +561,14 @@ Første operative innholdstyper:
 Usynlig wrapper:
 
 - transparent bakgrunn;
-- ingen box shadow;
+- ingen box shadow på selve beholderen;
 - ingen visuell kortflate;
 - ingen ytre padding som påvirker layoutgap;
 - kan inneholde subfelt med RichDoc, eller ett bilde/SVG som fyller sonen.
+
+Beholderen maler fortsatt ingenting, men **et bilde som fyller sonen får
+kortets dybde og kan få kortets hjørner** – se §26. Det er bildet som males,
+ikke beholderen: en beholder med tekst er like usynlig som før.
 
 Tekstfarge velges automatisk mot slidebakgrunn.
 
@@ -750,6 +754,33 @@ ikke kan bli uenige.
 
 Innhold justeres også loddrett (topp/midt/bunn) i feltet det står i. Det er
 en egenskap ved feltet, ikke ved teksten.
+
+### Den tomme linjen på slutten er ikke innhold
+
+Et felt justerer hele flyten sin, marger og tomme linjer inkludert. Derfor er
+to ting som ser ut som ingenting nok til at «midtstilt» ikke blir midtstilt:
+
+- **Ytterste marger.** Hver blokk bærer en avstand ned til blokken etter seg.
+  Den første blokkens toppmarg og den siste blokkens bunnmarg skiller teksten
+  fra ingenting, og skal derfor være null. Ellers havner halve avstanden under
+  teksten som luft ingen har valgt.
+- **Blanke linjer til slutt.** En blank linje mellom to avsnitt er en avstand
+  forfatteren har valgt; en blank linje etter den siste er en linje med
+  ingenting i. Den lagres aldri (`trimTrailingBlankLines`), verken når noen
+  trykker Enter til slutt eller når et bilde settes inn – å sette inn en
+  blokknode i et avsnitt splitter det og legger igjen nettopp en slik linje.
+
+Editoren har den likevel, og må ha den: et bilde er en atom, så et felt som
+slutter med et bilde har ingen plass å sette skrivemerket. Linjen finnes derfor
+så lenge noen står i feltet, og gis tilbake i det de forlater det. Det er
+`TrailingLineExtension` (StarterKits egen `trailingNode` er slått av, fordi den
+skrev linjen inn i dokumentet). Regelen er «siste blokk kan ikke bære et
+skrivemerke» (`!isTextblock`), ikke en liste med nodenavn.
+
+At linjen forsvinner ved blur er ikke kosmetikk: innholdsmodus, sonemodus og
+presentasjonsmodus tegner det samme dokumentet gjennom den samme rammen, og
+fit-målingen leser den samme rammen – så et felt ingen står i må se ut nøyaktig
+som sliden.
 
 ### Ekstern paste
 
@@ -1052,7 +1083,40 @@ av hvilken modus editoren tilfeldigvis står i.
 Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
 størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
 bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i
-sonen. Fit-vakten har fortsatt siste ord.
+sonen. Fit-vakten har fortsatt siste ord. «Ledig plass» regnes mot flyten slik
+den blir *etter* innsettingen: linjen splittingen legger igjen, bildets egen
+marg, og margen den blokken som er sist nå får tilbake i det den slutter å være
+sist.
+
+### Et bilde som fyller sonen
+
+Boksen som males er bildet, ikke sonen. Vist helt (`contain`) trimmes elementet
+ned til bildet, så hjørnene en radius runder og omrisset en skygge følger er
+bildets egne; beskåret (`cover`) *er* elementet sonen. Det avgjør også hva en
+loddrett justering flytter: boksen inne i sonen i det første tilfellet, bildet
+inne i boksen i det andre.
+
+Trimmingen krever størrelsesforholdet, og tar det som et regnestykke –
+`min(100%, 100cqh × forhold)` – ikke som `max-width`/`max-height`: en maksgrense
+klemmer sin egen akse og lar den andre stå, så hver variant bygget på dem
+klemmer boksen flat i én retning eller den andre. Forholdet kommer fra den av de
+to som vet det først: kilden (`AssetUrlSource.aspectRatio`) for en renderer hvis
+dokument ikke kan kjøre noe – et rendret preview har ingen script-tagg – og
+ellers `<img>`-en selv når nettleseren har den. Uten forholdet tegnes bildet som
+før, i hele sonen: samme bilde på samme sted, i en boks som ennå ikke er trimmet
+til det.
+
+- **Skygge.** Et bilde som fyller en sone kaster den samme dybden som et kort,
+  uttrykt som `filter: drop-shadow(...)` av de samme lagene som `CARD_SHADOW`.
+  En filterskygge følger det som faktisk males, så et bilde som er
+  gjennomsiktig rundt motivet ikke får skyggen av et rektangel som ikke er der.
+  Klippingen løftes for dette ene tilfellet: bildet kan aldri havne utenfor
+  boksen sin, mens skyggen skal ned i gapet – nøyaktig argumentet som lar et
+  kort kaste sin (§13.2).
+- **Avrundede hjørner.** Valgfritt, av som standard – et bilde er ikke et kort –
+  og slås av og på fra sidepanelet. Radiusen lagres ikke: dokumentet bærer bare
+  `rounded`, og radiusen er `CARD_RADIUS`, den samme som alt annet avrundet i
+  appen.
 
 Slaids lager ikke bilder selv, verken for et menneske eller for en agent. Hvor
 et bilde kan komme fra, og hvordan SVG-markup fra en agent valideres og saneres

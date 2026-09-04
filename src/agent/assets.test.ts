@@ -323,7 +323,12 @@ describe('set_zone_asset', () => {
     return { presentationId: presentation.id, slideId: slide.id, nodeId: slide.root.id, assetId: stored.assetId }
   }
 
-  const placement = { fit: 'contain' as const, replace: false, replacedDisposition: 'sandbox' as const }
+  const placement = {
+    fit: 'contain' as const,
+    rounded: false,
+    replace: false,
+    replacedDisposition: 'sandbox' as const,
+  }
 
   it('plasserer et eksisterende asset i en sone', async () => {
     const context = freshContext()
@@ -482,6 +487,7 @@ describe('asset-invariants', () => {
         nodeId: presentation.slides[0].root.id,
         assetId: stored.assetId,
         fit: 'contain',
+        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),

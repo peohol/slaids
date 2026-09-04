@@ -317,6 +317,16 @@ export interface ContentInspection {
   subfieldWeights?: number[]
   /** The text fields inside the content, addressable in a later call. */
   subfields: SubfieldInspection[]
+  /**
+   * A zone showing a file: how the picture is drawn.
+   *
+   * Reported here rather than left to be guessed from `assetIds`, because both
+   * are what a later `set_zone_asset` has to restate — a call that means to
+   * round the corners and says nothing about the fit would otherwise put the
+   * picture back to `contain`.
+   */
+  assetFit?: 'contain' | 'cover'
+  assetRounded?: boolean
   /** Files and references this content shows. */
   assetIds: string[]
   referenceIds: string[]
@@ -332,6 +342,9 @@ export function inspectContent(content: ZoneContent): ContentInspection {
           cardTitle: docToTitleSpans(content.title),
           ...(docToTitleAlign(content.title) ? { cardTitleAlign: docToTitleAlign(content.title) } : {}),
         }
+      : {}),
+    ...(content.kind === 'container' && content.payload.type === 'asset'
+      ? { assetFit: content.payload.fit, assetRounded: Boolean(content.payload.rounded) }
       : {}),
     ...(body ? { subfieldAxis: body.axis, subfieldWeights: [...body.weights] } : {}),
     subfields:

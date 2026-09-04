@@ -319,31 +319,59 @@ export function Inspector({
           </div>
 
           {content.payload.type === 'asset' && (
-            <div className="inspector__actions">
-              {(['contain', 'cover'] as const).map((fit) => {
-                const payload = content.payload
-                if (payload.type !== 'asset') return null
-                return (
-                  <button
-                    key={fit}
-                    type="button"
-                    className={payload.fit === fit ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-                    data-testid={`asset-fit-${fit}`}
-                    onClick={() =>
-                      run('asset-fit', (current) =>
-                        setContainerPayload(current, {
-                          slideId: slide.id,
-                          nodeId: selectedNodeId,
-                          payload: { ...payload, fit },
-                        }),
-                      )
-                    }
-                  >
-                    {fit === 'contain' ? 'Vis hele' : 'Fyll sonen'}
-                  </button>
-                )
-              })}
-            </div>
+            <>
+              <div className="inspector__actions">
+                {(['contain', 'cover'] as const).map((fit) => {
+                  const payload = content.payload
+                  if (payload.type !== 'asset') return null
+                  return (
+                    <button
+                      key={fit}
+                      type="button"
+                      className={payload.fit === fit ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+                      data-testid={`asset-fit-${fit}`}
+                      onClick={() =>
+                        run('asset-fit', (current) =>
+                          setContainerPayload(current, {
+                            slideId: slide.id,
+                            nodeId: selectedNodeId,
+                            payload: { ...payload, fit },
+                          }),
+                        )
+                      }
+                    >
+                      {fit === 'contain' ? 'Vis hele' : 'Fyll sonen'}
+                    </button>
+                  )
+                })}
+              </div>
+              {/* The corners the rest of the app rounds things with. Stored as a
+                  flag rather than a radius, so a picture follows `CARD_RADIUS`
+                  wherever that goes. */}
+              <div className="inspector__actions">
+                <button
+                  type="button"
+                  className={
+                    content.payload.rounded ? 'btn btn--sm btn--active' : 'btn btn--sm'
+                  }
+                  data-testid="asset-rounded"
+                  aria-pressed={Boolean(content.payload.rounded)}
+                  onClick={() => {
+                    const payload = content.payload
+                    if (payload.type !== 'asset') return
+                    run('asset-rounded', (current) =>
+                      setContainerPayload(current, {
+                        slideId: slide.id,
+                        nodeId: selectedNodeId,
+                        payload: { ...payload, rounded: !payload.rounded },
+                      }),
+                    )
+                  }}
+                >
+                  <Icon name="card" size={14} /> Avrundede hjørner
+                </button>
+              </div>
+            </>
           )}
         </section>
       )}

@@ -44,6 +44,7 @@ export async function loadPreviewAssets(
   reader: PreviewAssetReader,
 ): Promise<PreviewAssets> {
   const urls = new Map<string, string>()
+  const ratios = new Map<string, number>()
   const warnings: string[] = []
 
   for (const id of pageAssetIds(page)) {
@@ -63,19 +64,29 @@ export async function loadPreviewAssets(
     }
     const bytes = await blobToBytes(stored.blob)
     urls.set(id, `data:${stored.ref.mimeType};base64,${encodeBase64(bytes)}`)
+    // The preview document runs no script, so nothing in it can read the
+    // proportions off the loaded picture the way the app does. They are stored
+    // metadata, and this is the one place that has them.
+    if (stored.ref.width > 0 && stored.ref.height > 0) {
+      ratios.set(id, stored.ref.width / stored.ref.height)
+    }
   }
 
-  return { source: dataUrlAssetSource(urls), warnings }
+  return { source: dataUrlAssetSource(urls, ratios), warnings }
 }
 
 /**
  * The third asset source (see `state/assetSource.tsx`): one that already holds
  * every URL it will ever be asked for.
  */
-export function dataUrlAssetSource(urls: ReadonlyMap<string, string>): AssetUrlSource {
+export function dataUrlAssetSource(
+  urls: ReadonlyMap<string, string>,
+  ratios: ReadonlyMap<string, number> = new Map(),
+): AssetUrlSource {
   return {
     id: 'preview',
     resolveSync: (assetId) => urls.get(assetId) ?? null,
+    aspectRatio: (assetId) => ratios.get(assetId) ?? null,
     resolve: (assetId) => {
       const url = urls.get(assetId)
       return Promise.resolve(url ? { url } : null)

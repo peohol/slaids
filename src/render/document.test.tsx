@@ -231,9 +231,16 @@ describe('bilder og SVG', () => {
       page: pageFor(presentation, deck.slideId),
       assets: assets.source,
     })
-    expect(document.html).toContain('class="asset-image"')
-    expect(document.html).toContain(`src="${url}"`)
-    expect(document.html).toContain('object-fit:contain')
+    const img = document.html.match(/<img class="asset-image[^>]*>/)?.[0] ?? ''
+    expect(img).toContain(`src="${url}"`)
+    // How the picture is sized, aligned, rounded and shadowed is the
+    // stylesheet's — which is what makes the preview and the editor the same
+    // picture rather than two that happen to agree today. The one thing the
+    // markup carries is the file's proportions, because a preview document runs
+    // no script and so cannot read them off the picture the way a browser does.
+    expect(img).toContain('asset-image--framed')
+    expect(img).toContain('--slaids-asset-ratio')
+    expect(document.html).toContain('.asset-image {')
     expect(document.html).not.toContain('Laster figur')
   })
 
