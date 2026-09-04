@@ -44,6 +44,7 @@ import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
 import { RichTextEditor } from './RichTextEditor'
+import { commitDraggedRatios, draggedWeights } from './ratioDrag'
 import { ZoneOverlay, type ZoneAction } from './ZoneOverlay'
 import { ZoneDropZone } from './ZoneDropZone'
 import { EmptyZone } from './EmptyZone'
@@ -218,21 +219,20 @@ export function EditorStage({
       const total = drag.originalWeights.reduce((sum, weight) => sum + weight, 0)
       const deltaWeight = (deltaPx / drag.usable) * total
 
-      const weights = [...drag.originalWeights]
-      const i = drag.boundary
-      const minA = drag.minShare[i]
-      const minB = drag.minShare[i + 1]
-      const pairTotal = weights[i] + weights[i + 1]
-      let next = weights[i] + deltaWeight
-      next = Math.max(minA, Math.min(next, pairTotal - minB))
-      if (!Number.isFinite(next) || next <= 0 || pairTotal - next <= 0) return
-      weights[i] = next
-      weights[i + 1] = pairTotal - next
+      // Nothing is rounded here: the boundary follows the pointer, and the
+      // layout only snaps to a whole ratio once the pointer is let go.
+      const weights = draggedWeights(
+        drag.originalWeights,
+        drag.boundary,
+        deltaWeight,
+        drag.minShare,
+      )
+      if (!weights) return
 
       // The handle stops where the content stops fitting, rather than letting
       // the user drag into an invalid state and snapping back on release.
       const childRects = splitRect(drag.parentRect, drag.axis, weights, tokens.gap)
-      for (const index of [i, i + 1]) {
+      for (const index of [drag.boundary, drag.boundary + 1]) {
         const next = subtreeOverflow(
           drag.children[index],
           childRects[index],
@@ -250,14 +250,20 @@ export function EditorStage({
       const pending = preview
       setPreview(null)
       if (!drag || !pending) return
+
+      // The released geometry is a wish; what gets stored is the nearest ratio
+      // the deck can be written in, keeping zones that shared a ratio before
+      // the gesture sharing one.
       runStructural('ratio', (presentation) =>
-        setSplitWeights(presentation, {
-          slideId: slide.id,
-          nodeId: pending.nodeId,
-          weights: pending.weights,
-          // A ratio change may not shrink a zone past what its content needs.
-          ...domFitCheckers,
-        }),
+        commitDraggedRatios(drag.originalWeights, drag.boundary, pending.weights, (weights) =>
+          setSplitWeights(presentation, {
+            slideId: slide.id,
+            nodeId: pending.nodeId,
+            weights,
+            // A ratio change may not shrink a zone past what its content needs.
+            ...domFitCheckers,
+          }),
+        ),
       )
     }
 

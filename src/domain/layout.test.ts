@@ -18,6 +18,7 @@ import {
   siblingIdOf,
   stripContent,
   validateTree,
+  withQuantizedRatios,
 } from './layout'
 import { createTitledCard, createUntitledCard } from './content'
 import type { LayoutNode, SplitNode } from './types'
@@ -212,5 +213,45 @@ describe('validateTree', () => {
     const shared = createLeaf()
     const bad = createSplit('x', [1, 1], [shared, shared])
     expect(validateTree(bad).some((v) => v.message === 'Duplicate node id')).toBe(true)
+  })
+
+  it('rejects ratios that are not whole numbers on the ladder', () => {
+    for (const weights of [[1.5, 2], [0.5, 0.5], [1, 11], [12, 1]]) {
+      const bad = createSplit('x', weights, [createLeaf(), createLeaf()])
+      expect(
+        validateTree(bad).some((violation) => violation.message.includes('whole numbers')),
+        weights.join(':'),
+      ).toBe(true)
+    }
+  })
+})
+
+describe('withQuantizedRatios', () => {
+  it('gives back the very same tree when every ratio is already whole', () => {
+    const tree = createSplit('x', [1, 2], [createLeaf(), createSplit('y', [3, 1], [createLeaf(), createLeaf()])])
+    expect(withQuantizedRatios(tree)).toBe(tree)
+  })
+
+  it('rewrites ratios anywhere in the tree, keeping the layout', () => {
+    const inner = createSplit('y', [0.25, 0.75], [createLeaf(), createLeaf()])
+    const tree = createSplit('x', [1.5, 2.5], [createLeaf(), inner])
+    const fixed = withQuantizedRatios(tree)
+    if (fixed.kind !== 'split') throw new Error('expected a split')
+    expect(fixed.weights).toEqual([3, 5])
+    const child = fixed.children[1]
+    if (child.kind !== 'split') throw new Error('expected a nested split')
+    expect(child.weights).toEqual([1, 3])
+    expect(validateTree(fixed)).toEqual([])
+  })
+
+  it('leaves a split it cannot read alone, for validation to report', () => {
+    const broken: SplitNode = {
+      id: 'x',
+      kind: 'split',
+      axis: 'x',
+      weights: [0.5],
+      children: [createLeaf(), createLeaf()],
+    }
+    expect(withQuantizedRatios(broken)).toBe(broken)
   })
 })

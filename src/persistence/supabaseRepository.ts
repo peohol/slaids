@@ -770,11 +770,15 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   async saveTemplate(template: LayoutTemplate): Promise<void> {
-    if (!validateLayoutTemplate(template).ok) {
+    const validation = validateLayoutTemplate(template)
+    if (!validation.ok || !validation.value) {
       throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
     }
     const ownerId = await this.ownerId()
-    const payload = JSON.parse(JSON.stringify(template)) as LayoutTemplate
+    // The validated value, not the argument: validating a template also brings
+    // its ratios up to the whole-number rule, and storing the argument would
+    // put the old numbers back.
+    const payload = JSON.parse(JSON.stringify(validation.value)) as LayoutTemplate
     const row = {
       id: payload.id,
       owner_id: ownerId,

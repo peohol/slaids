@@ -145,13 +145,23 @@ export class DexieSlaidsRepository implements SlaidsRepository {
 
   async listTemplates(): Promise<LayoutTemplate[]> {
     const records = await this.database.templates.orderBy('createdAt').toArray()
-    return records.filter((record) => validateLayoutTemplate(record).ok)
+    // The validator is also the repair — a template stored before zone ratios
+    // became whole numbers is rewritten in them — so what comes back is its
+    // value, never the row as it was read.
+    const templates: LayoutTemplate[] = []
+    for (const record of records) {
+      const validated = validateLayoutTemplate(record)
+      if (validated.ok && validated.value) templates.push(validated.value as LayoutTemplate)
+    }
+    return templates
   }
 
   async saveTemplate(template: LayoutTemplate): Promise<void> {
     const validation = validateLayoutTemplate(template)
-    if (!validation.ok) throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
-    await this.database.templates.put(JSON.parse(JSON.stringify(template)) as LayoutTemplate)
+    if (!validation.ok || !validation.value) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    await this.database.templates.put(JSON.parse(JSON.stringify(validation.value)) as LayoutTemplate)
   }
 
   async deleteTemplate(id: string): Promise<void> {

@@ -36,7 +36,19 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   kontrast mot), og fargen er `null` til noen velger en – da leser den forsidens pillefarge,
   akkurat som en overskrift og et titteldpanel gjør. Et kort med tittel og bilde har
   allerede et panel langs overkanten, så bildeteksten kan bare stå i midten eller nederst.
-- `children.length === weights.length`; 2–10 barn; alle weights er endelige tall `> 0`.
+- `children.length === weights.length`; 2–10 barn; **alle weights er hele tall mellom 1
+  og 10**. Et forholdstall er noe forfatteren leser og skriver ned, og en sluppet
+  dra-operasjon som lagret `0.3125 : 0.625 : 0.3125` skrev ned hvor pekeren tilfeldigvis
+  stoppet. `src/domain/ratios.ts` er eneste kvantisering, og den runder ikke hvert tall
+  for seg – `[0.25, 1.6, 3.14]` blir da `[0, 2, 3]`, med en sone borte – men finner
+  heltallene som gir fordelingen nærmest den ønskede, med minste total ved lik
+  treffsikkerhet, slik at `1 : 2 : 1` vinner over `2 : 4 : 2` og en lovlig layout kommer
+  uendret tilbake. Kommandoene kvantiserer **før** de måler, så geometrien som valideres
+  er geometrien som lagres. Under dragging snappes ingenting – grensen følger pekeren –
+  og ved slipp kvantiseres hele fordelingen, med likhetsgrupper lest fra forholdstallene
+  *før* gesten: soner som var like og ikke ligger inntil den dratte separatoren, er like
+  etterpå. Paret separatoren ligger mellom er unntatt; å dra grensen mellom to like soner
+  er å be om at de blir ulike. Se `IMPLEMENTATION_PLAN.md` §11.5.
 - Nøyaktig ett globalt gap `G` mellom alt synlig innhold. Nesting skal aldri doble gap.
   Strukturelle noder har aldri egen margin/padding som påvirker layoutgeometri.
   Temaet skalerer `G` sammen med alle andre avstander (`spacing`) – det er

@@ -481,6 +481,51 @@ describe('layout', () => {
     expect((await stored(context, deck.presentationId)).sandbox).toHaveLength(1)
   })
 
+  it('lagrer forholdstall som heltall, uansett hvilke tall agenten sender', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[0].slideId
+    const root = (
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const ratiosOfRoot = async (): Promise<number[] | undefined> => {
+      const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+      return inspection.zones.find((zone) => zone.nodeId === root)?.weights
+    }
+
+    // Desimaler er en lovlig ønskeliste, ikke en feil.
+    await ok(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      axis: 'x',
+      weights: [0.5, 1.5],
+    })
+    expect(await ratiosOfRoot()).toEqual([1, 3])
+
+    // Store tall også, og proporsjonalt like tall gir samme layout.
+    await ok(context, 'adjust_split', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      weights: [30, 20],
+    })
+    expect(await ratiosOfRoot()).toEqual([3, 2])
+
+    // Og dokumentet som ligger lagret sier det samme som lesingen.
+    const document = await stored(context, deck.presentationId)
+    const stored_root = document.slides[0].root
+    expect(stored_root.kind).toBe('split')
+    if (stored_root.kind === 'split') expect(stored_root.weights).toEqual([3, 2])
+  })
+
   it('tømmer en sone og fjerner en subsone', async () => {
     const context = freshContext()
     const deck = await newDeck(context)

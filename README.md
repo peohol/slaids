@@ -16,7 +16,10 @@ layoutet er nestet.
 
 - Hver slide rendres i et fast logisk designrom på `1600 × 900` og skaleres uniformt.
 - Layoutet er et rekursivt tre: `split` har barn og aldri innhold, `leaf` har innhold og aldri barn.
-- Splits har 2–10 barn med eksplisitte forholdstall (`[1, 2]`, `[0.5, 1]` og `[2, 4]` er ekvivalente).
+- Splits har 2–10 barn med eksplisitte forholdstall. Du kan be om hva du vil –
+  `[1, 2]`, `[0.5, 1]` og `[2, 4]` beskriver samme layout – men det som lagres er alltid
+  hele tall mellom 1 og 10: den nærmeste fordelingen som kan skrives ned
+  (`src/domain/ratios.ts`).
 - En ren geometry engine (`src/domain/geometry.ts`) regner ut alle rektangler.
   Det globale gapet `G` løses aritmetisk – `usable = L - G × (n - 1)` – slik at
   nesting aldri kan doble en avstand.
@@ -72,9 +75,13 @@ layoutet er nestet.
 - stiplede sonegrenser, slør med backdrop blur over valgt subtre, handlingsknapper
 - hit-testing via geometry engine – klikk i gapet velger supersonen
 - piltastnavigering opp/ned/venstre/høyre med wraparound, og klikkbar breadcrumb
-- splitt sone (2–10 barn) med orientering, forholdstall og live geometri-preview
+- splitt sone (2–10 barn) med orientering, forholdstall og live geometri-preview.
+  Feltene tar desimaler, tall under 1 og tall over 10; dialogen viser hvilket
+  heltallsforhold det blir, og previewet er den layouten
 - rediger eksisterende splitting; innhold som mister sonen sin kan reddes til sandkassen
-- dra i gapet mellom subsoner for å justere forholdstall direkte
+- dra i gapet mellom subsoner for å justere forholdstall direkte. Dragingen er trinnløs,
+  og ved slipp snapper layouten til nærmeste heltallsforhold – soner som var like og som
+  separatoren ikke ligger inntil, forblir like
 - minimumsstørrelse valideres for hele subtreet, ikke bare for det enkelte bladet
 
 **Innhold**

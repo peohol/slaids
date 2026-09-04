@@ -9,6 +9,13 @@
  * fall below the minimum, `CONTENT_DOES_NOT_FIT` when a change would push text
  * out of sight.
  *
+ * Ratios are the one input that is *answered* rather than merely accepted: any
+ * positive relative weights are legal to send, and the command stores the
+ * closest whole ratio between 1 and 10 — the same snap the editor's drag
+ * handles and its ratio dialog get, because it is the same function. So the
+ * numbers `inspect_slide` reads back are not always the numbers that were sent,
+ * and the geometry both agree on is the one that was measured.
+ *
  * `split_zone` answers with the ids of the zones it created, so the common
  * sequence (split, then fill) does not need a second `inspect_slide` in between.
  *
@@ -55,7 +62,9 @@ const weightsSchema = z
   .min(2)
   .max(10)
   .describe(
-    'Ett forholdstall per subsone, 2–10 av dem. [1, 1] gir like store deler, [2, 1] gir en dobbelt så stor som den andre.',
+    'Ett forholdstall per subsone, 2–10 av dem. [1, 1] gir like store deler, [2, 1] gir en dobbelt så stor som den andre. ' +
+      'Tallene er relative og kan være desimaler eller store tall: layouten lagres alltid som det nærmeste heltallsforholdet ' +
+      'mellom 1 og 10, så [1, 2], [0.5, 1] og [2, 4] gir nøyaktig samme resultat. Les forholdstallene tilbake med inspect_slide.',
   )
 
 /** What a structural change displaced, counted rather than silently dropped. */

@@ -18,6 +18,26 @@ import {
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
 
+/** What the inspector shows once a layout is committed: whole numbers only. */
+const WHOLE_RATIOS = /^\d+( : \d+)*$/
+
+/** Drag the handle after zone `index` by `deltaLogical` design-space pixels. */
+async function dragHandle(page: Page, index: number, deltaLogical: number): Promise<void> {
+  const handle = page.getByTestId('ratio-handle').nth(index)
+  const box = await handle.boundingBox()
+  if (!box) throw new Error('the ratio handle has no box')
+  const scale = await page.evaluate(() =>
+    Number((document.querySelector('[data-testid="stage-slide"]') as HTMLElement).dataset.scale),
+  )
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + deltaLogical * scale, y, { steps: 8 })
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+}
+
 test.describe('zone editing', () => {
   test('splits the main zone and keeps exactly one gap', async ({ page }) => {
     const guard = watchForErrors(page)
@@ -154,20 +174,64 @@ test.describe('zone editing', () => {
     await splitSelected(page, [1, 1], 'x')
 
     const before = await zoneRects(page)
-    const handle = page.getByTestId('ratio-handle').first()
-    const box = await handle.boundingBox()
-    expect(box).not.toBeNull()
-    if (!box) return
-
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2, { steps: 8 })
-    await page.mouse.up()
-    await page.waitForTimeout(250)
+    await dragHandle(page, 0, 160)
 
     const after = await zoneRects(page)
     expect(after[0].w).toBeGreaterThan(before[0].w + 100)
     expectGap(after[1].x - (after[0].x + after[0].w), 'gap after drag')
+    // Released, the layout is a ratio somebody could have typed.
+    await expect(page.getByTestId('zone-ratios')).toHaveText(WHOLE_RATIOS)
+  })
+
+  test('snaps a released drag to a whole ratio', async ({ page }) => {
+    await createPresentation(page, 'Snapping')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+
+    // Two thirds of the way across: 2 : 1 is on the ladder, and the pixels have
+    // to agree with the number the inspector shows.
+    const usable = 1600 - G * 2 - G
+    await dragHandle(page, 0, usable / 6)
+    await expect(page.getByTestId('zone-ratios')).toHaveText('2 : 1')
+    const zones = await zoneRects(page)
+    expect(zones[0].w / zones[1].w).toBeCloseTo(2, 1)
+  })
+
+  test('keeps untouched zones that shared a ratio sharing one', async ({ page }) => {
+    await createPresentation(page, 'Like soner')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 5, 4, 4, 4], 'x')
+
+    await dragHandle(page, 0, 60)
+    await expect(page.getByTestId('zone-ratios')).toHaveText(WHOLE_RATIOS)
+
+    const ratios = ((await page.getByTestId('zone-ratios').textContent()) ?? '')
+      .split(':')
+      .map((entry) => Number(entry.trim()))
+    // The drag was between the first two zones; the three it never touched had
+    // the same ratio before and have to have the same ratio after.
+    expect(ratios[2]).toBe(ratios[3])
+    expect(ratios[3]).toBe(ratios[4])
+    const zones = await zoneRects(page)
+    expect(zones[3].w).toBeCloseTo(zones[2].w, 1)
+    expect(zones[4].w).toBeCloseTo(zones[2].w, 1)
+  })
+
+  test('takes decimal ratios in the dialog and stores whole ones', async ({ page }) => {
+    await createPresentation(page, 'Desimaler')
+    await enterZoneMode(page)
+    await page.getByTestId('inspector-action-split').click()
+    await page.getByTestId('split-weight-0').fill('0.5')
+    await page.getByTestId('split-weight-1').fill('1.5')
+    // The dialog says what it is about to store, before it stores it.
+    await expect(page.getByTestId('split-quantized')).toContainText('1 : 3')
+    await page.getByTestId('split-apply').click()
+    await expect(page.getByTestId('split-modal')).toBeHidden()
+
+    await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+    await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 3')
+    const zones = await zoneRects(page)
+    expect(zones[1].w / zones[0].w).toBeCloseTo(3, 1)
   })
 
   test('rescues the text a picture displaces instead of throwing it away', async ({ page }) => {

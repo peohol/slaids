@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { G, MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH, SLIDE_HEIGHT, SLIDE_WIDTH } from './constants'
+import {
+  G,
+  MAX_ZONE_RATIO,
+  MIN_ZONE_HEIGHT,
+  MIN_ZONE_WIDTH,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+} from './constants'
 import {
   computeSlideGeometry,
   measureSiblingGaps,
@@ -23,11 +30,25 @@ function makeRandom(seed: number): () => number {
   }
 }
 
-function randomTree(random: () => number, depth: number): LayoutNode {
+/**
+ * `ratios` is what separates the two worlds the engine serves. A *committed*
+ * layout carries whole ratios and nothing else, which is what the commands
+ * produce and what `validateTree` insists on. A layout being *dragged* carries
+ * whatever the pointer is currently asking for, and the engine has to measure
+ * that just as exactly — the handle would jump on release otherwise. Both are
+ * generated here for that reason.
+ */
+function randomTree(
+  random: () => number,
+  depth: number,
+  ratios: 'whole' | 'free' = 'whole',
+): LayoutNode {
   if (depth === 0 || random() < 0.35) return createLeaf()
   const count = 2 + Math.floor(random() * 4)
-  const weights = Array.from({ length: count }, () => 0.25 + random() * 4)
-  const children = Array.from({ length: count }, () => randomTree(random, depth - 1))
+  const weights = Array.from({ length: count }, () =>
+    ratios === 'whole' ? 1 + Math.floor(random() * MAX_ZONE_RATIO) : 0.25 + random() * 4,
+  )
+  const children = Array.from({ length: count }, () => randomTree(random, depth - 1, ratios))
   return createSplit(random() < 0.5 ? 'x' : 'y', weights, children)
 }
 
@@ -43,6 +64,21 @@ describe('geometry invariants hold for arbitrary trees', () => {
       // Layouts that fail minimum-size validation cannot be created through the
       // commands; there the engine deliberately collapses the gap instead of
       // letting a child escape its parent.
+      if (!subtreeFitsInRect(slide.root, geometry.mainRect)) continue
+      checked += 1
+      for (const gap of measureSiblingGaps(slide.root, geometry.rects)) {
+        expect(Math.abs(gap - G), `seed ${seed}`).toBeLessThan(1e-6)
+      }
+    }
+    expect(checked).toBeGreaterThan(5)
+  })
+
+  it('keeps the gap exact for the arbitrary ratios a drag passes through', () => {
+    let checked = 0
+    for (const seed of seeds) {
+      const random = makeRandom(seed)
+      const slide = createSlide({ hasTitle: random() < 0.5, root: randomTree(random, 3, 'free') })
+      const geometry = computeSlideGeometry(slide)
       if (!subtreeFitsInRect(slide.root, geometry.mainRect)) continue
       checked += 1
       for (const gap of measureSiblingGaps(slide.root, geometry.rects)) {

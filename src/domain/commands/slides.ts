@@ -11,6 +11,7 @@ import {
 import { isDocEmpty } from '../richdoc'
 import { normalizeHex } from '../color'
 import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
+import { withQuantizedRatios } from '../layout'
 import {
   coverOverflow,
   findGeometryRegression,
@@ -55,7 +56,11 @@ export function addSlide(
   const hasTitle = input.hasTitle ?? true
   const slide = createSlide({
     hasTitle,
-    root: input.root ? cloneSubtreeWithNewIds(input.root) : createLeaf(),
+    // A supplied layout is quantised on the way in for the same reason the
+    // content in it is fit-checked: this is an API surface, and a root that
+    // came from somewhere other than a command must meet the same rules as one
+    // that did.
+    root: input.root ? cloneSubtreeWithNewIds(withQuantizedRatios(input.root)) : createLeaf(),
     title: input.title,
   })
 
