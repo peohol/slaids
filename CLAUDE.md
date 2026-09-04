@@ -530,6 +530,34 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Slaids-migrasjoner skal være idempotente (`if not exists`, `create or replace`,
   `drop … if exists` før `create`). Det er dét som gjør at en fil kan kjøres på nytt – i SQL
   Editor, eller mot en base der historikken ikke er komplett – uten å gjøre skade.
+- **Assetlageret har én dør, og den er `src/domain/assetIngress.ts`.** En SVG som
+  kommer utenfra Slaids kan aldri nå lageret uten først å ha blitt tolket og
+  sanitisert av `src/domain/svg.ts` – hvilken inngang brukeren eller agenten
+  brukte skal verken påvirke hvilke SVG-er Slaids godtar eller hvilke bytes som
+  lagres. `acceptAsset` svarer på to spørsmål for hver inngang: hva dette er
+  (formatet leses av bytene, aldri av et filnavn eller en `File.type` – det er
+  MIME-typen en lagret fil serveres med som gjør den til aktivt innhold), og hva
+  som får lagres (raster → `imageFile.ts`, SVG → `svg.ts`). Den returnerer
+  *bytes* og ikke en dom, fordi en kaller ikke kan glemme å bruke den saniterte
+  versjonen når den saniterte versjonen er den eneste den får. Størrelsesgrensen
+  hører hjemme der av samme grunn, og måles for en SVG både på det som kom inn og
+  på det som lagres. Innganger: editorens opplastingsdialog gjennom
+  `src/state/assetUpload.ts` (lagt utenfor komponenten fordi en sikkerhetsgrense
+  i en event handler bare kan testes ved å kjøre en komponent), `upload_asset` og
+  `create_svg_asset` gjennom `src/agent/assetStore.ts`, og `.slaids`-import
+  gjennom `src/persistence/backup.ts`. Det eneste som varierer er hvordan
+  *raster* måles (`RasterPolicy`), og det er nettleserens dekoder og ikke en andre
+  policy: `'bitstream'` går gjennom hele filen, `'caller'` beholder bytene og tar
+  størrelsen fra en kilde døren allerede har – nettleseren, som er den ene
+  kjøretiden som kan lese en AVIF, eller arkivets eget register. **Valideringen
+  skjer før den første skrivingen**, ikke som en angring etterpå: en avvist fil
+  etterlater ingen blob, ingen `AssetRef` og ingen halvplassert figur. Interne
+  kopier er unntaket og ikke et hull – innliming på tvers av presentasjoner og
+  duplisering flytter bytes som allerede kom gjennom døren, og å validere dem på
+  nytt ville dømt en lagret fil etter dagens regler i stedet for reglene den ble
+  lagret under. To tester i `src/domain/assetIngress.test.ts` håndhever det
+  mekanisk: hver fil som kaller `putAsset` går gjennom døren eller står på den
+  navngitte listen over interne kopier, og `sanitizeSvg` har nøyaktig én kaller.
 - **Slaids genererer aldri bilder.** Ingen bildegenerering i appen, ingen ekstern
   bildetjeneste, ingen `generate_image(prompt)`. Et rasterbilde kommer inn ferdig
   (`upload_asset`), en figur kommer inn som SVG-markup (`create_svg_asset`), og

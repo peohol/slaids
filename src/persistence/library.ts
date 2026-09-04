@@ -30,6 +30,14 @@ import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from 
  * copy *is*; this decides the order the two stores are written in, and what
  * happens when the second write fails.
  *
+ * The bytes are moved as they are, without going through
+ * `domain/assetIngress.ts`: they are already in Slaids' store, so they came
+ * through that door when they first arrived. Re-validating a copy would judge a
+ * stored file by today's rules rather than the ones it was stored under, and a
+ * deck that has been fine for a year would stop being duplicable for a reason
+ * its owner cannot act on. The rule the door enforces is about what may *enter*
+ * the store; it is enforced once, at entry.
+ *
  * The document goes first so every file has an owner from the moment it exists:
  * an asset row whose presentation is not there can never be cleaned up by the
  * sweep, which works by comparing files against the presentations that remain.

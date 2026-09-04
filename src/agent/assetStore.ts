@@ -16,14 +16,12 @@
  * `resolveAmbiguousRegistration`.
  */
 
+import { acceptAsset } from '../domain/assetIngress'
 import { registerAsset } from '../domain/commands'
-import { MAX_ASSET_BYTES } from '../domain/constants'
 import { newAssetId } from '../domain/ids'
 import { presentationRevision } from '../domain/revision'
-import { probeImageFormat } from '../domain/imageBytes'
-import { readRasterImage } from '../domain/imageFile'
 import { bytesToBlob } from '../persistence/blob'
-import { sanitizeSvg, SVG_MIME_TYPE, type SvgSanitizeReport } from '../domain/svg'
+import type { SvgSanitizeReport } from '../domain/svg'
 import type { AssetRef, Presentation } from '../domain/types'
 import { loadPresentation, revisionConflict, savePresentation, storageFailure } from './presentation'
 import {
@@ -65,49 +63,19 @@ export async function storeAsset(
 ): Promise<AgentResult<StoredAssetResult>> {
   const name = input.name.trim()
   if (name.length === 0) return agentErr('INVALID_ARGUMENT', 'Filen må ha et navn.')
-  if (input.bytes.byteLength === 0) return agentErr('INVALID_ARGUMENT', 'Filen er tom.')
 
-  const oversized = tooLarge(input.bytes)
-  if (oversized) return oversized
-
-  const format = probeImageFormat(input.bytes)
-  const wantsSvg = input.declaredKind === 'svg'
-  if (!format || (wantsSvg && format.mimeType !== SVG_MIME_TYPE)) {
-    return wantsSvg
-      ? agentErr('INVALID_SVG', 'Innholdet er ikke SVG-markup med <svg> som rotelement.')
-      : agentErr(
-          'UNSUPPORTED_MEDIA_TYPE',
-          'Innholdet er ikke et bildeformat Slaids kan vise. Bruk PNG, JPEG, GIF, WEBP eller SVG.',
-        )
-  }
-
-  // Two validators, one per kind of content. SVG is text and is sanitised;
-  // everything else is binary and is walked from end to end. Neither trusts the
-  // header alone, and neither takes the caller's word for the size.
-  let bytes = input.bytes
-  let sanitized: SvgSanitizeReport | undefined
-  let width: number
-  let height: number
-
-  if (format.mimeType === SVG_MIME_TYPE) {
-    const clean = sanitizeSvg(new TextDecoder().decode(input.bytes))
-    if (!clean.ok) return fromDomainError(clean.error)
-    bytes = new TextEncoder().encode(clean.value.markup)
-    sanitized = clean.value.report
-    width = clean.value.width
-    height = clean.value.height
-
-    // Re-serialising can grow the file — every `&` in the source comes back as
-    // `&amp;` — so the limit is checked again on what is actually stored, not
-    // only on what arrived.
-    const grewTooLarge = tooLarge(bytes)
-    if (grewTooLarge) return grewTooLarge
-  } else {
-    const raster = readRasterImage(input.bytes)
-    if (!raster.ok) return fromDomainError(raster.error)
-    width = raster.value.width
-    height = raster.value.height
-  }
+  // The whole ingress policy, shared with the editor's dialog and `.slaids`
+  // import: the format is read from the bytes, an SVG is parsed and
+  // re-serialised by `domain/svg.ts`, a raster file is walked end to end by
+  // `domain/imageFile.ts`, and the size never comes from the caller. What comes
+  // back is what gets stored.
+  const accepted = acceptAsset(input.bytes, {
+    raster: 'bitstream',
+    expect: input.declaredKind === 'svg' ? 'vector' : undefined,
+  })
+  if (!accepted.ok) return fromDomainError(accepted.error)
+  const { bytes, mimeType, isVector, size } = accepted.value
+  const sanitized: SvgSanitizeReport | undefined = accepted.value.report
 
   const loaded = await loadPresentation(context, input.presentationId)
   if (!loaded.ok) return loaded
@@ -121,11 +89,11 @@ export async function storeAsset(
   const ref: AssetRef = {
     id: newAssetId(),
     name,
-    mimeType: format.mimeType,
+    mimeType,
     byteSize: bytes.byteLength,
-    width,
-    height,
-    isVector: format.isVector,
+    width: size.width,
+    height: size.height,
+    isVector,
   }
   // The revision reported is the one of the document that is actually stored,
   // which in the ambiguous case below is the copy read back from the store
@@ -208,18 +176,6 @@ function retaining(failure: AgentFailure, assetId: string): AgentFailure {
       ...failure.error,
       message: `${failure.error.message} Filen er beholdt fordi det ikke kunne avgjøres om registreringen landet.`,
       details: { ...(failure.error.details ?? {}), retainedAssetId: assetId },
-    },
-  }
-}
-
-function tooLarge(bytes: Uint8Array): AgentFailure | null {
-  if (bytes.byteLength <= MAX_ASSET_BYTES) return null
-  return {
-    ok: false,
-    error: {
-      code: 'ASSET_TOO_LARGE',
-      message: `Filen er for stor (maks ${MAX_ASSET_BYTES} byte).`,
-      details: { byteSize: bytes.byteLength, maxByteSize: MAX_ASSET_BYTES },
     },
   }
 }

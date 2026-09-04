@@ -6,6 +6,7 @@ import {
   enterZoneMode,
   splitSelected,
   stage,
+  toast,
   waitForSaved,
   watchForErrors,
   worstOverflow,
@@ -13,6 +14,9 @@ import {
 } from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/><circle cx="50" cy="30" r="20" fill="#d9ccbf"/></svg>`
+
+/** The same figure with something in it that would run. */
+const UNSAFE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><script>window.__slaidsPwned = true</script><rect width="100" height="60" fill="#4d6680"/></svg>`
 
 test.describe('assets', () => {
   test('uploads an SVG into a zone and keeps it after a reload', async ({ page }) => {
@@ -37,6 +41,44 @@ test.describe('assets', () => {
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    expect(guard.errors).toEqual([])
+  })
+
+  test('refuses an unsafe SVG without storing or placing anything', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Utrygg figur')
+    await enterZoneMode(page)
+    await page.getByTestId('inspector-action-image').click()
+    await expect(page.getByTestId('image-modal')).toBeVisible()
+
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'ondsinnet.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(UNSAFE_SVG),
+    })
+
+    // The user is told, the dialog stays open, and nothing was placed.
+    await expect(toast(page, 'ikke tillatt')).toBeVisible()
+    await expect(page.getByTestId('image-modal')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(0)
+
+    // And nothing was stored: no asset row, and none in the document either.
+    const stored = await page.evaluate(async () => {
+      const open = indexedDB.open('slaids')
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        open.onsuccess = () => resolve(open.result)
+        open.onerror = () => reject(open.error)
+      })
+      const count = await new Promise<number>((resolve, reject) => {
+        const request = database.transaction('assets').objectStore('assets').count()
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      database.close()
+      return count
+    })
+    expect(stored).toBe(0)
+    expect(await page.evaluate(() => '__slaidsPwned' in window)).toBe(false)
     expect(guard.errors).toEqual([])
   })
 

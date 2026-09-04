@@ -9,10 +9,26 @@
  *   templates.json          layout-only templates
  *   assets/index.json       asset metadata, including owning presentation
  *   assets/<id>             raw asset bytes
+ *
+ * An archive is a file from outside Slaids, whoever made it. The documents in
+ * it are validated and migrated, and the *files* in it go through
+ * `domain/assetIngress.ts` — the same door the editor's upload dialog and the
+ * agent's `upload_asset` stand behind. An old backup must not be a way around
+ * the SVG rule: a `.slaids` handed to somebody is exactly as trustworthy as an
+ * `.svg` handed to them, and both are opened by the same parser.
+ *
+ * Raster files are kept byte for byte, with the size the archive recorded when
+ * they were first stored (`raster: 'caller'`). Re-deriving it would make a
+ * picture that has been in a deck for a year unimportable for a reason the
+ * owner cannot act on, and the bytes already came through this door once. SVG
+ * gets no such benefit of the doubt: markup is executable content, the
+ * sanitiser is cheap, and what is stored is what comes back out of it.
  */
 
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate'
+import { acceptAsset, type AcceptedAsset } from '../domain/assetIngress'
 import { migratePresentation } from '../domain/migrations'
+import { describeError } from '../domain/result'
 import { newAssetId, newPresentationId, newTemplateId } from '../domain/ids'
 import { remapAssetIds } from '../domain/docs'
 import { slaidsFileManifestSchema, validateLayoutTemplate } from '../domain/schema'
@@ -31,6 +47,27 @@ interface AssetIndexEntry extends AssetRef {
 function assetFileName(ref: AssetRef): string {
   const extension = ref.isVector ? 'svg' : (ref.mimeType.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '')
   return `assets/${ref.id}.${extension}`
+}
+
+/**
+ * The archive's metadata about a file, corrected by what the door accepted.
+ *
+ * The index says what an entry claims to be; the bytes decide. An entry
+ * claiming `image/png` for a document that turns out to be SVG markup is
+ * sanitised as the SVG it is and stored under the type it really has — the type
+ * a file is served with is what makes it active content, so it can never be the
+ * archive's word for it. The size follows the same rule: an SVG brings the one
+ * read out of the document while it was sanitised, and a raster keeps the one
+ * that was measured the day it was first stored.
+ */
+function acceptedRef(ref: AssetRef, file: AcceptedAsset): AssetRef {
+  return {
+    ...ref,
+    mimeType: file.mimeType,
+    isVector: file.isVector,
+    byteSize: file.bytes.byteLength,
+    ...(file.size ?? {}),
+  }
 }
 
 export interface ExportOptions {
@@ -174,9 +211,44 @@ export async function importSlaidsArchive(
     // constraint would invent something the user never made.
     const folderId =
       archived.folderId && existingFolders.has(archived.folderId) ? archived.folderId : null
-    const source: Presentation =
+    const filed: Presentation =
       folderId === archived.folderId ? archived : { ...archived, folderId }
-    const owned = assetIndex.filter((entry) => entry.presentationId === source.id)
+    const owned = assetIndex.filter((entry) => entry.presentationId === filed.id)
+
+    /*
+     * Every file the archive brings, taken at the shared door — and taken
+     * before a single row is written. Two things follow from doing it here
+     * rather than in the write loop below: a rejected figure can never leave a
+     * half-written presentation behind it, and the document that gets saved
+     * describes the files that will actually be there rather than what the
+     * archive claimed about them.
+     */
+    const accepted = new Map<string, AcceptedAsset>()
+    for (const entry of owned) {
+      const archivedBytes = entries[entry.file]
+      if (!archivedBytes) {
+        report.errors.push(`Mangler fildata for «${entry.name}».`)
+        continue
+      }
+      const verdict = acceptAsset(archivedBytes, { raster: 'caller' })
+      if (!verdict.ok) {
+        // Reported and skipped, exactly as missing file data is: the deck is
+        // still worth importing, and the figure that was refused is named so
+        // the owner knows which one to replace. Nothing unsafe is stored, and
+        // that is the whole point of the rule.
+        report.errors.push(`Filen «${entry.name}» ble avvist: ${describeError(verdict.error)}`)
+        continue
+      }
+      accepted.set(entry.id, verdict.value)
+    }
+
+    const source: Presentation = {
+      ...filed,
+      assets: filed.assets.map((ref) => {
+        const file = accepted.get(ref.id)
+        return file ? acceptedRef(ref, file) : ref
+      }),
+    }
     const incomingAssetIds = [
       ...new Set([...source.assets.map((ref) => ref.id), ...owned.map((entry) => entry.id)]),
     ]
@@ -236,18 +308,15 @@ export async function importSlaidsArchive(
 
     try {
       for (const entry of owned) {
-        const bytesForAsset = entries[entry.file]
-        if (!bytesForAsset) {
-          report.errors.push(`Mangler fildata for «${entry.name}».`)
-          continue
-        }
+        const file = accepted.get(entry.id)
+        // Missing or refused, and already reported when it was read.
+        if (!file) continue
         const { presentationId: _presentationId, file: _file, ...ref } = entry
-        const targetId = assetMap.get(ref.id) ?? ref.id
-        await repository.putAsset(
-          presentation.id,
-          { ...ref, id: targetId },
-          bytesToBlob(bytesForAsset, ref.mimeType),
-        )
+        const stored: AssetRef = {
+          ...acceptedRef(ref, file),
+          id: assetMap.get(ref.id) ?? ref.id,
+        }
+        await repository.putAsset(presentation.id, stored, bytesToBlob(file.bytes, stored.mimeType))
         report.importedAssets += 1
       }
     } catch (error) {

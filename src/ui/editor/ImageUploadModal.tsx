@@ -4,6 +4,14 @@
  * SVG is kept as a vector asset and displayed through an `<img>` pointing at a
  * Blob URL, so no foreign markup is ever injected into the document.
  *
+ * What may be stored is not decided here. `state/assetUpload.ts` is the door,
+ * and behind it stands `domain/assetIngress.ts` — the same policy
+ * `upload_asset` and `create_svg_asset` stand behind, so a figure a user picks
+ * meets exactly the rules a figure an agent sends meets, and the bytes that
+ * land in the store are the sanitised ones either way. This file translates the
+ * verdict into a toast and, when it passes, puts the picture where the user
+ * pointed.
+ *
  * Where the picture lands is asked, not inferred. It used to depend on which
  * mode the editor happened to be in, so the same click either put the image in
  * the text field or replaced the whole zone with it — and "insert a picture
@@ -27,24 +35,20 @@
 
 import { useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
-import { MAX_ASSET_BYTES } from '../../domain/constants'
-import { newAssetId } from '../../domain/ids'
 import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
+import { describeError } from '../../domain/result'
 import { domFitCheckers } from '../../state/measure'
 import { createImage, imagePanelOf } from '../../domain/content'
 import { findLeaf } from '../../domain/layout'
-import { repository } from '../../persistence/activeRepository'
-import { readImageSize } from '../../state/assets'
+import { describeSanitizing, storeUploadedFile } from '../../state/assetUpload'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
-import type { AssetRef } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
 import { acceptsInlineImage, fittingImageWidthPercent } from './SlaidsImageExtension'
 
 const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
-const MAX_MEGABYTES = Math.round(MAX_ASSET_BYTES / (1024 * 1024))
 
 type Placement = 'inline' | 'zone'
 
@@ -89,33 +93,28 @@ export function ImageUploadModal({
 
   const handleFile = async (file: File): Promise<void> => {
     if (!presentation) return
-    if (file.size > MAX_ASSET_BYTES) {
-      notify.error(`Filen er for stor (maks ${MAX_MEGABYTES} MB).`)
-      return
-    }
-    const isVector = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
-    if (!file.type.startsWith('image/') && !isVector) {
-      notify.error('Filtypen støttes ikke. Bruk vanlige bildeformater eller SVG.')
-      return
-    }
 
     setBusy(true)
     try {
-      const size = await readImageSize(file)
-      const ref: AssetRef = {
-        id: newAssetId(),
-        name: file.name,
-        mimeType: isVector ? 'image/svg+xml' : file.type,
-        byteSize: file.size,
-        width: size.width,
-        height: size.height,
-        isVector,
+      /*
+       * Nothing is written before this returns. A file that is refused — unsafe
+       * SVG, invalid SVG, a format Slaids does not store, one that is too big —
+       * leaves no blob behind, no `AssetRef` in the document and no half-placed
+       * picture in a zone, because the rejection happens before the first write
+       * rather than being undone after it.
+       */
+      const stored = await storeUploadedFile(presentation.id, file)
+      if (!stored.ok) {
+        notify.error(describeError(stored.error))
+        return
       }
-      await repository.putAsset(presentation.id, ref, file)
+      const { ref } = stored.value
+      const dropped = describeSanitizing(stored.value.report)
+      if (dropped) notify.warning(dropped)
       run('asset-register', (current) => registerAsset(current, ref))
 
       if (effective === 'inline' && target) {
-        const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : undefined
+        const aspect = ref.width > 0 && ref.height > 0 ? ref.width / ref.height : undefined
         // Sized to the room that is actually left in the field, so the picture
         // arrives next to the text instead of being rolled back for overflow.
         const widthPercent = fittingImageWidthPercent(target, aspect ?? 16 / 9)

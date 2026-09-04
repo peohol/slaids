@@ -92,6 +92,13 @@ layoutet er nestet.
 - rik tekst via Tiptap: avsnitt, overskrift (pilledesign), fet/kursiv/understreket,
   punktlister, nummererte lister, sitat, kode, lenker og tabeller med rad-/kolonnekontroller
 - bilder og SVG som filer i lagringen (Supabase Storage eller IndexedDB), med breddevalg i prosent
+- hver fil som lastes opp valideres før den lagres, og det gjelder uansett hvor
+  den kom fra: et rasterbilde må være en hel, lesbar fil, og en SVG tolkes og
+  saneres av Slaids' egen parser – skript, `onclick`, `javascript:`-lenker og
+  referanser ut av dokumentet avvises med en forklaring, og det som lagres er
+  den saniterte versjonen. En avvist fil lagres ikke halvveis: ingen fil i
+  lagringen, ingenting i presentasjonen. Formatet leses av innholdet, ikke av
+  filnavnet, så en `.svg` som egentlig er en PNG lagres som PNG-en den er
 - et bilde som fyller en sone fyller den helt ut til kantene, med kortets hjørner
   og skygge, og **beskjæres** når formatet ikke passer: hover viser de skjulte
   delene utenfor rammen, og et dra flytter utsnittet, med en magnet i midten
@@ -548,6 +555,14 @@ vei ut igjen:
 - Uansett dør blir resultatet et helt vanlig asset: bytene i lagringen, en
   `AssetRef` i dokumentet, `isVector: true` for SVG, og visning gjennom `<img>`
   og en Blob-URL – aldri injisert markup.
+- **«Uansett dør» gjelder også editoren og `.slaids`-import.** Reglene over er
+  ikke agentens regler, men Slaids' regler: en SVG en bruker velger i
+  opplastingsdialogen, og en SVG som ligger i en backup noen sender deg, går
+  gjennom nøyaktig den samme parseren og lagres som nøyaktig de samme bytene.
+  En backup er ekstern input og kan ikke brukes til å gå rundt regelen. Det
+  eneste som varierer er hvordan et *rasterbilde* måles: nettleseren kan lese
+  størrelsen på formater den hodeløse validatoren ikke kan (AVIF), og en backup
+  bærer størrelsen som ble lest den gangen filen først ble lagret.
 - Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
   sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
@@ -1315,10 +1330,6 @@ Regler som gjelder overalt:
 Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller
 skrivetilgang for andre enn eieren.
-
-Én kjent skjevhet står igjen: editorens opplastingsdialog lagrer fortsatt en SVG
-en bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret
-bør på sikt være én dør.
 
 Agentflaten har to hull igjen mot editoren, begge bevisste: en agent kan *bruke*
 bibliotekets mapper, men ikke opprette eller slette dem; og layoutmaler og
