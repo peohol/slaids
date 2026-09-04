@@ -39,10 +39,21 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   lesingen av nodens attributter; den statiske rendereren, fit-estimatoren og
   tekstformatet går alle gjennom den. Proporsjonene er filens og ikke
   kallerens: høyden utledes av `AssetRef`-ens `width`/`height`, lest ut av
-  bitstrømmen da filen ble lagret, så fit måler `bredde / aspect` – nøyaktig den
-  boksen `slide.css` tegner. Et forholdstall en kaller oppga ville vært en
+  bitstrømmen da filen ble lagret. Et forholdstall en kaller oppga ville vært en
   påstand, og det er påstanden som ville fått målingen og sliden til å bli
-  uenige. `assetId` slås opp med `unknownAssetIds` før noen kommando kjører, så
+  uenige. **Og en figur er alltid innelukket av feltet sitt**: `.rd-image-wrapper`
+  er `max-height: 100%` i et felt med en bestemt høyde, så nettleseren tegner den
+  aldri høyere enn feltet – «a figure can never be the cause of an overflow», som
+  `slide.css` sier det. Estimatoren måler derfor `min(bredde / aspect, felthøyde)`,
+  ikke bare det første: et portrettbilde ville ellers blitt avvist ved *enhver*
+  bredde, siden taket er det samme ved enhver bredde. Taket er hele feltets høyde
+  og ikke plassen som er igjen under blokkene over – det er dét en prosentandel
+  regnes mot – så tekst over en fylt figur flyter over med nøyaktig sin egen
+  høyde, og en figur inne i et listepunkt eller et sitat har ikke noe tak i det
+  hele tatt, fordi prosenten der regnes mot en `auto`-høyde. To målinger av det
+  samme spørsmålet kan gli fra hverandre i stillhet, så
+  `src/render/fitParity.test.ts` sammenligner estimatoren med en ekte Chromium.
+  `assetId` slås opp med `unknownAssetIds` før noen kommando kjører, så
   en fil fra et annet dekk er `ASSET_NOT_FOUND` og ingenting lagres. Å vise en
   fil som allerede finnes krever bare `presentations:write`: ingen bytes
   skrives, leses eller fjernes, og filscopet på hver tekstendring ville gitt

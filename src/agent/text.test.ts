@@ -259,6 +259,11 @@ describe('bilder inne i teksten', () => {
     // Half the column is 300 wide, which is 150 tall at 2:1 and 600 tall at
     // 1:2 — the file's own ratio, not an assumed one. Everything else about
     // the two documents is identical, so the difference is the picture's.
+    //
+    // Measured without a field around the flow, so this is the height a figure
+    // *wants*. What it is actually drawn at is that or the height of its field,
+    // whichever is smaller — see `estimateDocHeight` and the browser comparison
+    // in `src/render/fitParity.test.ts`.
     expect(high - wide).toBeCloseTo(450, 6)
   })
 })

@@ -1098,11 +1098,40 @@ describe('bilder inne i teksten', () => {
     expect(otherAfter.assets.map((asset) => asset.id)).toEqual([foreign])
   })
 
-  it('måler bildet som en del av innholdet og avviser det som ikke får plass', async () => {
+  it('fyller feltet med en figur uten å skyve noe ut, uansett hvor høy filen er', async () => {
     const context = freshContext()
     const target = await deckWithFigure(context)
-    // Text that fits on its own, in a zone that is then asked to hold a
-    // full-width picture as well.
+    // A portrait file thirty times as tall as it is wide. Uncapped it would
+    // need thirty columns' worth of height; drawn, it is capped at the height
+    // of its field — `.rd-image-wrapper` is `max-height: 100%` — so nothing is
+    // hidden and there is nothing for the gate to refuse. Checked against a
+    // real browser in `src/render/fitParity.test.ts`.
+    const portrait = await figure(
+      context,
+      target.presentationId,
+      '<svg viewBox="0 0 100 3000"><rect width="100" height="3000"/></svg>',
+    )
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [{ type: 'image', assetId: portrait, widthPercent: 100 }],
+    })
+
+    const filled = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: target.presentationId,
+        slideId: target.slideId,
+      }),
+      target.nodeId,
+    )
+    expect(filled.fits).toBe(true)
+    expect(filled.overflow).toBe(0)
+  })
+
+  it('avviser teksten under en figur som fyller feltet, uten å skrive noe', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
     const text: TextBlock[] = [{ type: 'paragraph', spans: [{ text: 'En kort setning.' }] }]
     await ok(context, 'set_zone_text', {
       presentationId: target.presentationId,
@@ -1119,6 +1148,9 @@ describe('bilder inne i teksten', () => {
     // revision from here on is the write this call is about.
     const before = await stored(context, target.presentationId)
 
+    // The figure is contained, so it is not the figure that fails to fit: it
+    // takes the whole field, and the sentence above it is then a line with
+    // nowhere to go. That is what the browser draws too, by the same amount.
     const failure = await fails(context, 'set_zone_text', {
       presentationId: target.presentationId,
       slideId: target.slideId,
@@ -1150,8 +1182,10 @@ describe('bilder inne i teksten', () => {
   it('lar agenten krympe bildet og lykkes på neste forsøk', async () => {
     const context = freshContext()
     const target = await deckWithFigure(context)
-    // Three times as tall as it is wide: the whole column is far too much, a
-    // tenth of it is not.
+    const text: TextBlock[] = [{ type: 'paragraph', spans: [{ text: 'En kort setning.' }] }]
+    // Three times as tall as it is wide: at the full column it fills the field
+    // and leaves the sentence nowhere to go; at a tenth of it there is room
+    // for both.
     const tall = await figure(
       context,
       target.presentationId,
@@ -1162,12 +1196,13 @@ describe('bilder inne i teksten', () => {
         presentationId: target.presentationId,
         slideId: target.slideId,
         nodeId: target.nodeId,
-        blocks: [{ type: 'image', assetId: tall, widthPercent }],
+        blocks: [...text, { type: 'image', assetId: tall, widthPercent }],
       })
 
     expect(expectErr(await write(100)).code).toBe('CONTENT_DOES_NOT_FIT')
     // The same loop the text format has, with the width as the thing to cut:
-    // a narrower picture is a shorter one.
+    // a narrower picture is a shorter one, and below the cap it stops taking
+    // the whole field.
     expectOk(await write(10))
   })
 

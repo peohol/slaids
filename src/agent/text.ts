@@ -149,7 +149,7 @@ const imageBlockSchema = z.strictObject({
     .max(INLINE_IMAGE_MAX_WIDTH_PERCENT)
     .default(INLINE_IMAGE_DEFAULT_WIDTH_PERCENT)
     .describe(
-      `Bredden som andel av kolonnen bildet står i. ${INLINE_IMAGE_MAX_WIDTH_PERCENT} er hele feltet; standarden er ${INLINE_IMAGE_DEFAULT_WIDTH_PERCENT}, som lar det stå tekst ved siden av. Høyden følger av bildets egne proporsjoner.`,
+      `Bredden som andel av kolonnen bildet står i. ${INLINE_IMAGE_MAX_WIDTH_PERCENT} er hele feltet; standarden er ${INLINE_IMAGE_DEFAULT_WIDTH_PERCENT}, som lar det stå tekst ved siden av. Høyden følger av bildets egne proporsjoner, men bildet tegnes aldri høyere enn feltet: en høy fil fyller feltet i stedet for å flyte over.`,
     ),
   align: alignSchema.optional(),
 })

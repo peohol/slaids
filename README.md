@@ -515,11 +515,18 @@ vei ut igjen:
   `widthPercent` er andelen av kolonnen bildet står i – 100 er hele feltet, og
   standarden er 50, som lar det stå tekst ved siden av. Høyden settes ikke:
   den følger av filens egne proporsjoner, lest ut av bytene da filen ble lagret.
-  Det er dét som gjør at fit-gaten måler den boksen nettleseren faktisk tegner,
-  så et bilde som ville skjøvet teksten ut av sonen blir avvist med
-  `CONTENT_DOES_NOT_FIT` og ingenting lagres. `inspect_slide` leser den samme
-  blokken tilbake, så en agent kan lese, endre og skrive uten å konstruere noe
-  den ikke selv har fått utlevert.
+  `inspect_slide` leser den samme blokken tilbake, så en agent kan lese, endre og
+  skrive uten å konstruere noe den ikke selv har fått utlevert.
+- **En figur er alltid innelukket av feltet sitt, og er derfor aldri det som
+  ikke får plass.** Et bilde tegnes aldri høyere enn feltet det står i, uansett
+  hvor høy filen er – et portrettfotografi i full bredde fyller feltet i stedet
+  for å flyte ut av det. Fit-gaten måler det samme taket, så den avviser aldri
+  en figur den ekte rendereren tegner helt fint. Det som *kan* bli avvist, er
+  teksten rundt: en linje over en figur som fyller feltet har ingen steder å
+  gjøre av seg, og da svarer kallet `CONTENT_DOES_NOT_FIT` med hvor mye som ble
+  til overs – smalere figur, eller kortere tekst, og neste forsøk går gjennom.
+  At de to målingene faktisk er enige er ikke et resonnement: en test
+  sammenligner den hodeløse målingen med en ekte Chromium.
 - **Filen må være presentasjonens egen.** `assetId` slås opp i dekkets egen
   filliste før noe skrives; en id fra en annen presentasjon finnes ikke der og
   gir `ASSET_NOT_FOUND` (404) med id-ene som ikke ble funnet. Å *vise* en fil som

@@ -190,7 +190,21 @@ function countDocChars(doc: RichDoc, context: EstimateContext): number {
   return (doc.content ?? []).reduce((total, node) => total + countChars(node, context), 0)
 }
 
-function estimateNodeHeight(node: RichNode, width: number, context: EstimateContext): number {
+/**
+ * How much of a field's height one block takes.
+ *
+ * `fieldHeight` is the height of the block's containing block — the field it
+ * stands in — and only a figure has any use for it: see `slaidsImage`. It is
+ * `Infinity` for a block nested inside another one, which is not a hedge but
+ * the same thing the stylesheet says (a percentage against an auto height is
+ * no limit at all).
+ */
+function estimateNodeHeight(
+  node: RichNode,
+  width: number,
+  context: EstimateContext,
+  fieldHeight = Number.POSITIVE_INFINITY,
+): number {
   const { metrics, tokens } = context
   const indent = tokens.listIndent
   switch (node.type) {
@@ -233,14 +247,44 @@ function estimateNodeHeight(node: RichNode, width: number, context: EstimateCont
       return lines * size * BODY_LINE_HEIGHT + tokens.blockSpacing * 2
     }
     case 'slaidsImage': {
-      // The picture's own proportions, taken from the file when it was stored:
-      // the box is `width / aspect` tall, which is exactly what the stylesheet
-      // draws. A document written before `aspect` existed gets the stylesheet's
-      // own fallback, so the estimate and the browser still agree.
+      /*
+       * Two rules, and both of them are `slide.css`'s rather than this file's.
+       *
+       * The picture's own proportions decide how tall it wants to be: the box
+       * is `width / aspect`, taken from the file when it was stored, and a
+       * document written before `aspect` existed gets the stylesheet's own
+       * fallback ratio.
+       *
+       * And then it is capped. `.rd-image-wrapper` is `max-height: 100%` inside
+       * a field of a definite height, so the browser never draws a figure
+       * taller than the field it stands in — «a figure can never be the cause
+       * of an overflow», as the stylesheet puts it, and a portrait photograph
+       * at full width is *contained*, not overflowing. Estimating it at its
+       * uncapped height would refuse a slide the renderer draws perfectly, and
+       * refuse it at every width, because the cap is the same at every width.
+       *
+       * The cap is the field's whole height and not the room left below the
+       * blocks above, because that is what a percentage resolves against: text
+       * above a filled figure therefore *does* overflow, by exactly its own
+       * height, which is what the browser reports too.
+       *
+       * `fieldHeight` is `Infinity` where the cap does not apply — inside a
+       * list item or a quote the containing block has an auto height, the
+       * percentage resolves to `none`, and the figure really is as tall as its
+       * proportions make it.
+       *
+       * The block's own bottom margin is inside the cap rather than added on
+       * top of it, because a capped figure is by definition the block that
+       * fills the field: it is either the last one, and `slide.css` zeroes the
+       * last child's margin, or what follows it has already overflowed by its
+       * own height. Adding the margin outside would refuse a figure that fills
+       * its field exactly — by one block spacing, at every width.
+       */
       const image = inlineImageOf(node)
       if (!image) return 0
       const ratio = image.aspect ?? INLINE_IMAGE_DEFAULT_ASPECT
-      return (width * (image.widthPercent / 100)) / ratio + tokens.blockSpacing
+      const natural = (width * (image.widthPercent / 100)) / ratio
+      return Math.min(natural + tokens.blockSpacing, fieldHeight)
     }
     case 'table': {
       const rows = node.content?.length ?? 0
@@ -251,15 +295,26 @@ function estimateNodeHeight(node: RichNode, width: number, context: EstimateCont
   }
 }
 
+/**
+ * The height a flow needs in a column of `width`.
+ *
+ * `fieldHeight` is the height of the field the flow is laid out in, when the
+ * caller has one. It changes nothing for text and everything for a figure,
+ * which the stylesheet caps at the height of its field — so a caller that
+ * leaves it out gets a figure measured uncapped, which is right for a flow
+ * with no field around it (a reference entry) and too pessimistic for one
+ * inside a zone. `estimateBodyOverflow` always passes it.
+ */
 export function estimateDocHeight(
   doc: RichDoc,
   width: number,
   context?: Partial<FitContext>,
+  fieldHeight = Number.POSITIVE_INFINITY,
 ): number {
   if (width <= 0) return Number.POSITIVE_INFINITY
   const estimate = estimateContext(context)
   return (doc.content ?? []).reduce(
-    (total, node) => total + estimateNodeHeight(node, width, estimate),
+    (total, node) => total + estimateNodeHeight(node, width, estimate, fieldHeight),
     0,
   )
 }
@@ -280,7 +335,7 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
     const width = body.axis === 'x' ? share : area.width
     const height = body.axis === 'x' ? area.height : share
     const needed = (body.subfields[i].doc.content ?? []).reduce(
-      (sum, node) => sum + estimateNodeHeight(node, width, context),
+      (sum, node) => sum + estimateNodeHeight(node, width, context, height),
       0,
     )
     worst = Math.max(worst, width <= 0 ? Number.POSITIVE_INFINITY : needed - height)

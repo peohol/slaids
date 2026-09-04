@@ -2843,6 +2843,11 @@ livsløpet rundt filen:
   og en nøstet liste er det fremdeles;
 - `set_zone_text` gjennom den ekte operasjonen skriver bildet, og
   `inspect_slide` viser det;
+- en figur fyller feltet uten å flyte over, uansett hvor høy filen er, i enhver
+  subfeltlayout – og det er teksten over en fylt figur som avvises;
+- estimatet og en ekte Chromium er enige om alle tre: portrettfiguren som fyller
+  feltet, linjen over den som ikke får plass, og banneret som er lavere enn
+  feltet;
 - en ukjent `assetId`, og en `assetId` som tilhører en annen presentasjon, gir
   `ASSET_NOT_FOUND` uten at noe skrives – og REST og MCP svarer det samme;
 - et bilde som ikke får plass gir `CONTENT_DOES_NOT_FIT` atomisk, og et smalere
@@ -3143,11 +3148,29 @@ Fire ting gjør dette til én modell og ikke to:
   påstand, og en påstand er nøyaktig det som ville fått fit-målingen og den
   tegnede sliden til å være uenige. `widthPercent` er andelen av kolonnen –
   `INLINE_IMAGE_MIN_WIDTH_PERCENT`–100, standard 50 – så et bilde kan aldri bli
-  bredere enn feltet rundt det, og fit-gaten måler `bredde / aspect`, som er
-  nøyaktig den boksen `slide.css` tegner. Et bilde som ikke får plass gir
+  bredere enn feltet rundt det.
+- **Og en figur er alltid innelukket av feltet sitt.** `.rd-image-wrapper` er
+  `max-height: 100%` i et felt med en bestemt høyde, så nettleseren tegner den
+  aldri høyere enn feltet: «a figure can never be the cause of an overflow», som
+  `slide.css` sier det. Estimatoren måler derfor `min(bredde / aspect,
+  felthøyde)`. Bare det første leddet ville avvist et portrettfotografi ved
+  *enhver* bredde – taket er det samme ved enhver bredde – for innhold den ekte
+  rendereren tegner helt fint. Taket er hele feltets høyde og ikke plassen som
+  er igjen under blokkene over, fordi det er dét en prosentandel regnes mot: en
+  linje over en fylt figur flyter over med nøyaktig sin egen høyde. Inne i et
+  listepunkt eller et sitat finnes taket ikke, fordi prosenten der regnes mot en
+  `auto`-høyde, og figuren er da så høy som proporsjonene gjør den.
+  Det som avvises er altså teksten rundt figuren, ikke figuren:
   `CONTENT_DOES_NOT_FIT` med sonens rect og overflow, akkurat som for mye tekst,
-  og løkken agenten kjører er den samme – bare med bredden som det som kortes
-  ned.
+  og løkken agenten kjører er den samme – bare med bredden som ett av det som
+  kan kortes ned.
+- **To målinger av det samme spørsmålet må sjekkes mot hverandre, ikke
+  resonneres om.** Den hodeløse estimatoren gater hvert agentkall og
+  DOM-målingen gater editoren; der de er uenige blir en slide enten avvist selv
+  om den tegnes perfekt, eller godtatt selv om den klippes – og ingen av delene
+  sier fra. Figuren var nettopp et slikt sted. `src/render/fitParity.test.ts`
+  sammenligner derfor estimatet med `scrollHeight - clientHeight` i en ekte
+  Chromium, på den samme markupen `DeckPageView` tegner.
 
 #### Revisjon er ikke en ny lås
 
