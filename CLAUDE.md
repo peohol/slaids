@@ -242,6 +242,11 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `storeAsset` gjør det motsatt – en foreldreløs fil koster lagring, et dokument
   som peker på bytes som er borte koster sliden. Derfor er `fileRemoved: false`
   et *resultat*, ikke en feil, og en avvisning rører ingen av de to lagrene.
+  Flagget er repositoryets eget svar (`deleteAsset` returnerer `boolean`), aldri
+  «kallet kastet ikke»: i Supabase er en filsletting to fjerninger, og en feilet
+  objektfjerning feller med vilje ikke kallet – raden er borte, som er det
+  kalleren ba om. Et `true` utledet av at kallet gikk igjennom ville vært en
+  påstand om lagringen ingen har sjekket.
   Delingen tåler dette uten et ekstra kall: snapshotet lister bare filer slidene
   viser, og publiseres på nytt av den samme skrivingen som lagrer dekket, så en
   slettbar fil er per definisjon en fil snapshotet ikke lister.

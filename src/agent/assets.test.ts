@@ -776,21 +776,27 @@ describe('delete_asset', () => {
     expect(await context.repository.getAsset(seeded.assetId)).toBeNull()
   })
 
-  it('melder fileRemoved: false når bytene ble stående igjen', async () => {
-    // The document is written first on purpose: an orphan blob costs storage,
-    // while a document pointing at bytes that are gone costs the slide. So a
-    // store that refuses the delete does not undo the deletion — it is reported.
+  /** A deck in `database`, past the operation that would refuse to build it. */
+  async function orphanCase(
+    make: (database: SlaidsDatabase) => DexieSlaidsRepository,
+  ): Promise<{ context: AgentContext; seeded: Awaited<ReturnType<typeof seedWithFile>> }> {
     counter += 1
     const database = new SlaidsDatabase(`slaids-agent-orphan-${counter}`)
     databases.push(database)
+    const context: AgentContext = { repository: make(database) }
+    return { context, seeded: await seedWithFile(context) }
+  }
 
+  it('melder fileRemoved: false når slettingen kastet', async () => {
+    // The document is written first on purpose: an orphan blob costs storage,
+    // while a document pointing at bytes that are gone costs the slide. So a
+    // store that refuses the delete does not undo the deletion — it is reported.
     class StubbornStore extends DexieSlaidsRepository {
       override deleteAsset(): Promise<never> {
         return Promise.reject(new RepositoryError('Filen kunne ikke slettes.'))
       }
     }
-    const context: AgentContext = { repository: new StubbornStore(database) }
-    const seeded = await seedWithFile(context)
+    const { context, seeded } = await orphanCase((database) => new StubbornStore(database))
 
     const deleted = expectOk(
       await deleteAsset.run(context, {
@@ -804,6 +810,31 @@ describe('delete_asset', () => {
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
     expect(reloaded.assets).toEqual([])
     expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(false)
+  })
+
+  it('melder fileRemoved: false når slettingen gikk bra og bytene likevel ble liggende', async () => {
+    // The case a `try/catch` alone would report as a success, and the one that
+    // actually happens in Supabase: deleting a file there is two removals, and
+    // a failed object removal deliberately does not fail the call — the row is
+    // gone, which is what the caller asked for. The bytes are still there, so
+    // the answer has to come from the repository rather than from "it did not
+    // throw". See `SlaidsRepository.deleteAsset`.
+    class LeavesTheBytes extends DexieSlaidsRepository {
+      override async deleteAsset(id: string): Promise<boolean> {
+        await super.deleteAsset(id)
+        return false
+      }
+    }
+    const { context, seeded } = await orphanCase((database) => new LeavesTheBytes(database))
+
+    const deleted = expectOk(
+      await deleteAsset.run(context, {
+        presentationId: seeded.presentationId,
+        assetId: seeded.assetId,
+      }),
+    )
+    expect(deleted.fileRemoved).toBe(false)
+    expect((await context.repository.loadPresentation(seeded.presentationId)).assets).toEqual([])
   })
 })
 

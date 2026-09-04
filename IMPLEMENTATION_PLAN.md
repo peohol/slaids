@@ -3555,6 +3555,17 @@ mens et dokument som peker på bytes som er borte koster sliden. Går den siste
 skrivingen galt, står slettingen likevel – `fileRemoved: false` sier at det ble
 liggende igjen en foreldreløs fil, aldri at referansen kom tilbake.
 
+Flagget må komme fra lagringen selv, og det er skarpere enn det ser ut. I
+Supabase er en filsletting to fjerninger – raden, så objektet – og en feilet
+objektfjerning feller med vilje ikke kallet: raden er borte, som er det kalleren
+ba om, og stien huskes for opprydningssveipet. «Husket» er et svakere løfte enn
+det høres ut som på serveren: `agentContextFor` bygger et nytt repository per
+forespørsel, så settet overlever ikke kallet, og sveipet rydder bare mapper til
+presentasjoner som er slettet. Derfor returnerer `SlaidsRepository.deleteAsset`
+en `boolean` i stedet for `void`, og `deleteAssetFile` leser den i stedet for å
+utlede `true` av at kallet ikke kastet – ellers ville `fileRemoved: true` vært
+en påstand om lagringen ingen har sjekket.
+
 Delingen tåler dette uten et eneste ekstra kall, og det er verdt å si hvorfor:
 `buildSharedSnapshot` tar bare med filer slidene faktisk viser, og en delt
 presentasjon publiseres på nytt av den samme skrivingen som lagrer den. Et

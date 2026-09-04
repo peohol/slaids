@@ -403,6 +403,47 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     expect(await repository.deleteOrphanAssets()).toBe(1)
     expect(fake.storageCalls.filter((call) => call.op === 'remove')).toHaveLength(2)
   })
+
+  it('sier fra når raden er borte men bytene ble liggende igjen', async () => {
+    // Deleting one file is two removals, and only the first one may fail the
+    // call: the row is gone, which is what the caller asked for. But a caller
+    // that *reports* the outcome — `delete_asset` answers an agent with
+    // `fileRemoved` — must not be told the bytes went with it when they did
+    // not. The pending path is remembered for the sweep, and remembering is a
+    // weaker promise than it looks: on the server the repository is built per
+    // request, so nothing here outlives the call.
+    const objectPath = `${TEST_OWNER_ID}/p1/a1`
+    const { repository, fake } = repositoryFor({
+      // `deleteAsset` reads its one row with `maybeSingle()`, so the row is an
+      // object rather than the array a plain select answers with.
+      resolve: (record) => (record.op === 'select' ? { data: { object_path: objectPath } } : { data: null }),
+      remove: () => ({ error: { message: 'storage nede' } }),
+    })
+
+    expect(await repository.deleteAsset('a1')).toBe(false)
+    // The row still went first, and it still went.
+    const del = fake.queries.find((query) => query.op === 'delete')
+    expect(del?.table).toBe(ASSETS_TABLE)
+    expect(fake.storageCalls).toEqual([
+      { op: 'remove', bucket: ASSETS_BUCKET, paths: [objectPath] },
+    ])
+  })
+
+  it('sier at filen er borte når begge halvdelene gikk igjennom', async () => {
+    const { repository } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select' ? { data: { object_path: `${TEST_OWNER_ID}/p1/a1` } } : { data: null },
+      remove: () => ({ data: [] }),
+    })
+    expect(await repository.deleteAsset('a1')).toBe(true)
+  })
+
+  it('sier at filen er borte når det ikke fantes noen rad å slette', async () => {
+    // Nothing points at any bytes, which is the state the caller asked for.
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
+    expect(await repository.deleteAsset('a_borte')).toBe(true)
+    expect(fake.storageCalls).toEqual([])
+  })
 })
 
 describe('SupabaseSlaidsRepository – maler', () => {

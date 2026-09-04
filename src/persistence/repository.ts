@@ -74,7 +74,28 @@ export interface SlaidsRepository {
    * one `persistence/backup.ts` already knows how to act on.
    */
   existingAssetIds(ids: readonly string[]): Promise<string[]>
-  deleteAsset(id: string): Promise<void>
+  /**
+   * Remove one file, and say whether the bytes really went with it.
+   *
+   * Three answers, not two, because deleting a file is two removals in the
+   * stores that have two: the row that makes the file reachable, and the bytes
+   * themselves. The row always goes first — what is left behind then is a file
+   * nothing references, never a reference to a file that is gone.
+   *
+   *  - **throws** — nothing happened. The row is still there and the file is
+   *    still reachable.
+   *  - **`true`** — the row is gone and so are the bytes.
+   *  - **`false`** — the row is gone; the bytes were not reclaimed and are now
+   *    an orphan in the object store. The deletion still stands, and the caller
+   *    must not retry it or undo it: reclaiming is the store's own job (see
+   *    `deleteOrphanAssets`), and the object goes with its presentation either
+   *    way.
+   *
+   * Returned rather than swallowed because a caller can be *reporting* the
+   * outcome — `delete_asset` answers an agent with `fileRemoved` — and a
+   * quietly optimistic `true` would be a claim about storage nobody checked.
+   */
+  deleteAsset(id: string): Promise<boolean>
   deleteAssetsForPresentation(presentationId: string): Promise<void>
   /** Remove asset rows whose owning presentation no longer exists. */
   deleteOrphanAssets(): Promise<number>

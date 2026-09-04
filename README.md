@@ -563,9 +563,10 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   innhold som ligger parkert i sandkassen – og feilen sier hvor mange steder av
   hvert slag, så agenten vet hva den må rydde først. Ingenting halveis: en
   avvisning lagrer verken dokumentet eller rører filen, og en godkjent sletting
-  skriver dokumentet først og bytene etterpå (`fileRemoved` sier om det siste
-  gikk igjennom), fordi en fil ingen peker på koster lagring mens et dokument
-  som peker på en fil som er borte koster sliden. `delete_unused_references`
+  skriver dokumentet først og bytene etterpå, fordi en fil ingen peker på koster
+  lagring mens et dokument som peker på en fil som er borte koster sliden.
+  `fileRemoved` sier om det siste faktisk skjedde – lest av lagringen selv, ikke
+  utledet av at kallet gikk igjennom. `delete_unused_references`
   regner sandkassen som bruk, av samme grunn, og er idempotent: et andre kall
   fjerner ingenting og flytter ingen revisjon.
 - **Agenten skriver aldri editorens JSON.** Tekst sendes som navngitte blokker –

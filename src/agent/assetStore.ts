@@ -227,11 +227,18 @@ function tooLarge(bytes: Uint8Array): AgentFailure | null {
 /**
  * Remove the stored bytes of a file nothing references any more.
  *
- * Never throws, and says whether it worked. Both callers need exactly that and
- * neither of them can do anything else with a failure: the rollback path below
- * is already reporting a failed write, and `delete_asset` has *already* stored
- * a document that no longer lists the file — undoing that would put the
- * `AssetRef` back and be a second write to fix a cleanup.
+ * Never throws, and says whether the bytes are actually gone. Both callers need
+ * exactly that and neither can do anything else with a failure: the rollback
+ * path below is already reporting a failed write, and `delete_asset` has
+ * *already* stored a document that no longer lists the file — undoing that
+ * would put the `AssetRef` back and be a second write to fix a cleanup.
+ *
+ * The answer is the repository's own, not "the call did not throw". Deleting a
+ * file in Supabase is two removals — the row, then the object — and a failed
+ * object removal deliberately does not fail the call: the row is gone, which is
+ * what the caller asked for. It is still a file that is *there*, so reporting
+ * `true` on the strength of the call resolving would be publishing a claim
+ * about storage nobody checked. See `SlaidsRepository.deleteAsset`.
  *
  * The asymmetry is the same one `resolveAmbiguousRegistration` turns on, in
  * the other direction: bytes nothing points at cost storage until the
@@ -244,8 +251,7 @@ export async function deleteAssetFile(
   assetId: string,
 ): Promise<boolean> {
   try {
-    await context.repository.deleteAsset(assetId)
-    return true
+    return await context.repository.deleteAsset(assetId)
   } catch {
     return false
   }
