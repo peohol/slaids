@@ -560,6 +560,34 @@ describe('duplicate_presentation', () => {
     )
   })
 
+  it('avviser en kopi der en kildefil forsvant etter revisjonssjekken', async () => {
+    // The race the rollback below cannot see: the source was consistent when it
+    // was read, and a concurrent `delete_asset` or `delete_presentation` took
+    // the file out before the bytes were copied. Skipping it would answer `ok`
+    // with a deck whose document lists a file that was never stored — a picture
+    // that can never load — so it is a refusal, and the copy goes back out.
+    const context = freshContext()
+    const source = await filledDeck(context)
+    const gone = overriding(context.repository, {
+      getAsset: (id) =>
+        id === source.assetId ? Promise.resolve(null) : context.repository.getAsset(id),
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: gone }, 'duplicate_presentation', {
+        presentationId: source.presentationId,
+      }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+    expect(refused.message).toContain('figur.png')
+
+    // Nothing survived the attempt: no second presentation, and no files under
+    // one. The original is untouched.
+    expect(await context.repository.listPresentations()).toHaveLength(1)
+    expect(await context.repository.deleteOrphanAssets()).toBe(0)
+    expect(await context.repository.getAsset(source.assetId)).not.toBeNull()
+  })
+
   it('etterlater ingen halv kopi når filene ikke kom med', async () => {
     const context = freshContext()
     const source = await filledDeck(context)

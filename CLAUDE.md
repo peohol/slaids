@@ -303,7 +303,13 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `duplicatePresentationDocument` i `src/domain/presentation.ts` avgjør hva en
   kopi *er*; `src/persistence/library.ts` avgjør rekkefølgen de to lagrene
   skrives i – dokumentet først, filene etterpå, og kopien tas ut igjen hvis ikke
-  alle filene kom fram. Den tar imot dokumentet og ikke en id, slik at revisjonen
+  alle filene kom fram. En kildefil lagringen ikke har er én av de måtene, og
+  den er en **avvisning og ikke et hopp over**: kopiens dokument lister allerede
+  filen under sin nye id og peker slides på den, så å hoppe over den ville svart
+  `ok` med et dekk som viser et bilde som aldri kan lastes. Det kan skje selv om
+  kilden var konsistent da revisjonen ble sjekket – en samtidig `delete_asset`
+  eller `delete_presentation` – og et dekk som allerede er inkonsistent er
+  fortsatt reparerbart, siden `delete_asset` kan fjerne en peker uten mål. Den tar imot dokumentet og ikke en id, slik at revisjonen
   som ble sjekket er revisjonen som ble kopiert.
 - **En mutasjon som ikke endret noe lagrer ingenting.** Gir en operasjon
   dokumentet den fikk uendret tilbake fra `apply`, hopper `mutatePresentation`

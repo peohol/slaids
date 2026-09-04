@@ -2792,7 +2792,9 @@ For bibliotekets livsløp i tillegg:
   nye id-er hele veien – slides, soner, innhold, subfelt, sandkasse og filer;
 - originalen står bit for bit uendret etter at kopien er redigert, og kopiens
   filer overlever at originalen slettes;
-- en duplisering som ikke fikk med filene etterlater ingen halv kopi;
+- en duplisering som ikke fikk med filene etterlater ingen halv kopi – både når
+  skrivingen feiler, og når en kildefil forsvinner fra lagringen etter at
+  revisjonen er sjekket;
 - en vanlig presentasjon slettes; en med filer tar radene og bytene med seg; en
   publisert slettes uten `sharing:write`;
 - en sletting av noe som ikke finnes er `PRESENTATION_NOT_FOUND`, ikke et stille
@@ -3797,6 +3799,21 @@ sveipet, som arbeider ved å sammenligne filer mot presentasjonene som fortsatt
 finnes. Kommer ikke alle filene fram, tas kopien ut igjen, filene først. En kopi
 som mangler bilder er verre enn ingen kopi: kalleren får vite at dupliseringen
 feilet, mens et halvkopiert dekk dukker opp i biblioteket ved neste oppfriskning.
+
+«Kom ikke fram» dekker to ting, og den andre er lettere å overse enn den første.
+En skriving som feiler er åpenbar. En **kildefil lagringen ikke har** er det
+ikke: løkken ber om bytene til hver fil dokumentet lister, og et svar som ikke
+finnes måtte enten hoppes over eller feile. Å hoppe over den er stille
+ødeleggelse – kopiens dokument lister allerede filen under sin nye id og peker
+slides på den, så svaret ville vært `ok` med et dekk som viser et bilde som
+aldri kan lastes. Det er heller ikke et hypotetisk kappløp: kilden kan ha vært
+helt konsistent da revisjonen ble sjekket, og en samtidig `delete_asset` eller
+`delete_presentation` kan ha tatt filen mellom lesingen og kopieringen. Derfor
+er det en avvisning som utløser den samme tilbakerullingen, og feilen navngir
+filen fra dokumentet – den ene siden som fortsatt har et navn på den. Prisen er
+at et dekk som allerede *er* inkonsistent ikke kan dupliseres før pekeren uten
+mål er fjernet, og det er riktig vei: `delete_asset` kan fjerne den, så dekket
+står ikke fast.
 
 `duplicate_presentation` tar imot et navn på kopien, slik at en variant er ett
 kall og ikke en duplisering fulgt av en omdøping, og svarer med den samme

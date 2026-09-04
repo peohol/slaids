@@ -19,7 +19,7 @@
 
 import { duplicatePresentationDocument } from '../domain/presentation'
 import type { Presentation } from '../domain/types'
-import type { SlaidsRepository } from './repository'
+import { RepositoryError, type SlaidsRepository } from './repository'
 
 /**
  * Deep-copy a presentation, including its files.
@@ -52,11 +52,28 @@ export async function duplicatePresentation(
   await repository.savePresentation(copy)
 
   try {
-    for (const asset of source.assets) {
-      const stored = await repository.getAsset(asset.id)
-      if (!stored) continue
-      const targetId = assetIds.get(asset.id)
-      if (!targetId) continue
+    // Over the map rather than over `source.assets`, so the pairing of "which
+    // file becomes which" is structural: there is no lookup here that could
+    // come back empty, and therefore no branch that has to decide what to do
+    // when it does.
+    for (const [sourceId, targetId] of assetIds) {
+      const stored = await repository.getAsset(sourceId)
+      if (!stored) {
+        // The document says this file exists and the store does not have it.
+        // Skipping it would produce exactly the thing the rollback below exists
+        // to prevent, and quietly: the copy's document already lists the file
+        // under its new id and points slides at it, so what would be returned
+        // is a deck with a picture that can never load. Two ways to get here,
+        // and neither is a copy worth keeping — a concurrent `delete_asset` or
+        // `delete_presentation` on the source between the read and this loop,
+        // or a source that was already inconsistent.
+        // Named from the document, which is the only side that still has a
+        // name for it: the store is the half that has nothing.
+        const named = source.assets.find((asset) => asset.id === sourceId)?.name ?? sourceId
+        throw new RepositoryError(
+          `Kunne ikke kopiere presentasjonen: filen «${named}» står i dokumentet, men finnes ikke i lagringen. Fjern den fra presentasjonen og prøv igjen.`,
+        )
+      }
       await repository.putAsset(copy.id, { ...stored.ref, id: targetId }, stored.blob)
     }
   } catch (error) {
