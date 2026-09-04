@@ -36,8 +36,11 @@
  *
  *  - **Regression-gated** (calls `guardFit`): every command that funnels through
  *    `updateZoneContent` (`setContentKind`, `setContainerPayload`,
- *    `setSubfieldCount`, `setBodyAxis`, `setBodyWeights`, `setCardTitle`,
- *    `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
+ *    `setBodyLayout` — and with it `setSubfieldCount`, `setBodyAxis` and
+ *    `setBodyWeights`, which are that one command with a single field filled
+ *    in, so the count, the axis and the ratios are gated *together* against the
+ *    layout asked for rather than one intermediate at a time —
+ *    `setCardTitle`, `setSubfieldDoc`, `setCardColor`), plus `setTheme`,
  *    `setSlideTitle`, `setSlideHasTitle` — **both directions**, and the
  *    removing one is the easy half to get wrong: it can only give *this* slide
  *    room, so it looks like it cannot hide anything. A title may cite, and

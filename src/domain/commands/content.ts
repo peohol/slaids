@@ -131,9 +131,41 @@ export function setCardTitle(
   )
 }
 
-export function setSubfieldCount(
+/* ------------------------------------------------------------------ *
+ * The subfield layout: how many, which way, in what proportions
+ * ------------------------------------------------------------------ */
+
+/** Everything about how a body divides the space it was given. */
+export interface BodyLayoutInput extends ZoneContentTarget {
+  /** `x` lays the subfields out as columns, `y` as rows. */
+  axis?: Axis
+  /** One per subfield the change ends with, all finite and greater than zero. */
+  weights?: number[]
+  /** 1–6. Subfields that disappear must be empty. */
+  subfieldCount?: number
+}
+
+/**
+ * Set how a card's subfields divide the space they share — count, direction and
+ * proportions — in one gated step.
+ *
+ * One command rather than three, for the same reason `updateSplit` is one
+ * command for a split's axis, weights and child count: all three are answered
+ * against the same rectangle, and asking them one at a time gates each
+ * intermediate state on its own. Two stacked rows can be too short for text
+ * that two columns hold comfortably, so a caller that can only say "two
+ * subfields" and *then* "side by side" never reaches the second state — the
+ * first is refused on the way there. Here the fit gate runs once, against the
+ * layout that was actually asked for.
+ *
+ * `setSubfieldCount`, `setBodyAxis` and `setBodyWeights` are this command with
+ * one of the three filled in. The editor changes one thing at a time and keeps
+ * calling them; a headless caller that knows the whole layout it wants says so
+ * in one call.
+ */
+export function setBodyLayout(
   presentation: Presentation,
-  input: { count: number } & ZoneContentTarget,
+  input: BodyLayoutInput,
 ): Result<Presentation> {
   return updateZoneContent(
     presentation,
@@ -141,17 +173,65 @@ export function setSubfieldCount(
     (content) => {
       const body = bodyOf(content)
       if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      if (!Number.isInteger(input.count) || input.count < 1 || input.count > 6) {
+
+      const count = input.subfieldCount ?? body.subfields.length
+      if (input.subfieldCount !== undefined && (!Number.isInteger(count) || count < 1 || count > 6)) {
         return err('INVALID_ARGUMENT', 'Antall subfelt må være mellom 1 og 6.')
       }
-      const removed = body.subfields.slice(input.count)
+      // Against the count the call *ends* with, not the one it started with: a
+      // call that both adds a subfield and re-proportions the body describes the
+      // result, and matching against the old count would refuse exactly that.
+      if (input.weights && input.weights.length !== count) {
+        return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subfelt.', {
+          expected: count,
+          received: input.weights.length,
+        })
+      }
+      if (input.weights && !areWeightsValid(input.weights)) {
+        return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
+      }
+      const removed = body.subfields.slice(count)
       if (removed.some((field) => !isDocEmpty(field.doc))) {
         return err('INVALID_ARGUMENT', 'Subfeltene som fjernes har innhold. Tøm dem først.')
       }
-      return ok(withBody(content, withSubfieldCount(body, input.count)))
+
+      const resized = withSubfieldCount(body, count)
+      const oriented = input.axis === undefined ? resized : withBodyAxis(resized, input.axis)
+      const next =
+        input.weights && !sameWeights(oriented.weights, input.weights)
+          ? { ...oriented, weights: [...input.weights] }
+          : oriented
+      // Unchanged is answered with the very same object, so `updateZoneContent`
+      // can tell a no-op apart from a change and leave `updatedAt` alone.
+      return ok(next === body ? content : withBody(content, next))
     },
-    'Innholdet får ikke plass når subfeltene deler sonen på nytt.',
+    bodyLayoutMessage(input),
   )
+}
+
+/** Which of the three was asked for, so a refusal says what was refused. */
+function bodyLayoutMessage(input: BodyLayoutInput): string {
+  const asked = [input.subfieldCount, input.axis, input.weights].filter(
+    (value) => value !== undefined,
+  ).length
+  if (asked > 1) return 'Innholdet får ikke plass med denne subfeltinndelingen.'
+  if (input.subfieldCount !== undefined) {
+    return 'Innholdet får ikke plass når subfeltene deler sonen på nytt.'
+  }
+  if (input.weights !== undefined) return 'Innholdet får ikke plass med disse forholdstallene.'
+  return 'Innholdet får ikke plass med denne orienteringen.'
+}
+
+function sameWeights(current: readonly number[], next: readonly number[]): boolean {
+  return current.length === next.length && current.every((weight, i) => weight === next[i])
+}
+
+export function setSubfieldCount(
+  presentation: Presentation,
+  input: { count: number } & ZoneContentTarget,
+): Result<Presentation> {
+  const { count, ...target } = input
+  return setBodyLayout(presentation, { ...target, subfieldCount: count })
 }
 
 /**
@@ -193,38 +273,14 @@ export function setBodyAxis(
   presentation: Presentation,
   input: { axis: Axis } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(
-    presentation,
-    input,
-    (content) => {
-      const body = bodyOf(content)
-      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      return ok(withBody(content, withBodyAxis(body, input.axis)))
-    },
-    'Innholdet får ikke plass med denne orienteringen.',
-  )
+  return setBodyLayout(presentation, input)
 }
 
 export function setBodyWeights(
   presentation: Presentation,
   input: { weights: number[] } & ZoneContentTarget,
 ): Result<Presentation> {
-  return updateZoneContent(
-    presentation,
-    input,
-    (content) => {
-      const body = bodyOf(content)
-      if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
-      if (input.weights.length !== body.subfields.length) {
-        return err('INVALID_WEIGHTS', 'Antall forholdstall må matche antall subfelt.')
-      }
-      if (!areWeightsValid(input.weights)) {
-        return err('INVALID_WEIGHTS', 'Alle forholdstall må være tall større enn 0.')
-      }
-      return ok(withBody(content, { ...body, weights: [...input.weights] }))
-    },
-    'Innholdet får ikke plass med disse forholdstallene.',
-  )
+  return setBodyLayout(presentation, input)
 }
 
 /** Colour is the one content property that cannot change how much space content needs. */

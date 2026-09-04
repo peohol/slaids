@@ -116,6 +116,24 @@ describe('operasjonskatalogen', () => {
     }
   })
 
+  it('har fase 6: subfeltlayouten, som én operasjon og ikke tre', () => {
+    // Retning, forholdstall og antall er ett spørsmål mot den samme
+    // rektangelet, og tre operasjoner ville gatet hver mellomtilstand for seg.
+    // Én operasjon er derfor kontrakten, ikke en forenkling av den.
+    const adjust = findOperation('adjust_subfields')
+    expect(adjust).toBeTruthy()
+    expect(adjust?.mutates).toBe(true)
+    expect(adjust?.scopes).toEqual(['presentations:write'])
+
+    const schema = describeOperations().find((entry) => entry.name === 'adjust_subfields')
+    const properties = (schema?.inputSchema as { properties: Record<string, unknown> }).properties
+    expect(Object.keys(properties)).toEqual(
+      expect.arrayContaining(['axis', 'weights', 'subfieldCount']),
+    )
+    // The published enum is the domain's own axis, not a second vocabulary.
+    expect((properties.axis as { enum: string[] }).enum).toEqual(['x', 'y'])
+  })
+
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {
     for (const operation of operations) {
       expect(operation.scopes.length).toBeGreaterThan(0)
