@@ -266,9 +266,12 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   Scope-grensen er tegnet per operasjon og de fire er ikke like:
   `presentations:read` for å liste mapper, `presentations:write` alene for en
   flytting (som svarer med de to id-ene kalleren sendte og aldri et mappenavn),
-  `presentations:read` **i tillegg** for en duplisering (som svarer med kopien
-  slik `get_presentation` ville lest den), og `presentations:write` **og**
-  `assets:write` for en sletting – nøyaktig de to tingene den ødelegger.
+  alle tre for en duplisering (som svarer med kopien slik `get_presentation`
+  ville lest den, *og* lagrer én ny fil per fil kilden har), og
+  `presentations:write` **og** `assets:write` for en sletting – nøyaktig de to
+  tingene den ødelegger. Filscopet gjelder begge veier: autoriteten som legger en
+  fil inn i lageret er den som tar den ut, så hver operasjon som kan skrive eller
+  fjerne bytes krever `assets:write`, og `registry.test.ts` håndhever listen.
   `sharing:write` kreves av ingen av dem: ingenting her publiserer noe, og en
   sletting tar en publisert lenke *ned*. En `folderId` som ikke finnes er
   `FOLDER_NOT_FOUND` før noe skrives – et dekk i en mappe som ikke finnes vises

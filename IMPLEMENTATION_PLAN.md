@@ -3705,11 +3705,20 @@ Den rene halvdelen – hva en kopi *er* – ligger i
   operasjonen returnerer aldri et – heller ikke i avvisningen for en mappe som
   ikke finnes, som bare bærer id-en kalleren oppga. En liste over de ekte mappene
   ville vært `list_folders` besvart uten scopet sitt.
-- `duplicate_presentation` krever `presentations:read` **i tillegg til**
-  `presentations:write`. En kopi er en lesing av hele dokumentet fulgt av en
-  skriving, og den svarer med kopien slik `get_presentation` ville lest den. Et
-  token som får skrive, men ikke lese, skal ikke kunne lære et dekks tittel,
-  slidetall eller struktur ved å kopiere det.
+- `duplicate_presentation` krever alle tre: `presentations:read`, fordi en kopi
+  er en lesing av hele dokumentet og svarer med kopien slik `get_presentation`
+  ville lest den – et token som får skrive, men ikke lese, skal ikke kunne lære
+  et dekks tittel, slidetall eller struktur ved å kopiere det;
+  `presentations:write`, fordi den lagrer et nytt dokument; og `assets:write`,
+  fordi den lagrer en ny *fil* for hver fil kilden har. Det siste er speilbildet
+  av regelen under og ikke et tillegg: er autoriteten som tar en fil ut av
+  lageret `assets:write`, er det den samme som legger en inn, og en kopi legger
+  inn like mange som kilden har. Uten det kunne et token nektet `upload_asset`
+  likevel fylle lageret, én duplisering av et bildetungt dekk om gangen. Kravet
+  er ubetinget, også for et dekk uten filer: scopes håndheves av transporten før
+  operasjonen kjører, og Agent Core får aldri vite hvilke kalleren har, så et
+  krav som var avhengig av kildens innhold ville vært et krav ingen katalog kunne
+  publisere og ingen kaller kunne forutse.
 - `delete_presentation` krever `presentations:write` **og** `assets:write`, fordi
   det er nøyaktig de to tingene den ødelegger: dokumentet, og hver eneste fil
   lagret under det. `delete_asset` trekker allerede den linjen – autoriteten som

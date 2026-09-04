@@ -253,9 +253,10 @@ describe('operasjonskatalogen', () => {
     // the contract rather than a detail:
     //  - listing folders is a reading of the library, which a read token has;
     //  - a move writes one field and answers with the two ids the caller sent;
-    //  - a copy reads the whole document and answers with it, so it needs the
-    //    read scope too — a write-only token must not learn a deck's title or
-    //    structure by copying it;
+    //  - a copy reads the whole document and answers with it, *and* stores a new
+    //    file for every file the source has, so it needs all three: a write-only
+    //    token must not learn a deck's title by copying it, and a token denied
+    //    `upload_asset` must not fill the store by copying either;
     //  - a deletion destroys the document *and* every file stored under it,
     //    which are precisely the two things the two write scopes protect.
     const expected: Record<string, { mutates: boolean; scopes: string[] }> = {
@@ -263,7 +264,7 @@ describe('operasjonskatalogen', () => {
       move_presentation: { mutates: true, scopes: ['presentations:write'] },
       duplicate_presentation: {
         mutates: true,
-        scopes: ['presentations:read', 'presentations:write'],
+        scopes: ['presentations:read', 'presentations:write', 'assets:write'],
       },
       delete_presentation: { mutates: true, scopes: ['presentations:write', 'assets:write'] },
     }
@@ -310,6 +311,23 @@ describe('operasjonskatalogen', () => {
     ])
     // Listing folders takes nothing: it is the whole library or nothing.
     expect(Object.keys(schemaFor('list_folders').properties ?? {})).toEqual([])
+
+    // The one rule that ties the file scope to the file store: every operation
+    // that can put bytes into it or take them out asks for `assets:write`.
+    // Generated from the registry rather than listed, so an operation that
+    // starts writing files without saying so fails here.
+    for (const name of [
+      'upload_asset',
+      'create_svg_asset',
+      'delete_asset',
+      'duplicate_presentation',
+      'delete_presentation',
+    ]) {
+      expect({ name, scopes: findOperation(name)?.scopes }).toMatchObject({
+        name,
+        scopes: expect.arrayContaining(['assets:write']),
+      })
+    }
   })
 
   it('gir hver operasjon minst ett scope, og aldri et skrivescope til en lesing', () => {

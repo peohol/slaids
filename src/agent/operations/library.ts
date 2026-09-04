@@ -23,11 +23,17 @@
  *    returns one — not even in the refusal for a folder that does not exist
  *    (`missingFolder`, in `agent/presentation.ts`, which `create_presentation`
  *    goes through too: the two doors into a folder cannot disagree).
- *  - **`duplicate_presentation`** needs `presentations:read` as well as
- *    `presentations:write`, because a copy is a whole-document read followed by a
- *    write and it answers with the copy the way `get_presentation` would. A token
- *    that may write but not read must not be able to learn a deck's title, its
- *    slide count or its structure by copying it.
+ *  - **`duplicate_presentation`** needs all three write-adjacent authorities:
+ *    `presentations:read`, because a copy is a whole-document read and it answers
+ *    with the copy the way `get_presentation` would — a token that may write but
+ *    not read must not be able to learn a deck's title, its slide count or its
+ *    structure by copying it; `presentations:write`, because it stores a new
+ *    document; and `assets:write`, because it stores a new *file* for every file
+ *    the source has. That last one is the mirror of the rule below rather than an
+ *    extra: if the authority that takes a file out of the store is `assets:write`,
+ *    then so is the authority that puts one in, and a copy puts in as many as the
+ *    source holds. Without it a token denied `upload_asset` could still fill the
+ *    store, one duplication of a picture-heavy deck at a time.
  *  - **`delete_presentation`** needs `presentations:write` **and** `assets:write`,
  *    because those are exactly the two things it destroys: the document, and
  *    every file stored under it. `delete_asset` already draws that line — the
@@ -144,9 +150,16 @@ export const duplicatePresentationOperation = defineOperation({
   summary:
     'Kopier en hel presentasjon, filene inkludert, til en ny og selvstendig presentasjon. Svarer med kopien slik get_presentation ville lest den.',
   mutates: true,
-  // Read as well as write: this reads the whole source document and answers
-  // with the copy in full. See the note at the top of the file.
-  scopes: ['presentations:read', 'presentations:write'],
+  // All three, and each of them is something this operation actually does: it
+  // reads the whole source document, writes a new one, and writes a new file for
+  // every file the source has. See the note at the top of the file.
+  //
+  // Declared unconditionally, including for a deck with no files at all. Scopes
+  // are enforced by the transport before the operation runs, and Agent Core
+  // never learns which ones the caller holds — a requirement that depended on
+  // the source's contents would be one no catalogue could publish and no caller
+  // could predict.
+  scopes: ['presentations:read', 'presentations:write', 'assets:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema.describe('Id-en til presentasjonen som skal kopieres.'),
     expectedRevision: expectedRevisionSchema.describe(

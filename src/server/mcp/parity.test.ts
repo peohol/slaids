@@ -33,7 +33,7 @@ import type { SlidePreviewRenderer } from '../../agent/preview'
 import { AGENT_TOOL_PREFIX, operations } from '../../agent/registry'
 import type { AgentScope } from '../../agent/types'
 import { newFolderId } from '../../domain/ids'
-import { realImages } from '../../domain/testImages'
+import { realImageBase64, realImages } from '../../domain/testImages'
 import type { Folder } from '../../domain/types'
 import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import {
@@ -1413,6 +1413,36 @@ describe('bibliotekets livsløp er det samme begge veier', () => {
     // And the deck is still there, which is what the scope was protecting.
     const listed = await rest(harnessed, 'list_presentations', {})
     expect((listed.body.data as { presentations: unknown[] }).presentations).toHaveLength(1)
+  })
+
+  it('krever filskrivescopet for en duplisering, som lagrer en fil per fil', async () => {
+    // A duplication copies the bytes of every file the source has. Gating it on
+    // the document scopes alone would let a token denied `upload_asset` fill the
+    // asset store anyway, one copy of a picture-heavy deck at a time — and it
+    // would put the authority that *takes a file out* of the store under a
+    // stricter rule than the one that puts files in.
+    const full = harness()
+    const deck = await newPresentation(full, 'Dekk med fil')
+    const stored = await rest(full, 'upload_asset', {
+      presentationId: deck.presentationId,
+      name: 'figur.png',
+      content: { encoding: 'base64', data: realImageBase64.png },
+    })
+    expect(stored.status).toBe(200)
+
+    const noFiles = withScopes(full, ['presentations:read', 'presentations:write'])
+    const both = await refusedBothWays(noFiles, 'duplicate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('FORBIDDEN_SCOPE')
+    expect(both.rest.details).toMatchObject({ missing: ['assets:write'] })
+    expect(both.status).toBe(403)
+
+    // Nothing was copied: neither a document nor a file.
+    const listed = await rest(full, 'list_presentations', {})
+    expect((listed.body.data as { presentations: unknown[] }).presentations).toHaveLength(1)
+    expect(await full.context.repository.listAssets(deck.presentationId)).toHaveLength(1)
   })
 
   it('lar et token uten lesescope flytte og slette, men ikke kopiere', async () => {

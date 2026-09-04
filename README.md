@@ -817,14 +817,17 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
 | ------------------------ | ----------------------------------------- |
 | `list_folders`           | `presentations:read`                      |
 | `move_presentation`      | `presentations:write`                     |
-| `duplicate_presentation` | `presentations:read` + `presentations:write` |
+| `duplicate_presentation` | `presentations:read` + `presentations:write` + `assets:write` |
 | `delete_presentation`    | `presentations:write` + `assets:write`    |
 
-En kopi er en lesing av hele dokumentet fulgt av en skriving, og den svarer med
-kopien slik `get_presentation` ville lest den – derfor lesescopet. En sletting
-ødelegger både dokumentet og hver eneste fil under det, som er nøyaktig de to
-tingene de to skrivescopene beskytter. `sharing:write` kreves av ingen av dem:
-ingenting her publiserer noe, og en sletting tar en publisert lenke *ned*.
+En kopi svarer med kopien slik `get_presentation` ville lest den – derfor
+lesescopet – og lagrer én ny fil for hver fil kilden har, derfor `assets:write`.
+En sletting ødelegger både dokumentet og hver eneste fil under det, som er
+nøyaktig de to tingene de to skrivescopene beskytter. Filscopet gjelder begge
+veier: autoriteten som legger en fil inn i lageret er den samme som tar den ut,
+så et token uten `assets:write` kan verken laste opp, kopiere eller slette filer.
+`sharing:write` kreves av ingen av dem: ingenting her publiserer noe, og en
+sletting tar en publisert lenke *ned*.
 
 **En sletting kan ikke angres**, og det som følger med er dokumentet, slidene,
 filradene, bytene i lagringen og en eventuell delingslenke – lenken fordi
