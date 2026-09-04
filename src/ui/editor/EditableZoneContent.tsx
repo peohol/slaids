@@ -179,6 +179,18 @@ function CaptionEditor({
           setImageCaption(presentation, { slideId, nodeId, remove: true }),
         )
       }}
+      validateDoc={(next) =>
+        // A caption may cite, and a citation's number comes from where it first
+        // occurs in the whole deck — so an edit here can widen a label on a
+        // slide nobody touched. The local measurement cannot see that.
+        docEditRenumberProblem({
+          nodeId,
+          currentDoc: caption.doc,
+          nextDoc: next,
+          commit: (presentation, doc) =>
+            setImageCaption(presentation, { slideId, nodeId, doc }),
+        })
+      }
       onChange={(doc) =>
         run(`typing:${nodeId}:caption`, (presentation) =>
           setImageCaption(presentation, { slideId, nodeId, doc }),

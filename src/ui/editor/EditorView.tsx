@@ -137,7 +137,13 @@ export function EditorView({
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
-  const [imageOpen, setImageOpen] = useState(false)
+  /**
+   * The image dialog, and whether it still has a question to ask.
+   *
+   * `'zone'` is a press on an empty picture panel: the user has pointed at
+   * where the picture goes, so the dialog does not offer the text field.
+   */
+  const [imageOpen, setImageOpen] = useState<false | 'ask' | 'zone'>(false)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
   const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
   const [renameOpen, setRenameOpen] = useState(false)
@@ -817,7 +823,7 @@ export function EditorView({
         label: 'Sett inn bilde',
         icon: 'image',
         disabled: !isLeaf,
-        onSelect: () => setImageOpen(true),
+        onSelect: () => setImageOpen('ask'),
       },
     ]
   }, [applyContentKind, runStructural, selectedLeaf, selectedNode, selectedNodeId, slide])
@@ -922,7 +928,7 @@ export function EditorView({
             onSetContentKind={applyContentKind}
             onOpenReferences={() => setReferencesOpen(true)}
             onOpenTemplates={() => setTemplatesOpen(true)}
-            onOpenImage={() => setImageOpen(true)}
+            onOpenImage={() => setImageOpen('ask')}
             onToggleIdeas={() => setIdeasOpen((open) => !open)}
             onToggleSandbox={() => setSandboxOpen((open) => !open)}
             onPresent={() => setPresenting(true)}
@@ -958,7 +964,7 @@ export function EditorView({
                 onAddContent={addContentTo}
                 onPickImage={(nodeId) => {
                   useEditorStore.getState().selectNode(nodeId)
-                  setImageOpen(true)
+                  setImageOpen('zone')
                 }}
                 dropTargets={dropTargets}
               />
@@ -1059,8 +1065,9 @@ export function EditorView({
       <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {imageOpen && (
         <ImageUploadModal
-          onOpenChange={setImageOpen}
+          onOpenChange={(open) => setImageOpen(open ? imageOpen : false)}
           zoneNodeId={selectedNode?.kind === 'leaf' ? selectedNodeId : null}
+          fillZone={imageOpen === 'zone'}
         />
       )}
 

@@ -170,7 +170,7 @@ test.describe('zone editing', () => {
     expectGap(after[1].x - (after[0].x + after[0].w), 'gap after drag')
   })
 
-  test('never replaces container content by re-picking the active type', async ({ page }) => {
+  test('rescues the text a picture displaces instead of throwing it away', async ({ page }) => {
     await createPresentation(page, 'Beholdertype')
     await enterContentMode(page)
     const zones = await zoneRects(page)

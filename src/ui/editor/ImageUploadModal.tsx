@@ -8,6 +8,12 @@
  * mode the editor happened to be in, so the same click either put the image in
  * the text field or replaced the whole zone with it — and "insert a picture
  * next to my text" quietly did the wrong one.
+ *
+ * The one case that is not a question is `fillZone`: the dialog was opened by
+ * pressing an empty picture panel, so the user has already pointed at where the
+ * picture goes. Asking again there let a text field that happened to have the
+ * caret a moment earlier win, and the file went into the text instead of into
+ * the picture the user was pointing at.
  */
 
 import { useRef, useState } from 'react'
@@ -35,10 +41,13 @@ type Placement = 'inline' | 'zone'
 export function ImageUploadModal({
   onOpenChange,
   zoneNodeId,
+  fillZone = false,
 }: {
   onOpenChange: (open: boolean) => void
   /** The selected leaf zone, when there is one — the target for 'zone'. */
   zoneNodeId: string | null
+  /** Opened by pressing a picture panel: the target is settled, so do not ask. */
+  fillZone?: boolean
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const slideId = useEditorStore((state) => state.currentSlideId)
@@ -53,7 +62,7 @@ export function ImageUploadModal({
   // The dialog takes focus the moment it opens, so the field that had it is
   // captured on mount — the parent only renders this while it is open. Zone
   // mode has no field being edited, so there is nowhere inline to go.
-  const [target] = useState(() => (activeField ? editor : null))
+  const [target] = useState(() => (activeField && !fillZone ? editor : null))
   const canInline = Boolean(target)
   const canFillZone = Boolean(zoneNodeId && slideId)
   const [placement, setPlacement] = useState<Placement>(canInline ? 'inline' : 'zone')
