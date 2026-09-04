@@ -253,7 +253,10 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   bit for bit som den var, kopien får nye content- og subfelt-id-er fra
   `cloneContentWithNewIds` – to soner med samme content-id er et ødelagt
   dokument – og assetreferansen fornyes ikke: en fil dupliseres ikke av å vises
-  to steder. Derfor er `subfieldIds` i svaret det eneste stedet agenten kan få
+  to steder. Kloningen spør `bodyOf`/`withBody` om hvor kroppen ligger i stedet
+  for å liste innholdstypene: en ren tekstsone er en `container` hvis payload
+  *er* en `CardBody`, og en liste over «de to korttypene» lot nettopp den dele
+  subfelt-id-er med kilden sin. Derfor er `subfieldIds` i svaret det eneste stedet agenten kan få
   kopiens id-er uten en ny lesing. Den ene forskjellen i avvisninger er den som
   følger av id-semantikken: en flytting til sonen innholdet allerede står i er
   en lovlig no-op, mens en kopi dit er `TARGET_OCCUPIED` – et `ok` ville sendt

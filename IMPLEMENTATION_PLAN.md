@@ -3460,7 +3460,11 @@ stedet for å flytte en, og en tidligere forekomst renummererer alt etter seg.
 Forskjellen er id-ene, og den er hele grunnen til at dette ikke er et flagg på
 `move_zone_content`: en flytting lover at content-id-en og subfelt-id-ene
 overlever, en kopi må lage nye – to bladsoner med samme content-id er et ødelagt
-dokument, og et subfelt skrevet fra to adresser er ett felt. En operasjon som
+dokument, og et subfelt skrevet fra to adresser er ett felt. `cloneContentWithNewIds`
+spør derfor `bodyOf`/`withBody` om hvor kroppen ligger i stedet for å liste
+innholdstypene som har en: en ren tekstsone er en `container` hvis payload *er*
+en `CardBody`, så en liste over «de to korttypene» lot nettopp den dele
+subfelt-id-er med kilden sin – i en kopi *og* i en duplisert slide. En operasjon som
 noen ganger gjør det ene og noen ganger det andre er to operasjoner med ett
 navn, slik `duplicate_slide` og `move_slide` er to, og `duplicate_sandbox_item`
 og `place_sandbox_item` er det. Kilden blir stående bit for bit som den var,

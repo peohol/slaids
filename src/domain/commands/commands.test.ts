@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
 import { createLeaf, createSplit, findLeaf, findNode, findSplit } from '../layout'
-import { containerWithDoc, createTitledCard, createUntitledCard } from '../content'
+import { bodyOf, containerWithDoc, createTitledCard, createUntitledCard } from '../content'
 import { estimateFitChecker } from '../fit'
 import { paragraphDoc, titleDoc } from '../richdoc'
 import type { Presentation, SplitNode } from '../types'
@@ -1017,6 +1017,49 @@ describe('content fit on structural changes', () => {
     expect(a).toEqual(sourceBefore)
     // Commands are pure, so the document handed in is untouched too.
     expect(presentation).toEqual(before)
+  })
+
+  it('gives a copied text zone fresh subfield ids too, not only a card', () => {
+    // A plain text zone is a `container` whose payload *is* a `CardBody`, so its
+    // subfields are addressable by id exactly like a card's. Cloning only the
+    // two card kinds left the copy sharing those ids with its source: not an
+    // independent copy, and an agent handed them back was handed the source's.
+    const presentation = base()
+    const slide = presentation.slides[0]
+    const split = unwrap(
+      splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
+    ).presentation
+    const root = split.slides[0].root as SplitNode
+    const filled = unwrap(
+      setZoneContent(split, {
+        slideId: slide.id,
+        nodeId: root.children[0].id,
+        content: containerWithDoc(paragraphDoc('Ren tekst')),
+      }),
+    ).presentation
+
+    const copied = unwrap(
+      copyZoneContent(filled, {
+        slideId: slide.id,
+        fromNodeId: root.children[0].id,
+        toNodeId: root.children[1].id,
+      }),
+    ).presentation
+
+    const nextRoot = copied.slides[0].root as SplitNode
+    const source = findLeaf(nextRoot, nextRoot.children[0].id)?.content
+    const copy = findLeaf(nextRoot, nextRoot.children[1].id)?.content
+    expect(source?.kind).toBe('container')
+    expect(copy?.id).not.toBe(source?.id)
+    const sourceFields = source ? bodyOf(source)?.subfields.map((field) => field.id) : undefined
+    const copyFields = copy ? bodyOf(copy)?.subfields.map((field) => field.id) : undefined
+    expect(sourceFields).toHaveLength(1)
+    expect(copyFields).toHaveLength(1)
+    expect(copyFields).not.toEqual(sourceFields)
+    // The text itself did travel: only the ids are new.
+    expect(copy && bodyOf(copy)?.subfields[0].doc).toEqual(
+      source && bodyOf(source)?.subfields[0].doc,
+    )
   })
 
   it('refuses a copy onto the source zone instead of reporting a copy it never made', () => {

@@ -2745,6 +2745,69 @@ describe('kopiering av innhold mellom soner', () => {
     expect(citationNumber(after, reference.id)).toBe(1)
   })
 
+  it('gir en ren tekstsone nye subfelt-id-er, ikke kildens', async () => {
+    // En tekstsone er en `container` hvis payload *er* en `CardBody`, så
+    // subfeltene er adresserbare med id akkurat som et korts. Da må kopiens
+    // være nye: ellers er ikke kopien uavhengig, og kvitteringen leverer ut
+    // kildens id-er – som er lesing – til et token som bare kan skrive.
+    const context = freshContext()
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const [left, right] = await twoZones(context, deck.presentationId, slideId)
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: left,
+      blocks: paragraph('Ren tekst'),
+    })
+    const sourceFields = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+      left,
+    ).subfields?.map((field) => field.subfieldId)
+    expect(sourceFields).toHaveLength(1)
+
+    const copied = await ok<Mutated<ZoneContentCopy>>(context, 'copy_zone_content', {
+      presentationId: deck.presentationId,
+      fromSlideId: slideId,
+      fromNodeId: left,
+      toNodeId: right,
+    })
+    expect(copied.subfieldIds).toHaveLength(1)
+    expect(copied.subfieldIds).not.toEqual(sourceFields)
+    expect(JSON.stringify(copied)).not.toContain(sourceFields?.[0])
+
+    // Kilden beholder sine egne, kopien har sine, og teksten står begge steder.
+    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(zoneOf(inspected, left).subfields?.map((field) => field.subfieldId)).toEqual(sourceFields)
+    expect(zoneOf(inspected, right).subfields?.map((field) => field.subfieldId)).toEqual(
+      copied.subfieldIds,
+    )
+    for (const nodeId of [left, right]) {
+      expect(zoneOf(inspected, nodeId).subfields?.[0].blocks).toEqual(paragraph('Ren tekst'))
+    }
+
+    // Og id-ene virker: en skriving i kopien lar kilden stå.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: right,
+      subfieldId: copied.subfieldIds[0],
+      blocks: paragraph('Bare i kopien'),
+    })
+    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(zoneOf(after, left).subfields?.[0].blocks).toEqual(paragraph('Ren tekst'))
+    expect(zoneOf(after, right).subfields?.[0].blocks).toEqual(paragraph('Bare i kopien'))
+  })
+
   it('kopierer mellom to slides, og deler filen i stedet for å laste den opp på nytt', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
