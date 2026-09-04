@@ -122,86 +122,125 @@
   flex: 0 0 auto;
 }
 
-/*
- * A picture that fills a zone.
+/* ----------------------------------------------------------------- *
+ * A picture filling the box it is given
  *
- * Two very different boxes, and which one it is decides everything else.
- * Filling the zone (`cover`) the picture *is* the zone's box: it is cropped, so
- * what an alignment moves is the picture inside the box — `object-position`.
- * Shown whole (`contain`) the box is the picture: it is sized down to fit
- * inside the zone, so what an alignment moves is the box within the zone, which
- * is the container's `align-content` — the same property a field of flowing
- * text uses, defaulting to centred because a picture has no flow to begin at
- * the top of.
- *
- * Trimming the element down to the picture is what a radius and a shadow of its
- * own need — the corners a radius rounds and the outline a shadow follows are
- * then the picture's, not the zone's. It takes the proportions, and it takes
- * them as an arithmetic rather than as a constraint: `max-width` and
- * `max-height` clamp the axis they are on and leave the other one where it was,
- * so every spelling built on them squashes the box in one direction or the
- * other. `min(100%, 100cqh × ratio)` picks the same winner "contain" picks, in
- * both directions, whether or not the file declares an intrinsic size — which
- * an SVG with nothing but a viewBox does not. `AssetImage` hands the ratio over
- * and only asks for this box once it knows it; without it the picture is drawn
- * the old way, in the whole zone, which is the same picture in the same place.
- */
-.zone-content--asset {
-  /*
-   * The clip is lifted for this one case, and only paint escapes: the picture
-   * can never leave the box — `cover` crops to it and `contain` is bounded by
-   * it — while its shadow needs the gap around the zone to fall into, exactly
-   * as a card's does.
-   *
-   * `container-type: size` is what makes the zone's own height quotable as
-   * `100cqh` by the picture inside it.
-   */
-  display: block;
-  overflow: visible;
-  container-type: size;
-  align-content: var(--slaids-flow-align, safe center);
-}
+ * The frame is the box; the picture covers it and whatever does not fit the
+ * frame's proportions is hidden, never letterboxed. Which part is hidden is
+ * `object-position`, written inline from the stored crop, so the browser does
+ * the arithmetic and there is no second implementation of it to drift.
+ * ----------------------------------------------------------------- */
 
-.asset-image {
-  display: block;
+.image-panel {
+  position: relative;
   width: 100%;
   height: 100%;
-  margin-inline: auto;
-  object-fit: contain;
   /*
-   * The card's depth, expressed as a filter so it follows what is painted
-   * rather than the border box: a letterboxed picture, or one that is
-   * transparent around its subject, is not given the shadow of a rectangle that
-   * is not there. Same two layers as `CARD_SHADOW` — see `constants.ts`.
+   * Deliberately *not* clipping: the frame inside it clips, and leaving this
+   * box unclipped is what lets the editor's ghost of the hidden parts be drawn
+   * outside it — the same reason a card's shadow may fall into the gap.
    */
-  filter: var(--slaids-card-drop-shadow);
+  overflow: visible;
 }
 
-/* Shown whole, with the proportions known: the element is the picture. */
-.asset-image--framed {
-  width: min(100%, calc(100cqh * var(--slaids-asset-ratio)));
-  height: auto;
-  aspect-ratio: var(--slaids-asset-ratio);
+.image-panel__frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
 }
 
-.asset-image--cover {
+.image-panel__img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  object-position: center var(--slaids-asset-align, center);
+  display: block;
 }
 
-/* The radius every other rounded surface in the app uses. */
-.asset-image--rounded {
-  border-radius: var(--slaids-card-radius);
-}
-
-.asset-image--pending {
+.image-panel__empty {
   display: flex;
   width: 100%;
   height: 100%;
   align-items: center;
   justify-content: center;
-  opacity: 0.55;
-  font-size: 14px;
+  background: rgba(128, 128, 128, 0.22);
+  color: inherit;
+  opacity: 0.75;
+  font-size: 15px;
+}
+
+/*
+ * A picture that is the whole card is a card: the same corners and the same
+ * shadow, so it sits among the cards around it rather than reading as a hole
+ * cut in the slide. Radius and shadow are inline styles from the tokens.
+ */
+.zone-content--image {
+  overflow: visible;
+}
+
+/*
+ * The picture is the card's lower half: no padding and no white beneath it.
+ * Unclipped, because the picture's own frame is what clips — see
+ * `.image-panel` — and the editor's ghost of the hidden parts is drawn outside
+ * that frame on purpose.
+ */
+.card-body--image {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  display: flex;
+}
+
+/* ----------------------------------------------------------------- *
+ * The caption over a picture
+ *
+ * The layer is the whole picture and carries the alignment; the box inside it
+ * is only as wide as its text, up to the picture less the air on both sides.
+ * So the box grows sideways first and then takes another line, and which way it
+ * grows from is the layer's `align-items` — down from the ceiling, up from the
+ * floor, both ways from the middle.
+ * ----------------------------------------------------------------- */
+
+.image-caption__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.image-caption {
+  max-width: 100%;
+  color: #fff;
+  /*
+   * White with a shadow whatever the tint is. 30 % of a colour over an unknown
+   * photograph is not a background anything can be contrasted against, so the
+   * usual derive-from-the-background rule has nothing to derive from here.
+   */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  font-weight: 500;
+  line-height: 1.3;
+  /* The text is a click target even though the layer around it is not. */
+  pointer-events: auto;
+}
+
+.image-caption :is(p, .rd-p) {
+  margin: 0;
+  text-align: center;
+}
+
+.rich-doc--caption {
+  height: auto;
+  min-height: 0;
+  white-space: pre-wrap;
+}
+
+.rich-doc--caption.tiptap,
+.rich-doc--caption .ProseMirror {
+  min-height: 0;
+  outline: none;
 }
 
 /* ----------------------------------------------------------------- *

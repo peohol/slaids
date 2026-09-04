@@ -9,12 +9,14 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + E', 'Bytt mellom innholds- og soneredigering'],
       ['Ctrl + Z', 'Angre'],
       ['Ctrl + Shift + Z', 'Gjør om'],
+      ['↑ / ↓', 'Forrige/neste side (ikke mens du skriver)'],
       ['F5', 'Vis presentasjonen'],
     ],
   },
   {
     title: 'Soneredigering',
     items: [
+      ['Esc', 'Tilbake til innholdsredigering'],
       ['↑', 'Velg supersonen'],
       ['↓', 'Velg første subsone'],
       ['← / →', 'Velg forrige/neste søsken (går rundt)'],
@@ -28,6 +30,9 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     items: [
       ['Ctrl + B / I / U', 'Fet / kursiv / understreket'],
       ['Ctrl + Shift + V', 'Lim inn som ren tekst'],
+      ['«mellomrom» - «mellomrom»', 'Blir til tankestrek (–)'],
+      ['...', 'Blir til ellipse (…)'],
+      ['«mellomrom» * «mellomrom»', 'Blir til punktseparator (·)'],
     ],
   },
   {

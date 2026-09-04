@@ -27,7 +27,7 @@ export interface ActiveField {
   nodeId: NodeId
   /** `null` addresses a card title; a subfield id addresses a body field. */
   subfieldId: string | null
-  kind: 'body' | 'card-title' | 'slide-title' | 'cover-title' | 'cover-subtitle'
+  kind: 'body' | 'card-title' | 'caption' | 'slide-title' | 'cover-title' | 'cover-subtitle'
 }
 
 /** Fields that are text on a page rather than a node in a layout tree. */
@@ -94,6 +94,8 @@ interface EditorStore {
 
   selectSlide: (slideId: string) => void
   selectCover: () => void
+  /** Move one page forwards or backwards through cover + authored slides. */
+  stepPage: (delta: number) => void
   selectNode: (nodeId: NodeId | null) => void
   setMode: (mode: EditorMode) => void
   toggleMode: () => void
@@ -247,6 +249,32 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     // Zone mode has nothing to act on here, so leaving it on would show zone
     // tools for a page with no zones.
     set({ viewingCover: true, activeField: null, mode: 'content' })
+  },
+
+  /**
+   * The deck as the arrow keys walk it: the cover, then the authored slides.
+   *
+   * The derived pages are deliberately not in the walk. They are generated, so
+   * there is nothing to edit when the caret arrives, and the two of them that
+   * exist at all depend on state — a citation, a share link — that the reader
+   * of an arrow key has not asked about.
+   */
+  stepPage: (delta) => {
+    const state = get()
+    const presentation = state.presentation
+    if (!presentation) return
+    const slides = presentation.slides
+    const current = state.viewingCover
+      ? 0
+      : slides.findIndex((slide) => slide.id === state.currentSlideId) + 1
+    if (current <= 0 && !state.viewingCover) return
+    const next = current + delta
+    if (next < 0 || next > slides.length) return
+    if (next === 0) {
+      get().selectCover()
+      return
+    }
+    get().selectSlide(slides[next - 1].id)
   },
 
   selectNode: (selectedNodeId) => set({ selectedNodeId }),

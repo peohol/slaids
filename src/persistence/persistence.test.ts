@@ -7,7 +7,7 @@ import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
-import { createContainer, createUntitledCard } from '../domain/content'
+import { createImage, createUntitledCard } from '../domain/content'
 import { newAssetId, newTemplateId } from '../domain/ids'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
 
@@ -136,7 +136,7 @@ function presentationWithAsset(base: Presentation): Presentation {
     slides: [
       {
         ...base.slides[0],
-        root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+        root: createLeaf(createImage(assetRef.id)),
       },
     ],
   }
@@ -275,7 +275,7 @@ describe('.slaids backup', () => {
       slides: [
         {
           ...samplePresentation().slides[0],
-          root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+          root: createLeaf(createImage(assetRef.id)),
         },
       ],
     }
@@ -317,7 +317,7 @@ describe('.slaids backup', () => {
       slides: [
         {
           ...samplePresentation().slides[0],
-          root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+          root: createLeaf(createImage(assetRef.id)),
         },
       ],
     }
@@ -343,7 +343,7 @@ describe('.slaids backup', () => {
       slides: [
         {
           ...presentation.slides[0],
-          root: createLeaf(createContainer({ type: 'asset', assetId: assetRef.id, fit: 'contain' })),
+          root: createLeaf(createImage(assetRef.id)),
         },
       ],
     })

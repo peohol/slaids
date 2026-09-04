@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { estimateDocHeight, estimateFit } from './fit'
-import { createContainer, createTitledCard, createUntitledCard } from './content'
+import { createContainer, createImage, createTitledCard, createUntitledCard } from './content'
 import { emptyDoc, paragraphDoc } from './richdoc'
 import type { Rect } from './types'
 
@@ -118,7 +118,7 @@ describe('estimateFit', () => {
   })
 
   it('treats a container with an asset as always fitting', () => {
-    const container = createContainer({ type: 'asset', assetId: 'a1', fit: 'contain' })
+    const container = createImage('a1')
     expect(estimateFit(container, small).fits).toBe(true)
   })
 

@@ -8,7 +8,7 @@ import {
   writeStructuralClipboard,
 } from './clipboard'
 import { validateClipboardPayload } from '../domain/schema'
-import { createTitledCard } from '../domain/content'
+import { createImage, createTitledCard } from '../domain/content'
 
 /** jsdom has no clipboard, so the system half of the API is stubbed. */
 function stubSystemClipboard(readText: () => Promise<string>): void {
@@ -53,11 +53,7 @@ describe('structural clipboard', () => {
   })
 
   it('preserves asset references across a copy', () => {
-    const content = {
-      id: 'c1',
-      kind: 'container' as const,
-      payload: { type: 'asset' as const, assetId: 'asset-9', fit: 'contain' as const },
-    }
+    const content = createImage('asset-9')
     writeStructuralClipboard(content, [
       { id: 'asset-9', name: 'f.svg', mimeType: 'image/svg+xml', byteSize: 1, width: 1, height: 1, isVector: true },
     ])
@@ -65,9 +61,9 @@ describe('structural clipboard', () => {
     expect(payload).not.toBeNull()
     if (!payload) return
     const copy = instantiateClipboardContent(payload)
-    expect(copy.kind).toBe('container')
-    if (copy.kind === 'container' && copy.payload.type === 'asset') {
-      expect(copy.payload.assetId).toBe('asset-9')
+    expect(copy.kind).toBe('image')
+    if (copy.kind === 'image') {
+      expect(copy.image.assetId).toBe('asset-9')
     }
     expect(payload.assets[0].id).toBe('asset-9')
   })

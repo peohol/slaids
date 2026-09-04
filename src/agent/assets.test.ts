@@ -326,12 +326,7 @@ describe('set_zone_asset', () => {
     return { presentationId: presentation.id, slideId: slide.id, nodeId: slide.root.id, assetId: stored.assetId }
   }
 
-  const placement = {
-    fit: 'contain' as const,
-    rounded: false,
-    replace: false,
-    replacedDisposition: 'sandbox' as const,
-  }
+  const placement = { replace: false, replacedDisposition: 'sandbox' as const }
 
   it('plasserer et eksisterende asset i en sone', async () => {
     const context = freshContext()
@@ -343,10 +338,71 @@ describe('set_zone_asset', () => {
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
     const root = reloaded.slides[0].root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
-      kind: 'container',
-      payload: { type: 'asset', assetId: seeded.assetId, fit: 'contain' },
+      kind: 'image',
+      image: { assetId: seeded.assetId, focus: { x: 0.5, y: 0.5 }, caption: null },
     })
     expect(usedAssetIds(reloaded).has(seeded.assetId)).toBe(true)
+  })
+
+  it('nekter en tom bildetekst, uansett hvordan den ville blitt tom', async () => {
+    // There is no such thing as an empty caption. The editor may hold one for a
+    // moment because the caret goes straight into it and leaving it empty
+    // removes it again; an agent has no such moment, so an empty one it created
+    // would simply be stored — and steal the caret from whoever opens the slide.
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    await setZoneAsset.run(context, { ...seeded, ...placement })
+    const zone = { presentationId: seeded.presentationId, slideId: seeded.slideId, nodeId: seeded.nodeId }
+
+    const refused = expectErr(
+      await runOperation(context, 'set_image_caption', { ...zone, position: 'bottom' }),
+    )
+    expect(refused.code).toBe('INVALID_ARGUMENT')
+
+    expectOk(
+      await runOperation(context, 'set_image_caption', {
+        ...zone,
+        position: 'bottom',
+        spans: [{ text: 'Et fotografi' }],
+      }),
+    )
+    // With one there, moving or recolouring it needs no text of its own.
+    expectOk(await runOperation(context, 'set_image_caption', { ...zone, position: 'middle' }))
+
+    // Clearing the text of one that exists is the same refusal: what the call
+    // ends with is what must have text, and `remove` is how a caption goes.
+    expect(
+      expectErr(
+        await runOperation(context, 'set_image_caption', { ...zone, spans: [] }),
+      ).code,
+    ).toBe('INVALID_ARGUMENT')
+
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    const root = reloaded.slides[0].root
+    expect(root.kind === 'leaf' && root.content?.kind === 'image' && root.content.image.caption)
+      .toMatchObject({ position: 'middle' })
+  })
+
+  it('flytter utsnittet uten å røre filen', async () => {
+    const context = freshContext()
+    const seeded = await seedWithAsset(context)
+    await setZoneAsset.run(context, { ...seeded, ...placement })
+
+    expectOk(
+      await runOperation(context, 'set_image_focus', {
+        presentationId: seeded.presentationId,
+        slideId: seeded.slideId,
+        nodeId: seeded.nodeId,
+        x: 0,
+        y: 0.75,
+      }),
+    )
+    const reloaded = await context.repository.loadPresentation(seeded.presentationId)
+    const root = reloaded.slides[0].root
+    expect(root.kind === 'leaf' && root.content).toMatchObject({
+      kind: 'image',
+      image: { assetId: seeded.assetId, focus: { x: 0, y: 0.75 } },
+    })
   })
 
   it('avviser en assetId presentasjonen ikke har', async () => {
@@ -429,10 +485,10 @@ describe('set_zone_asset', () => {
     const after = expectOk(await inspectSlide.run(context, inspection))
     expect(after.zones[0]).toMatchObject({
       empty: false,
-      contentKind: 'container',
+      contentKind: 'image',
       assetIds: [seeded.assetId],
       referenceIds: [],
-      payload: 'asset',
+      image: { assetId: seeded.assetId, focus: { x: 0.5, y: 0.5 } },
       subfields: [],
       fits: true,
     })
@@ -489,8 +545,6 @@ describe('asset-invariants', () => {
         slideId: presentation.slides[0].id,
         nodeId: presentation.slides[0].root.id,
         assetId: stored.assetId,
-        fit: 'contain',
-        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),
@@ -621,8 +675,6 @@ describe('delete_asset', () => {
     expectOk(
       await setZoneAsset.run(context, {
         ...seeded,
-        fit: 'contain',
-        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),
@@ -678,8 +730,6 @@ describe('delete_asset', () => {
     expectOk(
       await setZoneAsset.run(context, {
         ...seeded,
-        fit: 'contain',
-        rounded: false,
         replace: false,
         replacedDisposition: 'sandbox',
       }),

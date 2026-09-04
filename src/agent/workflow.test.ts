@@ -1383,8 +1383,8 @@ describe('validering', () => {
       kind: 'leaf',
       content: {
         id: 'c_broken',
-        kind: 'container',
-        payload: { type: 'asset', assetId: 'a_finnes_ikke', fit: 'contain' },
+        kind: 'image',
+        image: { assetId: 'a_finnes_ikke', focus: { x: 0.5, y: 0.5 }, caption: null },
       },
     }
     broken.slides[0].title = {
@@ -1427,23 +1427,20 @@ describe('validering', () => {
       content: {
         id: 'c_overfull',
         kind: 'container',
-        payload: {
-          type: 'fields',
-          body: {
-            axis: 'y',
-            weights: [1],
-            subfields: [
-              {
-                id: 'f_overfull',
-                doc: {
-                  type: 'doc',
-                  content: [
-                    { type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(50000) }] },
-                  ],
-                },
+        body: {
+          axis: 'y',
+          weights: [1],
+          subfields: [
+            {
+              id: 'f_overfull',
+              doc: {
+                type: 'doc',
+                content: [
+                  { type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(50000) }] },
+                ],
               },
-            ],
-          },
+            },
+          ],
         },
       },
     }
@@ -2232,8 +2229,8 @@ describe('flytting av innhold mellom soner', () => {
       slideId: target,
     })
     expect(zoneOf(arrived, targetNode)).toMatchObject({
-      contentKind: 'container',
-      payload: 'asset',
+      contentKind: 'image',
+      image: { assetId, focus: { x: 0.5, y: 0.5 } },
       assetIds: [assetId],
     })
   })
@@ -2877,8 +2874,8 @@ describe('kopiering av innhold mellom soner', () => {
         slideId,
       })
       expect(zoneOf(inspected, nodeId)).toMatchObject({
-        contentKind: 'container',
-        payload: 'asset',
+        contentKind: 'image',
+        image: { assetId, focus: { x: 0.5, y: 0.5 } },
         assetIds: [assetId],
       })
     }

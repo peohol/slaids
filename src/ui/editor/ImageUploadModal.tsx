@@ -8,14 +8,31 @@
  * mode the editor happened to be in, so the same click either put the image in
  * the text field or replaced the whole zone with it — and "insert a picture
  * next to my text" quietly did the wrong one.
+ *
+ * The one case that is not a question is `fillZone`: the dialog was opened by
+ * pressing an empty picture panel, so the user has already pointed at where the
+ * picture goes. Asking again there let a text field that happened to have the
+ * caret a moment earlier win, and the file went into the text instead of into
+ * the picture the user was pointing at.
+ *
+ * The other case is not a question either, for the opposite reason: a title, a
+ * cover line and a caption are one line of text, and their schema has no
+ * picture node in it. Having the caret in one of those is not an inline target,
+ * and offering it was a crash waiting for somebody to stand in a caption and
+ * press the button — the file was stored, and *then* the insert failed on a
+ * command that field's editor does not have. `acceptsInlineImage` asks the
+ * editor rather than listing the kinds of field, so the answer stays right on
+ * its own.
  */
 
 import { useRef, useState } from 'react'
+import type { Editor } from '@tiptap/react'
 import { MAX_ASSET_BYTES } from '../../domain/constants'
 import { newAssetId } from '../../domain/ids'
-import { registerAsset, setZoneContent } from '../../domain/commands'
+import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
 import { domFitCheckers } from '../../state/measure'
-import { createContainer } from '../../domain/content'
+import { createImage, imagePanelOf } from '../../domain/content'
+import { findLeaf } from '../../domain/layout'
 import { repository } from '../../persistence/activeRepository'
 import { readImageSize } from '../../state/assets'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -24,7 +41,7 @@ import { notify } from '../../state/toast'
 import type { AssetRef } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
-import { fittingImageWidthPercent } from './SlaidsImageExtension'
+import { acceptsInlineImage, fittingImageWidthPercent } from './SlaidsImageExtension'
 
 const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
 const MAX_MEGABYTES = Math.round(MAX_ASSET_BYTES / (1024 * 1024))
@@ -34,10 +51,13 @@ type Placement = 'inline' | 'zone'
 export function ImageUploadModal({
   onOpenChange,
   zoneNodeId,
+  fillZone = false,
 }: {
   onOpenChange: (open: boolean) => void
   /** The selected leaf zone, when there is one — the target for 'zone'. */
   zoneNodeId: string | null
+  /** Opened by pressing a picture panel: the target is settled, so do not ask. */
+  fillZone?: boolean
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const slideId = useEditorStore((state) => state.currentSlideId)
@@ -49,10 +69,19 @@ export function ImageUploadModal({
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // The dialog takes focus the moment it opens, so the field that had it is
-  // captured on mount — the parent only renders this while it is open. Zone
-  // mode has no field being edited, so there is nowhere inline to go.
-  const [target] = useState(() => (activeField ? editor : null))
+  /*
+   * The field the caret was in, and — when there was one that cannot hold a
+   * picture — the fact that it was refused rather than absent. Both are read on
+   * mount, because the dialog takes the focus the moment it opens and the
+   * parent only renders it while it is open. Zone mode has no field being
+   * edited at all, so there is nowhere inline to go.
+   */
+  const [inline] = useState<{ target: Editor | null; refused: boolean }>(() => {
+    if (fillZone || !activeField || !editor) return { target: null, refused: false }
+    if (acceptsInlineImage(editor)) return { target: editor, refused: false }
+    return { target: null, refused: true }
+  })
+  const target = inline.target
   const canInline = Boolean(target)
   const canFillZone = Boolean(zoneNodeId && slideId)
   const [placement, setPlacement] = useState<Placement>(canInline ? 'inline' : 'zone')
@@ -101,15 +130,36 @@ export function ImageUploadModal({
           .insertSlaidsImage({ assetId: ref.id, alt: file.name, aspect, widthPercent })
           .run()
       } else if (zoneNodeId && slideId) {
-        runStructural('place-asset', (current) =>
-          setZoneContent(current, {
-            slideId,
-            nodeId: zoneNodeId,
-            content: createContainer({ type: 'asset', assetId: ref.id, fit: 'contain' }),
-            replace: true,
-            ...domFitCheckers,
-          }),
-        )
+        /*
+         * A zone that is already a picture only changes file — its crop, its
+         * caption and, for a titled image card, its header all stay. Replacing
+         * the whole content would throw those away for what the user read as
+         * "pick a different photo".
+         */
+        const slide = useEditorStore
+          .getState()
+          .presentation?.slides.find((entry) => entry.id === slideId)
+        const existing = slide ? findLeaf(slide.root, zoneNodeId)?.content ?? null : null
+        if (existing && imagePanelOf(existing)) {
+          run('image-asset', (current) =>
+            setImageAsset(current, {
+              slideId,
+              nodeId: zoneNodeId,
+              assetId: ref.id,
+              ...domFitCheckers,
+            }),
+          )
+        } else {
+          runStructural('place-asset', (current) =>
+            setZoneContent(current, {
+              slideId,
+              nodeId: zoneNodeId,
+              content: createImage(ref.id),
+              replace: true,
+              ...domFitCheckers,
+            }),
+          )
+        }
       } else {
         notify.warning('Velg en sone eller et tekstfelt først.')
       }
@@ -153,6 +203,11 @@ export function ImageUploadModal({
           type="button"
           className={effective === 'inline' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
           disabled={!canInline}
+          title={
+            inline.refused
+              ? 'Feltet du står i er én linje tekst og kan ikke inneholde bilder.'
+              : undefined
+          }
           onClick={() => setPlacement('inline')}
           data-testid="image-placement-inline"
           aria-pressed={effective === 'inline'}
@@ -173,7 +228,7 @@ export function ImageUploadModal({
       <p className="hint">
         {effective === 'inline'
           ? 'Bildet settes inn der markøren står, sammen med teksten.'
-          : 'Bildet fyller hele sonen. Innhold som ligger der fra før flyttes til sandkassen.'}
+          : 'Bildet fyller hele sonen, helt ut til kantene, og beskjæres om formatet ikke passer. Dra i bildet etterpå for å velge utsnitt.'}
       </p>
 
       <div

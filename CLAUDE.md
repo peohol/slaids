@@ -13,6 +13,29 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - Fast logisk designrom: `1600 × 900`. Skaleres uniformt til viewport.
 - Layout er et rekursivt tre: `split` har `children` og aldri `content`; `leaf` har `content` og aldri `children`.
 - Kort og beholdere deler den samme `CardBody`: en beholder er et gjennomsiktig kort.
+- **Et bilde er en egen innholdstype, ikke en beholder med en annen hatt.** `image` fyller
+  sonen helt ut til kantene og har kortets hjørner og skygge; `titled-image-card` er det
+  samme bildet under et vanlig tittelpanel. Begge bærer den samme `ImagePanel`, så ett
+  utsnitt, én bildetekst og én renderer (`ImagePanelView`) dekker begge. Bildet
+  **beskjæres**, aldri letterboxes: `object-fit: cover` bestemmer skaleringen og `focus`
+  (to tall mellom 0 og 1) hvilken del som er i vinduet. Ingenting slettes – utsnittet er
+  et vindu inn i filen og kan flyttes når som helst. Fordi et bilde alltid er beskåret til
+  rammen sin, kan det aldri flyte over: det eneste fit-guarden har en mening om her er
+  bildeteksten.
+- **Hvorvidt et felt kan ta imot et bilde inne i teksten, avgjøres av feltets eget skjema.**
+  Bare `bodyExtensions` registrerer `slaidsImage`; en slide-tittel, en forsidelinje og en
+  bildetekst er én linje tekst, og `titleExtensions` lar noden være ute i stedet for å
+  skjule en knapp. Opplastingsdialogen spør derfor editoren (`acceptsInlineImage`) og
+  aldri en liste over felttyper: en liste svarer riktig i dag og må vedlikeholdes for hånd
+  den dagen en femte felttype dukker opp – og første tegn på at ingen gjorde det, er at
+  `insertSlaidsImage` ikke finnes, kastet *etter* at filen alt er lagret.
+- **Det finnes ikke en tom bildetekst.** En ny bildetekst tar markøren, og en som forlates
+  tom fjerner seg selv – derfor er det trygt at *enhver* tom bildetekst autofokuseres: en
+  tom kan bare være en helt fersk. Bildeteksten er alltid midtstilt, hvit med skygge
+  uansett fargetone (30 % av en farge over et ukjent fotografi er ingen bakgrunn å regne
+  kontrast mot), og fargen er `null` til noen velger en – da leser den forsidens pillefarge,
+  akkurat som en overskrift og et titteldpanel gjør. Et kort med tittel og bilde har
+  allerede et panel langs overkanten, så bildeteksten kan bare stå i midten eller nederst.
 - `children.length === weights.length`; 2–10 barn; alle weights er endelige tall `> 0`.
 - Nøyaktig ett globalt gap `G` mellom alt synlig innhold. Nesting skal aldri doble gap.
   Strukturelle noder har aldri egen margin/padding som påvirker layoutgeometri.
@@ -343,8 +366,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `cloneContentWithNewIds` – to soner med samme content-id er et ødelagt
   dokument – og assetreferansen fornyes ikke: en fil dupliseres ikke av å vises
   to steder. Kloningen spør `bodyOf`/`withBody` om hvor kroppen ligger i stedet
-  for å liste innholdstypene: en ren tekstsone er en `container` hvis payload
-  *er* en `CardBody`, og en liste over «de to korttypene» lot nettopp den dele
+  for å liste innholdstypene: en ren tekstsone er en `container` som *er* en
+  `CardBody`, og en liste over «de to korttypene» lot nettopp den dele
   subfelt-id-er med kilden sin. Derfor er `subfieldIds` i svaret det eneste stedet agenten kan få
   kopiens id-er uten en ny lesing. Den ene forskjellen i avvisninger er den som
   følger av id-semantikken: en flytting til sonen innholdet allerede står i er
@@ -455,7 +478,9 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - **Slaids genererer aldri bilder.** Ingen bildegenerering i appen, ingen ekstern
   bildetjeneste, ingen `generate_image(prompt)`. Et rasterbilde kommer inn ferdig
   (`upload_asset`), en figur kommer inn som SVG-markup (`create_svg_asset`), og
-  begge blir helt vanlige assets som `set_zone_asset` plasserer. SVG saneres i
+  begge blir helt vanlige assets som `set_zone_asset` plasserer – der de fyller sonen helt
+  og beskjæres, mens `set_image_focus` velger utsnittet og `set_image_caption` teksten over
+  det. SVG saneres i
   `src/domain/svg.ts` uansett hvilken av de to dørene den kom gjennom, og lagres
   som reserialisert markup – aldri kallerens streng. Formatet avgjøres av bytene
   (`src/domain/imageBytes.ts`), ikke av hva kalleren kaller filen, og et
@@ -474,22 +499,6 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   forsvinner ved blur er poenget: innholdsmodus, sonemodus og presentasjonsmodus
   tegner det samme dokumentet gjennom den samme rammen, og fit-målingen leser den
   samme rammen – så et felt ingen står i må se ut nøyaktig som sliden.
-- **Et bilde som fyller en sone males som et kort, men beholderen males ikke.**
-  Vist helt er elementet bildet, beskåret er elementet sonen – det avgjør både
-  hvor en radius runder og hva en loddrett justering flytter (`align-content`
-  mot `object-position`). Å trimme elementet ned til bildet krever
-  størrelsesforholdet, og det tas som regnestykke (`min(100%, 100cqh × ratio)`),
-  ikke som `max-width`/`max-height`: en maksgrense klemmer sin egen akse og lar
-  den andre stå, så hver eneste variant bygget på dem klemmer boksen flat i én
-  retning. Forholdet kommer fra den av de to som vet det først – kilden
-  (`AssetUrlSource.aspectRatio`) for en renderer hvis dokument ikke kan kjøre
-  noe, ellers `<img>`-en selv når nettleseren har den – og uten det tegnes
-  bildet som før, i hele sonen.
-  Skyggen er `CARD_SHADOW`s egne lag som `drop-shadow`, så den følger det som
-  faktisk males i stedet for en kantboks som ikke er der; klippingen løftes for
-  dette ene tilfellet, slik at skyggen når gapet, som et korts. Avrundede hjørner
-  er valgfrie og av som standard, og dokumentet lagrer bare `rounded` – radiusen er
-  `CARD_RADIUS`, den samme som alt annet avrundet i appen.
 - Rich text lagres som ProseMirror/Tiptap JSON, aldri rå HTML. Ekstern paste normaliseres.
 - Alt persistert data valideres med Zod og har `schemaVersion` + migrations.
 - Content fit: en lovlig redigering skal aldri ende med at synlig innhold blir skjult.

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createContainer, createUntitledCard } from '../content'
+import { createImage, createUntitledCard } from '../content'
 import { createPresentation } from '../presentation'
 import { imageNode } from '../richdoc'
 import type { AssetRef, Presentation, RichDoc, ZoneContent } from '../types'
@@ -101,7 +101,7 @@ describe('summarizeAssetUsage', () => {
   it('skiller soneinnhold fra bilder inne i tekst, og slides fra sandkassen', () => {
     let presentation = place(
       deckWithFile(),
-      createContainer({ type: 'asset', assetId: FILE.id, fit: 'contain' }),
+      createImage(FILE.id),
     )
     presentation = park(presentation, cardWithInlineImage(FILE.id, 2))
 
@@ -118,7 +118,7 @@ describe('summarizeAssetUsage', () => {
     // that would let a deletion break a slide.
     const cases: Presentation[] = [
       deckWithFile(),
-      place(deckWithFile(), createContainer({ type: 'asset', assetId: FILE.id, fit: 'cover' })),
+      place(deckWithFile(), createImage(FILE.id)),
       place(deckWithFile(), cardWithInlineImage(FILE.id)),
       park(deckWithFile(), cardWithInlineImage(FILE.id)),
     ]
@@ -151,7 +151,7 @@ describe('removeAsset', () => {
   it('avviser en fil som er innholdet i en sone, og sier hvor mange steder', () => {
     const presentation = place(
       deckWithFile(),
-      createContainer({ type: 'asset', assetId: FILE.id, fit: 'contain' }),
+      createImage(FILE.id),
     )
 
     const result = removeAsset(presentation, FILE.id)
@@ -201,7 +201,7 @@ describe('removeAsset', () => {
     // it may not read, so the details are counts and the asset's own id.
     const presentation = place(
       deckWithFile(),
-      createContainer({ type: 'asset', assetId: FILE.id, fit: 'contain' }),
+      createImage(FILE.id),
     )
     const result = removeAsset(presentation, FILE.id)
     if (result.ok) throw new Error('Forventet en avvisning')
@@ -216,7 +216,7 @@ describe('removeAsset', () => {
     // The loop an agent walks: refused → clear the zone → accepted.
     const shown = place(
       deckWithFile(),
-      createContainer({ type: 'asset', assetId: FILE.id, fit: 'contain' }),
+      createImage(FILE.id),
     )
     expect(removeAsset(shown, FILE.id).ok).toBe(false)
 
@@ -229,7 +229,7 @@ describe('pruneAssets', () => {
   it('rydder bare det ingen viser, og lar dokumentet stå når det ikke er noe å rydde', () => {
     const shown = place(
       deckWithFile(),
-      createContainer({ type: 'asset', assetId: FILE.id, fit: 'contain' }),
+      createImage(FILE.id),
     )
     const kept = pruneAssets(shown)
     expect(kept.removed).toEqual([])

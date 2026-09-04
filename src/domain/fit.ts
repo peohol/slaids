@@ -21,6 +21,8 @@
 
 import {
   BODY_LINE_HEIGHT,
+  CAPTION_PADDING_X_EM,
+  CAPTION_PADDING_Y_EM,
   CITATION_FONT_SCALE,
   CITATION_MARGIN_EM,
   CITATION_MIN_WIDTH_EM,
@@ -32,6 +34,7 @@ import { themeMetrics, type ThemeMetrics } from './metrics'
 import { citationLabel, type ReferenceNumbering } from './references'
 import type {
   CardBody,
+  ImageCaption,
   PresentationTheme,
   Rect,
   RichDoc,
@@ -292,6 +295,29 @@ function estimateHeaderOverflow(title: TitleDoc, rect: Rect, context: EstimateCo
   return needed - available
 }
 
+/**
+ * A caption over a picture.
+ *
+ * The picture itself can never overflow — it is cropped to the frame by
+ * definition — so the only thing to measure here is the caption, which grows
+ * downwards from one line as it wraps and is bounded by the picture's own
+ * height. Its width is the frame less the air on both sides.
+ */
+function estimateCaptionOverflow(
+  caption: ImageCaption,
+  panel: Rect,
+  context: EstimateContext,
+): number {
+  const size = context.tokens.captionFontSize
+  const padX = size * CAPTION_PADDING_X_EM
+  const padY = size * CAPTION_PADDING_Y_EM
+  const available = panel.width - context.tokens.captionSideGap * 2 - padX * 2
+  if (available <= 0) return Number.MAX_SAFE_INTEGER
+  const chars = countDocChars(caption.doc, context)
+  const lines = Math.ceil(chars / charsPerLine(available, size, context.metrics.body)) || 1
+  return lines * size * BODY_LINE_HEIGHT + padY * 2 - panel.height
+}
+
 /** Pure estimate of whether content fits. Deliberately slightly conservative. */
 export function estimateFit(
   content: ZoneContent,
@@ -303,12 +329,26 @@ export function estimateFit(
 
   let overflow = 0
   switch (content.kind) {
+    case 'image': {
+      overflow = content.image.caption
+        ? estimateCaptionOverflow(content.image.caption, rect, estimate)
+        : 0
+      break
+    }
+    case 'titled-image-card': {
+      const header = estimate.tokens.cardHeaderHeight
+      const panel = { ...rect, y: rect.y + header, height: rect.height - header }
+      overflow = Math.max(
+        panel.height <= 0 ? Number.MAX_SAFE_INTEGER : 0,
+        content.image.caption ? estimateCaptionOverflow(content.image.caption, panel, estimate) : 0,
+        estimateHeaderOverflow(content.title, rect, estimate),
+      )
+      break
+    }
     case 'container': {
       // A container is a transparent card without the padding: its subfields
       // divide the zone exactly as a card body divides the space inside one.
-      if (content.payload.type === 'fields') {
-        overflow = estimateBodyOverflow(content.payload.body, rect, estimate)
-      }
+      overflow = estimateBodyOverflow(content.body, rect, estimate)
       break
     }
     case 'untitled-card': {

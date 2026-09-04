@@ -20,6 +20,8 @@
 import {
   BODY_FONT_SIZE,
   BLOCK_SPACING,
+  CAPTION_FONT_SIZE,
+  CAPTION_SIDE_GAP,
   CARD_HEADER_FONT_SIZE,
   CARD_HEADER_HEIGHT,
   CARD_PADDING,
@@ -52,6 +54,9 @@ export interface ThemeMetrics {
   cardHeaderFontSize: number
   cardHeaderHeight: number
   titleZoneHeight: number
+  /** The caption over a picture: its type, and the air beside it. */
+  captionFontSize: number
+  captionSideGap: number
 }
 
 /**
@@ -148,6 +153,8 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
     // The line the title is set on, and nothing more — see `TITLE_LINE_HEIGHT`.
     titleZoneHeight: titleZoneHeightFor(scaled(TITLE_FONT_SIZE, font)),
+    captionFontSize: scaled(CAPTION_FONT_SIZE, font),
+    captionSideGap: Math.max(4, scaled(CAPTION_SIDE_GAP, spacing)),
   }
 }
 

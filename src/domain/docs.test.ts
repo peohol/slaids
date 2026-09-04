@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { allContent, mapPresentationDocs, remapAssetIds } from './docs'
 import { createPresentation } from './presentation'
 import { createLeaf, createSplit } from './layout'
-import { containerWithDoc, createContainer, createTitledCard, createUntitledCard } from './content'
+import { containerWithDoc, createImage, createTitledCard, createUntitledCard } from './content'
 import { paragraphDoc, plainTextToDoc } from './richdoc'
 import type { Presentation } from './types'
 
@@ -23,7 +23,7 @@ function build(): Presentation {
         ...base.slides[0],
         root: createSplit('x', [1, 1], [
           createLeaf(withBody),
-          createLeaf(createContainer({ type: 'asset', assetId: 'a1', fit: 'contain' })),
+          createLeaf(createImage('a1')),
         ]),
       },
     ],

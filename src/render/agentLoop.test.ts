@@ -229,7 +229,6 @@ describe('en agent bygger, ser og retter', () => {
         slideId,
         nodeId: right,
         assetId: asset.assetId,
-        fit: 'contain',
       })
 
       /* ---- 3. it is legal ---- */

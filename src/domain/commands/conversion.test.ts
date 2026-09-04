@@ -1,19 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { convertContentKind } from './content'
-import { createContainer, createTitledCard, createUntitledCard } from '../content'
+import { createImage, createTitledCard, createUntitledCard } from '../content'
 import { docToPlainText, paragraphDoc } from '../richdoc'
 import type { ZoneContent } from '../types'
 
 function textOf(content: ZoneContent): string {
   switch (content.kind) {
     case 'container':
-      return content.payload.type === 'fields'
-        ? content.payload.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')
-        : ''
     case 'untitled-card':
       return content.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')
     case 'titled-card':
-      return [docToPlainText(content.title), ...content.body.subfields.map((f) => docToPlainText(f.doc))].join('\n')
+      return [
+        docToPlainText(content.title),
+        ...content.body.subfields.map((f) => docToPlainText(f.doc)),
+      ].join('\n')
+    case 'image':
+      return content.image.caption ? docToPlainText(content.image.caption.doc) : ''
+    case 'titled-image-card':
+      return [
+        docToPlainText(content.title),
+        content.image.caption ? docToPlainText(content.image.caption.doc) : '',
+      ]
+        .filter((line) => line.length > 0)
+        .join('\n')
   }
 }
 
@@ -53,7 +62,7 @@ describe('convertContentKind never loses content', () => {
   })
 
   it('carries an image from a container into a card body', () => {
-    const container = createContainer({ type: 'asset', assetId: 'asset-7', fit: 'contain' })
+    const container = createImage('asset-7')
     const converted = convertContentKind(container, 'untitled-card')
     expect(converted.kind).toBe('untitled-card')
     expect(JSON.stringify(converted)).toContain('asset-7')

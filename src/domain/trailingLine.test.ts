@@ -15,7 +15,7 @@ import { createLeaf } from './layout'
 import { containerWithDoc } from './content'
 import { setSubfieldDoc } from './commands'
 import { migratePresentation } from './migrations'
-import { CURRENT_SCHEMA_VERSION } from './schema'
+
 import { emptyDoc, imageNode, paragraphDoc, trimTrailingBlankLines } from './richdoc'
 import type { Presentation, RichDoc, RichNode } from './types'
 
@@ -74,8 +74,7 @@ function deckWithField(): { presentation: Presentation; nodeId: string; subfield
     ...base,
     slides: [{ ...base.slides[0], root: leaf }],
   }
-  if (content.payload.type !== 'fields') throw new Error('expected fields')
-  return { presentation, nodeId: leaf.id, subfieldId: content.payload.body.subfields[0].id }
+  return { presentation, nodeId: leaf.id, subfieldId: content.body.subfields[0].id }
 }
 
 describe('setSubfieldDoc', () => {
@@ -91,8 +90,7 @@ describe('setSubfieldDoc', () => {
 
     const root = result.value.slides[0].root
     if (root.kind !== 'leaf' || root.content?.kind !== 'container') throw new Error('expected leaf')
-    if (root.content.payload.type !== 'fields') throw new Error('expected fields')
-    expect(root.content.payload.body.subfields[0].doc).toEqual(doc(imageNode('a1')))
+    expect(root.content.body.subfields[0].doc).toEqual(doc(imageNode('a1')))
   })
 })
 
@@ -101,7 +99,10 @@ describe('migration to the current schema', () => {
     const { presentation } = deckWithField()
     const stored = {
       ...presentation,
-      schemaVersion: CURRENT_SCHEMA_VERSION - 1,
+      // The version this migration upgrades *from*, named rather than derived:
+      // «one below current» stops testing this step the moment a later one is
+      // added, and does it silently.
+      schemaVersion: 9,
       slides: [
         {
           ...presentation.slides[0],
@@ -129,7 +130,6 @@ describe('migration to the current schema', () => {
     if (!result.ok) throw new Error(`expected ok: ${JSON.stringify(result.error)}`)
     const root = result.value.slides[0].root
     if (root.kind !== 'leaf' || root.content?.kind !== 'container') throw new Error('expected leaf')
-    if (root.content.payload.type !== 'fields') throw new Error('expected fields')
-    expect(root.content.payload.body.subfields[0].doc.content).toHaveLength(1)
+    expect(root.content.body.subfields[0].doc.content).toHaveLength(1)
   })
 })

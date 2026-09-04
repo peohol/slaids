@@ -6,7 +6,8 @@
  * wants a raster picture in a deck brings one it already has — `upload_asset` —
  * and an agent that wants a drawing writes the vector markup for it —
  * `create_svg_asset`. Both end in the same place: a stored file with an
- * `assetId`, which `set_zone_asset` then puts in a zone.
+ * `assetId`, which `set_zone_asset` then puts in a zone — where it fills the
+ * zone edge to edge and is cropped, never letterboxed.
  *
  * There is deliberately no `generate_image_asset`.
  *
@@ -16,8 +17,10 @@
  */
 
 import { z } from 'zod'
-import { removeAsset, setZoneContent, usedAssetIds } from '../../domain/commands'
-import { createContainer } from '../../domain/content'
+import { removeAsset, setImageAsset, setZoneContent, usedAssetIds } from '../../domain/commands'
+import { createImage, imagePanelOf } from '../../domain/content'
+import { findLeaf } from '../../domain/layout'
+import { findSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { AssetRef } from '../../domain/types'
 import { fileContentSchema, readFileContent, transportFileContentSchema } from '../binary'
@@ -139,14 +142,6 @@ const setZoneAssetInput = z.strictObject({
   slideId: slideIdSchema,
   nodeId: nodeIdSchema,
   assetId: assetIdSchema,
-  fit: z
-    .enum(['contain', 'cover'])
-    .default('contain')
-    .describe('`contain` viser hele bildet, `cover` fyller sonen og beskjærer.'),
-  rounded: z
-    .boolean()
-    .default(false)
-    .describe('Avrundede hjørner, med den samme radiusen kort bruker.'),
   replace: z
     .boolean()
     .default(false)
@@ -168,7 +163,8 @@ export interface ZoneAssetPlacement {
 
 export const setZoneAsset = defineOperation({
   name: 'set_zone_asset',
-  summary: 'Plasser en eksisterende fil som innholdet i en sone.',
+  summary:
+    'Plasser en eksisterende fil som innholdet i en sone. Bildet fyller sonen helt og beskjæres om formatet ikke passer; bruk set_image_focus for å velge utsnitt.',
   mutates: true,
   scopes: ['presentations:write'],
   input: setZoneAssetInput,
@@ -182,15 +178,42 @@ export const setZoneAsset = defineOperation({
         })
       }
 
+      /*
+       * A picture kind with no file in it yet is a zone *waiting* for one, not
+       * occupied content: filling it keeps the card's title, its crop and its
+       * caption, and there is nothing to displace, so `replace` has nothing to
+       * protect. A panel that already shows a file is ordinary content and goes
+       * through the ordinary rule.
+       */
+      const slide = findSlide(presentation, input.slideId)
+      const existing = slide ? (findLeaf(slide.root, input.nodeId)?.content ?? null) : null
+      const empty = existing ? imagePanelOf(existing) : null
+      if (empty && !empty.assetId) {
+        const swapped = setImageAsset(presentation, {
+          slideId: input.slideId,
+          nodeId: input.nodeId,
+          assetId: input.assetId,
+          ...structuralOptions(context),
+        })
+        if (!swapped.ok) return swapped
+        return ok({
+          presentation: swapped.value,
+          value: {
+            presentationId: input.presentationId,
+            slideId: input.slideId,
+            nodeId: input.nodeId,
+            assetId: input.assetId,
+            movedToSandbox: 0,
+            discarded: 0,
+            sandboxItemIds: [],
+          },
+        })
+      }
+
       const placed = setZoneContent(presentation, {
         slideId: input.slideId,
         nodeId: input.nodeId,
-        content: createContainer({
-          type: 'asset',
-          assetId: input.assetId,
-          fit: input.fit,
-          rounded: input.rounded,
-        }),
+        content: createImage(input.assetId),
         replace: input.replace,
         replacedDisposition: input.replacedDisposition,
         ...structuralOptions(context),
