@@ -18,15 +18,23 @@
  * named, every field is Zod-validated, and anything that does not match is a
  * typed rejection before a single command runs.
  *
+ * A picture standing in the text is a block like the others: an `image` block
+ * naming a file that is already in the presentation. Never bytes — the file
+ * comes in through `upload_asset` or `create_svg_asset` and is referred to by
+ * its `assetId` afterwards, which is the same thing the editor stores and the
+ * same reference `delete_asset` counts as use. The proportions are not part of
+ * the contract: they are read off the stored file, because a ratio a caller
+ * states is a claim and the bitstream is a measurement.
+ *
  * Two things the format cannot express, and how each is handled rather than
  * hidden:
  *
  *  - **Structure the editor can produce and this format cannot** — a table, a
- *    code block, an inline picture, a nested list. Reading returns an
- *    `unsupported` block that names the node and carries its plain text, so an
- *    agent can see that something is there and that rewriting the zone would
- *    replace it. It is not part of what an agent may *send*: inventing a write
- *    path for a shape the format does not model is how silent corruption starts.
+ *    code block, a nested list. Reading returns an `unsupported` block that
+ *    names the node and carries its plain text, so an agent can see that
+ *    something is there and that rewriting the zone would replace it. It is not
+ *    part of what an agent may *send*: inventing a write path for a shape the
+ *    format does not model is how silent corruption starts.
  *  - **A citation's number.** A citation stores reference ids; the number comes
  *    from first-occurrence order across the whole deck and is derived at render
  *    time. An agent writes ids, and reads ids back.
@@ -35,13 +43,21 @@
 import { z } from 'zod'
 import { normalizeHex } from '../domain/color'
 import {
+  INLINE_IMAGE_DEFAULT_WIDTH_PERCENT,
+  INLINE_IMAGE_MAX_WIDTH_PERCENT,
+  INLINE_IMAGE_MIN_WIDTH_PERCENT,
+} from '../domain/constants'
+import {
   CITATION_NODE,
+  IMAGE_NODE,
   citationIdsOf,
   docToPlainText,
   emptyDoc,
+  imageNode,
+  inlineImageOf,
   mergeAdjacentCitations,
 } from '../domain/richdoc'
-import type { RichDoc, RichMark, RichNode, TitleDoc } from '../domain/types'
+import type { AssetRef, RichDoc, RichMark, RichNode, TitleDoc } from '../domain/types'
 
 /* ------------------------------------------------------------------ *
  * The contract
@@ -94,6 +110,50 @@ const spansSchema = z.array(spanSchema).default([])
 
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
+/**
+ * A picture standing between the paragraphs of a field.
+ *
+ * It names a file the presentation already holds — `upload_asset` and
+ * `create_svg_asset` are the two doors a file comes in through, and both answer
+ * with the `assetId` that goes here. Bytes never appear in the text format, and
+ * there is no second way to refer to a file: this is the very same reference
+ * the editor writes, so `delete_asset` counts it as use, a duplication remaps
+ * it onto the copy's own file, and `validate_presentation` sees it.
+ *
+ * Only the two decisions that are actually the caller's are here. How wide the
+ * picture is drawn is one of them, as a share of the column it sits in, so a
+ * picture can never be wider than the field around it. Where it sits in that
+ * column is the other, and it is `align` for the same reason a paragraph's is:
+ * it belongs to the line, not to the file.
+ *
+ * The proportions are deliberately *not* here. They come from the stored file,
+ * which was measured from the bitstream when it was saved — a ratio a caller
+ * states is a claim, and a claimed ratio is what would make the fit measurement
+ * and the drawn slide disagree.
+ */
+const imageBlockSchema = z.strictObject({
+  type: z.literal('image'),
+  assetId: z
+    .string()
+    .min(1)
+    .describe('Id-en til en fil som allerede ligger i presentasjonen, fra upload_asset eller create_svg_asset.'),
+  alt: z
+    .string()
+    .max(500)
+    .optional()
+    .describe('Alternativ tekst. Beskriver bildet, og vises ikke på sliden.'),
+  widthPercent: z
+    .number()
+    .int()
+    .min(INLINE_IMAGE_MIN_WIDTH_PERCENT)
+    .max(INLINE_IMAGE_MAX_WIDTH_PERCENT)
+    .default(INLINE_IMAGE_DEFAULT_WIDTH_PERCENT)
+    .describe(
+      `Bredden som andel av kolonnen bildet står i. ${INLINE_IMAGE_MAX_WIDTH_PERCENT} er hele feltet; standarden er ${INLINE_IMAGE_DEFAULT_WIDTH_PERCENT}, som lar det stå tekst ved siden av. Høyden følger av bildets egne proporsjoner.`,
+    ),
+  align: alignSchema.optional(),
+})
+
 const textBlockSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('paragraph'), spans: spansSchema, align: alignSchema.optional() }),
   z.strictObject({
@@ -115,6 +175,7 @@ const textBlockSchema = z.discriminatedUnion('type', [
     type: z.literal('numbered'),
     items: z.array(z.array(spanSchema)).min(1).describe('Ett punkt per element.'),
   }),
+  imageBlockSchema,
 ])
 
 export const textBlocksSchema = z
@@ -184,7 +245,7 @@ function listItem(spans: readonly TextSpan[]): RichNode {
   return { type: 'listItem', content: [paragraph(spans)] }
 }
 
-function blockToNode(block: TextBlock): RichNode {
+function blockToNode(block: TextBlock, assets: AssetLookup): RichNode {
   switch (block.type) {
     case 'paragraph':
       return paragraph(block.spans, block.align)
@@ -206,7 +267,39 @@ function blockToNode(block: TextBlock): RichNode {
       return { type: 'bulletList', content: block.items.map(listItem) }
     case 'numbered':
       return { type: 'orderedList', content: block.items.map(listItem) }
+    case 'image':
+      // An empty `alt` and no `alt` are the same picture — `<img alt="">` is
+      // what both draw — so they build the same node and read back the same
+      // way, rather than one of them surviving a round trip and the other not.
+      return imageNode(block.assetId, {
+        ...(block.alt ? { alt: block.alt } : {}),
+        widthPercent: block.widthPercent,
+        aspect: assets.get(block.assetId) ?? null,
+        ...(block.align ? { align: block.align } : {}),
+      })
   }
+}
+
+/**
+ * The proportions of each file the caller may point at.
+ *
+ * A picture is drawn `width / aspect` tall, so the ratio decides how much room
+ * it takes — which makes it part of what the fit gate measures, not decoration.
+ * It is derived from the presentation's own `AssetRef`, whose width and height
+ * were read out of the bitstream when the file was stored, so the caller cannot
+ * state proportions the file does not have.
+ *
+ * A file with no usable size (an SVG that declared none) simply has no entry,
+ * and the picture falls back to the ratio the stylesheet draws for one.
+ */
+type AssetLookup = ReadonlyMap<string, number>
+
+function assetAspects(assets: readonly AssetRef[]): AssetLookup {
+  const ratios = new Map<string, number>()
+  for (const asset of assets) {
+    if (asset.width > 0 && asset.height > 0) ratios.set(asset.id, asset.width / asset.height)
+  }
+  return ratios
 }
 
 /**
@@ -217,9 +310,16 @@ function blockToNode(block: TextBlock): RichNode {
  * inserting them one after the other — and so the fit measured before the write
  * is the fit of what will actually be drawn.
  */
-export function blocksToDoc(blocks: readonly TextBlock[]): RichDoc {
+export function blocksToDoc(
+  blocks: readonly TextBlock[],
+  assets: readonly AssetRef[] = [],
+): RichDoc {
   if (blocks.length === 0) return emptyDoc()
-  return mergeAdjacentCitations({ type: 'doc', content: blocks.map(blockToNode) })
+  const ratios = assetAspects(assets)
+  return mergeAdjacentCitations({
+    type: 'doc',
+    content: blocks.map((block) => blockToNode(block, ratios)),
+  })
 }
 
 /**
@@ -242,11 +342,21 @@ export function citedIdsInSpans(spans: readonly (TextSpan | TitleSpan)[]): strin
 }
 
 export function citedIdsInBlocks(blocks: readonly TextBlock[]): string[] {
-  return blocks.flatMap((block) =>
-    'items' in block
-      ? block.items.flatMap(citedIdsInSpans)
-      : citedIdsInSpans(block.spans),
-  )
+  return blocks.flatMap((block) => {
+    if (block.type === 'image') return []
+    return 'items' in block ? block.items.flatMap(citedIdsInSpans) : citedIdsInSpans(block.spans)
+  })
+}
+
+/**
+ * Every file these blocks show, so a caller can check them first.
+ *
+ * The mirror of `citedIdsInBlocks`, and used the same way: a picture pointing
+ * at a file the presentation does not hold is refused before anything is
+ * written, rather than stored as a zone that renders a hole.
+ */
+export function imageAssetIdsInBlocks(blocks: readonly TextBlock[]): string[] {
+  return blocks.flatMap((block) => (block.type === 'image' ? [block.assetId] : []))
 }
 
 /* ------------------------------------------------------------------ *
@@ -361,6 +471,24 @@ function blockOf(node: RichNode): InspectedBlock[] {
       return [listBlock(node, 'bullets')]
     case 'orderedList':
       return [listBlock(node, 'numbered')]
+    case IMAGE_NODE: {
+      // Read through the domain's own reading of the node, so what comes back
+      // is the picture the renderer will draw. A node with no file behind it
+      // cannot be drawn and cannot be written back either, so it stays
+      // `unsupported`: the honest answer is "something is there that you cannot
+      // send again", not an `assetId` that is not one.
+      const image = inlineImageOf(node)
+      if (!image) return [unsupported(node)]
+      return [
+        {
+          type: 'image',
+          assetId: image.assetId,
+          ...(image.alt ? { alt: image.alt } : {}),
+          widthPercent: image.widthPercent,
+          ...(image.align ? { align: image.align } : {}),
+        },
+      ]
+    }
     default:
       return [unsupported(node)]
   }

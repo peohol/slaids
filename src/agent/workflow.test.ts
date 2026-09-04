@@ -32,7 +32,7 @@ import type { StoredAssetResult } from './assetStore'
 import type { SandboxItemView, SandboxPlacement } from './operations/sandbox'
 import type { SlidePlacement } from './operations/slides'
 import type { ValidationReport } from './operations/validation'
-import { runOperation } from './registry'
+import { describeOperations, runOperation } from './registry'
 import type { TextBlock } from './text'
 import type { AgentContext, AgentError, AgentResult } from './types'
 
@@ -947,6 +947,318 @@ describe('citations kan ikke omgå fit-guarden', () => {
       slideId,
     })
     expect(after.zones[0].referenceIds).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Pictures standing in the text
+ * ------------------------------------------------------------------ */
+
+describe('bilder inne i teksten', () => {
+  /** A file in the deck, through the same door an agent uses. */
+  async function figure(
+    context: AgentContext,
+    presentationId: string,
+    markup = '<svg viewBox="0 0 200 100"><rect width="200" height="100" fill="#0af"/></svg>',
+  ): Promise<string> {
+    const stored = await ok<StoredAssetResult>(context, 'create_svg_asset', {
+      presentationId,
+      name: 'figur',
+      svgMarkup: markup,
+    })
+    return stored.assetId
+  }
+
+  /** A deck with one empty zone and one file in it, ready to be written into. */
+  async function deckWithFigure(context: AgentContext): Promise<{
+    presentationId: string
+    slideId: string
+    nodeId: string
+    assetId: string
+  }> {
+    const deck = await newDeck(context, { firstSlideHasTitle: false })
+    const slideId = deck.slides[0].slideId
+    const nodeId = firstZone(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+    return {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      assetId: await figure(context, deck.presentationId),
+    }
+  }
+
+  it('skriver tekst med et bilde i, og leser det tilbake i det samme formatet', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    const blocks: TextBlock[] = [
+      { type: 'paragraph', spans: [{ text: 'Over figuren.' }] },
+      { type: 'image', assetId: target.assetId, alt: 'En figur', widthPercent: 40 },
+      { type: 'paragraph', spans: [{ text: 'Under figuren.' }] },
+    ]
+
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks,
+    })
+
+    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+    })
+    const zone = zoneOf(inspection, target.nodeId)
+    expect(zone.subfields?.[0].blocks).toEqual(blocks)
+    // The zone reports the file it shows, whether the file is the zone's
+    // content or a picture standing in its text.
+    expect(zone.assetIds).toContain(target.assetId)
+    expect(zone.fits).toBe(true)
+  })
+
+  it('bærer citations og formattering rundt bildet gjennom lagringen', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: target.presentationId,
+      title: 'Kilden',
+    })
+    const blocks: TextBlock[] = [
+      { type: 'heading', spans: [{ text: 'Funn' }] },
+      {
+        type: 'paragraph',
+        spans: [{ text: 'Slik ser det ut', italic: true }, { citation: [reference.id] }],
+      },
+      { type: 'image', assetId: target.assetId, widthPercent: 50, align: 'center' },
+    ]
+
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks,
+    })
+
+    const zone = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: target.presentationId,
+        slideId: target.slideId,
+      }),
+      target.nodeId,
+    )
+    expect(zone.subfields?.[0].blocks).toEqual(blocks)
+    expect(zone.referenceIds).toEqual([reference.id])
+  })
+
+  it('avviser en fil som ikke finnes, uten å skrive noe', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    const before = await stored(context, target.presentationId)
+
+    const failure = await fails(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [
+        { type: 'paragraph', spans: [{ text: 'Tekst' }] },
+        { type: 'image', assetId: 'as_finnes_ikke', widthPercent: 50 },
+      ],
+    })
+
+    expect(failure.code).toBe('ASSET_NOT_FOUND')
+    expect(failure.details?.assetIds).toEqual(['as_finnes_ikke'])
+    const after = await stored(context, target.presentationId)
+    expect(presentationRevision(after)).toBe(presentationRevision(before))
+    // Not even the paragraph that came with it.
+    expect(storedContent(after, target.slideId, target.nodeId)).toBeNull()
+  })
+
+  it('avviser en fil som tilhører en annen presentasjon', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    // A real file, stored and readable — but in a deck this call is not about.
+    const other = await newDeck(context, { title: 'Et annet dekk' })
+    const foreign = await figure(context, other.presentationId)
+
+    const failure = await fails(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [{ type: 'image', assetId: foreign, widthPercent: 50 }],
+    })
+
+    expect(failure.code).toBe('ASSET_NOT_FOUND')
+    expect(failure.details?.assetIds).toEqual([foreign])
+    // And the other deck is untouched: nothing was moved, copied or removed.
+    const otherAfter = await stored(context, other.presentationId)
+    expect(otherAfter.assets.map((asset) => asset.id)).toEqual([foreign])
+  })
+
+  it('måler bildet som en del av innholdet og avviser det som ikke får plass', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    // Text that fits on its own, in a zone that is then asked to hold a
+    // full-width picture as well.
+    const text: TextBlock[] = [{ type: 'paragraph', spans: [{ text: 'En kort setning.' }] }]
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: text,
+    })
+    const tall = await figure(
+      context,
+      target.presentationId,
+      '<svg viewBox="0 0 100 3000"><rect width="100" height="3000"/></svg>',
+    )
+    // Read after the file is stored, so the only thing that could move the
+    // revision from here on is the write this call is about.
+    const before = await stored(context, target.presentationId)
+
+    const failure = await fails(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [...text, { type: 'image', assetId: tall, widthPercent: 100 }],
+    })
+
+    expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(failure.details).toMatchObject({
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      subject: 'zone-content',
+    })
+    expect(failure.details?.overflow).toBeGreaterThan(0)
+
+    // Nothing was committed: the text that was there is still exactly there.
+    const after = await stored(context, target.presentationId)
+    expect(presentationRevision(after)).toBe(presentationRevision(before))
+    const zone = zoneOf(
+      await ok<SlideInspection>(context, 'inspect_slide', {
+        presentationId: target.presentationId,
+        slideId: target.slideId,
+      }),
+      target.nodeId,
+    )
+    expect(zone.subfields?.[0].blocks).toEqual(text)
+  })
+
+  it('lar agenten krympe bildet og lykkes på neste forsøk', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    // Three times as tall as it is wide: the whole column is far too much, a
+    // tenth of it is not.
+    const tall = await figure(
+      context,
+      target.presentationId,
+      '<svg viewBox="0 0 100 300"><rect width="100" height="300"/></svg>',
+    )
+    const write = (widthPercent: number): Promise<AgentResult<unknown>> =>
+      call(context, 'set_zone_text', {
+        presentationId: target.presentationId,
+        slideId: target.slideId,
+        nodeId: target.nodeId,
+        blocks: [{ type: 'image', assetId: tall, widthPercent }],
+      })
+
+    expect(expectErr(await write(100)).code).toBe('CONTENT_DOES_NOT_FIT')
+    // The same loop the text format has, with the width as the thing to cut:
+    // a narrower picture is a shorter one.
+    expectOk(await write(10))
+  })
+
+  it('teller som bruk, så delete_asset nekter mens bildet står i teksten', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [{ type: 'image', assetId: target.assetId, widthPercent: 50 }],
+    })
+
+    const refusal = await fails(context, 'delete_asset', {
+      presentationId: target.presentationId,
+      assetId: target.assetId,
+    })
+    expect(refusal.code).toBe('ASSET_IN_USE')
+    expect(refusal.details?.usage).toMatchObject({ total: 1, slides: { inlineText: 1 } })
+
+    // Rewriting the field without the picture is what releases it.
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Uten figur.' }] }],
+    })
+    const removed = await ok<DeletedAsset>(context, 'delete_asset', {
+      presentationId: target.presentationId,
+      assetId: target.assetId,
+    })
+    expect(removed).toMatchObject({ assetId: target.assetId, fileRemoved: true })
+  })
+
+  it('følger med en duplisering, og kopien viser sin egen fil', async () => {
+    const context = freshContext()
+    const target = await deckWithFigure(context)
+    const blocks: TextBlock[] = [
+      { type: 'image', assetId: target.assetId, alt: 'En figur', widthPercent: 50 },
+    ]
+    await ok(context, 'set_zone_text', {
+      presentationId: target.presentationId,
+      slideId: target.slideId,
+      nodeId: target.nodeId,
+      blocks,
+    })
+
+    const copy = await ok<PresentationView>(context, 'duplicate_presentation', {
+      presentationId: target.presentationId,
+    })
+    const copied = await stored(context, copy.presentationId)
+    const [copiedAsset] = copied.assets
+    expect(copiedAsset.id).not.toBe(target.assetId)
+
+    // Every id inside the copy is new, the zone's included, so the picture is
+    // looked up by position rather than by the original's node id.
+    const copiedSlide = await ok<SlideInspection>(context, 'inspect_slide', {
+      presentationId: copy.presentationId,
+      slideId: copy.slides[0].slideId,
+    })
+    const copiedZone = zoneOf(copiedSlide, firstZone(copiedSlide))
+    // The picture is still there, and it points at the copy's own file rather
+    // than at the original's — one delete of the original must not empty it.
+    expect(copiedZone.subfields?.[0].blocks).toEqual([
+      { type: 'image', assetId: copiedAsset.id, alt: 'En figur', widthPercent: 50 },
+    ])
+
+    await ok(context, 'delete_presentation', { presentationId: target.presentationId })
+    expect(
+      (
+        await ok<SlideInspection>(context, 'inspect_slide', {
+          presentationId: copy.presentationId,
+          slideId: copy.slides[0].slideId,
+        })
+      ).zones.flatMap((zone) => zone.assetIds ?? []),
+    ).toEqual([copiedAsset.id])
+  })
+
+  it('krever ikke assets:write for å vise en fil som allerede finnes', () => {
+    // Referring to a stored file is an ordinary edit of the document: no bytes
+    // are written, none are removed, and none are read out of the file store.
+    // `upload_asset` and `create_svg_asset` keep the file scope, because they
+    // are the calls that actually put bytes there.
+    const scopesOf = (name: string): readonly string[] => {
+      const operation = describeOperations().find((entry) => entry.name === name)
+      if (!operation) throw new Error(`Ingen operasjon heter ${name}.`)
+      return operation.requiredScopes
+    }
+    expect(scopesOf('set_zone_text')).toEqual(['presentations:write'])
+    expect(scopesOf('upload_asset')).toEqual(['assets:write'])
+    expect(scopesOf('create_svg_asset')).toEqual(['assets:write'])
   })
 })
 

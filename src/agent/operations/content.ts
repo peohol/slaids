@@ -33,6 +33,7 @@ import {
   setSubfieldDoc,
   setVerticalAlign,
   setZoneContent,
+  unknownAssetIds,
 } from '../../domain/commands'
 import {
   bodyOf,
@@ -61,6 +62,7 @@ import {
   citedIdsInBlocks,
   citedIdsInSpans,
   docToTitleAlign,
+  imageAssetIdsInBlocks,
   textBlocksSchema,
   titleSpansSchema,
   titleSpansToDoc,
@@ -133,9 +135,32 @@ export const setZoneText = defineOperation({
         })
       }
 
+      /*
+       * A picture in the text names a file, and it has to be a file *this*
+       * presentation holds. Assets belong to one presentation, so the same
+       * check is what refuses an id borrowed from another deck — there is no
+       * separate rule for it, and there is no way for an agent to point at a
+       * file it could not otherwise read.
+       *
+       * Checked here, before any command runs, for the same reason a citation
+       * is: `mutatePresentation` saves nothing when this returns an error, so a
+       * rejected call leaves the deck exactly as it was rather than storing a
+       * zone that renders a hole. No `assets:write` is involved — nothing is
+       * stored, removed or read from the file store; this is a document that
+       * refers to a file, which is an ordinary edit.
+       */
+      const missingAssets = unknownAssetIds(presentation, imageAssetIdsInBlocks(input.blocks))
+      if (missingAssets.length > 0) {
+        return err('ASSET_NOT_FOUND', 'Teksten viser filer som ikke finnes i presentasjonen.', {
+          assetIds: missingAssets,
+        })
+      }
+
       const zone = findZone(presentation, input.slideId, input.nodeId)
       if (!zone.ok) return zone
-      const doc = blocksToDoc(input.blocks)
+      // The proportions come from the stored files, so the picture is measured
+      // and drawn at the shape the bitstream said it had.
+      const doc = blocksToDoc(input.blocks, presentation.assets)
 
       if (!zone.value.content) {
         if (input.subfieldId !== undefined) {

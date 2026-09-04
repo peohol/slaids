@@ -17,7 +17,13 @@
  */
 
 import { z } from 'zod'
-import { removeAsset, setImageAsset, setZoneContent, usedAssetIds } from '../../domain/commands'
+import {
+  hasAsset,
+  removeAsset,
+  setImageAsset,
+  setZoneContent,
+  usedAssetIds,
+} from '../../domain/commands'
 import { createImage, imagePanelOf } from '../../domain/content'
 import { findLeaf } from '../../domain/layout'
 import { findSlide } from '../../domain/presentation'
@@ -170,7 +176,7 @@ export const setZoneAsset = defineOperation({
   input: setZoneAssetInput,
   run(context, input): Promise<AgentResult<ZoneAssetPlacement>> {
     return mutatePresentation(context, input, (presentation) => {
-      if (!presentation.assets.some((asset) => asset.id === input.assetId)) {
+      if (!hasAsset(presentation, input.assetId)) {
         // Checked here rather than left to the renderer: a zone pointing at a
         // file that does not exist is a broken slide, not a placement.
         return err('ASSET_NOT_FOUND', 'Presentasjonen har ingen fil med den id-en.', {

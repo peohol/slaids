@@ -80,7 +80,7 @@ function fullPresentation(): Presentation {
   }
   const slideDoc = docWith([
     ...(citing([cited.id]).content ?? []),
-    { type: 'paragraph', content: [imageNode(SHOWN_ASSET, 'Figur')] },
+    { type: 'paragraph', content: [imageNode(SHOWN_ASSET, { alt: 'Figur' })] },
   ])
 
   return {

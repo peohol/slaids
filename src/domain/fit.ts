@@ -28,10 +28,12 @@ import {
   CITATION_MIN_WIDTH_EM,
   CITATION_PADDING_EM,
   FIT_TOLERANCE,
+  INLINE_IMAGE_DEFAULT_ASPECT,
 } from './constants'
 import { advanceRatioFor, DEFAULT_ADVANCE_RATIO } from './fonts'
 import { themeMetrics, type ThemeMetrics } from './metrics'
 import { citationLabel, type ReferenceNumbering } from './references'
+import { inlineImageOf } from './richdoc'
 import type {
   CardBody,
   ImageCaption,
@@ -231,10 +233,14 @@ function estimateNodeHeight(node: RichNode, width: number, context: EstimateCont
       return lines * size * BODY_LINE_HEIGHT + tokens.blockSpacing * 2
     }
     case 'slaidsImage': {
-      const percent = Number(node.attrs?.widthPercent)
-      const share = Number.isFinite(percent) && percent > 0 ? percent / 100 : 1
-      // Assume a 4:3 figure; the browser measurer refines this in the app.
-      return (width * share * 3) / 4 + tokens.blockSpacing
+      // The picture's own proportions, taken from the file when it was stored:
+      // the box is `width / aspect` tall, which is exactly what the stylesheet
+      // draws. A document written before `aspect` existed gets the stylesheet's
+      // own fallback, so the estimate and the browser still agree.
+      const image = inlineImageOf(node)
+      if (!image) return 0
+      const ratio = image.aspect ?? INLINE_IMAGE_DEFAULT_ASPECT
+      return (width * (image.widthPercent / 100)) / ratio + tokens.blockSpacing
     }
     case 'table': {
       const rows = node.content?.length ?? 0

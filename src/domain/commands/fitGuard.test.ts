@@ -282,15 +282,17 @@ describe('card body layout', () => {
   })
 
   it('refuses an axis flip that shrinks the space the content needs', () => {
-    // A full-width figure is as tall as its column is wide, so stacking two
-    // side-by-side subfields costs it more height than it gains.
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1')] }
+    // A full-width 4:3 figure is nearly as tall as its column is wide, so
+    // stacking two side-by-side subfields costs it more height than it gains.
+    // The ratio is stated rather than assumed: it is the file's own, and it is
+    // what decides how much room the picture takes.
+    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1', { aspect: 4 / 3 })] }
     const presentation = deckWith(cardWith([figure, paragraphDoc('')], 'x', [1, 1]))
     expectRefused(setBodyAxis(presentation, { ...target(presentation), axis: 'y', ...checkers }))
   })
 
   it('accepts an axis flip the content still fits', () => {
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1')] }
+    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1', { aspect: 4 / 3 })] }
     const presentation = deckWith(cardWith([figure, paragraphDoc('')], 'y', [1, 1]))
     expect(setBodyAxis(presentation, { ...target(presentation), axis: 'x', ...checkers }).ok).toBe(
       true,
@@ -304,7 +306,10 @@ describe('card body layout', () => {
     // narrower and therefore shorter. Asking for the count first and the axis
     // second never arrives — the intermediate is measured on its own terms and
     // refused — so the destination would be unreachable, not merely awkward.
-    const figure: RichDoc = { type: 'doc', content: [imageNode('asset-1', '', 70)] }
+    const figure: RichDoc = {
+      type: 'doc',
+      content: [imageNode('asset-1', { widthPercent: 70, aspect: 4 / 3 })],
+    }
     const presentation = deckWith(cardWith([figure]))
 
     expectRefused(

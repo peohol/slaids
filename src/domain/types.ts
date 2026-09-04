@@ -49,6 +49,15 @@ export interface RichDoc {
  */
 export type TitleDoc = RichDoc
 
+/**
+ * Where a block sits across the width it was given.
+ *
+ * A property of the line rather than of the words in it, which is why it is
+ * stored as `textAlign` on the block node — a paragraph, a heading, or a
+ * picture standing in the flow between them.
+ */
+export type TextAlign = 'left' | 'center' | 'right'
+
 /* ------------------------------------------------------------------ *
  * Zone content
  * ------------------------------------------------------------------ */

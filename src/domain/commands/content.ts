@@ -39,6 +39,7 @@ import {
 import { findSlide, touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
+import { hasAsset } from './assets'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
 import type {
@@ -166,7 +167,7 @@ export function setImageAsset(
   presentation: Presentation,
   input: { assetId: string | null } & ZoneContentTarget,
 ): Result<Presentation> {
-  if (input.assetId !== null && !presentation.assets.some((a) => a.id === input.assetId)) {
+  if (input.assetId !== null && !hasAsset(presentation, input.assetId)) {
     return err('ASSET_NOT_FOUND', 'Presentasjonen har ingen fil med den id-en.')
   }
   return updateImagePanel(presentation, input, (panel) =>

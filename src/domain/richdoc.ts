@@ -6,7 +6,8 @@
  * numbering pass alike.
  */
 
-import type { RichDoc, RichNode, TitleDoc } from './types'
+import { INLINE_IMAGE_MAX_WIDTH_PERCENT, INLINE_IMAGE_MIN_WIDTH_PERCENT } from './constants'
+import type { RichDoc, RichNode, TextAlign, TitleDoc } from './types'
 
 export const CITATION_NODE = 'citation'
 export const IMAGE_NODE = 'slaidsImage'
@@ -27,8 +28,88 @@ export function titleDoc(text: string): TitleDoc {
   return paragraphDoc(text)
 }
 
-export function imageNode(assetId: string, alt = '', widthPercent = 100): RichNode {
-  return { type: IMAGE_NODE, attrs: { assetId, alt, widthPercent } }
+/**
+ * A picture standing in the flow of a field, as the document stores it.
+ *
+ * The bytes are never here: the node carries the id of a file in the
+ * presentation's own asset list, and everything else is how that file is drawn.
+ * `aspect` is the file's intrinsic width over its height — the box has a shape
+ * before the file has loaded, and the headless fit estimator has something to
+ * measure — and it is derived from the stored file rather than declared,
+ * because a claimed ratio is a claim and the bitstream is a measurement.
+ *
+ * The editor extension declares the node; everything that reads one goes
+ * through here — the static renderer, the headless fit estimator and the
+ * agent's text format — so what a picture *means* is answered once, and a
+ * missing id or a width outside the range gets the same answer everywhere.
+ */
+export interface InlineImage {
+  assetId: string
+  alt: string
+  /** Share of the column, `INLINE_IMAGE_MIN_WIDTH_PERCENT`–100. */
+  widthPercent: number
+  /** Intrinsic width / height, or `null` in a document written before it. */
+  aspect: number | null
+  /** Where the picture sits in its column, or `null` for the default. */
+  align: TextAlign | null
+}
+
+export function imageNode(
+  assetId: string,
+  options: {
+    alt?: string
+    widthPercent?: number
+    aspect?: number | null
+    align?: TextAlign | null
+  } = {},
+): RichNode {
+  const { alt = '', widthPercent = INLINE_IMAGE_MAX_WIDTH_PERCENT, aspect, align } = options
+  return {
+    type: IMAGE_NODE,
+    attrs: {
+      assetId,
+      alt,
+      widthPercent: clampImageWidth(widthPercent),
+      ...(typeof aspect === 'number' && Number.isFinite(aspect) && aspect > 0 ? { aspect } : {}),
+      ...(align ? { textAlign: align } : {}),
+    },
+  }
+}
+
+/** What a stored node says, or `null` when it is not a usable picture. */
+export function inlineImageOf(node: RichNode): InlineImage | null {
+  if (node.type !== IMAGE_NODE) return null
+  const assetId = node.attrs?.assetId
+  // A picture pointing at nothing is not a picture. It cannot be drawn and it
+  // cannot be written back, so the callers that ask "is this a picture?" are
+  // better served by "no" than by an id they would have to check again.
+  if (typeof assetId !== 'string' || assetId.length === 0) return null
+  const alt = node.attrs?.alt
+  const aspect = Number(node.attrs?.aspect)
+  const align = node.attrs?.textAlign
+  return {
+    assetId,
+    alt: typeof alt === 'string' ? alt : '',
+    widthPercent: clampImageWidth(Number(node.attrs?.widthPercent)),
+    aspect: Number.isFinite(aspect) && aspect > 0 ? aspect : null,
+    align: align === 'left' || align === 'center' || align === 'right' ? align : null,
+  }
+}
+
+/**
+ * Whatever arrives, brought inside the range a picture may be drawn at.
+ *
+ * A node that states no width at all means the whole column — that is what the
+ * renderer has always drawn for one — which is a different question from how
+ * wide a *new* picture starts out (`INLINE_IMAGE_DEFAULT_WIDTH_PERCENT`, half
+ * the column, so there is room for words beside it).
+ */
+function clampImageWidth(percent: number): number {
+  if (!Number.isFinite(percent)) return INLINE_IMAGE_MAX_WIDTH_PERCENT
+  return Math.max(
+    INLINE_IMAGE_MIN_WIDTH_PERCENT,
+    Math.min(INLINE_IMAGE_MAX_WIDTH_PERCENT, Math.round(percent)),
+  )
 }
 
 export function walkRichNodes(doc: RichDoc, visit: (node: RichNode) => void): void {

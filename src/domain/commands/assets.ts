@@ -18,6 +18,27 @@ export function registerAsset(presentation: Presentation, asset: AssetRef): Resu
   return ok(touch({ ...presentation, assets }))
 }
 
+/** Whether this presentation holds the file with that id. */
+export function hasAsset(presentation: Presentation, assetId: string): boolean {
+  return presentation.assets.some((asset) => asset.id === assetId)
+}
+
+/**
+ * Which of these ids the presentation does not hold.
+ *
+ * The mirror of `unknownReferenceIds`, and used by every write that can point
+ * at a file: a zone or a paragraph referencing a file that is not in the
+ * presentation renders a hole, so it is refused at the door rather than found
+ * later by `validate_presentation`. Assets belong to one presentation, so this
+ * is also what stops a caller from naming a file that belongs to another one.
+ */
+export function unknownAssetIds(
+  presentation: Presentation,
+  ids: readonly string[],
+): string[] {
+  return [...new Set(ids)].filter((id) => !hasAsset(presentation, id))
+}
+
 /**
  * Asset ids referenced from these slides. The sandbox is not consulted, which
  * is what a publishable snapshot needs: a picture parked in the sandbox is not
@@ -121,7 +142,7 @@ export function summarizeAssetUsage(
  * says nothing shows it, which is what makes deleting the bytes afterwards safe.
  */
 export function removeAsset(presentation: Presentation, assetId: string): Result<Presentation> {
-  if (!presentation.assets.some((asset) => asset.id === assetId)) {
+  if (!hasAsset(presentation, assetId)) {
     return err('ASSET_NOT_FOUND', 'Fant ikke filen.', { assetId })
   }
   const usage = summarizeAssetUsage(presentation, assetId)

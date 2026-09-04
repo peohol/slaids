@@ -9,13 +9,17 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { docCharacterCount, docToPlainText } from '../domain/richdoc'
-import type { RichDoc } from '../domain/types'
+import { INLINE_IMAGE_DEFAULT_WIDTH_PERCENT } from '../domain/constants'
+import { estimateDocHeight } from '../domain/fit'
+import { collectCitationIds, docCharacterCount, docToPlainText } from '../domain/richdoc'
+import type { AssetRef, RichDoc } from '../domain/types'
 import {
   blocksToDoc,
+  citedIdsInBlocks,
   docToBlocks,
   docToTitleAlign,
   docToTitleSpans,
+  imageAssetIdsInBlocks,
   textBlocksSchema,
   titleSpansSchema,
   titleSpansToDoc,
@@ -130,6 +134,136 @@ describe('citations', () => {
 })
 
 /* ------------------------------------------------------------------ *
+ * Inline pictures
+ * ------------------------------------------------------------------ */
+
+/** A file as the presentation holds it: measured from the bitstream, 2:1. */
+const WIDE: AssetRef = {
+  id: 'as_wide',
+  name: 'figur.png',
+  mimeType: 'image/png',
+  byteSize: 1024,
+  width: 800,
+  height: 400,
+  isVector: false,
+}
+
+/** A file that never got a size — an SVG that declared none. */
+const SIZELESS: AssetRef = { ...WIDE, id: 'as_sizeless', width: 0, height: 0 }
+
+describe('bilder inne i teksten', () => {
+  it('blir noden Slaids faktisk lagrer, med filens egne proporsjoner', () => {
+    // The second place this file looks at the internal shape, and for the same
+    // reason as the first: it is what is being translated to. The aspect is not
+    // something the caller sent — it is the stored file's own width over its
+    // height, which is what makes the measured height the drawn height.
+    const doc = blocksToDoc(
+      [{ type: 'image', assetId: WIDE.id, alt: 'Et diagram', widthPercent: 60, align: 'center' }],
+      [WIDE],
+    )
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'slaidsImage',
+          attrs: {
+            assetId: 'as_wide',
+            alt: 'Et diagram',
+            widthPercent: 60,
+            aspect: 2,
+            textAlign: 'center',
+          },
+        },
+      ],
+    })
+    // And never the bytes.
+    expect(JSON.stringify(doc)).not.toContain('base64')
+  })
+
+  it('leses tilbake som den samme blokken', () => {
+    const blocks: TextBlock[] = [
+      { type: 'image', assetId: WIDE.id, alt: 'Et diagram', widthPercent: 60, align: 'center' },
+    ]
+    expect(docToBlocks(blocksToDoc(blocks, [WIDE]))).toEqual(blocks)
+    // The proportions stay out of the contract: they are the file's, and
+    // `list_assets` is where an agent reads them.
+    expect(JSON.stringify(docToBlocks(blocksToDoc(blocks, [WIDE])))).not.toContain('aspect')
+  })
+
+  it('overlever tekst før og etter seg', () => {
+    const blocks: TextBlock[] = [
+      { type: 'paragraph', spans: [{ text: 'Over bildet.' }] },
+      { type: 'image', assetId: WIDE.id, widthPercent: 50 },
+      { type: 'paragraph', spans: [{ text: 'Under bildet.' }] },
+    ]
+    expect(docToBlocks(blocksToDoc(blocks, [WIDE]))).toEqual(blocks)
+  })
+
+  it('står side om side med citations og formattert tekst', () => {
+    const blocks: TextBlock[] = [
+      { type: 'heading', spans: [{ text: 'Funn' }] },
+      {
+        type: 'paragraph',
+        spans: [{ text: 'Målingen', bold: true }, { text: ' viser dette' }, { citation: ['r1'] }],
+      },
+      { type: 'image', assetId: WIDE.id, alt: 'Måling', widthPercent: 75 },
+      { type: 'bullets', items: [[{ text: 'Punkt' }, { citation: ['r2'] }]] },
+    ]
+    const doc = blocksToDoc(blocks, [WIDE])
+    expect(docToBlocks(doc)).toEqual(blocks)
+    // A picture is not a citation and does not disturb the numbering.
+    expect(collectCitationIds(doc)).toEqual(['r1', 'r2'])
+  })
+
+  it('får standardbredden når kalleren ikke sier noe, og leser den tilbake', () => {
+    const parsed = textBlocksSchema.parse([{ type: 'image', assetId: WIDE.id }])
+    expect(docToBlocks(blocksToDoc(parsed, [WIDE]))).toEqual([
+      { type: 'image', assetId: WIDE.id, widthPercent: INLINE_IMAGE_DEFAULT_WIDTH_PERCENT },
+    ])
+  })
+
+  it('faller tilbake på stilarkets forhold når filen ikke har en størrelse', () => {
+    const blocks: TextBlock[] = [{ type: 'image', assetId: SIZELESS.id, widthPercent: 50 }]
+    const doc = blocksToDoc(blocks, [SIZELESS])
+    expect(doc.content?.[0].attrs?.aspect).toBeUndefined()
+    // Still a picture an agent can read back and send again.
+    expect(docToBlocks(doc)).toEqual(blocks)
+  })
+
+  it('navngir filene den viser, slik en kaller kan sjekke dem først', () => {
+    const blocks: TextBlock[] = [
+      { type: 'paragraph', spans: [{ text: 'Tekst' }] },
+      { type: 'image', assetId: 'as_1', widthPercent: 50 },
+      { type: 'image', assetId: 'as_2', widthPercent: 50 },
+    ]
+    expect(imageAssetIdsInBlocks(blocks)).toEqual(['as_1', 'as_2'])
+    // A picture cites nothing, and asking does not throw on a block with no spans.
+    expect(citedIdsInBlocks(blocks)).toEqual([])
+  })
+
+  it('teller som innhold når fit måles, med filens egne proporsjoner', () => {
+    const COLUMN = 600
+    const paragraph: TextBlock = { type: 'paragraph', spans: [{ text: 'Tekst' }] }
+    const picture = (asset: AssetRef): TextBlock => ({
+      type: 'image',
+      assetId: asset.id,
+      widthPercent: 50,
+    })
+    const tall: AssetRef = { ...WIDE, id: 'as_tall', width: 400, height: 800 }
+
+    const text = estimateDocHeight(blocksToDoc([paragraph]), COLUMN)
+    const wide = estimateDocHeight(blocksToDoc([paragraph, picture(WIDE)], [WIDE]), COLUMN)
+    const high = estimateDocHeight(blocksToDoc([paragraph, picture(tall)], [tall]), COLUMN)
+
+    expect(wide).toBeGreaterThan(text)
+    // Half the column is 300 wide, which is 150 tall at 2:1 and 600 tall at
+    // 1:2 — the file's own ratio, not an assumed one. Everything else about
+    // the two documents is identical, so the difference is the picture's.
+    expect(high - wide).toBeCloseTo(450, 6)
+  })
+})
+
+/* ------------------------------------------------------------------ *
  * What the schema refuses
  * ------------------------------------------------------------------ */
 
@@ -165,6 +299,25 @@ describe('skjemaet', () => {
     expect(rejects([{ type: 'paragraph', spans: [{ text: 'x', href: 'https://ok.example' }] }])).toBe(
       false,
     )
+  })
+
+  it('avviser et bilde uten fil, og alt som ligner på bytes i teksten', () => {
+    expect(rejects([{ type: 'image' }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: '' }])).toBe(true)
+    // There is one way to refer to a file, and it is an id. Bytes belong in
+    // `upload_asset`, and a URL would be a second, unvalidated asset model.
+    expect(rejects([{ type: 'image', data: 'iVBORw0KGgo=' }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: 'as_1', url: 'https://x.example/a.png' }])).toBe(true)
+    // Nor may a caller state the proportions: those come from the stored file.
+    expect(rejects([{ type: 'image', assetId: 'as_1', aspect: 3 }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: 'as_1' }])).toBe(false)
+  })
+
+  it('avviser en bildebredde utenfor det en kolonne er', () => {
+    expect(rejects([{ type: 'image', assetId: 'as_1', widthPercent: 0 }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: 'as_1', widthPercent: 120 }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: 'as_1', widthPercent: 42.5 }])).toBe(true)
+    expect(rejects([{ type: 'image', assetId: 'as_1', widthPercent: 100 }])).toBe(false)
   })
 
   it('avviser en farge som ikke er hex', () => {
@@ -207,7 +360,10 @@ describe('innhold formatet ikke kan uttrykke', () => {
           ],
         },
         { type: 'codeBlock', content: [{ type: 'text', text: 'kode()' }] },
-        { type: 'slaidsImage', attrs: { assetId: 'a1' } },
+        // A picture with no file behind it: the format has an `image` block, but
+        // not one that can name nothing, so this stays something an agent is
+        // told about rather than something it is handed an id for.
+        { type: 'slaidsImage', attrs: { alt: 'Uten fil' } },
       ],
     }
 
