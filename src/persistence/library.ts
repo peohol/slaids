@@ -171,12 +171,26 @@ async function discardCopy(repository: SlaidsRepository, copyId: string): Promis
  * ------------------------------------------------------------------ */
 
 /**
+ * The longest a folder may be called.
+ *
+ * A folder is shown by its name in a sidebar, so there is a length past which it
+ * stops being a label and starts being a paragraph — and an unbounded string is
+ * also not a thing a published API should accept. The number lives *here*, with
+ * the rest of what a folder name is, rather than in the agent's schema alone:
+ * a bound only one of the two doors enforced would be exactly the drift this
+ * function exists to prevent, with the editor happily storing a name the agent
+ * refuses. `agent/operation.ts` publishes it so a caller can see it in advance.
+ */
+export const FOLDER_NAME_MAX_LENGTH = 200
+
+/**
  * Make a folder and put it in the library.
  *
  * The one place that decides what a *new* folder is, for both callers. The
  * editor's dialog and the agent's `create_folder` therefore mint the same kind
- * of row — a trimmed name, an id from the domain's own generator, the moment it
- * was made — rather than two functions written to match.
+ * of row — a trimmed name within the same bounds, an id from the domain's own
+ * generator, the moment it was made — rather than two functions written to
+ * match.
  *
  * The name is trimmed and an empty one is refused, because the library shows a
  * folder by its name and nothing else: a folder called `"   "` is a row in the
@@ -194,6 +208,12 @@ export async function createFolder(
 ): Promise<Result<Folder>> {
   const trimmed = name.trim()
   if (!trimmed) return err('INVALID_ARGUMENT', 'Mappen må ha et navn.')
+  if (trimmed.length > FOLDER_NAME_MAX_LENGTH) {
+    return err(
+      'INVALID_ARGUMENT',
+      `Mappenavnet kan ikke være lengre enn ${FOLDER_NAME_MAX_LENGTH} tegn.`,
+    )
+  }
 
   // Minted here rather than taken from the caller. An id is an identity in the
   // library, and letting either door name one would be letting it overwrite a

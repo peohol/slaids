@@ -3015,6 +3015,15 @@ For bibliotekets livsløp i tillegg:
   bærer aldri et mappenavn;
 - de to mappeoperasjonene virker med `presentations:write` alene, uten lesescope,
   og verken kvitteringen eller avvisningen bærer et mappenavn eller en dekktittel;
+- lengdegrensen er den samme fra begge dører: det lengste lovlige navnet godtas
+  og ett tegn mer avvises, i `createFolder` og i det publiserte skjemaet;
+- slettingen er ett kall og ikke en sekvens setninger (ingen listing, ingen
+  rad-for-rad-oppdatering, ingen egen `DELETE`), den tar imot de nye versjonene
+  så en åpen editor ikke taper et kappløp den ikke var i, og en manglende
+  migrasjon sier at migrasjonen mangler i stedet for at mappen ikke kan slettes;
+- SQL-en selv låser mapperaden først, tømmer begge stedene i den samme setningen,
+  fjerner mappen etterpå, filtrerer hver setning på eier og er ikke
+  `security definer`;
 - en lagringsfeil i `saveFolder` eller `deleteFolder` er `STORAGE_FAILED`, og
   lar biblioteket stå som det sto;
 - en flytting til mappen dekket allerede ligger i er en no-op som ikke flytter
@@ -4308,8 +4317,15 @@ flaten framfor noe hver dør husker for seg.
 **Å lage og slette en mappe.** `create_folder` tar `name` og ingenting mer:
 id-en mintes av Slaids, ikke av kalleren, fordi `saveFolder` er en `put` og en id
 kalleren navnga ville vært en id den kunne overskrive en eksisterende mappe med.
-Navnet trimmes og et tomt navn avvises – både av det publiserte skjemaet, så en
-kaller kan se det på forhånd, og av `createFolder`, som er der regelen bestemmes.
+Navnet trimmes, og et tomt eller for langt navn avvises – både av det publiserte
+skjemaet, så en kaller kan se det på forhånd, og av `createFolder`, som er der
+reglene bestemmes. Lengdegrensen er `FOLDER_NAME_MAX_LENGTH`, og
+`folderNameSchema` **importerer** den i stedet for å gjenta tallet: en grense
+bare agentdøren håndhevet ville betydd at editoren lagrer navn agenten avviser,
+som er nøyaktig den driften det delte laget finnes for å hindre. Retningen er
+verdt å merke seg – et skjema strengere enn biblioteket ville avvist navn
+editoren lagrer uten videre; et bibliotek strengere enn skjemaet ville lovet en
+kaller noe det så nekter.
 Svaret er mappen (`{ id, name, createdAt }`), som ikke koster leseautoritet:
 ingenting i den fantes før kallet. Ingen `revision`, fordi en mappe ikke er et
 dokument og ikke har en lesing å være utdatert mot – den samme grunnen
@@ -4324,21 +4340,49 @@ og de holder den forskjellig fordi lagrene er forskjellige:
 
 - **Dexie** gjør begge halvdelene i én `rw`-transaksjon over `folders` og
   `presentations`. Feiler noe, skjer ingenting.
-- **Supabase** har ingen transaksjon, så *rekkefølgen* er sikkerheten:
-  presentasjonene flyttes ut først, én vaktet skriving hver, og først da fjernes
-  mapperaden. Motsatt rekkefølge ville latt databasens egen
-  `on delete set null (folder_id)` tømme kolonnen mens `folderId` *inne i*
-  dokumentet fortsatt navnga en mappe som var borte – et dekk som vises verken
-  på rotnivå eller i noen mappe, og hvis neste lagring ville blitt avvist av
-  fremmednøkkelen. Hver flytting er vaktet mot versjonen den leste, fordi den
-  skriver hele dokumentet tilbake og en uvaktet skriving ville reversert en
-  redigering som kom imellom. Å *tape* den vakten er derimot ikke en grunn til å
-  gi opp midt i: da ville noen dekk ligget på rotnivå med mappen fortsatt
-  stående, som er nøyaktig den halvferdige tilstanden Dexies ene transaksjon
-  aldri produserer. Raden leses derfor på nytt og mappen strippes fra *det*
-  dokumentet, bundet oppad slik at en rad som skrives i en løkke ikke holder en
-  sletting i gang for alltid. En rad som forsvant ut av mappen underveis er
-  ferdig, ikke en feil: tilstanden kallet ba om er tilstanden det fant.
+- **Supabase** har ingen transaksjon å gi klienten, og det er nettopp derfor
+  slettingen ikke *er* en klientoperasjon der. Den er én databasefunksjon,
+  `public.slaids_delete_folder`, og den eneste RPC-en Slaids har.
+
+  Den første versjonen var en klientsekvens: list medlemmene, flytt hver av dem
+  ut med en vaktet skriving, slett mapperaden til slutt. Rekkefølgen er riktig og
+  likevel ikke nok, fordi den bare dekker rader som *allerede var* i mappen. Et
+  konkret kappløp:
+
+  1. klienten lister mappens medlemmer og tømmer dem;
+  2. en annen skriver arkiverer en presentasjon **inn i** mappen – raden finnes
+     fortsatt, så fremmednøkkelen godtar det;
+  3. klienten sletter mapperaden;
+  4. `on delete set null (folder_id)` tømmer den radens *kolonne*, mens
+     `document.folderId` blir stående og navngir en mappe som er borte.
+
+  Steg 4 er skaden, og den er verre enn den ser ut: biblioteket filtrerer på
+  kolonnen og viser dekket på rotnivå, men neste lagring skriver `folder_id`
+  tilbake fra dokumentet og blir avvist av fremmednøkkelen. Dekket blir umulig å
+  lagre, og kallet som forårsaket det svarte `ok`. Ingen ekstra lesing lukker
+  det: det finnes alltid et gap mellom siste tomhetssjekk og `DELETE`.
+
+  Funksjonen tar derfor `for update` på mapperaden **før** den rører noe. En
+  fremmednøkkelsjekk tar `FOR KEY SHARE` på foreldreraden den refererer, og
+  `FOR UPDATE` er i konflikt med den, så en samtidig flytting inn i mappen må
+  vente – og når den slipper til, er mappen borte og fremmednøkkelen avviser
+  den. Enten kommer flyttingen med i slettetransaksjonen, eller så avvises den.
+  Det finnes ikke et tredje utfall, og det var akkurat det klientversjonen ikke
+  kunne si. Den er dermed også alt-eller-ingenting, som klientversjonen ikke var:
+  den tømte mappen én vaktet skriving om gangen, og en rad som tapte kappløpet
+  etterlot noen presentasjoner på rotnivå med mappen fortsatt stående.
+
+  Funksjonen returnerer id-ene og de nye versjonene til radene den flyttet.
+  Repositoryet er det en åpen editor spør om versjonen neste lagring vaktes mot,
+  og uten dem ville den autolagringen blitt avvist som et tapt kappløp – for en
+  endring ingen gjorde for hånd.
+
+  Fordi korrektheten nå ligger i SQL, sjekkes SQL-en:
+  `src/persistence/migrations.test.ts` håndhever `for update` først, at begge
+  stedene tømmes i den samme setningen, rekkefølgen, eierfilteret på hver
+  setning, og at funksjonen ikke er `security definer`. En migrasjon redigert til
+  tre løse setninger ville ellers bestått hver eneste andre test i repoet og
+  stille gjeninnført kappløpet.
 
 En mappe som ikke finnes er `FOLDER_NOT_FOUND` (404), ikke et stille `ok` – begge
 lagrene sletter på id og bryr seg ikke om at id-en ikke er der, så et `ok` ville

@@ -8,6 +8,7 @@
  */
 
 import { setFolder, setPresentationTitle } from '../domain/commands'
+import type { Result } from '../domain/result'
 import { createFolder as createFolderIn, duplicatePresentation as duplicateIn } from '../persistence/library'
 import { repository } from '../persistence/activeRepository'
 import type { Folder, Presentation } from '../domain/types'
@@ -20,15 +21,19 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
 /**
  * Make a folder from a name somebody typed.
  *
- * `null` is "that was not a name" — an empty field, or only spaces — and the
- * dialog treats it as a cancellation rather than an error, the same way
- * `renamePresentation` below treats an emptied name. What counts as a name is
- * not decided here: it is `persistence/library.ts`, so the folder an agent makes
- * and the folder the sidebar makes are the same kind of row.
+ * The `Result` is passed through rather than flattened to `Folder | null`,
+ * because the two refusals need different answers on screen: an empty field is a
+ * cancellation and should say nothing, while a name that is too long is a
+ * refusal somebody has to be told about — a dialog that closes and does nothing
+ * is the worst of the three possible behaviours. Which refusal it was is
+ * information this layer has and must not throw away.
+ *
+ * What counts as a name is not decided here either: that is
+ * `persistence/library.ts`, so the folder an agent makes and the folder the
+ * sidebar makes are the same kind of row, refused for the same reasons.
  */
-export async function createFolder(name: string): Promise<Folder | null> {
-  const created = await createFolderIn(repository, name)
-  return created.ok ? created.value : null
+export async function createFolder(name: string): Promise<Result<Folder>> {
+  return createFolderIn(repository, name)
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {

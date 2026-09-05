@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { RepositoryError } from './repository'
-import { createFolder } from './library'
+import { FOLDER_NAME_MAX_LENGTH, createFolder } from './library'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -58,6 +58,27 @@ describe('createFolder', () => {
     // be indistinguishable from every other, and the only way out is to delete
     // it. So the refusal comes before the write, not as a repair afterwards.
     expect(await repository.listFolders()).toEqual([])
+  })
+
+  it('avviser et navn som er for langt, og godtar det lengste som er lov', async () => {
+    // The bound lives here rather than in the agent's schema alone. One door
+    // enforcing it and the other not is exactly the drift this function exists
+    // to prevent: the editor would store a name the agent refuses.
+    const repository = freshRepository()
+
+    const longest = 'a'.repeat(FOLDER_NAME_MAX_LENGTH)
+    const accepted = await createFolder(repository, longest)
+    expect(accepted.ok).toBe(true)
+
+    // Measured after trimming, so surrounding space is not what pushes it over.
+    const refused = await createFolder(repository, `  ${'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1)}  `)
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.error.code).toBe('INVALID_ARGUMENT')
+
+    const padded = await createFolder(repository, `  ${longest}  `)
+    expect(padded.ok).toBe(true)
+
+    expect(await repository.listFolders()).toHaveLength(2)
   })
 
   it('gir hver mappe sin egen id, også når to har samme navn', async () => {

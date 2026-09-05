@@ -183,12 +183,20 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   const addFolder = async (): Promise<void> => {
     const name = window.prompt('Navn på mappen')
-    if (name === null) return
+    // Cancelled, or nothing typed. Not an error and not worth a message: the
+    // same reading `renamePresentation` gives an emptied field.
+    if (!name?.trim()) return
     try {
-      // What a new folder is — the trimmed name, the minted id, the timestamp —
-      // is decided one layer down, so the agent's `create_folder` makes exactly
-      // this row. An empty name comes back as `null` and is simply not a folder.
-      if (!(await createFolder(name))) return
+      // What a new folder is — the trimmed name, its length, the minted id, the
+      // timestamp — is decided one layer down, so the agent's `create_folder`
+      // makes exactly this row and refuses exactly the same names. A refusal
+      // that reaches here is one the typist has to see; a dialog that closes and
+      // quietly does nothing is worse than either outcome.
+      const created = await createFolder(name)
+      if (!created.ok) {
+        notify.error(describeError(created.error))
+        return
+      }
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Kunne ikke lage mappen.')
       return

@@ -18,6 +18,7 @@ import { newFolderId, newShareToken } from '../domain/ids'
 import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { blobToBytes } from '../persistence/blob'
+import { FOLDER_NAME_MAX_LENGTH } from '../persistence/library'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import {
@@ -197,6 +198,25 @@ describe('create_folder', () => {
     // A folder called nothing is a row in the sidebar that cannot be told from
     // any other, so the refusal has to come before the write.
     expect(await context.repository.listFolders()).toEqual([])
+  })
+
+  it('avviser et navn som er for langt, med den samme grensen biblioteket har', async () => {
+    // The same bound the sidebar's dialog enforces, from the same constant —
+    // not a limit the API invented, which would let the editor store names the
+    // agent refuses.
+    const context = freshContext()
+    const refused = expectErr(
+      await call(context, 'create_folder', { name: 'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1) }),
+    )
+    expect(refused.code).toBe('INVALID_INPUT')
+    expect(await context.repository.listFolders()).toEqual([])
+
+    const accepted = expectOk(
+      await call<{ folder: Folder }>(context, 'create_folder', {
+        name: 'a'.repeat(FOLDER_NAME_MAX_LENGTH),
+      }),
+    )
+    expect(accepted.folder.name).toHaveLength(FOLDER_NAME_MAX_LENGTH)
   })
 
   it('krever et navn, og ingenting annet', async () => {

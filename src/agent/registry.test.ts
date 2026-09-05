@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { createPresentation } from '../domain/presentation'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
+import { FOLDER_NAME_MAX_LENGTH } from '../persistence/library'
 import { RepositoryError } from '../persistence/repository'
 import type { PresentationSummary } from '../domain/types'
 import { AGENT_TOOL_PREFIX, describeOperations, findOperation, operations, runOperation } from './registry'
@@ -329,8 +330,15 @@ describe('operasjonskatalogen', () => {
     expect(Object.keys(made.properties)).toEqual(['name'])
     expect(made.required).toEqual(['name'])
     expect(made.additionalProperties).toBe(false)
-    // Published as trimmed and non-empty, so a caller can tell before it sends.
-    expect(made.properties.name).toMatchObject({ type: 'string', minLength: 1 })
+    // Published with every bound the library actually enforces, so a caller can
+    // tell before it sends — and the length is the library's own number rather
+    // than one this schema invented, which is what stops the two doors from
+    // accepting different names.
+    expect(made.properties.name).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      maxLength: FOLDER_NAME_MAX_LENGTH,
+    })
 
     const removedFolder = schemaFor('delete_folder') as typeof move & {
       additionalProperties?: unknown

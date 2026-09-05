@@ -4,7 +4,9 @@
  * It records the chain a call builds — table, operation, filters, payload — and
  * hands back whatever the test's resolver decides, so a test can assert on the
  * *request* (does the write carry `owner_id` from the session? is the update
- * guarded on the version it read?) and not only on what came back.
+ * guarded on the version it read?) and not only on what came back. `rpc` is
+ * recorded the same way, so "which statements did this method send?" stays one
+ * question with one answer even when one of them is a database function.
  *
  * Test-only: nothing in `src/` imports it, so it never reaches a bundle.
  */
@@ -13,7 +15,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface QueryRecord {
   table: string
-  op: 'select' | 'insert' | 'update' | 'upsert' | 'delete'
+  /**
+   * `rpc` is a database function rather than a table statement. It is the same
+   * record because the assertions are the same — which one, with what arguments,
+   * answering with what — and because a test that counts the statements a method
+   * sends has to see it among them.
+   */
+  op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' | 'rpc'
   columns?: string
   values?: unknown
   filters: { column: string; value: unknown }[]
@@ -144,6 +152,15 @@ export function createFakeSupabase(options: FakeSupabaseOptions = {}): FakeSupab
       const record: QueryRecord = { table, op: 'select', filters: [], single: 'none' }
       queries.push(record)
       return new FakeQuery(record, resolve)
+    },
+    // A database function. `table` carries its name so a resolver can switch on
+    // the same field it switches on for statements, and the arguments go in
+    // `values` for the same reason they do for an insert: they are the payload.
+    rpc: (name: string, args: unknown) => {
+      const record: QueryRecord = { table: name, op: 'rpc', values: args, filters: [], single: 'none' }
+      queries.push(record)
+      const outcome = resolve(record)
+      return Promise.resolve({ data: outcome.data ?? null, error: outcome.error ?? null })
     },
     storage: {
       from: (bucket: string) => ({

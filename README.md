@@ -965,12 +965,15 @@ som ikke flytter revisjonen.
 
 **En sletting av en mappe rører ikke presentasjonene i den.** De blir liggende, på
 rotnivå – nøyaktig det biblioteket lover brukeren når man sletter en mappe der.
-Det er én operasjon fordi det er ett repository-kall: begge lagrene fjerner
+Det er én operasjon fordi det er ett kall helt ned: begge lagrene fjerner
 `folderId` fra hvert dekk i mappen, både i dokumentet og i kolonnen oversikten
-filtrerer på, som en del av den samme slettingen. `create_folder` tar bare
-`name` (trimmet, kan ikke være tomt) – id-en lager Slaids – og `delete_folder`
-bare `folderId`. Ingen av dem tar `expectedRevision`: en mappe er ikke et dokument
-og har ingen revisjon å skrive mot.
+filtrerer på, i én transaksjon. I Supabase er den transaksjonen databasefunksjonen
+`slaids_delete_folder` – **den krever at migrasjonene er kjørt**
+(`scripts/deploy-migrations.sh`), og sier det med rene ord hvis de ikke er det.
+`create_folder` tar bare `name` (trimmet, ikke tomt, høyst 200 tegn – den samme
+grensen editoren har) – id-en lager Slaids – og `delete_folder` bare `folderId`.
+Ingen av dem tar `expectedRevision`: en mappe er ikke et dokument og har ingen
+revisjon å skrive mot.
 
 ### Filer
 

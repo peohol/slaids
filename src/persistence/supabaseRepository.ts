@@ -58,17 +58,33 @@ const STORAGE_LIST_LIMIT = 1000
 /** How many ids one `in` filter carries; the filter travels in the URL. */
 const ID_FILTER_BATCH = 200
 
-/**
- * How many times a single presentation may lose the race out of a folder that is
- * being deleted before the deletion gives up on it.
- *
- * More than one, because one concurrent autosave tick is ordinary and should not
- * strand half an emptied folder. Not unbounded, because a row written in a loop
- * would keep a delete running forever.
- */
-const FOLDER_MOVE_ATTEMPTS = 4
-
 const EPOCH = new Date(0).toISOString()
+
+/**
+ * The one database function Slaids calls.
+ *
+ * Named here beside the table names because it is the same kind of thing: a
+ * schema object this repository depends on, and one that ships in
+ * `supabase/migrations/`.
+ */
+export const DELETE_FOLDER_FUNCTION = 'slaids_delete_folder'
+
+/**
+ * A folder deletion that failed, told apart from one that could not be tried.
+ *
+ * `42883` is Postgres for "no such function" and `PGRST202` is PostgREST's
+ * version of it. Both mean the migration that defines it has not been applied
+ * to this project, which is an operator's problem and not the caller's — and a
+ * generic "could not delete the folder" would send somebody looking for a bug
+ * in the folder instead of at the deployment.
+ */
+function deleteFolderFailure(error: FailureDetail): string {
+  const code = (error as PostgrestError | null)?.code
+  if (code === '42883' || code === 'PGRST202') {
+    return `Kunne ikke slette mappen: databasefunksjonen «${DELETE_FOLDER_FUNCTION}» finnes ikke i dette prosjektet. Kjør migrasjonene (scripts/deploy-migrations.sh)`
+  }
+  return 'Kunne ikke slette mappen'
+}
 
 interface PresentationListRow {
   id: string
@@ -84,10 +100,9 @@ interface VersionRow {
   version: number | null
 }
 
-/** A presentation seen from the folder it sits in: enough to move it out of one. */
-interface FolderMemberRow {
-  id: string
-  document: unknown
+/** One presentation the folder deletion moved back to the root, and its new version. */
+interface MovedOutRow {
+  presentation_id: string
   version: number | null
 }
 
@@ -736,105 +751,37 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   /**
    * The folder goes; the presentations in it stay, at the root.
    *
-   * The contract is on `SlaidsRepository.deleteFolder`, and here is what it
-   * costs to keep in a store with no transaction: the presentations are moved
-   * out *first*, one guarded write each, and only then is the folder row
-   * removed. That order is the whole safety property. Removing the folder first
-   * would leave the database's own `on delete set null` to clear the `folder_id`
-   * column while the `folderId` *inside* each document still named a folder that
-   * is gone — a deck shown neither at the root nor in any folder, and one whose
-   * next save would be refused by the foreign key.
+   * One call, and deliberately one *database* call: this is
+   * `public.slaids_delete_folder`, which clears both places the folder is named
+   * and removes the row inside a single transaction. The migration that defines
+   * it carries the full reasoning; the short version is that no sequence of
+   * statements sent from here could keep the promise. Emptying the folder and
+   * then deleting it leaves a gap in which another writer can file a
+   * presentation *into* the folder — the row still exists, so the foreign key
+   * accepts it — and the delete then clears that row's column through
+   * `on delete set null` while its document is left naming a folder that is
+   * gone. That deck cannot be saved again, and the call that broke it returned
+   * success. Re-reading before the delete only makes the gap smaller.
    *
-   * Each move is guarded on the version it read, because it writes the whole
-   * document back and an unguarded write would revert an edit somebody made in
-   * between. Losing that guard is not a reason to abandon the deletion, though:
-   * that is what read-modify-write means, and stopping half-way would leave some
-   * decks at the root with the folder still standing — the exact half-done state
-   * Dexie's single transaction never produces. So a lost race is re-read and
-   * retried against what is there now, which is the same folder strip applied to
-   * a newer document.
-   *
-   * The retry is bounded rather than unbounded: a row that loses this many times
-   * in a row is being written continuously, and looping forever inside a delete
-   * is worse than saying so.
+   * So the ordering, the locking and the all-or-nothing live in the database,
+   * and what is left here is what a repository method should be: send it, map
+   * the failure, and keep the caches honest.
    */
   async deleteFolder(id: string): Promise<void> {
-    for (const row of await this.presentationsInFolder(id)) await this.moveOutOfFolder(row, id)
+    const { data, error } = await this.client.rpc(DELETE_FOLDER_FUNCTION, {
+      p_folder_id: id,
+      p_owner_id: await this.ownerId(),
+    })
+    if (error) fail(deleteFolderFailure(error), error)
 
-    const removed = await this.scoped(this.client.from(FOLDERS_TABLE).delete().eq('id', id))
-    if (removed.error) fail('Kunne ikke slette mappen', removed.error)
-  }
-
-  /** The rows a folder holds, with everything a move out of it needs. */
-  private async presentationsInFolder(id: string): Promise<FolderMemberRow[]> {
-    const { data, error } = await this.scoped(
-      this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('folder_id', id),
-    )
-    if (error) fail('Kunne ikke hente presentasjonene i mappen', error)
-    return (data ?? []) as FolderMemberRow[]
-  }
-
-  /**
-   * Put one presentation back at the root, retrying against a newer reading.
-   *
-   * The folder is named in two places — the column the library filters on and
-   * the document itself — so both are cleared by the same write.
-   */
-  private async moveOutOfFolder(first: FolderMemberRow, folderId: string): Promise<void> {
-    // Two ways out, and only one of them is a failure. `row` goes empty when
-    // somebody else moves the presentation out of the folder, or deletes it
-    // outright, while we are working — and that is not a failure: the state this
-    // asked for is the state it found. Running out of attempts is.
-    //
-    // The emptiness is therefore part of the loop *condition* rather than a
-    // check at the top of the body. The re-read that can empty it is the last
-    // statement in the body, so a body check would miss the final attempt's
-    // re-read entirely and report a conflict for a folder that is already empty
-    // — refusing a deletion whose work is done.
-    let row: FolderMemberRow | null = first
-
-    for (let attempt = 0; attempt < FOLDER_MOVE_ATTEMPTS && row; attempt += 1) {
-      const document = { ...(row.document as Presentation), folderId: null }
-      const known = numberOr(row.version, 0)
-      const update = await this.scoped(
-        this.client
-          .from(PRESENTATIONS_TABLE)
-          .update({ folder_id: null, document })
-          .eq('id', row.id),
-      )
-        .eq('version', known)
-        .select('version')
-      if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
-
-      const updated = (update.data ?? []) as VersionRow[]
-      if (updated.length > 0) {
-        this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
-        return
-      }
-
-      // Lost the race. Never keep the reading that lost — that is how a guard
-      // becomes a licence to overwrite whoever won.
-      row = await this.folderMember(row.id, folderId)
+    // The presentations the deletion moved out have new versions, and this
+    // repository is what an open editor asks for the version its next save is
+    // guarded by. Left stale, that autosave would be refused as a lost race —
+    // for a change nobody made by hand. They come back from the function for
+    // exactly this reason.
+    for (const row of (data ?? []) as MovedOutRow[]) {
+      if (typeof row.version === 'number') this.knownVersions.set(row.presentation_id, row.version)
     }
-
-    // Still in the folder after every attempt: it is being written continuously,
-    // and looping forever inside a delete is worse than saying so.
-    if (row) {
-      throw new RepositoryConflictError(
-        'En presentasjon i mappen blir endret et annet sted akkurat nå. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
-      )
-    }
-  }
-
-  /** One row, re-read, and only while it is still in the folder being deleted. */
-  private async folderMember(id: string, folderId: string): Promise<FolderMemberRow | null> {
-    const { data, error } = await this.scoped(
-      this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('id', id),
-    )
-      .eq('folder_id', folderId)
-      .maybeSingle()
-    if (error) fail('Kunne ikke hente presentasjonen i mappen', error)
-    return (data as FolderMemberRow | null) ?? null
   }
 
   /* ---------------------------------------------------------------- *

@@ -328,12 +328,15 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   `src/state/` og parameterisert på repositoryet, slik at editoren og agenten
   kaller den samme funksjonen – og begge slettingene er ett repository-kall hver.
   Det samme gjelder **hva en ny mappe er**: et trimmet navn som ikke kan være
-  tomt, en id fra `newFolderId`, tidspunktet den ble laget. Det lå i
-  `LibraryView`, der bare editoren kunne nå det, og ligger nå i `createFolder` i
-  `src/persistence/library.ts` ved siden av dupliseringen – `newFolderId` har
-  nøyaktig én kaller i hele `src/`, og en test håndhever det, fordi en andre
-  kaller ikke ville knekt noe: den ville stille begynt å godta `«   »` som
-  mappenavn i den ene av de to dørene.
+  tomt og ikke lengre enn `FOLDER_NAME_MAX_LENGTH`, en id fra `newFolderId`,
+  tidspunktet den ble laget. Det lå i `LibraryView`, der bare editoren kunne nå
+  det, og ligger nå i `createFolder` i `src/persistence/library.ts` ved siden av
+  dupliseringen – `newFolderId` har nøyaktig én kaller i hele `src/`, og en test
+  håndhever det, fordi en andre kaller ikke ville knekt noe: den ville stille
+  begynt å godta `«   »` som mappenavn i den ene av de to dørene. Lengdegrensen
+  hører hjemme det samme stedet og ikke bare i agentens skjema: `folderNameSchema`
+  **importerer** tallet i stedet for å gjenta det, så en grense bare den ene døren
+  håndhevet – editoren lagrer et navn agenten avviser – ikke er mulig å skrive.
   Scope-grensen er tegnet per operasjon og de seks er ikke like:
   `presentations:read` for å liste mapper, `presentations:write` alene for en
   flytting (som svarer med de to id-ene kalleren sendte og aldri et mappenavn),
@@ -365,15 +368,29 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   grensesnittet og ikke som en kommentar i hver implementasjon, fordi
   `delete_folder` kvitterer med `deleted: true` og ingenting mer: det som gjør
   det til et fullstendig svar, er at det ikke finnes en andre ting kalleren må
-  gjøre etterpå. Dexie holder løftet i én transaksjon. Supabase har ingen, så
-  *rekkefølgen* er sikkerheten: dekkene flyttes ut først, én vaktet skriving
-  hver, og mapperaden fjernes til slutt. Motsatt rekkefølge ville latt
-  databasens egen `on delete set null (folder_id)` tømme kolonnen mens dokumentet
-  fortsatt navnga en mappe som var borte. Å tape vakten er ikke en grunn til å gi
-  opp midt i – da ville noen dekk ligget på rotnivå med mappen fortsatt stående –
-  så raden leses på nytt og strippes igjen, bundet oppad. En mappesletting tar
-  ingen `expectedRevision`: en mappe har ingen revisjon, og én revisjon kunne
-  uansett ikke vaktet de N dokumentene den rører.
+  gjøre etterpå. Dexie holder løftet i én transaksjon.
+  **Supabase holder det i én databasefunksjon, `public.slaids_delete_folder`, og
+  det er den eneste RPC-en Slaids har.** Grunnen er at ingen rekkefølge av
+  setninger sendt fra klienten kan holde løftet: tømmer man mappen først og
+  sletter den etterpå, finnes det et gap der en annen skriver kan arkivere en
+  presentasjon *inn i* mappen – raden finnes fortsatt, så fremmednøkkelen godtar
+  det – og slettingen tømmer da den radens kolonne gjennom
+  `on delete set null (folder_id)` mens dokumentet blir stående og navngir en
+  mappe som er borte. Det dekket kan ikke lagres igjen (fremmednøkkelen avviser
+  neste autolagring), og kallet som ødela det svarte `ok`. En ekstra lesing før
+  slettingen gjør bare gapet mindre. Funksjonen tar derfor `for update` på
+  mapperaden *først*: en fremmednøkkelsjekk tar `FOR KEY SHARE` på foreldreraden,
+  og `FOR UPDATE` er i konflikt med den, så en samtidig flytting enten kommer med
+  i slettetransaksjonen eller avvises fordi mappen er borte. Den er dermed også
+  alt-eller-ingenting, som klientversjonen ikke var. Funksjonen returnerer
+  id-ene og de nye versjonene til radene den flyttet, fordi repositoryet er det
+  en åpen editor spør om versjonen neste lagring vaktes mot – uten dem ville den
+  autolagringen blitt avvist for en endring ingen gjorde for hånd.
+  `src/persistence/migrations.test.ts` håndhever egenskapene på selve SQL-en:
+  en migrasjon redigert til tre løse setninger ville bestått alle andre tester og
+  stille gjeninnført kappløpet. En mappesletting tar ingen `expectedRevision`: en
+  mappe har ingen revisjon, og én revisjon kunne uansett ikke vaktet de N
+  dokumentene den rører.
 - **En sletting er uangrelig, og derfor ett kall og ikke en sekvens.**
   `SlaidsRepository.deletePresentation` tar dokumentet, filradene, bytene og en
   eventuell publisert kopi ned sammen – i Supabase fordi filradene henger på
