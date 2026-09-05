@@ -22,11 +22,12 @@
  * keeps an IME composition from being interrupted mid-word.
  */
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
+import type { Editor } from '@tiptap/react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { setSectionSubtitle, setSectionTitle } from '../../domain/commands'
 import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID } from '../../domain/geometry'
-import type { SectionSlide } from '../../domain/types'
+import type { RichDoc, SectionSlide } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import {
@@ -62,8 +63,6 @@ export function SectionStage({ section }: { section: SectionSlide }) {
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
   const scale = useFitScale(viewportRef)
   const run = useEditorStore((state) => state.run)
-  const setActiveField = useEditorStore((state) => state.setActiveField)
-  const setActiveEditor = useActiveEditor((state) => state.setEditor)
   // Stable, so React does not detach and reattach the pill on every keystroke.
   const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
     pillRefs.current[line] = element
@@ -93,28 +92,12 @@ export function SectionStage({ section }: { section: SectionSlide }) {
             lines={SECTION_LINES}
             pillRef={setPillRef}
             renderLine={(line) => (
-              <RichTextEditor
-                // Keyed by the slide, so moving to another section replaces the
-                // editor rather than reusing one still holding the old text.
-                key={`${section.id}:${line}`}
-                doc={sectionLineDoc(section, line)}
-                variant="cover"
-                placeholder={LINE_TEXT[line].placeholder}
-                overflowMessage={LINE_TEXT[line].overflow}
+              <SectionLineEditor
+                section={section}
+                line={line}
                 measureOverflow={() => {
                   const pill = pillRefs.current[line]
                   return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
-                }}
-                onFocus={() => {
-                  // A section carries no formatting, so nothing in the text
-                  // toolbar applies to it — but the toolbar still has to stop
-                  // pointing at the body field that was edited last.
-                  setActiveEditor(null)
-                  setActiveField({
-                    nodeId: LINE_TEXT[line].nodeId,
-                    subfieldId: null,
-                    kind: LINE_TEXT[line].field,
-                  })
                 }}
                 onChange={(doc) =>
                   run(`typing:section:${section.id}:${line}`, (presentation) =>
@@ -137,5 +120,72 @@ export function SectionStage({ section }: { section: SectionSlide }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * One of the section's two lines.
+ *
+ * Owns its own editor instance and publishes it as the active editor on
+ * focus, exactly like a slide's other fields (`FieldEditor` in
+ * `EditableZoneContent.tsx`) — a section carries no formatting or alignment
+ * of its own, so the mark and align buttons still find nothing to act on
+ * here, but it is still text somebody types, and the symbol picker needs
+ * *some* editor to insert into. `onEditorReady` has to be a stable callback:
+ * `RichTextEditor` re-fires it on every render where the reference changes,
+ * so an inline closure here would null the active editor out on the very
+ * next keystroke.
+ */
+function SectionLineEditor({
+  section,
+  line,
+  measureOverflow,
+  onChange,
+}: {
+  section: SectionSlide
+  line: SectionLine
+  measureOverflow: () => number
+  onChange: (doc: RichDoc) => void
+}) {
+  const setActiveField = useEditorStore((state) => state.setActiveField)
+  const setActiveEditor = useActiveEditor((state) => state.setEditor)
+  const editorRef = useRef<Editor | null>(null)
+
+  useEffect(() => {
+    return () => {
+      // Never leave a destroyed editor behind as the toolbar's target.
+      if (editorRef.current && useActiveEditor.getState().editor === editorRef.current) {
+        setActiveEditor(null)
+      }
+    }
+  }, [setActiveEditor])
+
+  const handleReady = useCallback((editor: Editor | null) => {
+    editorRef.current = editor
+  }, [])
+
+  const handleFocus = useCallback(() => {
+    setActiveEditor(editorRef.current)
+    setActiveField({
+      nodeId: LINE_TEXT[line].nodeId,
+      subfieldId: null,
+      kind: LINE_TEXT[line].field,
+    })
+  }, [line, setActiveEditor, setActiveField])
+
+  return (
+    <RichTextEditor
+      // Keyed by the slide, so moving to another section replaces the editor
+      // rather than reusing one still holding the old text.
+      key={`${section.id}:${line}`}
+      doc={sectionLineDoc(section, line)}
+      variant="cover"
+      placeholder={LINE_TEXT[line].placeholder}
+      overflowMessage={LINE_TEXT[line].overflow}
+      measureOverflow={measureOverflow}
+      onEditorReady={handleReady}
+      onFocus={handleFocus}
+      onChange={onChange}
+    />
   )
 }
