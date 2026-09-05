@@ -8,13 +8,32 @@
  */
 
 import { setFolder, setPresentationTitle } from '../domain/commands'
-import { duplicatePresentation as duplicateIn } from '../persistence/library'
+import type { Result } from '../domain/result'
+import { createFolder as createFolderIn, duplicatePresentation as duplicateIn } from '../persistence/library'
 import { repository } from '../persistence/activeRepository'
-import type { Presentation } from '../domain/types'
+import type { Folder, Presentation } from '../domain/types'
 
 /** Deep-copy a presentation, including its files. */
 export async function duplicatePresentation(sourceId: string): Promise<Presentation> {
   return duplicateIn(repository, await repository.loadPresentation(sourceId))
+}
+
+/**
+ * Make a folder from a name somebody typed.
+ *
+ * The `Result` is passed through rather than flattened to `Folder | null`,
+ * because the two refusals need different answers on screen: an empty field is a
+ * cancellation and should say nothing, while a name that is too long is a
+ * refusal somebody has to be told about — a dialog that closes and does nothing
+ * is the worst of the three possible behaviours. Which refusal it was is
+ * information this layer has and must not throw away.
+ *
+ * What counts as a name is not decided here either: that is
+ * `persistence/library.ts`, so the folder an agent makes and the folder the
+ * sidebar makes are the same kind of row, refused for the same reasons.
+ */
+export async function createFolder(name: string): Promise<Result<Folder>> {
+  return createFolderIn(repository, name)
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {

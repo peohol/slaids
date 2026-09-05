@@ -260,14 +260,46 @@ describe('DexieSlaidsRepository', () => {
   })
 
   it('moves presentations to the root when their folder is deleted', async () => {
+    // The contract on `SlaidsRepository.deleteFolder`, and the sentence the
+    // library shows the user: the folder goes, everything in it stays. Several
+    // presentations, so "the folder is emptied" cannot pass by emptying one.
     const repository = freshRepository()
     await repository.saveFolder({ id: 'f1', name: 'Mappe', createdAt: '2026-01-01T00:00:00.000Z' })
-    const presentation = { ...samplePresentation(), folderId: 'f1' }
-    await repository.savePresentation(presentation)
+    await repository.saveFolder({ id: 'f2', name: 'Annen', createdAt: '2026-01-01T00:00:00.000Z' })
+
+    const inside = [
+      { ...samplePresentation(), folderId: 'f1' },
+      { ...samplePresentation(), id: 'p_også_i_f1', folderId: 'f1' },
+    ]
+    const elsewhere = { ...samplePresentation(), id: 'p_i_f2', folderId: 'f2' }
+    const root = { ...samplePresentation(), id: 'p_rot', folderId: null }
+    for (const presentation of [...inside, elsewhere, root]) {
+      await repository.savePresentation(presentation)
+    }
+
     await repository.deleteFolder('f1')
-    const loaded = await repository.loadPresentation(presentation.id)
-    expect(loaded.folderId).toBeNull()
-    expect(await repository.listFolders()).toHaveLength(0)
+
+    expect((await repository.listFolders()).map((folder) => folder.id)).toEqual(['f2'])
+    // Nothing lost, and nothing left naming a folder that is gone — in the
+    // document *and* in the column the library filters on, because a deck that
+    // says one thing in one place and another in the other is shown nowhere.
+    const summaries = await repository.listPresentations()
+    expect(summaries).toHaveLength(4)
+    for (const presentation of inside) {
+      expect((await repository.loadPresentation(presentation.id)).folderId).toBeNull()
+      expect(summaries.find((summary) => summary.id === presentation.id)?.folderId).toBeNull()
+    }
+    // The other folder and what is in it are untouched.
+    expect((await repository.loadPresentation(elsewhere.id)).folderId).toBe('f2')
+    expect(summaries.find((summary) => summary.id === elsewhere.id)?.folderId).toBe('f2')
+    expect((await repository.loadPresentation(root.id)).folderId).toBeNull()
+  })
+
+  it('treats deleting a folder that is not there as nothing to do', async () => {
+    // Idempotent by contract, and the reason the agent surface looks the folder
+    // up before calling: a store that shrugs cannot answer "no such folder".
+    const repository = freshRepository()
+    await expect(repository.deleteFolder('f_finnes_ikke')).resolves.toBeUndefined()
   })
 
   it('stores and rejects templates by validity', async () => {

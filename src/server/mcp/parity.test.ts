@@ -1287,6 +1287,124 @@ describe('bibliotekets livsløp er det samme begge veier', () => {
     expect((both.restData as { folders: Folder[] }).folders).toEqual([folder])
   })
 
+  it('create_folder lager mappen én gang, og begge transportene ser den etterpå', async () => {
+    // A creation cannot be asked for twice and compared field for field: each
+    // call mints a folder. What has to match is the shape of the answer and
+    // everything in it that is not an identity — and that the folder REST made
+    // is a folder MCP can read and file a deck into.
+    const harnessed = harness()
+
+    const overRest = await rest(harnessed, 'create_folder', { name: '  Over REST  ' })
+    const overMcp = await callTool(harnessed, tool('create_folder'), { name: 'Over MCP' })
+    expect(overRest.status).toBe(200)
+    expect(overMcp.isError).toBeFalsy()
+
+    const restFolder = (overRest.body.data as { folder: Folder }).folder
+    const mcpFolder = (overMcp.structuredContent as { folder: Folder }).folder
+    expect(Object.keys(restFolder).sort()).toEqual(Object.keys(mcpFolder).sort())
+    expect(Object.keys(restFolder).sort()).toEqual(['createdAt', 'id', 'name'])
+    // The same rule applied on both sides, including the trim.
+    expect(restFolder.name).toBe('Over REST')
+    expect(mcpFolder.name).toBe('Over MCP')
+
+    // One store behind both: `list_folders` reports the two of them either way.
+    const listed = await bothWays(harnessed, 'list_folders', {})
+    expect(listed.restData).toEqual(listed.mcpData)
+    expect((listed.restData as { folders: Folder[] }).folders.map((folder) => folder.name).sort()).toEqual(
+      ['Over MCP', 'Over REST'],
+    )
+
+    // And the folder one transport made is one the other can file a deck into.
+    const deck = await newPresentation(harnessed, 'Skal i mappen')
+    const moved = await callTool(harnessed, tool('move_presentation'), {
+      presentationId: deck.presentationId,
+      folderId: restFolder.id,
+    })
+    expect(moved.structuredContent).toMatchObject({ folderId: restFolder.id })
+  })
+
+  it('avviser et tomt mappenavn likt, som protokollfeil i MCP', async () => {
+    // Input that does not match the tool's schema was never a valid call, so
+    // MCP answers with a JSON-RPC error rather than a tool result — the same
+    // line `INVALID_INPUT` is drawn on everywhere else.
+    const harnessed = harness()
+    const both = await refusedBothWays(harnessed, 'create_folder', { name: '   ' })
+
+    expect(both.rest).toEqual(both.mcp)
+    expect(both.rest.code).toBe('INVALID_INPUT')
+    expect(both.envelope).toBe('protocol')
+    expect(both.status).toBe(400)
+    // And nothing was stored on either side.
+    const listed = await bothWays(harnessed, 'list_folders', {})
+    expect((listed.restData as { folders: Folder[] }).folders).toEqual([])
+  })
+
+  it('delete_folder svarer likt, og lar presentasjonene i mappen bli liggende', async () => {
+    const harnessed = harness()
+    const folder = await folderIn(harnessed, 'Slettes')
+    const deck = await newPresentation(harnessed, 'Blir liggende')
+    await rest(harnessed, 'move_presentation', {
+      presentationId: deck.presentationId,
+      folderId: folder.id,
+    })
+
+    const overRest = await rest(harnessed, 'delete_folder', { folderId: folder.id })
+    expect(overRest.status).toBe(200)
+    expect(overRest.body.data).toEqual({ folderId: folder.id, deleted: true })
+
+    // The deck survived, at the root, and both transports read it that way.
+    const read = await bothWays(harnessed, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(read.restData).toEqual(read.mcpData)
+    expect((read.restData as { folderId: string | null }).folderId).toBeNull()
+
+    // The second call is the refusal, not a silent `ok` — over MCP this time,
+    // which is how the two transports get compared on a deletion that can only
+    // succeed once.
+    const again = await refusedBothWays(harnessed, 'delete_folder', { folderId: folder.id })
+    expect(again.rest).toEqual(again.mcp)
+    expect(again.rest.code).toBe('FOLDER_NOT_FOUND')
+    expect(again.envelope).toBe('result')
+    expect(again.status).toBe(404)
+  })
+
+  it('lar de to mappeoperasjonene virke uten lesescope, og uten å lekke navn', async () => {
+    // `presentations:write` alone: neither of them reads. The receipts are the
+    // caller's own id and what Slaids minted for it, so a token that may not
+    // read a deck's title cannot learn a folder's name from either.
+    const full = harness()
+    const writeOnly = withoutReadScope(full)
+
+    const denied = await rest(writeOnly, 'list_folders', {})
+    expect(denied.status).toBe(403)
+
+    const made = await rest(writeOnly, 'create_folder', { name: 'Uten lesescope' })
+    expect(made.status).toBe(200)
+    const folder = (made.body.data as { folder: Folder }).folder
+
+    // A deck with a title the token may not read, filed in the folder it is
+    // about to delete.
+    const deck = await newPresentation(full, 'Hemmelig dekktittel')
+    expect(
+      (await rest(writeOnly, 'move_presentation', {
+        presentationId: deck.presentationId,
+        folderId: folder.id,
+      })).status,
+    ).toBe(200)
+
+    const removed = await rest(writeOnly, 'delete_folder', { folderId: folder.id })
+    expect(removed.status).toBe(200)
+    expect(removed.body.data).toEqual({ folderId: folder.id, deleted: true })
+    expect(JSON.stringify(removed.body)).not.toContain('Hemmelig dekktittel')
+    expect(JSON.stringify(removed.body)).not.toContain('Uten lesescope')
+
+    // Still there, at the root — a deletion the token could not read is still a
+    // deletion that kept its promise.
+    const survivor = await rest(full, 'get_presentation', { presentationId: deck.presentationId })
+    expect((survivor.body.data as { folderId: string | null }).folderId).toBeNull()
+  })
+
   it('move_presentation svarer likt, og er den samme no-op andre gangen', async () => {
     // Comparable field for field precisely because a move into the folder the
     // deck already sits in changes nothing: MCP asks for the state REST just

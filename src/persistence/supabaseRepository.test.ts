@@ -9,6 +9,7 @@ import { RepositoryConflictError, RepositoryError } from './repository'
 import {
   ASSETS_BUCKET,
   ASSETS_TABLE,
+  DELETE_FOLDER_FUNCTION,
   FOLDERS_TABLE,
   PRESENTATIONS_TABLE,
   SupabaseSlaidsRepository,
@@ -18,6 +19,7 @@ import {
   TEST_OWNER_ID,
   createFakeSupabase,
   type FakeSupabaseOptions,
+  type QueryOutcome,
   type QueryRecord,
   type QueryResolver,
 } from './supabaseTestClient'
@@ -800,6 +802,10 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
     )
   }
 
+  function numberish(value: unknown): number {
+    return typeof value === 'number' ? value : 0
+  }
+
   /** One `id` primary key per table, and a unique violation when it is taken. */
   function fakeDatabase(seed: Record<string, Row[]>) {
     const tables: Record<string, Row[]> = {}
@@ -842,7 +848,50 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
         case 'delete':
           for (const row of hit) rows.splice(rows.indexOf(row), 1)
           return { data: hit }
+        case 'rpc':
+          return callFunction(record)
       }
+    }
+
+    /**
+     * The database functions, modelled.
+     *
+     * A stand-in and not a proof: what Postgres actually does is in
+     * `supabase/migrations/`, and `slaids_delete_folder.sql` is checked
+     * separately for the properties this model assumes. What it *is* good for is
+     * the half a resolver can answer — that the repository sends the right call
+     * with the right arguments, and that the library ends up in the state the
+     * contract promises — which is the coverage that would otherwise have been
+     * lost by moving the work into SQL.
+     */
+    function callFunction(record: QueryRecord): QueryOutcome {
+      if (record.table !== DELETE_FOLDER_FUNCTION) {
+        return { error: { message: `could not find the function ${record.table}`, code: 'PGRST202' } }
+      }
+      const { p_folder_id: folderId, p_owner_id: owner } = record.values as {
+        p_folder_id: string
+        p_owner_id: string
+      }
+      const presentations = (tables[PRESENTATIONS_TABLE] ??= [])
+      const folders = (tables[FOLDERS_TABLE] ??= [])
+
+      // Both places the folder is named, cleared together — and only for rows
+      // this owner may touch, which is what the function's own filter does.
+      const moved: Row[] = []
+      for (const row of presentations) {
+        if (row.folder_id !== folderId || row.owner_id !== owner) continue
+        row.folder_id = null
+        row.document = { ...(row.document as object), folderId: null }
+        row.version = numberish(row.version) + 1
+        moved.push({ presentation_id: row.id, version: row.version })
+      }
+
+      for (const folder of [...folders]) {
+        if (folder.id === folderId && folder.owner_id === owner) {
+          folders.splice(folders.indexOf(folder), 1)
+        }
+      }
+      return { data: moved }
     }
 
     return { tables, resolve }
@@ -1015,6 +1064,149 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
     expect(tables[TEMPLATES_TABLE]).toEqual([
       { id: 't_deres', owner_id: THEIRS, name: 'Deres mal', template: {} },
     ])
+  })
+
+  /* ---------------------------------------------------------------- *
+   * Deleting a folder
+   * ---------------------------------------------------------------- */
+
+  /** A stored presentation, with the folder written in both places it lives. */
+  function deckRow(id: string, folderId: string | null, version = 1): Row {
+    return {
+      id,
+      owner_id: OURS,
+      title: id,
+      folder_id: folderId,
+      document: { id, title: id, folderId },
+      slide_count: 1,
+      version,
+    }
+  }
+
+  it('sletter mappen og lar presentasjonene i den bli liggende, uten mappe', async () => {
+    // The contract on `SlaidsRepository.deleteFolder`, checked against the store
+    // rather than against a method call. What actually performs it is
+    // `slaids_delete_folder`; the resolver models it, and the migration's own
+    // properties are checked further down.
+    const { repository, tables } = pinned({
+      [FOLDERS_TABLE]: [
+        theirFolder(),
+        { id: 'fl_slettes', owner_id: OURS, name: 'Slettes', created_at: EARLIER },
+        { id: 'fl_beholdes', owner_id: OURS, name: 'Beholdes', created_at: EARLIER },
+      ],
+      [PRESENTATIONS_TABLE]: [
+        deckRow('p_en', 'fl_slettes'),
+        deckRow('p_to', 'fl_slettes'),
+        deckRow('p_annen_mappe', 'fl_beholdes'),
+        deckRow('p_rot', null),
+        { ...deckRow('p_deres', 'fl_slettes'), owner_id: THEIRS },
+      ],
+    })
+
+    await repository.deleteFolder('fl_slettes')
+
+    // The folder is gone; the other one, and the other owner's, are not.
+    expect(tables[FOLDERS_TABLE].map((row) => row.id).sort()).toEqual(['fl_beholdes', 'fl_delt'])
+
+    // Every presentation is still there.
+    expect(tables[PRESENTATIONS_TABLE]).toHaveLength(5)
+    for (const id of ['p_en', 'p_to']) {
+      const row = tables[PRESENTATIONS_TABLE].find((entry) => entry.id === id)
+      // Both places the folder is written down, because the library filters on
+      // the column and the editor reads the document.
+      expect({ id, column: row?.folder_id }).toEqual({ id, column: null })
+      expect((row?.document as { folderId: string | null }).folderId).toBeNull()
+    }
+    // Untouched: another folder, the root, and the other owner's row — which we
+    // must not reach even though it names the folder we just deleted.
+    expect(tables[PRESENTATIONS_TABLE].find((entry) => entry.id === 'p_annen_mappe')?.folder_id).toBe(
+      'fl_beholdes',
+    )
+    expect(tables[PRESENTATIONS_TABLE].find((entry) => entry.id === 'p_deres')).toEqual({
+      ...deckRow('p_deres', 'fl_slettes'),
+      owner_id: THEIRS,
+    })
+  })
+
+  it('gjør det som ett kall, ikke som en sekvens setninger', async () => {
+    // The whole point of the change: emptying the folder from here and then
+    // deleting it leaves a gap in which another writer can file a presentation
+    // *into* it, and the delete then clears that row's column through the
+    // foreign key while its document keeps naming a folder that is gone. No
+    // number of re-reads closes that, so there must be no such sequence to
+    // begin with — one function call, with the folder and the owner on it.
+    const { repository, fake } = pinned({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 7)],
+    })
+
+    await repository.deleteFolder('fl_x')
+
+    expect(fake.queries).toHaveLength(1)
+    expect(fake.queries[0]).toMatchObject({
+      table: DELETE_FOLDER_FUNCTION,
+      op: 'rpc',
+      values: { p_folder_id: 'fl_x', p_owner_id: OURS },
+    })
+    // No statement of our own against either table: no listing, no per-row
+    // update, no delete.
+    expect(fake.queries.some((record) => record.op !== 'rpc')).toBe(false)
+  })
+
+  it('tar imot de nye versjonene, så en åpen editor ikke taper et kappløp den ikke var i', async () => {
+    // The rows the deletion moved out have new versions. This repository is
+    // what an open editor asks for the version its next save is guarded by, so
+    // a stale one would have that autosave refused for a change nobody made by
+    // hand. The function returns them for exactly this reason.
+    const { repository, tables } = pinned({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 7)],
+    })
+
+    await repository.deleteFolder('fl_x')
+
+    const stored = createPresentation({ title: 'Etter mappeslettingen' })
+    await repository.savePresentation({ ...stored, id: 'p_en' })
+
+    // Saved rather than refused, and against the version the deletion produced.
+    expect(tables[PRESENTATIONS_TABLE][0].version).toBe(8)
+    expect((tables[PRESENTATIONS_TABLE][0].document as Presentation).title).toBe(
+      'Etter mappeslettingen',
+    )
+  })
+
+  it('sier at migrasjonen mangler i stedet for at mappen er umulig å slette', async () => {
+    // `PGRST202` is PostgREST's "no such function". It means the migration has
+    // not been applied to this project, which is an operator's problem — and a
+    // generic failure would send somebody looking for a bug in the folder.
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: () => ({ error: { message: 'Could not find the function', code: 'PGRST202' } }),
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    await expect(repository.deleteFolder('fl_x')).rejects.toThrow(DELETE_FOLDER_FUNCTION)
+    await expect(repository.deleteFolder('fl_x')).rejects.toThrow('deploy-migrations')
+  })
+
+  it('lar en vanlig feil være en vanlig feil', async () => {
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: () => ({ error: { message: 'basen svarer ikke' } }),
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    const failure = repository.deleteFolder('fl_x')
+    await expect(failure).rejects.toBeInstanceOf(RepositoryError)
+    await expect(failure).rejects.not.toThrow('deploy-migrations')
+  })
+
+  it('sletter en mappe som ikke finnes uten å klage', async () => {
+    // Idempotent by contract, which is why the agent surface looks the folder up
+    // first: a store that shrugs cannot answer "no such folder".
+    const { repository, tables } = pinned({ [FOLDERS_TABLE]: [theirFolder()] })
+    await expect(repository.deleteFolder('fl_finnes_ikke')).resolves.toBeUndefined()
+    expect(tables[FOLDERS_TABLE]).toEqual([theirFolder()])
   })
 
   /* ---------------------------------------------------------------- *

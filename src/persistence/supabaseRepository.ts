@@ -60,6 +60,32 @@ const ID_FILTER_BATCH = 200
 
 const EPOCH = new Date(0).toISOString()
 
+/**
+ * The one database function Slaids calls.
+ *
+ * Named here beside the table names because it is the same kind of thing: a
+ * schema object this repository depends on, and one that ships in
+ * `supabase/migrations/`.
+ */
+export const DELETE_FOLDER_FUNCTION = 'slaids_delete_folder'
+
+/**
+ * A folder deletion that failed, told apart from one that could not be tried.
+ *
+ * `42883` is Postgres for "no such function" and `PGRST202` is PostgREST's
+ * version of it. Both mean the migration that defines it has not been applied
+ * to this project, which is an operator's problem and not the caller's — and a
+ * generic "could not delete the folder" would send somebody looking for a bug
+ * in the folder instead of at the deployment.
+ */
+function deleteFolderFailure(error: FailureDetail): string {
+  const code = (error as PostgrestError | null)?.code
+  if (code === '42883' || code === 'PGRST202') {
+    return `Kunne ikke slette mappen: databasefunksjonen «${DELETE_FOLDER_FUNCTION}» finnes ikke i dette prosjektet. Kjør migrasjonene (scripts/deploy-migrations.sh)`
+  }
+  return 'Kunne ikke slette mappen'
+}
+
 interface PresentationListRow {
   id: string
   title: string
@@ -71,6 +97,12 @@ interface PresentationListRow {
 }
 
 interface VersionRow {
+  version: number | null
+}
+
+/** One presentation the folder deletion moved back to the root, and its new version. */
+interface MovedOutRow {
+  presentation_id: string
   version: number | null
 }
 
@@ -716,39 +748,40 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     )
   }
 
-  /** Presentations in a deleted folder move back to the root rather than vanish. */
+  /**
+   * The folder goes; the presentations in it stay, at the root.
+   *
+   * One call, and deliberately one *database* call: this is
+   * `public.slaids_delete_folder`, which clears both places the folder is named
+   * and removes the row inside a single transaction. The migration that defines
+   * it carries the full reasoning; the short version is that no sequence of
+   * statements sent from here could keep the promise. Emptying the folder and
+   * then deleting it leaves a gap in which another writer can file a
+   * presentation *into* the folder — the row still exists, so the foreign key
+   * accepts it — and the delete then clears that row's column through
+   * `on delete set null` while its document is left naming a folder that is
+   * gone. That deck cannot be saved again, and the call that broke it returned
+   * success. Re-reading before the delete only makes the gap smaller.
+   *
+   * So the ordering, the locking and the all-or-nothing live in the database,
+   * and what is left here is what a repository method should be: send it, map
+   * the failure, and keep the caches honest.
+   */
   async deleteFolder(id: string): Promise<void> {
-    const { data, error } = await this.scoped(
-      this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('folder_id', id),
-    )
-    if (error) fail('Kunne ikke hente presentasjonene i mappen', error)
+    const { data, error } = await this.client.rpc(DELETE_FOLDER_FUNCTION, {
+      p_folder_id: id,
+      p_owner_id: await this.ownerId(),
+    })
+    if (error) fail(deleteFolderFailure(error), error)
 
-    for (const row of (data ?? []) as { id: string; document: unknown; version: number | null }[]) {
-      // The folder is named in two places — the column the library filters on
-      // and the document itself — so both have to move back to the root.
-      const document = { ...(row.document as Presentation), folderId: null }
-      const known = numberOr(row.version, 0)
-      const update = await this.scoped(
-        this.client
-          .from(PRESENTATIONS_TABLE)
-          .update({ folder_id: null, document })
-          .eq('id', row.id),
-      )
-        .eq('version', known)
-        .select('version')
-      if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
-      const updated = (update.data ?? []) as VersionRow[]
-      if (updated.length === 0) {
-        // Same rule as above: a lost race never makes us forget the row.
-        throw new RepositoryConflictError(
-          'En presentasjon i mappen ble endret et annet sted. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
-        )
-      }
-      this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
+    // The presentations the deletion moved out have new versions, and this
+    // repository is what an open editor asks for the version its next save is
+    // guarded by. Left stale, that autosave would be refused as a lost race —
+    // for a change nobody made by hand. They come back from the function for
+    // exactly this reason.
+    for (const row of (data ?? []) as MovedOutRow[]) {
+      if (typeof row.version === 'number') this.knownVersions.set(row.presentation_id, row.version)
     }
-
-    const removed = await this.scoped(this.client.from(FOLDERS_TABLE).delete().eq('id', id))
-    if (removed.error) fail('Kunne ikke slette mappen', removed.error)
   }
 
   /* ---------------------------------------------------------------- *

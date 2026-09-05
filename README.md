@@ -46,9 +46,9 @@ layoutet er nestet.
   bak det samme tokenet – verktøylisten bygges av det samme registeret, og begge
   transportene kaller den samme koden
 - tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
-- **bibliotekets livsløp**: se mappene, flytte en presentasjon mellom dem,
-  duplisere en presentasjon med filene sine, og slette en for godt – med
-  scope-grensen tegnet per operasjon og en vaktet, uangrelig sletting
+- **bibliotekets livsløp**: lage og slette mapper, se dem, flytte en presentasjon
+  mellom dem, duplisere en presentasjon med filene sine, og slette en for godt –
+  med scope-grensen tegnet per operasjon og en vaktet, uangrelig sletting
 - binær filopplasting uten base64, og `409 CONFLICT` når noen skrev først
 - **rendret preview** (`render_slide_preview`): én side som PNG, tegnet av
   Slaids' egne komponenter og stilark i en ekte Chromium, så en agent kan se på
@@ -874,13 +874,21 @@ lese – skal aldri kunne holde en offentlig lenke i live.
 
 ### Biblioteket: mapper, kopier og sletting
 
-Fire operasjoner arbeider på presentasjonen utenfra i stedet for inni den, og de
+Seks operasjoner arbeider på presentasjonen utenfra i stedet for inni den, og de
 bruker bibliotekets egne regler – ikke en parallell modell for API-et.
 
 ```bash
 # Hvilke mapper finnes?
 curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
      -d '{}' "$SLAIDS_API/operations/list_folders"
+
+# Lag en. Svaret er { "folder": { "id": "fl_…", "name": "…", "createdAt": "…" } }.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"name":"Kundemøter"}' "$SLAIDS_API/operations/create_folder"
+
+# Slett den igjen. Presentasjonene i den blir liggende, uten mappe.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"folderId":"fl_…"}' "$SLAIDS_API/operations/delete_folder"
 
 # Legg dekket i en mappe. `null` flytter det ut til rotnivå igjen.
 curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
@@ -903,9 +911,20 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
 | Operasjon                | Krever                                    |
 | ------------------------ | ----------------------------------------- |
 | `list_folders`           | `presentations:read`                      |
+| `create_folder`          | `presentations:write`                     |
+| `delete_folder`          | `presentations:write`                     |
 | `move_presentation`      | `presentations:write`                     |
 | `duplicate_presentation` | `presentations:read` + `presentations:write` + `assets:write` |
 | `delete_presentation`    | `presentations:write` + `assets:write`    |
+
+De to mappeoperasjonene har det minst privilegerte **eksisterende** scopet som
+faktisk dekker dem, og det er ikke et nytt mappescope: en mappe er ikke en fil,
+så `assets:write` ville delt ut filstoret på kjøpet, og ingenting her publiseres.
+`delete_folder` *er* en presentasjonsskriving – den fjerner `folderId` fra hvert
+dekk i mappen – og `create_folder` lager beholderen `move_presentation` allerede
+arkiverer dekk i med nøyaktig det samme scopet. Ingen av de to leser: kvitteringen
+til `delete_folder` er `{ "folderId": "…", "deleted": true }` og bærer verken
+mappens navn eller hva som lå i den.
 
 En kopi svarer med kopien slik `get_presentation` ville lest den – derfor
 lesescopet – og lagrer én ny fil for hver fil kilden har, derfor `assets:write`.
@@ -934,12 +953,27 @@ aldri et halvferdig dekk med bilder som ikke kan lastes. Kopien arver aldri deli
 som ikke delt, som en duplisering i biblioteket. `expectedRevision` gjelder
 kilden og betyr «kopier nøyaktig den lesingen jeg så».
 
-**En mappe må finnes fra før.** Slaids lager den ikke, og en `folderId` som ikke
-finnes avvises med `FOLDER_NOT_FOUND` (404) før noe skrives – et dekk i en mappe
-som ikke finnes ville ikke vært synlig noe sted, verken på rotnivå eller i en
-mappe. Det gjelder begge dørene inn: `create_presentation` tar den samme
-sjekken. Å flytte et dekk til mappen det allerede ligger i er en lovlig no-op som
-ikke flytter revisjonen.
+**En mappe må finnes.** En `folderId` som ikke finnes avvises med
+`FOLDER_NOT_FOUND` (404) før noe skrives – et dekk i en mappe som ikke finnes
+ville ikke vært synlig noe sted, verken på rotnivå eller i en mappe. Det gjelder
+alle tre dørene som navngir en mappe: `create_presentation`, `move_presentation`
+og `delete_folder` tar den samme sjekken, så de kan ikke bli uenige om hvorvidt
+mappen er der. Å slette en mappe som ikke finnes er derfor `FOLDER_NOT_FOUND` og
+ikke et stille `ok` – begge lagrene sletter på id og bryr seg ikke om at id-en
+ikke er der. Å flytte et dekk til mappen det allerede ligger i er en lovlig no-op
+som ikke flytter revisjonen.
+
+**En sletting av en mappe rører ikke presentasjonene i den.** De blir liggende, på
+rotnivå – nøyaktig det biblioteket lover brukeren når man sletter en mappe der.
+Det er én operasjon fordi det er ett kall helt ned: begge lagrene fjerner
+`folderId` fra hvert dekk i mappen, både i dokumentet og i kolonnen oversikten
+filtrerer på, i én transaksjon. I Supabase er den transaksjonen databasefunksjonen
+`slaids_delete_folder` – **den krever at migrasjonene er kjørt**
+(`scripts/deploy-migrations.sh`), og sier det med rene ord hvis de ikke er det.
+`create_folder` tar bare `name` (trimmet, ikke tomt, høyst 200 tegn – den samme
+grensen editoren har) – id-en lager Slaids – og `delete_folder` bare `folderId`.
+Ingen av dem tar `expectedRevision`: en mappe er ikke et dokument og har ingen
+revisjon å skrive mot.
 
 ### Filer
 
@@ -1331,7 +1365,8 @@ Samarbeid er ikke «ennå ikke bygget», men et bevisst ikke-mål: deling er
 publisering av en lesbar kopi, og det finnes ingen invitasjoner, roller eller
 skrivetilgang for andre enn eieren.
 
-Agentflaten har to hull igjen mot editoren, begge bevisste: en agent kan *bruke*
-bibliotekets mapper, men ikke opprette eller slette dem; og layoutmaler og
+Agentflaten har to hull igjen mot editoren, begge bevisste: en mappe kan lages,
+listes, fylles og slettes, men ikke gis nytt navn – det kan en agent komme
+utenom ved å lage mappen den vil ha og flytte dekkene dit; og layoutmaler og
 idéflaten er utenfor med vilje – den første er en snarvei for noen som bygger med
 musen, den andre en notatflate som aldri forlater arbeidskopien.

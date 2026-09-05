@@ -11,6 +11,7 @@
  */
 
 import { z } from 'zod'
+import { FOLDER_NAME_MAX_LENGTH } from '../persistence/library'
 import type { AgentContext, AgentOperation, AgentResult, AgentScope } from './types'
 
 export function defineOperation<Schema extends z.ZodType, Output>(operation: {
@@ -79,6 +80,25 @@ export const folderIdSchema = z
   .string()
   .min(1)
   .describe('Id-en til en mappe i biblioteket, fra list_folders.')
+
+/**
+ * What a folder may be called.
+ *
+ * Every bound here is the library's own, restated so the *contract* carries it:
+ * the length comes from `FOLDER_NAME_MAX_LENGTH`, and the trim and the
+ * non-emptiness are what `createFolder` does with it. That is deliberately not
+ * the rule written twice — `createFolder` decides, this publishes — and the
+ * direction matters. A schema that were stricter than the library would refuse
+ * names the editor stores happily; a library stricter than the schema would
+ * promise a caller something it then rejects. Importing the number is what makes
+ * the second impossible, and the first is a matter of not inventing a rule here.
+ */
+export const folderNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(FOLDER_NAME_MAX_LENGTH)
+  .describe('Navnet på mappen, slik det vises i biblioteket.')
 
 export const assetIdSchema = z.string().min(1).describe('Id-en til en fil i presentasjonen.')
 

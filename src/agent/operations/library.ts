@@ -1,14 +1,15 @@
 /**
  * A presentation's life beyond its name: where it lives, copying it, ending it.
  *
- * Everything else in the agent surface works *inside* one deck. These four work
+ * Everything else in the agent surface works *inside* one deck. These six work
  * on the library around it, which is why they are together and why their rules
  * come from somewhere else: the folder model is the library's own
- * (`SlaidsRepository.listFolders`), a copy is `persistence/library.ts` — the
- * same function the library grid calls — and a deletion is one repository call
- * that already takes the document, its files and its published copy down
- * together. Nothing here re-implements any of that; if a rule lived here, it
- * would be a rule the editor does not have.
+ * (`SlaidsRepository.listFolders`), making a folder is `persistence/library.ts`
+ * — the same function the sidebar's dialog calls — a copy is that file too, and
+ * both deletions are one repository call each, already taking down everything
+ * that only existed because of the thing being deleted. Nothing here
+ * re-implements any of that; if a rule lived here, it would be a rule the editor
+ * does not have.
  *
  * The scope boundary is drawn separately for each of them, and the differences
  * are the interesting part:
@@ -17,12 +18,35 @@
  *    organises presentations, and `list_presentations` already reports which
  *    folder each deck is in — the names are the missing half of a reading a
  *    read token already has, not a new kind of secret.
+ *  - **`create_folder`** is `presentations:write`, which is the least privileged
+ *    *existing* scope that actually covers what it does. A folder is not a file,
+ *    so `assets:write` is the wrong authority and would hand out the file store
+ *    along with it; nothing is published, so `sharing:write` is wrong twice
+ *    over; and `presentations:read` is not a write at all. A new folder is not a
+ *    new *kind* of thing either — it is the container `move_presentation`
+ *    already files decks into with exactly this scope, so a token that may
+ *    reorganise the library may now also make somewhere to put things. A folder
+ *    scope of its own would have been a fifth authority for one row with a name
+ *    on it, and every token in existence would have to be reissued to use it.
+ *    The receipt is the folder itself, which costs no read authority: the id is
+ *    one Slaids just minted, the name is the caller's own (trimmed), and the
+ *    timestamp is the moment of the call. Nothing in it was in the library
+ *    before the call, so there is nothing in it to have been read.
+ *  - **`delete_folder`** is `presentations:write`, and here the scope is not a
+ *    courtesy but a description: deleting a folder *rewrites every presentation
+ *    in it*, clearing the `folderId` that pointed at it. That is a presentation
+ *    write, on as many documents as the folder holds. It is also *only* that —
+ *    no bytes are stored or reclaimed, so `assets:write` would be authority the
+ *    act does not consume, and nothing is published or unpublished. The receipt
+ *    is the id the caller sent and `deleted: true`: not the folder's name, and
+ *    not what was in it, because this operation cannot read.
  *  - **`move_presentation`** is `presentations:write` and nothing more. It writes
  *    one field of the document, and it answers with the two ids the caller
  *    already sent. A folder's *name* is a reading, and this operation never
  *    returns one — not even in the refusal for a folder that does not exist
  *    (`missingFolder`, in `agent/presentation.ts`, which `create_presentation`
- *    goes through too: the two doors into a folder cannot disagree).
+ *    and `delete_folder` go through too: the three doors that name a folder
+ *    cannot disagree about whether it is there).
  *  - **`duplicate_presentation`** needs all three write-adjacent authorities:
  *    `presentations:read`, because a copy is a whole-document read and it answers
  *    with the copy the way `get_presentation` would — a token that may write but
@@ -56,11 +80,12 @@ import { setFolder } from '../../domain/commands'
 import { presentationRevision } from '../../domain/revision'
 import { ok } from '../../domain/result'
 import type { Folder } from '../../domain/types'
-import { duplicatePresentation } from '../../persistence/library'
+import { createFolder, duplicatePresentation } from '../../persistence/library'
 import {
   defineOperation,
   expectedRevisionSchema,
   folderIdSchema,
+  folderNameSchema,
   presentationIdSchema,
 } from '../operation'
 import {
@@ -70,7 +95,7 @@ import {
   revisionConflict,
   storageFailure,
 } from '../presentation'
-import { agentOk, type AgentResult } from '../types'
+import { agentOk, fromDomainError, type AgentResult } from '../types'
 import { presentationView, type PresentationView } from './deck'
 
 /* ------------------------------------------------------------------ *
@@ -90,6 +115,98 @@ export const listFolders = defineOperation({
     // a count of what is in it, a nesting that does not exist — would be a
     // second folder model to keep in step with the one the library draws.
     return agentOk({ folders: await context.repository.listFolders() })
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * create_folder
+ * ------------------------------------------------------------------ */
+
+export const createFolderOperation = defineOperation({
+  name: 'create_folder',
+  summary:
+    'Lag en ny mappe i biblioteket. Svarer med mappen, og id-en er den move_presentation og create_presentation tar imot.',
+  mutates: true,
+  // The least privileged existing scope that covers the act; see the note at
+  // the top of the file for why none of the other three fits.
+  scopes: ['presentations:write'],
+  input: z.strictObject({ name: folderNameSchema }),
+  async run(context, input): Promise<AgentResult<{ folder: Folder }>> {
+    try {
+      // The library's own function, not a folder built here. Trimming, the id
+      // and the timestamp are its answers, so the folder an agent makes is the
+      // folder the sidebar makes — and a rule added there is a rule an agent
+      // meets without anybody having to remember to add it twice.
+      const created = await createFolder(context.repository, input.name)
+      // Reachable even though the schema already trims and requires a
+      // character: the rule belongs to the library, and the schema is how the
+      // *contract* states it in advance. Trusting one to have covered the other
+      // is what lets the two drift.
+      if (!created.ok) return fromDomainError(created.error)
+
+      // No `revision`: a folder is not a presentation and has none. Every other
+      // mutation reports one so the next call can be written against it, and the
+      // next call here is `move_presentation`, which reports the deck's.
+      return agentOk({ folder: created.value })
+    } catch (error) {
+      // The caller's own name comes back with the failure, never a folder id —
+      // nothing was minted that anybody could use.
+      return storageFailure(error, 'Kunne ikke lagre mappen.', { name: input.name })
+    }
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * delete_folder
+ * ------------------------------------------------------------------ */
+
+export interface DeletedFolder {
+  folderId: string
+  /** Always `true` when the call succeeded, and there is nothing else to say. */
+  deleted: true
+}
+
+export const deleteFolderOperation = defineOperation({
+  name: 'delete_folder',
+  summary:
+    'Slett en mappe. Presentasjonene i den blir liggende, men uten mappe – nøyaktig som når mappen slettes i biblioteket.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    folderId: folderIdSchema.describe(
+      'Mappen som skal slettes, fra list_folders. Presentasjonene i den slettes ikke; de havner på rotnivå.',
+    ),
+  }),
+  async run(context, input): Promise<AgentResult<DeletedFolder>> {
+    // The same check the two doors *into* a folder take, for the same reason and
+    // out of the same function: both stores delete by id and do not mind an id
+    // that is not there, so a silent `ok` would tell an agent it had removed
+    // something that never existed. `delete_presentation` draws the line in the
+    // same place, and for the same reason.
+    //
+    // What the refusal carries is the id the caller sent and nothing else. A
+    // list of the real folders would be `list_folders` answered without
+    // `presentations:read`.
+    const missing = await missingFolder(context, input.folderId)
+    if (missing) return missing
+
+    try {
+      // One call, and deliberately not a sequence assembled here. What happens
+      // to the presentations inside is the store's own promise — see
+      // `SlaidsRepository.deleteFolder` — and both stores keep it: the decks
+      // survive at the root, with the folder cleared from the column the library
+      // filters on *and* from the document. A second emptying loop in this layer
+      // would be a second chance to leave a deck pointing at a folder that is
+      // gone, which is a deck shown nowhere at all.
+      await context.repository.deleteFolder(input.folderId)
+    } catch (error) {
+      return storageFailure(error, 'Kunne ikke slette mappen.', { folderId: input.folderId })
+    }
+
+    // The id the caller already had, and the fact that it is gone. Not the name
+    // and not what was in it: this operation holds no read scope, and a receipt
+    // is a poor place to hand out what the token may not ask for.
+    return agentOk({ folderId: input.folderId, deleted: true })
   },
 })
 
@@ -268,6 +385,8 @@ export const deletePresentationOperation = defineOperation({
 
 export const libraryOperations = [
   listFolders,
+  createFolderOperation,
+  deleteFolderOperation,
   movePresentation,
   duplicatePresentationOperation,
   deletePresentationOperation,

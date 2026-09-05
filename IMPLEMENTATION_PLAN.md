@@ -2243,6 +2243,8 @@ duplicate_presentation
 delete_presentation
 
 list_folders
+create_folder
+delete_folder
 
 set_theme
 
@@ -3000,10 +3002,30 @@ suksessene, fordi de er de eneste som kan ødelegge et dekk:
 For bibliotekets livsløp i tillegg:
 
 - mappene listes, også når det ikke finnes noen;
-- en presentasjon flyttes inn i en mappe – både i dokumentet og i kolonnen
-  oversikten filtrerer på – og tilbake til roten med `null`;
-- en mappe som ikke finnes avvises med `FOLDER_NOT_FOUND` før noe skrives, og
-  avvisningen bærer aldri et mappenavn;
+- en mappe opprettes, navnet trimmes, og et tomt navn avvises uten at noe
+  skrives – to mapper med samme navn er to mapper, som i biblioteket;
+- mappen som nettopp ble laget listes, tar imot et nytt dekk (`create_presentation`)
+  og et som fantes fra før (`move_presentation`);
+- en tom mappe slettes, og en mappe med flere presentasjoner slettes uten at én
+  eneste av dem forsvinner: alle finnes etterpå med `folderId: null`, både i
+  dokumentet og i kolonnen oversikten filtrerer på, og en annen mappe og det som
+  ligger i den er urørt;
+- en mappe som ikke finnes avvises med `FOLDER_NOT_FOUND` – både på flytting og
+  på sletting, og på det andre slettekallet – før noe skrives, og avvisningen
+  bærer aldri et mappenavn;
+- de to mappeoperasjonene virker med `presentations:write` alene, uten lesescope,
+  og verken kvitteringen eller avvisningen bærer et mappenavn eller en dekktittel;
+- lengdegrensen er den samme fra begge dører: det lengste lovlige navnet godtas
+  og ett tegn mer avvises, i `createFolder` og i det publiserte skjemaet;
+- slettingen er ett kall og ikke en sekvens setninger (ingen listing, ingen
+  rad-for-rad-oppdatering, ingen egen `DELETE`), den tar imot de nye versjonene
+  så en åpen editor ikke taper et kappløp den ikke var i, og en manglende
+  migrasjon sier at migrasjonen mangler i stedet for at mappen ikke kan slettes;
+- SQL-en selv låser mapperaden først, tømmer begge stedene i den samme setningen,
+  fjerner mappen etterpå, filtrerer hver setning på eier og er ikke
+  `security definer`;
+- en lagringsfeil i `saveFolder` eller `deleteFolder` er `STORAGE_FAILED`, og
+  lar biblioteket stå som det sto;
 - en flytting til mappen dekket allerede ligger i er en no-op som ikke flytter
   revisjonen;
 - en duplisering tar med innhold, referanser, citations og filer, og kopien får
@@ -3075,6 +3097,7 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `list_sandbox_items`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
 - Skriving: `create_presentation`, `set_presentation_title`,
+  `create_folder`, `delete_folder`,
   `move_presentation`, `duplicate_presentation`, `delete_presentation`,
   `set_theme`, `set_cover`, `set_cover_color`, `add_slide`,
   `duplicate_slide`, `move_slide`,
@@ -4080,26 +4103,58 @@ liste og den samme revisjonen som før, så operasjonen kan kalles på rutine ut
 
 #### Fase 7: bibliotekets livsløp
 
-Alt annet i agentflaten arbeider *inne i* ett dekk. Fire operasjoner arbeider på
-dekket utenfra – `list_folders`, `move_presentation`, `duplicate_presentation` og
-`delete_presentation` – og de lukker det siste hullet der en agent kunne lage
-noe den ikke kunne rydde opp i eller organisere.
+Alt annet i agentflaten arbeider *inne i* ett dekk. Seks operasjoner arbeider på
+dekket utenfra – `list_folders`, `create_folder`, `delete_folder`,
+`move_presentation`, `duplicate_presentation` og `delete_presentation` – og de
+lukker det siste hullet der en agent kunne lage noe den ikke kunne rydde opp i
+eller organisere.
 
 Ingen av dem er en ny implementasjon av biblioteket. Mappemodellen er
 repositoryets egen (`listFolders`), flyttingen er domenekommandoen `setFolder`
 som editoren nå også bruker, dupliseringen er den funksjonen bibliotekrutenettet
-kaller, og slettingen er ett repository-kall. Det som *var* i veien var at
-dupliseringen lå i `src/state/` og importerte nettleserens repository direkte:
-den ble flyttet ned til `src/persistence/library.ts` og tar repositoryet som
-argument, slik at editoren og agenten kaller den samme funksjonen med hvert sitt.
-Den rene halvdelen – hva en kopi *er* – ligger i
+kaller, og begge slettingene er ett repository-kall hver. Det som *var* i veien
+var at dupliseringen lå i `src/state/` og importerte nettleserens repository
+direkte: den ble flyttet ned til `src/persistence/library.ts` og tar repositoryet
+som argument, slik at editoren og agenten kaller den samme funksjonen med hvert
+sitt. Den rene halvdelen – hva en kopi *er* – ligger i
 `domain/presentation.ts` (`duplicatePresentationDocument`).
 
-**Scope-grensen er tegnet per operasjon, og de fire er ikke like.**
+Det samme skjedde med *opprettelsen* av en mappe. Å lagre en mappe var alltid ett
+repository-kall, men **hva en ny mappe er** – et trimmet navn som ikke kan være
+tomt, en id fra domenets egen generator, tidspunktet den ble laget – sto inne i
+`LibraryView`, der bare editoren kunne nå det. Det ligger nå i `createFolder` i
+`src/persistence/library.ts`, ved siden av dupliseringen og av samme grunn: en
+agent som skrev regelen om ville vært et andre svar på det samme spørsmålet, og
+måten det går galt på er ikke at den ene knekker, men at den ene stille begynner
+å godta `"   "` som mappenavn. `src/persistence/library.test.ts` håndhever det
+mekanisk: `newFolderId` har nøyaktig én kaller i hele `src/`.
+
+**Scope-grensen er tegnet per operasjon, og de seks er ikke like.**
 
 - `list_folders` er `presentations:read`. `list_presentations` sier allerede
   hvilken mappe hvert dekk ligger i, så navnene er den manglende halvdelen av en
   lesing et lesetoken allerede har.
+- `create_folder` er `presentations:write`, som er det minst privilegerte
+  **eksisterende** scopet som faktisk dekker mutasjonen. En mappe er ikke en fil,
+  så `assets:write` ville vært feil autoritet og delt ut filstoret på kjøpet;
+  ingenting publiseres, så `sharing:write` er feil to ganger; og
+  `presentations:read` er ikke en skriving i det hele tatt. En ny mappe er heller
+  ikke en ny *slags* ting: det er beholderen `move_presentation` allerede
+  arkiverer dekk i med nøyaktig dette scopet, så et token som får omorganisere
+  biblioteket får nå også lage et sted å legge noe. Et eget mappescope ville vært
+  en femte autoritet for én rad med et navn på, og hvert eneste token som finnes
+  måtte utstedes på nytt for å bruke den. Kvitteringen er mappen selv, og den
+  koster ingen leseautoritet: id-en er en Slaids nettopp laget, navnet er
+  kallerens eget (trimmet), og tidspunktet er kallets. Ingenting i den lå i
+  biblioteket før kallet, så det er ingenting i den å ha lest.
+- `delete_folder` er `presentations:write`, og der er scopet ikke en høflighet,
+  men en beskrivelse: å slette en mappe *skriver om hver presentasjon i den* og
+  fjerner `folderId`-en som pekte på den. Det er en presentasjonsskriving, på så
+  mange dokumenter som mappen holder. Det er også *bare* det – ingen bytes lagres
+  eller hentes tilbake, så `assets:write` ville vært autoritet handlingen ikke
+  bruker, og ingenting publiseres eller avpubliseres. Kvitteringen er id-en
+  kalleren sendte og `deleted: true`: ikke mappens navn, og ikke hva som lå i
+  den, fordi operasjonen ikke kan lese.
 - `move_presentation` er `presentations:write` alene. Den skriver ett felt og
   svarer med de to id-ene kalleren selv sendte. En mappes *navn* er en lesing, og
   operasjonen returnerer aldri et – heller ikke i avvisningen for en mappe som
@@ -4259,6 +4314,84 @@ operasjonen, fordi `create_presentation` også kan navngi en mappe: «en `folder
 som når et dokument er en mappe biblioteket har» er verdt å være en egenskap ved
 flaten framfor noe hver dør husker for seg.
 
+**Å lage og slette en mappe.** `create_folder` tar `name` og ingenting mer:
+id-en mintes av Slaids, ikke av kalleren, fordi `saveFolder` er en `put` og en id
+kalleren navnga ville vært en id den kunne overskrive en eksisterende mappe med.
+Navnet trimmes, og et tomt eller for langt navn avvises – både av det publiserte
+skjemaet, så en kaller kan se det på forhånd, og av `createFolder`, som er der
+reglene bestemmes. Lengdegrensen er `FOLDER_NAME_MAX_LENGTH`, og
+`folderNameSchema` **importerer** den i stedet for å gjenta tallet: en grense
+bare agentdøren håndhevet ville betydd at editoren lagrer navn agenten avviser,
+som er nøyaktig den driften det delte laget finnes for å hindre. Retningen er
+verdt å merke seg – et skjema strengere enn biblioteket ville avvist navn
+editoren lagrer uten videre; et bibliotek strengere enn skjemaet ville lovet en
+kaller noe det så nekter.
+Svaret er mappen (`{ id, name, createdAt }`), som ikke koster leseautoritet:
+ingenting i den fantes før kallet. Ingen `revision`, fordi en mappe ikke er et
+dokument og ikke har en lesing å være utdatert mot – den samme grunnen
+`create_presentation` ikke har en.
+
+`delete_folder` tar `folderId` og lover nøyaktig det biblioteket allerede lover
+brukeren: **«Mappen slettes. Presentasjonene i den blir liggende, men uten
+mappe.»** Det er ikke en sekvens agentlaget setter sammen, men kontrakten på
+`SlaidsRepository.deleteFolder` – som nå står skrevet der, i grensesnittet, i
+stedet for som en kommentar i hver av de to implementasjonene. Begge holder den,
+og de holder den forskjellig fordi lagrene er forskjellige:
+
+- **Dexie** gjør begge halvdelene i én `rw`-transaksjon over `folders` og
+  `presentations`. Feiler noe, skjer ingenting.
+- **Supabase** har ingen transaksjon å gi klienten, og det er nettopp derfor
+  slettingen ikke *er* en klientoperasjon der. Den er én databasefunksjon,
+  `public.slaids_delete_folder`, og den eneste RPC-en Slaids har.
+
+  Den første versjonen var en klientsekvens: list medlemmene, flytt hver av dem
+  ut med en vaktet skriving, slett mapperaden til slutt. Rekkefølgen er riktig og
+  likevel ikke nok, fordi den bare dekker rader som *allerede var* i mappen. Et
+  konkret kappløp:
+
+  1. klienten lister mappens medlemmer og tømmer dem;
+  2. en annen skriver arkiverer en presentasjon **inn i** mappen – raden finnes
+     fortsatt, så fremmednøkkelen godtar det;
+  3. klienten sletter mapperaden;
+  4. `on delete set null (folder_id)` tømmer den radens *kolonne*, mens
+     `document.folderId` blir stående og navngir en mappe som er borte.
+
+  Steg 4 er skaden, og den er verre enn den ser ut: biblioteket filtrerer på
+  kolonnen og viser dekket på rotnivå, men neste lagring skriver `folder_id`
+  tilbake fra dokumentet og blir avvist av fremmednøkkelen. Dekket blir umulig å
+  lagre, og kallet som forårsaket det svarte `ok`. Ingen ekstra lesing lukker
+  det: det finnes alltid et gap mellom siste tomhetssjekk og `DELETE`.
+
+  Funksjonen tar derfor `for update` på mapperaden **før** den rører noe. En
+  fremmednøkkelsjekk tar `FOR KEY SHARE` på foreldreraden den refererer, og
+  `FOR UPDATE` er i konflikt med den, så en samtidig flytting inn i mappen må
+  vente – og når den slipper til, er mappen borte og fremmednøkkelen avviser
+  den. Enten kommer flyttingen med i slettetransaksjonen, eller så avvises den.
+  Det finnes ikke et tredje utfall, og det var akkurat det klientversjonen ikke
+  kunne si. Den er dermed også alt-eller-ingenting, som klientversjonen ikke var:
+  den tømte mappen én vaktet skriving om gangen, og en rad som tapte kappløpet
+  etterlot noen presentasjoner på rotnivå med mappen fortsatt stående.
+
+  Funksjonen returnerer id-ene og de nye versjonene til radene den flyttet.
+  Repositoryet er det en åpen editor spør om versjonen neste lagring vaktes mot,
+  og uten dem ville den autolagringen blitt avvist som et tapt kappløp – for en
+  endring ingen gjorde for hånd.
+
+  Fordi korrektheten nå ligger i SQL, sjekkes SQL-en:
+  `src/persistence/migrations.test.ts` håndhever `for update` først, at begge
+  stedene tømmes i den samme setningen, rekkefølgen, eierfilteret på hver
+  setning, og at funksjonen ikke er `security definer`. En migrasjon redigert til
+  tre løse setninger ville ellers bestått hver eneste andre test i repoet og
+  stille gjeninnført kappløpet.
+
+En mappe som ikke finnes er `FOLDER_NOT_FOUND` (404), ikke et stille `ok` – begge
+lagrene sletter på id og bryr seg ikke om at id-en ikke er der, så et `ok` ville
+fortalt en agent at den fjernet noe som aldri fantes. Sjekken er den samme
+`missingFolder` som `move_presentation` og `create_presentation` bruker, så de
+tre dørene som navngir en mappe ikke kan bli uenige om hvorvidt den er der.
+Slettingen tar ingen `expectedRevision`: en mappe har ingen revisjon, og én
+revisjon kunne uansett ikke vaktet de N dokumentene den rører.
+
 En flytting til mappen dekket allerede ligger i er en lovlig no-op som ikke
 flytter revisjonen. Det gjøres ved at operasjonen gir dokumentet uendret
 tilbake, og `mutatePresentation` lagrer da ingenting – en generell regel, ikke en
@@ -4276,12 +4409,13 @@ disse hullene. Ingen av dem er en mangel ved denne fasen; de står her fordi de 
 de neste tingene som faktisk stopper en agent, og fordi flaten skal vokse med
 vilje og ikke mekanisk:
 
-- **Mapper kan velges, men ikke lages.** `list_folders` og `move_presentation`
-  lar en agent bruke bibliotekets mapper; å opprette, gi nytt navn til eller
-  slette en mappe er fortsatt bare editorens. Det er den minste av de tre som
-  står igjen, og den er ikke tatt med her fordi den ikke stopper noen: en agent
-  som ikke har en mappe legger dekket på rotnivå, som er der biblioteket uansett
-  begynner.
+- **Å gi en mappe nytt navn** er det som står igjen av mappeflaten.
+  `create_folder` og `delete_folder` lukket hullet som faktisk stoppet noen – en
+  agent kan nå lage stedet den arkiverer i, og rydde det bort igjen – mens et
+  nytt navn er den ene tingen en agent kan komme utenom: den lager en mappe med
+  det navnet den vil ha og flytter dekkene dit. Det er en operasjon til over den
+  samme `saveFolder`, og den legges til når noen faktisk trenger den heller enn
+  mekanisk.
 - **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
   menneske som bygger med musen, den andre en notatflate som aldri forlater
   arbeidskopien.

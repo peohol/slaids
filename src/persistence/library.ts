@@ -14,11 +14,24 @@
  * presentation is one call, because both stores already take the document, its
  * asset rows, its stored bytes and its share columns down together — see
  * `SlaidsRepository.deletePresentation`. A second, hand-rolled deletion sequence
- * next to it would be a second chance to leave half a presentation behind.
+ * next to it would be a second chance to leave half a presentation behind. The
+ * same goes for deleting a *folder*: both stores already move the presentations
+ * inside it back to the root as part of the one call, so there is nothing here
+ * to wrap it in.
+ *
+ * Creating one is the opposite case, and that is why `createFolder` is here.
+ * Storing a folder is one repository call, but *what a new folder is* — a
+ * trimmed name that cannot be empty, a minted id, the moment it was made — was
+ * until now spelled out inside `LibraryView`, where only the editor could reach
+ * it. An agent that spelled it out a second time would be a second answer to
+ * the same question, and the way that goes wrong is that one of them starts
+ * accepting `"  "` as a folder name.
  */
 
+import { newFolderId } from '../domain/ids'
 import { duplicatePresentationDocument } from '../domain/presentation'
-import type { Presentation } from '../domain/types'
+import { err, ok, type Result } from '../domain/result'
+import type { Folder, Presentation } from '../domain/types'
 import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 
 /**
@@ -151,4 +164,65 @@ async function discardCopy(repository: SlaidsRepository, copyId: string): Promis
   } catch {
     // Nothing more to try; the original error is the one worth reporting.
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Folders
+ * ------------------------------------------------------------------ */
+
+/**
+ * The longest a folder may be called.
+ *
+ * A folder is shown by its name in a sidebar, so there is a length past which it
+ * stops being a label and starts being a paragraph — and an unbounded string is
+ * also not a thing a published API should accept. The number lives *here*, with
+ * the rest of what a folder name is, rather than in the agent's schema alone:
+ * a bound only one of the two doors enforced would be exactly the drift this
+ * function exists to prevent, with the editor happily storing a name the agent
+ * refuses. `agent/operation.ts` publishes it so a caller can see it in advance.
+ */
+export const FOLDER_NAME_MAX_LENGTH = 200
+
+/**
+ * Make a folder and put it in the library.
+ *
+ * The one place that decides what a *new* folder is, for both callers. The
+ * editor's dialog and the agent's `create_folder` therefore mint the same kind
+ * of row — a trimmed name within the same bounds, an id from the domain's own
+ * generator, the moment it was made — rather than two functions written to
+ * match.
+ *
+ * The name is trimmed and an empty one is refused, because the library shows a
+ * folder by its name and nothing else: a folder called `"   "` is a row in the
+ * sidebar that cannot be told from any other, and the only way back out of it is
+ * to delete it. Refusing is not the editor being fussy about its own dialog, so
+ * it does not belong in the dialog.
+ *
+ * Two failure kinds, split the way the rest of the surface splits them: a name
+ * that is not a name is a typed `Result` the caller answers with, and a store
+ * that would not take the row throws, the same as `duplicatePresentation`.
+ */
+export async function createFolder(
+  repository: SlaidsRepository,
+  name: string,
+): Promise<Result<Folder>> {
+  const trimmed = name.trim()
+  if (!trimmed) return err('INVALID_ARGUMENT', 'Mappen må ha et navn.')
+  if (trimmed.length > FOLDER_NAME_MAX_LENGTH) {
+    return err(
+      'INVALID_ARGUMENT',
+      `Mappenavnet kan ikke være lengre enn ${FOLDER_NAME_MAX_LENGTH} tegn.`,
+    )
+  }
+
+  // Minted here rather than taken from the caller. An id is an identity in the
+  // library, and letting either door name one would be letting it overwrite a
+  // folder that already has that id — `saveFolder` is a `put`.
+  const folder: Folder = {
+    id: newFolderId(),
+    name: trimmed,
+    createdAt: new Date().toISOString(),
+  }
+  await repository.saveFolder(folder)
+  return ok(folder)
 }

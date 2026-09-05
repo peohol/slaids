@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDeck } from '../../domain/commands'
 import { describeError } from '../../domain/result'
-import { newFolderId } from '../../domain/ids'
 import { domFitCheckers } from '../../state/measure'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
@@ -13,6 +12,7 @@ import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } f
 import { notify } from '../../state/toast'
 import { useSessionStore } from '../../state/session'
 import {
+  createFolder,
   downloadBlob,
   duplicatePresentation,
   movePresentationToFolder,
@@ -183,13 +183,20 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   const addFolder = async (): Promise<void> => {
     const name = window.prompt('Navn på mappen')
+    // Cancelled, or nothing typed. Not an error and not worth a message: the
+    // same reading `renamePresentation` gives an emptied field.
     if (!name?.trim()) return
     try {
-      await repository.saveFolder({
-        id: newFolderId(),
-        name: name.trim(),
-        createdAt: new Date().toISOString(),
-      })
+      // What a new folder is — the trimmed name, its length, the minted id, the
+      // timestamp — is decided one layer down, so the agent's `create_folder`
+      // makes exactly this row and refuses exactly the same names. A refusal
+      // that reaches here is one the typist has to see; a dialog that closes and
+      // quietly does nothing is worse than either outcome.
+      const created = await createFolder(name)
+      if (!created.ok) {
+        notify.error(describeError(created.error))
+        return
+      }
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Kunne ikke lage mappen.')
       return
