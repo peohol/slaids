@@ -781,14 +781,19 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
    * the document itself — so both are cleared by the same write.
    */
   private async moveOutOfFolder(first: FolderMemberRow, folderId: string): Promise<void> {
+    // Two ways out, and only one of them is a failure. `row` goes empty when
+    // somebody else moves the presentation out of the folder, or deletes it
+    // outright, while we are working — and that is not a failure: the state this
+    // asked for is the state it found. Running out of attempts is.
+    //
+    // The emptiness is therefore part of the loop *condition* rather than a
+    // check at the top of the body. The re-read that can empty it is the last
+    // statement in the body, so a body check would miss the final attempt's
+    // re-read entirely and report a conflict for a folder that is already empty
+    // — refusing a deletion whose work is done.
     let row: FolderMemberRow | null = first
 
-    for (let attempt = 0; attempt < FOLDER_MOVE_ATTEMPTS; attempt += 1) {
-      // Gone from the folder while we worked — moved out by somebody else, or
-      // the whole presentation deleted. Either way there is nothing left to do,
-      // and it is not a failure: the state this asked for is the state it found.
-      if (!row) return
-
+    for (let attempt = 0; attempt < FOLDER_MOVE_ATTEMPTS && row; attempt += 1) {
       const document = { ...(row.document as Presentation), folderId: null }
       const known = numberOr(row.version, 0)
       const update = await this.scoped(
@@ -812,9 +817,13 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       row = await this.folderMember(row.id, folderId)
     }
 
-    throw new RepositoryConflictError(
-      'En presentasjon i mappen blir endret et annet sted akkurat nå. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
-    )
+    // Still in the folder after every attempt: it is being written continuously,
+    // and looping forever inside a delete is worse than saying so.
+    if (row) {
+      throw new RepositoryConflictError(
+        'En presentasjon i mappen blir endret et annet sted akkurat nå. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
+      )
+    }
   }
 
   /** One row, re-read, and only while it is still in the folder being deleted. */

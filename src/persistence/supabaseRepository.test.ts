@@ -1201,6 +1201,41 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
     expect(database.tables[PRESENTATIONS_TABLE][0].folder_id).toBe('fl_et_annet_sted')
   })
 
+  it('gir ikke opp når raden forsvant på det aller siste forsøket', async () => {
+    // The boundary case of the two above: every attempt loses, and the *last*
+    // re-read is the one that comes back empty. The row is out of the folder,
+    // so there is nothing left to move and the folder must still go — throwing
+    // a conflict here would refuse a deletion whose work is already done.
+    const database = fakeDatabase({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 1)],
+    })
+
+    let updates = 0
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: (record) => {
+        if (record.table === PRESENTATIONS_TABLE && record.op === 'update') {
+          updates += 1
+          const row = database.tables[PRESENTATIONS_TABLE][0]
+          // Always lose the guard, and on the final attempt also leave the
+          // folder, so the re-read after it finds nothing.
+          row.version = (row.version as number) + 1
+          if (updates >= 4) {
+            row.folder_id = 'fl_et_annet_sted'
+            row.document = { ...(row.document as object), folderId: 'fl_et_annet_sted' }
+          }
+        }
+        return database.resolve(record)
+      },
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    await expect(repository.deleteFolder('fl_x')).resolves.toBeUndefined()
+    expect(database.tables[FOLDERS_TABLE]).toEqual([])
+    expect(database.tables[PRESENTATIONS_TABLE][0].folder_id).toBe('fl_et_annet_sted')
+  })
+
   it('sletter en mappe som ikke finnes uten å klage', async () => {
     // Idempotent by contract, which is why the agent surface looks the folder up
     // first: a store that shrugs cannot answer "no such folder".
