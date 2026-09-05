@@ -23,6 +23,7 @@ import { basename, extname, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENT_TOOL_PREFIX, describeOperations, operations } from '../../agent/registry'
 import { AGENT_SCOPES } from '../../agent/types'
+import { AGENT_TOKEN_PREFIX } from '../../persistence/agentTokens'
 import { MCP_INSTRUCTIONS, MCP_SERVER_INFO } from './instructions'
 import {
   MCP_PROTOCOL_VERSION,
@@ -31,6 +32,7 @@ import {
   mcpTools,
   negotiateProtocolVersion,
   operationNameForTool,
+  resetMcpTools,
 } from './tools'
 
 const MCP_DIR = join(process.cwd(), 'src', 'server', 'mcp')
@@ -94,6 +96,77 @@ describe('verktøykatalogen er operasjonskatalogen', () => {
     expect(names).toContain(`${AGENT_TOOL_PREFIX}upload_asset`)
     expect(names).toContain(`${AGENT_TOOL_PREFIX}create_svg_asset`)
     expect(names.some((name) => /generate.*image|image.*generate/.test(name))).toBe(false)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * What may be published anonymously
+ * ------------------------------------------------------------------ */
+
+describe('katalogen er produktmetadata, ikke brukerdata', () => {
+  /** Everything a client is handed before it has presented a token. */
+  const published = (): string =>
+    JSON.stringify({ tools: mcpTools(), instructions: MCP_INSTRUCTIONS, serverInfo: MCP_SERVER_INFO })
+
+  it('bygges uten en kaller, en eier eller et repository', () => {
+    // The strongest form of the claim, and the reason the rest of this file can
+    // be about content: neither function takes an argument, so neither of them
+    // *can* answer differently for two callers. The catalogue is compiled from
+    // the operation definitions in the bundle and nothing else.
+    expect(describeOperations.length).toBe(0)
+    expect(mcpTools.length).toBe(0)
+  })
+
+  it('er den samme katalogen hver gang, også etter en kaldstart', () => {
+    const warm = mcpTools()
+    expect(mcpTools()).toBe(warm)
+    resetMcpTools()
+    expect(JSON.stringify(mcpTools())).toBe(JSON.stringify(warm))
+  })
+
+  it.each([
+    // A URL in a description or a schema would either name a deployment or a
+    // service Slaids talks to. The JSON Schema dialect is the one exception, and
+    // it is the specification's own identifier rather than an address.
+    ['en adresse', /https?:\/\/(?!json-schema\.org\/)/],
+    ['en e-postadresse', /[\w.%+-]+@[\w-]+\.[a-z]{2,}/i],
+    // An id of any kind is by definition somebody's.
+    ['en uuid', /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i],
+    // Credentials and the names they are configured under.
+    ['et agenttoken', new RegExp(AGENT_TOKEN_PREFIX)],
+    ['en miljøvariabel', /\bVITE_|SUPABASE_|SERVICE_ROLE|SECRET_KEY|PUBLISHABLE_KEY/i],
+    // The database's own shape, which no agent addresses anything by.
+    ['et tabellnavn', /slaids_(?:presentations|assets|agent_tokens|agent_audit|folders)\b/],
+    ['en eier-id', /\bowner_?[Ii]d\b/],
+  ])('nevner ikke %s', (_what, forbidden) => {
+    expect(published()).not.toMatch(forbidden)
+  })
+
+  it('har ingen default eller eksempel som ikke er domenets eget vokabular', () => {
+    // A schema default is published to every caller, so it must not be a value
+    // somebody's deck happened to have. Everything Slaids publishes is a literal
+    // from a domain union, a number from `src/domain/constants.ts` or an empty
+    // value — never a string a caller could recognise as theirs.
+    const values = new Set<string>()
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(walk)
+      if (!value || typeof value !== 'object') return
+      for (const [key, nested] of Object.entries(value)) {
+        if (key === 'default' || key === 'const' || key === 'examples' || key === 'example') {
+          for (const single of Array.isArray(nested) ? nested : [nested]) {
+            if (typeof single === 'string') values.add(single)
+          }
+        }
+        walk(nested)
+      }
+    }
+    walk(mcpTools())
+
+    for (const value of values) {
+      // Short, lower-case, no spaces: an enum member or an encoding name, not a
+      // title, a filename or an id.
+      expect(value).toMatch(/^[a-z0-9-]{0,24}$/)
+    }
   })
 })
 

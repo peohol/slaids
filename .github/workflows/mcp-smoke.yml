@@ -1,0 +1,129 @@
+# The MCP endpoint, checked against a real deployment.
+#
+# Everything under `npm test` drives the handler in-process. Two things only
+# exist once something is deployed: the platform's own routing, and the
+# authentication boundary as a client meets it — which status a message gets,
+# which headers come back, and whether a client with no token is handed a tool
+# catalogue at all. That last one is what a ChatGPT tool scan sees, and it is
+# what `scripts/mcp-smoke.mjs` checks.
+#
+# Run it by hand from the Actions tab. The public half — the handshake, the
+# catalogue and every refusal — needs no credential at all, so that is what a run
+# does by default.
+#
+# **A red run here is a statement about the installation it was pointed at, not
+# about the commit it ran from.** Nothing triggers this workflow on a push or a
+# pull request; every run is one somebody started by hand, against an address
+# they chose. GitHub still files it against whichever commit was checked out, so
+# a run against a deployment that has not caught up yet — or against a preview
+# with no Supabase behind it — leaves a red `smoke` check sitting on a perfectly
+# good commit. Read the run before reading the colour.
+#
+# ## Hvor tokenet kommer fra, og hvorfor ikke fra et input
+#
+# **Et agenttoken hører hjemme i en GitHub-secret, aldri i et
+# `workflow_dispatch`-input.** Et input er ikke en hemmelighetsmekanisme: GitHub
+# lagrer verdien sammen med kjøringen og viser den i Actions-fanen, i API-et og i
+# audit-loggen, for alle som kan se repoet. `::add-mask::` inne i jobben hjelper
+# ikke mot det — den maskerer bare logglinjer som skrives *etterpå*, og ikke
+# engang alle: runneren skriver ut `env:`-blokken sin før maskeringen har rukket å
+# gjelde. En secret er derimot maskert av plattformen selv, og lagres aldri med
+# kjøringen.
+#
+# Så: sett `SLAIDS_AGENT_TOKEN` som repository- eller environment-secret, og slå
+# på `authenticated` for å kjøre den halvdelen. Selve valget er et vanlig input,
+# fordi «skal den autentiserte halvdelen med?» ikke er en hemmelighet.
+#
+# ## Adressen
+#
+# Pek den mot produksjon, eller mot hvilken som helst installasjon en vanlig
+# HTTP-klient når. Vercel Authentication er på for hver deploy-URL i dette
+# prosjektet unntatt de egne domenene, så en preview-adresse svarer runneren med
+# en omdirigering til `vercel.com/sso-api` i stedet for med Slaids – en kjøring
+# mot en slik adresse tester Vercels ytterdør, ikke dette endepunktet. `share_url`
+# kommer forbi den døren.
+name: MCP smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Installasjonen, uten sti. F.eks. https://slaids.no'
+        required: true
+        default: 'https://slaids.no'
+      authenticated:
+        description: 'Kjør også den autentiserte halvdelen, med secreten SLAIDS_AGENT_TOKEN.'
+        type: boolean
+        required: false
+        default: false
+      expect_tools:
+        description: 'Forventet antall verktøy. 0 = ikke sjekk antallet.'
+        required: false
+        default: '0'
+      share_url:
+        description: 'Vercel share-lenke (Deployment → Share), hvis adressen ligger bak Vercel Authentication. Lagres synlig med kjøringen, som alle inputs – den er kortlevd og gir bare lesetilgang til ett preview, så bruk den og la den utløpe. Aldri et agenttoken her.'
+        required: false
+        default: ''
+
+# Nothing here reads or writes the repository beyond checking it out.
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # A share link is a redirect that ends in a cookie, so the only way to hold
+      # it is a cookie jar. Nothing here touches Slaids' own authentication: the
+      # cookie gets the runner past Vercel's front door and stops there.
+      #
+      # `#HttpOnly_` is not a comment. curl marks an HttpOnly cookie by prefixing
+      # its line that way in the Netscape jar format, and Vercel's bypass cookie
+      # is HttpOnly — so a filter that drops every line starting with `#` drops
+      # the one cookie this step exists to read, and reports "no cookie" for a
+      # jar that has it.
+      - name: Bytt inn share-lenken i en bypass-cookie
+        if: inputs.share_url != ''
+        env:
+          SHARE_URL: ${{ inputs.share_url }}
+        run: |
+          curl -sS -L -c jar.txt -o /dev/null "$SHARE_URL"
+          COOKIE=$(awk '
+            /^#HttpOnly_/ { sub(/^#HttpOnly_/, "") }
+            /^#/ { next }
+            NF >= 7 { printf "%s%s=%s", sep, $6, $7; sep = "; " }
+          ' jar.txt)
+          rm -f jar.txt
+          if [ -z "$COOKIE" ]; then echo "Fikk ingen cookie fra share-lenken."; exit 1; fi
+          echo "::add-mask::$COOKIE"
+          echo "SMOKE_COOKIE=$COOKIE" >> "$GITHUB_ENV"
+
+      # No install: the script has no dependencies, on purpose. What it checks
+      # is HTTP, and a client that needed a package tree would be checking
+      # something else.
+      #
+      # Every input is read through `env` rather than interpolated into the
+      # script: a `${{ }}` inside `run` is pasted into the shell before it runs.
+      - name: Smoke test
+        env:
+          SLAIDS_BASE_URL: ${{ inputs.base_url }}
+          EXPECT_TOOLS: ${{ inputs.expect_tools }}
+          RUN_AUTHENTICATED: ${{ inputs.authenticated }}
+          # From the secret store and nowhere else — see the note at the top.
+          # GitHub masks a secret in the log by itself; nothing can unmask an
+          # input it has already recorded with the run.
+          SLAIDS_TOKEN: ${{ inputs.authenticated && secrets.SLAIDS_AGENT_TOKEN || '' }}
+        run: |
+          if [ "$RUN_AUTHENTICATED" = "true" ] && [ -z "$SLAIDS_TOKEN" ]; then
+            echo "Mangler secreten SLAIDS_AGENT_TOKEN. Lag et agenttoken i Slaids-biblioteket" >&2
+            echo "og legg det inn under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
+          if [ -n "$SMOKE_COOKIE" ]; then set -- --header "Cookie: $SMOKE_COOKIE"; fi
+          node scripts/mcp-smoke.mjs --expect-tools "$EXPECT_TOOLS" "$@"

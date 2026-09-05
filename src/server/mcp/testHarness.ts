@@ -53,6 +53,14 @@ export interface Harness {
   audit: MemoryAudit
   context: AgentContext
   database: SlaidsDatabase
+  /**
+   * How many times this deployment was asked to build an `AgentContext`.
+   *
+   * The context is the only route to a repository, so this counts the calls
+   * that could have read or written something. `discovery.test.ts` asserts it
+   * stays at zero across a whole anonymous handshake and catalogue read.
+   */
+  readonly contextRequests: number
 }
 
 let counter = 0
@@ -62,18 +70,41 @@ export async function closeHarnessDatabases(): Promise<void> {
   while (databases.length > 0) await databases.pop()?.delete()
 }
 
-export function harness(
-  options: {
-    scopes?: AgentScope[]
-    /**
-     * A preview renderer, for the tests about rendered visual feedback.
-     *
-     * Absent is the honest default: a deployment without one answers
-     * `PREVIEW_UNAVAILABLE`, and a harness that always had one would hide that.
-     */
-    preview?: SlidePreviewRenderer
-  } = {},
-): Harness {
+export interface HarnessOptions {
+  scopes?: AgentScope[]
+  /**
+   * A preview renderer, for the tests about rendered visual feedback.
+   *
+   * Absent is the honest default: a deployment without one answers
+   * `PREVIEW_UNAVAILABLE`, and a harness that always had one would hide that.
+   */
+  preview?: SlidePreviewRenderer
+  /**
+   * How this deployment answers the token it is presented.
+   *
+   * The default knows exactly one token. A test about a *refused* one supplies
+   * its own outcome — a revoked token the owner should still see in the audit,
+   * or a store that did not answer — without a second harness.
+   */
+  authenticate?: (presentedToken: string) => Promise<AuthOutcome>
+  /**
+   * Make building a context an error.
+   *
+   * For the claim that a public MCP method never reads anything: the context is
+   * the only way to a repository, so a deployment that cannot produce one and
+   * still answers `initialize` and `tools/list` has proved the answers come from
+   * the registry rather than from a deck.
+   */
+  refuseContext?: boolean
+}
+
+export class ContextRequested extends Error {
+  constructor() {
+    super('Denne testen skal aldri bygge en AgentContext.')
+  }
+}
+
+export function harness(options: HarnessOptions = {}): Harness {
   counter += 1
   const database = new SlaidsDatabase(`slaids-mcp-${counter}`)
   databases.push(database)
@@ -90,16 +121,27 @@ export function harness(
     scopes: options.scopes ?? ALL_SCOPES,
   }
 
+  let contextRequests = 0
+
   return {
     audit,
     context,
     database,
+    get contextRequests() {
+      return contextRequests
+    },
     deps: {
-      authenticate: (presented): Promise<AuthOutcome> =>
-        Promise.resolve(
-          presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
-        ),
-      contextFor: () => context,
+      authenticate:
+        options.authenticate ??
+        ((presented): Promise<AuthOutcome> =>
+          Promise.resolve(
+            presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
+          )),
+      contextFor: () => {
+        contextRequests += 1
+        if (options.refuseContext) throw new ContextRequested()
+        return context
+      },
       audit,
       maxRequestBytes: 1024 * 1024,
       now: () => new Date('2026-09-03T12:00:00.000Z'),
@@ -113,19 +155,37 @@ export function harness(
 
 let nextId = 0
 
+/**
+ * What a message is sent with.
+ *
+ * `token` defaults to the one this deployment knows. `null` sends no
+ * `Authorization` header at all, which is the anonymous discovery case — and it
+ * has to be a distinct value rather than an empty string, because a header that
+ * is present and unusable is a different thing from no header.
+ */
+export interface McpSendOptions extends RequestInit {
+  token?: string | null
+}
+
+function authorization(token: string | null | undefined): Record<string, string> {
+  const presented = token === undefined ? TOKEN : token
+  return presented === null ? {} : { Authorization: `Bearer ${presented}` }
+}
+
 export function mcpRequest(
   method: string,
   params?: Record<string, unknown>,
-  init: RequestInit = {},
+  init: McpSendOptions = {},
 ): Request {
   nextId += 1
+  const { token, ...rest } = init
   return new Request(`${ORIGIN}${AGENT_MCP_PATH}`, {
-    ...init,
+    ...rest,
     method: 'POST',
     // Merged last, so a caller can add or override one header without losing
     // the token — which is the whole point of the helper.
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      ...authorization(token),
       'Content-Type': 'application/json',
       ...(init.headers ?? {}),
     },
@@ -147,24 +207,36 @@ export async function mcp(
   harnessed: Harness,
   method: string,
   params?: Record<string, unknown>,
+  init: McpSendOptions = {},
 ): Promise<McpAnswer> {
-  const response = await handleAgentRequest(harnessed.deps, mcpRequest(method, params))
+  const response = await mcpSend(harnessed, method, params, init)
   return { status: response.status, body: (await response.json()) as JsonRpcResponse }
+}
+
+/** One message, unparsed — for the answers that have no JSON-RPC body at all. */
+export function mcpSend(
+  harnessed: Harness,
+  method: string,
+  params?: Record<string, unknown>,
+  init: McpSendOptions = {},
+): Promise<Response> {
+  return handleAgentRequest(harnessed.deps, mcpRequest(method, params, init))
 }
 
 /** Send whatever this is, verbatim, as the body of one MCP request. */
 export async function mcpRaw(
   harnessed: Harness,
   body: string,
-  init: RequestInit = {},
+  init: McpSendOptions = {},
 ): Promise<Response> {
+  const { token, ...rest } = init
   return handleAgentRequest(
     harnessed.deps,
     new Request(`${ORIGIN}${AGENT_MCP_PATH}`, {
-      ...init,
+      ...rest,
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${TOKEN}`,
+        ...authorization(token),
         'Content-Type': 'application/json',
         ...(init.headers ?? {}),
       },

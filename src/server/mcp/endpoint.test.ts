@@ -408,16 +408,20 @@ describe('transporten', () => {
   const address = `${ORIGIN}${AGENT_MCP_PATH}`
   const authorized = { Authorization: `Bearer ${TOKEN}` }
 
-  it('krever et token, som alt annet i API-et', async () => {
+  it('krever et token for hvert kall som når en presentasjon', async () => {
+    // The boundary in one line: a message that can reach a deck needs the same
+    // token every REST route needs. The discovery half — and everything else
+    // this split has to keep true — is `discovery.test.ts`.
     const response = await handleAgentRequest(
       harness().deps,
       new Request(address, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+        body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"slaids_list_presentations"}}',
       }),
     )
     expect(response.status).toBe(401)
+    expect(response.headers.get('WWW-Authenticate')).toContain('Bearer')
     const body = (await response.json()) as { error: { code: string } }
     expect(body.error.code).toBe('UNAUTHENTICATED')
   })
