@@ -374,15 +374,30 @@ console.log('\nOAuth-oppdagelse uten Authorization')
 /** The metadata document, or `null` when this deployment offers no OAuth. */
 let resourceMetadata = null
 
-await check('protected resource metadata', async () => {
-  const response = await fetch(RESOURCE_METADATA_URL, {
-    headers: { Accept: 'application/json', ...extraHeaders },
-  })
-  if (response.status === 404) {
-    return 'ingen OAuth i denne installasjonen (404) – resten av OAuth-sjekkene hopper over'
-  }
+/**
+ * The metadata document at one address, or `null` when there is none there.
+ *
+ * A body that is not JSON counts as "none", and that is not laziness: the SPA
+ * catch-all answers every unrouted address with `index.html`, so an
+ * installation that predates this endpoint replies `200 text/html` rather than
+ * a 404. Both mean the same thing to a client looking for an authorization
+ * server, and reporting the second as a parse error would be reporting the
+ * symptom.
+ */
+async function metadataAt(url) {
+  const response = await fetch(url, { headers: { Accept: 'application/json', ...extraHeaders } })
+  if (response.status === 404) return null
+  const type = response.headers.get('content-type') ?? ''
+  if (!/\bjson\b/i.test(type)) return null
   expect(response.status === 200, `forventet 200 eller 404, fikk ${response.status}`)
-  const document = await response.json()
+  return response.json()
+}
+
+await check('protected resource metadata', async () => {
+  const document = await metadataAt(RESOURCE_METADATA_URL)
+  if (!document) {
+    return 'ingen OAuth i denne installasjonen – resten av OAuth-sjekkene hopper over'
+  }
   expect(typeof document.resource === 'string', 'dokumentet har ingen «resource»')
   expect(
     document.resource === MCP_URL,
@@ -400,15 +415,12 @@ await check('protected resource metadata', async () => {
 await check('den samme metadataen på rot-adressen', async () => {
   // The specification requires a client to try the path-inserted address first
   // and the root second. Both have to answer, or half the clients fail.
-  const response = await fetch(ROOT_RESOURCE_METADATA_URL, {
-    headers: { Accept: 'application/json', ...extraHeaders },
-  })
+  const document = await metadataAt(ROOT_RESOURCE_METADATA_URL)
   if (!resourceMetadata) {
-    expect(response.status === 404, `forventet 404 uten OAuth, fikk ${response.status}`)
+    expect(document === null, 'rot-adressen svarer med metadata som den dype adressen ikke har')
     return 'hoppet over'
   }
-  expect(response.status === 200, `forventet 200, fikk ${response.status}`)
-  const document = await response.json()
+  expect(document !== null, 'rot-adressen svarer ikke med metadata, som spesifikasjonen ber om')
   expect(
     JSON.stringify(document) === JSON.stringify(resourceMetadata),
     'rot-adressen svarer med et annet dokument enn den dype adressen',
