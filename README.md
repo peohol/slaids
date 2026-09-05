@@ -364,8 +364,8 @@ npm run dev          # http://localhost:5173
 En installasjon som allerede kjører sjekkes utenfra, over ekte HTTP:
 
 ```bash
-node scripts/mcp-smoke.mjs --base-url https://<domenet>
-node scripts/mcp-smoke.mjs --base-url https://<domenet> --token slaids_at_…
+node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+SLAIDS_TOKEN=slaids_at_… node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
 ```
 
 Uten token kjører den den offentlige halvdelen og avvisningene – nøyaktig det en
@@ -1171,6 +1171,16 @@ tokenet:
 ```
 POST /api/agent/v1/mcp
 ```
+
+**Bruk adressen uten omdirigering.** For denne installasjonen er det
+`https://www.slaids.no/api/agent/v1/mcp`: `slaids.no` svarer `308` videre til
+`www`, og det er en annen origin. En klient følger omdirigeringen, men **taper
+`Authorization` på veien** – Fetch-standarden krever at headeren fjernes ved en
+kryss-origin-omdirigering – så tokenet aldri når fram, og hvert kall som trenger
+det svarer `401` uten at noe ser galt ut. Discovery virker likevel, siden den
+ikke trenger token, så feilen ser ut som «verktøyene er der, men ingenting
+virker». `scripts/mcp-smoke.mjs` stopper på en slik omdirigering og navngir
+adressen du skal bruke i stedet.
 
 Transporten er **Streamable HTTP** i revisjonen `2025-06-18`, i den tilstandsløse
 formen: én JSON-RPC-melding per POST, svaret som `application/json` på den samme
