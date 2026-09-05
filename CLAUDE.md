@@ -200,6 +200,72 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   svarer `405`), ingen batcher. Tokenet er identiteten på hver melding, og den eneste
   tilstanden mellom to kall er presentasjonens `revision` – det er dét som gjør endepunktet
   riktig på en plattform som kan svare fra to kalde instanser.
+- **Agent-API-et tar imot to legitimasjonsfamilier, og bare én autorisasjon.**
+  Et agenttoken (`slaids_at_…`) for enhver klient som kan få en fast streng, og et
+  Supabase OAuth 2.1 access token for de som ikke kan – en egendefinert MCP-app i
+  ChatGPT tilbyr ingen legitimasjon eller OAuth, og ingenting imellom, så «lim inn
+  et token» er ikke et alternativ der. Forskjellen slutter i
+  `authenticateRequest`: begge blir det samme `AgentPrincipal`-et, og
+  `authorizeOperation`, repositoryet og fit-guardene vet ikke hvilken familie
+  kalleren kom fra. Det ene stedet forskjellen finnes etterpå er auditen, som må
+  vite det – og som derfor fikk en `principal_kind` og en `client_id` i stedet for
+  en oppdiktet tokenrad. Autorisasjonsserveren er Supabase Auth, det samme
+  prosjektet innloggingen bruker: en egen ville vært en andre brukerkatalog for de
+  samme personene.
+- **En påstand i et JWT er ingenting før signaturen er verifisert.**
+  `src/server/agent/oauth.ts` leser i denne rekkefølgen, og rekkefølgen *er*
+  sikkerheten: algoritmen mot en lukket tabell over asymmetriske algoritmer
+  (`HS*` og `none` faller ut her, før en nøkkel hentes – ellers er den publiserte
+  nøkkelen selv HMAC-hemmeligheten en forfalskning signeres med), så signaturen
+  mot prosjektets JWKS, og *deretter* utsteder, mottaker, `client_id`, eier og
+  utløp – alle lest ut av den verifiserte kroppen. `client_id` er den bærende
+  sjekken: bare et token fra autorisasjonsflyten har en, så et vanlig
+  innloggingstoken fra en fane kan ikke spilles av her. `oauth.test.ts` signerer
+  med ekte nøkler og forfalsker på ekte, fordi en test som bare *sier* at et token
+  er gyldig ikke tester noe.
+- **OAuth er av til noen slår det på, og bryteren er hvem som slipper inn.**
+  `SLAIDS_AGENT_OAUTH_OWNERS` er påkrevd: uten den finnes det ingen
+  autorisasjonsserver, metadatadokumentet svarer 404, utfordringen peker ingen
+  steder, og et JWT avvises som et hvilket som helst annet ukjent token. Grunnen
+  står i migrasjonen som lagde tabellene: Supabase-prosjektet deles med Huskis og
+  mdeditz, API-et holder en nøkkel som går forbi row level security, og nettleseren
+  er festet til én eier-uuid. «Hvilken som helst bruker av prosjektet» ville vært
+  en videre dør enn appen selv har.
+- **Slaids er en OAuth-ressursserver og ikke noe mer.** Den publiserer protected
+  resource metadata (RFC 9728) på `/.well-known/oauth-protected-resource/api/agent/v1/mcp`
+  og på rot-adressen – spesifikasjonen krever at en klient prøver begge – med den
+  kanoniske MCP-adressen som `resource` og Supabase-prosjektets `/auth/v1` som
+  eneste `authorization_servers`. Dokumentet er offentlig av samme grunn discovery
+  er det: det er dét man leser *fordi* man ikke har en legitimasjon ennå.
+  `scopes_supported` står med vilje ikke der – MCPs egen scope-strategi sier at en
+  klient uten `scope` i utfordringen ber om alt som står i det feltet, og Supabase
+  avviser scopes den ikke kjenner, så en Slaids-scope der ville gjort hver eneste
+  autorisasjonsforespørsel ugyldig. Slaids' scopes publiseres i stedet på verktøyet,
+  der de ikke sendes noe sted.
+- **Et OAuth-token får de scopene tokenet navngir, ellers installasjonens
+  standard.** Supabase støtter ikke egendefinerte scopes ennå, så et token sier
+  `openid email` og ingenting om presentasjoner; da gjelder standarden, og den er
+  de tre redigerende. `sharing:write` er ikke med – vanlig redigering gir aldri
+  rett til å publisere – og en standard som inkluderte det ville vært agentlaget
+  som bestemte noe annet. Navngir tokenet Slaids-scopes en dag, er det snittet som
+  gjelder og aldri noe mer.
+- **En avvist `tools/call` sier det samme to steder i det samme svaret.**
+  Statuslinjen er `401` med utfordringen i headeren, som spesifikasjonen krever og
+  som en SDK-klient gjør om til en påloggingsflyt; kroppen er det vanlige
+  resultatet med `isError` og den samme utfordringen i
+  `_meta["mcp/www_authenticate"]`, som er der klientene med «mixed authentication»
+  leter. Ingen av dem er en innrømmelse til én bestemt klient: det er den samme
+  utfordringen sagt på de to måtene klienter leser den. `error="invalid_token"`
+  står der bare når et token faktisk ble avvist – RFC 6750 §3.1: en forespørsel
+  uten legitimasjon har ikke gjort noen feil ennå.
+- **Samtykkesiden er Slaids' egen, og den ligger på den private siden.**
+  Supabase utsteder koden og tokenene, men skjermen som sier hvem som spør er
+  appens: den er det eneste i flyten som handler om *dette* produktet.
+  `/oauth/consent` er derfor en tredje rute i `parseRoute`, bak `AuthGate` som
+  arbeidsområdet – å godkjenne en apps tilgang til eierens dekk er eierens
+  handling – og den monterer aldri `Workspace`, som ville begynt å laste
+  biblioteket. Ingenting gis ved å åpne den, og «avbryt» er like stor som «gi
+  tilgang».
 - **MCP discovery er offentlig; Slaids-operasjoner er autentiserte og scope-gatede.**
   `initialize`, `ping`, `tools/list` og enhver notifikasjon besvares uten agenttoken;
   `tools/call` krever nøyaktig det tokenet og de scopene et REST-kall krever, og en
@@ -535,6 +601,11 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   møter nøyaktig den samme guarden. `inspect_slide` rapporterer kortets layout som
   `subfieldAxis`/`subfieldWeights` – aldri som `axis`/`weights`, som er
   soneinndelingens og ligger ett nivå over.
+- Verktøykatalogen sier hvilke verktøy som krever legitimasjon og hvilke scopes de
+  krever – `securitySchemes: [{ type: 'oauth2', scopes: [...] }]` på verktøyet og i
+  `_meta` – og listen er `operation.scopes`, ikke en andre. En test håndhever det
+  mekanisk: ikke ett eneste scope-navn står som streng i `src/server/mcp/`, av samme
+  grunn som ikke ett eneste operasjonsnavn gjør det.
 - Scopes (`presentations:read/write`, `assets:write`, `sharing:write`) er deklarert på
   selve operasjonen og håndheves serverside på hver forespørsel. `defineOperation` krever
   feltet, så en ny operasjon kan ikke arve «det minst privilegerte tokenet har» ved å tie.

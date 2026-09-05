@@ -58,7 +58,13 @@ interface Harness {
  * The repository is the real Dexie one, so a claim like "nothing was written"
  * is about stored state rather than about which method a stub saw.
  */
-function harness(options: { scopes?: AgentScope[]; principal?: Partial<AgentPrincipal> } = {}): Harness {
+function harness(
+  options: {
+    scopes?: AgentScope[]
+    /** Only the agent-token half is overridable here; `oauth.test.ts` drives the other. */
+    principal?: Partial<Extract<AgentPrincipal, { kind: 'agent_token' }>>
+  } = {},
+): Harness {
   counter += 1
   const database = new SlaidsDatabase(`slaids-agent-api-${counter}`)
   databases.push(database)
@@ -66,6 +72,7 @@ function harness(options: { scopes?: AgentScope[]; principal?: Partial<AgentPrin
   const audit = new MemoryAudit()
 
   const principal: AgentPrincipal = {
+    kind: 'agent_token',
     tokenId: 'token-1',
     tokenName: 'Testagenten',
     ownerId: 'owner-1',
@@ -626,8 +633,12 @@ describe('audit', () => {
     expect(api.audit.entries).toHaveLength(1)
     expect(api.audit.entries[0]).toMatchObject({
       ownerId: 'owner-1',
+      principalKind: 'agent_token',
       tokenId: 'token-1',
       tokenName: 'Testagenten',
+      // No OAuth client acted, so there is none named. See `oauth.test.ts` for
+      // the mirror of this row.
+      clientId: null,
       operation: 'create_presentation',
       // Nothing told the API which presentation this was; the answer did.
       presentationId: id,
@@ -686,11 +697,13 @@ describe('audit', () => {
     // What it does contain is what §44 asks for, and only that.
     expect(Object.keys(api.audit.entries[0]).sort()).toEqual([
       'at',
+      'clientId',
       'durationMs',
       'errorCode',
       'operation',
       'ownerId',
       'presentationId',
+      'principalKind',
       'status',
       'success',
       'tokenId',
@@ -707,7 +720,7 @@ describe('audit', () => {
       Promise.resolve({
         ok: false,
         reason: 'revoked',
-        identified: { ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Gammel agent' },
+        identified: { kind: 'agent_token' as const, ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Gammel agent' },
       })
 
     const response = await handleAgentRequest(

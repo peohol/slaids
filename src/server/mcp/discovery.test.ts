@@ -246,7 +246,7 @@ describe('oppdagelse uten token', () => {
  * ------------------------------------------------------------------ */
 
 describe('operasjoner uten token', () => {
-  it('avvises med 401 og utfordringen, ikke med et resultat', async () => {
+  it('avvises med 401 og utfordringen', async () => {
     const response = await mcpSend(
       harness(),
       'tools/call',
@@ -259,9 +259,42 @@ describe('operasjoner uten token', () => {
     // a 200 would hide the challenge from a client whose token expired.
     expect(response.status).toBe(401)
     expect(response.headers.get('WWW-Authenticate')).toContain('Bearer')
-    const body = (await response.json()) as { ok: boolean; error: { code: string } }
-    expect(body.ok).toBe(false)
-    expect(body.error.code).toBe('UNAUTHENTICATED')
+    // RFC 6750 §3.1: nothing was presented, so nothing was rejected. A client
+    // that meets `error="invalid_token"` here would think its (absent)
+    // credential had been refused.
+    expect(response.headers.get('WWW-Authenticate')).not.toContain('error=')
+  })
+
+  it('bærer den samme utfordringen inne i svaret, der en mixed-auth-klient leser den', async () => {
+    // The body is the other half of the same refusal. Discovery here is public,
+    // so a client reaches `tools/call` having already read from the tool's own
+    // `securitySchemes` that it needs a credential — and the clients converging
+    // on mixed authentication look for the challenge in the *result*, not in the
+    // status line. Carrying both leaves neither kind of client with an error it
+    // cannot act on.
+    const response = await mcpSend(
+      harness(),
+      'tools/call',
+      { name: anyToolName(), arguments: {} },
+      ANONYMOUS,
+    )
+
+    const body = (await response.json()) as {
+      id: unknown
+      result: {
+        isError: boolean
+        structuredContent: { error: { code: string } }
+        _meta: Record<string, unknown>
+      }
+    }
+    // Addressed to the call that was made: a client correlates by id, and a
+    // refusal it cannot match to a request is one it has to time out on.
+    expect(body.id).toBeTypeOf('number')
+    expect(body.result.isError).toBe(true)
+    expect(body.result.structuredContent.error.code).toBe('UNAUTHENTICATED')
+    expect(body.result._meta['mcp/www_authenticate']).toEqual([
+      response.headers.get('WWW-Authenticate'),
+    ])
   })
 
   it('avvises likt enten verktøyet leser eller skriver', async () => {
@@ -298,7 +331,14 @@ describe('operasjoner uten token', () => {
     const fake = await mcpSend(harness(), 'tools/call', { name: 'slaids_finnes_ikke' }, ANONYMOUS)
 
     expect(real.status).toBe(fake.status)
-    expect(await real.text()).toBe(await fake.text())
+    // Everything but the id, which is the caller's own and differs by
+    // construction: a refusal that told the two apart would be a way to
+    // enumerate the surface without a credential.
+    const withoutId = async (response: Response): Promise<unknown> => {
+      const { id: _id, ...rest } = (await response.json()) as Record<string, unknown>
+      return rest
+    }
+    expect(await withoutId(real)).toEqual(await withoutId(fake))
   })
 
   it('skriver ingenting, og etterlater ingen presentasjon', async () => {
@@ -340,7 +380,7 @@ describe('et token som er sendt, men ikke gyldig', () => {
       Promise.resolve({
         ok: false as const,
         reason: 'revoked' as const,
-        identified: { ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Gammel agent' },
+        identified: { kind: 'agent_token' as const, ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Gammel agent' },
       }),
   })
 
@@ -361,7 +401,7 @@ describe('et token som er sendt, men ikke gyldig', () => {
         Promise.resolve({
           ok: false as const,
           reason: 'expired' as const,
-          identified: { ownerId: 'owner-1', tokenId: 'token-9', tokenName: 'Utløpt agent' },
+          identified: { kind: 'agent_token' as const, ownerId: 'owner-1', tokenId: 'token-9', tokenName: 'Utløpt agent' },
         }),
     })
     await mcp(audited, 'tools/list')

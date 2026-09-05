@@ -174,7 +174,7 @@ export function agentApiHeaders(extra: Record<string, string> = {}): Record<stri
     // A picture's metadata travels in headers, and a browser sees none of them
     // unless they are named here: without this, a browser-based caller would get
     // the PNG and lose the revision it needs to write against.
-    'Access-Control-Expose-Headers': 'x-slaids-operation, x-slaids-revision',
+    'Access-Control-Expose-Headers': 'x-slaids-operation, x-slaids-revision, www-authenticate',
     'Access-Control-Max-Age': '600',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
@@ -252,23 +252,30 @@ export function unauthenticatedError(): ApiError {
   return {
     code: 'UNAUTHENTICATED',
     message:
-      'Mangler et gyldig agenttoken. Send det som «Authorization: Bearer slaids_at_…». Tokens lages og trekkes tilbake i Slaids-biblioteket.',
+      'Mangler en gyldig legitimasjon. Send enten et agenttoken som «Authorization: Bearer slaids_at_…» – de lages og trekkes tilbake i Slaids-biblioteket – eller et OAuth-token fra autorisasjonsserveren WWW-Authenticate peker på.',
   }
 }
+
+/** The protection space every Slaids credential belongs to. One API, one realm. */
+export const AGENT_REALM = 'slaids-agent'
 
 /**
  * The 401 itself, with the challenge RFC 6750 asks for.
  *
- * No `resource_metadata` parameter, because Slaids has no OAuth authorization
- * server to point at: an agent token is a delegation the owner creates in the
- * library and pastes into a client, not something a client can go and obtain.
+ * The challenge is built by the caller rather than here, and that is the whole
+ * change OAuth made to this function: whether there is an authorization server
+ * to point at is a fact about the *deployment*, not about the API, and the
+ * `resource_metadata` parameter RFC 9728 §5.1 defines must only be sent when
+ * the document it names exists. A deployment with no OAuth configured still
+ * gets the bare `Bearer realm="slaids-agent"` this always sent.
+ *
  * MCP's authorization specification is explicitly optional, and the half of it
  * that binds here is the error table — 401 when a token is required or invalid,
  * 403 when the scopes are short — which is what this and `FORBIDDEN_SCOPE` are.
  */
-export function unauthenticatedResponse(): Response {
+export function unauthenticatedResponse(challenge?: string): Response {
   return errorResponse(unauthenticatedError(), {
-    extraHeaders: { 'WWW-Authenticate': 'Bearer realm="slaids-agent"' },
+    extraHeaders: { 'WWW-Authenticate': challenge ?? `Bearer realm="${AGENT_REALM}"` },
   })
 }
 

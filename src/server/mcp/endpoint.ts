@@ -84,6 +84,8 @@
 
 import type { AgentContext } from '../../agent/types'
 import { readBody } from '../agent/body'
+import type { OAuthResourceConfig } from '../agent/oauth'
+import { challengeFor } from '../agent/resourceMetadata'
 import {
   auditedPresentationId,
   recordAgentCall,
@@ -95,6 +97,7 @@ import {
   agentApiHeaders,
   errorResponse,
   statusFor,
+  unauthenticatedError,
   unauthenticatedResponse,
   type ApiError,
 } from '../agent/protocol'
@@ -108,9 +111,12 @@ import {
   JSON_RPC_AUDIT,
   JSON_RPC_ERROR,
   jsonRpcError,
+  jsonRpcResult,
   readJsonRpcMessage,
+  type IncomingMessage,
   type JsonRpcResponse,
 } from './jsonrpc'
+import { challengedToolResult } from './result'
 import { dispatchMcpMessage, requiresAgentToken, type McpAudited, type McpSession } from './server'
 import {
   MCP_PROTOCOL_VERSION,
@@ -130,6 +136,10 @@ export interface McpEndpointDeps extends AgentTokenLookup {
   audit: AgentAuditSink
   maxRequestBytes: number
   now(): Date
+  /** The OAuth resource-server half, when this deployment offers one. */
+  oauth?: OAuthResourceConfig
+  /** The origin OAuth metadata speaks about, when the deployment pins one. */
+  publicOrigin?: string | null
 }
 
 const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json$/i
@@ -141,10 +151,14 @@ function mediaType(header: string | null): string {
   return (header ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
 }
 
-function jsonRpcResponse(body: JsonRpcResponse, status = 200): Response {
+function jsonRpcResponse(
+  body: JsonRpcResponse,
+  status = 200,
+  extra: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: agentApiHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
+    headers: agentApiHeaders({ 'Content-Type': 'application/json; charset=utf-8', ...extra }),
   })
 }
 
@@ -179,7 +193,13 @@ export async function handleMcpRequest(
       auth,
       operation: MCP_TRANSPORT_OPERATION,
     })
-    return unauthenticatedResponse()
+    // A credential *was* presented and is not usable. That is the case MCP's
+    // error table names first — "authorization required or token invalid" — and
+    // it is answered before the body is read, so a rejected caller cannot make
+    // this endpoint buffer megabytes for it. The challenge carries
+    // `error="invalid_token"`, which is the word that tells a client with an
+    // expired token to refresh rather than to give up.
+    return unauthenticatedResponse(challengeFor(deps, request, auth.reason))
   }
 
   const principal = auth.ok ? auth.principal : null
@@ -331,7 +351,9 @@ export async function handleMcpRequest(
   // Nothing is audited: there is no subject to attribute it to. What an owner
   // *can* see is the case that matters — a token they revoked, presented again —
   // and that was recorded above, before the body was even read.
-  if (!principal && requiresAgentToken(message)) return unauthenticatedResponse()
+  if (!principal && requiresAgentToken(message)) {
+    return anonymousRefusal(deps, request, message)
+  }
 
   const session: McpSession = principal
     ? { authenticated: true, principal, context: () => deps.contextFor(principal) }
@@ -345,4 +367,45 @@ export async function handleMcpRequest(
   // envelope or not: the JSON-RPC error *is* the answer. Only a message that was
   // never one at all — unparseable, or not a JSON-RPC object — is an HTTP error.
   return jsonRpcResponse(outcome.response, message.kind === 'invalid' ? 400 : 200)
+}
+
+/**
+ * A `tools/call` from a client that has no credential yet.
+ *
+ * This is the message mixed authentication exists for: discovery is public, so
+ * a client reaches this point having already handshaked, listed the tools and
+ * read from each one's `securitySchemes` that it needs OAuth. What it needs
+ * back is not "no", it is "here is where to go".
+ *
+ * So the answer is both things at once, and neither is a concession to a
+ * particular client:
+ *
+ *  - **HTTP 401 with `WWW-Authenticate`**, which is what the specification
+ *    requires of a resource server and what an SDK client turns into an
+ *    authorization flow. The status is unchanged from before OAuth existed; the
+ *    header gained `resource_metadata`, the pointer RFC 9728 §5.1 defines.
+ *  - **a JSON-RPC body carrying the same challenge** in the result's
+ *    `_meta['mcp/www_authenticate']`. A client that reads the body finds a
+ *    Slaids error object it can print and a challenge it can act on, instead of
+ *    a status code and nothing else.
+ *
+ * The two do not contradict each other. HTTP says the request was not
+ * authorised; the tool result says the call errored and why — which is exactly
+ * what happened, and what `isError` means everywhere else in this adapter.
+ *
+ * Nothing is audited. There is no subject to attribute it to, which is the same
+ * rule REST follows for a credential nobody has ever seen.
+ */
+function anonymousRefusal(
+  deps: McpEndpointDeps,
+  request: Request,
+  message: IncomingMessage,
+): Response {
+  const challenge = challengeFor(deps, request, 'missing')
+  if (message.kind !== 'request') return unauthenticatedResponse(challenge)
+  return jsonRpcResponse(
+    jsonRpcResult(message.id, challengedToolResult(unauthenticatedError(), challenge)),
+    401,
+    { 'WWW-Authenticate': challenge },
+  )
 }

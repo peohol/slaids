@@ -95,6 +95,44 @@ export function resultImages(result: McpToolResult): McpImageContent[] {
   return result.content.filter((block): block is McpImageContent => block.type === 'image')
 }
 
+/**
+ * Where an MCP client looks for an OAuth challenge inside a tool result.
+ *
+ * The `mcp/` namespace is the protocol's own reserved prefix, and the value is
+ * a list of complete `WWW-Authenticate` header values — the same strings the
+ * HTTP header carries, because they are the same challenge said twice rather
+ * than two formats.
+ *
+ * It exists because of the order a mixed-authentication client works in.
+ * Discovery here is anonymous, so a client connects, lists tools, and only then
+ * discovers — from the tool's own `securitySchemes` — that a call needs a
+ * token. When such a call arrives without one, the transport answers `401` with
+ * the challenge in the header, which is what the specification requires and
+ * what an SDK client acts on. Some clients, ChatGPT's among them, read the
+ * challenge out of the *result* instead; OpenAI's own reference server for
+ * mixed auth publishes it exactly here. Carrying both costs one field and means
+ * neither kind of client is left with an error it cannot act on.
+ */
+export const MCP_WWW_AUTHENTICATE_META = 'mcp/www_authenticate'
+
+/**
+ * A refusal that is also an invitation: this call needs a credential, and here
+ * is where to get one.
+ *
+ * Shaped like every other refusal — `isError`, the code in `structuredContent`,
+ * the readable half in the text block — so a client that has never heard of
+ * OAuth still gets a Slaids error it can print, and one that has finds the
+ * challenge where it looks for it.
+ */
+export function challengedToolResult(error: ApiError, challenge: string): McpToolResult {
+  return {
+    isError: true,
+    content: text(errorText(error)),
+    structuredContent: { error: error as unknown as Record<string, unknown> },
+    _meta: { [MCP_WWW_AUTHENTICATE_META]: [challenge] },
+  }
+}
+
 export function toolResultFor(outcome: OperationOutcome): McpToolResult {
   if (outcome.error) {
     return {

@@ -23,10 +23,23 @@
  */
 
 import { MAX_ASSET_BYTES } from '../../domain/constants'
+import { readOAuthConfig, type OAuthResourceConfig } from './oauth'
 
 export const SUPABASE_URL_VARS = ['SLAIDS_SUPABASE_URL', 'SUPABASE_URL', 'VITE_SUPABASE_URL'] as const
 export const SUPABASE_SECRET_VARS = ['SLAIDS_SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const
 export const MAX_REQUEST_BYTES_VAR = 'SLAIDS_AGENT_MAX_REQUEST_BYTES'
+
+/**
+ * The address this deployment calls itself, for OAuth.
+ *
+ * Optional, and it only matters once OAuth is configured: a resource
+ * identifier is a fixed string in OAuth, and pinning it means no request header
+ * gets to decide what Slaids is called. Unset, the origin is read off the
+ * request — which is correct on Vercel, where the apex redirects to `www.` long
+ * before anything reaches this code, and which is what lets a preview
+ * deployment describe itself rather than production.
+ */
+export const PUBLIC_ORIGIN_VAR = 'SLAIDS_PUBLIC_ORIGIN'
 
 /**
  * How much of a request the API will read.
@@ -43,6 +56,21 @@ export interface AgentApiConfig {
   /** Server-side only. Never logged, never returned, never sent anywhere else. */
   secretKey: string
   maxRequestBytes: number
+  /**
+   * The origin OAuth metadata speaks about, when the deployment pins one.
+   *
+   * `null` means "read it off the request". See `resourceOrigin`.
+   */
+  publicOrigin: string | null
+  /**
+   * The OAuth resource-server half, when this deployment offers one.
+   *
+   * `null` is not a degraded mode: it is a deployment that accepts agent tokens
+   * and nothing else, exactly as Slaids did before OAuth existed. Turning it on
+   * is a deliberate act — see `OAUTH_OWNERS_VAR` — because the API holds a key
+   * that bypasses row level security and the Supabase project is shared.
+   */
+  oauth: OAuthResourceConfig | null
 }
 
 export type AgentApiConfigState =
@@ -85,6 +113,8 @@ export function readAgentApiConfig(env: Env): AgentApiConfigState {
       supabaseUrl: url.value,
       secretKey: secret.value,
       maxRequestBytes: readMaxRequestBytes(env[MAX_REQUEST_BYTES_VAR]),
+      publicOrigin: env[PUBLIC_ORIGIN_VAR]?.trim().replace(/\/+$/, '') || null,
+      oauth: readOAuthConfig(env, { supabaseUrl: url.value }),
     },
   }
 }

@@ -2820,13 +2820,65 @@ Vanlig presentasjonsredigering skal **ikke** automatisk gi rett til å publisere
 
 Siden Slaids er en énbruker-app, skal agenttokens fortsatt bare gi tilgang til Slaids-eierens data. Tokenmekanismen er en delegasjon fra eieren, ikke et nytt flerbrukersystem.
 
+#### Klienter som ikke tar imot et token
+
+Noen klienter tilbyr ingen måte å oppgi en fast API-nøkkel på. En egendefinert
+MCP-app i ChatGPT har to valg – ingen legitimasjon, eller OAuth – og ingenting
+imellom. Agent-API-et skal derfor ta imot **to legitimasjonsfamilier**:
+
+- et agenttoken, som over;
+- et OAuth 2.1 access token utstedt av Slaids' egen autorisasjonsserver.
+
+Autorisasjonsserveren skal være **Supabase Auth**, det samme prosjektet
+innloggingen allerede bruker. Slaids skal ikke bygge en egen: en andre
+brukerkatalog og en andre samtykkeflyt for de samme personene er nøyaktig det
+énbruker-modellen finnes for å unngå. Slaids er en OAuth *ressursserver* og
+ikke noe mer.
+
+Kravene til den halvdelen:
+
+- **Metadata.** MCP-endepunktet skal publisere protected resource metadata
+  (RFC 9728) med den kanoniske adressen sin som `resource` og
+  autorisasjonsserveren i `authorization_servers`. Dokumentet er offentlig – det
+  er dét en klient leser fordi den ikke har en legitimasjon ennå.
+- **Utfordring.** En 401 skal bære `WWW-Authenticate: Bearer …` med
+  `resource_metadata` som peker på dokumentet, slik RFC 9728 §5.1 definerer, og
+  bare når dokumentet finnes.
+- **Verifisering.** Signaturen skal verifiseres mot autorisasjonsserverens
+  nøkkelsett, med en lukket liste over asymmetriske algoritmer. Ingen påstand i
+  et token skal leses før signaturen er verifisert. Utsteder, mottaker og utløp
+  skal sjekkes, og et token uten `client_id` – altså et vanlig
+  innloggingstoken fra nettleseren – skal avvises: det er ikke en delegasjon.
+- **Hvem som slipper inn.** Slaids er fortsatt énbruker. Prosjektet deles med
+  andre apper, og API-et holder en nøkkel som går forbi row level security, så
+  hvilke Supabase-brukere som får koble seg på skal være en eksplisitt liste i
+  servermiljøet. Uten den listen tilbyr installasjonen ingen OAuth i det hele
+  tatt.
+- **Scopes.** Samme fire scopes. Navngir tokenet dem, er tokenet det som
+  gjelder; navngir det ingen – som er tilfellet så lenge autorisasjonsserveren
+  ikke støtter egendefinerte scopes – gjelder installasjonens standard, og den
+  skal ikke inneholde `sharing:write`.
+- **Én autorisasjon.** Begge familiene skal ende som det samme prinsipalet, og
+  alt etter autentisering – scopekontroll, repository, audit – skal være den
+  samme koden. To autorisasjonssystemer bak ett API er det denne regelen
+  finnes for å hindre.
+- **Samtykke.** Supabase sender brukeren til en samtykkeside appen selv eier.
+  Den siden skal navngi hvem som spør, ligge bak den vanlige innloggingen, og
+  ikke gi noe som helst ved å bli åpnet.
+
+Verktøykatalogen skal si hvilke verktøy som krever legitimasjon og hvilke
+scopes de krever, utledet av operasjonens eget `scopes`-felt – aldri av en
+håndskrevet liste.
+
 ### Audit
 
 Agentmutasjoner skal kunne skilles fra vanlige UI-mutasjoner i relevante serverlogger/auditdata.
 
 Minst følgende bør kunne spores:
 
-- token/agent-identitet uten å lagre selve tokenet;
+- hvilken legitimasjonsfamilie kallet kom fra;
+- token/agent-identitet uten å lagre selve tokenet, eller – for OAuth – hvilken
+  klient eieren godkjente. Et OAuth-kall skal aldri få en oppdiktet tokenrad;
 - tidspunkt;
 - operasjon;
 - presentation-ID;

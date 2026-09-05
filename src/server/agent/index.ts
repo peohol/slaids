@@ -27,14 +27,22 @@ import { chromiumSlidePreviewRenderer } from '../../render/preview'
 import { readAgentApiConfig, describeUnavailable, type Env, type AgentApiConfigState } from './config'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
 import { errorResponse } from './protocol'
-import { agentContextFor, authenticateAgentToken, createServerClient, supabaseAuditSink } from './supabase'
+import {
+  agentContextFor,
+  authenticateAgentToken,
+  createServerClient,
+  oauthAuthenticator,
+  supabaseAuditSink,
+} from './supabase'
 
 export * from './audit'
 export * from './body'
 export * from './config'
 export * from './handler'
 export * from './invoke'
+export * from './oauth'
 export * from './protocol'
+export * from './resourceMetadata'
 export * from './tokens'
 /**
  * The MCP tool catalogue, exported from the deployment's own entry point.
@@ -61,12 +69,22 @@ function depsFor(
   // nothing to leak between two tokens.
   const preview = chromiumSlidePreviewRenderer({ env })
 
+  const now = (): Date => new Date()
+
   return {
-    authenticate: (presented) => authenticateAgentToken(tokens, presented, new Date()),
+    authenticate: (presented) => authenticateAgentToken(tokens, presented, now()),
+    // Present only when this deployment has an authorization server, so "does
+    // Slaids take OAuth here?" is one question with one answer: the presence of
+    // this function, the metadata document and the `resource_metadata` in the
+    // challenge all come from the same `config.oauth`.
+    ...(state.config.oauth
+      ? { authenticateOAuth: oauthAuthenticator(state.config.oauth, now), oauth: state.config.oauth }
+      : {}),
+    publicOrigin: state.config.publicOrigin,
     contextFor: (principal) => agentContextFor(client, principal, preview),
     audit,
     maxRequestBytes: state.config.maxRequestBytes,
-    now: () => new Date(),
+    now,
   }
 }
 

@@ -16,15 +16,24 @@
  *
  * Usage:
  *
- *   node scripts/mcp-smoke.mjs --base-url https://slaids.no
- *   SLAIDS_TOKEN=slaids_at_… node scripts/mcp-smoke.mjs --base-url https://slaids.no
+ *   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+ *   SLAIDS_TOKEN=slaids_at_… node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+ *   SLAIDS_OAUTH_TOKEN=eyJ… node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
  *   node scripts/mcp-smoke.mjs --base-url https://… --header 'Cookie: _vercel_jwt=…'
  *
- * The token is read from `SLAIDS_TOKEN` or from `--token`, and the environment is
- * the better of the two: a process's argument list is readable by other processes
- * on the same machine, and by a CI runner's own logging. In CI it belongs in the
- * secret store — never in a `workflow_dispatch` input, which the platform records
- * and displays with the run.
+ * The agent token is read from `SLAIDS_TOKEN` or from `--token`, and the
+ * environment is the better of the two: a process's argument list is readable by
+ * other processes on the same machine, and by a CI runner's own logging. In CI it
+ * belongs in the secret store — never in a `workflow_dispatch` input, which the
+ * platform records and displays with the run.
+ *
+ * An **OAuth** access token is read from `SLAIDS_OAUTH_TOKEN` and from nowhere
+ * else — there is deliberately no flag for it. Obtaining one is an interactive
+ * browser flow, so this script never starts one and never depends on one: the
+ * OAuth half below runs only if a token was handed to it, and everything about
+ * the OAuth *contract* that a client can see without a credential — the metadata
+ * document, the challenge that points at it, the authorization server behind it
+ * — is checked anonymously, every run.
  *
  * `--header` may be repeated, and exists for the layer *in front of* the
  * deployment rather than for Slaids: a preview address behind Vercel
@@ -66,6 +75,8 @@ function flags(name) {
 
 const baseUrl = (flag('base-url') ?? process.env.SLAIDS_BASE_URL ?? '').replace(/\/+$/, '')
 const token = flag('token') ?? process.env.SLAIDS_TOKEN ?? null
+/** Environment only. See the note at the top: there is no flag for this one. */
+const oauthToken = process.env.SLAIDS_OAUTH_TOKEN ?? null
 const expectTools = Number(flag('expect-tools') ?? '0')
 
 /** Headers for the layer in front of the deployment. Never `Authorization`. */
@@ -91,6 +102,9 @@ if (!baseUrl) {
 
 const MCP_URL = `${baseUrl}/api/agent/v1/mcp`
 const OPERATIONS_URL = `${baseUrl}/api/agent/v1/operations`
+/** RFC 9728 inserts the well-known segment between host and resource path. */
+const RESOURCE_METADATA_URL = `${baseUrl}/.well-known/oauth-protected-resource/api/agent/v1/mcp`
+const ROOT_RESOURCE_METADATA_URL = `${baseUrl}/.well-known/oauth-protected-resource`
 
 /* ------------------------------------------------------------------ *
  * Reporting
@@ -306,13 +320,26 @@ function callableTool() {
 
 console.log('\nOperasjoner uten Authorization')
 
-await check('tools/call avvises med 401', async () => {
+await check('tools/call avvises med 401 og utfordringen', async () => {
   const answer = await send('tools/call', { params: { name: callableTool(), arguments: {} } })
   expect(answer.status === 401, `forventet 401, fikk ${answer.status}`)
   const challenge = answer.headers.get('www-authenticate') ?? ''
   expect(/bearer/i.test(challenge), `mangler WWW-Authenticate: Bearer (fikk «${challenge}»)`)
-  expect(answer.body?.error?.code === 'UNAUTHENTICATED', `forventet UNAUTHENTICATED, fikk ${answer.body?.error?.code}`)
-  return '401 med utfordring'
+  // RFC 6750 §3.1: nothing was presented, so nothing was rejected.
+  expect(!/error=/i.test(challenge), `utfordringen sier at et token ble avvist, men ingen ble sendt: «${challenge}»`)
+  const refusal = answer.body?.result
+  expect(refusal?.isError === true, 'kroppen bærer ikke avvisningen som et resultat')
+  expect(
+    refusal?.structuredContent?.error?.code === 'UNAUTHENTICATED',
+    `forventet UNAUTHENTICATED, fikk ${refusal?.structuredContent?.error?.code}`,
+  )
+  // The same challenge, where a mixed-authentication client looks for it.
+  expect(
+    Array.isArray(refusal?._meta?.['mcp/www_authenticate']) &&
+      refusal._meta['mcp/www_authenticate'][0] === challenge,
+    'resultatet bærer ikke den samme utfordringen i _meta["mcp/www_authenticate"]',
+  )
+  return '401 med utfordring, i headeren og i resultatet'
 })
 
 await check('et ukjent token avvises også på oppdagelse', async () => {
@@ -337,6 +364,133 @@ await check('REST-katalogen er fortsatt lukket', async () => {
   expect(response.status === 401, `forventet 401, fikk ${response.status}`)
   return '401'
 })
+
+/* ------------------------------------------------------------------ *
+ * OAuth, as far as a client can get without a credential
+ * ------------------------------------------------------------------ */
+
+console.log('\nOAuth-oppdagelse uten Authorization')
+
+/** The metadata document, or `null` when this deployment offers no OAuth. */
+let resourceMetadata = null
+
+await check('protected resource metadata', async () => {
+  const response = await fetch(RESOURCE_METADATA_URL, {
+    headers: { Accept: 'application/json', ...extraHeaders },
+  })
+  if (response.status === 404) {
+    return 'ingen OAuth i denne installasjonen (404) – resten av OAuth-sjekkene hopper over'
+  }
+  expect(response.status === 200, `forventet 200 eller 404, fikk ${response.status}`)
+  const document = await response.json()
+  expect(typeof document.resource === 'string', 'dokumentet har ingen «resource»')
+  expect(
+    document.resource === MCP_URL,
+    `«resource» skal være den kanoniske MCP-adressen. Fikk ${document.resource}, forventet ${MCP_URL}.\n` +
+      'Er de ulike, ber klienten om et token for én adresse og bruker det på en annen.',
+  )
+  expect(
+    Array.isArray(document.authorization_servers) && document.authorization_servers.length > 0,
+    'dokumentet navngir ingen autorisasjonsserver, som MCP krever at det gjør',
+  )
+  resourceMetadata = document
+  return `ressursen er ${document.resource}`
+})
+
+await check('den samme metadataen på rot-adressen', async () => {
+  // The specification requires a client to try the path-inserted address first
+  // and the root second. Both have to answer, or half the clients fail.
+  const response = await fetch(ROOT_RESOURCE_METADATA_URL, {
+    headers: { Accept: 'application/json', ...extraHeaders },
+  })
+  if (!resourceMetadata) {
+    expect(response.status === 404, `forventet 404 uten OAuth, fikk ${response.status}`)
+    return 'hoppet over'
+  }
+  expect(response.status === 200, `forventet 200, fikk ${response.status}`)
+  const document = await response.json()
+  expect(
+    JSON.stringify(document) === JSON.stringify(resourceMetadata),
+    'rot-adressen svarer med et annet dokument enn den dype adressen',
+  )
+  return 'identisk'
+})
+
+await check('autorisasjonsserveren finnes og er slått på', async () => {
+  if (!resourceMetadata) return 'hoppet over'
+  // The one thing this script can check that no unit test can: the
+  // authorization server the document names is actually serving OAuth. Supabase
+  // answers `feature_disabled` here until somebody turns it on in the
+  // dashboard, and that is exactly the failure that would otherwise show up as
+  // «ChatGPT kan ikke koble til» with nothing to go on.
+  const issuer = resourceMetadata.authorization_servers[0].replace(/\/+$/, '')
+  const url = new URL(issuer)
+  const discovery = `${url.origin}/.well-known/oauth-authorization-server${url.pathname}`
+  const response = await fetch(discovery, { headers: { Accept: 'application/json' } })
+  expect(
+    response.status === 200,
+    `${discovery} svarte ${response.status}. Er OAuth 2.1 Server slått på i Supabase-prosjektet?`,
+  )
+  const metadata = await response.json()
+  expect(typeof metadata.authorization_endpoint === 'string', 'ingen authorization_endpoint')
+  expect(typeof metadata.token_endpoint === 'string', 'ingen token_endpoint')
+  expect(
+    Array.isArray(metadata.code_challenge_methods_supported) &&
+      metadata.code_challenge_methods_supported.includes('S256'),
+    'autorisasjonsserveren annonserer ikke PKCE med S256, som OAuth 2.1 krever',
+  )
+  const registration = typeof metadata.registration_endpoint === 'string'
+  return `PKCE S256, dynamisk klientregistrering ${registration ? 'på' : 'av'}`
+})
+
+await check('401-utfordringen peker på metadataen', async () => {
+  const answer = await send('tools/call', { params: { name: callableTool(), arguments: {} } })
+  const challenge = answer.headers.get('www-authenticate') ?? ''
+  if (!resourceMetadata) {
+    expect(
+      !/resource_metadata/i.test(challenge),
+      'utfordringen peker på et metadatadokument installasjonen ikke har',
+    )
+    return 'hoppet over (ingen OAuth)'
+  }
+  expect(
+    challenge.includes(`resource_metadata="${RESOURCE_METADATA_URL}"`),
+    `utfordringen peker ikke på ${RESOURCE_METADATA_URL} (fikk «${challenge}»)`,
+  )
+  return 'peker på dokumentet'
+})
+
+await check('verktøyene sier at de krever OAuth', async () => {
+  // What a mixed-authentication client reads to know that connecting is not
+  // enough. An empty list here is the shape of the bug where a connector links
+  // and then cannot call anything.
+  expect(catalogue.length > 0, 'ingen verktøy å se på')
+  for (const tool of catalogue) {
+    const schemes = tool.securitySchemes ?? tool._meta?.securitySchemes
+    expect(Array.isArray(schemes) && schemes.length > 0, `${tool.name} sier ingenting om auth`)
+    const oauth = schemes.find((scheme) => scheme.type === 'oauth2')
+    expect(oauth !== undefined, `${tool.name} annonserer ingen oauth2-ordning`)
+    expect(Array.isArray(oauth.scopes), `${tool.name} har ingen scope-liste`)
+  }
+  return `${catalogue.length} verktøy, alle med oauth2`
+})
+
+if (oauthToken) {
+  console.log('\nMed OAuth-token')
+
+  await check('tools/call virker med et OAuth-token', async () => {
+    const answer = await send('tools/call', {
+      params: { name: callableTool(), arguments: {} },
+      auth: oauthToken,
+    })
+    const result = resultOf(answer)
+    expect(result.isError !== true, `verktøyet svarte med isError: ${JSON.stringify(result.content)}`)
+    expect(result.structuredContent !== undefined, 'ingen structuredContent i resultatet')
+    return 'operasjonen kjørte'
+  })
+} else {
+  console.log('\nMed OAuth-token: hoppet over (SLAIDS_OAUTH_TOKEN er ikke satt).')
+}
 
 if (token) {
   console.log('\nMed token')

@@ -11,8 +11,10 @@
  * itself, because in-process it runs with exactly the access its caller already
  * has:
  *
- *  - **who is calling.** A bearer token, looked up by hash, checked for
- *    revocation and expiry.
+ *  - **who is calling.** A bearer credential, of one of two families: an agent
+ *    token looked up by hash, or a Supabase OAuth access token verified against
+ *    the project's key set. Both end as one `AgentPrincipal`, and nothing below
+ *    this line can tell which it was — see `tokens.ts`.
  *  - **what they may do.** Scopes, enforced here and never in the client, from
  *    the same `operation.scopes` the catalogue publishes. There is no second,
  *    hand-written table of operation names to fall out of date.
@@ -26,8 +28,18 @@
  *   POST /api/agent/v1/operations/<name>    → run one operation
  *   POST /api/agent/v1/mcp                  → the same operations, as MCP tools
  *
- * All four are one static function on the platform (`api/agent/v1.ts`) plus an
- * explicit rewrite; `deployment.test.ts` checks that the deployment really
+ * …plus two addresses that are not under it, and cannot be:
+ *
+ *   GET  /.well-known/oauth-protected-resource/api/agent/v1/mcp
+ *   GET  /.well-known/oauth-protected-resource
+ *
+ * Those are RFC 9728's, built from the *host* root by inserting the well-known
+ * segment ahead of the resource's own path, so their shape is the
+ * specification's rather than ours. Both answer with the same document, because
+ * a client is required to try the first and fall back to the second.
+ *
+ * All six are one static function on the platform (`api/agent/v1.ts`) plus
+ * explicit rewrites; `deployment.test.ts` checks that the deployment really
  * sends every one of them here.
  *
  * The MCP endpoint is routed here rather than deployed beside this one because
@@ -37,9 +49,13 @@
  * over either transport" a property of the code rather than of two adapters
  * written carefully.
  *
- * It is the one route this file does not authenticate for, and the reason is
- * that on that address the answer differs per JSON-RPC message rather than per
- * route: **MCP discovery is public; Slaids' operations are authenticated and
+ * It is one of the two routes this file does not authenticate for. The other is
+ * the metadata document, which is public by specification: it is what a client
+ * reads *because* it has no credential yet, so a 401 there would be a discovery
+ * loop with no exit.
+ *
+ * For MCP the reason is different — on that address the answer differs per
+ * JSON-RPC message rather than per route: **MCP discovery is public; Slaids' operations are authenticated and
  * scope-gated.** A client has to be able to handshake and read the tool
  * catalogue before an owner has given it a token — that is the order ChatGPT's
  * custom MCP apps and every other "scan, then connect an account" client work
@@ -65,7 +81,15 @@
 
 import { attachEncodedImage, type AgentImage } from '../../agent/image'
 import { describeOperations } from '../../agent/registry'
-import { AGENT_API_BASE_PATH, AGENT_API_VERSION, AGENT_MCP_PATH, agentApiUrl } from '../../routing'
+import {
+  AGENT_API_BASE_PATH,
+  AGENT_API_VERSION,
+  AGENT_MCP_PATH,
+  MCP_PROTECTED_RESOURCE_METADATA_PATH,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  agentApiUrl,
+  canonicalMcpUrl,
+} from '../../routing'
 import type { AgentContext } from '../../agent/types'
 import {
   auditedPresentationId,
@@ -77,6 +101,12 @@ import {
 import { parseOperationInput, readBody } from './body'
 import { authorizeOperation, performOperation } from './invoke'
 import { handleMcpRequest } from '../mcp/endpoint'
+import type { OAuthResourceConfig } from './oauth'
+import {
+  challengeFor,
+  protectedResourceMetadata,
+  resourceOrigin,
+} from './resourceMetadata'
 import {
   agentApiHeaders,
   errorResponse,
@@ -108,6 +138,15 @@ export interface AgentApiDeps extends AgentTokenLookup {
   audit: AgentAuditSink
   maxRequestBytes: number
   now(): Date
+  /**
+   * The OAuth resource-server half, when this deployment offers one.
+   *
+   * Absent means agent tokens and nothing else: no metadata document, and a
+   * `WWW-Authenticate` with nowhere to point. See `oauth.ts`.
+   */
+  oauth?: OAuthResourceConfig
+  /** The origin OAuth metadata speaks about, when the deployment pins one. */
+  publicOrigin?: string | null
 }
 
 /**
@@ -158,6 +197,20 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
     return new Response(null, { status: 204, headers: agentApiHeaders() })
   }
 
+  // The OAuth metadata document, which is public by specification: it is the
+  // thing a client reads *because* it has no credential yet, so authenticating
+  // it would be a discovery loop with no exit. It says nothing an owner owns —
+  // an address and the name of an authorization server — and it is the same
+  // bytes for every caller. See `resourceMetadata.ts`.
+  //
+  // Both of RFC 9728's addresses are answered, and they are recognised twice
+  // over: as they were asked for, and as the platform's rewrite hands them
+  // back. The first is what a host that routes by path delivers and what the
+  // tests exercise; the second is Vercel, where a static function can only be
+  // reached through the rewrite. Neither is a fallback for the other — they are
+  // the same address seen from two sides of an edge.
+  if (isResourceMetadataAddress(url.pathname)) return resourceMetadataResponse(deps, request)
+
   const path = routePath(url.pathname)
   if (path === null) {
     return errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
@@ -184,7 +237,7 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
       auth,
       operation: operationNameIn(path) ?? 'authenticate',
     })
-    return unauthenticatedResponse()
+    return unauthenticatedResponse(challengeFor(deps, request, auth.reason))
   }
   const principal = auth.principal
 
@@ -250,6 +303,61 @@ function operationNameIn(path: string): string | null {
  * point a client all read one string.
  */
 const MCP_SUBPATH = AGENT_MCP_PATH.slice(AGENT_API_BASE_PATH.length)
+
+/**
+ * The metadata document, or a 404 when this deployment has no OAuth.
+ *
+ * A 404 rather than an empty document on purpose: RFC 9728 discovery is a
+ * client asking "is there an authorization server for this resource?", and the
+ * honest answer from a deployment that accepts only agent tokens is "no such
+ * document", not one that names nobody.
+ */
+function resourceMetadataResponse(deps: AgentApiDeps, request: Request): Response {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return errorResponse(
+      { code: 'METHOD_NOT_ALLOWED', message: 'Bruk GET på denne adressen.' },
+      { extraHeaders: { Allow: 'GET, OPTIONS' } },
+    )
+  }
+  if (!deps.oauth) {
+    return errorResponse({
+      code: 'NOT_FOUND',
+      message:
+        'Denne installasjonen tilbyr ingen OAuth-autorisasjonsserver. Bruk et agenttoken («Authorization: Bearer slaids_at_…»).',
+    })
+  }
+  const document = protectedResourceMetadata({
+    canonicalResource: canonicalMcpUrl(resourceOrigin(request, deps.publicOrigin)),
+    config: deps.oauth,
+  })
+  return new Response(JSON.stringify(document), {
+    status: 200,
+    headers: agentApiHeaders({
+      'Content-Type': 'application/json; charset=utf-8',
+      // Public, identical for every caller, and fetched at the start of every
+      // client's first connection. A short cache is politeness towards the
+      // clients rather than a saving here.
+      'Cache-Control': 'public, max-age=300',
+    }),
+  })
+}
+
+/**
+ * Whether this address is one the metadata document answers on.
+ *
+ * The two RFC 9728 addresses, plus the one the Vercel rewrite reconstructs —
+ * `agentApiUrl` puts the forwarded path back under the version prefix, so the
+ * platform's version of `/.well-known/oauth-protected-resource` arrives with the
+ * prefix in front of it.
+ */
+function isResourceMetadataAddress(pathname: string): boolean {
+  const normalised = pathname.replace(/\/+$/, '') || '/'
+  return (
+    normalised === PROTECTED_RESOURCE_METADATA_PATH ||
+    normalised === MCP_PROTECTED_RESOURCE_METADATA_PATH ||
+    normalised === `${AGENT_API_BASE_PATH}${PROTECTED_RESOURCE_METADATA_PATH}`
+  )
+}
 
 /** The path under the versioned base, or `null` when the request is not ours. */
 function routePath(pathname: string): string | null {

@@ -18,15 +18,35 @@
  */
 
 import { statusFor } from './protocol'
-import { REFUSAL_CODES, type AuthOutcome } from './tokens'
+import { REFUSAL_CODES, type AgentCredentialKind, type AuthOutcome } from './tokens'
 
 /** One agent call, as it is stored. */
 export interface AgentAuditRecord {
   at: string
   ownerId: string
-  tokenId: string
+  /**
+   * Which credential family made the call.
+   *
+   * Added when OAuth was, and it is the reason the two columns below became
+   * nullable rather than the reason a fake token row got invented for an OAuth
+   * call. An owner reading their log has to be able to see "this came from the
+   * ChatGPT connector" as distinct from "this came from the token I minted for
+   * my build script", and neither of those is knowable from an operation name.
+   */
+  principalKind: AgentCredentialKind
+  /** The agent token's row id, or `null` for a call that used none. */
+  tokenId: string | null
   /** The name the owner gave the token, so a log is readable without a join. */
   tokenName: string
+  /**
+   * The OAuth client the owner approved, or `null` for an agent-token call.
+   *
+   * A `client_id` is a public identifier — it travels in the authorization
+   * request, in the browser's address bar — so it is the one OAuth value that
+   * belongs in a log. The access token, the refresh token, the code and the
+   * verifier are not here and there is nowhere to put them.
+   */
+  clientId: string | null
   operation: string
   presentationId: string | null
   success: boolean
@@ -40,11 +60,15 @@ export interface AgentAuditSink {
   record(entry: AgentAuditRecord): Promise<void>
 }
 
-export interface AuditSubject {
-  ownerId: string
-  tokenId: string
-  tokenName: string
-}
+/**
+ * Who a row is attributed to.
+ *
+ * The same union `AgentPrincipal` is, minus the authority: an audit says who
+ * acted, never what they were allowed to do.
+ */
+export type AuditSubject =
+  | { kind: 'agent_token'; ownerId: string; tokenId: string; tokenName: string }
+  | { kind: 'oauth'; ownerId: string; clientId: string }
 
 /**
  * Build the record for one call.
@@ -62,11 +86,14 @@ export function auditRecord(input: {
   errorCode: string | null
   durationMs: number
 }): AgentAuditRecord {
+  const subject = input.subject
   return {
     at: input.at.toISOString(),
-    ownerId: input.subject.ownerId,
-    tokenId: input.subject.tokenId,
-    tokenName: input.subject.tokenName,
+    ownerId: subject.ownerId,
+    principalKind: subject.kind,
+    tokenId: subject.kind === 'agent_token' ? subject.tokenId : null,
+    tokenName: subject.kind === 'agent_token' ? subject.tokenName : '',
+    clientId: subject.kind === 'oauth' ? subject.clientId : null,
     // The name comes off the URL, so it is as long as a caller wants it to be
     // and the column is not. Bounded here rather than left to fail the insert:
     // a nonsense name should cost a truncated audit row, not a missing one.
