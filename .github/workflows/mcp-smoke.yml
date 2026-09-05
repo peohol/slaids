@@ -48,9 +48,9 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'Installasjonen, uten sti. F.eks. https://slaids.no'
+        description: 'Installasjonen, uten sti. Bruk adressen uten omdirigering – en kryss-origin-redirect fjerner Authorization underveis.'
         required: true
-        default: 'https://slaids.no'
+        default: 'https://www.slaids.no'
       authenticated:
         description: 'Kjør også den autentiserte halvdelen, med secreten SLAIDS_AGENT_TOKEN.'
         type: boolean

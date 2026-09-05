@@ -14,7 +14,7 @@
  * into the server bundle if an import ever reached it.
  */
 
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { AGENT_MCP_PATH } from '../../routing'
 import { handleAgentRequest } from '../agent/handler'
@@ -27,31 +27,45 @@ export interface ServedHarness {
   close(): Promise<void>
 }
 
-export function serveHarness(harnessed: Harness): Server {
-  return createServer((incoming, outgoing) => {
-    const chunks: Buffer[] = []
-    incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
-    incoming.on('end', () => {
-      const body = Buffer.concat(chunks)
-      const headers = new Headers()
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        for (const single of Array.isArray(value) ? value : [value ?? '']) {
-          if (single) headers.append(name, single)
-        }
+/**
+ * One connection, answered by the deployment.
+ *
+ * Exported so a test can put something *in front* of it — a redirect, a
+ * protection wall — without a second copy of this shim. Two shims are two
+ * chances for one of them to be subtly friendlier than the platform is, which
+ * is the whole reason this file exists.
+ */
+export function respondWith(
+  harnessed: Harness,
+  incoming: IncomingMessage,
+  outgoing: ServerResponse,
+): void {
+  const chunks: Buffer[] = []
+  incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
+  incoming.on('end', () => {
+    const body = Buffer.concat(chunks)
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(incoming.headers)) {
+      for (const single of Array.isArray(value) ? value : [value ?? '']) {
+        if (single) headers.append(name, single)
       }
+    }
 
-      const request = new Request(`http://localhost${incoming.url ?? '/'}`, {
-        method: incoming.method,
-        headers,
-        ...(body.byteLength > 0 ? { body } : {}),
-      })
+    const request = new Request(`http://localhost${incoming.url ?? '/'}`, {
+      method: incoming.method,
+      headers,
+      ...(body.byteLength > 0 ? { body } : {}),
+    })
 
-      void handleAgentRequest(harnessed.deps, request).then(async (response) => {
-        outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()))
-        outgoing.end(Buffer.from(await response.arrayBuffer()))
-      })
+    void handleAgentRequest(harnessed.deps, request).then(async (response) => {
+      outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()))
+      outgoing.end(Buffer.from(await response.arrayBuffer()))
     })
   })
+}
+
+export function serveHarness(harnessed: Harness): Server {
+  return createServer((incoming, outgoing) => respondWith(harnessed, incoming, outgoing))
 }
 
 /** Listen on an ephemeral port and report where the MCP endpoint answers. */

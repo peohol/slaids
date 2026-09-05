@@ -20,7 +20,7 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { operations } from '../../agent/registry'
 import { TOKEN, closeHarnessDatabases, harness, type Harness } from './testHarness'
-import { listenHarness, type ServedHarness } from './testServer'
+import { listenHarness, respondWith, type ServedHarness } from './testServer'
 
 const run = promisify(execFile)
 
@@ -57,9 +57,10 @@ async function servingOnly(
   status: number,
   body: string,
   contentType = 'application/json',
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ origin: string; close: () => Promise<void> }> {
   const server = createServer((_incoming, outgoing) => {
-    outgoing.writeHead(status, { 'Content-Type': contentType })
+    outgoing.writeHead(status, { 'Content-Type': contentType, ...extraHeaders })
     outgoing.end(body)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -134,6 +135,71 @@ describe('scripts/mcp-smoke.mjs', () => {
       expect(code).toBe(2)
     } finally {
       await stub.close()
+    }
+  }, 30_000)
+
+  it('stopper på en redirect som ville tatt tokenet med seg', async () => {
+    // The failure this script exists to catch and could not see: `fetch` follows
+    // a cross-origin redirect and drops `Authorization` doing it, so every later
+    // check would silently measure an anonymous request. Production answered
+    // exactly this — the apex domain `308`s to `www` — and the round read as a
+    // fault in the endpoint until the redirect was looked at.
+    const stub = await servingOnly(308, '', 'text/plain', {
+      Location: 'https://www.example.invalid/api/agent/v1/mcp',
+    })
+    try {
+      const { code, out } = await smoke([], stub.origin)
+      expect(out).toContain('Authorization')
+      expect(out).toContain('www.example.invalid')
+      expect(out).not.toContain('FEIL')
+      expect(code).toBe(2)
+    } finally {
+      await stub.close()
+    }
+  }, 30_000)
+
+  it('bryr seg ikke om en redirect som blir på samme origin', async () => {
+    // The other branch, and it needs a real redirect to mean anything: a same
+    // origin keeps `Authorization`, so the script must follow it and finish the
+    // whole round rather than stop. The server below answers `307` — which
+    // preserves the method and the body, as a redirected POST must — to the same
+    // address with a marker on it, and serves the deployment on the second pass.
+    let redirected = 0
+    const front = createServer((incoming, outgoing) => {
+      const asked = new URL(incoming.url ?? '/', 'http://127.0.0.1')
+      if (!asked.searchParams.has('fulgt')) {
+        redirected += 1
+        asked.searchParams.set('fulgt', '1')
+        // Relative, so it resolves against the request's own origin.
+        outgoing.writeHead(307, { Location: `${asked.pathname}${asked.search}` })
+        outgoing.end()
+        return
+      }
+      respondWith(deployment, incoming, outgoing)
+    })
+    await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
+    const origin = `http://127.0.0.1:${(front.address() as AddressInfo).port}`
+
+    try {
+      const { code, out } = await smoke(
+        ['--token', TOKEN, '--expect-tools', String(operations.length)],
+        origin,
+      )
+      // Green through a redirect means the token survived it: the authenticated
+      // half runs a real operation and compares the two catalogues.
+      expect(out).toContain('operasjonen kjørte')
+      expect(out).not.toContain('FEIL')
+      // And the cross-origin warning stayed quiet, which is the branch under
+      // test — «Oppdagelse uten Authorization» is a heading the round always
+      // prints, so the warning has to be recognised by its own words.
+      expect(out).not.toContain('en annen origin')
+      expect(code).toBe(0)
+      // The counter is what keeps this test from quietly becoming a second copy
+      // of "a normal installation passes": without a redirect actually served,
+      // the branch it claims to cover was never taken.
+      expect(redirected).toBeGreaterThan(0)
+    } finally {
+      await new Promise<void>((resolve) => front.close(() => resolve()))
     }
   }, 30_000)
 
