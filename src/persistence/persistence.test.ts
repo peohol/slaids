@@ -7,10 +7,12 @@ import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
-import { createImage, createUntitledCard } from '../domain/content'
+import { containerWithDoc, createImage, createUntitledCard } from '../domain/content'
+import { unknownAssetIds, usedAssetIds } from '../domain/commands'
 import { newAssetId, newTemplateId } from '../domain/ids'
 import { decodeBase64, realImageBase64 } from '../domain/testImages'
 import { bytesToBlob } from './blob'
+import { unzipSync, zipSync } from 'fflate'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
 
 let counter = 0
@@ -573,6 +575,93 @@ describe('.slaids backup', () => {
     expect(report.errors.join(' ')).toContain('figur.svg')
     expect(await target.getAsset(assetRef.id)).toBeNull()
     expect(await target.listAssets(report.importedPresentations[0])).toEqual([])
+
+    /*
+     * And the document does not point at it. A refused file that stayed in the
+     * asset list — or in the zone that showed it — would be a deck importing
+     * "successfully" with a picture that can never load, which is the state
+     * `unknownAssetIds` exists to call broken.
+     */
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(JSON.stringify(restored.slides)).not.toContain(assetRef.id)
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
+  })
+
+  it('tar den avviste figuren ut av teksten og sandkassen også', async () => {
+    // Not only the asset list: an inline picture is a block in the text and a
+    // sandbox item is content too, and either one left pointing at a file that
+    // was never stored is the same broken deck.
+    const source = freshRepository()
+    const base = samplePresentation()
+    const presentation: Presentation = {
+      ...base,
+      assets: [assetRef],
+      slides: [
+        {
+          ...base.slides[0],
+          root: createSplit('x', [1, 1], [
+            createLeaf(createImage(assetRef.id)),
+            createLeaf(
+              containerWithDoc({
+                type: 'doc',
+                content: [
+                  { type: 'paragraph', content: [{ type: 'text', text: 'Teksten blir stående.' }] },
+                  { type: 'slaidsImage', attrs: { assetId: assetRef.id, alt: 'Figur' } },
+                ],
+              }),
+            ),
+          ]),
+        },
+      ],
+      sandbox: [{ id: 'sb1', content: createImage(assetRef.id), createdAt: '', note: '' }],
+    }
+    await source.savePresentation(presentation)
+    await source.putAsset(
+      presentation.id,
+      assetRef,
+      new Blob([`<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>`], {
+        type: 'image/svg+xml',
+      }),
+    )
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.importedPresentations).toHaveLength(1)
+
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(JSON.stringify(restored)).not.toContain(`"assetId":"${assetRef.id}"`)
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
+    // Everything the archive did describe correctly is still there.
+    expect(JSON.stringify(restored.slides)).toContain('Teksten blir stående.')
+    expect(restored.sandbox).toHaveLength(1)
+  })
+
+  it('fjerner også en referanse arkivet ikke har bytes for', async () => {
+    // Missing file data was already reported and skipped; now the reference
+    // goes with it, so the rule is one rule and not one per reason.
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // Strip the bytes out of the zip, leaving the index entry behind.
+    const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()))
+    const withoutBytes = Object.fromEntries(
+      Object.entries(entries).filter(([path]) => !/^assets\/[^/]+\.svg$/.test(path)),
+    )
+    const damaged = new Blob([zipSync(withoutBytes) as unknown as BlobPart])
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, damaged)
+    expect(report.errors.join(' ')).toContain('Mangler fildata')
+
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
   })
 
   it('saniterer en lovlig SVG på vei inn, og lagrer den reserialiserte', async () => {

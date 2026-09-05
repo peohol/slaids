@@ -9,6 +9,7 @@
 
 import { imagePanelOf, withImagePanel } from './content'
 import { walkNodes } from './layout'
+import { emptyDoc } from './richdoc'
 import type {
   CardBody,
   ImagePanel,
@@ -181,6 +182,88 @@ export function remapAssetIds(
   }))
   const assets = presentation.assets.map((asset) => ({ ...asset, id: map.get(asset.id) ?? asset.id }))
   return { ...presentation, slides, sandbox, assets }
+}
+
+/**
+ * Remove every trace of these files from the presentation.
+ *
+ * The mirror of `remapAssetIds`, for the one case where a file a document names
+ * will not exist: a `.slaids` archive whose figure the ingress door refuses, or
+ * whose bytes are simply not in the zip. Keeping the `AssetRef` would import a
+ * deck pointing at bytes nobody is ever going to write — precisely the state
+ * `unknownAssetIds` calls broken — so the reference goes at the same moment the
+ * file does.
+ *
+ * What "removed" means depends on where the reference sits, and both answers
+ * are states the model already has rather than new ones:
+ *
+ *  - a picture zone keeps its crop, its caption and its title and simply has no
+ *    file (`assetId: null`), which is exactly a zone waiting for one;
+ *  - an inline picture is a block in the text, and a block pointing at nothing
+ *    cannot be drawn, so it is taken out. A field left with nothing in it
+ *    becomes an empty paragraph rather than an empty document, because that is
+ *    what every other empty field is.
+ */
+export function dropAssetIds(
+  presentation: Presentation,
+  ids: ReadonlySet<string>,
+): Presentation {
+  if (ids.size === 0) return presentation
+  const drop = (content: ZoneContent): ZoneContent => dropContentAssetIds(content, ids)
+  return {
+    ...presentation,
+    slides: presentation.slides.map((slide) => ({
+      ...slide,
+      root: mapTreeContent(slide.root, drop),
+    })),
+    sandbox: presentation.sandbox.map((item) => ({ ...item, content: drop(item.content) })),
+    assets: presentation.assets.filter((asset) => !ids.has(asset.id)),
+  }
+}
+
+/** Remove every trace of these files from a single content object. */
+export function dropContentAssetIds(
+  content: ZoneContent,
+  ids: ReadonlySet<string>,
+): ZoneContent {
+  if (ids.size === 0) return content
+  const cleaned = mapContentDocs(content, makeAssetDocRemover(ids))
+  const panel = imagePanelOf(cleaned)
+  if (!panel?.assetId || !ids.has(panel.assetId)) return cleaned
+  return withImagePanel(cleaned, { ...panel, assetId: null })
+}
+
+function makeAssetDocRemover(ids: ReadonlySet<string>): DocTransform {
+  const walk = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
+    if (!nodes) return nodes
+    let changed = false
+    const kept: RichNode[] = []
+    for (const node of nodes) {
+      const assetId = node.attrs?.assetId
+      if (typeof assetId === 'string' && ids.has(assetId)) {
+        changed = true
+        continue
+      }
+      const content = walk(node.content)
+      if (content === node.content) {
+        kept.push(node)
+        continue
+      }
+      changed = true
+      // An emptied node loses the key rather than carrying an empty array: a
+      // list item with `content: []` and one with no content at all are the
+      // same thing, and only one of them is how the rest of the code writes it.
+      const { content: _emptied, ...withoutContent } = node
+      kept.push(content && content.length > 0 ? { ...node, content } : withoutContent)
+    }
+    return changed ? kept : nodes
+  }
+
+  return (doc: RichDoc): RichDoc => {
+    const content = walk(doc.content)
+    if (content === doc.content) return doc
+    return content && content.length > 0 ? { ...doc, content } : emptyDoc()
+  }
 }
 
 function mapTreeContent(

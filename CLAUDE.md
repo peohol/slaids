@@ -559,7 +559,14 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   størrelsen fra en kilde døren allerede har – nettleseren, som er den ene
   kjøretiden som kan lese en AVIF, eller arkivets eget register. **Valideringen
   skjer før den første skrivingen**, ikke som en angring etterpå: en avvist fil
-  etterlater ingen blob, ingen `AssetRef` og ingen halvplassert figur. Interne
+  etterlater ingen blob, ingen `AssetRef` og ingen halvplassert figur. I
+  `.slaids`-import gjelder det også dokumentet: en fil som ikke blir lagret –
+  avvist, uten bytes i arkivet, eller uten oppføring i registeret – fjernes med
+  `dropAssetIds` fra assetlisten *og* fra hvert sted som viste den (sonen,
+  bildet inne i teksten, sandkassen), slik at det som lagres beskriver filene
+  som faktisk blir der. En bildesone blir stående som en sone som venter på en
+  fil (`assetId: null`) og beholder utsnitt, bildetekst og tittel; et bilde
+  inne i teksten er en blokk som ikke kan tegnes uten fil, og tas ut. Interne
   kopier er unntaket og ikke et hull – innliming på tvers av presentasjoner og
   duplisering flytter bytes som allerede kom gjennom døren, og å validere dem på
   nytt ville dømt en lagret fil etter dagens regler i stedet for reglene den ble

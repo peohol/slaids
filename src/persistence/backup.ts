@@ -23,6 +23,13 @@
  * owner cannot act on, and the bytes already came through this door once. SVG
  * gets no such benefit of the doubt: markup is executable content, the
  * sanitiser is cheap, and what is stored is what comes back out of it.
+ *
+ * A figure the door refuses does not take the deck down with it: it is reported
+ * by name and left out, exactly as missing file data is. "Left out" means gone
+ * from the document too — the asset list, the zone that showed it, the picture
+ * inside the text, the sandbox — because a saved document must describe the
+ * files that will actually be there. Keeping the reference would import a deck
+ * pointing at bytes nobody is ever going to write.
  */
 
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate'
@@ -30,7 +37,7 @@ import { acceptAsset, type AcceptedAsset } from '../domain/assetIngress'
 import { migratePresentation } from '../domain/migrations'
 import { describeError } from '../domain/result'
 import { newAssetId, newPresentationId, newTemplateId } from '../domain/ids'
-import { remapAssetIds } from '../domain/docs'
+import { dropAssetIds, remapAssetIds } from '../domain/docs'
 import { slaidsFileManifestSchema, validateLayoutTemplate } from '../domain/schema'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
 import { RepositoryConflictError, type SlaidsRepository } from './repository'
@@ -227,7 +234,7 @@ export async function importSlaidsArchive(
     for (const entry of owned) {
       const archivedBytes = entries[entry.file]
       if (!archivedBytes) {
-        report.errors.push(`Mangler fildata for «${entry.name}».`)
+        report.errors.push(`Mangler fildata for «${entry.name}»; figuren ble utelatt.`)
         continue
       }
       const verdict = acceptAsset(archivedBytes, { raster: 'caller' })
@@ -236,19 +243,44 @@ export async function importSlaidsArchive(
         // still worth importing, and the figure that was refused is named so
         // the owner knows which one to replace. Nothing unsafe is stored, and
         // that is the whole point of the rule.
-        report.errors.push(`Filen «${entry.name}» ble avvist: ${describeError(verdict.error)}`)
+        report.errors.push(
+          `Filen «${entry.name}» ble avvist: ${describeError(verdict.error)} Figuren ble utelatt.`,
+        )
         continue
       }
       accepted.set(entry.id, verdict.value)
     }
 
-    const source: Presentation = {
-      ...filed,
-      assets: filed.assets.map((ref) => {
-        const file = accepted.get(ref.id)
-        return file ? acceptedRef(ref, file) : ref
-      }),
+    /*
+     * A file that will not be stored must not be named by the document either.
+     * A refused figure — or one whose bytes are simply not in the zip — that
+     * kept its `AssetRef` would import a deck pointing at bytes nobody is ever
+     * going to write, which is the state `unknownAssetIds` calls broken; and
+     * with a remap on top, it would point at a *fresh* id with nothing behind
+     * it. So the reference goes at the same moment the file does, and what is
+     * saved describes the files that will actually be there. One rule covers
+     * refused, missing and not-in-the-index alike.
+     */
+    const indexed = new Set(owned.map((entry) => entry.id))
+    const unstorable = new Set<string>()
+    for (const ref of filed.assets) {
+      if (accepted.has(ref.id)) continue
+      unstorable.add(ref.id)
+      // The two reported cases said their piece in the loop above. This is the
+      // third: a document naming a file the archive's index never listed.
+      if (!indexed.has(ref.id)) report.errors.push(`Arkivet har ingen fil for «${ref.name}».`)
     }
+
+    const source: Presentation = dropAssetIds(
+      {
+        ...filed,
+        assets: filed.assets.map((ref) => {
+          const file = accepted.get(ref.id)
+          return file ? acceptedRef(ref, file) : ref
+        }),
+      },
+      unstorable,
+    )
     const incomingAssetIds = [
       ...new Set([...source.assets.map((ref) => ref.id), ...owned.map((entry) => entry.id)]),
     ]

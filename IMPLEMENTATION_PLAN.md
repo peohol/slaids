@@ -3175,7 +3175,19 @@ byte for byte med størrelsen arkivet husket (`raster: 'caller'`): å utlede den
 nytt ville gjort et bilde som har ligget i et dekk i et år uimporterbart av en
 grunn eieren ikke kan gjøre noe med. SVG får ingen slik tvil til gode. En figur
 som avvises rapporteres ved navn og hoppes over – dekket importeres fortsatt,
-akkurat som når fildata mangler. En SVG uten `viewBox` eller `width`/`height`
+akkurat som når fildata mangler.
+
+«Hoppes over» gjelder dokumentet også. En fil som ikke blir lagret – avvist,
+uten bytes i arkivet, eller uten oppføring i registeret – fjernes med
+`dropAssetIds` (`src/domain/docs.ts`, speilbildet av `remapAssetIds`) fra
+assetlisten *og* fra hvert sted som viste den: sonen, bildet inne i teksten,
+sandkassen. Ellers ville importen svart `ok` med et dekk som peker på bytes
+ingen kommer til å skrive – nøyaktig det `unknownAssetIds` kaller ødelagt – og
+med en id-remapping på toppen ville pekeren til og med vært *ny*. En bildesone
+blir stående som en sone som venter på en fil (`assetId: null`) og beholder
+utsnitt, bildetekst og tittel; et bilde inne i teksten er en blokk som ikke kan
+tegnes uten fil, og tas ut, med et tomt avsnitt igjen hvis feltet ikke hadde
+annet. En SVG uten `viewBox` eller `width`/`height`
 avvises også her, og det er med vilje: Slaids plasserer bilder etter
 størrelsesforholdet, og forholdet arkivet husket for en slik fil var nettleserens
 egen 300 × 150-gjetning – altså nøyaktig gjetningen §44 nekter å plassere etter.
