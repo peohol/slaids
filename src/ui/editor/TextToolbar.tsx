@@ -18,6 +18,7 @@ import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
 import { IMAGE_WIDTH_PRESETS } from './SlaidsImageExtension'
+import { SymbolPickerButton } from './SymbolPicker'
 
 interface MarkButton {
   id: string
@@ -53,7 +54,9 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
   }, [editor, bump])
 
   // A section's two lines carry no formatting and no alignment at all: they are
-  // centred by construction, so there is nothing here to offer for them.
+  // centred by construction, so there is nothing here to offer for them —
+  // except the symbol picker, which is not a formatting choice but a way to
+  // type a character the keyboard doesn't have.
   if (activeField?.kind === 'section-title' || activeField?.kind === 'section-subtitle') {
     return (
       <div className="text-toolbar" data-testid="text-toolbar">
@@ -61,6 +64,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           {activeField.kind === 'section-title' ? 'Overskrift' : 'Underoverskrift'} – alltid
           midtstilt
         </span>
+        {editor && <SymbolPickerButton editor={editor} />}
       </div>
     )
   }
@@ -111,6 +115,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
       <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
         <span className="hint">Overskrift</span>
         {alignButtons}
+        <SymbolPickerButton editor={editor} />
       </div>
     )
   }
@@ -274,6 +279,8 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           <Icon name="link" size={15} />
         </button>
       </Tooltip>
+
+      <SymbolPickerButton editor={editor} />
 
       {headingActive && (
         <ColorPickerButton
