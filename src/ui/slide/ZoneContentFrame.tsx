@@ -192,7 +192,7 @@ export function ZoneContentFrame({
   /*
    * A card with no header colour of its own takes the deck's heading pill
    * colour — the same rule a heading with no stored colour follows — so
-   * changing the cover repaints every such title panel without touching a
+   * changing the section repaints every such title panel without touching a
    * single stored document.
    */
   const titled = content
@@ -227,7 +227,18 @@ export function ZoneContentFrame({
          * A text body is clipped by `.card-body` either way.
          */
         overflow: titled.kind === 'titled-image-card' ? 'visible' : 'hidden',
-      }}
+        /*
+         * A caption with no colour of its own reads `--slaids-heading-pill`
+         * (see `captionTint`), the same variable a heading pill reads. Scoping
+         * it to the header's own colour here — rather than leaving the deck's
+         * default in force — is what makes the picture's caption follow this
+         * card's header instead of the section whenever the header has one of
+         * its own, while still falling back to the section when it doesn't,
+         * because `headerColor` already carries that fallback.
+         */
+        '--slaids-heading-pill': headerColor,
+        '--slaids-heading-pill-text': headerText,
+      } as CSSProperties}
     >
       <div
         className="card-header"
