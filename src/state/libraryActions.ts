@@ -8,13 +8,27 @@
  */
 
 import { setFolder, setPresentationTitle } from '../domain/commands'
-import { duplicatePresentation as duplicateIn } from '../persistence/library'
+import { createFolder as createFolderIn, duplicatePresentation as duplicateIn } from '../persistence/library'
 import { repository } from '../persistence/activeRepository'
-import type { Presentation } from '../domain/types'
+import type { Folder, Presentation } from '../domain/types'
 
 /** Deep-copy a presentation, including its files. */
 export async function duplicatePresentation(sourceId: string): Promise<Presentation> {
   return duplicateIn(repository, await repository.loadPresentation(sourceId))
+}
+
+/**
+ * Make a folder from a name somebody typed.
+ *
+ * `null` is "that was not a name" — an empty field, or only spaces — and the
+ * dialog treats it as a cancellation rather than an error, the same way
+ * `renamePresentation` below treats an emptied name. What counts as a name is
+ * not decided here: it is `persistence/library.ts`, so the folder an agent makes
+ * and the folder the sidebar makes are the same kind of row.
+ */
+export async function createFolder(name: string): Promise<Folder | null> {
+  const created = await createFolderIn(repository, name)
+  return created.ok ? created.value : null
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {

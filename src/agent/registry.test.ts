@@ -248,10 +248,16 @@ describe('operasjonskatalogen', () => {
   })
 
   it('har fase 7: bibliotekets livsløp, med scope-grensen tegnet per operasjon', () => {
-    // The four calls that act on a presentation from the outside. Each of them
+    // The six calls that act on a presentation from the outside. Each of them
     // asks for exactly the authority the act consumes, and the differences are
     // the contract rather than a detail:
     //  - listing folders is a reading of the library, which a read token has;
+    //  - making a folder is a write and only a write: no bytes, nothing
+    //    published, and a receipt made entirely of what the caller sent plus
+    //    what Slaids minted for it, so there is nothing in it to have been read;
+    //  - deleting one is a write on every presentation inside it — clearing the
+    //    `folderId` that pointed at it — and nothing else, so the same one scope
+    //    and no file scope;
     //  - a move writes one field and answers with the two ids the caller sent;
     //  - a copy reads the whole document and answers with it, *and* stores a new
     //    file for every file the source has, so it needs all three: a write-only
@@ -261,6 +267,8 @@ describe('operasjonskatalogen', () => {
     //    which are precisely the two things the two write scopes protect.
     const expected: Record<string, { mutates: boolean; scopes: string[] }> = {
       list_folders: { mutates: false, scopes: ['presentations:read'] },
+      create_folder: { mutates: true, scopes: ['presentations:write'] },
+      delete_folder: { mutates: true, scopes: ['presentations:write'] },
       move_presentation: { mutates: true, scopes: ['presentations:write'] },
       duplicate_presentation: {
         mutates: true,
@@ -312,6 +320,34 @@ describe('operasjonskatalogen', () => {
     // Listing folders takes nothing: it is the whole library or nothing.
     expect(Object.keys(schemaFor('list_folders').properties ?? {})).toEqual([])
 
+    // The two folder mutations take one field each, and it is the *whole*
+    // contract: no id to name on the way in (Slaids mints it), no revision to
+    // write against (a folder is not a document and has no reading), and no
+    // `force` on the deletion — what happens to the presentations inside is not
+    // a choice the caller gets to make, it is the promise.
+    const made = schemaFor('create_folder') as typeof move & { additionalProperties?: unknown }
+    expect(Object.keys(made.properties)).toEqual(['name'])
+    expect(made.required).toEqual(['name'])
+    expect(made.additionalProperties).toBe(false)
+    // Published as trimmed and non-empty, so a caller can tell before it sends.
+    expect(made.properties.name).toMatchObject({ type: 'string', minLength: 1 })
+
+    const removedFolder = schemaFor('delete_folder') as typeof move & {
+      additionalProperties?: unknown
+    }
+    expect(Object.keys(removedFolder.properties)).toEqual(['folderId'])
+    expect(removedFolder.required).toEqual(['folderId'])
+    expect(removedFolder.additionalProperties).toBe(false)
+    expect(JSON.stringify(removedFolder)).not.toContain('force')
+
+    // And neither of them may touch the file store, in either direction.
+    for (const name of ['create_folder', 'delete_folder']) {
+      expect({ name, scopes: findOperation(name)?.scopes }).toEqual({
+        name,
+        scopes: ['presentations:write'],
+      })
+    }
+
     // The one rule that ties the file scope to the file store: every operation
     // that can put bytes into it or take them out asks for `assets:write`.
     // Generated from the registry rather than listed, so an operation that
@@ -362,18 +398,27 @@ describe('operasjonskatalogen', () => {
   it('lar enhver mutasjon oppgi revisjonen den skriver mot', () => {
     // Uniform on purpose: an agent must not have to know which writes can be
     // guarded against a stale reading and which cannot.
+    //
+    // Derived from the schema rather than from a list of exceptions, because the
+    // rule is not "these operations are special" but "a revision is a reading of
+    // one presentation". An operation that names a `presentationId` writes a
+    // document the caller could have read, so it must take the guard; one that
+    // does not name a presentation — `create_presentation`, which is making the
+    // first one, and the two folder operations, which act on the library around
+    // them — has no reading to be stale, and offering a field that could not be
+    // checked against anything would be worse than not having it.
     for (const operation of operations.filter((entry) => entry.mutates)) {
-      const properties = (
-        z.toJSONSchema(operation.transportInput ?? operation.input, { io: 'input' }) as {
-          properties?: Record<string, unknown>
-        }
-      ).properties
-      if (operation.name === 'create_presentation') {
-        // Nothing exists yet, so there is no reading to be stale.
-        expect(properties).not.toHaveProperty('expectedRevision')
-        continue
-      }
-      expect(properties).toHaveProperty('expectedRevision')
+      const properties =
+        (
+          z.toJSONSchema(operation.transportInput ?? operation.input, { io: 'input' }) as {
+            properties?: Record<string, unknown>
+          }
+        ).properties ?? {}
+      const guarded = 'presentationId' in properties
+      expect({ name: operation.name, guarded: 'expectedRevision' in properties }).toEqual({
+        name: operation.name,
+        guarded,
+      })
     }
   })
 

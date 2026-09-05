@@ -80,6 +80,23 @@ export const folderIdSchema = z
   .min(1)
   .describe('Id-en til en mappe i biblioteket, fra list_folders.')
 
+/**
+ * What a folder may be called.
+ *
+ * Trimmed and non-empty here as well as in `persistence/library.ts`, and that is
+ * not the rule written twice: the library *decides* it, and this is the contract
+ * saying so in advance. Without it the published schema would accept `"   "` and
+ * refuse it afterwards, which is exactly the kind of thing an agent cannot plan
+ * around — the whole point of publishing a schema is that a caller can tell what
+ * will be rejected before it sends it.
+ */
+export const folderNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .describe('Navnet på mappen, slik det vises i biblioteket.')
+
 export const assetIdSchema = z.string().min(1).describe('Id-en til en fil i presentasjonen.')
 
 export const assetNameSchema = z

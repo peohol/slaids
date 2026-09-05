@@ -1018,6 +1018,198 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
   })
 
   /* ---------------------------------------------------------------- *
+   * Deleting a folder
+   * ---------------------------------------------------------------- */
+
+  /** A stored presentation, with the folder written in both places it lives. */
+  function deckRow(id: string, folderId: string | null, version = 1): Row {
+    return {
+      id,
+      owner_id: OURS,
+      title: id,
+      folder_id: folderId,
+      document: { id, title: id, folderId },
+      slide_count: 1,
+      version,
+    }
+  }
+
+  it('sletter mappen og lar presentasjonene i den bli liggende, uten mappe', async () => {
+    // The contract on `SlaidsRepository.deleteFolder`, checked against the store
+    // rather than against a method call — and in Supabase, because the database
+    // has its own `on delete set null` on the *column* and would happily leave
+    // the `folderId` inside the document pointing at a folder that is gone.
+    const { repository, tables } = pinned({
+      [FOLDERS_TABLE]: [
+        theirFolder(),
+        { id: 'fl_slettes', owner_id: OURS, name: 'Slettes', created_at: EARLIER },
+        { id: 'fl_beholdes', owner_id: OURS, name: 'Beholdes', created_at: EARLIER },
+      ],
+      [PRESENTATIONS_TABLE]: [
+        deckRow('p_en', 'fl_slettes'),
+        deckRow('p_to', 'fl_slettes'),
+        deckRow('p_annen_mappe', 'fl_beholdes'),
+        deckRow('p_rot', null),
+        { ...deckRow('p_deres', 'fl_slettes'), owner_id: THEIRS },
+      ],
+    })
+
+    await repository.deleteFolder('fl_slettes')
+
+    // The folder is gone; the other one, and the other owner's, are not.
+    expect(tables[FOLDERS_TABLE].map((row) => row.id).sort()).toEqual(['fl_beholdes', 'fl_delt'])
+
+    // Every presentation is still there.
+    expect(tables[PRESENTATIONS_TABLE]).toHaveLength(5)
+    for (const id of ['p_en', 'p_to']) {
+      const row = tables[PRESENTATIONS_TABLE].find((entry) => entry.id === id)
+      // Both places the folder is written down, because the library filters on
+      // the column and the editor reads the document.
+      expect({ id, column: row?.folder_id }).toEqual({ id, column: null })
+      expect((row?.document as { folderId: string | null }).folderId).toBeNull()
+    }
+    // Untouched: another folder, the root, and the other owner's row — which we
+    // must not reach even though it names the folder we just deleted.
+    const kept = tables[PRESENTATIONS_TABLE].find((entry) => entry.id === 'p_annen_mappe')
+    expect(kept?.folder_id).toBe('fl_beholdes')
+    expect(tables[PRESENTATIONS_TABLE].find((entry) => entry.id === 'p_deres')).toEqual({
+      ...deckRow('p_deres', 'fl_slettes'),
+      owner_id: THEIRS,
+    })
+  })
+
+  it('tømmer mappen før den fjerner den, og skriver mot versjonen den leste', async () => {
+    // The order is the safety property, not a detail: removing the folder first
+    // would leave the database's own `on delete set null` to clear the column
+    // while the document still named a folder that no longer exists — a deck
+    // shown neither at the root nor in any folder.
+    const { repository, fake } = pinned({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 7)],
+    })
+
+    await repository.deleteFolder('fl_x')
+
+    const moved = fake.queries.findIndex(
+      (record) => record.table === PRESENTATIONS_TABLE && record.op === 'update',
+    )
+    const removed = fake.queries.findIndex(
+      (record) => record.table === FOLDERS_TABLE && record.op === 'delete',
+    )
+    expect(moved).toBeGreaterThanOrEqual(0)
+    expect(moved).toBeLessThan(removed)
+    // Guarded on the version the move read: the write puts the whole document
+    // back, so an unguarded one would revert an edit made in between.
+    expect(filterValue(fake.queries[moved], 'version')).toBe(7)
+    expect(filterValue(fake.queries[moved], 'owner_id')).toBe(OURS)
+  })
+
+  it('leser raden på nytt og fortsetter når den taper kappløpet', async () => {
+    // A lost guard is not a reason to abandon a deletion half-way through: that
+    // would leave some decks at the root with the folder still standing, which
+    // is exactly the half-done state Dexie's single transaction never produces.
+    // So the row is re-read and the folder stripped from *that* document.
+    const database = fakeDatabase({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 1)],
+    })
+
+    let raced = false
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: (record) => {
+        // One concurrent save, landing between the read and the guarded write.
+        if (record.table === PRESENTATIONS_TABLE && record.op === 'update' && !raced) {
+          raced = true
+          const row = database.tables[PRESENTATIONS_TABLE][0]
+          row.version = 2
+          row.document = { ...(row.document as object), title: 'Endret av noen andre' }
+        }
+        return database.resolve(record)
+      },
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    await repository.deleteFolder('fl_x')
+
+    expect(database.tables[FOLDERS_TABLE]).toEqual([])
+    const row = database.tables[PRESENTATIONS_TABLE][0]
+    expect(row.folder_id).toBeNull()
+    // Written against the *newer* reading: the concurrent edit survives, and the
+    // folder is stripped from the document that actually won.
+    expect(row.document).toEqual({
+      id: 'p_en',
+      title: 'Endret av noen andre',
+      folderId: null,
+    })
+  })
+
+  it('gir opp med en konflikt, og lar mappen stå, når raden aldri slutter å endre seg', async () => {
+    const database = fakeDatabase({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 1)],
+    })
+
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: (record) => {
+        if (record.table === PRESENTATIONS_TABLE && record.op === 'update') {
+          const row = database.tables[PRESENTATIONS_TABLE][0]
+          row.version = (row.version as number) + 1
+        }
+        return database.resolve(record)
+      },
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    await expect(repository.deleteFolder('fl_x')).rejects.toBeInstanceOf(RepositoryConflictError)
+    // Bounded rather than unbounded, and the folder is still there — so a caller
+    // that reads again and retries lands somewhere it can reason about.
+    expect(database.tables[FOLDERS_TABLE]).toHaveLength(1)
+    expect(database.tables[PRESENTATIONS_TABLE][0].folder_id).toBe('fl_x')
+  })
+
+  it('lar en presentasjon som forsvant ut av mappen underveis være i fred', async () => {
+    // Moved out or deleted by somebody else between the scan and the write. The
+    // state this asked for is the state it found, so it is not a failure and the
+    // deletion carries on.
+    const database = fakeDatabase({
+      [FOLDERS_TABLE]: [{ id: 'fl_x', owner_id: OURS, name: 'X', created_at: EARLIER }],
+      [PRESENTATIONS_TABLE]: [deckRow('p_en', 'fl_x', 1)],
+    })
+
+    let raced = false
+    const fake = createFakeSupabase({
+      session: null,
+      resolve: (record) => {
+        if (record.table === PRESENTATIONS_TABLE && record.op === 'update' && !raced) {
+          raced = true
+          const row = database.tables[PRESENTATIONS_TABLE][0]
+          row.version = 2
+          row.folder_id = 'fl_et_annet_sted'
+          row.document = { ...(row.document as object), folderId: 'fl_et_annet_sted' }
+        }
+        return database.resolve(record)
+      },
+    })
+    const repository = new SupabaseSlaidsRepository(() => fake.client, OURS)
+
+    await repository.deleteFolder('fl_x')
+
+    expect(database.tables[FOLDERS_TABLE]).toEqual([])
+    // Left exactly where its new owner put it, not dragged back to the root.
+    expect(database.tables[PRESENTATIONS_TABLE][0].folder_id).toBe('fl_et_annet_sted')
+  })
+
+  it('sletter en mappe som ikke finnes uten å klage', async () => {
+    // Idempotent by contract, which is why the agent surface looks the folder up
+    // first: a store that shrugs cannot answer "no such folder".
+    const { repository, tables } = pinned({ [FOLDERS_TABLE]: [theirFolder()] })
+    await expect(repository.deleteFolder('fl_finnes_ikke')).resolves.toBeUndefined()
+    expect(tables[FOLDERS_TABLE]).toEqual([theirFolder()])
+  })
+
+  /* ---------------------------------------------------------------- *
    * The browser is unchanged
    * ---------------------------------------------------------------- */
 

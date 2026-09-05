@@ -320,28 +320,60 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   vært en lesing utført av en skriving. Sandkassen teller som bruk i begge, og
   et andre kall er en no-op som ikke flytter revisjonen.
 - **Bibliotekets livsløp er bibliotekets regler, ikke agentens.**
-  `list_folders`, `move_presentation`, `duplicate_presentation` og
-  `delete_presentation` legger ingen ny bibliotek-, mappe- eller
-  slettelogikk oppå: mappemodellen er repositoryets egen, flyttingen er
-  `setFolder` (som editoren nå også bruker), dupliseringen er
+  `list_folders`, `create_folder`, `delete_folder`, `move_presentation`,
+  `duplicate_presentation` og `delete_presentation` legger ingen ny bibliotek-,
+  mappe- eller slettelogikk oppå: mappemodellen er repositoryets egen, flyttingen
+  er `setFolder` (som editoren nå også bruker), dupliseringen er
   `duplicatePresentation` i `src/persistence/library.ts` – flyttet ned fra
   `src/state/` og parameterisert på repositoryet, slik at editoren og agenten
-  kaller den samme funksjonen – og slettingen er ett repository-kall.
-  Scope-grensen er tegnet per operasjon og de fire er ikke like:
+  kaller den samme funksjonen – og begge slettingene er ett repository-kall hver.
+  Det samme gjelder **hva en ny mappe er**: et trimmet navn som ikke kan være
+  tomt, en id fra `newFolderId`, tidspunktet den ble laget. Det lå i
+  `LibraryView`, der bare editoren kunne nå det, og ligger nå i `createFolder` i
+  `src/persistence/library.ts` ved siden av dupliseringen – `newFolderId` har
+  nøyaktig én kaller i hele `src/`, og en test håndhever det, fordi en andre
+  kaller ikke ville knekt noe: den ville stille begynt å godta `«   »` som
+  mappenavn i den ene av de to dørene.
+  Scope-grensen er tegnet per operasjon og de seks er ikke like:
   `presentations:read` for å liste mapper, `presentations:write` alene for en
   flytting (som svarer med de to id-ene kalleren sendte og aldri et mappenavn),
+  det samme ene scopet for de to mappemutasjonene – `delete_folder` *er* en
+  presentasjonsskriving, siden den fjerner `folderId` fra hvert dekk i mappen, og
+  `create_folder` lager beholderen `move_presentation` allerede arkiverer i, så et
+  eget mappescope ville vært en femte autoritet for én rad med et navn på –
   alle tre for en duplisering (som svarer med kopien slik `get_presentation`
   ville lest den, *og* lagrer én ny fil per fil kilden har), og
-  `presentations:write` **og** `assets:write` for en sletting – nøyaktig de to
-  tingene den ødelegger. Filscopet gjelder begge veier: autoriteten som legger en
-  fil inn i lageret er den som tar den ut, så hver operasjon som kan skrive eller
-  fjerne bytes krever `assets:write`, og `registry.test.ts` håndhever listen.
+  `presentations:write` **og** `assets:write` for en presentasjonssletting –
+  nøyaktig de to tingene den ødelegger. Filscopet gjelder begge veier: autoriteten
+  som legger en fil inn i lageret er den som tar den ut, så hver operasjon som kan
+  skrive eller fjerne bytes krever `assets:write`, og `registry.test.ts` håndhever
+  listen – de to mappeoperasjonene er nettopp de som *ikke* rører bytes.
   `sharing:write` kreves av ingen av dem: ingenting her publiserer noe, og en
   sletting tar en publisert lenke *ned*. En `folderId` som ikke finnes er
   `FOLDER_NOT_FOUND` før noe skrives – et dekk i en mappe som ikke finnes vises
   ingen steder – og sjekken (`missingFolder` i `src/agent/presentation.ts`)
-  deles med `create_presentation`, som også kan navngi en mappe. En flytting til
-  mappen dekket allerede ligger i er en no-op som ikke flytter revisjonen.
+  deles av alle tre dørene som navngir en mappe: `create_presentation`,
+  `move_presentation` og `delete_folder`. Derfor er en sletting av en mappe som
+  ikke finnes `FOLDER_NOT_FOUND` og ikke et stille `ok`, akkurat som for en
+  presentasjon: begge lagrene sletter på id og bryr seg ikke om at id-en ikke er
+  der. En flytting til mappen dekket allerede ligger i er en no-op som ikke
+  flytter revisjonen.
+- **En mappe er en etikett, og å fjerne en etikett fjerner aldri det den satt på.**
+  `SlaidsRepository.deleteFolder` lover at presentasjonene i mappen blir
+  liggende, på rotnivå, med `folderId` tømt **begge stedene den er skrevet ned** –
+  kolonnen biblioteket filtrerer på og feltet inne i dokumentet. Løftet står på
+  grensesnittet og ikke som en kommentar i hver implementasjon, fordi
+  `delete_folder` kvitterer med `deleted: true` og ingenting mer: det som gjør
+  det til et fullstendig svar, er at det ikke finnes en andre ting kalleren må
+  gjøre etterpå. Dexie holder løftet i én transaksjon. Supabase har ingen, så
+  *rekkefølgen* er sikkerheten: dekkene flyttes ut først, én vaktet skriving
+  hver, og mapperaden fjernes til slutt. Motsatt rekkefølge ville latt
+  databasens egen `on delete set null (folder_id)` tømme kolonnen mens dokumentet
+  fortsatt navnga en mappe som var borte. Å tape vakten er ikke en grunn til å gi
+  opp midt i – da ville noen dekk ligget på rotnivå med mappen fortsatt stående –
+  så raden leses på nytt og strippes igjen, bundet oppad. En mappesletting tar
+  ingen `expectedRevision`: en mappe har ingen revisjon, og én revisjon kunne
+  uansett ikke vaktet de N dokumentene den rører.
 - **En sletting er uangrelig, og derfor ett kall og ikke en sekvens.**
   `SlaidsRepository.deletePresentation` tar dokumentet, filradene, bytene og en
   eventuell publisert kopi ned sammen – i Supabase fordi filradene henger på

@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDeck } from '../../domain/commands'
 import { describeError } from '../../domain/result'
-import { newFolderId } from '../../domain/ids'
 import { domFitCheckers } from '../../state/measure'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
@@ -13,6 +12,7 @@ import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } f
 import { notify } from '../../state/toast'
 import { useSessionStore } from '../../state/session'
 import {
+  createFolder,
   downloadBlob,
   duplicatePresentation,
   movePresentationToFolder,
@@ -183,13 +183,12 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
   const addFolder = async (): Promise<void> => {
     const name = window.prompt('Navn på mappen')
-    if (!name?.trim()) return
+    if (name === null) return
     try {
-      await repository.saveFolder({
-        id: newFolderId(),
-        name: name.trim(),
-        createdAt: new Date().toISOString(),
-      })
+      // What a new folder is — the trimmed name, the minted id, the timestamp —
+      // is decided one layer down, so the agent's `create_folder` makes exactly
+      // this row. An empty name comes back as `null` and is simply not a folder.
+      if (!(await createFolder(name))) return
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Kunne ikke lage mappen.')
       return

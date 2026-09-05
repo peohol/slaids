@@ -297,6 +297,70 @@ describe('å bygge en presentasjon uten React', () => {
     expect(zone?.fits).toBe(true)
   })
 
+  it('organiserer biblioteket sitt selv: lager mappen, fyller den, og tar den ned igjen', async () => {
+    // The practical hole this closes: an agent could file decks into folders
+    // somebody else had made, and could do nothing when there was no folder to
+    // file them into. The whole round trip, against a real store, because the
+    // claim at the end is about what is left in it.
+    const context = freshContext()
+    const existing = await newDeck(context, { title: 'Finnes fra før' })
+
+    const { folder } = await ok<{ folder: { id: string; name: string; createdAt: string } }>(
+      context,
+      'create_folder',
+      { name: '  Kundemøter  ' },
+    )
+    expect(folder.name).toBe('Kundemøter')
+
+    // The library says the folder is there, with the row the creation answered
+    // with — not a second shape invented for the API.
+    const listed = await ok<{ folders: { id: string; name: string }[] }>(context, 'list_folders')
+    expect(listed.folders).toEqual([folder])
+
+    // Both doors into it: a deck made straight into the folder, and one that
+    // was already at the root and moved.
+    const born = await newDeck(context, { title: 'Født i mappen', folderId: folder.id })
+    expect(born.folderId).toBe(folder.id)
+    await ok(context, 'move_presentation', {
+      presentationId: existing.presentationId,
+      folderId: folder.id,
+    })
+
+    const inFolder = await ok<{ presentations: { id: string; folderId: string | null }[] }>(
+      context,
+      'list_presentations',
+    )
+    expect(
+      inFolder.presentations.filter((entry) => entry.folderId === folder.id).map((entry) => entry.id).sort(),
+    ).toEqual([born.presentationId, existing.presentationId].sort())
+
+    // And down again. The sentence the library promises the user, checked in
+    // the store: the folder goes, the decks stay.
+    expect(await ok(context, 'delete_folder', { folderId: folder.id })).toEqual({
+      folderId: folder.id,
+      deleted: true,
+    })
+    expect((await ok<{ folders: unknown[] }>(context, 'list_folders')).folders).toEqual([])
+
+    const after = await ok<{ presentations: { id: string; folderId: string | null }[] }>(
+      context,
+      'list_presentations',
+    )
+    expect(after.presentations.map((entry) => entry.id).sort()).toEqual(
+      [born.presentationId, existing.presentationId].sort(),
+    )
+    for (const entry of after.presentations) expect(entry.folderId).toBeNull()
+    // In the document too, which is the half the column cannot vouch for.
+    for (const id of [born.presentationId, existing.presentationId]) {
+      expect((await context.repository.loadPresentation(id)).folderId).toBeNull()
+    }
+    // The folder is gone for good: a second deletion says so rather than
+    // pretending it removed something.
+    expect((await fails(context, 'delete_folder', { folderId: folder.id })).code).toBe(
+      'FOLDER_NOT_FOUND',
+    )
+  })
+
   it('lar en agent duplisere, flytte og slette slides', async () => {
     const context = freshContext()
     const deck = await newDeck(context)

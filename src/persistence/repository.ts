@@ -72,7 +72,34 @@ export interface SlaidsRepository {
   deletePresentation(id: string, guard?: SaveGuard): Promise<void>
 
   listFolders(): Promise<Folder[]>
+  /**
+   * Store the folder, by id. A `put`: an id that is already there is renamed,
+   * not rejected. Minting the id is the caller's business — see
+   * `persistence/library.ts`, which is where a *new* folder comes from.
+   */
   saveFolder(folder: Folder): Promise<void>
+  /**
+   * Take the folder away and leave everything that was in it.
+   *
+   * **The presentations survive, at the root.** That is the promise, not an
+   * implementation detail of either store: a folder is a label on the library,
+   * and deleting a label must never delete what it was on. So this call also
+   * clears the `folderId` of every presentation that named it — in *both* places
+   * the id is written down, the column the library filters on and the field
+   * inside the document — because a document left naming a folder that is gone
+   * would be a deck shown nowhere: not at the root, not in any folder.
+   *
+   * Stated here rather than in the two implementations because callers now
+   * depend on it. `agent/operations/library.ts` answers an agent with nothing
+   * but `deleted: true`, and what makes that a complete answer is that there is
+   * no second thing the caller has to do afterwards.
+   *
+   * Idempotent, and deliberately unguarded: an id that is not there is not an
+   * error. Both stores delete by id and do not mind an id that is absent, so a
+   * caller that wants "no such folder" to *mean* something has to look first —
+   * which is exactly what the agent surface does, with the same `missingFolder`
+   * check `move_presentation` and `create_presentation` already share.
+   */
   deleteFolder(id: string): Promise<void>
 
   listTemplates(): Promise<LayoutTemplate[]>

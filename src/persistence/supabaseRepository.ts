@@ -58,6 +58,16 @@ const STORAGE_LIST_LIMIT = 1000
 /** How many ids one `in` filter carries; the filter travels in the URL. */
 const ID_FILTER_BATCH = 200
 
+/**
+ * How many times a single presentation may lose the race out of a folder that is
+ * being deleted before the deletion gives up on it.
+ *
+ * More than one, because one concurrent autosave tick is ordinary and should not
+ * strand half an emptied folder. Not unbounded, because a row written in a loop
+ * would keep a delete running forever.
+ */
+const FOLDER_MOVE_ATTEMPTS = 4
+
 const EPOCH = new Date(0).toISOString()
 
 interface PresentationListRow {
@@ -71,6 +81,13 @@ interface PresentationListRow {
 }
 
 interface VersionRow {
+  version: number | null
+}
+
+/** A presentation seen from the folder it sits in: enough to move it out of one. */
+interface FolderMemberRow {
+  id: string
+  document: unknown
   version: number | null
 }
 
@@ -716,16 +733,62 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     )
   }
 
-  /** Presentations in a deleted folder move back to the root rather than vanish. */
+  /**
+   * The folder goes; the presentations in it stay, at the root.
+   *
+   * The contract is on `SlaidsRepository.deleteFolder`, and here is what it
+   * costs to keep in a store with no transaction: the presentations are moved
+   * out *first*, one guarded write each, and only then is the folder row
+   * removed. That order is the whole safety property. Removing the folder first
+   * would leave the database's own `on delete set null` to clear the `folder_id`
+   * column while the `folderId` *inside* each document still named a folder that
+   * is gone — a deck shown neither at the root nor in any folder, and one whose
+   * next save would be refused by the foreign key.
+   *
+   * Each move is guarded on the version it read, because it writes the whole
+   * document back and an unguarded write would revert an edit somebody made in
+   * between. Losing that guard is not a reason to abandon the deletion, though:
+   * that is what read-modify-write means, and stopping half-way would leave some
+   * decks at the root with the folder still standing — the exact half-done state
+   * Dexie's single transaction never produces. So a lost race is re-read and
+   * retried against what is there now, which is the same folder strip applied to
+   * a newer document.
+   *
+   * The retry is bounded rather than unbounded: a row that loses this many times
+   * in a row is being written continuously, and looping forever inside a delete
+   * is worse than saying so.
+   */
   async deleteFolder(id: string): Promise<void> {
+    for (const row of await this.presentationsInFolder(id)) await this.moveOutOfFolder(row, id)
+
+    const removed = await this.scoped(this.client.from(FOLDERS_TABLE).delete().eq('id', id))
+    if (removed.error) fail('Kunne ikke slette mappen', removed.error)
+  }
+
+  /** The rows a folder holds, with everything a move out of it needs. */
+  private async presentationsInFolder(id: string): Promise<FolderMemberRow[]> {
     const { data, error } = await this.scoped(
       this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('folder_id', id),
     )
     if (error) fail('Kunne ikke hente presentasjonene i mappen', error)
+    return (data ?? []) as FolderMemberRow[]
+  }
 
-    for (const row of (data ?? []) as { id: string; document: unknown; version: number | null }[]) {
-      // The folder is named in two places — the column the library filters on
-      // and the document itself — so both have to move back to the root.
+  /**
+   * Put one presentation back at the root, retrying against a newer reading.
+   *
+   * The folder is named in two places — the column the library filters on and
+   * the document itself — so both are cleared by the same write.
+   */
+  private async moveOutOfFolder(first: FolderMemberRow, folderId: string): Promise<void> {
+    let row: FolderMemberRow | null = first
+
+    for (let attempt = 0; attempt < FOLDER_MOVE_ATTEMPTS; attempt += 1) {
+      // Gone from the folder while we worked — moved out by somebody else, or
+      // the whole presentation deleted. Either way there is nothing left to do,
+      // and it is not a failure: the state this asked for is the state it found.
+      if (!row) return
+
       const document = { ...(row.document as Presentation), folderId: null }
       const known = numberOr(row.version, 0)
       const update = await this.scoped(
@@ -737,18 +800,32 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         .eq('version', known)
         .select('version')
       if (update.error) fail('Kunne ikke flytte presentasjonen ut av mappen', update.error)
+
       const updated = (update.data ?? []) as VersionRow[]
-      if (updated.length === 0) {
-        // Same rule as above: a lost race never makes us forget the row.
-        throw new RepositoryConflictError(
-          'En presentasjon i mappen ble endret et annet sted. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
-        )
+      if (updated.length > 0) {
+        this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
+        return
       }
-      this.knownVersions.set(row.id, numberOr(updated[0]?.version, known + 1))
+
+      // Lost the race. Never keep the reading that lost — that is how a guard
+      // becomes a licence to overwrite whoever won.
+      row = await this.folderMember(row.id, folderId)
     }
 
-    const removed = await this.scoped(this.client.from(FOLDERS_TABLE).delete().eq('id', id))
-    if (removed.error) fail('Kunne ikke slette mappen', removed.error)
+    throw new RepositoryConflictError(
+      'En presentasjon i mappen blir endret et annet sted akkurat nå. Last biblioteket på nytt og prøv igjen – mappen er ikke slettet.',
+    )
+  }
+
+  /** One row, re-read, and only while it is still in the folder being deleted. */
+  private async folderMember(id: string, folderId: string): Promise<FolderMemberRow | null> {
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).select('id, document, version').eq('id', id),
+    )
+      .eq('folder_id', folderId)
+      .maybeSingle()
+    if (error) fail('Kunne ikke hente presentasjonen i mappen', error)
+    return (data as FolderMemberRow | null) ?? null
   }
 
   /* ---------------------------------------------------------------- *

@@ -1,13 +1,16 @@
 /**
  * The library's own operations, against a real repository.
  *
- * These are the four calls that act on a presentation from the outside — where
- * it lives, copying it, ending it — and what has to be pinned about them is not
- * that a method was called. It is what is left in the store afterwards: a copy
- * that survives the deletion of its original, an original that survives an edit
- * to its copy, a deck that is gone along with its files, and a folder id that
- * never reaches the document unless the library actually has that folder. A stub
- * could not answer any of those, so this uses `DexieSlaidsRepository`.
+ * These are the six calls that act on the library around a presentation — the
+ * folders it is filed under, where it lives, copying it, ending it — and what
+ * has to be pinned about them is not that a method was called. It is what is
+ * left in the store afterwards: a copy that survives the deletion of its
+ * original, an original that survives an edit to its copy, a deck that is gone
+ * along with its files, a folder id that never reaches the document unless the
+ * library actually has that folder, and — the one this file exists to prove —
+ * every presentation still there, at the root, after the folder holding it was
+ * deleted. A stub could not answer any of those, so this uses
+ * `DexieSlaidsRepository`.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -29,7 +32,7 @@ import type { Folder, Presentation } from '../domain/types'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
 import type { PresentationView } from './operations/deck'
-import type { DeletedPresentation, MovedPresentation } from './operations/library'
+import type { DeletedFolder, DeletedPresentation, MovedPresentation } from './operations/library'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -147,6 +150,276 @@ describe('list_folders', () => {
 
     const refused = expectErr(await call({ ...context, repository: failing }, 'list_folders'))
     expect(refused.code).toBe('STORAGE_FAILED')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * create_folder
+ * ------------------------------------------------------------------ */
+
+describe('create_folder', () => {
+  it('lager en mappe biblioteket faktisk har etterpå', async () => {
+    const context = freshContext()
+
+    const { folder } = expectOk(
+      await call<{ folder: Folder }>(context, 'create_folder', { name: 'Kundemøter' }),
+    )
+    expect(folder.name).toBe('Kundemøter')
+    expect(folder.id).toMatch(/^fl_/)
+    expect(Date.parse(folder.createdAt)).not.toBeNaN()
+
+    // The claim is about the store, not about a method having been called: the
+    // row the operation answered with is the row the library reads back.
+    expect(await context.repository.listFolders()).toEqual([folder])
+    // And it is the same row `list_folders` reports, field for field.
+    const listed = expectOk(await call<{ folders: Folder[] }>(context, 'list_folders'))
+    expect(listed.folders).toEqual([folder])
+  })
+
+  it('trimmer navnet, og lagrer det trimmede', async () => {
+    const context = freshContext()
+    const { folder } = expectOk(
+      await call<{ folder: Folder }>(context, 'create_folder', { name: '  Kundemøter \n' }),
+    )
+    expect(folder.name).toBe('Kundemøter')
+    // Not only in the receipt: what the sidebar shows is what is stored.
+    expect((await context.repository.listFolders())[0].name).toBe('Kundemøter')
+  })
+
+  it('avviser et tomt navn uten å skrive noe', async () => {
+    const context = freshContext()
+
+    for (const name of ['', '   ', '\t\n']) {
+      const refused = expectErr(await call(context, 'create_folder', { name }))
+      // Refused by the published schema, so a caller can tell before it sends.
+      expect({ name, code: refused.code }).toEqual({ name, code: 'INVALID_INPUT' })
+    }
+    // A folder called nothing is a row in the sidebar that cannot be told from
+    // any other, so the refusal has to come before the write.
+    expect(await context.repository.listFolders()).toEqual([])
+  })
+
+  it('krever et navn, og ingenting annet', async () => {
+    const context = freshContext()
+    expect(expectErr(await call(context, 'create_folder', {})).code).toBe('INVALID_INPUT')
+    // An id the caller named would be an id it could use to overwrite a folder
+    // that already has it — `saveFolder` is a put.
+    expect(
+      expectErr(await call(context, 'create_folder', { name: 'Med id', id: 'fl_min_egen' })).code,
+    ).toBe('INVALID_INPUT')
+    expect(await context.repository.listFolders()).toEqual([])
+  })
+
+  it('lager to mapper med samme navn som to forskjellige mapper', async () => {
+    // The library has no uniqueness rule on names, and inventing one for the API
+    // would be a rule the sidebar does not have.
+    const context = freshContext()
+    const first = expectOk(await call<{ folder: Folder }>(context, 'create_folder', { name: 'Arkiv' }))
+    const second = expectOk(await call<{ folder: Folder }>(context, 'create_folder', { name: 'Arkiv' }))
+
+    expect(second.folder.id).not.toBe(first.folder.id)
+    expect(await context.repository.listFolders()).toHaveLength(2)
+  })
+
+  it('gir en id create_presentation kan legge et nytt dekk rett i', async () => {
+    const context = freshContext()
+    const { folder } = expectOk(
+      await call<{ folder: Folder }>(context, 'create_folder', { name: 'Kundemøter' }),
+    )
+
+    const created = expectOk(
+      await call<PresentationView>(context, 'create_presentation', {
+        title: 'Nytt dekk',
+        folderId: folder.id,
+      }),
+    )
+    expect(created.folderId).toBe(folder.id)
+    expect((await context.repository.loadPresentation(created.presentationId)).folderId).toBe(
+      folder.id,
+    )
+  })
+
+  it('gir en id move_presentation kan flytte et eksisterende dekk til', async () => {
+    const context = freshContext()
+    const deck = await deckIn(context, 'Finnes fra før')
+    const { folder } = expectOk(
+      await call<{ folder: Folder }>(context, 'create_folder', { name: 'Kundemøter' }),
+    )
+
+    const moved = expectOk(
+      await call<MovedPresentation>(context, 'move_presentation', {
+        presentationId: deck.id,
+        folderId: folder.id,
+      }),
+    )
+    expect(moved.folderId).toBe(folder.id)
+    expect((await context.repository.listPresentations())[0].folderId).toBe(folder.id)
+  })
+
+  it('gjør en lagringsfeil om til STORAGE_FAILED i stedet for et kast', async () => {
+    const context = freshContext()
+    const failing = overriding(context.repository, {
+      saveFolder: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: failing }, 'create_folder', { name: 'Kundemøter' }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+    expect(refused.message).toBe('Basen svarer ikke.')
+    expect(await context.repository.listFolders()).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * delete_folder
+ * ------------------------------------------------------------------ */
+
+describe('delete_folder', () => {
+  it('sletter en tom mappe og kvitterer med id-en og ingenting mer', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context, 'Kundemøter')
+
+    const receipt = expectOk(
+      await call<DeletedFolder>(context, 'delete_folder', { folderId: folder.id }),
+    )
+    expect(receipt).toEqual({ folderId: folder.id, deleted: true })
+    expect(await context.repository.listFolders()).toEqual([])
+  })
+
+  it('lar presentasjonene i mappen bli liggende, uten mappe', async () => {
+    // The sentence the library promises the user, checked in the store: «Mappen
+    // slettes. Presentasjonene i den blir liggende, men uten mappe.»
+    const context = freshContext()
+    const folder = await folderIn(context, 'Kundemøter')
+    const inside = [await deckIn(context, 'Første'), await deckIn(context, 'Andre')]
+    const outside = await deckIn(context, 'Utenfor')
+    for (const deck of inside) {
+      await call(context, 'move_presentation', { presentationId: deck.id, folderId: folder.id })
+    }
+
+    expectOk(await call<DeletedFolder>(context, 'delete_folder', { folderId: folder.id }))
+
+    expect(await context.repository.listFolders()).toEqual([])
+    // Every deck still there, and none of them left naming a folder that is
+    // gone — a deck like that is shown nowhere at all.
+    const summaries = await context.repository.listPresentations()
+    expect(summaries.map((summary) => summary.id).sort()).toEqual(
+      [...inside, outside].map((deck) => deck.id).sort(),
+    )
+    for (const summary of summaries) expect(summary.folderId).toBeNull()
+    // In the document too, not only in the column the library filters on.
+    for (const deck of inside) {
+      expect((await context.repository.loadPresentation(deck.id)).folderId).toBeNull()
+    }
+    // And the deck that was never in the folder is untouched.
+    expect((await context.repository.loadPresentation(outside.id)).folderId).toBeNull()
+  })
+
+  it('rører ikke en annen mappe eller det som ligger i den', async () => {
+    const context = freshContext()
+    const doomed = await folderIn(context, 'Slettes')
+    const kept = await folderIn(context, 'Beholdes')
+    const deck = await deckIn(context, 'I den andre mappen')
+    await call(context, 'move_presentation', { presentationId: deck.id, folderId: kept.id })
+
+    expectOk(await call<DeletedFolder>(context, 'delete_folder', { folderId: doomed.id }))
+
+    expect(await context.repository.listFolders()).toEqual([kept])
+    expect((await context.repository.loadPresentation(deck.id)).folderId).toBe(kept.id)
+  })
+
+  it('avviser en mappe biblioteket ikke har i stedet for å svare stille ok', async () => {
+    // Both stores delete by id and do not mind an id that is not there, so a
+    // silent success would tell an agent it had removed something that never
+    // existed. `delete_presentation` draws the line in the same place.
+    const context = freshContext()
+    const refused = expectErr(await call(context, 'delete_folder', { folderId: 'fl_finnes_ikke' }))
+    expect(refused.code).toBe('FOLDER_NOT_FOUND')
+    expect(refused.details).toEqual({ folderId: 'fl_finnes_ikke' })
+  })
+
+  it('svarer FOLDER_NOT_FOUND andre gangen, ikke ok', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context, 'Kundemøter')
+    expectOk(await call<DeletedFolder>(context, 'delete_folder', { folderId: folder.id }))
+    expect(expectErr(await call(context, 'delete_folder', { folderId: folder.id })).code).toBe(
+      'FOLDER_NOT_FOUND',
+    )
+  })
+
+  it('lekker verken mappenavn eller innhold til et token som ikke får lese', async () => {
+    // The operation holds no read scope, so neither the receipt nor the refusal
+    // may carry a name — the caller's own id is all either of them is made of.
+    const context = freshContext()
+    const folder = await folderIn(context, 'Hemmelig mappenavn')
+    const deck = await deckIn(context, 'Hemmelig dekktittel')
+    await call(context, 'move_presentation', { presentationId: deck.id, folderId: folder.id })
+
+    const receipt = expectOk(
+      await call<DeletedFolder>(context, 'delete_folder', { folderId: folder.id }),
+    )
+    const serialized = JSON.stringify(receipt)
+    expect(serialized).not.toContain('Hemmelig mappenavn')
+    expect(serialized).not.toContain('Hemmelig dekktittel')
+    expect(Object.keys(receipt).sort()).toEqual(['deleted', 'folderId'])
+
+    await folderIn(context, 'Et annet hemmelig navn')
+    const refused = expectErr(await call(context, 'delete_folder', { folderId: 'fl_nei' }))
+    expect(JSON.stringify(refused)).not.toContain('Et annet hemmelig navn')
+  })
+
+  it('krever en id, og tar ikke imot noe annet', async () => {
+    const context = freshContext()
+    expect(expectErr(await call(context, 'delete_folder', {})).code).toBe('INVALID_INPUT')
+    const folder = await folderIn(context, 'Kundemøter')
+    // No `force`, and no field that would let a caller ask for the decks to go
+    // with it: what happens to them is the promise, not a choice.
+    expect(
+      expectErr(await call(context, 'delete_folder', { folderId: folder.id, force: true })).code,
+    ).toBe('INVALID_INPUT')
+    expect(await context.repository.listFolders()).toEqual([folder])
+  })
+
+  it('gjør en lagringsfeil om til STORAGE_FAILED, og lar mappen stå', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context, 'Kundemøter')
+    const failing = overriding(context.repository, {
+      deleteFolder: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: failing }, 'delete_folder', { folderId: folder.id }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+    expect(refused.details).toMatchObject({ folderId: folder.id })
+    expect(await context.repository.listFolders()).toEqual([folder])
+  })
+
+  it('er den samme slettingen biblioteket gjør, ikke en sekvens satt sammen her', async () => {
+    // One repository call and no emptying loop of its own: what happens to the
+    // presentations inside is the store's promise, and a second sequence beside
+    // it would be a second chance to leave a deck pointing at nothing.
+    const context = freshContext()
+    const folder = await folderIn(context, 'Kundemøter')
+    const deck = await deckIn(context)
+    await call(context, 'move_presentation', { presentationId: deck.id, folderId: folder.id })
+
+    const saves: string[] = []
+    const watched = overriding(context.repository, {
+      savePresentation: (presentation, guard) => {
+        saves.push(presentation.id)
+        return context.repository.savePresentation(presentation, guard)
+      },
+    })
+
+    expectOk(
+      await call<DeletedFolder>({ ...context, repository: watched }, 'delete_folder', {
+        folderId: folder.id,
+      }),
+    )
+    expect(saves).toEqual([])
+    expect((await context.repository.loadPresentation(deck.id)).folderId).toBeNull()
   })
 })
 
