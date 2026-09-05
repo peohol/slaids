@@ -371,8 +371,15 @@ node scripts/mcp-smoke.mjs --base-url https://<domenet> --token slaids_at_…
 Uten token kjører den den offentlige halvdelen og avvisningene – nøyaktig det en
 verktøyskanning ser – og med token også et ekte verktøykall og en sammenligning
 mot REST-katalogen på den samme installasjonen. Den har ingen avhengigheter,
-navngir ingen operasjon og skriver aldri ut tokenet. Den samme runden kan kjøres
-fra Actions-fanen («MCP smoke test»).
+navngir ingen operasjon og skriver aldri ut tokenet. `SLAIDS_TOKEN` i miljøet
+leses på samme måte som `--token`, og er å foretrekke: argumentlista til en
+prosess er synlig for andre prosesser på maskinen.
+
+Den samme runden kjøres fra Actions-fanen («MCP smoke test»). Den offentlige
+halvdelen trenger ingenting; den autentiserte slås på med `authenticated` og
+henter tokenet fra repo-secreten **`SLAIDS_AGENT_TOKEN`**. Et agenttoken skal
+aldri limes inn som et workflow-input: et input er ikke en hemmelighetsmekanisme,
+og GitHub lagrer og viser verdien sammen med kjøringen.
 
 `npm test` starter en ekte Chromium for previewtestene. Den kommer fra
 `@sparticuz/chromium`, som er en vanlig avhengighet, så det trengs ingenting –

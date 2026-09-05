@@ -7,19 +7,33 @@
 # catalogue at all. That last one is what a ChatGPT tool scan sees, and it is
 # what `scripts/mcp-smoke.mjs` checks.
 #
-# Run it by hand from the Actions tab. Without a token it runs the public half
-# and the refusals, which needs no credential at all; with one it also runs a
-# real operation and compares the public catalogue against the authenticated
-# REST catalogue on the same deployment.
+# Run it by hand from the Actions tab. The public half — the handshake, the
+# catalogue and every refusal — needs no credential at all, so that is what a run
+# does by default.
 #
-# Point it at production, or at any deployment a plain HTTP client can reach.
-# Vercel Authentication is on for every deployment URL of this project except the
-# custom domains, so a preview address answers the runner with a redirect to
-# `vercel.com/sso-api` rather than with Slaids — a run against one of those is
-# testing Vercel's front door, not this endpoint. To get past that door, paste a
-# Vercel share link (Deployment → Share) into `share_url`: the run trades it for
-# a bypass cookie and sends that alongside every request. The cookie is for the
-# front door only; the checks below still send no `Authorization` of their own.
+# ## Hvor tokenet kommer fra, og hvorfor ikke fra et input
+#
+# **Et agenttoken hører hjemme i en GitHub-secret, aldri i et
+# `workflow_dispatch`-input.** Et input er ikke en hemmelighetsmekanisme: GitHub
+# lagrer verdien sammen med kjøringen og viser den i Actions-fanen, i API-et og i
+# audit-loggen, for alle som kan se repoet. `::add-mask::` inne i jobben hjelper
+# ikke mot det — den maskerer bare logglinjer som skrives *etterpå*, og ikke
+# engang alle: runneren skriver ut `env:`-blokken sin før maskeringen har rukket å
+# gjelde. En secret er derimot maskert av plattformen selv, og lagres aldri med
+# kjøringen.
+#
+# Så: sett `SLAIDS_AGENT_TOKEN` som repository- eller environment-secret, og slå
+# på `authenticated` for å kjøre den halvdelen. Selve valget er et vanlig input,
+# fordi «skal den autentiserte halvdelen med?» ikke er en hemmelighet.
+#
+# ## Adressen
+#
+# Pek den mot produksjon, eller mot hvilken som helst installasjon en vanlig
+# HTTP-klient når. Vercel Authentication er på for hver deploy-URL i dette
+# prosjektet unntatt de egne domenene, så en preview-adresse svarer runneren med
+# en omdirigering til `vercel.com/sso-api` i stedet for med Slaids – en kjøring
+# mot en slik adresse tester Vercels ytterdør, ikke dette endepunktet. `share_url`
+# kommer forbi den døren.
 name: MCP smoke test
 
 on:
@@ -29,16 +43,17 @@ on:
         description: 'Installasjonen, uten sti. F.eks. https://slaids.no'
         required: true
         default: 'https://slaids.no'
-      token:
-        description: 'Agenttoken for den autentiserte halvdelen. Tomt = bare den offentlige.'
+      authenticated:
+        description: 'Kjør også den autentiserte halvdelen, med secreten SLAIDS_AGENT_TOKEN.'
+        type: boolean
         required: false
-        default: ''
+        default: false
       expect_tools:
         description: 'Forventet antall verktøy. 0 = ikke sjekk antallet.'
         required: false
         default: '0'
       share_url:
-        description: 'Vercel share-lenke, hvis adressen ligger bak Vercel Authentication.'
+        description: 'Vercel share-lenke (Deployment → Share), hvis adressen ligger bak Vercel Authentication. Lagres synlig med kjøringen, som alle inputs – den er kortlevd og gir bare lesetilgang til ett preview, så bruk den og la den utløpe. Aldri et agenttoken her.'
         required: false
         default: ''
 
@@ -84,12 +99,23 @@ jobs:
       # No install: the script has no dependencies, on purpose. What it checks
       # is HTTP, and a client that needed a package tree would be checking
       # something else.
+      #
+      # Every input is read through `env` rather than interpolated into the
+      # script: a `${{ }}` inside `run` is pasted into the shell before it runs.
       - name: Smoke test
         env:
           SLAIDS_BASE_URL: ${{ inputs.base_url }}
-          SLAIDS_TOKEN: ${{ inputs.token }}
           EXPECT_TOOLS: ${{ inputs.expect_tools }}
+          RUN_AUTHENTICATED: ${{ inputs.authenticated }}
+          # From the secret store and nowhere else — see the note at the top.
+          # GitHub masks a secret in the log by itself; nothing can unmask an
+          # input it has already recorded with the run.
+          SLAIDS_TOKEN: ${{ inputs.authenticated && secrets.SLAIDS_AGENT_TOKEN || '' }}
         run: |
-          if [ -n "$SLAIDS_TOKEN" ]; then echo "::add-mask::$SLAIDS_TOKEN"; fi
+          if [ "$RUN_AUTHENTICATED" = "true" ] && [ -z "$SLAIDS_TOKEN" ]; then
+            echo "Mangler secreten SLAIDS_AGENT_TOKEN. Lag et agenttoken i Slaids-biblioteket" >&2
+            echo "og legg det inn under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
           if [ -n "$SMOKE_COOKIE" ]; then set -- --header "Cookie: $SMOKE_COOKIE"; fi
           node scripts/mcp-smoke.mjs --expect-tools "$EXPECT_TOOLS" "$@"

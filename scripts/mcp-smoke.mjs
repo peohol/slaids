@@ -17,8 +17,14 @@
  * Usage:
  *
  *   node scripts/mcp-smoke.mjs --base-url https://slaids.no
- *   node scripts/mcp-smoke.mjs --base-url https://slaids.no --token slaids_at_…
+ *   SLAIDS_TOKEN=slaids_at_… node scripts/mcp-smoke.mjs --base-url https://slaids.no
  *   node scripts/mcp-smoke.mjs --base-url https://… --header 'Cookie: _vercel_jwt=…'
+ *
+ * The token is read from `SLAIDS_TOKEN` or from `--token`, and the environment is
+ * the better of the two: a process's argument list is readable by other processes
+ * on the same machine, and by a CI runner's own logging. In CI it belongs in the
+ * secret store — never in a `workflow_dispatch` input, which the platform records
+ * and displays with the run.
  *
  * `--header` may be repeated, and exists for the layer *in front of* the
  * deployment rather than for Slaids: a preview address behind Vercel
