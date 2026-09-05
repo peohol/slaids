@@ -31,11 +31,22 @@
  * sends every one of them here.
  *
  * The MCP endpoint is routed here rather than deployed beside this one because
- * everything above it is the same: the same bearer token, the same scopes, the
- * same audit. What is different starts after authentication, and that part lives
- * in `src/server/mcp/`. What both of them call is `invoke.ts`, which is what
- * makes "the same operation answers the same thing over either transport" a
- * property of the code rather than of two adapters written carefully.
+ * everything around it is the same: the same bearer token, read by the same
+ * `authenticateRequest`; the same scopes; the same audit. What both of them call
+ * is `invoke.ts`, which is what makes "the same operation answers the same thing
+ * over either transport" a property of the code rather than of two adapters
+ * written carefully.
+ *
+ * It is the one route this file does not authenticate for, and the reason is
+ * that on that address the answer differs per JSON-RPC message rather than per
+ * route: **MCP discovery is public; Slaids' operations are authenticated and
+ * scope-gated.** A client has to be able to handshake and read the tool
+ * catalogue before an owner has given it a token — that is the order ChatGPT's
+ * custom MCP apps and every other "scan, then connect an account" client work
+ * in — while every message that can reach a deck still needs exactly what a REST
+ * call needs. So the endpoint asks for itself, with this file's own helpers, and
+ * `src/server/mcp/endpoint.ts` is where that boundary is written down. Nothing
+ * about REST moved: every route below still answers `401` before it routes.
  *
  * Every operation is a POST, including the reads. An operation's arguments are
  * a structured object with a strict schema; splitting them between a query
@@ -56,7 +67,13 @@ import { attachEncodedImage, type AgentImage } from '../../agent/image'
 import { describeOperations } from '../../agent/registry'
 import { AGENT_API_BASE_PATH, AGENT_API_VERSION, AGENT_MCP_PATH, agentApiUrl } from '../../routing'
 import type { AgentContext } from '../../agent/types'
-import { auditedPresentationId, recordAgentCall, type AgentAuditSink, type AuditSubject } from './audit'
+import {
+  auditedPresentationId,
+  recordAgentCall,
+  recordRefusedToken,
+  type AgentAuditSink,
+  type AuditSubject,
+} from './audit'
 import { parseOperationInput, readBody } from './body'
 import { authorizeOperation, performOperation } from './invoke'
 import { handleMcpRequest } from '../mcp/endpoint'
@@ -67,10 +84,15 @@ import {
   jsonResponse,
   prefersJsonResult,
   statusFor,
+  unauthenticatedResponse,
   type ApiError,
 } from './protocol'
-import { looksLikeAgentToken } from '../../persistence/agentTokens'
-import { REFUSAL_CODES, bearerToken, type AgentPrincipal, type AuthOutcome } from './tokens'
+import {
+  auditSubject,
+  authenticateRequest,
+  type AgentPrincipal,
+  type AgentTokenLookup,
+} from './tokens'
 
 
 /**
@@ -80,9 +102,7 @@ import { REFUSAL_CODES, bearerToken, type AgentPrincipal, type AuthOutcome } fro
  * database, a clock or an environment variable on its own — so "the REST layer
  * is thin" is a property of the code rather than a promise in a comment.
  */
-export interface AgentApiDeps {
-  /** Resolve a presented token. Never throws; a store that is down is a failure outcome. */
-  authenticate(presentedToken: string): Promise<AuthOutcome>
+export interface AgentApiDeps extends AgentTokenLookup {
   /** Agent Core's context for this principal, with the repository pinned to its owner. */
   contextFor(principal: AgentPrincipal): AgentContext
   audit: AgentAuditSink
@@ -143,12 +163,28 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
     return errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
   }
 
+  // The one address with a public half, and it is handed over before anything is
+  // authenticated *here* because on that address the answer differs per JSON-RPC
+  // message rather than per route: MCP discovery is public, and every message
+  // that can reach a deck needs the same token this function demands of
+  // everything else. The endpoint reads the same header with the same
+  // `authenticateRequest`, refuses a presented-and-bad token for every method,
+  // and writes the same audit rows. See `src/server/mcp/endpoint.ts`.
+  //
+  // It is also the one address a caller learns nothing from: it is published, so
+  // there is no 404-versus-405 to map with.
+  if (path === MCP_SUBPATH) return handleMcpRequest(deps, request)
+
   // Authentication comes before routing anything further, so an unauthenticated
   // caller cannot use 404 versus 405 to map the surface.
-  const auth = await authenticate(deps, request)
+  const auth = await authenticateRequest(deps, request)
   if (!auth.ok) {
-    await recordRefusal(deps, auth, path)
-    return unauthenticated()
+    await recordRefusedToken(deps.audit, {
+      at: deps.now(),
+      auth,
+      operation: operationNameIn(path) ?? 'authenticate',
+    })
+    return unauthenticatedResponse()
   }
   const principal = auth.principal
 
@@ -163,9 +199,6 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
   if (path === '/operations') {
     return finish(deps, { subject, started, operation: 'catalogue', input: null, ...listing(request) })
   }
-  // MCP writes its own audit row, because a JSON-RPC message is what happened
-  // and only it knows which method that was.
-  if (path === MCP_SUBPATH) return handleMcpRequest(deps, request, principal, subject)
 
   const name = operationNameIn(path)
   if (name === null) {
@@ -224,61 +257,6 @@ function routePath(pathname: string): string | null {
   if (normalised === AGENT_API_BASE_PATH) return ''
   if (!normalised.startsWith(`${AGENT_API_BASE_PATH}/`)) return null
   return normalised.slice(AGENT_API_BASE_PATH.length)
-}
-
-async function authenticate(deps: AgentApiDeps, request: Request): Promise<AuthOutcome> {
-  const presented = bearerToken(request.headers.get('authorization'))
-  if (!presented) return { ok: false, reason: 'missing' }
-  // Shape first, so a string that cannot be one of ours never becomes a lookup.
-  if (!looksLikeAgentToken(presented)) return { ok: false, reason: 'malformed' }
-  return deps.authenticate(presented)
-}
-
-/**
- * One sentence for every reason.
- *
- * Missing, malformed, unknown, revoked and expired all answer the same thing.
- * Which one it was is in the server's own log and, where a token was actually
- * identified, in the audit — but never in the response: an endpoint that tells a
- * caller "that token exists, it is just revoked" is an endpoint that answers
- * questions on behalf of whoever stole it.
- */
-function unauthenticated(): Response {
-  return errorResponse(
-    {
-      code: 'UNAUTHENTICATED',
-      message:
-        'Mangler et gyldig agenttoken. Send det som «Authorization: Bearer slaids_at_…». Tokens lages og trekkes tilbake i Slaids-biblioteket.',
-    },
-    { extraHeaders: { 'WWW-Authenticate': 'Bearer realm="slaids-agent"' } },
-  )
-}
-
-/**
- * A refused token that we nonetheless recognised.
- *
- * Only then: a token nobody has ever seen has no owner to attribute a row to,
- * and writing one would let an unauthenticated caller fill the table. A token
- * that *is* ours and was revoked or has expired is the opposite — "the key I
- * took away is still being used" is the single most useful thing an audit can
- * tell an owner, and the reason is recorded here even though the caller is
- * never told it.
- */
-async function recordRefusal(
-  deps: AgentApiDeps,
-  auth: Extract<AuthOutcome, { ok: false }>,
-  path: string,
-): Promise<void> {
-  if (!auth.identified) return
-  await recordAgentCall(deps.audit, {
-    at: deps.now(),
-    subject: auth.identified,
-    operation: operationNameIn(path) ?? 'authenticate',
-    presentationId: null,
-    status: statusFor('UNAUTHENTICATED'),
-    errorCode: REFUSAL_CODES[auth.reason],
-    durationMs: 0,
-  })
 }
 
 /** What this API is, for a caller that guessed the base address. */
@@ -374,14 +352,6 @@ interface Answer {
   imageField?: string
   /** What the caller said it could read. Only a picture gives it a choice. */
   accept?: string | null
-}
-
-function auditSubject(principal: AgentPrincipal): AuditSubject {
-  return {
-    ownerId: principal.ownerId,
-    tokenId: principal.tokenId,
-    tokenName: principal.tokenName,
-  }
 }
 
 /** Record the call and answer it. The audit is written for both outcomes. */

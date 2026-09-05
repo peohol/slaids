@@ -200,9 +200,45 @@ describe('den offisielle MCP-klienten mot en ekte socket', () => {
     await client.close()
   })
 
-  it('avviser en klient uten token, slik resten av API-et gjør', async () => {
+  it('lar en klient uten token håndhilse og lese hele katalogen', async () => {
+    // The discovery half, driven by the reference client rather than by our own
+    // reading of it: no `Authorization` header anywhere, and the SDK still
+    // completes the handshake, validates the `initialize` result and validates
+    // every tool in the catalogue against the specification's own schema.
+    //
+    // This is the shape a client is built in — scan the server for its tools,
+    // then have a user connect an account — and it is what a `401` on
+    // `initialize` broke: the app connected and offered nothing.
     const client = new Client({ name: 'uten-token', version: '1.0.0' })
-    await expect(client.connect(new StreamableHTTPClientTransport(address))).rejects.toThrow()
+    await client.connect(new StreamableHTTPClientTransport(address))
+
+    expect(client.getServerVersion()).toMatchObject({ name: 'slaids-agent' })
+    expect(client.getInstructions()).toContain('Slaids')
+
+    const anonymous = await client.listTools()
+    expect(anonymous.tools.length).toBeGreaterThan(20)
+
+    // And it is the same catalogue a token sees. Nothing in it is the owner's.
+    const authenticated = await connectedClient()
+    expect(anonymous.tools).toEqual((await authenticated.listTools()).tools)
+
+    await authenticated.close()
+    await client.close()
+  })
+
+  it('avviser et verktøykall uten token, slik resten av API-et gjør', async () => {
+    const client = new Client({ name: 'uten-token', version: '1.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(address))
+
+    // A `401` at the transport, which is what MCP's own error table names for a
+    // request that needs authorization and has none — and what the SDK's
+    // transport turns into a thrown error rather than a tool result the model
+    // would be shown.
+    await expect(
+      client.callTool({ name: 'slaids_list_presentations', arguments: {} }),
+    ).rejects.toThrow()
+
+    await client.close()
   })
 
   it('lar den nyeste offisielle klienten falle ned til revisjonen serveren har', async () => {

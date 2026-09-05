@@ -44,7 +44,9 @@ layoutet er nestet.
   operasjonene selv
 - **MCP-server på `/api/agent/v1/mcp`** med de samme operasjonene som verktøy,
   bak det samme tokenet – verktøylisten bygges av det samme registeret, og begge
-  transportene kaller den samme koden
+  transportene kaller den samme koden. Selve verktøylisten er offentlig, så en
+  klient kan skanne serveren før den har fått et token; alt som rører et dekk
+  krever tokenet
 - tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
 - **bibliotekets livsløp**: lage og slette mapper, se dem, flytte en presentasjon
   mellom dem, duplisere en presentasjon med filene sine, og slette en for godt –
@@ -358,6 +360,19 @@ npm run dev          # http://localhost:5173
 | `npm run lint`      | ESLint                                        |
 | `npm test`          | Vitest (domene, geometri, schema, persistens, agent-API, MCP og rendret preview) |
 | `npm run e2e`       | Playwright (bygger og serverer selv)          |
+
+En installasjon som allerede kjører sjekkes utenfra, over ekte HTTP:
+
+```bash
+node scripts/mcp-smoke.mjs --base-url https://<domenet>
+node scripts/mcp-smoke.mjs --base-url https://<domenet> --token slaids_at_…
+```
+
+Uten token kjører den den offentlige halvdelen og avvisningene – nøyaktig det en
+verktøyskanning ser – og med token også et ekte verktøykall og en sammenligning
+mot REST-katalogen på den samme installasjonen. Den har ingen avhengigheter,
+navngir ingen operasjon og skriver aldri ut tokenet. Den samme runden kan kjøres
+fra Actions-fanen («MCP smoke test»).
 
 `npm test` starter en ekte Chromium for previewtestene. Den kommer fra
 `@sparticuz/chromium`, som er en vanlig avhengighet, så det trengs ingenting –
@@ -1143,7 +1158,7 @@ den derfor sammen med resten av rutingen.
 
 ## MCP-server for agenter
 
-De samme operasjonene er også MCP-verktøy, på den samme adressen og bak det samme
+De samme operasjonene er også MCP-verktøy, på den samme adressen og med det samme
 tokenet:
 
 ```
@@ -1164,6 +1179,41 @@ responsen. Pek en MCP-klient dit, med tokenet i den vanlige headeren:
     }
   }
 }
+```
+
+### Discovery er offentlig, operasjonene er ikke
+
+**MCP discovery er offentlig; Slaids-operasjoner er autentiserte og
+scope-gatede.** `initialize`, `ping`, `tools/list` og notifikasjonene besvares
+uten token; `tools/call` krever nøyaktig det tokenet og de scopene et REST-kall
+krever, og uten det svarer endepunktet `401` med `WWW-Authenticate`. Hele
+REST-API-et er uendret: hver rute der krever fortsatt et token.
+
+Grunnen er rekkefølgen en klient bygges i. En egendefinert MCP-app i ChatGPT
+skanner serveren for verktøy **når appen opprettes** – før, og uavhengig av, at en
+sluttbruker kobler på kontoen sin. Krever `initialize` et token, blir appen
+publisert med tom verktøyliste: ChatGPT kjenner igjen integrasjonen, men har ingen
+Slaids-verktøy å tilby. Det samme gjelder inspektørverktøy og enhver annen «skann
+serveren, koble på kontoen etterpå»-klient. MCPs egen autorisasjonsspesifikasjon
+er valgfri og ligger på transportnivå, så dette er innenfor protokollen – den
+låser bare *svaret*: `401` når et token kreves og mangler, `403` for manglende
+scopes.
+
+Katalogen kan være offentlig fordi den er produktmetadata. Den kompileres av
+operasjonsdefinisjonene i bundelen – navn, beskrivelse, JSON Schema, påkrevde
+scopes – uten å ta imot en kaller, og en anonym forespørsel får byte for byte det
+samme svaret et token får. Ingen presentasjonstitler, mapper, filer, tokens,
+eierdata eller auditrader er nåbare uten token, og en anonym melding skriver ingen
+auditrad (det finnes ingen å tilskrive den). Et token som *er* sendt, verifiseres
+uansett metode – et tilbaketrukket token blir aldri stille nedgradert til anonym
+tilgang, og forsøket havner i eierens audit.
+
+En klient som ennå ikke har et token kan altså se hele katalogen:
+
+```bash
+curl -sS -X POST https://<domenet>/api/agent/v1/mcp \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 Verktøyene heter `slaids_<operasjon>` – `slaids_create_presentation`,

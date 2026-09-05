@@ -1,0 +1,62 @@
+# The MCP endpoint, checked against a real deployment.
+#
+# Everything under `npm test` drives the handler in-process. Two things only
+# exist once something is deployed: the platform's own routing, and the
+# authentication boundary as a client meets it — which status a message gets,
+# which headers come back, and whether a client with no token is handed a tool
+# catalogue at all. That last one is what a ChatGPT tool scan sees, and it is
+# what `scripts/mcp-smoke.mjs` checks.
+#
+# Run it by hand from the Actions tab. Without a token it runs the public half
+# and the refusals, which needs no credential at all; with one it also runs a
+# real operation and compares the public catalogue against the authenticated
+# REST catalogue on the same deployment.
+#
+# Point it at production, or at any deployment a plain HTTP client can reach.
+# Vercel Authentication is on for every deployment URL of this project except
+# the custom domains, so a preview address answers the runner with a redirect to
+# `vercel.com/sso-api` rather than with Slaids — a run against one of those is
+# testing Vercel's front door, not this endpoint.
+name: MCP smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Installasjonen, uten sti. F.eks. https://slaids.no'
+        required: true
+        default: 'https://slaids.no'
+      token:
+        description: 'Agenttoken for den autentiserte halvdelen. Tomt = bare den offentlige.'
+        required: false
+        default: ''
+      expect_tools:
+        description: 'Forventet antall verktøy. 0 = ikke sjekk antallet.'
+        required: false
+        default: '0'
+
+# Nothing here reads or writes the repository beyond checking it out.
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # No install: the script has no dependencies, on purpose. What it checks
+      # is HTTP, and a client that needed a package tree would be checking
+      # something else.
+      - name: Smoke test
+        env:
+          SLAIDS_BASE_URL: ${{ inputs.base_url }}
+          SLAIDS_TOKEN: ${{ inputs.token }}
+          EXPECT_TOOLS: ${{ inputs.expect_tools }}
+        run: |
+          if [ -n "$SLAIDS_TOKEN" ]; then echo "::add-mask::$SLAIDS_TOKEN"; fi
+          node scripts/mcp-smoke.mjs --expect-tools "$EXPECT_TOOLS"

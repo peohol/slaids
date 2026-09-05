@@ -38,13 +38,48 @@
  *    told at `initialize` which one applies.
  *
  * Everything before the message is read is the REST layer's, unchanged: the
- * same bearer token, checked by the same `authenticate`; the same body limit;
- * the same headers; the same audit sink, one row per message. Transport-level
+ * same bearer token, read and checked by the same `authenticateRequest`; the
+ * same body limit; the same headers; the same audit sink. Transport-level
  * refusals — a wrong verb, a wrong content type, a body too large — answer with
  * Slaids' own error envelope rather than a JSON-RPC one, because at that point
  * there is no JSON-RPC message to answer *about*, and an agent that pointed a
  * plain HTTP client at this address should meet the same error vocabulary it
  * meets everywhere else in the API.
+ *
+ * ## Why the token is checked here rather than by the router
+ *
+ * **MCP discovery is public; Slaids' operations are authenticated and
+ * scope-gated.** This is the one address in the API where the two halves of that
+ * sentence meet, so it is the one address that authenticates for itself. Every
+ * REST route still answers `401` before it routes anything, and `tools/call`
+ * still needs exactly the token and the scopes a REST call needs — what changed
+ * is that a client may now handshake and read the tool catalogue before an owner
+ * has given it a token.
+ *
+ * That is not a courtesy. It is how a client is *built*: ChatGPT's custom MCP
+ * apps scan the server for its tools when the app is created and store that
+ * catalogue with the app, before — and independently of — any end user linking
+ * their account. A server that answered `401` to `initialize` published an app
+ * with an empty tool list, which is exactly the shape of the bug this endpoint
+ * had: the integration connected, and offered nothing. The same order shows up
+ * in every "scan the server, then connect an account" client, and in the
+ * inspector tools people debug with.
+ *
+ * Two rules keep that from being a hole, and both are worth stating as rules
+ * rather than as code:
+ *
+ *  1. **Only messages that cannot reach a deck are public**, and which those are
+ *     is `requiresAgentToken` in `server.ts`, derived from the same map the
+ *     dispatch switch is exhaustive over. A public answer is built from the
+ *     operation registry, which is compiled into the bundle: the same bytes for
+ *     every caller, and none of them the owner's.
+ *  2. **A token that was presented is always verified**, whichever method
+ *     carries it. Discovery being open is about a client that has no token yet,
+ *     never about one whose token was revoked or has expired — so a bad token
+ *     is a `401` on `initialize` too, and it is audited exactly as REST audits
+ *     it. An anonymous message writes no audit row at all, for the same reason
+ *     REST writes none for a token nobody has ever seen: the audit is the
+ *     owner's, keyed on the token that acted, and there is neither here.
  */
 
 import type { AgentContext } from '../../agent/types'
@@ -52,11 +87,23 @@ import { readBody } from '../agent/body'
 import {
   auditedPresentationId,
   recordAgentCall,
+  recordRefusedToken,
   type AgentAuditSink,
   type AuditSubject,
 } from '../agent/audit'
-import { agentApiHeaders, errorResponse, statusFor, type ApiError } from '../agent/protocol'
-import type { AgentPrincipal } from '../agent/tokens'
+import {
+  agentApiHeaders,
+  errorResponse,
+  statusFor,
+  unauthenticatedResponse,
+  type ApiError,
+} from '../agent/protocol'
+import {
+  auditSubject,
+  authenticateRequest,
+  type AgentPrincipal,
+  type AgentTokenLookup,
+} from '../agent/tokens'
 import {
   JSON_RPC_AUDIT,
   JSON_RPC_ERROR,
@@ -64,7 +111,7 @@ import {
   readJsonRpcMessage,
   type JsonRpcResponse,
 } from './jsonrpc'
-import { dispatchMcpMessage, type McpAudited } from './server'
+import { dispatchMcpMessage, requiresAgentToken, type McpAudited, type McpSession } from './server'
 import {
   MCP_PROTOCOL_VERSION,
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
@@ -78,7 +125,7 @@ import {
  * one way: the REST router knows about the MCP endpoint, and the MCP endpoint
  * knows nothing about the router.
  */
-export interface McpEndpointDeps {
+export interface McpEndpointDeps extends AgentTokenLookup {
   contextFor(principal: AgentPrincipal): AgentContext
   audit: AgentAuditSink
   maxRequestBytes: number
@@ -107,15 +154,43 @@ function accepted(): Response {
 }
 
 
+/**
+ * The name a refusal that never became a message is filed under.
+ *
+ * Before the body is read there is no method to name, so `mcp` is the honest
+ * answer — the same one every transport-level refusal here already used.
+ */
+const MCP_TRANSPORT_OPERATION = 'mcp'
+
 export async function handleMcpRequest(
   deps: McpEndpointDeps,
   request: Request,
-  principal: AgentPrincipal,
-  subject: AuditSubject,
 ): Promise<Response> {
   const started = deps.now()
 
+  // Who is calling, if anyone. A token that was *presented* is verified for
+  // every method — see rule 2 at the top of this file — so anything but "none
+  // was sent" ends here, with the same sentence and the same audit row REST
+  // would have written.
+  const auth = await authenticateRequest(deps, request)
+  if (!auth.ok && auth.reason !== 'missing') {
+    await recordRefusedToken(deps.audit, {
+      at: started,
+      auth,
+      operation: MCP_TRANSPORT_OPERATION,
+    })
+    return unauthenticatedResponse()
+  }
+
+  const principal = auth.ok ? auth.principal : null
+  const subject: AuditSubject | null = principal ? auditSubject(principal) : null
+
   const record = async (audit: McpAudited): Promise<void> => {
+    // No subject, no row. An anonymous message has no owner to attribute and no
+    // token to name, and a row invented for one would both be a lie and let an
+    // unauthenticated caller fill the table — which is the rule REST already
+    // follows for a token nobody has ever seen.
+    if (!subject) return
     await recordAgentCall(deps.audit, {
       at: started,
       subject,
@@ -129,7 +204,7 @@ export async function handleMcpRequest(
 
   const refuse = async (error: ApiError, headers?: Record<string, string>): Promise<Response> => {
     await record({
-      operation: 'mcp',
+      operation: MCP_TRANSPORT_OPERATION,
       input: null,
       data: null,
       errorCode: error.code,
@@ -239,10 +314,27 @@ export async function handleMcpRequest(
   }
 
   const message = readJsonRpcMessage(parsed)
-  const outcome = await dispatchMcpMessage(
-    { principal, context: () => deps.contextFor(principal) },
-    message,
-  )
+
+  // The authentication boundary itself, and the whole reason this endpoint has
+  // one of its own. `requiresAgentToken` reads the message rather than the
+  // address, because on this address the answer differs per message.
+  //
+  // The refusal is the transport's `401`, not a JSON-RPC error inside a `200`:
+  // MCP puts authorization at the HTTP layer, its error table names 401 for
+  // "authorization required or token invalid", and a client is required to be
+  // able to read one — which is how a client whose token expired mid-session
+  // learns to go and get another. A JSON-RPC error would hide that in a body.
+  //
+  // Nothing is audited: there is no subject to attribute it to. What an owner
+  // *can* see is the case that matters — a token they revoked, presented again —
+  // and that was recorded above, before the body was even read.
+  if (!principal && requiresAgentToken(message)) return unauthenticatedResponse()
+
+  const session: McpSession = principal
+    ? { authenticated: true, principal, context: () => deps.contextFor(principal) }
+    : { authenticated: false }
+
+  const outcome = await dispatchMcpMessage(session, message)
   await record(outcome.audit)
 
   if (!outcome.response) return accepted()

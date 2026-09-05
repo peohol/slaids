@@ -17,6 +17,9 @@
  * often than it is written, and it must not become a place credentials are kept.
  */
 
+import { statusFor } from './protocol'
+import { REFUSAL_CODES, type AuthOutcome } from './tokens'
+
 /** One agent call, as it is stored. */
 export interface AgentAuditRecord {
   at: string
@@ -119,4 +122,36 @@ export async function recordAgentCall(
   } catch (error) {
     console.error('slaids-agent: kunne ikke skrive auditrad', error)
   }
+}
+
+/**
+ * A refused token that we nonetheless recognised.
+ *
+ * Only then: a token nobody has ever seen has no owner to attribute a row to,
+ * and writing one would let an unauthenticated caller fill the table. A token
+ * that *is* ours and was revoked or has expired is the opposite — "the key I
+ * took away is still being used" is the single most useful thing an audit can
+ * tell an owner, and the reason is recorded here even though the caller is
+ * never told it.
+ *
+ * Shared by both transports, and by the same reasoning that put `recordAgentCall`
+ * here: which refusals are worth a row is a rule about the API rather than about
+ * REST, and the MCP endpoint — which now decides for itself when a token is
+ * required — must not be able to answer it differently.
+ */
+export async function recordRefusedToken(
+  sink: AgentAuditSink,
+  input: { at: Date; auth: Extract<AuthOutcome, { ok: false }>; operation: string },
+): Promise<void> {
+  const identified = input.auth.identified
+  if (!identified) return
+  await recordAgentCall(sink, {
+    at: input.at,
+    subject: identified,
+    operation: input.operation,
+    presentationId: null,
+    status: statusFor('UNAUTHENTICATED'),
+    errorCode: REFUSAL_CODES[input.auth.reason],
+    durationMs: 0,
+  })
 }

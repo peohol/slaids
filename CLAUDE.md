@@ -200,6 +200,33 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   svarer `405`), ingen batcher. Tokenet er identiteten på hver melding, og den eneste
   tilstanden mellom to kall er presentasjonens `revision` – det er dét som gjør endepunktet
   riktig på en plattform som kan svare fra to kalde instanser.
+- **MCP discovery er offentlig; Slaids-operasjoner er autentiserte og scope-gatede.**
+  `initialize`, `ping`, `tools/list` og enhver notifikasjon besvares uten agenttoken;
+  `tools/call` krever nøyaktig det tokenet og de scopene et REST-kall krever, og en
+  melding uten det møter transportens eget `401` med `WWW-Authenticate` – ikke en
+  JSON-RPC-feil i en `200`, siden det er 401-et en klient med utløpt token trenger for
+  å hente et nytt. Grunnen til at discovery må være åpen er rekkefølgen en klient
+  bygges i: en egendefinert MCP-app i ChatGPT skanner serveren for verktøy når appen
+  opprettes, før noen sluttbruker har koblet på kontoen sin, så en `401` på
+  `initialize` publiserte en app med tom verktøyliste – integrasjonen koblet seg opp og
+  tilbød ingenting. MCPs egen autorisasjonsspesifikasjon er valgfri og ligger på
+  transportnivå, så en server *kan* beskytte noen forespørsler og ikke andre; den låser
+  bare svaret (401/403). To ting gjør det trygt. **`METHOD_ACCESS` i
+  `src/server/mcp/server.ts` er den ene avgjørelsen**: en total avbildning over
+  metodene serveren har, med en uttømmende switch over nøklene, så en metode ikke kan
+  implementeres uten å klassifiseres – og `tools/call` er den eneste som når
+  `invoke.ts`. En notifikasjon, et løst svar og en ødelagt konvolutt er offentlige ved
+  konstruksjon, ikke ved oppramsing: `dispatchMcpMessage` kvitterer for dem uten å
+  dispatche noe. Og **et token som er sendt, verifiseres alltid**, uansett metode – et
+  tilbaketrukket token skal ikke stille kunne nedgraderes til anonym tilgang. En anonym
+  melding skriver ingen auditrad, av samme grunn som REST ikke skriver en for et token
+  ingen har sett før: auditen er eierens, nøklet på tokenet som handlet. At katalogen
+  *kan* være offentlig er en påstand om innhold, og holdes som en: den bygges av
+  `describeOperations()` – som ikke tar argumenter og derfor ikke kan svare forskjellig
+  for to kallere – og `tools.test.ts` sjekker at verken navn, beskrivelse, skjema,
+  default eller eksempel bærer en adresse, en e-post, en uuid, et tokenprefiks, et
+  miljøvariabelnavn, et tabellnavn eller en eier-id. REST er uendret: hver rute der
+  svarer fortsatt `401` før den ruter noe.
 - **Slaids annonserer bare protokollrevisjonen den faktisk implementerer**, i dag `2025-06-18`
   alene. `2025-03-26` ville lovet en klient at endepunktet tar imot JSON-RPC-batcher, som det
   avviser, og `2024-11-05` ville lovet den gamle HTTP+SSE-transporten med to endepunkter som

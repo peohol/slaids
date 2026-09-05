@@ -234,6 +234,44 @@ export function prefersJsonResult(accept: string | null): boolean {
   return accept !== null && /(?:^|,)\s*application\/json\b/i.test(accept)
 }
 
+/**
+ * One sentence for every reason a token is not accepted.
+ *
+ * Missing, malformed, unknown, revoked and expired all answer the same thing.
+ * Which one it was is in the server's own log and, where a token was actually
+ * identified, in the audit — but never in the response: an endpoint that tells a
+ * caller "that token exists, it is just revoked" is an endpoint that answers
+ * questions on behalf of whoever stole it.
+ *
+ * It lives here, next to the status table, because two transports refuse with
+ * it. REST refuses every route this way; MCP refuses the one message kind that
+ * can reach a deck. A second sentence written next to the second transport
+ * would be a second thing a probe could tell the two of them apart by.
+ */
+export function unauthenticatedError(): ApiError {
+  return {
+    code: 'UNAUTHENTICATED',
+    message:
+      'Mangler et gyldig agenttoken. Send det som «Authorization: Bearer slaids_at_…». Tokens lages og trekkes tilbake i Slaids-biblioteket.',
+  }
+}
+
+/**
+ * The 401 itself, with the challenge RFC 6750 asks for.
+ *
+ * No `resource_metadata` parameter, because Slaids has no OAuth authorization
+ * server to point at: an agent token is a delegation the owner creates in the
+ * library and pastes into a client, not something a client can go and obtain.
+ * MCP's authorization specification is explicitly optional, and the half of it
+ * that binds here is the error table — 401 when a token is required or invalid,
+ * 403 when the scopes are short — which is what this and `FORBIDDEN_SCOPE` are.
+ */
+export function unauthenticatedResponse(): Response {
+  return errorResponse(unauthenticatedError(), {
+    extraHeaders: { 'WWW-Authenticate': 'Bearer realm="slaids-agent"' },
+  })
+}
+
 export function errorResponse(
   error: ApiError,
   options: { operation?: string; extraHeaders?: Record<string, string> } = {},

@@ -9,7 +9,7 @@
  */
 
 import type { AgentScope } from '../../agent/types'
-import type { AgentTokenRecord } from '../../persistence/agentTokens'
+import { looksLikeAgentToken, type AgentTokenRecord } from '../../persistence/agentTokens'
 import type { AuditSubject } from './audit'
 
 /** Who is calling, once a token has been accepted. */
@@ -64,6 +64,46 @@ export function bearerToken(header: string | null | undefined): string | null {
   if (!header) return null
   const match = /^Bearer[ \t]+(\S+)$/i.exec(header.trim())
   return match ? match[1] : null
+}
+
+/**
+ * What this request presents, and whether it is good.
+ *
+ * The whole of "who is calling" for every transport, in one function, because
+ * the two of them do not agree about *when* to ask and must not be allowed to
+ * disagree about *what the answer means*. REST asks once, before it routes
+ * anything; MCP asks before it reads the message and then decides per method
+ * whether an answer of `missing` is allowed to stand. Both read the same header,
+ * apply the same shape check and reach the same store.
+ *
+ * `missing` is the one outcome that is not a refusal on its own — nothing was
+ * presented, so nothing was wrong — and it is what makes a public MCP method
+ * possible without weakening anything. Every other outcome means a token *was*
+ * presented and is not usable, and that is a refusal wherever it happens.
+ */
+export async function authenticateRequest(
+  lookup: AgentTokenLookup,
+  request: Request,
+): Promise<AuthOutcome> {
+  const presented = bearerToken(request.headers.get('authorization'))
+  if (!presented) return { ok: false, reason: 'missing' }
+  // Shape first, so a string that cannot be one of ours never becomes a lookup.
+  if (!looksLikeAgentToken(presented)) return { ok: false, reason: 'malformed' }
+  return lookup.authenticate(presented)
+}
+
+/** Resolving a presented token. Never throws; a store that is down is an outcome. */
+export interface AgentTokenLookup {
+  authenticate(presentedToken: string): Promise<AuthOutcome>
+}
+
+/** How the owner's log identifies whoever made a call. */
+export function auditSubject(principal: AgentPrincipal): AuditSubject {
+  return {
+    ownerId: principal.ownerId,
+    tokenId: principal.tokenId,
+    tokenName: principal.tokenName,
+  }
 }
 
 /**

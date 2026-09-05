@@ -3693,10 +3693,9 @@ bundelen alle besøkende laster ned.
 
 #### Fase 4: MCP over den samme inngangen
 
-MCP ligger på `POST /api/agent/v1/mcp` – i den samme Vercel-funksjonen, bak det
-samme tokenet, med den samme auditen. Ikke som en besparelse, men fordi alt over
-autentiseringen faktisk *er* det samme; det som skiller begynner etterpå, og det
-ligger i `src/server/mcp/`.
+MCP ligger på `POST /api/agent/v1/mcp` – i den samme Vercel-funksjonen, med det
+samme tokenet og den samme auditen. Ikke som en besparelse, men fordi alt rundt
+det faktisk *er* det samme; det som skiller ligger i `src/server/mcp/`.
 
 **Transporten er Streamable HTTP i revisjonen `2025-06-18`, tilstandsløs.** Én
 JSON-RPC-melding per POST, svaret som `application/json` på den samme responsen.
@@ -3750,6 +3749,77 @@ endepunktet i det hele tatt. Den ærlige listen er den tomme, og å avvise enhve
 konfigurasjon en deploy kan glemme å sette og dermed åpne hullet igjen. Sjekken
 kjører før kroppen leses, så en side aldri når en operasjon, langt mindre en som
 skriver.
+
+**MCP discovery er offentlig; Slaids-operasjoner er autentiserte og
+scope-gatede.** Dette er den ene adressen i API-et der de to halvdelene møtes, og
+derfor den ene adressen som autentiserer for seg selv. Hver REST-rute svarer
+fortsatt `401` før den ruter noe som helst, og `tools/call` krever nøyaktig det
+tokenet og de scopene et REST-kall krever – det som er åpent, er at en klient kan
+håndhilse og lese verktøykatalogen *før* en eier har gitt den et token.
+
+Det er ikke en høflighet, det er rekkefølgen en klient bygges i. En egendefinert
+MCP-app i ChatGPT skanner serveren for verktøy når appen opprettes, og lagrer den
+katalogen med appen – før, og uavhengig av, at en sluttbruker kobler på kontoen
+sin. En server som svarte `401` på `initialize` fikk dermed publisert en app med
+tom verktøyliste: integrasjonen koblet seg opp og tilbød ingenting. Den samme
+rekkefølgen finnes i enhver «skann serveren, koble på kontoen etterpå»-klient og i
+inspektørverktøyene folk feilsøker med.
+
+MCP-spesifikasjonen står ikke i veien for dette. Autorisasjon er **valgfritt** der
+(«Authorization is OPTIONAL for MCP implementations») og ligger på
+*transportnivå*, så en server kan beskytte noen forespørsler og ikke andre. Det
+spesifikasjonen låser, er *svaret* når en forespørsel trenger et token og ikke har
+et: `401` for «authorization required or token invalid», `403` for manglende
+scopes. Slaids svarer nøyaktig det – `401` med `WWW-Authenticate` på transporten,
+ikke en JSON-RPC-feil inne i en `200`, for det er 401-et en klient med et utløpt
+token trenger å se for å gå og hente et nytt. Slaids implementerer ikke OAuth, og
+`WWW-Authenticate` bærer derfor ingen `resource_metadata`: et agenttoken er en
+delegasjon eieren lager i biblioteket og limer inn i klienten, ikke noe en klient
+kan gå og skaffe seg.
+
+To ting gjør at dette ikke er et hull, og begge er egenskaper ved koden:
+
+1. **Bare meldinger som ikke kan nå et dekk er offentlige.** `METHOD_ACCESS` i
+   `src/server/mcp/server.ts` er en total avbildning over metodene serveren
+   implementerer, og dispatch-switchen er uttømmende over nøklene dens – så en
+   metode kan ikke implementeres uten å bli klassifisert, og ikke klassifiseres
+   uten å bli implementert. En håndholdt liste over «offentlige metoder» ved
+   siden av en switch er nøyaktig den andre kontrakten dette laget er bygget for
+   å unngå, og den ville gått galt den stille veien: en metode lagt til i
+   switchen og glemt her, født offentlig.
+
+   `tools/call` er den eneste metoden som når `invoke.ts`, og altså den eneste
+   som kan lese eller endre noe. `initialize`, `ping` og `tools/list` svarer ut
+   av registeret alene: katalogen kompileres av operasjonsdefinisjonene i
+   bundelen – navn, beskrivelse, JSON Schema, påkrevde scopes – så den er de
+   samme bytene for hver kaller og for ingen. En notifikasjon, et løst svar og en
+   ødelagt konvolutt er offentlige *ved konstruksjon* og ikke ved oppramsing:
+   `dispatchMcpMessage` kvitterer for hver av dem uten å dispatche noe i det hele
+   tatt. En metode serveren ikke har svarer fortsatt `-32601` til hvem som helst,
+   fordi listen i avvisningen er de fire navnene spesifikasjonen alt publiserer –
+   og fordi klienter spør etter `resources/list` uansett hva serveren annonserte,
+   der et `401` ville lest som «hele denne serveren er stengt».
+
+2. **Et token som *er* sendt, verifiseres alltid** – uansett metode. At discovery
+   er åpent handler om en klient som ennå ikke har fått et token, aldri om en
+   klient hvis token er trukket tilbake eller utløpt; ellers ville en
+   tilbaketrekking i stillhet blitt en nedgradering til anonym tilgang. Et dårlig
+   token er derfor `401` på `initialize` også, og det revideres nøyaktig som REST
+   reviderer det. En anonym melding skriver ingen auditrad i det hele tatt, av
+   samme grunn som REST ikke skriver en for et token ingen har sett før: auditen
+   er eierens, nøklet på tokenet som handlet, og her finnes ingen av delene.
+
+At katalogen *kan* være offentlig er en påstand om innhold, ikke om tilgang, så
+den holdes på plass som en påstand om innhold: `tools.test.ts` sjekker at verken
+et navn, en beskrivelse, et skjema, en default eller et eksempel inneholder en
+adresse, en e-post, en uuid, et tokenprefiks, et miljøvariabelnavn, et tabellnavn
+eller en eier-id – og at `describeOperations()` og `mcpTools()` ikke tar
+argumenter, så de ikke *kan* svare forskjellig for to kallere.
+`discovery.test.ts` holder tilgangshalvdelen, og gjør det ved å ta repositoryet
+bort: en installasjon der `contextFor` kaster svarer fortsatt på alle tre
+offentlige metodene, og telleren viser at ingen av dem så mye som spurte etter
+et. Broen mellom de to er at en anonym kaller og et token får nøyaktig de samme
+bytene tilbake fra `tools/list`.
 
 **Verktøykatalogen er operasjonskatalogen.** `mcpTools()` bygger den av
 `describeOperations()`, den samme funksjonen REST-katalogen kaller: navn,
@@ -4512,7 +4582,11 @@ Disse ble brukt i researchen som lå til grunn for planen:
 - WCAG 2.2: https://www.w3.org/TR/WCAG22/
 - Supabase docs: https://supabase.com/docs
 - MCP tools spec: https://modelcontextprotocol.io/specification/2025-06-18/server/tools
+- MCP authorization spec (valgfri, transportnivå, 401/403-tabellen):
+  https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization
 - MCP TypeScript SDK: https://ts.sdk.modelcontextprotocol.io/
+- Egendefinerte MCP-apper i ChatGPT (skanning av verktøy når appen opprettes):
+  https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt
 - Claude Code best practices: https://code.claude.com/docs/en/best-practices
 
 ---
