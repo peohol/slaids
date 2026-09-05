@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import { Modal } from '../components/Modal'
+import { useTypedSubstitution } from './useTypedSubstitution'
 
 export function NewSectionModal({
   open,
@@ -22,6 +23,7 @@ export function NewSectionModal({
   onCreate: (title: string) => boolean
 }) {
   const [title, setTitle] = useState('')
+  const typed = useTypedSubstitution(setTitle)
   const trimmed = title.trim()
   // Cleared only once the section exists. A heading refused for being too long
   // for one line is exactly the text the author is about to shorten.
@@ -69,7 +71,7 @@ export function NewSectionModal({
           value={title}
           autoFocus
           data-testid="section-title-input"
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={typed.onChange}
           onKeyDown={(event) => {
             if (event.key === 'Enter') submit()
           }}

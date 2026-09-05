@@ -20,6 +20,7 @@ import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
 import { notify } from '../../state/toast'
+import { useTypedSubstitution } from './useTypedSubstitution'
 
 const EMPTY: Omit<Reference, 'id'> = { title: '', authors: '', url: '', year: '' }
 
@@ -40,6 +41,13 @@ export function ReferenceModal({
   const [editing, setEditing] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Reference | null>(null)
   const [clearingUnused, setClearingUnused] = useState(false)
+  // Title and authors are prose that ends up on the deck's own reference
+  // page — the year and the URL are not, so only these two get the live
+  // substitutions.
+  const typedTitle = useTypedSubstitution((title) => setDraft((current) => ({ ...current, title })))
+  const typedAuthors = useTypedSubstitution((authors) =>
+    setDraft((current) => ({ ...current, authors })),
+  )
 
   if (!presentation) return null
 
@@ -152,7 +160,7 @@ export function ReferenceModal({
               className="input"
               value={draft.title}
               data-testid="reference-title"
-              onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+              onChange={typedTitle.onChange}
             />
           </div>
           <div className="field">
@@ -161,7 +169,7 @@ export function ReferenceModal({
               id="reference-authors"
               className="input"
               value={draft.authors}
-              onChange={(event) => setDraft({ ...draft, authors: event.target.value })}
+              onChange={typedAuthors.onChange}
             />
           </div>
           <div className="field">
