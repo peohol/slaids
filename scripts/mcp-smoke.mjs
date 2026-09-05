@@ -18,6 +18,14 @@
  *
  *   node scripts/mcp-smoke.mjs --base-url https://slaids.no
  *   node scripts/mcp-smoke.mjs --base-url https://slaids.no --token slaids_at_…
+ *   node scripts/mcp-smoke.mjs --base-url https://… --header 'Cookie: _vercel_jwt=…'
+ *
+ * `--header` may be repeated, and exists for the layer *in front of* the
+ * deployment rather than for Slaids: a preview address behind Vercel
+ * Authentication answers a plain client with a redirect to an SSO page, and a
+ * bypass cookie is how a script gets past the front door to the thing it came to
+ * test. It refuses `Authorization`, because every check below that says
+ * "anonymous" would otherwise be a lie.
  *
  * Without a token it runs the public half and the refusals — which is the whole
  * of what a client sees before an owner has connected an account, and therefore
@@ -40,9 +48,35 @@ function flag(name, fallback = null) {
   return inline ? inline.slice(`--${name}=`.length) : fallback
 }
 
+/** Every `--name value` pair, in order. For the flags that may repeat. */
+function flags(name) {
+  const found = []
+  for (const [index, argument] of ARGS.entries()) {
+    if (argument === `--${name}` && index + 1 < ARGS.length) found.push(ARGS[index + 1])
+    else if (argument.startsWith(`--${name}=`)) found.push(argument.slice(`--${name}=`.length))
+  }
+  return found
+}
+
 const baseUrl = (flag('base-url') ?? process.env.SLAIDS_BASE_URL ?? '').replace(/\/+$/, '')
 const token = flag('token') ?? process.env.SLAIDS_TOKEN ?? null
 const expectTools = Number(flag('expect-tools') ?? '0')
+
+/** Headers for the layer in front of the deployment. Never `Authorization`. */
+const extraHeaders = {}
+for (const raw of flags('header')) {
+  const at = raw.indexOf(':')
+  if (at < 0) {
+    console.error(`Ugyldig --header «${raw}». Formen er «Navn: verdi».`)
+    process.exit(2)
+  }
+  const name = raw.slice(0, at).trim()
+  if (/^authorization$/i.test(name)) {
+    console.error('--header kan ikke sette Authorization. Bruk --token; ellers er «uten token» ikke sant.')
+    process.exit(2)
+  }
+  extraHeaders[name] = raw.slice(at + 1).trim()
+}
 
 if (!baseUrl) {
   console.error('Bruk: node scripts/mcp-smoke.mjs --base-url https://<domenet> [--token slaids_at_…]')
@@ -98,6 +132,7 @@ async function send(method, { params, auth = null, headers = {}, notification = 
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...extraHeaders,
       ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
       ...headers,
     },
@@ -129,6 +164,33 @@ function resultOf(answer) {
 
 console.log(`\nMCP smoke test mot ${MCP_URL}`)
 console.log(token ? 'Med token: hele runden.\n' : 'Uten token: den offentlige halvdelen og avvisningene.\n')
+
+// Two answers mean the address is not this endpoint at all, and every check
+// below would then be ten repetitions of one fact. Said once, plainly, because
+// the two are ordinary mistakes rather than failures:
+//
+//  - `503 SERVER_NOT_CONFIGURED` is a deployment with no Supabase in its server
+//    environment. Vercel preview deployments are built without the server
+//    variables unless somebody enables them for Preview, so this is what a
+//    preview address usually answers.
+//  - a body that is not JSON is something in front of the deployment answering
+//    instead of it — an authentication wall, or a platform 404.
+const reachable = await send('ping')
+if (reachable.body === null) {
+  console.error(
+    `Adressen svarte ${reachable.status} med noe som ikke er JSON. Da er det ikke Slaids som svarer:\n` +
+      'et beskyttelseslag foran installasjonen, eller feil adresse. Se --header i toppen av denne filen.',
+  )
+  process.exit(2)
+}
+if (reachable.body.error?.code === 'SERVER_NOT_CONFIGURED') {
+  console.error(
+    'Denne installasjonen har ingen Supabase i servermiljøet sitt, så agent-API-et svarer 503 på alt:\n' +
+      `«${reachable.body.error.message}»\n` +
+      'Det sier ingenting om MCP-grensen. Kjør mot en installasjon som er konfigurert.',
+  )
+  process.exit(2)
+}
 
 console.log('Oppdagelse uten Authorization')
 
@@ -226,7 +288,9 @@ await check('en nettleserside slipper fortsatt ikke inn', async () => {
 })
 
 await check('REST-katalogen er fortsatt lukket', async () => {
-  const response = await fetch(OPERATIONS_URL, { headers: { Accept: 'application/json' } })
+  const response = await fetch(OPERATIONS_URL, {
+      headers: { Accept: 'application/json', ...extraHeaders },
+    })
   expect(response.status === 401, `forventet 401, fikk ${response.status}`)
   return '401'
 })
@@ -250,7 +314,7 @@ if (token) {
     // deployment: if the two ever differed, `tools/list` would be answering per
     // caller instead of describing Slaids.
     const response = await fetch(OPERATIONS_URL, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      headers: { Accept: 'application/json', ...extraHeaders, Authorization: `Bearer ${token}` },
     })
     expect(response.status === 200, `forventet 200 fra REST-katalogen, fikk ${response.status}`)
     const listing = await response.json()

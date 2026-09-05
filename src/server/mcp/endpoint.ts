@@ -210,7 +210,10 @@ export async function handleMcpRequest(
       errorCode: error.code,
       status: statusFor(error.code),
     })
-    return errorResponse(error, { operation: 'mcp', ...(headers ? { extraHeaders: headers } : {}) })
+    return errorResponse(error, {
+      operation: MCP_TRANSPORT_OPERATION,
+      ...(headers ? { extraHeaders: headers } : {}),
+    })
   }
 
   if (request.method !== 'POST') {
