@@ -1,6 +1,12 @@
 /**
- * New-presentation dialog: title, global background and the two global fonts.
- * These are presentation-wide by design — a slide can never diverge from them.
+ * New-presentation dialog: title, the two global fonts, and the colours the
+ * deck starts in.
+ *
+ * The fonts are presentation-wide by design — a slide can never diverge from
+ * them. The background is not: it belongs to a section, and what is picked here
+ * is the front page's, which every slide inherits until the next section says
+ * otherwise. Starting a deck is exactly the moment there is only one section,
+ * which is why one swatch grid is still the right question to ask.
  */
 
 import { useEffect, useState } from 'react'
@@ -9,12 +15,15 @@ import { ColorSwatchGrid } from '../components/ColorPicker'
 import { FONT_OPTIONS } from '../../domain/fonts'
 import { readDefaultTheme } from '../../state/defaultTheme'
 import { bestTextColor } from '../../domain/color'
+import { DEFAULT_BACKGROUND_COLOR } from '../../domain/constants'
 import { ensureWebFonts } from '../fonts'
 import type { PresentationTheme } from '../../domain/types'
 
 export interface NewPresentationResult {
   title: string
   theme: PresentationTheme
+  /** The front section's page colour, and with it every slide after it. */
+  backgroundColor: string
 }
 
 export function NewPresentationModal({
@@ -29,7 +38,7 @@ export function NewPresentationModal({
   // Whatever the author last saved as their default is where a new deck starts.
   const [seed] = useState(readDefaultTheme)
   const [title, setTitle] = useState('')
-  const [backgroundColor, setBackgroundColor] = useState(seed.backgroundColor)
+  const [backgroundColor, setBackgroundColor] = useState(DEFAULT_BACKGROUND_COLOR)
   const [headingFontFamily, setHeadingFontFamily] = useState(seed.headingFontFamily)
   const [bodyFontFamily, setBodyFontFamily] = useState(seed.bodyFontFamily)
 
@@ -44,10 +53,11 @@ export function NewPresentationModal({
     if (!valid) return
     onCreate({
       title: trimmed,
-      theme: { ...seed, backgroundColor, headingFontFamily, bodyFontFamily },
+      theme: { ...seed, headingFontFamily, bodyFontFamily },
+      backgroundColor,
     })
     setTitle('')
-    setBackgroundColor(seed.backgroundColor)
+    setBackgroundColor(DEFAULT_BACKGROUND_COLOR)
   }
 
   return (
@@ -55,7 +65,7 @@ export function NewPresentationModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Ny presentasjon"
-      description="Bakgrunn og fonter gjelder hele presentasjonen. Luft og skriftstørrelse settes i temaet."
+      description="Fontene gjelder hele presentasjonen. Bakgrunnsfargen setter forsiden, og arves av slidene fram til neste seksjon."
       testId="new-presentation-modal"
       footer={
         <>

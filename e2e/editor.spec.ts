@@ -15,23 +15,24 @@ test.describe('slides and content', () => {
   test('adds, duplicates, reorders and deletes slides', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Slides')
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(1)
-
-    await page.getByTestId('add-slide').click()
-    await page.getByTestId('new-slide-with-title').click()
+    // The front section and the one slide a new deck opens onto.
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(2)
 
     await page.getByTestId('add-slide').click()
-    await page.getByTestId('new-slide-without-title').click()
+    await page.getByTestId('new-slide-with-title').click()
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
     await expect(page.getByTestId('slide-title')).toHaveCount(0)
 
-    await page.getByTestId('duplicate-slide').first().click()
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
+    await page.getByTestId('duplicate-slide').nth(1).click()
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(5)
 
-    await page.getByTestId('delete-slide').first().click()
+    await page.getByTestId('delete-slide').nth(1).click()
     await page.getByTestId('confirm-accept').click()
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
     expect(guard.errors).toEqual([])
   })
 
@@ -47,7 +48,7 @@ test.describe('slides and content', () => {
       await page.getByTestId('add-slide').click()
       await page.getByTestId('new-slide-without-title').click()
     }
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(8)
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(9)
 
     // The list scrolls rather than squeezing what it holds.
     const scrolls = await page.evaluate(() => {
@@ -61,7 +62,7 @@ test.describe('slides and content', () => {
     }
     await page.getByTestId('delete-slide').last().click()
     await page.getByTestId('confirm-accept').click()
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(7)
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(8)
   })
 
   test('clicking a thumbnail navigates, holding it reorders', async ({ page }) => {
@@ -79,13 +80,14 @@ test.describe('slides and content', () => {
     const before = await order()
 
     // A plain click is navigation, not a drag.
-    await page.getByTestId('filmstrip-thumb').nth(2).click()
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+    await page.getByTestId('filmstrip-thumb').nth(3).click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 4 av 4')
     expect(await order()).toEqual(before)
 
-    // The same surface, pressed and held, is the drag handle.
-    const first = await page.getByTestId('filmstrip-thumb').nth(0).boundingBox()
-    const third = await page.getByTestId('filmstrip-thumb').nth(2).boundingBox()
+    // The same surface, pressed and held, is the drag handle. The front page
+    // stays where it is: index 1 is the first slide that can be moved.
+    const first = await page.getByTestId('filmstrip-thumb').nth(1).boundingBox()
+    const third = await page.getByTestId('filmstrip-thumb').nth(3).boundingBox()
     if (!first || !third) throw new Error('Fant ikke miniatyrene.')
     await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2)
     await page.mouse.down()
@@ -109,13 +111,13 @@ test.describe('slides and content', () => {
     await page.keyboard.type('Andre slide')
     await expect(stage(page)).toContainText('Andre slide')
 
-    await page.getByTestId('filmstrip-thumb').first().click()
-    await expect(stage(page)).toContainText('Første slide')
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
-
     await page.getByTestId('filmstrip-thumb').nth(1).click()
+    await expect(stage(page)).toContainText('Første slide')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+
+    await page.getByTestId('filmstrip-thumb').nth(2).click()
     await expect(stage(page)).toContainText('Andre slide')
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 2')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
   })
 
   test('toggles the title zone and restores the main area', async ({ page }) => {
@@ -213,17 +215,19 @@ test.describe('slides and content', () => {
     expect(await zoneRects(page)).toHaveLength(2)
   })
 
-  test('changes the presentation theme globally', async ({ page }) => {
+  test('changes the presentation typography globally', async ({ page }) => {
     await createPresentation(page, 'Tema')
     await page.getByTestId('open-theme').click()
     await expect(page.getByTestId('theme-modal')).toBeVisible()
-    // hsl(0, 25%, 20%) from the fixed palette
-    await page.locator('[data-testid="theme-modal"] [data-color="#402626"]').first().click()
+    // Colour is a section's, so the theme modal offers none: what is global is
+    // the two typefaces and the two scales.
+    await expect(page.locator('[data-testid="theme-modal"] [data-testid="palette"]')).toHaveCount(0)
+    await page.getByTestId('theme-body-font').selectOption({ label: 'Merriweather' })
     await page.getByRole('button', { name: 'Ferdig' }).click()
 
-    const background = await page.evaluate(
-      () => getComputedStyle(document.querySelector('.slide') as HTMLElement).backgroundColor,
+    const font = await page.evaluate(
+      () => getComputedStyle(document.querySelector('.slide') as HTMLElement).fontFamily,
     )
-    expect(background).toBe('rgb(64, 38, 38)')
+    expect(font).toContain('Merriweather')
   })
 })

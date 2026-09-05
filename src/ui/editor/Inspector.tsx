@@ -25,8 +25,9 @@ import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
+import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
-import type { Axis, Slide, ZoneContentKind } from '../../domain/types'
+import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { Icon } from '../components/Icon'
 import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
@@ -37,14 +38,16 @@ export function Inspector({
   actions,
   onAddContent,
 }: {
-  slide: Slide
+  slide: ContentSlide
   actions: ZoneAction[]
   onAddContent: (nodeId: string, kind: ZoneContentKind) => void
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
-  const pillColor = useEditorStore(
-    (state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR,
+  // The colours a swatch offers as "the default" are the governing section's:
+  // a heading with no colour of its own is painted with that one.
+  const pillColor = useEditorStore((state) =>
+    state.presentation ? sectionGoverning(state.presentation, slide.id).accentColor : DEFAULT_PILL_COLOR,
   )
   const run = useEditorStore((state) => state.run)
 
@@ -78,12 +81,12 @@ export function Inspector({
 
   /* A caption with no colour of its own reads its picture's title panel when
      there is one — the same header a titled image card's title already
-     inherits from the cover — and the cover directly otherwise, since a plain
-     picture has no panel to read. */
+     inherits from the section — and the section directly otherwise, since a
+     plain picture has no panel to read. */
   const captionInheritedColor =
     content?.kind === 'titled-image-card' ? (content.headerColor ?? pillColor) : pillColor
   const captionInheritedLabel =
-    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra forsiden)'
+    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra seksjonen)'
 
   return (
     <aside className="inspector" data-testid="inspector">
@@ -206,7 +209,7 @@ export function Inspector({
                 ? undefined
                 : {
                     color: pillColor,
-                    label: 'Standard (fra forsiden)',
+                    label: 'Standard (fra seksjonen)',
                     active: coloured.headerColor === null,
                     onSelect: () =>
                       run('card-color', (current) =>

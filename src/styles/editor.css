@@ -248,14 +248,27 @@
   border-top: 1px solid var(--chrome-border);
 }
 
+/*
+ * The two ways to add a page, side by side.
+ *
+ * A new slide and a new section are different things, so they are two buttons
+ * rather than one with a menu — and they share the row evenly, because neither
+ * is the exception. The strip is narrow, so the labels are kept on one line and
+ * the padding gives way before the text does.
+ */
 .filmstrip__footer {
   padding: 10px;
   border-top: 1px solid var(--chrome-border);
+  display: flex;
+  gap: 6px;
 }
 
 .filmstrip__footer .btn {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  padding-inline: 8px;
   justify-content: center;
+  white-space: nowrap;
 }
 
 /* ----------------------------------------------------------------- *

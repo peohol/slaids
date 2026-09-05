@@ -140,16 +140,16 @@ test.describe('presentation mode', () => {
 
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(2)
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
 
     await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
     await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
 
-    // Away to the first slide, then back to the one the derived view was opened
+    // Away to another slide, then back to the one the derived view was opened
     // from: it must stay closed rather than reappear.
-    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
-    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
     await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
     await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
     await expect(page.getByTestId('stage-note')).toBeHidden()
   })

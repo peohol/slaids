@@ -24,7 +24,7 @@ import type {
   VerticalAlign,
   ZoneContent,
 } from '../../domain/types'
-import { useSlideRender } from './SlideRenderContext'
+import { usePageColors, useSlideRender } from './SlideRenderContext'
 
 export interface ZoneContentFrameProps {
   content: ZoneContent
@@ -125,23 +125,24 @@ export function ZoneContentFrame({
   renderField,
   renderImage,
 }: ZoneContentFrameProps) {
-  const { theme, headingPillColor } = useSlideRender()
+  const { theme } = useSlideRender()
+  const colors = usePageColors()
   const tokens = themeMetrics(theme)
 
   if (content.kind === 'container') {
     // A container is a card without the card: same subfields, same dividers,
     // but drawn on the slide background, so the divider follows the text colour
     // the background dictates rather than a card's own palette.
-    const color = bestTextColor(theme.backgroundColor)
+    const color = bestTextColor(colors.background)
     return (
       <div
         className="zone-content zone-content--container"
         data-content-kind="container"
-        style={{ color, textShadow: textShadowFor(theme.backgroundColor) }}
+        style={{ color, textShadow: textShadowFor(colors.background) }}
       >
         <SubfieldStack
           body={content.body}
-          dividerColor={dividerColorFor(theme.backgroundColor)}
+          dividerColor={dividerColorFor(colors.background)}
           gap={tokens.subfieldGap}
           renderField={renderField}
         />
@@ -191,11 +192,11 @@ export function ZoneContentFrame({
   /*
    * A card with no header colour of its own takes the deck's heading pill
    * colour — the same rule a heading with no stored colour follows — so
-   * changing the cover repaints every such title panel without touching a
+   * changing the section repaints every such title panel without touching a
    * single stored document.
    */
   const titled = content
-  const headerColor = titled.headerColor ?? headingPillColor
+  const headerColor = titled.headerColor ?? colors.accent
   const headerText = bestTextColor(headerColor)
   return (
     /*
@@ -231,8 +232,8 @@ export function ZoneContentFrame({
          * (see `captionTint`), the same variable a heading pill reads. Scoping
          * it to the header's own colour here — rather than leaving the deck's
          * default in force — is what makes the picture's caption follow this
-         * card's header instead of the cover whenever the header has one of
-         * its own, while still falling back to the cover when it doesn't,
+         * card's header instead of the section whenever the header has one of
+         * its own, while still falling back to the section when it doesn't,
          * because `headerColor` already carries that fallback.
          */
         '--slaids-heading-pill': headerColor,

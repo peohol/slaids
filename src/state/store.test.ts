@@ -7,14 +7,17 @@ import { createUntitledCard } from '../domain/content'
 import { addSlide, deleteLayoutNode, splitLeaf } from '../domain/commands'
 import { err, ok } from '../domain/result'
 import type { Presentation } from '../domain/types'
+import { contentAt, sectionAt } from '../domain/testDecks'
 
+/** A deck of two: the front section every deck opens with, and one split slide. */
 function seed(): Presentation {
   const presentation = createPresentation({ title: 'Store' })
   return {
     ...presentation,
     slides: [
+      sectionAt(presentation, 0),
       {
-        ...presentation.slides[0],
+        ...contentAt(presentation, 1),
         root: createSplit('x', [1, 1], [createLeaf(createUntitledCard()), createLeaf()]),
       },
     ],
@@ -25,7 +28,6 @@ beforeEach(() => {
   useEditorStore.setState({
     presentation: null,
     currentSlideId: null,
-    viewingCover: false,
     selectedNodeId: null,
     activeField: null,
     mode: 'content',
@@ -43,8 +45,8 @@ describe('store initialisation', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
     const state = useEditorStore.getState()
-    expect(state.currentSlideId).toBe(presentation.slides[0].id)
-    expect(state.selectedNodeId).toBe(presentation.slides[0].root.id)
+    expect(state.currentSlideId).toBe(presentation.slides[1].id)
+    expect(state.selectedNodeId).toBe(contentAt(presentation, 1).root.id)
     expect(state.saveStatus).toBe('saved')
   })
 })
@@ -54,7 +56,7 @@ describe('run', () => {
     useEditorStore.getState().setPresentation(seed())
     const ok = useEditorStore.getState().run('add-slide', (presentation) => addSlide(presentation, {}))
     expect(ok).toBe(true)
-    expect(useEditorStore.getState().presentation?.slides).toHaveLength(2)
+    expect(useEditorStore.getState().presentation?.slides).toHaveLength(3)
     expect(useEditorStore.getState().saveStatus).toBe('dirty')
     expect(useEditorStore.getState().past).toHaveLength(1)
   })
@@ -99,14 +101,14 @@ describe('undo and redo', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
     useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
-    expect(useEditorStore.getState().presentation?.slides).toHaveLength(2)
+    expect(useEditorStore.getState().presentation?.slides).toHaveLength(3)
 
     useEditorStore.getState().undo()
-    expect(useEditorStore.getState().presentation?.slides).toHaveLength(1)
+    expect(useEditorStore.getState().presentation?.slides).toHaveLength(2)
     expect(useEditorStore.getState().canRedo()).toBe(true)
 
     useEditorStore.getState().redo()
-    expect(useEditorStore.getState().presentation?.slides).toHaveLength(2)
+    expect(useEditorStore.getState().presentation?.slides).toHaveLength(3)
   })
 
   it('clears the redo stack on a new change', () => {
@@ -131,26 +133,25 @@ describe('selection reconciliation', () => {
   it('falls back to the slide root when the selected node disappears', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
-    const root = presentation.slides[0].root
+    const root = contentAt(presentation, 1).root
     if (root.kind !== 'split') throw new Error('expected split')
     const doomed = root.children[1].id
     useEditorStore.getState().selectNode(doomed)
 
     useEditorStore.getState().runStructural('delete', (current) =>
-      deleteLayoutNode(current, { slideId: presentation.slides[0].id, nodeId: doomed }),
+      deleteLayoutNode(current, { slideId: presentation.slides[1].id, nodeId: doomed }),
     )
 
     const state = useEditorStore.getState()
-    const slide = state.presentation?.slides[0]
-    expect(slide).toBeDefined()
-    expect(findNode(slide!.root, doomed)).toBeNull()
-    expect(state.selectedNodeId).toBe(slide!.root.id)
+    const slide = contentAt(state.presentation!, 1)
+    expect(findNode(slide.root, doomed)).toBeNull()
+    expect(state.selectedNodeId).toBe(slide.root.id)
   })
 
   it('keeps a still-valid selection', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
-    const root = presentation.slides[0].root
+    const root = contentAt(presentation, 1).root
     if (root.kind !== 'split') throw new Error('expected split')
     const kept = root.children[0].id
     useEditorStore.getState().selectNode(kept)
@@ -161,26 +162,26 @@ describe('selection reconciliation', () => {
   it('clears the active field when its node is gone', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
-    const root = presentation.slides[0].root
+    const root = contentAt(presentation, 1).root
     if (root.kind !== 'split') throw new Error('expected split')
     const doomed = root.children[0].id
     useEditorStore.getState().setActiveField({ nodeId: doomed, subfieldId: null, kind: 'body' })
     useEditorStore.getState().runStructural('delete', (current) =>
-      deleteLayoutNode(current, { slideId: presentation.slides[0].id, nodeId: doomed }),
+      deleteLayoutNode(current, { slideId: presentation.slides[1].id, nodeId: doomed }),
     )
     expect(useEditorStore.getState().activeField).toBeNull()
   })
 
-  it('moves to the first slide when the current slide is deleted', () => {
+  it('moves to the deck’s first page when the current slide is deleted', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
     useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
-    const second = useEditorStore.getState().presentation?.slides[1]
+    const second = useEditorStore.getState().presentation?.slides[2]
     expect(second).toBeDefined()
     useEditorStore.getState().selectSlide(second!.id)
     useEditorStore.getState().run('delete', (current) => ({
       ok: true,
-      value: { ...current, slides: [current.slides[0]] },
+      value: { ...current, slides: [current.slides[0], current.slides[1]] },
     }))
     expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
   })
@@ -190,11 +191,11 @@ describe('runStructural', () => {
   it('warns when content was moved to the sandbox', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
-    const root = presentation.slides[0].root
+    const root = contentAt(presentation, 1).root
     if (root.kind !== 'split') throw new Error('expected split')
     useEditorStore.getState().runStructural('delete', (current) =>
       deleteLayoutNode(current, {
-        slideId: presentation.slides[0].id,
+        slideId: presentation.slides[1].id,
         nodeId: root.children[0].id,
         contentDisposition: 'sandbox',
       }),
@@ -207,8 +208,8 @@ describe('runStructural', () => {
     useEditorStore.getState().setPresentation(seed())
     const result = useEditorStore.getState().runStructural('split', (current) =>
       splitLeaf(current, {
-        slideId: current.slides[0].id,
-        nodeId: current.slides[0].root.id,
+        slideId: current.slides[1].id,
+        nodeId: contentAt(current, 1).root.id,
         axis: 'x',
         weights: [1, 1],
       }),
@@ -227,7 +228,7 @@ describe('navigation', () => {
     const root = createSplit('x', [1, 1, 1], [a, b, c])
     useEditorStore.getState().setPresentation({
       ...presentation,
-      slides: [{ ...presentation.slides[0], root }],
+      slides: [sectionAt(presentation, 0), { ...contentAt(presentation, 1), root }],
     })
 
     const store = useEditorStore.getState()
@@ -246,33 +247,35 @@ describe('navigation', () => {
   })
 })
 
-describe('the cover', () => {
-  it('is not what the editor opens on, but stays one click away', () => {
-    useEditorStore.getState().setPresentation(seed())
-    expect(useEditorStore.getState().viewingCover).toBe(false)
+describe('a section slide', () => {
+  it('is not what the editor opens on, but is one click away', () => {
+    const presentation = seed()
+    useEditorStore.getState().setPresentation(presentation)
+    // A deck opens where the work is: the front page is first in the strip,
+    // but it is two lines of text, not the thing being built.
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[1].id)
   })
 
-  it('replaces the slide selection while it is being edited, and gives it back', () => {
+  it('has no zone to select, and gives the selection back on the way out', () => {
     const presentation = seed()
     const store = useEditorStore.getState()
     store.setPresentation(presentation)
 
-    store.selectCover()
-    expect(useEditorStore.getState().viewingCover).toBe(true)
-    // Which slide to return to is remembered, so leaving the cover does not
-    // dump the author back at the start of the deck.
+    store.selectSlide(presentation.slides[0].id)
     expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
+    expect(useEditorStore.getState().selectedNodeId).toBeNull()
 
-    useEditorStore.getState().selectSlide(presentation.slides[0].id)
-    expect(useEditorStore.getState().viewingCover).toBe(false)
+    useEditorStore.getState().selectSlide(presentation.slides[1].id)
+    expect(useEditorStore.getState().selectedNodeId).toBe(contentAt(presentation, 1).root.id)
   })
 
   it('refuses zone mode, whichever way it is asked for', () => {
+    const presentation = seed()
     const store = useEditorStore.getState()
-    store.setPresentation(seed())
-    store.selectCover()
+    store.setPresentation(presentation)
+    store.selectSlide(presentation.slides[0].id)
 
-    // The cover has no layout tree, so there is nothing for a zone action to
+    // A section has no layout tree, so there is nothing for a zone action to
     // act on — the toolbar button and Ctrl+E hit the same rule.
     useEditorStore.getState().setMode('zone')
     expect(useEditorStore.getState().mode).toBe('content')
@@ -280,19 +283,32 @@ describe('the cover', () => {
     expect(useEditorStore.getState().mode).toBe('content')
   })
 
-  it('keeps the caret in a cover line across a commit', () => {
+  it('keeps the caret in a section line across a commit', () => {
     const presentation = seed()
     const store = useEditorStore.getState()
     store.setPresentation(presentation)
-    store.selectCover()
+    store.selectSlide(presentation.slides[0].id)
     useEditorStore
       .getState()
-      .setActiveField({ nodeId: '__cover_title__', subfieldId: null, kind: 'cover-title' })
+      .setActiveField({ nodeId: '__section_title__', subfieldId: null, kind: 'section-title' })
 
-    // A cover line is text on a page, not a node in a layout tree: nothing a
+    // A section line is text on a page, not a node in a layout tree: nothing a
     // command does to the tree can invalidate it.
-    useEditorStore.getState().run('typing:cover:title', (current) => ok({ ...current }))
-    expect(useEditorStore.getState().activeField?.kind).toBe('cover-title')
+    useEditorStore.getState().run('typing:section:title', (current) => ok({ ...current }))
+    expect(useEditorStore.getState().activeField?.kind).toBe('section-title')
+  })
+
+  it('walks the deck with the arrow keys, front page included', () => {
+    const presentation = seed()
+    const store = useEditorStore.getState()
+    store.setPresentation(presentation)
+
+    useEditorStore.getState().stepPage(-1)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
+    useEditorStore.getState().stepPage(-1)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
+    useEditorStore.getState().stepPage(1)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[1].id)
   })
 })
 

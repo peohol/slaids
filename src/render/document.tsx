@@ -32,9 +32,9 @@
  */
 
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
+import { DEFAULT_BACKGROUND_COLOR, SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
 import { googleFontsHref } from '../domain/fonts'
-import { deckPages, deckProgress, type DeckPage } from '../domain/pages'
+import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../domain/pages'
 import { computeReferenceNumbering } from '../domain/references'
 import type { Presentation } from '../domain/types'
 import { AssetSourceProvider, type AssetUrlSource } from '../state/assetSource'
@@ -98,6 +98,9 @@ html, body {
 export function previewDocument(request: PreviewDocumentRequest): PreviewDocument {
   const { presentation, page, assets } = request
   const { theme } = presentation
+  const pages = deckPages(presentation)
+  const background =
+    deckSectionColors(pages).get(page.id)?.background ?? DEFAULT_BACKGROUND_COLOR
   const fonts = request.fonts ?? {
     css: '',
     linkFamilies: previewFontFamilies(theme),
@@ -114,11 +117,11 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
           // built with an empty numbering would draw pills the audience never
           // sees — or none at all.
           numbering: computeReferenceNumbering(presentation),
-          headingPillColor: presentation.cover.pillColor,
-          // The page was resolved out of this same list — see
-          // `operations/preview.ts` — so the indicator a preview draws is the
-          // one the audience sees on that page.
-          progress: deckProgress(deckPages(presentation)),
+          // Both derived from the same page list the page itself came out of —
+          // see `operations/preview.ts` — so a preview draws the indicator and
+          // the section colours the audience sees on that page.
+          sectionColors: deckSectionColors(pages),
+          progress: deckProgress(pages),
           isStatic: true,
         }}
       >
@@ -138,7 +141,7 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
 
   // The faces first: a `@font-face` has to be known before the rules that use
   // the family, and the app's own sheets are those rules.
-  const styles = [fonts.css, ...PREVIEW_STYLESHEETS, frameCss(theme.backgroundColor)]
+  const styles = [fonts.css, ...PREVIEW_STYLESHEETS, frameCss(background)]
     .filter((css) => css.length > 0)
     .map((css) => `<style>${css}</style>`)
     .join('\n')

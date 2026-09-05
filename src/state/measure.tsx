@@ -25,8 +25,8 @@ import {
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
-import { coverOverflow, fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
-import { DEFAULT_PILL_COLOR, FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import { sectionOverflow, fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
+import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { AssetSourceProvider } from './assetSource'
@@ -114,10 +114,12 @@ export function measureContentFit(
         value={{
           theme,
           numbering: context.numbering,
-          headingPillColor: DEFAULT_PILL_COLOR,
           // A zone is measured on its own, not as a page of a deck: there is
-          // no progress to draw, and the room the indicator takes was already
-          // subtracted from the rect this content is being measured against.
+          // no section above it whose colours apply and no progress to draw,
+          // and the room the indicator takes was already subtracted from the
+          // rect this content is being measured against. Colour is never
+          // fit-relevant, so the defaults measure the same as any other pair.
+          sectionColors: new Map(),
           progress: new Map(),
           isStatic: true,
         }}
@@ -162,10 +164,12 @@ export function measureTitleFit(
         value={{
           theme,
           numbering: context.numbering,
-          headingPillColor: DEFAULT_PILL_COLOR,
           // A zone is measured on its own, not as a page of a deck: there is
-          // no progress to draw, and the room the indicator takes was already
-          // subtracted from the rect this content is being measured against.
+          // no section above it whose colours apply and no progress to draw,
+          // and the room the indicator takes was already subtracted from the
+          // rect this content is being measured against. Colour is never
+          // fit-relevant, so the defaults measure the same as any other pair.
+          sectionColors: new Map(),
           progress: new Map(),
           isStatic: true,
         }}
@@ -210,24 +214,25 @@ export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitl
 
 /**
  * How many places in the whole deck currently clip their content, measured for
- * real: every zone, every slide title, and both lines of the cover.
+ * real: every zone, every slide title, and both lines of every section.
  *
  * This is the after-the-fact half of the fit rule: commands refuse changes that
  * would hide content, but some things — a web font swapping in, an image
  * finishing its download, a document written before the rule existed — are not
- * commands at all. The cover is in the count for exactly that reason: a font
- * that arrives wider than the one it replaced clips a cover title the same way
- * it clips a slide title. One offscreen render per place, so this is used
+ * commands at all. Sections are in the count for exactly that reason: a font
+ * that arrives wider than the one it replaced clips a section heading the same
+ * way it clips a slide title. One offscreen render per place, so this is used
  * deliberately rather than on every keystroke.
  */
 export function overflowingCount(presentation: Presentation): number {
   const context = fitContextFor(presentation)
   let count = 0
-  for (const overflow of coverOverflow(presentation.cover, context, domFitCheckers).values()) {
-    if (overflow > FIT_TOLERANCE) count += 1
-  }
   for (const slide of presentation.slides) {
-    for (const overflow of slideOverflow(slide, context, domFitCheckers).values()) {
+    const overflows =
+      slide.kind === 'section'
+        ? sectionOverflow(slide, context, domFitCheckers)
+        : slideOverflow(slide, context, domFitCheckers)
+    for (const overflow of overflows.values()) {
       if (overflow > FIT_TOLERANCE) count += 1
     }
   }

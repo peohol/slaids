@@ -16,24 +16,28 @@ import {
   PROGRESS_TRACK_OPACITY,
   PROGRESS_TRANSITION_MS,
 } from '../../domain/constants'
-import { deckPages, deckProgress, type DeckPage } from '../../domain/pages'
+import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../../domain/pages'
 import { createPresentation } from '../../domain/presentation'
+import { contentAt, sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
 import { DeckPageView } from './DeckPageView'
 import { SlideRenderProvider } from './SlideRenderContext'
 
-const COVER_COLOR = '#8e44ad'
+const ACCENT = '#8e44ad'
 const SHARE_URL = 'https://slaids.example/s/3f2a1b0c-1111-4222-8333-444455556666'
 
+/** A front section, then `slideCount` ordinary slides after it. */
 function deck(slideCount = 3): Presentation {
   const base = createPresentation({ title: 'Fremdrift' })
   return {
     ...base,
-    cover: { ...base.cover, pillColor: COVER_COLOR },
-    slides: Array.from({ length: slideCount }, (_, index) => ({
-      ...base.slides[0],
-      id: `slide-${index}`,
-    })),
+    slides: [
+      { ...sectionAt(base, 0), accentColor: ACCENT },
+      ...Array.from({ length: slideCount }, (_, index) => ({
+        ...contentAt(base, 1),
+        id: `slide-${index}`,
+      })),
+    ],
   }
 }
 
@@ -47,7 +51,7 @@ function pageMarkup(presentation: Presentation, shareUrl: string | null = null):
         value={{
           theme: presentation.theme,
           numbering: new Map(),
-          headingPillColor: presentation.cover.pillColor,
+          sectionColors: deckSectionColors(pages),
           progress,
           isStatic: true,
         }}
@@ -68,13 +72,14 @@ function Deck({
   page: DeckPage
   shareUrl: string | null
 }) {
+  const pages = deckPages(presentation, { shareUrl })
   return (
     <SlideRenderProvider
       value={{
         theme: presentation.theme,
         numbering: new Map(),
-        headingPillColor: presentation.cover.pillColor,
-        progress: deckProgress(deckPages(presentation, { shareUrl })),
+        sectionColors: deckSectionColors(pages),
+        progress: deckProgress(pages),
         isStatic: true,
       }}
     >
@@ -93,9 +98,9 @@ function fillPercent(markup: string): number | null {
 
 describe('fremdriftsindikatoren', () => {
   it('tegnes ikke på forsiden', () => {
-    const [cover] = pageMarkup(deck())
-    expect(cover).toContain('data-testid="cover-page"')
-    expect(cover).not.toContain('slide-progress')
+    const [front] = pageMarkup(deck())
+    expect(front).toContain('data-testid="section-page"')
+    expect(front).not.toContain('slide-progress')
   })
 
   it('tegnes på hver eneste side etter forsiden', () => {
@@ -120,12 +125,12 @@ describe('fremdriftsindikatoren', () => {
     expect(fillPercent(shared[3])).toBeLessThan(100)
   })
 
-  it('arver forsidens pillefarge, i både beholderen og den voksende delen', () => {
+  it('arver seksjonens aksentfarge, i både beholderen og den voksende delen', () => {
     const [, first] = pageMarkup(deck())
     const track = first.split('slide-progress__track')[1]
     const fill = first.split('slide-progress__fill')[1]
-    expect(track).toContain(COVER_COLOR)
-    expect(fill).toContain(COVER_COLOR)
+    expect(track).toContain(ACCENT)
+    expect(fill).toContain(ACCENT)
   })
 
   it('holder de 30 prosentene på beholderen, ikke på den voksende delen', () => {

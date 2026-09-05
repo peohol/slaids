@@ -16,7 +16,7 @@ import {
   referenceEntries,
   type ReferenceEntry,
 } from './references'
-import type { DeckSource, LayoutNode, RichDoc, RichNode, Slide } from './types'
+import type { ContentSlide, DeckSource, LayoutNode, RichDoc, RichNode, Slide } from './types'
 
 /**
  * One entry, as the renderer will draw it.
@@ -68,7 +68,7 @@ function columnLeaf(id: string, entries: ReferenceEntry[]): LayoutNode {
  * Reference slides for the whole deck, or an empty list when nothing is cited.
  * Ids are deterministic so React can reconcile them across renders.
  */
-export function buildReferenceSlides(deck: DeckSource): Slide[] {
+export function buildReferenceSlides(deck: DeckSource): ContentSlide[] {
   const entries = referenceEntries(deck)
   if (entries.length === 0) return []
 
@@ -108,6 +108,7 @@ export function buildReferenceSlides(deck: DeckSource): Slide[] {
           }
     return {
       id,
+      kind: 'content',
       title: titleDoc(slideIndex === 0 ? 'Referanser' : `Referanser (${slideIndex + 1})`),
       root,
     }

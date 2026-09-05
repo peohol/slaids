@@ -8,19 +8,21 @@ import {
 import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createPresentation } from './presentation'
 import { createTitledCard, createUntitledCard } from './content'
-import { docToPlainText, paragraphDoc } from './richdoc'
+import { docToPlainText, paragraphDoc, titleDoc } from './richdoc'
 import { DEFAULT_PILL_COLOR } from './constants'
 import { FONT_SCALE_RANGE, NEUTRAL_SCALE, SPACING_RANGE } from './metrics'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function sample(): Presentation {
   const presentation = createPresentation({ title: 'Prøve' })
   return {
     ...presentation,
     slides: [
+      sectionAt(presentation, 0),
       {
-        ...presentation.slides[0],
+        ...contentAt(presentation, 1),
         root: createSplit('x', [2, 3], [createLeaf(createUntitledCard()), createLeaf()]),
       },
     ],
@@ -43,9 +45,10 @@ describe('validatePresentation', () => {
     const broken = {
       ...presentation,
       slides: [
+        sectionAt(presentation, 0),
         {
-          ...presentation.slides[0],
-          root: { ...presentation.slides[0].root, weights: [1] },
+          ...contentAt(presentation, 1),
+          root: { ...contentAt(presentation, 1).root, weights: [1] },
         },
       ],
     }
@@ -57,8 +60,9 @@ describe('validatePresentation', () => {
     const broken = {
       ...presentation,
       slides: [
+        sectionAt(presentation, 0),
         {
-          ...presentation.slides[0],
+          ...contentAt(presentation, 1),
           root: { id: 'x', kind: 'leaf', content: null, children: [createLeaf()] },
         },
       ],
@@ -66,8 +70,8 @@ describe('validatePresentation', () => {
     // Extra keys are stripped rather than accepted as a split, so the tree stays a leaf.
     const result = validatePresentation(broken)
     expect(result.ok).toBe(true)
-    expect(result.value?.slides[0].root.kind).toBe('leaf')
-    expect('children' in (result.value?.slides[0].root ?? {})).toBe(false)
+    expect(contentAt(result.value!, 1).root.kind).toBe('leaf')
+    expect('children' in contentAt(result.value!, 1).root).toBe(false)
   })
 
   it('rejects zero and negative weights', () => {
@@ -75,7 +79,7 @@ describe('validatePresentation', () => {
     for (const weights of [[0, 1], [-1, 1]]) {
       const broken = {
         ...presentation,
-        slides: [{ ...presentation.slides[0], root: { ...presentation.slides[0].root, weights } }],
+        slides: [sectionAt(presentation, 0),{ ...contentAt(presentation, 1), root: { ...contentAt(presentation, 1).root, weights } }],
       }
       expect(validatePresentation(broken).ok).toBe(false)
     }
@@ -85,12 +89,45 @@ describe('validatePresentation', () => {
     expect(validatePresentation({ ...sample(), slides: [] }).ok).toBe(false)
   })
 
-  it('rejects an invalid background colour', () => {
+  it('rejects an invalid section colour', () => {
     const presentation = sample()
-    const broken = { ...presentation, theme: { ...presentation.theme, backgroundColor: 'blue' } }
+    const broken = {
+      ...presentation,
+      slides: [
+        { ...sectionAt(presentation, 0), backgroundColor: 'blue' },
+        ...presentation.slides.slice(1),
+      ],
+    }
     expect(validatePresentation(broken).ok).toBe(false)
   })
+
+  it('rejects a deck whose first slide is not a section', () => {
+    const presentation = sample()
+    expect(validatePresentation({ ...presentation, slides: presentation.slides.slice(1) }).ok).toBe(
+      false,
+    )
+  })
 })
+
+/**
+ * `sample()` as a document written before sections existed.
+ *
+ * The front page was a `cover` field beside the slides, the slides carried no
+ * `kind`, and the deck had one background colour in its theme. Every migration
+ * test below starts from *that* shape rather than from today's, because a
+ * migration is only interesting on a document that actually needs it.
+ */
+function legacySample(version: number): Record<string, unknown> {
+  const presentation = sample()
+  const raw = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
+  raw.schemaVersion = version
+  raw.theme = { ...(raw.theme as Record<string, unknown>), backgroundColor: '#ffffff' }
+  raw.slides = (raw.slides as Array<Record<string, unknown>>).slice(1).map((slide) => {
+    const { kind: _kind, ...rest } = slide
+    return rest
+  })
+  return raw
+}
 
 describe('migrations', () => {
   it('detects the version of an unversioned document as 0', () => {
@@ -99,8 +136,7 @@ describe('migrations', () => {
   })
 
   it('migrates an unversioned document up to the current version', () => {
-    const presentation = sample()
-    const legacy: Record<string, unknown> = { ...presentation }
+    const legacy = legacySample(0)
     delete legacy.schemaVersion
     delete legacy.sandbox
     delete legacy.ideas
@@ -119,8 +155,7 @@ describe('migrations', () => {
 
   it('folds a v6 ideas list into one ordered list', () => {
     const legacy = {
-      ...sample(),
-      schemaVersion: 6,
+      ...legacySample(6),
       ideas: [
         { id: 'i1', categoryId: null, text: 'løs', done: false },
         { id: 'i2', categoryId: 'c1', text: 'under kilder', done: true },
@@ -158,8 +193,7 @@ describe('migrations', () => {
 
   it('keeps an idea whose category is not there, rather than dropping it', () => {
     const result = migratePresentation({
-      ...sample(),
-      schemaVersion: 6,
+      ...legacySample(6),
       ideas: [
         { id: 'i1', categoryId: 'gone', text: 'kategorien finnes ikke', done: false },
         { id: 'i2', categoryId: 'c1', text: 'under kilder', done: false },
@@ -239,35 +273,58 @@ describe('migrations', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('gives a pre-cover presentation a cover, titled with the deck it belongs to', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 7
-    delete stored.cover
+  it('gives a pre-section presentation a front page, titled with the deck it belongs to', () => {
+    // A document from before either the cover or sections existed: the front
+    // page is rebuilt from the deck's own name, exactly as it always was, and
+    // it arrives as the first slide rather than as a field beside them.
+    const stored = legacySample(7)
 
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(docToPlainText(result.value.cover.title).trim()).toBe('Prøve')
-    expect(docToPlainText(result.value.cover.subtitle).trim()).toBe('')
-    expect(result.value.cover.pillColor).toBe(DEFAULT_PILL_COLOR)
+    const front = sectionAt(result.value, 0)
+    expect(docToPlainText(front.title).trim()).toBe('Prøve')
+    expect(docToPlainText(front.subtitle).trim()).toBe('')
+    expect(front.accentColor).toBe(DEFAULT_PILL_COLOR)
   })
 
-  it('rebuilds a cover that is missing from a current-version document', () => {
-    const { cover: _cover, ...withoutCover } = sample()
-    const result = migratePresentation(withoutCover)
-    // No migration runs at the current version, so `repairPresentation` is the
-    // only thing between a stripped field and an unopenable presentation.
+  it('turns a stored cover into the deck’s first section, colours and all', () => {
+    // The version-12 shape: a `cover` beside the slides, and one background
+    // colour in the theme. Both move onto the section this creates, so a
+    // migrated deck is drawn exactly as it was.
+    const stored = legacySample(12)
+    stored.cover = {
+      title: titleDoc('Forsiden'),
+      subtitle: titleDoc('Undertittel'),
+      pillColor: '#a64d79',
+    }
+    stored.theme = { ...(stored.theme as Record<string, unknown>), backgroundColor: '#101828' }
+
+    const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(docToPlainText(result.value.cover.title).trim()).toBe('Prøve')
+    const front = sectionAt(result.value, 0)
+    expect(docToPlainText(front.title).trim()).toBe('Forsiden')
+    expect(docToPlainText(front.subtitle).trim()).toBe('Undertittel')
+    expect(front.accentColor).toBe('#a64d79')
+    expect(front.backgroundColor).toBe('#101828')
+    expect(result.value.slides[1].kind).toBe('content')
+    expect('backgroundColor' in result.value.theme).toBe(false)
+  })
+
+  it('rebuilds a front page that is missing from a current-version document', () => {
+    const presentation = sample()
+    const withoutFront = { ...presentation, slides: presentation.slides.slice(1) }
+    const result = migratePresentation(withoutFront)
+    // No migration runs at the current version, so `repairPresentation` is the
+    // only thing between a stripped page and an unopenable presentation.
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(docToPlainText(sectionAt(result.value, 0).title).trim()).toBe('Prøve')
   })
 
   it('lets a heading that only ever had the default colour follow the cover again', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 7
-    delete stored.cover
+    const stored = legacySample(7)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     const leaf = root.children[0] as { content: Record<string, unknown> }
@@ -291,7 +348,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const first = migrated.children[0]
     if (first.kind !== 'leaf' || first.content?.kind !== 'untitled-card') {
@@ -305,9 +362,7 @@ describe('migrations', () => {
   })
 
   it('lets a titled card that only ever had the default header colour follow the cover again', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 8
+    const stored = legacySample(8)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     root.children[0] = { ...root.children[0], content: createTitledCard('Arvet', DEFAULT_PILL_COLOR) }
@@ -316,7 +371,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const [first, second] = migrated.children
     if (first.kind !== 'leaf' || first.content?.kind !== 'titled-card') {
@@ -338,9 +393,7 @@ describe('migrations', () => {
   })
 
   it('turns a stored figure into an empty text container', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 2
+    const stored = legacySample(2)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     root.children[1] = {
@@ -355,7 +408,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const leaf = migrated.children[1]
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
@@ -365,9 +418,7 @@ describe('migrations', () => {
   })
 
   it('drops an inline figure from a stored document', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 2
+    const stored = legacySample(2)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     const leaf = root.children[0] as { content: Record<string, unknown> }
@@ -388,9 +439,7 @@ describe('migrations', () => {
   })
 
   it("turns a container's document into a single subfield", () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 3
+    const stored = legacySample(3)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     root.children[1] = {
@@ -406,7 +455,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const leaf = migrated.children[1]
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
@@ -420,9 +469,7 @@ describe('migrations', () => {
   })
 
   it('lifts a picture out of the container it used to hide in', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 9
+    const stored = legacySample(9)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     root.children[1] = {
@@ -439,7 +486,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const leaf = migrated.children[1]
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'image') {
@@ -453,9 +500,7 @@ describe('migrations', () => {
   })
 
   it('unwraps a text container without touching what is in it', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 9
+    const stored = legacySample(9)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as { children: Array<Record<string, unknown>> }
     root.children[1] = {
@@ -480,7 +525,7 @@ describe('migrations', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     const leaf = migrated.children[1]
     if (leaf.kind !== 'leaf' || leaf.content?.kind !== 'container') {
@@ -493,9 +538,7 @@ describe('migrations', () => {
   })
 
   it('gives an older theme the two scales at their neutral value', () => {
-    const presentation = sample()
-    const stored = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
-    stored.schemaVersion = 4
+    const stored = legacySample(4)
     const theme = stored.theme as Record<string, unknown>
     delete theme.spacing
     delete theme.fontScale
@@ -549,17 +592,20 @@ describe('clipboard payload', () => {
 })
 
 describe('repair on load', () => {
-  it('rescues a presentation whose theme colour became invalid', () => {
+  it('rescues a presentation whose section colour became invalid', () => {
     const presentation = sample()
     const broken = {
       ...presentation,
-      theme: { ...presentation.theme, backgroundColor: 'rgb(1,2,3)' },
+      slides: [
+        { ...sectionAt(presentation, 0), backgroundColor: 'rgb(1,2,3)' },
+        ...presentation.slides.slice(1),
+      ],
     }
     expect(validatePresentation(broken).ok).toBe(false)
 
     const result = migratePresentation(broken)
     expect(result.ok).toBe(true)
-    if (result.ok) expect(result.value.theme.backgroundColor).toBe('#667788')
+    if (result.ok) expect(sectionAt(result.value, 0).backgroundColor).toBe('#ffffff')
   })
 
   it('rescues an invalid card colour', () => {
@@ -568,8 +614,9 @@ describe('repair on load', () => {
     const broken = {
       ...presentation,
       slides: [
+        sectionAt(presentation, 0),
         {
-          ...presentation.slides[0],
+          ...contentAt(presentation, 1),
           root: createLeaf({ ...card, backgroundColor: 'papayawhip' }),
         },
       ],
@@ -577,7 +624,7 @@ describe('repair on load', () => {
     const result = migratePresentation(broken)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      const content = (result.value.slides[0].root as { content: typeof card }).content
+      const content = (contentAt(result.value, 1).root as { content: typeof card }).content
       expect(content.backgroundColor).toBe('#ffffff')
     }
   })
@@ -597,7 +644,8 @@ describe('repair on load', () => {
     const broken = {
       ...presentation,
       slides: [
-        { ...presentation.slides[0], root: { ...presentation.slides[0].root, weights: [1] } },
+        sectionAt(presentation, 0),
+        { ...contentAt(presentation, 1), root: { ...contentAt(presentation, 1).root, weights: [1] } },
       ],
     }
     expect(migratePresentation(broken).ok).toBe(false)
@@ -614,9 +662,17 @@ describe('repair on load', () => {
  * version cannot claim anything else.
  */
 describe('zone ratios in stored data', () => {
-  const storedWithWeights = (weights: number[], version = CURRENT_SCHEMA_VERSION - 1): Record<string, unknown> => {
-    const stored = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
-    stored.schemaVersion = version
+  /* Version 11: the last one written before whole ratios were the rule, and so
+     the only one `migrate11to12` has anything to quantise on. Named rather than
+     derived from `CURRENT_SCHEMA_VERSION`, because it is a fact about when the
+     rule arrived and not about where the chain happens to end today. */
+  const DECIMAL_RATIO_VERSION = 11
+
+  const storedWithWeights = (
+    weights: number[],
+    version = DECIMAL_RATIO_VERSION,
+  ): Record<string, unknown> => {
+    const stored = legacySample(version)
     const slides = stored.slides as Array<Record<string, unknown>>
     const root = slides[0].root as Record<string, unknown>
     root.weights = weights
@@ -627,7 +683,7 @@ describe('zone ratios in stored data', () => {
     const result = migratePresentation(storedWithWeights([0.3125, 0.6875]))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const root = result.value.slides[0].root
+    const root = contentAt(result.value, 1).root
     if (root.kind !== 'split') throw new Error('expected a split')
     // 0.3125 : 0.6875 is 5 : 11 exactly, and 11 is off the ladder. 4 : 9 is
     // the closest layout that can be written down — nearer than 5 : 10, which
@@ -644,7 +700,7 @@ describe('zone ratios in stored data', () => {
     const result = migratePresentation(stored)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const migrated = result.value.slides[0].root
+    const migrated = contentAt(result.value, 1).root
     if (migrated.kind !== 'split') throw new Error('expected a split')
     expect(migrated.weights).toEqual([3, 5, 3])
   })
@@ -670,7 +726,7 @@ describe('zone ratios in stored data', () => {
     for (const weights of [[0.5, 1], [0, 1], [-1, 2], [1, 11], [1.5, 2]]) {
       const broken = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
       const slides = broken.slides as Array<Record<string, unknown>>
-      ;(slides[0].root as Record<string, unknown>).weights = weights
+      ;(slides[1].root as Record<string, unknown>).weights = weights
       expect(validatePresentation(broken).ok, weights.join(':')).toBe(false)
     }
   })
@@ -679,7 +735,7 @@ describe('zone ratios in stored data', () => {
     for (const weights of [[1, 1], [1, 10], [10, 1], [7, 3]]) {
       const deck = JSON.parse(JSON.stringify(sample())) as Record<string, unknown>
       const slides = deck.slides as Array<Record<string, unknown>>
-      ;(slides[0].root as Record<string, unknown>).weights = weights
+      ;(slides[1].root as Record<string, unknown>).weights = weights
       expect(validatePresentation(deck).ok, weights.join(':')).toBe(true)
     }
   })

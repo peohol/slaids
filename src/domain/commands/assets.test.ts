@@ -25,6 +25,7 @@ import {
   usedAssetIds,
 } from './assets'
 import { setZoneContent } from './index'
+import { contentAt } from '../testDecks'
 
 const FILE: AssetRef = {
   id: 'a_fig',
@@ -50,7 +51,7 @@ function deckWithFile(): Presentation {
 
 /** The one leaf a fresh slide has. */
 function rootNodeId(presentation: Presentation): string {
-  return presentation.slides[0].root.id
+  return contentAt(presentation, 1).root.id
 }
 
 /** A card whose only text field holds an inline picture. */
@@ -71,7 +72,7 @@ function cardWithInlineImage(assetId: string, times = 1): ZoneContent {
 function place(presentation: Presentation, content: ZoneContent): Presentation {
   return unwrap(
     setZoneContent(presentation, {
-      slideId: presentation.slides[0].id,
+      slideId: presentation.slides[1].id,
       nodeId: rootNodeId(presentation),
       content,
       replace: true,
@@ -207,7 +208,7 @@ describe('removeAsset', () => {
     if (result.ok) throw new Error('Forventet en avvisning')
 
     const serialized = JSON.stringify(result.error.details)
-    expect(serialized).not.toContain(presentation.slides[0].id)
+    expect(serialized).not.toContain(presentation.slides[1].id)
     expect(serialized).not.toContain(rootNodeId(presentation))
     expect(Object.keys(result.error.details ?? {}).sort()).toEqual(['assetId', 'usage'])
   })

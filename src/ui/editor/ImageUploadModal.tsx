@@ -135,10 +135,9 @@ export function ImageUploadModal({
          * the whole content would throw those away for what the user read as
          * "pick a different photo".
          */
-        const slide = useEditorStore
-          .getState()
-          .presentation?.slides.find((entry) => entry.id === slideId)
-        const existing = slide ? findLeaf(slide.root, zoneNodeId)?.content ?? null : null
+        const slide = useEditorStore.getState().currentContentSlide()
+        const existing =
+          slide?.id === slideId ? (findLeaf(slide.root, zoneNodeId)?.content ?? null) : null
         if (existing && imagePanelOf(existing)) {
           run('image-asset', (current) =>
             setImageAsset(current, {

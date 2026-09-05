@@ -3,17 +3,22 @@
  */
 
 import {
-  COVER_SUBTITLE_NODE_ID,
+  SECTION_SUBTITLE_NODE_ID,
   computeMainRect,
   computeTitleRect,
   TITLE_NODE_ID,
 } from '../geometry'
 import { isDocEmpty } from '../richdoc'
-import { normalizeHex } from '../color'
-import { cloneSubtreeWithNewIds, createLeaf, geometryFor, subtreeFitsHelper } from './internal'
+import {
+  cloneSubtreeWithNewIds,
+  contentSlide,
+  createLeaf,
+  geometryFor,
+  subtreeFitsHelper,
+} from './internal'
 import { withQuantizedRatios } from '../layout'
 import {
-  coverOverflow,
+  sectionOverflow,
   findGeometryRegression,
   fitContextFor,
   guardFit,
@@ -22,11 +27,12 @@ import {
 import { FIT_TOLERANCE } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
-import { COVER_PAGE_ID } from '../pages'
 import {
+  asDeckSlides,
   createPresentation,
+  createSection,
   createSlide,
-  findSlide,
+  sectionGoverning,
   slideIndexOf,
   touch,
   withSlide,
@@ -34,7 +40,26 @@ import {
 import type { CreatePresentationInput } from '../presentation'
 import { titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
-import type { LayoutNode, Presentation, PresentationTheme, TitleDoc } from '../types'
+import type { LayoutNode, Presentation, PresentationTheme, Slide, TitleDoc } from '../types'
+
+/**
+ * Commit a rebuilt slide list.
+ *
+ * The one door between a plain array and the deck, so the rule that a deck
+ * opens with a section is decided in one place rather than remembered by every
+ * command that inserts, removes or reorders. `asDeckSlides` is what says yes;
+ * this only turns its `null` into the refusal a caller can act on.
+ */
+function withSlides(presentation: Presentation, slides: readonly Slide[]): Result<Presentation> {
+  const deckSlides = asDeckSlides(slides)
+  if (!deckSlides) {
+    return err(
+      'FIRST_SLIDE_MUST_BE_SECTION',
+      'Første slide må være en seksjon, så presentasjonen alltid har en forside.',
+    )
+  }
+  return ok(touch({ ...presentation, slides: deckSlides }))
+}
 
 export interface AddSlideInput extends StructuralOptions {
   /** Insert position; defaults to the end of the deck. */
@@ -66,7 +91,9 @@ export function addSlide(
 
   const slides = [...presentation.slides]
   slides.splice(index, 0, slide)
-  const next = touch({ ...presentation, slides })
+  const inserted = withSlides(presentation, slides)
+  if (!inserted.ok) return inserted
+  const next = inserted.value
   const context = fitContextFor(next)
 
   // Editor templates are layout-only, but the command is also the API surface:
@@ -109,30 +136,133 @@ export function addSlide(
   )
 }
 
+/**
+ * Delete a slide, whichever kind it is.
+ *
+ * The deck's first slide is not special-cased away from deletion. What is
+ * refused is a deck that would stop opening with a section — so the front page
+ * *can* be deleted when the section after it takes over as the front page,
+ * which is exactly what an author means by "drop the first part". The rule is
+ * stated once, about the result, rather than as a list of positions.
+ */
 export function deleteSlide(presentation: Presentation, slideId: string): Result<Presentation> {
   const index = slideIndexOf(presentation, slideId)
   if (index < 0) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
   if (presentation.slides.length <= 1) {
     return err('CANNOT_DELETE_LAST_SLIDE', 'Presentasjonen må ha minst én slide.')
   }
-  const slides = presentation.slides.filter((slide) => slide.id !== slideId)
-  return ok(touch({ ...presentation, slides }))
+  return withSlides(
+    presentation,
+    presentation.slides.filter((slide) => slide.id !== slideId),
+  )
+}
+
+/**
+ * Whether `deleteSlide` would accept this one.
+ *
+ * The affordance and the rule are the same answer, asked of the same code: a
+ * strip that greyed out a button by its own reasoning would be a second, weaker
+ * statement of when a slide can go — and the interesting case, "the deck would
+ * stop opening with a section", is exactly the one a count of slides cannot see.
+ */
+export function canDeleteSlide(presentation: Presentation, slideId: string): boolean {
+  return deleteSlide(presentation, slideId).ok
 }
 
 export function duplicateSlide(presentation: Presentation, slideId: string): Result<Presentation> {
   const index = slideIndexOf(presentation, slideId)
   if (index < 0) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
   const source = presentation.slides[index]
-  const copy = createSlide({
-    hasTitle: source.title !== null,
-    root: cloneSubtreeWithNewIds(source.root),
-  })
-  const duplicated = source.title
-    ? { ...copy, title: structuredClone(source.title) as TitleDoc }
-    : copy
+  const duplicated: Slide =
+    source.kind === 'section'
+      ? {
+          ...createSection({
+            accentColor: source.accentColor,
+            backgroundColor: source.backgroundColor,
+          }),
+          title: structuredClone(source.title),
+          subtitle: structuredClone(source.subtitle),
+        }
+      : {
+          ...createSlide({
+            hasTitle: source.title !== null,
+            root: cloneSubtreeWithNewIds(source.root),
+          }),
+          title: source.title ? (structuredClone(source.title) as TitleDoc) : null,
+        }
   const slides = [...presentation.slides]
   slides.splice(index + 1, 0, duplicated)
-  return ok(touch({ ...presentation, slides }))
+  // A copy always lands after its original, so the first slide is untouched.
+  return withSlides(presentation, slides)
+}
+
+/**
+ * A new section, inheriting the colours of the one before it.
+ *
+ * Inheriting rather than starting from the deck's defaults is the whole point:
+ * an author who wants to carry the same look across parts gets it by doing
+ * nothing, and one who wants a new look changes two swatches. There is always a
+ * section before this one — the deck opens with one — except when the new
+ * section *is* going first, and then there is nothing to inherit from and the
+ * section that used to be first is the nearest thing to it.
+ *
+ * The heading is what a section is for, so it is measured on the way in: an
+ * absolute check, like every other placement, because a section that did not
+ * exist a moment ago has no previous state to be no worse than.
+ */
+export interface AddSectionInput extends StructuralOptions {
+  /** Insert position; defaults to the end of the deck. */
+  index?: number
+  title?: string
+  subtitle?: string
+  /** Both default to the previous section's — see above. */
+  accentColor?: string
+  backgroundColor?: string
+}
+
+export function addSection(
+  presentation: Presentation,
+  input: AddSectionInput = {},
+): Result<Presentation> {
+  const index = input.index ?? presentation.slides.length
+  if (index < 0 || index > presentation.slides.length) {
+    return err('SLIDE_INDEX_OUT_OF_RANGE', 'Ugyldig posisjon for ny seksjon.')
+  }
+  const inherited = index === 0
+    ? presentation.slides[0]
+    : sectionGoverning(presentation, presentation.slides[index - 1].id)
+  const section = createSection({
+    title: input.title,
+    subtitle: input.subtitle,
+    accentColor: input.accentColor ?? inherited.accentColor,
+    backgroundColor: input.backgroundColor ?? inherited.backgroundColor,
+  })
+
+  const slides = [...presentation.slides]
+  slides.splice(index, 0, section)
+  const inserted = withSlides(presentation, slides)
+  if (!inserted.ok) return inserted
+  const next = inserted.value
+
+  for (const [nodeId, overflow] of sectionOverflow(section, fitContextFor(next), input)) {
+    if (overflow <= FIT_TOLERANCE) continue
+    return err(
+      'CONTENT_DOES_NOT_FIT',
+      nodeId === SECTION_SUBTITLE_NODE_ID
+        ? 'Underoverskriften får ikke plass på én linje. Velg en kortere.'
+        : 'Overskriften får ikke plass på én linje. Velg en kortere.',
+      { slideId: section.id, nodeId, overflow },
+    )
+  }
+
+  // A section inserted before existing citations shifts their numbers up, so
+  // `[9]` can become `[10]` on a slide the caller never mentioned.
+  return guardFit(
+    presentation,
+    next,
+    input,
+    'Den nye seksjonen endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+  )
 }
 
 /**
@@ -155,9 +285,11 @@ export function moveSlide(
   const slides = [...presentation.slides]
   const [moved] = slides.splice(from, 1)
   slides.splice(toIndex, 0, moved)
+  const reordered = withSlides(presentation, slides)
+  if (!reordered.ok) return reordered
   return guardFit(
     presentation,
-    touch({ ...presentation, slides }),
+    reordered.value,
     options,
     'Rekkefølgen endrer citation-nummereringen slik at innhold ikke lenger får plass.',
   )
@@ -175,10 +307,10 @@ export function setSlideTitle(
   doc: TitleDoc,
   options: StructuralOptions = {},
 ): Result<Presentation> {
-  const slide = findSlide(presentation, slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
-  if (slide.title === null) return err('TITLE_ABSENT', 'Sliden har ingen overskriftssone.')
-  const next = withSlide(presentation, { ...slide, title: doc })
+  const slide = contentSlide(presentation, slideId)
+  if (!slide.ok) return slide
+  if (slide.value.title === null) return err('TITLE_ABSENT', 'Sliden har ingen overskriftssone.')
+  const next = withSlide(presentation, { ...slide.value, title: doc })
   return guardFit(presentation, next, options, 'Overskriften får ikke plass i tittelsonen.')
 }
 
@@ -213,8 +345,9 @@ export function setSlideHasTitle(
   hasTitle: boolean,
   options: SetSlideHasTitleOptions = {},
 ): Result<Presentation> {
-  const slide = findSlide(presentation, slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const currentlyHasTitle = slide.title !== null
   if (currentlyHasTitle === hasTitle) {
     return err(
@@ -294,18 +427,15 @@ export function createDeck(
   options: StructuralOptions = {},
 ): Result<Presentation> {
   const presentation = createPresentation(input)
-  for (const [nodeId, overflow] of coverOverflow(
-    presentation.cover,
-    fitContextFor(presentation),
-    options,
-  )) {
+  const front = presentation.slides[0]
+  for (const [nodeId, overflow] of sectionOverflow(front, fitContextFor(presentation), options)) {
     if (overflow <= FIT_TOLERANCE) continue
     return err(
       'CONTENT_DOES_NOT_FIT',
-      nodeId === COVER_SUBTITLE_NODE_ID
+      nodeId === SECTION_SUBTITLE_NODE_ID
         ? 'Undertittelen får ikke plass på forsiden. Velg en kortere.'
         : 'Tittelen får ikke plass på forsiden på én linje. Velg en kortere.',
-      { slideId: COVER_PAGE_ID, nodeId, overflow },
+      { slideId: front.id, nodeId, overflow },
     )
   }
   return ok(presentation)
@@ -332,11 +462,6 @@ export function setTheme(
 ): Result<Presentation> {
   const next: PresentationTheme = { ...presentation.theme }
 
-  if (theme.backgroundColor !== undefined) {
-    const color = normalizeHex(theme.backgroundColor)
-    if (!color) return err('INVALID_ARGUMENT', 'Ugyldig bakgrunnsfarge.')
-    next.backgroundColor = color
-  }
   if (theme.headingFontFamily !== undefined) {
     if (!theme.headingFontFamily.trim()) return err('INVALID_ARGUMENT', 'Fonten kan ikke være tom.')
     next.headingFontFamily = theme.headingFontFamily

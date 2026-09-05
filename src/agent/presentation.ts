@@ -28,7 +28,7 @@
 import { estimateFitChecker, estimateTitleFitChecker } from '../domain/fit'
 import { computeSlideGeometry, TITLE_NODE_ID } from '../domain/geometry'
 import { geometryForTheme } from '../domain/metrics'
-import { findSlide } from '../domain/presentation'
+import { findContentSlide } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import type { StructuralOptions } from '../domain/commands'
 import type { DomainError, Result } from '../domain/result'
@@ -316,7 +316,8 @@ function zoneRect(
   nodeId: string | undefined,
 ): Rect | null {
   if (!slideId || !nodeId) return null
-  const slide = findSlide(presentation, slideId)
+  // Only a slide with zones has a rect to report; a section has none.
+  const slide = findContentSlide(presentation, slideId)
   if (!slide) return null
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(presentation.theme),

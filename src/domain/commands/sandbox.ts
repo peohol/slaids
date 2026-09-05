@@ -7,10 +7,10 @@
 
 import { newSandboxId } from '../ids'
 import { cloneContentWithNewIds, findLeaf, replaceNode } from '../layout'
-import { findSlide, touch, withSlide } from '../presentation'
+import { touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { fitContextFor, guardFit } from './fitGuard'
-import { geometryFor, rectForNode } from './internal'
+import { contentSlide, geometryFor, rectForNode } from './internal'
 import { outcome, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Presentation, SandboxItem, ZoneContent } from '../types'
 
@@ -35,8 +35,9 @@ export function moveZoneContentToSandbox(
   presentation: Presentation,
   input: { slideId: string; nodeId: string; note?: string },
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf) return err('NODE_NOT_LEAF', 'Bare bladsoner kan ha innhold.')
   if (!leaf.content) return err('TARGET_EMPTY', 'Sonen har ikke innhold å flytte.')
@@ -53,8 +54,9 @@ export function placeSandboxItem(
 ): Result<StructuralOutcome> {
   const item = presentation.sandbox.find((entry) => entry.id === input.itemId)
   if (!item) return err('SANDBOX_ITEM_NOT_FOUND', 'Fant ikke elementet i sandkassen.')
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf) return err('NODE_NOT_LEAF', 'Innhold kan bare ligge i en bladsone.')
   if (leaf.content && !input.replace) return err('TARGET_OCCUPIED', 'Sonen har allerede innhold.')

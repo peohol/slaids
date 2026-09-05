@@ -109,6 +109,14 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   SANDBOX_ITEM_NOT_FOUND: 404,
 
   // Domain — the request itself was wrong
+  //
+  // Naming a section where a zone command needs a slide with zones, or a
+  // content slide where a section command needs a section, is a mistake about
+  // *which page* rather than about which deck: the id exists, it just does not
+  // hold what was asked for. `404` would tell an agent to look for a slide that
+  // is right there.
+  NOT_A_CONTENT_SLIDE: 400,
+  NOT_A_SECTION_SLIDE: 400,
   INVALID_ARGUMENT: 400,
   INVALID_WEIGHTS: 400,
   INVALID_CHILD_COUNT: 400,
@@ -122,6 +130,11 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   UNSAFE_SVG: 422,
 
   // Domain — understood, and refused by the rules
+  //
+  // A deck opens with a section, so a delete or a move that would leave a
+  // content slide first is refused whole: the request was understood, and the
+  // rule said no.
+  FIRST_SLIDE_MUST_BE_SECTION: 422,
   CONTENT_DOES_NOT_FIT: 422,
   ZONE_TOO_SMALL: 422,
   // The request named a file that exists and a rule refused it, so it belongs

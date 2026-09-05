@@ -34,7 +34,7 @@ import type { ImageCaption, ImagePanel } from '../../domain/types'
 import { ImagePanelView } from '../slide/ImagePanelView'
 
 /** How the file is laid out behind the frame, in the frame's own pixels. */
-export interface CoverGeometry {
+export interface SectionGeometry {
   /** Rendered size of the whole file once scaled to cover the frame. */
   width: number
   height: number
@@ -46,7 +46,7 @@ export interface CoverGeometry {
 export function coverGeometry(
   frame: { width: number; height: number },
   natural: { width: number; height: number },
-): CoverGeometry | null {
+): SectionGeometry | null {
   if (natural.width <= 0 || natural.height <= 0 || frame.width <= 0 || frame.height <= 0) {
     return null
   }
@@ -62,7 +62,7 @@ export function coverGeometry(
 }
 
 /** Half a pixel of hidden picture is rounding, not a crop worth dragging. */
-export function isCropped(geometry: CoverGeometry | null): boolean {
+export function isCropped(geometry: SectionGeometry | null): boolean {
   return Boolean(geometry && (geometry.overflowX > 0.5 || geometry.overflowY > 0.5))
 }
 
@@ -79,7 +79,7 @@ export function isCropped(geometry: CoverGeometry | null): boolean {
 export function focusAfterDrag(
   start: { x: number; y: number },
   moved: { x: number; y: number },
-  geometry: CoverGeometry,
+  geometry: SectionGeometry,
 ): { x: number; y: number } {
   const axis = (from: number, delta: number, overflow: number): number => {
     if (overflow <= 0) return 0.5

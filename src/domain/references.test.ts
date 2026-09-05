@@ -12,6 +12,7 @@ import { createPresentation } from './presentation'
 import { createLeaf, createSplit } from './layout'
 import { createTitledCard } from './content'
 import type { Presentation, Reference, RichDoc } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function citationDoc(...ids: string[]): RichDoc {
   return {
@@ -48,8 +49,9 @@ function presentationWithCitations(): Presentation {
     ...base,
     references: [reference('r1', 'Første'), reference('r2', 'Andre'), reference('r3', 'Tredje'), reference('r4', 'Ubrukt')],
     slides: [
+      sectionAt(base, 0),
       {
-        ...base.slides[0],
+        ...contentAt(base, 1),
         root: createSplit('x', [1, 1], [createLeaf(withDocs), createLeaf(withDocsB)]),
       },
     ],
@@ -84,11 +86,12 @@ describe('numbering', () => {
 
   it('renumbers when slides are reordered', () => {
     const presentation = presentationWithCitations()
-    const [slide] = presentation.slides
+    const slide = contentAt(presentation, 1)
     const root = slide.root as { children: unknown[] }
-    const flipped = {
+    const flipped: Presentation = {
       ...presentation,
       slides: [
+        sectionAt(presentation, 0),
         {
           ...slide,
           root: { ...slide.root, children: [root.children[1], root.children[0]] } as typeof slide.root,

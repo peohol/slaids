@@ -19,11 +19,12 @@ import { areRatiosQuantized } from '../../domain/ratios'
 import { err, ok, type Result } from '../../domain/result'
 import type { Presentation } from '../../domain/types'
 import { RATIO_SNAP_CANDIDATES, commitDraggedRatios, draggedWeights } from './ratioDrag'
+import { contentAt } from '../../domain/testDecks'
 
 /** A slide whose root is a split with the given ratios. */
 function deckWithSplit(weights: number[]): { presentation: Presentation; nodeId: string; slideId: string } {
   const base = createPresentation({ title: 'Test' })
-  const slide = base.slides[0]
+  const slide = contentAt(base, 1)
   const result = splitLeaf(base, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights })
   if (!result.ok || !result.value) throw new Error('could not build the fixture')
   return { presentation: result.value.presentation, nodeId: slide.root.id, slideId: slide.id }
@@ -31,7 +32,7 @@ function deckWithSplit(weights: number[]): { presentation: Presentation; nodeId:
 
 function ratiosOf(presentation: Presentation, slideId: string, nodeId: string): number[] {
   const slide = presentation.slides.find((entry) => entry.id === slideId)
-  const split = slide ? findSplit(slide.root, nodeId) : null
+  const split = slide?.kind === 'content' ? findSplit(slide.root, nodeId) : null
   if (!split) throw new Error('the split disappeared')
   return split.weights
 }
@@ -47,7 +48,7 @@ function ratiosOf(presentation: Presentation, slideId: string, nodeId: string): 
  */
 function dragAndRelease(before: number[], boundary: number, deltaWeight: number): number[] {
   const { presentation, slideId, nodeId } = deckWithSplit(before)
-  const slide = presentation.slides[0]
+  const slide = contentAt(presentation, 1)
   const rect = computeSlideGeometry(slide, geometryForTheme(presentation.theme)).rects.get(nodeId)
   const split = findSplit(slide.root, nodeId)
   if (!rect || !split) throw new Error('could not measure the split')

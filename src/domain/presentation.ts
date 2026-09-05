@@ -7,21 +7,23 @@ import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from './metrics'
 import { remapAssetIds } from './docs'
 import { newAssetId, newPresentationId, newSandboxId, newSlideId } from './ids'
+import { mapDeckSlides } from './deckSlides'
 import { cloneContentWithNewIds, cloneSubtreeWithNewIds, createLeaf } from './layout'
 import { titleDoc } from './richdoc'
 import { CURRENT_SCHEMA_VERSION } from './schema'
 import type {
-  DeckCover,
+  ContentSlide,
+  DeckSlides,
   LayoutNode,
   Presentation,
   PresentationSummary,
   PresentationTheme,
+  SectionSlide,
   Slide,
 } from './types'
 
 export function defaultTheme(): PresentationTheme {
   return {
-    backgroundColor: DEFAULT_BACKGROUND_COLOR,
     headingFontFamily: DEFAULT_HEADING_FONT,
     bodyFontFamily: DEFAULT_BODY_FONT,
     spacing: DEFAULT_SPACING,
@@ -29,28 +31,63 @@ export function defaultTheme(): PresentationTheme {
   }
 }
 
+export interface CreateSectionInput {
+  title?: string
+  subtitle?: string
+  /** Defaults to the deck's starting colours — see `addSection` for inheritance. */
+  accentColor?: string
+  backgroundColor?: string
+}
+
 /**
- * The cover a deck starts with.
+ * A section slide.
  *
- * The deck's own name is the obvious first cover title — it is the one piece of
- * text the author has already written — and the subtitle is left empty because
- * nobody has written it yet. Both are ordinary documents from there on.
+ * The heading is what a section is for, so it is the one line a caller is
+ * expected to supply; the subheading is left empty because nobody has written
+ * it yet. Both are ordinary documents from there on.
  */
-export function createCover(title = '', subtitle = ''): DeckCover {
+export function createSection(input: CreateSectionInput = {}): SectionSlide {
   return {
-    title: titleDoc(title),
-    subtitle: titleDoc(subtitle),
-    pillColor: DEFAULT_PILL_COLOR,
+    id: newSlideId(),
+    kind: 'section',
+    title: titleDoc(input.title ?? ''),
+    subtitle: titleDoc(input.subtitle ?? ''),
+    accentColor: input.accentColor ?? DEFAULT_PILL_COLOR,
+    backgroundColor: input.backgroundColor ?? DEFAULT_BACKGROUND_COLOR,
   }
 }
 
-export function createSlide(options: { hasTitle?: boolean; root?: LayoutNode; title?: string } = {}): Slide {
+export function createSlide(
+  options: { hasTitle?: boolean; root?: LayoutNode; title?: string } = {},
+): ContentSlide {
   const hasTitle = options.hasTitle ?? true
   return {
     id: newSlideId(),
+    kind: 'content',
     title: hasTitle ? titleDoc(options.title ?? '') : null,
     root: options.root ?? createLeaf(),
   }
+}
+
+export { asDeckSlides, isContentSlide, isSectionSlide, mapDeckSlides } from './deckSlides'
+
+/**
+ * The section whose colours a slide is drawn in: itself, or the nearest one
+ * before it.
+ *
+ * Total, because the deck's first slide is a section — the same guarantee
+ * `deckSectionColors` leans on for the pages a deck renders. This is the
+ * lookup for the places that hold a slide id rather than a page list: the
+ * editor chrome, a new section inheriting from the one before it.
+ */
+export function sectionGoverning(presentation: Presentation, slideId: string): SectionSlide {
+  const index = slideIndexOf(presentation, slideId)
+  const upTo = index < 0 ? presentation.slides.length : index + 1
+  for (let i = upTo - 1; i >= 0; i -= 1) {
+    const slide = presentation.slides[i]
+    if (slide.kind === 'section') return slide
+  }
+  return presentation.slides[0]
 }
 
 export interface CreatePresentationInput {
@@ -58,9 +95,16 @@ export interface CreatePresentationInput {
   theme?: Partial<PresentationTheme>
   folderId?: string | null
   firstSlideHasTitle?: boolean
-  /** Defaults to the presentation's own title. */
-  coverTitle?: string
-  coverSubtitle?: string
+  /**
+   * The deck's front page — its first section. The title defaults to the
+   * presentation's own name, which is the one line the author has demonstrably
+   * already written.
+   */
+  frontTitle?: string
+  frontSubtitle?: string
+  /** The colours the first section sets, and every slide after it inherits. */
+  accentColor?: string
+  backgroundColor?: string
 }
 
 export function createPresentation(input: CreatePresentationInput): Presentation {
@@ -72,8 +116,15 @@ export function createPresentation(input: CreatePresentationInput): Presentation
     title,
     folderId: input.folderId ?? null,
     theme: { ...defaultTheme(), ...input.theme },
-    cover: createCover(input.coverTitle ?? title, input.coverSubtitle),
-    slides: [createSlide({ hasTitle: input.firstSlideHasTitle ?? true })],
+    slides: [
+      createSection({
+        title: input.frontTitle ?? title,
+        subtitle: input.frontSubtitle,
+        accentColor: input.accentColor,
+        backgroundColor: input.backgroundColor,
+      }),
+      createSlide({ hasTitle: input.firstSlideHasTitle ?? true }),
+    ],
     references: [],
     sandbox: [],
     // No seeded categories: an empty list says what it is for, and a category
@@ -145,15 +196,7 @@ export function duplicatePresentationDocument(
     title,
     createdAt: now,
     updatedAt: now,
-    // Cloned rather than shared: two documents that point at one cover object
-    // are one edit away from being the same cover.
-    cover: structuredClone(source.cover),
-    slides: source.slides.map((slide) => ({
-      ...slide,
-      id: newSlideId(),
-      title: slide.title ? (structuredClone(slide.title) as typeof slide.title) : null,
-      root: cloneSubtreeWithNewIds(slide.root),
-    })),
+    slides: cloneSlides(source.slides),
     sandbox: source.sandbox.map((item) => ({
       ...item,
       id: newSandboxId(),
@@ -178,8 +221,48 @@ export function summarize(presentation: Presentation): PresentationSummary {
   }
 }
 
+/** Every slide copied, with every identity inside it made new. */
+function cloneSlides(slides: DeckSlides): DeckSlides {
+  return mapDeckSlides(slides, { section: cloneSection, content: cloneContentSlide })
+}
+
+function cloneSection(slide: SectionSlide): SectionSlide {
+  return {
+    ...slide,
+    id: newSlideId(),
+    title: structuredClone(slide.title),
+    subtitle: structuredClone(slide.subtitle),
+  }
+}
+
+function cloneContentSlide(slide: ContentSlide): ContentSlide {
+  return {
+    ...slide,
+    id: newSlideId(),
+    title: slide.title ? structuredClone(slide.title) : null,
+    root: cloneSubtreeWithNewIds(slide.root),
+  }
+}
+
 export function findSlide(presentation: Presentation, slideId: string): Slide | null {
   return presentation.slides.find((slide) => slide.id === slideId) ?? null
+}
+
+/** The slide, when it is one with zones. Sections have none of the above. */
+export function findContentSlide(
+  presentation: Presentation,
+  slideId: string,
+): ContentSlide | null {
+  const slide = findSlide(presentation, slideId)
+  return slide && slide.kind === 'content' ? slide : null
+}
+
+export function findSectionSlide(
+  presentation: Presentation,
+  slideId: string,
+): SectionSlide | null {
+  const slide = findSlide(presentation, slideId)
+  return slide && slide.kind === 'section' ? slide : null
 }
 
 export function slideIndexOf(presentation: Presentation, slideId: string): number {
@@ -191,16 +274,26 @@ export function touch(presentation: Presentation): Presentation {
   return { ...presentation, updatedAt: new Date().toISOString() }
 }
 
-/** Replace the cover and bump `updatedAt`. */
-export function withCover(presentation: Presentation, cover: DeckCover): Presentation {
-  return touch({ ...presentation, cover })
-}
-
-/** Replace one slide, preserving order, and bump `updatedAt`. */
+/**
+ * Replace one slide, preserving order, and bump `updatedAt`.
+ *
+ * A replacement keeps the slide's kind — that is what the signature says — so
+ * this cannot be the way the first page stops being a section. Turning one kind
+ * of slide into another is not an edit to a slide; it would be a command of its
+ * own, and there is none.
+ */
 export function withSlide(presentation: Presentation, slide: Slide): Presentation {
   const index = slideIndexOf(presentation, slide.id)
   if (index < 0) return presentation
-  const slides = [...presentation.slides]
-  slides[index] = slide
-  return touch({ ...presentation, slides })
+  const [first, ...rest] = presentation.slides
+  if (index === 0) {
+    // The narrowing *is* the rule: a first slide that is not a section cannot
+    // be written down, so no cast stands between the check and the result.
+    if (slide.kind !== 'section') return presentation
+    return touch({ ...presentation, slides: [slide, ...rest] })
+  }
+  if (rest[index - 1].kind !== slide.kind) return presentation
+  const tail = [...rest]
+  tail[index - 1] = slide
+  return touch({ ...presentation, slides: [first, ...tail] })
 }

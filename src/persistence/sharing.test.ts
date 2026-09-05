@@ -21,6 +21,7 @@ import {
   type FakeSupabaseOptions,
   type QueryRecord,
 } from './supabaseTestClient'
+import { contentAt, sectionAt } from '../domain/testDecks'
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -84,7 +85,7 @@ function presentationWithSecrets(): Presentation {
     ],
     ideas: [{ id: 'i1', kind: 'idea', text: 'Intern note' }],
     assets: [asset(SANDBOX_ASSET)],
-    slides: [{ ...base.slides[0], root: createLeaf(createUntitledCard()) }],
+    slides: [sectionAt(base, 0),{ ...contentAt(base, 1), root: createLeaf(createUntitledCard()) }],
   }
 }
 

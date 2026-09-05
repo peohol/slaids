@@ -5,6 +5,7 @@ import { createLeaf } from './layout'
 import { createUntitledCard } from './content'
 import { validateSlideGeometry } from './geometry'
 import type { Presentation, Reference, RichDoc } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function citing(ids: string[]): RichDoc {
   return {
@@ -38,7 +39,7 @@ function withReferences(count: number): Presentation {
       subfields: [{ ...card.body.subfields[0], doc: citing(references.map((r) => r.id)) }],
     },
   }
-  return { ...base, references, slides: [{ ...base.slides[0], root: createLeaf(content) }] }
+  return { ...base, references, slides: [sectionAt(base, 0),{ ...contentAt(base, 1), root: createLeaf(content) }] }
 }
 
 describe('buildReferenceSlides', () => {

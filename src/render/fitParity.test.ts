@@ -43,7 +43,7 @@ import { computeSlideGeometry } from '../domain/geometry'
 import { collectLeaves } from '../domain/layout'
 import { geometryForTheme } from '../domain/metrics'
 import { deckPages } from '../domain/pages'
-import { findSlide } from '../domain/presentation'
+import { findContentSlide } from '../domain/presentation'
 import { imageNode } from '../domain/richdoc'
 import type { CardBody, Rect, RichDoc, RichNode } from '../domain/types'
 import { loadPreviewAssets } from './assets'
@@ -88,7 +88,7 @@ async function compare(
   doc: RichDoc,
 ): Promise<{ rect: Rect; estimated: number; measured: number }> {
   const presentation = await storedPresentation(context, deck.presentationId)
-  const slide = findSlide(presentation, deck.slideId)
+  const slide = findContentSlide(presentation, deck.slideId)
   if (!slide) throw new Error('Fant ikke sliden.')
   const leaf = collectLeaves(slide.root)[0]
   const content = leaf.content

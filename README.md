@@ -31,7 +31,7 @@ layoutet er nestet.
 **Bibliotek**
 
 - passordinnlogging for Slaids' ene personlige bruker når appen kjører mot Supabase (se «Lagring»)
-- opprett presentasjon med tittel, global bakgrunnsfarge og globale fonter
+- opprett presentasjon med tittel, startfarge og globale fonter
 - åpne, gi nytt navn, dupliser (inkludert filer), slett med bekreftelse
 - mapper, og flytting av presentasjoner mellom dem
 - eksport og import av `.slaids`-sikkerhetskopi (zip med manifest, data og filer)
@@ -70,6 +70,18 @@ layoutet er nestet.
 - opprett med eller uten overskriftssone, dupliser, slett, endre rekkefølge (DnD)
 - overskriftssonen er deterministisk: én linje, fast høyde, tekst som ikke får plass avvises
 
+**Seksjoner**
+
+- `+ Ny seksjon` ved siden av `+ Ny slide`: en side med en stor overskrift og en
+  valgfri underoverskrift i piller, midtstilt – alene eller som par
+- dekkets første slide er alltid en seksjon, så en presentasjon har alltid en
+  forside; en seksjon kan slettes så lenge den etter overtar plassen
+- hver seksjon velger **aksentfarge** og **bakgrunnsfarge**, og slidene fram til
+  neste seksjon arver dem: overskrifter, kortheadere og bildetekster uten egen
+  farge følger aksenten, og sidefargen er seksjonens
+- en ny seksjon arver den forriges farger, så samme uttrykk gjennom dekket koster
+  ingenting å beholde
+
 **Soneredigering**
 
 - stiplede sonegrenser, slør med backdrop blur over valgt subtre, handlingsknapper
@@ -103,7 +115,7 @@ layoutet er nestet.
   og skygge, og **beskjæres** når formatet ikke passer: hover viser de skjulte
   delene utenfor rammen, og et dra flytter utsnittet, med en magnet i midten
 - bildetekst over bildet – øverst, i midten eller nederst – midtstilt, i en tonet
-  boks med backdrop-blur som følger forsidens pillefarge til noen velger en annen
+  boks med backdrop-blur som følger seksjonens aksentfarge til noen velger en annen
 - enkle vektorfigurer, både som hel sone og inline i tekst
 - 12 × 4-fargepalett med automatisk tekstfarge etter kontrast
 - referanser med avledet nummerering (`1–3, 5, 6, 8–10`) og automatisk genererte
@@ -465,7 +477,8 @@ museklikk eller databasetilgang:
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
 | `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
-| `set_theme`, `set_cover`, `set_cover_color`, `set_presentation_title`  | utseendet og navnet på hele dekket            |
+| `set_theme`, `set_presentation_title`                                  | typografien og navnet på hele dekket          |
+| `add_section`, `set_section`, `set_section_colors`                     | seksjonene, og fargene delene av dekket arver |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
 | `delete_unused_references`                                             | rydder bort referanser ingenting siterer      |
 | `validate_slide`, `validate_presentation`                              | leser og rapporterer, reparerer aldri         |
@@ -569,7 +582,7 @@ vei ut igjen:
 Noen ting til er verdt å vite om hvordan laget oppfører seg:
 
 - **Agenten styrer temaet, ikke bare innholdet.** `get_presentation` bærer
-  bakgrunnsfargen, de to fontene, luften og skriftstørrelsen, og `set_theme`
+  de to fontene, luften og skriftstørrelsen, og `set_theme`
   setter dem – gjennom den samme kommandoen som temamodalen, så en temaendring
   som ville skjult innhold blir avvist på samme måte, i sin helhet, uten at noe
   lagres. Luft og skriftstørrelse flytter i tillegg geometrien, så de måles to
@@ -711,8 +724,8 @@ curl -sS -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/
   under Slaids' egne stilark, i en ekte Chromium. En regel som legges til i
   `slide.css` er i previewet med en gang. Det finnes ingen «agentrenderer» å
   drifte fra hverandre.
-- **`slideId` er en side, ikke bare en slide.** En slide, `__cover__` for
-  forsiden, eller id-en til en avledet referanseside. En id som ikke finnes gir
+- **`slideId` er en side, ikke bare en slide.** En vanlig slide, en seksjon
+  (forsiden er den første), eller id-en til en avledet referanseside. En id som ikke finnes gir
   `SLIDE_NOT_FOUND` med id-ene som *finnes*, så neste kall kan treffe.
 - **`scale`** er piksler per logisk enhet. `1` (standard) gir 1600 × 900, det
   publikum ser; `0.5` gir 800 × 450 og en fjerdedel av tokenene. Layouten skjer

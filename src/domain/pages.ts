@@ -1,35 +1,32 @@
 /**
  * The pages of a deck, in the order an audience meets them.
  *
- *   cover → authored slides → derived reference slides → derived QR page
+ *   authored slides → derived reference slides → derived QR page
  *
- * The first two are stored; the last two are not. The reference slides are
+ * The first group is stored; the last two are not. The reference slides are
  * recomputed from the citations on every render, and the QR page exists for
  * exactly as long as sharing is on — neither is ever written into
  * `presentation.slides`, which is what keeps them impossible to delete, move,
  * duplicate or edit.
  *
- * The cover is stored and editable, but it is not a slide either. Every deck
- * has exactly one, always first: it is a field on the presentation rather than
- * a member of `slides`, which is what makes "every presentation has a cover" a
- * property of the type instead of a rule some command has to remember to
- * enforce. Nothing can delete it, move it or make a second one.
+ * The front page is not a page kind of its own any more. It is the deck's
+ * first section slide, and `DeckSlides` makes it impossible for the first slide
+ * to be anything else — so "every deck opens with a front page" is still a
+ * property of the type, and the front page is now an ordinary authored slide
+ * that can be recoloured, retitled and paged to like the sections after it.
  *
- * Neither the cover nor the QR page is a slide, and neither is forced to be
- * one. Each is a separate member of this union, so the authored slide format
- * stays exactly as narrow as it was: no zone tree pretending to hold a QR code
- * or a pair of pills, no content kind that only one page can use.
+ * The QR page is still not a slide and is not forced to be one: it is a
+ * separate member of this union, so the authored slide format stays exactly as
+ * narrow as it was.
  */
 
 import { buildReferenceSlides } from './referenceSlides'
-import type { DeckCover, DeckSource, Slide } from './types'
+import type { DeckSource, SectionSlide, Slide } from './types'
 
 /** Deterministic, so React reconciles the same page across renders. */
 export const QR_PAGE_ID = '__share_qr__'
-export const COVER_PAGE_ID = '__cover__'
 
 export type DeckPage =
-  | { kind: 'cover'; id: string; cover: DeckCover }
   | { kind: 'authored-slide'; id: string; slide: Slide }
   | { kind: 'reference-slide'; id: string; slide: Slide }
   | { kind: 'qr'; id: string; shareUrl: string }
@@ -44,7 +41,7 @@ export interface DeckPageOptions {
 
 /** Everything a viewer pages through, in order. */
 export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): DeckPage[] {
-  const pages: DeckPage[] = [{ kind: 'cover', id: COVER_PAGE_ID, cover: deck.cover }]
+  const pages: DeckPage[] = []
   for (const slide of deck.slides) {
     pages.push({ kind: 'authored-slide', id: slide.id, slide })
   }
@@ -59,11 +56,11 @@ export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): Deck
 /**
  * How far through the deck each page sits, as a fraction in `(0, 1]`.
  *
- * The cover is not in the map: it is the way in to the deck rather than a step
- * through it, and it carries no progress indicator. Everything after it counts,
- * derived pages included — the first authored slide is page one, and whatever
- * happens to be last (an authored slide, a reference slide, the QR page) is the
- * end of the deck and reads as full.
+ * The front page is not in the map: it is the way in to the deck rather than a
+ * step through it, and it carries no progress indicator. Everything after it
+ * counts, later sections and derived pages included — the second page is page
+ * one, and whatever happens to be last (an authored slide, a reference slide,
+ * the QR page) is the end of the deck and reads as full.
  *
  * Keyed by page id rather than by index so a renderer that was handed one page
  * — a thumbnail, the stage, a rendered preview — can still say where in the
@@ -72,8 +69,54 @@ export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): Deck
 export type DeckProgress = ReadonlyMap<string, number>
 
 export function deckProgress(pages: readonly DeckPage[]): DeckProgress {
-  const counted = pages.filter((page) => page.kind !== 'cover')
+  const counted = pages.slice(1)
   return new Map(counted.map((page, index) => [page.id, (index + 1) / counted.length]))
+}
+
+/**
+ * The two colours a page is drawn in.
+ *
+ * `accent` paints every pill, card header and caption that carries no colour of
+ * its own; `background` is the page's ground.
+ */
+export interface SectionColors {
+  accent: string
+  background: string
+}
+
+export type DeckSectionColors = ReadonlyMap<string, SectionColors>
+
+/**
+ * The colours each page inherits, from the section that governs it.
+ *
+ * A section sets the two colours for itself and for every page after it, up to
+ * the next section — so a deck reads as a run of coloured parts rather than one
+ * flat theme. Which section governs a given page is something only the deck
+ * knows, exactly like a citation's number or how full the progress bar is, so
+ * this is derived once from the page order rather than by each renderer
+ * counting backwards for itself.
+ *
+ * The derived pages at the end inherit from the last section, because that is
+ * where the reader is when they arrive: the bibliography and the QR code
+ * continue the part of the deck they follow rather than starting a new one.
+ *
+ * Total by construction: the first page is a section, so there is always a
+ * current pair before any page is looked at.
+ */
+export function deckSectionColors(pages: readonly DeckPage[]): DeckSectionColors {
+  const colors = new Map<string, SectionColors>()
+  let current: SectionColors | null = null
+  for (const page of pages) {
+    const section = page.kind === 'authored-slide' && page.slide.kind === 'section' ? page.slide : null
+    if (section) current = sectionColorsOf(section)
+    if (current) colors.set(page.id, current)
+  }
+  return colors
+}
+
+/** The pair a section sets, as the renderer reads it. */
+export function sectionColorsOf(section: SectionSlide): SectionColors {
+  return { accent: section.accentColor, background: section.backgroundColor }
 }
 
 /** The generated pages only: what the filmstrip lists below the authored ones. */
@@ -81,12 +124,7 @@ export function derivedPages(deck: DeckSource, options: DeckPageOptions = {}): D
   return deckPages(deck, options).filter(isDerivedPage)
 }
 
-/**
- * Derived pages are read-only by construction: nothing stores them.
- *
- * The cover is stored and editable, so it is not one of them — being outside
- * `slides` is not the same as being generated.
- */
+/** Derived pages are read-only by construction: nothing stores them. */
 export function isDerivedPage(page: DeckPage): boolean {
   return page.kind === 'reference-slide' || page.kind === 'qr'
 }

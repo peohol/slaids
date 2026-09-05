@@ -7,6 +7,7 @@ import { useDraggable } from '@dnd-kit/core'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { contentLabel } from '../../domain/content'
 import { deleteSandboxItem, duplicateSandboxItem } from '../../domain/commands'
+import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
 import { DEFAULT_SANDBOX_GEOMETRY } from '../../state/prefs'
 import type { SandboxItem } from '../../domain/types'
@@ -21,9 +22,14 @@ const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
 
 function SandboxItemCard({ item }: { item: SandboxItem }) {
   const run = useEditorStore((state) => state.run)
-  // The preview is outside the slide, so the deck's default pill colour has to
-  // be handed to it: a parked heading is the same heading it will be on a slide.
-  const pillColor = useEditorStore((state) => state.presentation?.cover.pillColor)
+  // The preview is outside the slide, so the accent has to be handed to it: a
+  // parked heading is the same heading it will be on a slide, and the section
+  // it would land under is the one the editor is currently in.
+  const pillColor = useEditorStore((state) =>
+    state.presentation && state.currentSlideId
+      ? sectionGoverning(state.presentation, state.currentSlideId).accentColor
+      : undefined,
+  )
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sandbox:${item.id}`,
     data: { kind: 'sandbox-item', itemId: item.id },

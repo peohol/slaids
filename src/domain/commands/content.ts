@@ -36,7 +36,8 @@ import {
   isDocEmpty,
   trimTrailingBlankLines,
 } from '../richdoc'
-import { findSlide, touch, withSlide } from '../presentation'
+import { contentSlide } from './internal'
+import { touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { normalizeHex } from '../color'
 import { hasAsset } from './assets'
@@ -82,8 +83,9 @@ export function updateZoneContent(
   updater: ContentUpdater,
   fitMessage = 'Innholdet får ikke plass i sonen etter endringen.',
 ): Result<Presentation> {
-  const slide = findSlide(presentation, target.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, target.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const leaf = findLeaf(slide.root, target.nodeId)
   if (!leaf) {
     return findNode(slide.root, target.nodeId)

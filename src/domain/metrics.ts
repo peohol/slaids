@@ -25,7 +25,7 @@ import {
   CARD_HEADER_FONT_SIZE,
   CARD_HEADER_HEIGHT,
   CARD_PADDING,
-  COVER_SUBTITLE_FONT_SIZE,
+  SECTION_SUBTITLE_FONT_SIZE,
   G,
   HEADING_FONT_SIZE,
   HEADING_SPACING,
@@ -49,8 +49,8 @@ export interface ThemeMetrics {
   bodyFontSize: number
   headingFontSize: number
   titleFontSize: number
-  /** The cover's subtitle: a step below the title, scaled with everything else. */
-  coverSubtitleFontSize: number
+  /** A section's subheading: a step below its heading, scaled with the rest. */
+  sectionSubtitleFontSize: number
   cardHeaderFontSize: number
   cardHeaderHeight: number
   titleZoneHeight: number
@@ -148,7 +148,7 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     bodyFontSize: scaled(BODY_FONT_SIZE, font),
     headingFontSize: scaled(HEADING_FONT_SIZE, font),
     titleFontSize: scaled(TITLE_FONT_SIZE, font),
-    coverSubtitleFontSize: scaled(COVER_SUBTITLE_FONT_SIZE, font),
+    sectionSubtitleFontSize: scaled(SECTION_SUBTITLE_FONT_SIZE, font),
     cardHeaderFontSize: scaled(CARD_HEADER_FONT_SIZE, font),
     cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
     // The line the title is set on, and nothing more — see `TITLE_LINE_HEIGHT`.
@@ -159,13 +159,13 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
 }
 
 /**
- * Geometry options for the cover.
+ * Geometry options for a section slide.
  *
- * The cover has no zone tree, so what a theme moves there is the gap between
+ * A section has no zone tree, so what a theme moves there is the gap between
  * the two pills and the type each of them is set in — which is also everything
- * `computeCoverGeometry` needs to say how much room a line has.
+ * `computeSectionGeometry` needs to say how much room a line has.
  */
-export function coverGeometryForTheme(theme?: Partial<PresentationTheme>): {
+export function sectionGeometryForTheme(theme?: Partial<PresentationTheme>): {
   gap: number
   inset: number
   titleFontSize: number
@@ -176,7 +176,7 @@ export function coverGeometryForTheme(theme?: Partial<PresentationTheme>): {
     gap: metrics.gap,
     inset: metrics.gap,
     titleFontSize: metrics.titleFontSize,
-    subtitleFontSize: metrics.coverSubtitleFontSize,
+    subtitleFontSize: metrics.sectionSubtitleFontSize,
   }
 }
 

@@ -33,6 +33,7 @@ import type { FitContext } from '../../domain/fit'
 import type {
   Axis,
   CaptionPosition,
+  ContentSlide,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -86,12 +87,37 @@ export const listPresentations = defineOperation({
  * get_presentation
  * ------------------------------------------------------------------ */
 
-export interface SlideSummary {
+/**
+ * One slide in the deck's overview.
+ *
+ * `kind` is what tells the two apart, and it decides which of the remaining
+ * fields mean anything: a content slide has a title *zone* that may be absent
+ * and a tree of zones, a section has a heading it always has and the two
+ * colours it hands to the slides after it.
+ */
+export type SlideSummary = ContentSlideSummary | SectionSlideSummary
+
+export interface ContentSlideSummary {
   slideId: string
   index: number
+  kind: 'content'
   hasTitle: boolean
   /** The title as plain text; the stored form is rich text. */
   title: string
+}
+
+export interface SectionSlideSummary {
+  slideId: string
+  index: number
+  kind: 'section'
+  /** The heading as plain text; the stored form is rich text. */
+  title: string
+  /** Empty when the section has no subheading — then the heading stands alone. */
+  subtitle: string
+  /** Pills and uncoloured headings from here to the next section. */
+  accentColor: string
+  /** The page colour from here to the next section. */
+  backgroundColor: string
 }
 
 export interface PresentationView {
@@ -101,8 +127,6 @@ export interface PresentationView {
   updatedAt: string
   /** Send this back as `expectedRevision` to write against exactly this reading. */
   revision: string
-  /** The mandatory first page. Not a slide, and not counted as one. */
-  cover: { title: string; subtitle: string; pillColor: string }
   /**
    * What the whole deck is drawn in, and what `set_theme` takes back.
    *
@@ -121,9 +145,21 @@ export interface PresentationView {
 }
 
 function summarizeSlide(slide: Slide, index: number): SlideSummary {
+  if (slide.kind === 'section') {
+    return {
+      slideId: slide.id,
+      index,
+      kind: 'section',
+      title: docToPlainText(slide.title).trim(),
+      subtitle: docToPlainText(slide.subtitle).trim(),
+      accentColor: slide.accentColor,
+      backgroundColor: slide.backgroundColor,
+    }
+  }
   return {
     slideId: slide.id,
     index,
+    kind: 'content',
     hasTitle: slide.title !== null,
     title: docToPlainText(slide.title),
   }
@@ -136,11 +172,6 @@ export function presentationView(presentation: Presentation): PresentationView {
     folderId: presentation.folderId,
     updatedAt: presentation.updatedAt,
     revision: presentationRevision(presentation),
-    cover: {
-      title: docToPlainText(presentation.cover.title).trim(),
-      subtitle: docToPlainText(presentation.cover.subtitle).trim(),
-      pillColor: presentation.cover.pillColor,
-    },
     theme: themeView(presentation.theme),
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
@@ -170,7 +201,8 @@ export const getPresentation = defineOperation({
 
 export const createPresentationOperation = defineOperation({
   name: 'create_presentation',
-  summary: 'Opprett en ny presentasjon med en forside og én tom slide.',
+  summary:
+    'Opprett en ny presentasjon: en seksjonsslide som forside, og én tom slide etter den. Forsiden er alltid første slide, og fargene den settes i arves av slidene fram til neste seksjon.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -184,12 +216,22 @@ export const createPresentationOperation = defineOperation({
       .boolean()
       .default(true)
       .describe('Om den første sliden får en overskriftssone.'),
-    coverTitle: z
+    frontTitle: z
       .string()
       .max(400)
       .optional()
-      .describe('Tittelen på forsiden. Utelatt bruker presentasjonens egen tittel.'),
-    coverSubtitle: z.string().max(400).optional().describe('Undertittelen på forsiden.'),
+      .describe('Overskriften på forsiden. Utelatt bruker presentasjonens egen tittel.'),
+    frontSubtitle: z.string().max(400).optional().describe('Underoverskriften på forsiden.'),
+    accentColor: z
+      .string()
+      .optional()
+      .describe(
+        'Hex-farge for piller og overskrifter uten egen farge, fra forsiden og fram til neste seksjon.',
+      ),
+    backgroundColor: z
+      .string()
+      .optional()
+      .describe('Hex-farge for sidene, fra forsiden og fram til neste seksjon.'),
   }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
     // A named folder has to be one the library actually has, for the same reason
@@ -201,15 +243,17 @@ export const createPresentationOperation = defineOperation({
 
     // The same command the library uses, so an agent's presentation is not a
     // second kind of presentation: same schema version, same default theme, same
-    // single empty slide — and the same refusal when a name or a cover line is
-    // too long for the one line the cover gives it.
+    // front section and single empty slide — and the same refusal when a name or
+    // a front-page line is too long for the one line it gets.
     const created = createDeck(
       {
         title: input.title,
         folderId: input.folderId ?? null,
         firstSlideHasTitle: input.firstSlideHasTitle,
-        coverTitle: input.coverTitle,
-        coverSubtitle: input.coverSubtitle,
+        frontTitle: input.frontTitle,
+        frontSubtitle: input.frontSubtitle,
+        accentColor: input.accentColor,
+        backgroundColor: input.backgroundColor,
       },
       structuralOptions(context),
     )
@@ -229,7 +273,7 @@ export const createPresentationOperation = defineOperation({
 export const setPresentationTitleOperation = defineOperation({
   name: 'set_presentation_title',
   summary:
-    'Endre navnet presentasjonen har i biblioteket. Dette er ikke forsidens tittel – den settes med set_cover.',
+    'Endre navnet presentasjonen har i biblioteket. Dette er ikke forsidens overskrift – den settes med set_section på den første sliden.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -239,7 +283,7 @@ export const setPresentationTitleOperation = defineOperation({
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; title: string }>> {
     return mutatePresentation(context, input, (presentation) => {
-      // Deliberately not the cover: the two started out the same when the deck
+      // Deliberately not the front page: the two started out the same when the deck
       // was created and are two decisions from then on, so renaming a deck in
       // the library must not silently rewrite the page an audience reads.
       const renamed = setPresentationTitle(presentation, input.title)
@@ -297,7 +341,17 @@ export interface ZoneInspection {
   overflow?: number
 }
 
-export interface SlideInspection extends SlideSummary {
+/**
+ * One slide, read in full.
+ *
+ * A union rather than one shape with optional halves, for the same reason
+ * `Slide` is: a section has no zones and no root node, and a shape that offered
+ * them as "sometimes absent" would invite a caller to ask a section for its
+ * layout and get `undefined` instead of an answer.
+ */
+export type SlideInspection = ContentSlideInspection | SectionSlideInspection
+
+export interface ContentSlideInspection extends ContentSlideSummary {
   presentationId: string
   revision: string
   rootNodeId: string
@@ -305,6 +359,14 @@ export interface SlideInspection extends SlideSummary {
   titleSpans: TextSpan[]
   titleAlign?: TextAlign
   zones: ZoneInspection[]
+}
+
+export interface SectionSlideInspection extends SectionSlideSummary {
+  presentationId: string
+  revision: string
+  /** Both lines as spans, for symmetry with a content slide's title. */
+  titleSpans: TextSpan[]
+  subtitleSpans: TextSpan[]
 }
 
 /**
@@ -410,10 +472,27 @@ export const inspectSlide = defineOperation({
       })
     }
 
+    const summary = summarizeSlide(slide, index)
+    const revision = presentationRevision(presentation)
+    if (slide.kind === 'section' && summary.kind === 'section') {
+      return agentOk({
+        ...summary,
+        presentationId: presentation.id,
+        revision,
+        titleSpans: docToTitleSpans(slide.title),
+        subtitleSpans: docToTitleSpans(slide.subtitle),
+      })
+    }
+    if (slide.kind !== 'content' || summary.kind !== 'content') {
+      return agentErr('SLIDE_NOT_FOUND', 'Fant ikke sliden.', {
+        presentationId: presentation.id,
+        slideId: input.slideId,
+      })
+    }
     return agentOk({
-      ...summarizeSlide(slide, index),
+      ...summary,
       presentationId: presentation.id,
-      revision: presentationRevision(presentation),
+      revision,
       rootNodeId: slide.root.id,
       titleSpans: docToTitleSpans(slide.title),
       ...(docToTitleAlign(slide.title) ? { titleAlign: docToTitleAlign(slide.title) } : {}),
@@ -423,7 +502,7 @@ export const inspectSlide = defineOperation({
 })
 
 function inspectZones(
-  slide: Slide,
+  slide: ContentSlide,
   presentation: Presentation,
   context: AgentContext,
 ): ZoneInspection[] {

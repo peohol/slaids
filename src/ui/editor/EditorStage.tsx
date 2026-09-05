@@ -33,10 +33,10 @@ import {
 import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { Editor } from '@tiptap/react'
-import type { LayoutNode, NodeId, Rect, Slide, ZoneContentKind } from '../../domain/types'
+import type { ContentSlide, LayoutNode, NodeId, Rect, ZoneContentKind } from '../../domain/types'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
-import { useSlideRender } from '../slide/SlideRenderContext'
+import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
 import { useFitScale } from '../slide/useFitScale'
 import { domFitCheckers } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
@@ -71,7 +71,7 @@ interface DragState {
 }
 
 export interface EditorStageProps {
-  slide: Slide
+  slide: ContentSlide
   actions: ZoneAction[]
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
   /** Opens the upload dialog for a picture zone that has no file yet. */
@@ -119,13 +119,14 @@ export function EditorStage({
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const titleEditorRef = useRef<Editor | null>(null)
   const { theme, numbering } = useSlideRender()
+  const colors = useSectionColorsFor(slide.id)
   // A ratio drag changes geometry, never the deck's citation numbers, so the
   // same context serves as both baseline and prospective state.
   const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
-  const displaySlide: Slide = preview
+  const displaySlide: ContentSlide = preview
     ? {
         ...slide,
         root: updateNode(slide.root, preview.nodeId, (node) =>
@@ -286,7 +287,7 @@ export function EditorStage({
     }
   }, [fitContext, preview, runStructural, scale, slide.id, tokens.gap])
 
-  const titleColor = bestTextColor(theme.backgroundColor)
+  const titleColor = bestTextColor(colors.background)
 
   return (
     <div
@@ -327,7 +328,7 @@ export function EditorStage({
                   fontFamily: theme.headingFontFamily,
                   fontSize: tokens.titleFontSize,
                   lineHeight: TITLE_LINE_HEIGHT,
-                  textShadow: textShadowFor(theme.backgroundColor),
+                  textShadow: textShadowFor(colors.background),
                 }}
                 data-fit-scroll=""
               >

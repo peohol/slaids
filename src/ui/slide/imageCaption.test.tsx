@@ -1,12 +1,12 @@
 /**
  * Where an uncoloured caption gets its background from.
  *
- * A plain picture has no title panel, so its caption falls back to the deck's
- * heading pill colour exactly as a heading does. A titled image card has one,
- * and its caption is supposed to follow *that* header — including the header's
- * own fallback to the cover when the header itself was never coloured — so
- * that recolouring the panel repaints the caption without touching the stored
- * document.
+ * A plain picture has no title panel, so its caption falls back to the
+ * governing section's accent colour exactly as a heading does. A titled image
+ * card has one, and its caption is supposed to follow *that* header —
+ * including the header's own fallback to the section when the header itself was
+ * never coloured — so that recolouring the panel repaints the caption without
+ * touching the stored document.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -16,11 +16,20 @@ import { createCaption, createImage, createTitledImageCard } from '../../domain/
 import { createPresentation } from '../../domain/presentation'
 import type { ZoneContent } from '../../domain/types'
 import { ZoneContentView } from './ZoneContentView'
-import { SlideRenderProvider } from './SlideRenderContext'
+import { PageColorsProvider, SlideRenderProvider } from './SlideRenderContext'
 
-const COVER_COLOR = '#bfccd9'
+const ACCENT = '#bfccd9'
+const BACKGROUND = '#101828'
 const HEADER_COLOR = '#a64d79'
 
+/**
+ * One zone, drawn as a page in a section would draw it.
+ *
+ * The colours come through `PageColorsProvider` rather than the deck-wide
+ * context because that is how a real page hands them down: which section
+ * governs a page is decided once, above it, and everything inside reads the
+ * answer.
+ */
 function render(content: ZoneContent): string {
   const presentation = createPresentation({ title: 'Dekk' })
   return renderToStaticMarkup(
@@ -28,23 +37,25 @@ function render(content: ZoneContent): string {
       value={{
         theme: presentation.theme,
         numbering: new Map(),
-        headingPillColor: COVER_COLOR,
+        sectionColors: new Map(),
         progress: new Map(),
         isStatic: true,
       }}
     >
-      <ZoneContentView content={content} />
+      <PageColorsProvider colors={{ accent: ACCENT, background: BACKGROUND }}>
+        <ZoneContentView content={content} />
+      </PageColorsProvider>
     </SlideRenderProvider>,
   )
 }
 
 describe('an uncoloured caption', () => {
-  it('reads the deck pill colour on a plain picture, which has no header', () => {
+  it('reads the section’s accent on a plain picture, which has no header', () => {
     const content = createImage('asset-1')
     content.image.caption = createCaption('bottom')
     const markup = render(content)
     expect(markup).toContain('color-mix(in srgb, var(--slaids-heading-pill)')
-    expect(markup).not.toContain(`--slaids-heading-pill:${COVER_COLOR}`)
+    expect(markup).not.toContain(`--slaids-heading-pill:${ACCENT}`)
   })
 
   it('reads its own title panel’s header on a titled image card', () => {
@@ -55,11 +66,11 @@ describe('an uncoloured caption', () => {
     expect(markup).toContain(`--slaids-heading-pill-text:${bestTextColor(HEADER_COLOR)}`)
   })
 
-  it('follows the header to the cover when the header itself has no colour', () => {
+  it('follows the header to the section when the header itself has no colour', () => {
     const content = createTitledImageCard('asset-1', 'Fjord', null)
     content.image.caption = createCaption('bottom')
     const markup = render(content)
-    expect(markup).toContain(`--slaids-heading-pill:${COVER_COLOR}`)
+    expect(markup).toContain(`--slaids-heading-pill:${ACCENT}`)
   })
 
   it('keeps a caption’s own colour regardless of the header', () => {

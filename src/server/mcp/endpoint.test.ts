@@ -66,13 +66,14 @@ describe('en hel arbeidsflyt over MCP', () => {
     const toolNames = (listed.tools as { name: string }[]).map((entry) => entry.name)
     expect(toolNames).toContain(tool('create_presentation'))
 
-    // 2. Create a presentation. The answer already carries the first slide.
+    // 2. Create a presentation. The answer already carries the front section
+    // and the one slide it opens onto.
     const created = await callOk(harnessed, tool('create_presentation'), {
       title: 'Kvartalsrapport',
     })
     const presentationId = created.presentationId as string
-    expect(created.slideCount).toBe(1)
-    const slideId = (created.slides as { slideId: string }[])[0].slideId
+    expect(created.slideCount).toBe(2)
+    const slideId = (created.slides as { slideId: string }[])[1].slideId
 
     // 3. Inspect it, and learn the ids and the geometry the next calls need.
     const inspected = await callOk(harnessed, tool('inspect_slide'), { presentationId, slideId })

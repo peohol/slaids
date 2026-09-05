@@ -7,6 +7,7 @@ import { containerWithDoc } from '../../domain/content'
 import { createLeaf } from '../../domain/layout'
 import { createPresentation } from '../../domain/presentation'
 import type { Presentation, RichDoc } from '../../domain/types'
+import { contentAt, sectionAt } from '../../domain/testDecks'
 
 describe('normalizePastedHtml', () => {
   it('strips all inline styling', () => {
@@ -127,12 +128,12 @@ function deckWithDoc(doc: RichDoc): Presentation {
   const base = createPresentation({ title: 'Figur i en beholder' })
   return {
     ...base,
-    slides: [{ ...base.slides[0], root: createLeaf(containerWithDoc(doc)) }],
+    slides: [sectionAt(base, 0),{ ...contentAt(base, 1), root: createLeaf(containerWithDoc(doc)) }],
   }
 }
 
 function docOf(presentation: Presentation): RichDoc {
-  const content = presentation.slides[0].root
+  const content = contentAt(presentation, 1).root
   if (content.kind !== 'leaf' || !content.content) throw new Error('Fant ikke innholdet')
   const body = 'body' in content.content ? content.content.body : null
   if (!body) throw new Error('Fant ikke kroppen')

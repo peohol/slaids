@@ -301,7 +301,7 @@
  * A heading with no colour of its own takes the deck's.
  *
  * The default lives here as a custom property rather than in the document, so
- * changing it on the cover repaints every such heading at once — in the editor,
+ * changing it on a section repaints every such heading at once — in the editor,
  * on the slide and in the offscreen measurement — with no stored document
  * touched. A heading that *was* given a colour writes an inline style, and an
  * inline style wins over this.
@@ -579,15 +579,18 @@
 }
 
 /* ----------------------------------------------------------------- *
- * The cover
+ * Section slides
  *
- * One centred column of two pills, spaced by the deck's own gap — the same
+ * One centred column of pills, spaced by the deck's own gap — the same
  * arrangement the QR page uses, because both are pages without a zone tree.
- * Each pill is only as wide as its text and never wider than the page, and its
- * line is centred and never wrapped: a cover line is one line, exactly as a
- * slide title is, so text that does not fit is refused rather than reflowed.
+ * Centring the column is also what makes a section with only a heading centre
+ * that one line and one with both centre the pair: neither case is written
+ * down, both fall out of `justify-content`. Each pill is only as wide as its
+ * text and never wider than the page, and its line is centred and never
+ * wrapped: a section line is one line, exactly as a slide title is, so text
+ * that does not fit is refused rather than reflowed.
  * ----------------------------------------------------------------- */
-.cover-page {
+.section-page {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -601,7 +604,7 @@
  * rolls an over-long line back on, and `max-width` is set from the geometry
  * engine so the box that clips and the box the fit gate measures are one box.
  */
-.cover-pill {
+.section-pill {
   display: flex;
   align-items: center;
   box-sizing: border-box;
@@ -611,9 +614,9 @@
   overflow: hidden;
 }
 
-.cover-pill :is(p, .rd-p) {
+.section-pill :is(p, .rd-p) {
   margin: 0;
-  /* Centred by construction: the cover carries no alignment to override this. */
+  /* Centred by construction: a section carries no alignment to override this. */
   text-align: center;
   white-space: nowrap;
 }

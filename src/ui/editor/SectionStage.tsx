@@ -1,0 +1,141 @@
+/**
+ * A section slide, being edited.
+ *
+ * Same frame as the presented section — same pills, same type, same centring —
+ * with a text editor in each pill instead of a static document. There are no
+ * zones here, so there is no zone mode, no overlay and no hit-testing: the only
+ * things to change are the two lines and the two colours, and the colours live
+ * in the inspector beside the stage.
+ *
+ * Both pills are drawn while editing, even when the subheading is empty. That
+ * empty pill *is* the placeholder: it is the only thing there is to click on
+ * before a subheading exists, and when it is left empty it simply never
+ * reaches the presented page — `SectionPageView` draws no pill for a line with
+ * no text. So a section with a heading alone is centred as one line, and the
+ * moment something is typed below it the pair is centred instead, with nothing
+ * to switch on and nothing to remember.
+ *
+ * Over-long text is rolled back against the live DOM rather than measured by a
+ * command, exactly as a slide title is: the pill clips at the width the
+ * geometry engine handed the fit gate, so `scrollWidth - clientWidth` is the
+ * same overflow that gate would compute — and reading it from the DOM is what
+ * keeps an IME composition from being interrupted mid-word.
+ */
+
+import { useCallback, useRef } from 'react'
+import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
+import { setSectionSubtitle, setSectionTitle } from '../../domain/commands'
+import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID } from '../../domain/geometry'
+import type { SectionSlide } from '../../domain/types'
+import { useEditorStore } from '../../state/store'
+import { useActiveEditor } from '../../state/activeEditor'
+import {
+  SectionFrame,
+  SECTION_LINES,
+  sectionLineDoc,
+  type SectionLine,
+} from '../slide/SectionPageView'
+import { SlideProgressBar } from '../slide/SlideProgressBar'
+import { useFitScale } from '../slide/useFitScale'
+import { RichTextEditor } from './RichTextEditor'
+
+const LINE_TEXT: Record<
+  SectionLine,
+  { placeholder: string; overflow: string; nodeId: string; field: 'section-title' | 'section-subtitle' }
+> = {
+  title: {
+    placeholder: 'Overskrift',
+    overflow: 'Overskriften får ikke plass på seksjonssliden.',
+    nodeId: SECTION_TITLE_NODE_ID,
+    field: 'section-title',
+  },
+  subtitle: {
+    placeholder: 'Underoverskrift (valgfri)',
+    overflow: 'Underoverskriften får ikke plass på seksjonssliden.',
+    nodeId: SECTION_SUBTITLE_NODE_ID,
+    field: 'section-subtitle',
+  },
+}
+
+export function SectionStage({ section }: { section: SectionSlide }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
+  const scale = useFitScale(viewportRef)
+  const run = useEditorStore((state) => state.run)
+  const setActiveField = useEditorStore((state) => state.setActiveField)
+  const setActiveEditor = useActiveEditor((state) => state.setEditor)
+  // Stable, so React does not detach and reattach the pill on every keystroke.
+  const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
+    pillRefs.current[line] = element
+  }, [])
+
+  return (
+    <div className="stage-viewport" ref={viewportRef} data-testid="stage-viewport">
+      <div
+        className="stage-scaler"
+        style={{ width: SLIDE_WIDTH * scale, height: SLIDE_HEIGHT * scale }}
+      >
+        <div
+          className="stage-slide"
+          data-testid="stage-slide"
+          data-section=""
+          data-scale={scale}
+          style={{
+            width: SLIDE_WIDTH,
+            height: SLIDE_HEIGHT,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+        >
+          <SectionFrame
+            accentColor={section.accentColor}
+            backgroundColor={section.backgroundColor}
+            lines={SECTION_LINES}
+            pillRef={setPillRef}
+            renderLine={(line) => (
+              <RichTextEditor
+                // Keyed by the slide, so moving to another section replaces the
+                // editor rather than reusing one still holding the old text.
+                key={`${section.id}:${line}`}
+                doc={sectionLineDoc(section, line)}
+                variant="cover"
+                placeholder={LINE_TEXT[line].placeholder}
+                overflowMessage={LINE_TEXT[line].overflow}
+                measureOverflow={() => {
+                  const pill = pillRefs.current[line]
+                  return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
+                }}
+                onFocus={() => {
+                  // A section carries no formatting, so nothing in the text
+                  // toolbar applies to it — but the toolbar still has to stop
+                  // pointing at the body field that was edited last.
+                  setActiveEditor(null)
+                  setActiveField({
+                    nodeId: LINE_TEXT[line].nodeId,
+                    subfieldId: null,
+                    kind: LINE_TEXT[line].field,
+                  })
+                }}
+                onChange={(doc) =>
+                  run(`typing:section:${section.id}:${line}`, (presentation) =>
+                    line === 'title'
+                      ? setSectionTitle(presentation, section.id, doc)
+                      : setSectionSubtitle(presentation, section.id, doc),
+                  )
+                }
+              />
+            )}
+          >
+            {/*
+              The editor draws the page the audience will see, indicator and
+              all. A section is a page in the flow like any other — the front
+              page is the one that carries none, and `deckProgress` is what
+              decides that, not this component.
+            */}
+            <SlideProgressBar pageId={section.id} />
+          </SectionFrame>
+        </div>
+      </div>
+    </div>
+  )
+}

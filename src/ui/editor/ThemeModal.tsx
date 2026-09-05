@@ -1,4 +1,11 @@
-/** Presentation-wide background, fonts, air and type size. */
+/**
+ * Presentation-wide fonts, air and type size.
+ *
+ * The background colour used to be here and deliberately is not any more: it is
+ * a section's, so a deck can change ground colour partway through, and it is
+ * picked on the section slide that governs it. What is left is what genuinely
+ * applies to every page at once.
+ */
 
 import { useState } from 'react'
 import { setTheme } from '../../domain/commands'
@@ -11,7 +18,6 @@ import { useEditorStore } from '../../state/store'
 import { writeDefaultTheme } from '../../state/defaultTheme'
 import { ensureWebFonts } from '../fonts'
 import { Modal } from '../components/Modal'
-import { ColorSwatchGrid } from '../components/ColorPicker'
 
 /**
  * Which of the named settings is in force.
@@ -43,6 +49,9 @@ export function ThemeModal({
   const [loading, setLoading] = useState<'heading' | 'body' | null>(null)
   if (!presentation) return null
   const theme = presentation.theme
+  // The deck no longer has one background, so a preview of its typography sits
+  // on the ground the reader meets first: the front page's.
+  const previewBackground = presentation.slides[0].backgroundColor
 
   /**
    * Pick a font — but only commit it once the browser can actually draw it.
@@ -77,7 +86,7 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Gjelder hele presentasjonen. Enkeltslides kan ikke avvike."
+      description="Fonter, luft og skriftstørrelse gjelder hele presentasjonen. Farger velges per seksjon."
       testId="theme-modal"
       width={560}
       footer={
@@ -99,15 +108,6 @@ export function ThemeModal({
         </>
       }
     >
-      <div className="field">
-        <label>Bakgrunnsfarge</label>
-        <ColorSwatchGrid
-          value={theme.backgroundColor}
-          onSelect={(backgroundColor) =>
-            run('theme-background', (current) => setTheme(current, { backgroundColor }))
-          }
-        />
-      </div>
       <div className="new-presentation__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">
           <label htmlFor="theme-heading-font">Font for titler</label>
@@ -214,7 +214,7 @@ export function ThemeModal({
 
       <div
         className="new-presentation__preview"
-        style={{ background: theme.backgroundColor, color: bestTextColor(theme.backgroundColor) }}
+        style={{ background: previewBackground, color: bestTextColor(previewBackground) }}
       >
         <span style={{ fontFamily: theme.headingFontFamily, fontSize: 24, fontWeight: 600 }}>
           {presentation.title}

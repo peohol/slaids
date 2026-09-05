@@ -1,8 +1,8 @@
-/** Shared rendering context for slide content: theme, citations and assets. */
+/** Shared rendering context for slide content: theme, citations, colours and assets. */
 
 import { createContext, useContext } from 'react'
-import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import type { DeckProgress } from '../../domain/pages'
+import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from '../../domain/constants'
+import type { DeckProgress, DeckSectionColors, SectionColors } from '../../domain/pages'
 import type { ReferenceNumbering } from '../../domain/references'
 import type { PresentationTheme } from '../../domain/types'
 import { defaultTheme } from '../../domain/presentation'
@@ -11,27 +11,25 @@ export interface SlideRenderValue {
   theme: PresentationTheme
   numbering: ReferenceNumbering
   /**
-   * The deck's default heading pill colour — `cover.pillColor`.
+   * The colours each page of the deck is drawn in — see `deckSectionColors`.
    *
-   * It belongs here rather than in the theme because it is the cover's own
-   * colour: a heading that stores no colour of its own is painted with it, so a
-   * renderer that knows the deck knows what such a heading looks like. Colour
-   * is never fit-relevant, which is why the offscreen measurer may leave it at
-   * the default without measuring anything differently.
+   * Deck-wide information a single page cannot derive on its own, exactly like
+   * `numbering` and `progress`: which section governs a page depends on every
+   * page before it. Keeping it here rather than passing it page by page is what
+   * lets the stage, the thumbnails, presentation mode and a rendered preview
+   * all draw the same colours without four call sites remembering to hand them
+   * over.
+   *
+   * A page that is not in the map falls back to the deck's starting colours —
+   * which is offscreen measurement, where there is no deck to be a page of, and
+   * where colour is never fit-relevant anyway.
    */
-  headingPillColor: string
+  sectionColors: DeckSectionColors
   /**
    * Where each page of the deck sits in it — what the progress indicator draws.
    *
-   * Deck-wide information a single page cannot derive on its own, exactly like
-   * `numbering`: how full the bar is depends on how many pages come after this
-   * one, including the reference slides and the QR page. Keeping it here rather
-   * than passing it page by page is what lets the stage, the thumbnails,
-   * presentation mode and a rendered preview all draw the same indicator
-   * without four call sites remembering to hand it over.
-   *
-   * A page that is not in the map draws no indicator — which is the cover, and
-   * offscreen measurement, where there is no deck to be a page of.
+   * A page that is not in the map draws no indicator — which is the front page,
+   * and offscreen measurement.
    */
   progress: DeckProgress
   /** Rendering is static (presentation mode, thumbnails, measurement). */
@@ -46,15 +44,32 @@ export interface SlideRenderValue {
   onCitationClick?: (referenceIds: string[]) => void
 }
 
+/** What a deck is drawn in before any section has had its say. */
+export const DEFAULT_SECTION_COLORS: SectionColors = {
+  accent: DEFAULT_PILL_COLOR,
+  background: DEFAULT_BACKGROUND_COLOR,
+}
+
 const fallback: SlideRenderValue = {
   theme: defaultTheme(),
   numbering: new Map(),
-  headingPillColor: DEFAULT_PILL_COLOR,
+  sectionColors: new Map(),
   progress: new Map(),
   isStatic: true,
 }
 
 const SlideRenderContext = createContext<SlideRenderValue>(fallback)
+
+/**
+ * The colours of the one page currently being drawn.
+ *
+ * Separate from the deck-wide context because a deck's renderers draw many
+ * pages inside one provider — the filmstrip draws all of them — so "which
+ * colours apply here" is a property of the subtree rather than of the deck.
+ * Every page renderer opens with `PageColorsProvider`, and everything under it,
+ * however deep, reads the answer instead of being handed it.
+ */
+const PageColorsContext = createContext<SectionColors>(DEFAULT_SECTION_COLORS)
 
 export function SlideRenderProvider({
   value,
@@ -68,4 +83,24 @@ export function SlideRenderProvider({
 
 export function useSlideRender(): SlideRenderValue {
   return useContext(SlideRenderContext)
+}
+
+export function PageColorsProvider({
+  colors,
+  children,
+}: {
+  colors: SectionColors
+  children: React.ReactNode
+}) {
+  return <PageColorsContext.Provider value={colors}>{children}</PageColorsContext.Provider>
+}
+
+export function usePageColors(): SectionColors {
+  return useContext(PageColorsContext)
+}
+
+/** The colours a page id inherits, or the deck's starting pair when unknown. */
+export function useSectionColorsFor(pageId: string): SectionColors {
+  const { sectionColors } = useSlideRender()
+  return sectionColors.get(pageId) ?? DEFAULT_SECTION_COLORS
 }

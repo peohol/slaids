@@ -29,7 +29,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { CARD_PADDING, SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING, FONT_SCALE_RANGE } from '../domain/metrics'
-import { COVER_PAGE_ID } from '../domain/pages'
 import type { Rect } from '../domain/types'
 import {
   TOKEN,
@@ -61,7 +60,6 @@ const BACKGROUND_REGION = { x: 4, y: 4, width: 30, height: 30 }
 
 /** As much of `get_presentation`'s theme as this file reads. */
 interface ThemeReading {
-  backgroundColor: string
   headingFont: { fontId: string | null }
   bodyFont: { fontId: string | null }
   spacing: number
@@ -162,10 +160,11 @@ describe('en agent bygger, ser og retter', () => {
         { title: 'Agentløkken' },
       )
       const presentationId = created.presentationId
-      const slideId = created.slides[0].slideId
+      const slideId = created.slides[1].slideId
 
-      await call(client, 'set_cover', {
+      await call(client, 'set_section', {
         presentationId,
+        slideId: created.slides[0].slideId,
         title: 'Rendret preview',
         subtitle: 'Fase 5',
       })
@@ -307,7 +306,7 @@ describe('en agent bygger, ser og retter', () => {
         { title: 'Før og etter' },
       )
       const presentationId = created.presentationId
-      const slideId = created.slides[0].slideId
+      const slideId = created.slides[1].slideId
       const inspected = await call<{ rootNodeId: string }>(client, 'inspect_slide', {
         presentationId,
         slideId,
@@ -342,10 +341,11 @@ describe('en agent bygger, ser og retter', () => {
       })
       expect(written.revision).toBeTypeOf('string')
 
-      /* The cover is a page too, and it is not a slide. */
-      const cover = await renderPreview(client, { presentationId, slideId: COVER_PAGE_ID })
-      expect(cover.result.structuredContent?.pageKind).toBe('cover')
-      expect(pngPixelSize(cover.bytes)).toEqual({ width: SLIDE_WIDTH, height: SLIDE_HEIGHT })
+      /* The front page is a slide too — the deck's first section. */
+      const frontId = created.slides[0].slideId
+      const front = await renderPreview(client, { presentationId, slideId: frontId })
+      expect(front.result.structuredContent?.pageKind).toBe('authored-slide')
+      expect(pngPixelSize(front.bytes)).toEqual({ width: SLIDE_WIDTH, height: SLIDE_HEIGHT })
 
       await client.close()
     },
@@ -365,7 +365,7 @@ describe('en agent bygger, ser og retter', () => {
         { title: 'Tema i bildet' },
       )
       const presentationId = created.presentationId
-      const slideId = created.slides[0].slideId
+      const slideId = created.slides[1].slideId
 
       const read = await call<{ theme: ThemeReading }>(client, 'get_presentation', {
         presentationId,
@@ -396,9 +396,13 @@ describe('en agent bygger, ser og retter', () => {
 
       /* ---- 2. a theme nobody could mistake for the default ---- */
 
+      await call(client, 'set_section_colors', {
+        presentationId,
+        slideId: created.slides[0].slideId,
+        backgroundColor: DEEP_GREEN.hex,
+      })
       await call(client, 'set_theme', {
         presentationId,
-        backgroundColor: DEEP_GREEN.hex,
         headingFont: 'merriweather',
         bodyFont: 'merriweather',
         spacing: 2.4,
@@ -411,9 +415,13 @@ describe('en agent bygger, ser og retter', () => {
 
       /* ---- 3. change it again, and the picture follows ---- */
 
+      await call(client, 'set_section_colors', {
+        presentationId,
+        slideId: created.slides[0].slideId,
+        backgroundColor: RUST.hex,
+      })
       await call(client, 'set_theme', {
         presentationId,
-        backgroundColor: RUST.hex,
         fontScale: FONT_SCALE_RANGE.min,
       })
       const rust = await renderPreview(client, { presentationId, slideId })
@@ -437,16 +445,17 @@ describe('en agent bygger, ser og retter', () => {
         name: 'slaids_set_theme',
         arguments: {
           presentationId,
-          // A colour that could never hide anything, sent together with a type
-          // size that would: half a theme is not a state anybody asked for.
-          backgroundColor: '#ffffff',
+          // A heading font that could never hide this zone's body text, sent
+          // together with a type size that would: half a theme is not a state
+          // anybody asked for.
+          headingFont: 'quicksand',
           fontScale: FONT_SCALE_RANGE.max,
         },
       })) as { isError?: boolean; structuredContent?: { error?: { code: string } } }
       expect(refused.isError).toBe(true)
       expect(refused.structuredContent?.error?.code).toBe('CONTENT_DOES_NOT_FIT')
 
-      // Nothing was written — not the type size, and not the colour that came
+      // Nothing was written — not the type size, and not the font that came
       // with it. The stored document is the one from before the call.
       expect(await deployment.context.repository.loadPresentation(presentationId)).toEqual(before)
 
@@ -474,7 +483,7 @@ describe('en agent bygger, ser og retter', () => {
         { title: 'To spalter i ett kort', firstSlideHasTitle: false },
       )
       const presentationId = created.presentationId
-      const slideId = created.slides[0].slideId
+      const slideId = created.slides[1].slideId
       const inspected = await call<{ rootNodeId: string }>(client, 'inspect_slide', {
         presentationId,
         slideId,
@@ -584,7 +593,7 @@ describe('en agent bygger, ser og retter', () => {
         { title: 'Uendret av å bli sett på' },
       )
       const presentationId = created.presentationId
-      const slideId = created.slides[0].slideId
+      const slideId = created.slides[1].slideId
 
       const before = await deployment.context.repository.loadPresentation(presentationId)
       for (const scale of [1, 0.25]) {

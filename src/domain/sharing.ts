@@ -29,12 +29,11 @@ import { splitReferences } from './references'
 import { err, ok, type Result } from './result'
 import type {
   AssetRef,
-  DeckCover,
+  DeckSlides,
   DeckSource,
   Presentation,
   PresentationTheme,
   Reference,
-  Slide,
 } from './types'
 
 /** Marks the payload as ours, so an unrelated JSON body fails loudly. */
@@ -56,9 +55,9 @@ export interface SharedPresentationSnapshot extends DeckSource {
   schemaVersion: number
   title: string
   theme: PresentationTheme
-  /** The cover is part of the deck a viewer pages through, so it is published. */
-  cover: DeckCover
-  slides: Slide[]
+  /* The front page is the deck's first section, so it is published with the
+     rest of the slides rather than beside them. */
+  slides: DeckSlides
   /** Only the references that are actually cited, in numbering order. */
   references: Reference[]
   /** Only the assets the slides actually show. */
@@ -94,7 +93,6 @@ export function buildSharedSnapshot(
     schemaVersion: presentation.schemaVersion,
     title: presentation.title,
     theme: presentation.theme,
-    cover: presentation.cover,
     slides: presentation.slides,
     references: splitReferences(presentation).used,
     assets: presentation.assets.filter((asset) => shownAssetIds.has(asset.id)),
@@ -117,11 +115,13 @@ const envelopeSchema = z.object({
   title: z.string(),
   publishedAt: z.string(),
   theme: z.unknown(),
-  /* Absent in a snapshot published before covers existed, and `.optional()` is
-     what lets such a snapshot through: a bare `z.unknown()` still *requires*
-     the key, so every link published before this field existed would have
-     stopped resolving here — before the migration chain below, which builds a
-     cover from the title exactly as it does for a stored presentation. */
+  /* No longer published — the front page is the first slide now — but still
+     read, because a link shared while the cover was its own field is still a
+     link somebody holds. `.optional()` is what lets both through: a bare
+     `z.unknown()` still *requires* the key, so every snapshot published after
+     the change would stop resolving here. Whatever is found is handed to the
+     migration chain below, which turns it into the deck's first section
+     exactly as it does for a stored presentation. */
   cover: z.unknown().optional(),
   slides: z.unknown(),
   references: z.unknown(),
@@ -170,7 +170,6 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     schemaVersion: deck.schemaVersion,
     title: deck.title,
     theme: deck.theme,
-    cover: deck.cover,
     slides: deck.slides,
     references: deck.references,
     assets: deck.assets,

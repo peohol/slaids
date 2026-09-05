@@ -15,9 +15,9 @@ import {
   parentIdOf,
   siblingIdOf,
 } from '../domain/layout'
-import { COVER_SUBTITLE_NODE_ID, COVER_TITLE_NODE_ID, TITLE_NODE_ID } from '../domain/geometry'
+import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID, TITLE_NODE_ID } from '../domain/geometry'
 import { findSlide } from '../domain/presentation'
-import type { NodeId, Presentation, Slide } from '../domain/types'
+import type { ContentSlide, NodeId, Presentation, Slide } from '../domain/types'
 import { notify } from './toast'
 
 export type EditorMode = 'content' | 'zone'
@@ -27,13 +27,13 @@ export interface ActiveField {
   nodeId: NodeId
   /** `null` addresses a card title; a subfield id addresses a body field. */
   subfieldId: string | null
-  kind: 'body' | 'card-title' | 'caption' | 'slide-title' | 'cover-title' | 'cover-subtitle'
+  kind: 'body' | 'card-title' | 'caption' | 'slide-title' | 'section-title' | 'section-subtitle'
 }
 
 /** Fields that are text on a page rather than a node in a layout tree. */
 const NON_LAYOUT_FIELD_IDS: ReadonlySet<string> = new Set([
-  COVER_TITLE_NODE_ID,
-  COVER_SUBTITLE_NODE_ID,
+  SECTION_TITLE_NODE_ID,
+  SECTION_SUBTITLE_NODE_ID,
 ])
 
 interface HistoryEntry {
@@ -55,14 +55,14 @@ interface EditorStore {
 
   currentSlideId: string | null
   /**
-   * The cover is being edited instead of a slide.
+   * The selected zone, or `null` when the page has none.
    *
-   * It is a flag beside `currentSlideId` rather than a slide id of its own,
-   * because the cover is not a slide: it has no layout tree, so every command,
-   * every selection and every navigation that addresses a node simply does not
-   * apply to it. Which slide the filmstrip returns to is remembered meanwhile.
+   * A section is a slide like any other as far as selection goes — it is
+   * addressed by `currentSlideId`, paged to with the arrow keys, deleted and
+   * moved by the same commands — but it has no layout tree, so there is no zone
+   * to select and no zone mode to be in. That is the whole of what makes it
+   * different here, and it is stated once rather than as a flag beside the id.
    */
-  viewingCover: boolean
   selectedNodeId: NodeId | null
   activeField: ActiveField | null
   mode: EditorMode
@@ -93,8 +93,7 @@ interface EditorStore {
   canRedo: () => boolean
 
   selectSlide: (slideId: string) => void
-  selectCover: () => void
-  /** Move one page forwards or backwards through cover + authored slides. */
+  /** Move one page forwards or backwards through the authored slides. */
   stepPage: (delta: number) => void
   selectNode: (nodeId: NodeId | null) => void
   setMode: (mode: EditorMode) => void
@@ -103,6 +102,8 @@ interface EditorStore {
   navigate: (direction: 'up' | 'down' | 'left' | 'right') => void
 
   currentSlide: () => Slide | null
+  /** The current slide when it has zones — `null` on a section. */
+  currentContentSlide: () => ContentSlide | null
 }
 
 function clampHistory(entries: HistoryEntry[]): HistoryEntry[] {
@@ -115,7 +116,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   loadError: null,
 
   currentSlideId: null,
-  viewingCover: false,
   selectedNodeId: null,
   activeField: null,
   mode: 'content',
@@ -129,14 +129,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   saveStatus: 'saved',
   lastSavedAt: null,
 
-  setPresentation: (presentation) =>
+  setPresentation: (presentation) => {
+    // A deck opens where the work is. The front page is page one and sits first
+    // in the filmstrip, but it is two lines of text, not the thing being built.
+    const opening = presentation ? openingSlide(presentation) : null
     set({
       presentation,
-      currentSlideId: presentation?.slides[0]?.id ?? null,
-      // A deck opens where the work is. The cover is page one and sits first in
-      // the filmstrip, but it is one line of text, not the thing being built.
-      viewingCover: false,
-      selectedNodeId: presentation?.slides[0]?.root.id ?? null,
+      currentSlideId: opening?.id ?? null,
+      selectedNodeId: opening?.kind === 'content' ? opening.root.id : null,
       activeField: null,
       past: [],
       future: [],
@@ -144,7 +144,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       lastChangeAt: 0,
       coalesceStartedAt: 0,
       saveStatus: 'saved',
-    }),
+    })
+  },
 
   setLoading: (loading) => set({ loading }),
   setLoadError: (loadError) => set({ loadError }),
@@ -238,21 +239,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!slide) return
     set({
       currentSlideId: slideId,
-      viewingCover: false,
-      selectedNodeId: slide.root.id,
+      selectedNodeId: slide.kind === 'content' ? slide.root.id : null,
       activeField: null,
+      // Zone mode has nothing to act on where there are no zones, so leaving it
+      // on would show zone tools for a page that has none.
+      ...(slide.kind === 'content' ? null : { mode: 'content' as EditorMode }),
     })
   },
 
-  selectCover: () => {
-    if (!get().presentation) return
-    // Zone mode has nothing to act on here, so leaving it on would show zone
-    // tools for a page with no zones.
-    set({ viewingCover: true, activeField: null, mode: 'content' })
-  },
-
   /**
-   * The deck as the arrow keys walk it: the cover, then the authored slides.
+   * The deck as the arrow keys walk it: the authored slides, in order.
    *
    * The derived pages are deliberately not in the walk. They are generated, so
    * there is nothing to edit when the caret arrives, and the two of them that
@@ -264,23 +260,17 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const presentation = state.presentation
     if (!presentation) return
     const slides = presentation.slides
-    const current = state.viewingCover
-      ? 0
-      : slides.findIndex((slide) => slide.id === state.currentSlideId) + 1
-    if (current <= 0 && !state.viewingCover) return
+    const current = slides.findIndex((slide) => slide.id === state.currentSlideId)
+    if (current < 0) return
     const next = current + delta
-    if (next < 0 || next > slides.length) return
-    if (next === 0) {
-      get().selectCover()
-      return
-    }
-    get().selectSlide(slides[next - 1].id)
+    if (next < 0 || next >= slides.length) return
+    get().selectSlide(slides[next].id)
   },
 
   selectNode: (selectedNodeId) => set({ selectedNodeId }),
   /*
-   * Zone mode is refused on the cover rather than merely hidden there: the
-   * cover has no layout tree, so every zone action would have nothing to act
+   * Zone mode is refused on a section rather than merely hidden there: a
+   * section has no layout tree, so every zone action would have nothing to act
    * on. Keeping the rule here means the toolbar button and Ctrl+E obey the same
    * one, instead of each remembering it.
    */
@@ -290,7 +280,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   navigate: (direction) => {
     const state = get()
-    const slide = state.currentSlide()
+    const slide = state.currentContentSlide()
     if (!slide || !state.selectedNodeId) return
     const root = slide.root
     let next: NodeId | null = null
@@ -316,10 +306,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!presentation || !currentSlideId) return null
     return findSlide(presentation, currentSlideId)
   },
+
+  currentContentSlide: () => {
+    const slide = get().currentSlide()
+    return slide?.kind === 'content' ? slide : null
+  },
 }))
 
+/** Where a freshly loaded deck opens: the first page with something to build. */
+function openingSlide(presentation: Presentation): Slide {
+  return presentation.slides.find((slide) => slide.kind === 'content') ?? presentation.slides[0]
+}
+
 function modePatch(state: EditorStore, mode: EditorMode): Partial<EditorStore> {
-  if (mode === 'zone' && state.viewingCover) return {}
+  if (mode === 'zone' && state.currentContentSlide() === null) return {}
   return { mode, activeField: mode === 'zone' ? null : state.activeField }
 }
 
@@ -370,17 +370,22 @@ function reconcileSelection(
   const slide =
     (state.currentSlideId ? findSlide(presentation, state.currentSlideId) : null) ??
     presentation.slides[0]
-  if (!slide) return { currentSlideId: null, selectedNodeId: null, activeField: null }
 
   const patch: Partial<EditorStore> = {}
   if (slide.id !== state.currentSlideId) patch.currentSlideId = slide.id
+
+  // A section has no zones, so there is no selection to keep and none to fall
+  // back to — which is exactly what `null` says.
+  if (slide.kind !== 'content') {
+    return { ...patch, selectedNodeId: null, mode: 'content' }
+  }
 
   const selectionValid =
     state.selectedNodeId !== null && findNode(slide.root, state.selectedNodeId) !== null
   if (!selectionValid) patch.selectedNodeId = slide.root.id
 
   /* Only a field that addresses a *layout node* can be invalidated by a command:
-     a slide title and the cover's two lines are text on a page, not nodes, and
+     a slide title and a section's two lines are text on a page, not nodes, and
      clearing them here would drop the toolbar out from under the caret on the
      first keystroke. */
   if (

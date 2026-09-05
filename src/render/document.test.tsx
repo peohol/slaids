@@ -27,8 +27,9 @@ import {
 import { computeSlideGeometry } from '../domain/geometry'
 import { collectLeaves } from '../domain/layout'
 import { geometryForTheme } from '../domain/metrics'
-import { COVER_PAGE_ID, deckPages, type DeckPage } from '../domain/pages'
-import { findSlide } from '../domain/presentation'
+import { deckPages, type DeckPage } from '../domain/pages'
+import { findContentSlide } from '../domain/presentation'
+import { sectionAt } from '../domain/testDecks'
 import { realImageBase64 } from '../domain/testImages'
 import type { AgentContext } from '../agent/types'
 import type { Presentation } from '../domain/types'
@@ -85,14 +86,14 @@ describe('en enkel slide', () => {
     expect(document.html).toContain('class="slide"')
     expect(document.html).toContain(`data-slide-id="${deck.slideId}"`)
     expect(document.html).toContain('width:1600px;height:900px')
-    expect(document.html).toContain(`background:${presentation.theme.backgroundColor}`)
+    expect(document.html).toContain(`background:${presentation.slides[0].backgroundColor}`)
     expect(document.html).toContain('Én enkel slide')
   })
 
   it('plasserer sonen på nøyaktig den rect-en geometrimotoren gir editoren', async () => {
     const context = testAgentContext()
     const { deck, presentation } = await deckWithText(context, 'Sone')
-    const slide = findSlide(presentation, deck.slideId)
+    const slide = findContentSlide(presentation, deck.slideId)
     if (!slide) throw new Error('Fant ikke sliden.')
 
     const geometry = computeSlideGeometry(slide, geometryForTheme(presentation.theme))
@@ -162,7 +163,7 @@ describe('en slide med flere soner og tekst', () => {
     const presentation = await storedPresentation(context, deck.presentationId)
     const document = render(presentation, deck.slideId)
     const geometry = computeSlideGeometry(
-      findSlide(presentation, deck.slideId)!,
+      findContentSlide(presentation, deck.slideId)!,
       geometryForTheme(presentation.theme),
     )
 
@@ -264,7 +265,7 @@ describe('bilder og SVG', () => {
     const { deck, assetId, presentation } = await deckWithAsset(context, 'raster')
 
     expect(pageAssetIds(pageFor(presentation, deck.slideId))).toEqual([assetId])
-    expect(pageAssetIds(pageFor(presentation, COVER_PAGE_ID))).toEqual([])
+    expect(pageAssetIds(pageFor(presentation, presentation.slides[0].id))).toEqual([])
   })
 
   it('sier fra om en fil lageret ikke har, i stedet for å tegne den stille bort', async () => {
@@ -291,21 +292,24 @@ describe('forsiden og de avledede sidene', () => {
   it('rendres av den samme sidemodellen som presentasjonsmodus', async () => {
     const context = testAgentContext()
     const deck = await newAgentDeck(context)
-    await agentOperation(context, 'set_cover', {
+    const stored = await storedPresentation(context, deck.presentationId)
+    await agentOperation(context, 'set_section', {
       presentationId: deck.presentationId,
+      slideId: stored.slides[0].id,
       title: 'Tittelen',
       subtitle: 'Undertittelen',
     })
 
     const presentation = await storedPresentation(context, deck.presentationId)
-    const document = render(presentation, COVER_PAGE_ID)
+    const front = sectionAt(presentation, 0)
+    const document = render(presentation, front.id)
 
-    expect(document.html).toContain('data-page-kind="cover"')
-    expect(document.html).toContain('cover-pill--title')
-    expect(document.html).toContain('cover-pill--subtitle')
+    expect(document.html).toContain('data-page-kind="authored-slide"')
+    expect(document.html).toContain('section-pill--title')
+    expect(document.html).toContain('section-pill--subtitle')
     expect(document.html).toContain('Tittelen')
     expect(document.html).toContain('Undertittelen')
-    expect(document.html).toContain(`background:${presentation.cover.pillColor}`)
+    expect(document.html).toContain(`background:${front.accentColor}`)
   })
 
   it('nummererer citations fra hele dekket, slik publikum ser dem', async () => {

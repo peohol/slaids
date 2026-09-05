@@ -2,13 +2,17 @@
  * Traversal and transformation across every rich-text document in a
  * presentation, including slide titles, card titles, subfields and the sandbox.
  *
- * The cover is deliberately not among them, and it is not an omission: the one
- * caller is `deleteReference`, which strips citations, and the cover's schema
- * has no citation node in it. A cover line has nothing for a transform to find.
+ * Section slides are included, and their two lines go through the transform
+ * like any other document — even though the one caller today,
+ * `deleteReference`, will never find anything there: a section's schema has no
+ * citation node in it. Reaching every document is the contract; which of them
+ * happen to hold what a given transform looks for is not this module's
+ * business.
  */
 
 import { imagePanelOf, withImagePanel } from './content'
 import { walkNodes } from './layout'
+import { mapDeckSlides } from './deckSlides'
 import { emptyDoc } from './richdoc'
 import type {
   CardBody,
@@ -89,12 +93,21 @@ export function mapPresentationDocs(
 ): Presentation {
   let changed = false
 
-  const slides = presentation.slides.map((slide) => {
-    const title = slide.title ? transform(slide.title) : null
-    const root = mapTreeDocs(slide.root, transform)
-    if (title === slide.title && root === slide.root) return slide
-    changed = true
-    return { ...slide, title, root }
+  const slides = mapDeckSlides(presentation.slides, {
+    section: (slide) => {
+      const title = transform(slide.title)
+      const subtitle = transform(slide.subtitle)
+      if (title === slide.title && subtitle === slide.subtitle) return slide
+      changed = true
+      return { ...slide, title, subtitle }
+    },
+    content: (slide) => {
+      const title = slide.title ? transform(slide.title) : null
+      const root = mapTreeDocs(slide.root, transform)
+      if (title === slide.title && root === slide.root) return slide
+      changed = true
+      return { ...slide, title, root }
+    },
   })
 
   const sandbox = presentation.sandbox.map((item) => {
@@ -117,6 +130,8 @@ export function mapPresentationDocs(
 export function slideContent(slides: readonly Slide[]): ZoneContent[] {
   const out: ZoneContent[] = []
   for (const slide of slides) {
+    // A section has no zones, so there is nothing of it to collect.
+    if (slide.kind !== 'content') continue
     walkNodes(slide.root, (node) => {
       if (node.kind === 'leaf' && node.content) out.push(node.content)
     })
@@ -172,10 +187,11 @@ export function remapAssetIds(
   if (map.size === 0) return presentation
   const remapContent = (content: ZoneContent): ZoneContent => remapContentAssetIds(content, map)
 
-  const slides = presentation.slides.map((slide) => ({
-    ...slide,
-    root: mapTreeContent(slide.root, remapContent),
-  }))
+  const slides = mapDeckSlides(presentation.slides, {
+    // Only zones hold files, so only content slides can name one.
+    section: (slide) => slide,
+    content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, remapContent) }),
+  })
   const sandbox = presentation.sandbox.map((item) => ({
     ...item,
     content: remapContent(item.content),
@@ -214,10 +230,10 @@ export function dropAssetIds(
   const drop = (content: ZoneContent): ZoneContent => dropContentAssetIds(content, ids)
   return {
     ...presentation,
-    slides: presentation.slides.map((slide) => ({
-      ...slide,
-      root: mapTreeContent(slide.root, drop),
-    })),
+    slides: mapDeckSlides(presentation.slides, {
+      section: (slide) => slide,
+      content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, drop) }),
+    }),
     sandbox: presentation.sandbox.map((item) => ({ ...item, content: drop(item.content) })),
     assets: presentation.assets.filter((asset) => !ids.has(asset.id)),
   }

@@ -149,14 +149,12 @@ describe('lesing gir det samme over begge transportene', () => {
     // not a difference between the transports.
     const both = await bothWays(harnessed, 'set_theme', {
       presentationId: deck.presentationId,
-      backgroundColor: '#101828',
       headingFont: 'space-grotesk',
       spacing: 2.4,
     })
     const theme = (data: unknown): unknown => (data as { theme: unknown }).theme
     expect(theme(both.restData)).toEqual(theme(both.mcpData))
     expect(theme(both.restData)).toMatchObject({
-      backgroundColor: '#101828',
       headingFont: { fontId: 'space-grotesk' },
       spacing: 2.4,
     })

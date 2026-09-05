@@ -40,6 +40,9 @@ export function referenceOrder(deck: DeckSource): string[] {
   }
 
   for (const slide of deck.slides) {
+    // A section cannot cite — the schema leaves the node out of its two lines —
+    // so first-occurrence order is decided by the content slides alone.
+    if (slide.kind !== 'content') continue
     for (const id of collectCitationIds(slide.title)) push(id)
     for (const content of collectContent(slide.root)) {
       for (const id of contentCitationIds(content)) push(id)

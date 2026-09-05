@@ -13,6 +13,7 @@ import {
 } from './sharing'
 import { docToPlainText, imageNode } from './richdoc'
 import type { AssetRef, Presentation, Reference, RichDoc } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function citing(ids: string[]): RichDoc {
   return {
@@ -87,7 +88,7 @@ function fullPresentation(): Presentation {
     ...base,
     folderId: 'fl_hemmelig',
     references: [cited, uncited],
-    slides: [{ ...base.slides[0], root: createLeaf(cardWith(slideDoc)) }],
+    slides: [sectionAt(base, 0),{ ...contentAt(base, 1), root: createLeaf(cardWith(slideDoc)) }],
     sandbox: [
       {
         id: newSandboxId(),
@@ -111,8 +112,9 @@ describe('buildSharedSnapshot', () => {
     expect(snapshot.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(snapshot.title).toBe('Arbeidskopi')
     expect(snapshot.theme).toEqual(presentation.theme)
-    expect(snapshot.cover).toEqual(presentation.cover)
+    // The front page is the first slide now, so it travels with the rest.
     expect(snapshot.slides).toEqual(presentation.slides)
+    expect(snapshot.slides[0].kind).toBe('section')
     expect(snapshot.publishedAt).toBe('2026-09-02T08:00:00.000Z')
   })
 
@@ -125,7 +127,6 @@ describe('buildSharedSnapshot', () => {
     expect(fields.sort()).toEqual(
       [
         'assets',
-        'cover',
         'format',
         'publishedAt',
         'references',
@@ -161,7 +162,7 @@ describe('buildSharedSnapshot', () => {
     const presentation = fullPresentation()
     const snapshot = buildSharedSnapshot(presentation)
     expect(snapshot.slides).not.toBe(presentation.slides)
-    expect(snapshot.slides[0]).not.toBe(presentation.slides[0])
+    expect(snapshot.slides[1]).not.toBe(presentation.slides[1])
   })
 })
 
@@ -172,7 +173,7 @@ describe('parseSharedSnapshot', () => {
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
     expect(parsed.value.title).toBe('Arbeidskopi')
-    expect(parsed.value.slides).toHaveLength(1)
+    expect(parsed.value.slides).toHaveLength(2)
     expect(parsed.value.assets.map((entry) => entry.id)).toEqual([SHOWN_ASSET])
   })
 
@@ -188,24 +189,32 @@ describe('parseSharedSnapshot', () => {
     // slippe det gjennom til migreringene, ellers slutter hver eneste lenke som
     // allerede er delt ut å virke — og den som fikk den har ingen ny å be om.
     const snapshot = buildSharedSnapshot(fullPresentation())
+    // A link shared before sections existed: no `cover`, and slides without a
+    // `kind`. The migration chain builds the front page from the deck's title,
+    // exactly as it does for a stored presentation.
     const legacy = { ...snapshot, schemaVersion: 7 } as Record<string, unknown>
     delete legacy.cover
+    legacy.slides = (legacy.slides as Array<Record<string, unknown>>).slice(1)
 
     const parsed = parseSharedSnapshot(legacy)
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
-    expect(docToPlainText(parsed.value.cover.title).trim()).toBe('Arbeidskopi')
-    expect(parsed.value.slides).toHaveLength(1)
+    expect(docToPlainText(parsed.value.slides[0].title).trim()).toBe('Arbeidskopi')
+    expect(parsed.value.slides).toHaveLength(2)
   })
 
   it('kjører et eldre snapshot gjennom migreringene', () => {
     const snapshot = buildSharedSnapshot(fullPresentation())
-    // v4 kjente ikke temaskalaene; migreringen fyller dem inn med 1.
+    // v4 kjente verken temaskalaene eller seksjoner: skalaene fylles inn av
+    // migreringen, og forsiden bygges av dekkets eget navn.
     const older = {
       ...snapshot,
       schemaVersion: 4,
+      slides: (JSON.parse(JSON.stringify(snapshot.slides)) as Record<string, unknown>[])
+        .slice(1)
+        .map(({ kind: _kind, ...rest }) => rest),
       theme: {
-        backgroundColor: snapshot.theme.backgroundColor,
+        backgroundColor: '#ffffff',
         headingFontFamily: snapshot.theme.headingFontFamily,
         bodyFontFamily: snapshot.theme.bodyFontFamily,
       },

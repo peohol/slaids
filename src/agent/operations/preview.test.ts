@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { COVER_PAGE_ID, deckPages } from '../../domain/pages'
+import { deckPages } from '../../domain/pages'
 import { presentationRevision } from '../../domain/revision'
 import { agentImage } from '../image'
 import type { SlidePreviewRequest } from '../preview'
@@ -107,21 +107,24 @@ describe('adressering', () => {
     expect(calls[0].assets).toBe(context.repository)
   })
 
-  it('rendrer forsiden, som ikke er en slide', async () => {
+  it('rendrer forsiden, som er dekkets første seksjonsslide', async () => {
     const { context, calls } = withRecordingRenderer()
     const deck = await newAgentDeck(context)
-    await agentOperation(context, 'set_cover', {
+    const stored = await context.repository.loadPresentation(deck.presentationId)
+    const frontId = stored.slides[0].id
+    await agentOperation(context, 'set_section', {
       presentationId: deck.presentationId,
+      slideId: frontId,
       title: 'Forsiden',
     })
 
     const view = await agentOperation<SlidePreviewView>(context, 'render_slide_preview', {
       presentationId: deck.presentationId,
-      slideId: COVER_PAGE_ID,
+      slideId: frontId,
     })
 
-    expect(view.pageKind).toBe('cover')
-    expect(calls[0].page.kind).toBe('cover')
+    expect(view.pageKind).toBe('authored-slide')
+    expect(calls[0].page.kind).toBe('authored-slide')
   })
 
   it('rendrer en avledet referanseside', async () => {
@@ -177,7 +180,8 @@ describe('feil en agent kan handle på', () => {
     expect(error.code).toBe('SLIDE_NOT_FOUND')
     const available = error.details?.available as { slideId: string; pageKind: string }[]
     // Actionable: the ids to try next, not just "no".
-    expect(available.map((page) => page.slideId)).toEqual([COVER_PAGE_ID, deck.slideId])
+    const stored = await context.repository.loadPresentation(deck.presentationId)
+    expect(available.map((page) => page.slideId)).toEqual([stored.slides[0].id, deck.slideId])
     expect(calls).toHaveLength(0)
   })
 

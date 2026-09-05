@@ -108,10 +108,10 @@ export type CaptionPosition = 'top' | 'middle' | 'bottom'
  * `color` is `null` by default and means "whatever this picture's own title
  * panel is painted with" for a `titled-image-card` — so recolouring that
  * panel's header repaints its caption too, the same inheritance a title
- * panel's header takes from the cover — and the deck's heading pill colour
- * directly for a plain `image`, which has no header to read. Either way, a
- * caption that was given a colour of its own keeps it regardless of what the
- * header or the cover does later.
+ * panel's header takes from its section — and the governing section's accent
+ * colour directly for a plain `image`, which has no header to read. Either
+ * way, a caption that was given a colour of its own keeps it regardless of
+ * what the header or the section does later.
  */
 export interface ImageCaption {
   doc: TitleDoc
@@ -148,10 +148,10 @@ export interface TitledCardContent {
   id: string
   kind: 'titled-card'
   /**
-   * `null` means the panel carries no colour of its own and takes the deck's
-   * heading pill colour instead, the same way a heading with no stored colour
-   * does. A card that *was* given a colour keeps it regardless of what the
-   * cover does later.
+   * `null` means the panel carries no colour of its own and takes the governing
+   * section's accent colour instead, the same way a heading with no stored
+   * colour does. A card that *was* given a colour keeps it regardless of what
+   * the section does later.
    */
   headerColor: string | null
   title: TitleDoc
@@ -218,35 +218,77 @@ export type LayoutNode = SplitNode | LeafNode
  * Slides and presentations
  * ------------------------------------------------------------------ */
 
-export interface Slide {
+/**
+ * An ordinary slide: a title zone that may be absent, and a tree of zones.
+ *
+ * `kind` is stored rather than inferred from which fields are present, so the
+ * two slide kinds are told apart the same way everywhere — the schema, the
+ * renderer, the commands — instead of each one guessing from a field.
+ */
+export interface ContentSlide {
   id: string
+  kind: 'content'
   /** `null` means the slide has no title zone. */
   title: TitleDoc | null
   root: LayoutNode
 }
 
 /**
- * The cover of a deck: the page an audience meets first.
+ * A section: the page that opens a part of the deck, and the page every deck
+ * opens with.
  *
- * Every presentation has exactly one and it is stored, but it is deliberately
- * not a `Slide`: there is no zone tree behind it, no layout to split and no
- * command that can delete, move or duplicate it. Both lines are centred by
- * construction, which is why neither carries an alignment of its own — and
- * neither may cite, because a citation gets its number from the slides.
+ * It is a slide, but not one with zones. Two lines of heading type in pills,
+ * centred as one block — the heading is what a section is *for*, and the
+ * subheading is optional, so a section with only a heading centres that one
+ * line and a section with both centres the pair. Both lines are centred by
+ * construction, which is why neither carries an alignment, and neither may
+ * cite: a citation gets its number from first occurrence among the slides, and
+ * a section is where the reader has not met the content yet.
  *
- * `pillColor` is the colour of the two pills, and it is at the same time the
- * deck's default heading colour: a heading pill that never had a colour picked
- * for it stores none and reads this one, so changing it here repaints every
- * such heading in the deck without touching a single stored document.
+ * The two colours are the reason a section is more than a divider. They are
+ * the deck's defaults *from here on*: every page from this section up to the
+ * next one is drawn on `backgroundColor`, and every heading pill, card header
+ * and caption that never had a colour picked for it is painted
+ * `accentColor`. So an author restyles a whole part of a deck by recolouring
+ * its section, without a single stored document changing.
  */
-export interface DeckCover {
+export interface SectionSlide {
+  id: string
+  kind: 'section'
   title: TitleDoc
   subtitle: TitleDoc
-  pillColor: string
+  /** Pills, card headers and headings that carry no colour of their own. */
+  accentColor: string
+  /** The page colour for this section and every slide that follows it. */
+  backgroundColor: string
 }
 
+export type Slide = ContentSlide | SectionSlide
+
+export type SlideKind = Slide['kind']
+
+/**
+ * The slides of a deck: at least one, and the first is always a section.
+ *
+ * "Every presentation opens with a front page" is a property of this type
+ * rather than a rule each command has to remember, exactly as it was when the
+ * cover was a field of its own: nothing can construct a deck whose first page
+ * is not a section, because there is no value of this type that is not one.
+ * What changed is that the front page is now an ordinary section slide — the
+ * first of however many the deck has — so it is addressed, coloured and
+ * measured by the same code as the rest.
+ */
+export type DeckSlides = readonly [SectionSlide, ...Slide[]]
+
+/**
+ * What is set once for the whole deck.
+ *
+ * The page colour is deliberately not here: it is a section's, so a deck can
+ * change ground colour partway through. What is left is genuinely global —
+ * two typefaces and the two scales that move every distance and every type
+ * size together.
+ */
 export interface PresentationTheme {
-  backgroundColor: string
   headingFontFamily: string
   bodyFontFamily: string
   /** Luft: one multiplier on every distance. See `domain/metrics.ts`. */
@@ -289,8 +331,9 @@ export interface AssetRef {
 }
 
 /**
- * Everything it takes to draw a deck: the cover, the authored slides, the theme
- * they are drawn in, and the references their citations point at.
+ * Everything it takes to draw a deck: the authored slides — sections and
+ * content alike, the first of them always a section — the theme they are drawn
+ * in, and the references their citations point at.
  *
  * Reference numbering and the derived reference slides are computed from
  * exactly these, and nothing else — which is what lets the private
@@ -299,8 +342,7 @@ export interface AssetRef {
  */
 export interface DeckSource {
   theme: PresentationTheme
-  cover: DeckCover
-  slides: Slide[]
+  slides: DeckSlides
   references: Reference[]
 }
 

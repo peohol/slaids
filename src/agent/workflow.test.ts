@@ -22,8 +22,8 @@ import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation, Rect, ZoneContent } from '../domain/types'
 import type { ZoneChange, ZoneContentCopy, ZoneContentMove } from './operations/layout'
-import type { CoverView } from './operations/cover'
-import type { PresentationView, SlideInspection, ZoneInspection } from './operations/deck'
+import type { SectionView } from './operations/sections'
+import type { ContentSlideInspection, PresentationView, ZoneInspection } from './operations/deck'
 import type { Mutated } from './presentation'
 import type { SubfieldLayout } from './operations/content'
 import type { PrunedReferences } from './operations/references'
@@ -35,6 +35,7 @@ import type { ValidationReport } from './operations/validation'
 import { describeOperations, runOperation } from './registry'
 import type { TextBlock } from './text'
 import type { AgentContext, AgentError, AgentResult } from './types'
+import { contentAt, sectionAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -171,13 +172,13 @@ function citationNumber(presentation: Presentation, referenceId: string): number
   return computeReferenceNumbering(presentation).get(referenceId)
 }
 
-function firstZone(inspection: SlideInspection): string {
+function firstZone(inspection: ContentSlideInspection): string {
   const leaf = inspection.zones.find((zone) => zone.kind === 'leaf')
   if (!leaf) throw new Error('Sliden har ingen bladsone.')
   return leaf.nodeId
 }
 
-function zoneOf(inspection: SlideInspection, nodeId: string): ZoneInspection {
+function zoneOf(inspection: ContentSlideInspection, nodeId: string): ZoneInspection {
   const zone = inspection.zones.find((entry) => entry.nodeId === nodeId)
   if (!zone) throw new Error(`Sonen ${nodeId} finnes ikke på sliden.`)
   return zone
@@ -190,7 +191,7 @@ async function twoZones(
   slideId: string,
 ): Promise<[string, string]> {
   const root = firstZone(
-    await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+    await ok<ContentSlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
   )
   const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
     presentationId,
@@ -209,7 +210,7 @@ function storedContent(
   nodeId: string,
 ): ZoneContent | null {
   const slide = presentation.slides.find((entry) => entry.id === slideId)
-  const leaf = slide ? findLeaf(slide.root, nodeId) : null
+  const leaf = slide?.kind === 'content' ? findLeaf(slide.root, nodeId) : null
   return leaf?.content ?? null
 }
 
@@ -222,7 +223,7 @@ async function emptySlide(
     await ok<SlidePlacement>(context, 'add_slide', { presentationId, hasTitle: false })
   ).slideId
   const nodeId = firstZone(
-    await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+    await ok<ContentSlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
   )
   return { slideId, nodeId }
 }
@@ -237,8 +238,9 @@ describe('å bygge en presentasjon uten React', () => {
     const created = await newDeck(context, { title: 'Farmakologi' })
 
     expect(created.title).toBe('Farmakologi')
-    expect(created.slideCount).toBe(1)
-    expect(created.slides[0].hasTitle).toBe(true)
+    // The front section and the one empty slide it opens onto.
+    expect(created.slideCount).toBe(2)
+    expect(created.slides[1]).toMatchObject({ kind: 'content', hasTitle: true })
 
     const listed = await ok<{ presentations: { id: string }[] }>(context, 'list_presentations')
     expect(listed.presentations.map((entry) => entry.id)).toEqual([created.presentationId])
@@ -257,8 +259,9 @@ describe('å bygge en presentasjon uten React', () => {
     const added = await ok<SlidePlacement>(context, 'add_slide', {
       presentationId: deck.presentationId,
     })
-    expect(added.index).toBe(1)
-    expect(added.slideCount).toBe(2)
+    // The front section, the slide a new deck opens onto, and this one.
+    expect(added.index).toBe(2)
+    expect(added.slideCount).toBe(3)
 
     await ok(context, 'set_slide_title', {
       presentationId: deck.presentationId,
@@ -266,7 +269,7 @@ describe('å bygge en presentasjon uten React', () => {
       spans: [{ text: 'Virkningsmekanisme' }],
     })
 
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: added.slideId,
     })
@@ -280,7 +283,7 @@ describe('å bygge en presentasjon uten React', () => {
       ],
     })
 
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: added.slideId,
     })
@@ -364,24 +367,37 @@ describe('å bygge en presentasjon uten React', () => {
   it('lar en agent duplisere, flytte og slette slides', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const first = deck.slides[0].slideId
+    const first = deck.slides[1].slideId
 
+    const front = deck.slides[0].slideId
     const copy = await ok<SlidePlacement>(context, 'duplicate_slide', {
       presentationId: deck.presentationId,
       slideId: first,
     })
-    expect(copy.index).toBe(1)
+    // A copy lands right after its original, which is index 1.
+    expect(copy.index).toBe(2)
     expect(copy.slideId).not.toBe(first)
 
     await ok(context, 'move_slide', {
       presentationId: deck.presentationId,
       slideId: copy.slideId,
-      toIndex: 0,
+      toIndex: 1,
     })
     const moved = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(moved.slides.map((slide) => slide.slideId)).toEqual([copy.slideId, first])
+    expect(moved.slides.map((slide) => slide.slideId)).toEqual([front, copy.slideId, first])
+
+    // A deck opens with a section, so index 0 is not somewhere a slide can go.
+    expect(
+      (
+        await fails(context, 'move_slide', {
+          presentationId: deck.presentationId,
+          slideId: copy.slideId,
+          toIndex: 0,
+        })
+      ).code,
+    ).toBe('FIRST_SLIDE_MUST_BE_SECTION')
 
     await ok(context, 'delete_slide', {
       presentationId: deck.presentationId,
@@ -390,14 +406,15 @@ describe('å bygge en presentasjon uten React', () => {
     const left = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(left.slides.map((slide) => slide.slideId)).toEqual([first])
+    expect(left.slides.map((slide) => slide.slideId)).toEqual([front, first])
 
     // The last slide is the domain's floor, and an agent meets it too.
+    await ok(context, 'delete_slide', { presentationId: deck.presentationId, slideId: first })
     expect(
       (
         await fails(context, 'delete_slide', {
           presentationId: deck.presentationId,
-          slideId: first,
+          slideId: front,
         })
       ).code,
     ).toBe('CANNOT_DELETE_LAST_SLIDE')
@@ -421,9 +438,9 @@ describe('layout', () => {
   it('deler en sone, og deler en av delene igjen', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -450,7 +467,7 @@ describe('layout', () => {
     // The ids from one call address the zones in the next, and the geometry
     // that comes back is the geometry engine's own — children inside parents,
     // in the 1600 × 900 design space.
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -474,9 +491,9 @@ describe('layout', () => {
   it('lar ingen omgå minstemålene for en sone', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -501,7 +518,7 @@ describe('layout', () => {
     expect(refused.details).toMatchObject({ slideId, nodeId: split.childNodeIds[0] })
 
     // Refused means refused: the tree is exactly what it was.
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -511,9 +528,9 @@ describe('layout', () => {
   it('endrer forholdstall og antall subsoner, og tar vare på innhold som fortrenges', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -548,16 +565,16 @@ describe('layout', () => {
   it('lagrer forholdstall som heltall, uansett hvilke tall agenten sender', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
     ).rootNodeId
 
     const ratiosOfRoot = async (): Promise<number[] | undefined> => {
-      const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+      const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -585,7 +602,7 @@ describe('layout', () => {
 
     // Og dokumentet som ligger lagret sier det samme som lesingen.
     const document = await stored(context, deck.presentationId)
-    const stored_root = document.slides[0].root
+    const stored_root = contentAt(document, 1).root
     expect(stored_root.kind).toBe('split')
     if (stored_root.kind === 'split') expect(stored_root.weights).toEqual([3, 2])
   })
@@ -593,9 +610,9 @@ describe('layout', () => {
   it('tømmer en sone og fjerner en subsone', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -628,7 +645,7 @@ describe('layout', () => {
       slideId,
       nodeId: split.childNodeIds[1],
     })
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -657,8 +674,8 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('godtar tekst som får plass', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const slideId = deck.slides[1].slideId
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -669,7 +686,7 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
       nodeId: firstZone(inspection),
       blocks: paragraph('En setning som helt sikkert får plass.'),
     })
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -680,9 +697,9 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('avviser tekst som ikke får plass, uten å endre noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -716,9 +733,9 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('lar agenten forkorte teksten og lykkes på neste forsøk', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -747,8 +764,8 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('sier hvor stor subsonen er når innhold ikke får plass i den ved splitting', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const slideId = deck.slides[1].slideId
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -775,7 +792,7 @@ describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('avviser en overskrift som ikke får plass på én linje', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const before = await stored(context, deck.presentationId)
 
     const failure = await fails(context, 'set_slide_title', {
@@ -799,9 +816,9 @@ describe('citations kan ikke omgå fit-guarden', () => {
   it('måler citation-pillen som en del av innholdet', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -833,7 +850,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
   it('avviser en omrokering som gjør en citation bredere på en helt annen slide', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const cited = deck.slides[0].slideId
+    const cited = deck.slides[1].slideId
 
     const references: string[] = []
     for (let i = 0; i < 10; i += 1) {
@@ -851,7 +868,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
       hasTitle: false,
     })
     const otherNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: other.slideId,
       }),
@@ -866,7 +883,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     })
 
     const citedNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: cited,
       }),
@@ -884,7 +901,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     const failure = await fails(context, 'move_slide', {
       presentationId: deck.presentationId,
       slideId: cited,
-      toIndex: 1,
+      toIndex: 2,
     })
     expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
     expect(failure.details).toMatchObject({ slideId: cited, nodeId: citedNode })
@@ -901,7 +918,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     // rather than waved through as a removal. See `commands/fitGuard.ts`.
     const context = freshContext()
     const deck = await newDeck(context)
-    const titled = deck.slides[0].slideId
+    const titled = deck.slides[1].slideId
 
     const references: string[] = []
     for (let i = 0; i < 10; i += 1) {
@@ -925,7 +942,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
       hasTitle: false,
     })
     const middleNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: middle.slideId,
       }),
@@ -946,7 +963,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
       hasTitle: false,
     })
     const lastNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: last.slideId,
       }),
@@ -967,7 +984,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
     // The slide that suffers is not the slide that changed.
     expect(failure.details).toMatchObject({ slideId: last.slideId, nodeId: lastNode })
-    expect((await stored(context, deck.presentationId)).slides[0].title).not.toBeNull()
+    expect((await stored(context, deck.presentationId)).slides[1].title).not.toBeNull()
 
     // And the repair is the ordinary one: shorten the slide that no longer has
     // room, then the title can go. The numbering really does move — which is
@@ -986,7 +1003,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     })
 
     const after = await stored(context, deck.presentationId)
-    expect(after.slides[0].title).toBeNull()
+    expect(after.slides[1].title).toBeNull()
     expect(citationNumber(before, references[0])).toBe(1)
     expect(citationNumber(after, references[0])).toBe(10)
   })
@@ -994,9 +1011,9 @@ describe('citations kan ikke omgå fit-guarden', () => {
   it('avviser en citation som peker på en referanse som ikke finnes', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1015,9 +1032,9 @@ describe('citations kan ikke omgå fit-guarden', () => {
   it('fjerner citationene sammen med referansen, og sier hvor mange', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1051,7 +1068,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     })
     expect(removal.removedCitations).toBe(2)
 
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -1086,9 +1103,9 @@ describe('bilder inne i teksten', () => {
     assetId: string
   }> {
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1117,7 +1134,7 @@ describe('bilder inne i teksten', () => {
       blocks,
     })
 
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: target.presentationId,
       slideId: target.slideId,
     })
@@ -1153,7 +1170,7 @@ describe('bilder inne i teksten', () => {
     })
 
     const zone = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: target.presentationId,
         slideId: target.slideId,
       }),
@@ -1228,7 +1245,7 @@ describe('bilder inne i teksten', () => {
     })
 
     const filled = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: target.presentationId,
         slideId: target.slideId,
       }),
@@ -1279,7 +1296,7 @@ describe('bilder inne i teksten', () => {
     const after = await stored(context, target.presentationId)
     expect(presentationRevision(after)).toBe(presentationRevision(before))
     const zone = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: target.presentationId,
         slideId: target.slideId,
       }),
@@ -1368,9 +1385,9 @@ describe('bilder inne i teksten', () => {
 
     // Every id inside the copy is new, the zone's included, so the picture is
     // looked up by position rather than by the original's node id.
-    const copiedSlide = await ok<SlideInspection>(context, 'inspect_slide', {
+    const copiedSlide = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: copy.presentationId,
-      slideId: copy.slides[0].slideId,
+      slideId: copy.slides[1].slideId,
     })
     const copiedZone = zoneOf(copiedSlide, firstZone(copiedSlide))
     // The picture is still there, and it points at the copy's own file rather
@@ -1382,9 +1399,9 @@ describe('bilder inne i teksten', () => {
     await ok(context, 'delete_presentation', { presentationId: target.presentationId })
     expect(
       (
-        await ok<SlideInspection>(context, 'inspect_slide', {
+        await ok<ContentSlideInspection>(context, 'inspect_slide', {
           presentationId: copy.presentationId,
-          slideId: copy.slides[0].slideId,
+          slideId: copy.slides[1].slideId,
         })
       ).zones.flatMap((zone) => zone.assetIds ?? []),
     ).toEqual([copiedAsset.id])
@@ -1429,20 +1446,20 @@ describe('ugyldige og utdaterte id-er', () => {
 
     const failure = await fails(context, 'set_zone_text', {
       presentationId: deck.presentationId,
-      slideId: deck.slides[0].slideId,
+      slideId: deck.slides[1].slideId,
       nodeId: 'n_nope',
       blocks: paragraph('Hei'),
     })
     expect(failure.code).toBe('NODE_NOT_FOUND')
-    expect(failure.details).toMatchObject({ slideId: deck.slides[0].slideId, nodeId: 'n_nope' })
+    expect(failure.details).toMatchObject({ slideId: deck.slides[1].slideId, nodeId: 'n_nope' })
   })
 
   it('sier fra når en sone-id fortsatt finnes, men ikke lenger er en bladsone', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const root = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -1490,9 +1507,9 @@ describe('samtidighet', () => {
   it('gir samme revisjon fra get_presentation og inspect_slide', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
-      slideId: deck.slides[0].slideId,
+      slideId: deck.slides[1].slideId,
     })
     const view = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
@@ -1527,7 +1544,7 @@ describe('samtidighet', () => {
   it('lar en stale write aldri overskrive en nyere versjon', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     // Somebody else writes after this agent read.
     await ok(context, 'set_slide_title', {
@@ -1565,7 +1582,7 @@ describe('samtidighet', () => {
   it('lar to samtidige mutasjoner ikke overskrive hverandre', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     // Both start from the same reading and neither is awaited before the other
     // begins, so both pass their own precondition. The write itself is what has
@@ -1593,7 +1610,7 @@ describe('samtidighet', () => {
     const view = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(['Første', 'Andre']).toContain(view.slides[0].title)
+    expect(['Første', 'Andre']).toContain(view.slides[1].title)
   })
 
   it('avviser en stale asset-registrering før noe er lagret', async () => {
@@ -1620,9 +1637,9 @@ describe('atomisitet', () => {
   it('lagrer ingenting når et senere steg i en sammensatt operasjon feiler', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1648,16 +1665,16 @@ describe('atomisitet', () => {
 
     const after = await stored(context, deck.presentationId)
     expect(presentationRevision(after)).toBe(presentationRevision(before))
-    const root = after.slides[0].root
+    const root = contentAt(after, 1).root
     expect(root.kind === 'leaf' && root.content?.kind).toBe('container')
   })
 
   it('gjør hele konverteringen når alle stegene går igjennom', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1680,7 +1697,7 @@ describe('atomisitet', () => {
     })
     expect(card.subfieldIds).toHaveLength(2)
 
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -1697,7 +1714,7 @@ describe('atomisitet', () => {
       subfieldId: card.subfieldIds[1],
       align: 'bottom',
     })
-    const aligned = await ok<SlideInspection>(context, 'inspect_slide', {
+    const aligned = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -1713,7 +1730,7 @@ describe('justering av overskrifter', () => {
   it('beholder justeringen når bare teksten endres', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     await ok(context, 'set_slide_title', {
       presentationId: deck.presentationId,
@@ -1723,7 +1740,7 @@ describe('justering av overskrifter', () => {
     })
     expect(
       (
-        await ok<SlideInspection>(context, 'inspect_slide', {
+        await ok<ContentSlideInspection>(context, 'inspect_slide', {
           presentationId: deck.presentationId,
           slideId,
         })
@@ -1736,7 +1753,7 @@ describe('justering av overskrifter', () => {
       slideId,
       spans: [{ text: 'Fortsatt midtstilt' }],
     })
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -1752,7 +1769,7 @@ describe('justering av overskrifter', () => {
     })
     expect(
       (
-        await ok<SlideInspection>(context, 'inspect_slide', {
+        await ok<ContentSlideInspection>(context, 'inspect_slide', {
           presentationId: deck.presentationId,
           slideId,
         })
@@ -1763,9 +1780,9 @@ describe('justering av overskrifter', () => {
   it('gjør det samme for korttittelen', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1787,7 +1804,7 @@ describe('justering av overskrifter', () => {
       title: [{ text: 'Ny tekst' }],
     })
 
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -1800,9 +1817,9 @@ describe('validering', () => {
   it('sier at en presentasjon bygget gjennom Agent Core er gyldig', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -1829,13 +1846,13 @@ describe('validering', () => {
   it('rapporterer manglende fil og ugyldig referanse, og reparerer ingenting', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     // Written past the commands on purpose: this is the state validation exists
     // to find — a document that got into a shape no command would have allowed.
     const broken = await stored(context, deck.presentationId)
-    broken.slides[0].root = {
-      id: broken.slides[0].root.id,
+    contentAt(broken, 1).root = {
+      id: contentAt(broken, 1).root.id,
       kind: 'leaf',
       content: {
         id: 'c_broken',
@@ -1843,7 +1860,7 @@ describe('validering', () => {
         image: { assetId: 'a_finnes_ikke', focus: { x: 0.5, y: 0.5 }, caption: null },
       },
     }
-    broken.slides[0].title = {
+    broken.slides[1].title = {
       type: 'doc',
       content: [
         { type: 'paragraph', content: [{ type: 'citation', attrs: { referenceIds: ['r_borte'] } }] },
@@ -1872,13 +1889,13 @@ describe('validering', () => {
   it('rapporterer innhold som ikke får plass, uten å skrive noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     const overfull = await stored(context, deck.presentationId)
     const created = createPresentation({ title: 'kilde' })
-    expect(created.slides).toHaveLength(1)
-    overfull.slides[0].root = {
-      id: overfull.slides[0].root.id,
+    expect(created.slides).toHaveLength(2)
+    contentAt(overfull, 1).root = {
+      id: contentAt(overfull, 1).root.id,
       kind: 'leaf',
       content: {
         id: 'c_overfull',
@@ -1912,14 +1929,18 @@ describe('validering', () => {
   })
 })
 
-describe('forsiden', () => {
-  it('finnes fra første øyeblikk, med dekkets eget navn', async () => {
+describe('seksjoner', () => {
+  it('finnes fra første øyeblikk: forsiden er dekkets første slide', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    // Ikke en slide, og telles ikke som en: `slideCount` er fortsatt den ene
-    // tomme sliden `create_presentation` lager.
-    expect(deck.cover).toMatchObject({ title: 'Agentdekk', subtitle: '' })
-    expect(deck.slideCount).toBe(1)
+    expect(deck.slides[0]).toMatchObject({
+      kind: 'section',
+      index: 0,
+      title: 'Agentdekk',
+      subtitle: '',
+    })
+    // Forsiden *er* en slide nå, så den telles med.
+    expect(deck.slideCount).toBe(2)
   })
 
   it('avviser et navn som er for langt for forsiden, og lagrer ingenting', async () => {
@@ -1934,56 +1955,94 @@ describe('forsiden', () => {
     expect(await context.repository.listPresentations()).toHaveLength(before.length)
   })
 
-  it('setter tittel og undertittel i ett steg', async () => {
+  it('setter overskrift og underoverskrift i ett steg', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const cover = await ok<CoverView>(context, 'set_cover', {
+    const section = await ok<SectionView>(context, 'set_section', {
       presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
       title: 'Andre kvartal',
       subtitle: 'Tall og tiltak',
     })
-    expect(cover).toMatchObject({ title: 'Andre kvartal', subtitle: 'Tall og tiltak' })
+    expect(section).toMatchObject({ title: 'Andre kvartal', subtitle: 'Tall og tiltak' })
 
     const reread = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(reread.cover.title).toBe('Andre kvartal')
+    expect(reread.slides[0].title).toBe('Andre kvartal')
   })
 
   it('lagrer ingen av linjene når den andre ikke får plass', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const error = await fails(context, 'set_cover', {
+    const error = await fails(context, 'set_section', {
       presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
       title: 'Kort nok',
       subtitle: 'Undertittel som er altfor lang '.repeat(6),
     })
     expect(error.code).toBe('CONTENT_DOES_NOT_FIT')
 
-    // Atomisk: tittelen som *ville* fått plass ble aldri skrevet.
+    // Atomisk: overskriften som *ville* fått plass ble aldri skrevet.
     const after = await stored(context, deck.presentationId)
-    expect(docToPlainText(after.cover.title).trim()).toBe('Agentdekk')
+    expect(docToPlainText(sectionAt(after, 0).title).trim()).toBe('Agentdekk')
   })
 
-  it('gir overskrifter uten egen farge forsidens farge, og lar de valgte være', async () => {
+  it('gir overskrifter uten egen farge seksjonens farge, og lar de valgte være', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const cover = await ok<CoverView>(context, 'set_cover_color', {
+    const section = await ok<SectionView>(context, 'set_section_colors', {
       presentationId: deck.presentationId,
-      color: '#A64D79',
+      slideId: deck.slides[0].slideId,
+      accentColor: '#A64D79',
+      backgroundColor: '#101828',
     })
-    expect(cover.pillColor).toBe('#a64d79')
+    expect(section).toMatchObject({ accentColor: '#a64d79', backgroundColor: '#101828' })
 
-    // Fargen bor ett sted. Ingenting er skrevet inn i noen slide, og det er
-    // nettopp dét som gjør at en senere endring når fram til dem alle.
+    // Fargen bor ett sted. Ingenting er skrevet inn i noen annen slide, og det
+    // er nettopp dét som gjør at en senere endring når fram til dem alle.
     const after = await stored(context, deck.presentationId)
-    expect(after.cover.pillColor).toBe('#a64d79')
-    expect(JSON.stringify(after.slides)).not.toContain('a64d79')
+    expect(sectionAt(after, 0).accentColor).toBe('#a64d79')
+    expect(JSON.stringify(after.slides.slice(1))).not.toContain('a64d79')
 
-    expect((await fails(context, 'set_cover_color', {
+    expect((await fails(context, 'set_section_colors', {
       presentationId: deck.presentationId,
-      color: 'blå',
+      slideId: deck.slides[0].slideId,
+      accentColor: 'blå',
     })).code).toBe('INVALID_ARGUMENT')
+  })
+
+  it('arver fargene fra forrige seksjon når en ny legges til', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    await ok<SectionView>(context, 'set_section_colors', {
+      presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
+      accentColor: '#a64d79',
+      backgroundColor: '#101828',
+    })
+    const added = await ok<SectionView>(context, 'add_section', {
+      presentationId: deck.presentationId,
+      title: 'Del to',
+    })
+    expect(added).toMatchObject({
+      title: 'Del to',
+      accentColor: '#a64d79',
+      backgroundColor: '#101828',
+      index: 2,
+    })
+  })
+
+  it('lar seg ikke redigere som en vanlig slide', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const refused = await fails(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slides[0].slideId,
+      nodeId: 'whatever',
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Hei' }] }],
+    })
+    expect(refused.code).toBe('NOT_A_CONTENT_SLIDE')
   })
 })
 
@@ -1996,7 +2055,7 @@ describe('tittelsonen på en slide', () => {
   it('kan slås av og på etter at sliden er laget', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     const removed = await ok<{ hasTitle: boolean }>(context, 'set_slide_has_title', {
       presentationId: deck.presentationId,
@@ -2004,7 +2063,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
     })
     expect(removed.hasTitle).toBe(false)
-    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+    expect((await stored(context, deck.presentationId)).slides[1].title).toBeNull()
 
     // And back: the zone returns empty, which is what `set_slide_title` writes into.
     await ok(context, 'set_slide_has_title', {
@@ -2012,7 +2071,7 @@ describe('tittelsonen på en slide', () => {
       slideId,
       hasTitle: true,
     })
-    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -2022,8 +2081,8 @@ describe('tittelsonen på en slide', () => {
   it('gir sonen dens høyde tilbake til innholdet', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
-    const withTitle = await ok<SlideInspection>(context, 'inspect_slide', {
+    const slideId = deck.slides[1].slideId
+    const withTitle = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -2033,7 +2092,7 @@ describe('tittelsonen på en slide', () => {
       slideId,
       hasTitle: false,
     })
-    const without = await ok<SlideInspection>(context, 'inspect_slide', {
+    const without = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -2045,7 +2104,7 @@ describe('tittelsonen på en slide', () => {
   it('kaster ikke en overskrift med tekst uten at det er bedt om', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     await ok(context, 'set_slide_title', {
       presentationId: deck.presentationId,
       slideId,
@@ -2058,7 +2117,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
     })
     expect(refused.code).toBe('INVALID_ARGUMENT')
-    expect((await stored(context, deck.presentationId)).slides[0].title).not.toBeNull()
+    expect((await stored(context, deck.presentationId)).slides[1].title).not.toBeNull()
 
     // `force` is the confirmation the editor asks a person for.
     await ok(context, 'set_slide_has_title', {
@@ -2067,7 +2126,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
       force: true,
     })
-    expect((await stored(context, deck.presentationId)).slides[0].title).toBeNull()
+    expect((await stored(context, deck.presentationId)).slides[1].title).toBeNull()
   })
 
   it('sier fra når sonen allerede er slik den bes om å bli', async () => {
@@ -2075,7 +2134,7 @@ describe('tittelsonen på en slide', () => {
     const deck = await newDeck(context)
     const refused = await fails(context, 'set_slide_has_title', {
       presentationId: deck.presentationId,
-      slideId: deck.slides[0].slideId,
+      slideId: deck.slides[1].slideId,
       hasTitle: true,
     })
     expect(refused.code).toBe('TITLE_ALREADY_PRESENT')
@@ -2096,7 +2155,7 @@ describe('navnet presentasjonen har i biblioteket', () => {
     })
     expect(after.title).toBe('Nytt navn')
     // The two started out the same and are two decisions from then on.
-    expect(after.cover.title).toBe('Agentdekk')
+    expect(after.slides[0].title).toBe('Agentdekk')
     expect((await context.repository.listPresentations())[0].title).toBe('Nytt navn')
   })
 
@@ -2132,9 +2191,9 @@ describe('sandkassen', () => {
   it('leser, plasserer, dupliserer og sletter sandkasseelementer', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideA = deck.slides[0].slideId
+    const slideA = deck.slides[1].slideId
     const rootA = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: slideA,
       }),
@@ -2171,7 +2230,7 @@ describe('sandkassen', () => {
     expect(item?.contentKind).toBe('container')
 
     // I mellomtiden er slide A's sone tom.
-    const emptied = await ok<SlideInspection>(context, 'inspect_slide', {
+    const emptied = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: slideA,
     })
@@ -2182,7 +2241,7 @@ describe('sandkassen', () => {
       await ok<SlidePlacement>(context, 'add_slide', { presentationId: deck.presentationId })
     ).slideId
     const rootB = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: slideB,
       }),
@@ -2215,7 +2274,7 @@ describe('sandkassen', () => {
         })
       ).sandboxCount,
     ).toBe(0)
-    const onSlideB = await ok<SlideInspection>(context, 'inspect_slide', {
+    const onSlideB = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: slideB,
     })
@@ -2268,9 +2327,9 @@ describe('sandkassen', () => {
   it('avviser en utdatert revisjon og en ukjent item-id, uten å skrive noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -2333,9 +2392,9 @@ describe('sandkassen', () => {
   it('avviser et element som ikke får plass i målsonen, uten noen delvis mutasjon', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
-    const slideA = deck.slides[0].slideId
+    const slideA = deck.slides[1].slideId
     const rootA = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: slideA,
       }),
@@ -2359,7 +2418,7 @@ describe('sandkassen', () => {
       })
     ).slideId
     const rootB = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: slideB,
       }),
@@ -2391,7 +2450,7 @@ describe('sandkassen', () => {
     const after = await stored(context, deck.presentationId)
     expect(presentationRevision(after)).toBe(presentationRevision(before))
     expect(after.sandbox.map((entry) => entry.id)).toEqual([itemId])
-    const afterInspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const afterInspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: slideB,
     })
@@ -2401,9 +2460,9 @@ describe('sandkassen', () => {
   it('må gjennom den globale fit-guarden når tilbakeplassering renummererer citations andre steder', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slide0 = deck.slides[0].slideId
+    const slide0 = deck.slides[1].slideId
     const node0 = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: slide0,
       }),
@@ -2443,7 +2502,7 @@ describe('sandkassen', () => {
       hasTitle: false,
     })
     const pillsNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: pillsSlide.slideId,
       }),
@@ -2517,7 +2576,7 @@ describe('flytting av innhold mellom soner', () => {
   it('flytter et helt kort innenfor én slide, og lar id-ene følge med', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const [left, right] = await twoZones(context, deck.presentationId, slideId)
 
     const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
@@ -2597,7 +2656,7 @@ describe('flytting av innhold mellom soner', () => {
     expect(storedContent(after, slideId, right)).toEqual(contentBefore)
     expect(storedContent(after, slideId, right)?.id).toBe(contentBefore?.id)
 
-    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -2619,9 +2678,9 @@ describe('flytting av innhold mellom soner', () => {
   it('flytter innhold mellom to forskjellige slides, med filreferansen intakt', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const source = deck.slides[0].slideId
+    const source = deck.slides[1].slideId
     const sourceNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: source,
       }),
@@ -2650,7 +2709,7 @@ describe('flytting av innhold mellom soner', () => {
       })
     ).slideId
     const targetNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: target,
       }),
@@ -2680,7 +2739,7 @@ describe('flytting av innhold mellom soner', () => {
     expect(storedContent(after, source, sourceNode)).toBeNull()
     expect(storedContent(after, target, targetNode)).toEqual(contentBefore)
     expect(storedContent(after, target, targetNode)?.id).toBe(contentBefore?.id)
-    const arrived = await ok<SlideInspection>(context, 'inspect_slide', {
+    const arrived = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: target,
     })
@@ -2694,9 +2753,9 @@ describe('flytting av innhold mellom soner', () => {
   it('lar agenten redigere videre gjennom de samme subfelt-id-ene etter flyttingen', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const source = deck.slides[0].slideId
+    const source = deck.slides[1].slideId
     const sourceNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: source,
       }),
@@ -2723,7 +2782,7 @@ describe('flytting av innhold mellom soner', () => {
       })
     ).slideId
     const targetNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: target,
       }),
@@ -2754,7 +2813,7 @@ describe('flytting av innhold mellom soner', () => {
       weights: [2, 1],
     })
 
-    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: target,
     })
@@ -2769,9 +2828,9 @@ describe('flytting av innhold mellom soner', () => {
   it('avviser en opptatt målsone, en tom kilde og soner som ikke er blad, uten å endre noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const rootNodeId = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -2859,9 +2918,9 @@ describe('flytting av innhold mellom soner', () => {
   it('avviser innhold som ikke får plass i målsonen, og lar dokumentet stå urørt', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const wide = deck.slides[0].slideId
+    const wide = deck.slides[1].slideId
     const wideNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: wide,
       }),
@@ -2879,7 +2938,7 @@ describe('flytting av innhold mellom soner', () => {
       })
     ).slideId
     const narrowRoot = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: narrowSlide,
       }),
@@ -2908,7 +2967,7 @@ describe('flytting av innhold mellom soner', () => {
     expect(failure.details?.overflow).toBeGreaterThan(0)
     const rect = failure.details?.rect as Rect
     const narrowZone = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: narrowSlide,
       })
@@ -2922,9 +2981,9 @@ describe('flytting av innhold mellom soner', () => {
   it('må gjennom den globale fit-guarden når flyttingen renummererer citations andre steder', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const first = deck.slides[0].slideId
+    const first = deck.slides[1].slideId
     const firstNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: first,
       }),
@@ -2949,7 +3008,7 @@ describe('flytting av innhold mellom soner', () => {
       })
     ).slideId
     const pillsNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: pillsSlide,
       }),
@@ -2961,7 +3020,7 @@ describe('flytting av innhold mellom soner', () => {
       })
     ).slideId
     const lastNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: lastSlide,
       }),
@@ -3031,7 +3090,7 @@ describe('flytting av innhold mellom soner', () => {
   it('avviser en utdatert expectedRevision med CONFLICT, uten å flytte noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const [left, right] = await twoZones(context, deck.presentationId, slideId)
     await ok(context, 'set_zone_text', {
       presentationId: deck.presentationId,
@@ -3091,7 +3150,7 @@ describe('kopiering av innhold mellom soner', () => {
   it('kopierer et helt kort innenfor én slide, og gir kopien nye id-er', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const [left, right] = await twoZones(context, deck.presentationId, slideId)
 
     const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
@@ -3178,7 +3237,7 @@ describe('kopiering av innhold mellom soner', () => {
     expect(copy?.id).not.toBe(contentBefore?.id)
     expect(copy?.kind).toBe(contentBefore?.kind)
 
-    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -3208,7 +3267,7 @@ describe('kopiering av innhold mellom soner', () => {
     // kildens id-er – som er lesing – til et token som bare kan skrive.
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const [left, right] = await twoZones(context, deck.presentationId, slideId)
     await ok(context, 'set_zone_text', {
       presentationId: deck.presentationId,
@@ -3217,7 +3276,7 @@ describe('kopiering av innhold mellom soner', () => {
       blocks: paragraph('Ren tekst'),
     })
     const sourceFields = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -3236,7 +3295,7 @@ describe('kopiering av innhold mellom soner', () => {
     expect(JSON.stringify(copied)).not.toContain(sourceFields?.[0])
 
     // Kilden beholder sine egne, kopien har sine, og teksten står begge steder.
-    const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -3256,7 +3315,7 @@ describe('kopiering av innhold mellom soner', () => {
       subfieldId: copied.subfieldIds[0],
       blocks: paragraph('Bare i kopien'),
     })
-    const after = await ok<SlideInspection>(context, 'inspect_slide', {
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -3267,9 +3326,9 @@ describe('kopiering av innhold mellom soner', () => {
   it('kopierer mellom to slides, og deler filen i stedet for å laste den opp på nytt', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const source = deck.slides[0].slideId
+    const source = deck.slides[1].slideId
     const sourceNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: source,
       }),
@@ -3325,7 +3384,7 @@ describe('kopiering av innhold mellom soner', () => {
       [source, sourceNode],
       [target.slideId, target.nodeId],
     ]) {
-      const inspected = await ok<SlideInspection>(context, 'inspect_slide', {
+      const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -3340,9 +3399,9 @@ describe('kopiering av innhold mellom soner', () => {
   it('lar agenten skrive i kopien gjennom de returnerte subfelt-id-ene, uten å røre originalen', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const source = deck.slides[0].slideId
+    const source = deck.slides[1].slideId
     const sourceNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: source,
       }),
@@ -3390,7 +3449,7 @@ describe('kopiering av innhold mellom soner', () => {
     })
 
     const copyZone = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: target.slideId,
       }),
@@ -3404,7 +3463,7 @@ describe('kopiering av innhold mellom soner', () => {
 
     // Originalen er ikke rørt av noe av det: to selvstendige kort.
     const original = zoneOf(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: source,
       }),
@@ -3420,9 +3479,9 @@ describe('kopiering av innhold mellom soner', () => {
   it('avviser en opptatt målsone, en tom kilde og soner som ikke er blad, uten å endre noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const rootNodeId = (
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       })
@@ -3536,9 +3595,9 @@ describe('kopiering av innhold mellom soner', () => {
   it('avviser en kopi som ikke får plass i målsonen, og lar dokumentet stå urørt', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const wide = deck.slides[0].slideId
+    const wide = deck.slides[1].slideId
     const wideNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: wide,
       }),
@@ -3579,7 +3638,7 @@ describe('kopiering av innhold mellom soner', () => {
     const rect = failure.details?.rect as Rect
     expect(rect).toEqual(
       zoneOf(
-        await ok<SlideInspection>(context, 'inspect_slide', {
+        await ok<ContentSlideInspection>(context, 'inspect_slide', {
           presentationId: deck.presentationId,
           slideId: narrowSlide.slideId,
         }),
@@ -3594,9 +3653,9 @@ describe('kopiering av innhold mellom soner', () => {
   it('må gjennom den globale fit-guarden når kopien endrer citation-nummereringen', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const first = deck.slides[0].slideId
+    const first = deck.slides[1].slideId
     const firstNode = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: first,
       }),
@@ -3672,7 +3731,7 @@ describe('kopiering av innhold mellom soner', () => {
   it('avviser en utdatert expectedRevision med CONFLICT, uten å kopiere noe', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const [left, right] = await twoZones(context, deck.presentationId, slideId)
     await ok(context, 'set_zone_text', {
       presentationId: deck.presentationId,
@@ -3728,8 +3787,8 @@ describe('subfeltlayout inne i ett kort', () => {
     count = 2,
   ): Promise<{ presentationId: string; slideId: string; nodeId: string; subfieldIds: string[] }> {
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const slideId = deck.slides[0].slideId
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+    const slideId = deck.slides[1].slideId
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId,
     })
@@ -3748,8 +3807,8 @@ describe('subfeltlayout inne i ett kort', () => {
   async function zoneView(
     context: AgentContext,
     target: { presentationId: string; slideId: string; nodeId: string },
-  ): Promise<SlideInspection['zones'][number]> {
-    const inspection = await ok<SlideInspection>(context, 'inspect_slide', {
+  ): Promise<ContentSlideInspection['zones'][number]> {
+    const inspection = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: target.presentationId,
       slideId: target.slideId,
     })
@@ -3850,7 +3909,7 @@ describe('subfeltlayout inne i ett kort', () => {
     // Not just in the answer: in the document, read back from the store the way
     // a later session would read it.
     const document = await stored(context, card.presentationId)
-    const content = document.slides[0].root
+    const content = contentAt(document, 1).root
     if (content.kind !== 'leaf' || content.content?.kind !== 'untitled-card') {
       throw new Error('Forventet et kort i hovedsonen.')
     }
@@ -3965,9 +4024,9 @@ describe('subfeltlayout inne i ett kort', () => {
     expect((await fails(context, 'adjust_subfields', target)).code).toBe('INVALID_ARGUMENT')
 
     const deck = await newDeck(context, { firstSlideHasTitle: false })
-    const emptySlide = deck.slides[0].slideId
+    const emptySlide = deck.slides[1].slideId
     const emptyZone = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId: emptySlide,
       }),
@@ -3987,7 +4046,7 @@ describe('subfeltlayout inne i ett kort', () => {
   it('avviser en utdatert revisjon, og skriver ingenting', async () => {
     const context = freshContext()
     const card = await cardDeck(context)
-    const before = await ok<SlideInspection>(context, 'inspect_slide', {
+    const before = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: card.presentationId,
       slideId: card.slideId,
     })
@@ -4046,7 +4105,7 @@ describe('subfeltlayout inne i ett kort', () => {
   it('går den hele veien: to kolonner med ulik vekt, fylt og validert', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { title: 'To kolonner', firstSlideHasTitle: true })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
 
     await ok(context, 'set_slide_title', {
       presentationId: deck.presentationId,
@@ -4054,7 +4113,7 @@ describe('subfeltlayout inne i ett kort', () => {
       spans: [{ text: 'Figur og forklaring' }],
     })
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -4112,9 +4171,9 @@ describe('fargen på et kort med tittel', () => {
   it('kan nullstilles til forsidens farge gjennom set_zone_card', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { title: 'Kortfarge' })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -4130,7 +4189,7 @@ describe('fargen på et kort med tittel', () => {
     })
 
     const withColor = await stored(context, deck.presentationId)
-    const coloured = findLeaf(withColor.slides[0].root, nodeId)
+    const coloured = findLeaf(contentAt(withColor, 1).root, nodeId)
     if (coloured?.content?.kind !== 'titled-card') throw new Error('expected titled-card')
     expect(coloured.content.headerColor).toBe('#204060')
 
@@ -4143,7 +4202,7 @@ describe('fargen på et kort med tittel', () => {
     })
 
     const reset = await stored(context, deck.presentationId)
-    const inherited = findLeaf(reset.slides[0].root, nodeId)
+    const inherited = findLeaf(contentAt(reset, 1).root, nodeId)
     if (inherited?.content?.kind !== 'titled-card') throw new Error('expected titled-card')
     expect(inherited.content.headerColor).toBeNull()
   })
@@ -4151,9 +4210,9 @@ describe('fargen på et kort med tittel', () => {
   it('avvises for et kort uten tittel, som ikke har noen arvet farge', async () => {
     const context = freshContext()
     const deck = await newDeck(context, { title: 'Kortfarge' })
-    const slideId = deck.slides[0].slideId
+    const slideId = deck.slides[1].slideId
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', {
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
         presentationId: deck.presentationId,
         slideId,
       }),
@@ -4220,7 +4279,7 @@ describe('rydding', () => {
     slideId: string,
   ): Promise<{ presentationId: string; slideId: string; nodeId: string }> {
     const nodeId = firstZone(
-      await ok<SlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
+      await ok<ContentSlideInspection>(context, 'inspect_slide', { presentationId, slideId }),
     )
     return { presentationId, slideId, nodeId }
   }
@@ -4258,7 +4317,7 @@ describe('rydding', () => {
     const context = freshContext()
     const deck = await newDeck(context, { title: 'Rydding' })
     const cited = await reference(context, deck.presentationId, 'Sitert')
-    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+    const target = await firstTarget(context, deck.presentationId, deck.slides[1].slideId)
     await cite(context, target, [cited])
 
     const pruned = await ok<Mutated<PrunedReferences>>(context, 'delete_unused_references', {
@@ -4279,7 +4338,7 @@ describe('rydding', () => {
     const unusedOne = await reference(context, deck.presentationId, 'Ubrukt 1')
     const unusedTwo = await reference(context, deck.presentationId, 'Ubrukt 2')
 
-    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+    const target = await firstTarget(context, deck.presentationId, deck.slides[1].slideId)
     await cite(context, target, [cited])
 
     // A second slide whose content cites `parked`, then cleared into the
@@ -4366,7 +4425,7 @@ describe('rydding', () => {
     // forever, listed by `list_assets` and impossible to remove.
     const context = freshContext()
     const deck = await newDeck(context, { title: 'Erstatt en figur' })
-    const target = await firstTarget(context, deck.presentationId, deck.slides[0].slideId)
+    const target = await firstTarget(context, deck.presentationId, deck.slides[1].slideId)
 
     const first = await ok<StoredAssetResult>(context, 'create_svg_asset', {
       presentationId: deck.presentationId,

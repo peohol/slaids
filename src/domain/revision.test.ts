@@ -13,6 +13,7 @@ import { createPresentation } from './presentation'
 import { presentationRevision } from './revision'
 import { titleDoc } from './richdoc'
 import type { Presentation } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function unwrap(result: { ok: boolean; value?: Presentation }): Presentation {
   if (!result.ok || !result.value) throw new Error('Forventet ok')
@@ -43,7 +44,7 @@ describe('presentationRevision', () => {
     const before = presentationRevision(presentation)
 
     const titled = unwrap(
-      setSlideTitle(presentation, presentation.slides[0].id, titleDoc('Ny overskrift')),
+      setSlideTitle(presentation, presentation.slides[1].id, titleDoc('Ny overskrift')),
     )
     expect(presentationRevision(titled)).not.toBe(before)
 
@@ -74,9 +75,9 @@ describe('presentationRevision', () => {
     const presentation = createPresentation({ title: 'Revisjon' })
     const withUndefined: Presentation = {
       ...presentation,
-      slides: [{ ...presentation.slides[0], root: { ...presentation.slides[0].root } }],
+      slides: [sectionAt(presentation, 0),{ ...contentAt(presentation, 1), root: { ...contentAt(presentation, 1).root } }],
     }
-    ;(withUndefined.slides[0].root as unknown as Record<string, unknown>).extra = undefined
+    ;(contentAt(withUndefined, 1).root as unknown as Record<string, unknown>).extra = undefined
 
     const roundTripped = JSON.parse(JSON.stringify(withUndefined)) as Presentation
     expect(presentationRevision(roundTripped)).toBe(presentationRevision(withUndefined))
@@ -84,9 +85,9 @@ describe('presentationRevision', () => {
 
   it('skiller dokumenter som bare er stokket om', () => {
     const presentation = unwrap(addSlide(createPresentation({ title: 'Revisjon' })))
-    const swapped = {
+    const swapped: Presentation = {
       ...presentation,
-      slides: [presentation.slides[1], presentation.slides[0]],
+      slides: [presentation.slides[0], presentation.slides[2], presentation.slides[1]],
     }
     expect(presentationRevision(swapped)).not.toBe(presentationRevision(presentation))
   })
