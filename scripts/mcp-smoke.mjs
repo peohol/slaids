@@ -171,6 +171,43 @@ function resultOf(answer) {
 console.log(`\nMCP smoke test mot ${MCP_URL}`)
 console.log(token ? 'Med token: hele runden.\n' : 'Uten token: den offentlige halvdelen og avvisningene.\n')
 
+// A redirect that changes origin is the one failure this script cannot see from
+// the answers alone, and the one most likely to be mistaken for a bug in the
+// server: `fetch` follows it, and **drops `Authorization` on the way** — the
+// Fetch standard requires that, so every check below that depends on a token
+// would quietly be testing an anonymous request instead. It bit this script on
+// its first real run: `https://slaids.no` answers `308` to `https://www.slaids.no`,
+// so a token sent to the apex never arrives, and the endpoint correctly answered
+// a *tokenless* request. Checked with `redirect: 'manual'`, because following it
+// is exactly what hides it.
+const entry = await fetch(MCP_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...extraHeaders },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'ping' }),
+  redirect: 'manual',
+})
+if (entry.status >= 300 && entry.status < 400) {
+  // A `Location` that will not parse is not a redirect anybody can follow, so
+  // it is left to the checks below rather than guessed at here.
+  let target
+  try {
+    target = new URL(entry.headers.get('location') ?? '', MCP_URL)
+  } catch {
+    target = null
+  }
+  if (target && target.origin !== new URL(MCP_URL).origin) {
+    console.error(
+      `Adressen svarte ${entry.status} og sender deg videre til en annen origin:\n` +
+        `  ${new URL(MCP_URL).origin} → ${target.origin}\n` +
+        'En klient følger den, men taper «Authorization» på veien – det krever Fetch-standarden\n' +
+        'ved en kryss-origin-redirect – så et token ville aldri nådd fram, og hver sjekk under\n' +
+        'ville i stillhet målt en anonym forespørsel.\n' +
+        `Kjør mot ${target.origin} i stedet. Det er også adressen en MCP-klient skal peke på.`,
+    )
+    process.exit(2)
+  }
+}
+
 // Two answers mean the address is not this endpoint at all, and every check
 // below would then be ten repetitions of one fact. Said once, plainly, because
 // the two are ordinary mistakes rather than failures:

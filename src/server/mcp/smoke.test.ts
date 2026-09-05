@@ -57,9 +57,10 @@ async function servingOnly(
   status: number,
   body: string,
   contentType = 'application/json',
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ origin: string; close: () => Promise<void> }> {
   const server = createServer((_incoming, outgoing) => {
-    outgoing.writeHead(status, { 'Content-Type': contentType })
+    outgoing.writeHead(status, { 'Content-Type': contentType, ...extraHeaders })
     outgoing.end(body)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -135,6 +136,32 @@ describe('scripts/mcp-smoke.mjs', () => {
     } finally {
       await stub.close()
     }
+  }, 30_000)
+
+  it('stopper på en redirect som ville tatt tokenet med seg', async () => {
+    // The failure this script exists to catch and could not see: `fetch` follows
+    // a cross-origin redirect and drops `Authorization` doing it, so every later
+    // check would silently measure an anonymous request. Production answered
+    // exactly this — the apex domain `308`s to `www` — and the round read as a
+    // fault in the endpoint until the redirect was looked at.
+    const stub = await servingOnly(308, '', 'text/plain', {
+      Location: 'https://www.example.invalid/api/agent/v1/mcp',
+    })
+    try {
+      const { code, out } = await smoke([], stub.origin)
+      expect(out).toContain('Authorization')
+      expect(out).toContain('www.example.invalid')
+      expect(out).not.toContain('FEIL')
+      expect(code).toBe(2)
+    } finally {
+      await stub.close()
+    }
+  }, 30_000)
+
+  it('bryr seg ikke om en redirect som blir på samme origin', async () => {
+    // Same origin keeps the header, so it is not this script's business.
+    const { code } = await smoke(['--expect-tools', String(operations.length)])
+    expect(code).toBe(0)
   }, 30_000)
 
   it('sier fra når det ikke er Slaids som svarer i det hele tatt', async () => {
