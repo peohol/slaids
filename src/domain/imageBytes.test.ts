@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { probeImageFormat } from './imageBytes'
+import { declaredTextEncoding, probeImageFormat } from './imageBytes'
 import { realImages } from './testImages'
 
 /**
@@ -48,6 +48,34 @@ describe('probeImageFormat', () => {
     expect(probeImageFormat(bytes([0xef, 0xbb, 0xbf], '<svg viewBox="0 0 1 1"/>'))).toMatchObject({
       mimeType: 'image/svg+xml',
     })
+  })
+
+  it('kjenner igjen en UTF-16-SVG, der hver andre byte er null', () => {
+    // Read as bytes that happen to look like ASCII, this looks like nothing at
+    // all — and a file that plainly is an SVG would be answered with "not an
+    // image format" instead of being sanitised like every other one.
+    const markup = '<svg viewBox="0 0 1 1"/>'
+    const utf16 = new Uint8Array((markup.length + 1) * 2)
+    const view = new DataView(utf16.buffer)
+    view.setUint16(0, 0xfeff, true)
+    for (let i = 0; i < markup.length; i += 1) {
+      view.setUint16(2 + i * 2, markup.charCodeAt(i), true)
+    }
+    expect(probeImageFormat(utf16)).toEqual({ mimeType: 'image/svg+xml', isVector: true })
+  })
+
+  it('leser tegnkodingen filen selv oppgir', () => {
+    expect(declaredTextEncoding(new TextEncoder().encode('<svg/>'))).toBe('utf-8')
+    expect(declaredTextEncoding(bytes([0xef, 0xbb, 0xbf], '<svg/>'))).toBe('utf-8')
+    expect(declaredTextEncoding(new Uint8Array([0xff, 0xfe, 0x3c, 0x00]))).toBe('utf-16le')
+    expect(declaredTextEncoding(new Uint8Array([0xfe, 0xff, 0x00, 0x3c]))).toBe('utf-16be')
+    expect(
+      declaredTextEncoding(new TextEncoder().encode('<?xml version="1.0" encoding="ISO-8859-1"?><svg/>')),
+    ).toBe('ISO-8859-1')
+    // A mark wins over a declaration, as XML says it does.
+    expect(
+      declaredTextEncoding(bytes([0xef, 0xbb, 0xbf], '<?xml version="1.0" encoding="ISO-8859-1"?>')),
+    ).toBe('utf-8')
   })
 
   it('sier nei til alt som ikke ser ut som et bilde', () => {

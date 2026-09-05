@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { allContent, mapPresentationDocs, remapAssetIds } from './docs'
+import { allContent, dropAssetIds, mapPresentationDocs, remapAssetIds } from './docs'
 import { createPresentation } from './presentation'
 import { createLeaf, createSplit } from './layout'
-import { containerWithDoc, createImage, createTitledCard, createUntitledCard } from './content'
+import {
+  containerWithDoc,
+  createImage,
+  createTitledCard,
+  createUntitledCard,
+  imagePanelOf,
+} from './content'
 import { paragraphDoc, plainTextToDoc } from './richdoc'
 import type { Presentation } from './types'
 
@@ -88,6 +94,101 @@ describe('remapAssetIds', () => {
   it('is a no-op for an empty map', () => {
     const presentation = build()
     expect(remapAssetIds(presentation, new Map())).toBe(presentation)
+  })
+})
+
+describe('dropAssetIds', () => {
+  it('tømmer bildesonen uten å kaste kortet, og fjerner filen fra listen', () => {
+    const presentation = build()
+    const dropped = dropAssetIds(presentation, new Set(['a1']))
+
+    expect(dropped.assets).toEqual([])
+    // Precise, because generated ids can contain 'a1' as a substring.
+    expect(JSON.stringify(dropped)).not.toContain('"assetId":"a1"')
+
+    // The zone is still a picture zone — with its crop and caption — waiting
+    // for a file, which is a state the model already has. Deleting the content
+    // would throw away a layout the archive did describe correctly.
+    const zone = allContent(dropped).find((content) => content.kind === 'image')
+    expect(zone).toBeDefined()
+    expect(imagePanelOf(zone!)?.assetId).toBeNull()
+  })
+
+  it('tar ut et bilde inne i teksten, siden en blokk uten fil ikke kan tegnes', () => {
+    const base = createPresentation({ title: 'Bilder' })
+    const presentation: Presentation = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          root: createLeaf(
+            containerWithDoc({
+              type: 'doc',
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Før figuren' }] },
+                { type: 'slaidsImage', attrs: { assetId: 'borte', alt: '' } },
+                { type: 'slaidsImage', attrs: { assetId: 'blir', alt: '' } },
+              ],
+            }),
+          ),
+        },
+      ],
+    }
+
+    const dropped = dropAssetIds(presentation, new Set(['borte']))
+    const json = JSON.stringify(dropped)
+    expect(json).not.toContain('borte')
+    expect(json).toContain('"assetId":"blir"')
+    expect(json).toContain('Før figuren')
+  })
+
+  it('etterlater et tomt avsnitt, ikke et tomt dokument', () => {
+    const base = createPresentation({ title: 'Bare figur' })
+    const presentation: Presentation = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          root: createLeaf(
+            containerWithDoc({
+              type: 'doc',
+              content: [{ type: 'slaidsImage', attrs: { assetId: 'borte', alt: '' } }],
+            }),
+          ),
+        },
+      ],
+    }
+
+    const dropped = dropAssetIds(presentation, new Set(['borte']))
+    expect(JSON.stringify(dropped)).toContain('{"type":"paragraph"}')
+  })
+
+  it('rekker også sandkassen', () => {
+    const base = createPresentation({ title: 'Sandkasse' })
+    const presentation: Presentation = {
+      ...base,
+      sandbox: [{ id: 'sb1', content: createImage('borte'), createdAt: '', note: '' }],
+      assets: [
+        {
+          id: 'borte',
+          name: 'f.svg',
+          mimeType: 'image/svg+xml',
+          byteSize: 1,
+          width: 1,
+          height: 1,
+          isVector: true,
+        },
+      ],
+    }
+
+    const dropped = dropAssetIds(presentation, new Set(['borte']))
+    expect(JSON.stringify(dropped)).not.toContain('borte')
+    expect(dropped.sandbox).toHaveLength(1)
+  })
+
+  it('er en no-op for et tomt sett', () => {
+    const presentation = build()
+    expect(dropAssetIds(presentation, new Set())).toBe(presentation)
   })
 })
 

@@ -1249,6 +1249,11 @@ Metadata og binærdata skal skilles logisk.
 
 SVG skal beholdes vektorbasert, men vises som asset via `<img>`/Blob URL som sikker default, ikke injiseres som vilkårlig rå HTML/SVG markup.
 
+Uansett hvilken inngang en SVG kommer gjennom – opplastingsdialogen,
+agent-API-et eller `.slaids`-import – saneres den av `src/domain/svg.ts` før den
+lagres, og det som lagres er reserialiseringen. Se «Én dør inn til
+assetlageret» i §44.
+
 Innhold refererer til `assetId`, ikke store base64-strenger i presentasjons-JSON.
 
 Et bilde kan settes inn enten i et tekstfelt, sammen med teksten, eller som
@@ -2615,7 +2620,12 @@ SVG skal ikke få en egen parallell presentasjonsmodell. Etter opprettelse er de
 
 SVG er aktivt XML-innhold og skal behandles som potensielt utrygt input.
 
-`create_svg_asset` skal derfor validere og sanitere SVG før lagring.
+`create_svg_asset` skal derfor validere og sanitere SVG før lagring – og det
+gjelder hver eneste inngang, ikke bare den. Editorens opplastingsdialog,
+`upload_asset` og `.slaids`-import går gjennom den samme døren
+(`src/domain/assetIngress.ts` → `src/domain/svg.ts`), så hvilken vei en SVG kom
+inn påvirker verken hva Slaids godtar eller hvilke bytes som lagres. Se «Én dør
+inn til assetlageret» i §44.
 
 Minst følgende skal ikke tillates:
 
@@ -3088,6 +3098,115 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `INVALID_SVG` for det som ikke er en brukbar SVG.
 - `src/domain/imageBytes.ts` og `src/domain/imageFile.ts` – to trinn, ikke ett:
   det første sniffer format ut av bytene, det andre går gjennom hele filen.
+- `src/domain/assetIngress.ts` – den ene døren som setter de tre sammen, og som
+  hver inngang kaller. Se under.
+
+#### Én dør inn til assetlageret
+
+En fil blir et asset gjennom flere innganger – editorens opplastingsdialog,
+`upload_asset`, `create_svg_asset`, en `.slaids`-backup – og alle ender med de
+samme bytene i det samme lageret, tegnet av den samme rendereren. Hvilken vei en
+fil kom, skal derfor ikke avgjøre hva Slaids godtar eller hvilke bytes som
+lagres. `acceptAsset` i `src/domain/assetIngress.ts` avgjør det, én gang, for
+alle sammen.
+
+Invarianten, sagt rett ut: **en SVG som kommer utenfra Slaids kan aldri nå
+assetlageret uten først å ha blitt tolket og sanitisert av `src/domain/svg.ts`.**
+Ingenting kan lagres som `image/svg+xml` som ikke kom ut av `sanitizeSvg`.
+
+Døren svarer på to spørsmål:
+
+1. **Hva er dette, egentlig?** Formatet leses av bytene (`imageBytes.ts`), aldri
+   av et filnavn, en `File.type` eller kallerens ord. En `.png` som inneholder
+   `<svg>`-markup *er* en SVG, og en `.svg` som inneholder PNG-bytes *er* en
+   PNG – og den andre veien betyr like mye som den første: det er MIME-typen en
+   lagret fil serveres med som gjør den til aktivt innhold, så den typen er
+   alltid snifferens svar.
+2. **Hva får lagres?** To validatorer, én per innholdstype: raster går gjennom
+   `imageFile.ts`, SVG gjennom `domain/svg.ts`. Det som kommer tilbake i `bytes`
+   er det som skal lagres – for en SVG er det reserialiseringen og aldri
+   inndataen. Derfor er dette en funksjon som returnerer bytes og ikke et
+   predikat som returnerer en dom: en kaller kan ikke glemme å bruke den rene
+   versjonen når den rene versjonen er den eneste den får.
+
+Størrelsesgrensen (`MAX_ASSET_BYTES`) hører hjemme her av samme grunn, og måles
+to ganger for en SVG: på det som kom inn, og på det som faktisk lagres.
+Reserialisering kan vokse en fil – hver `&` kommer tilbake som `&amp;`.
+
+**En SVG leses i tegnkodingen den selv oppgir.** SVG er XML, og XML sier hvordan
+det er skrevet: en byte order mark, eller `encoding="…"` i deklarasjonen.
+`declaredTextEncoding` i `imageBytes.ts` er den ene lesingen av det, delt av
+snifferen – som ellers ikke ville kjent igjen en UTF-16-fil, der hver andre byte
+er null – og av døren. Å lese alt som UTF-8 er riktig for nesten hver fil og
+stille galt for resten: hvert aksenttegn i en Windows-1252-eksport fra
+Illustrator kommer tilbake som U+FFFD, og det som lagres er en figur med ødelagt
+tekst i seg. Det er verre enn en avvisning, fordi ingen får vite det. En
+tegnkoding `TextDecoder` ikke tar imot avvises ved navn i stedet for å gjettes
+på. Det som lagres er alltid UTF-8, og ingen trenger å huske det:
+reserialiseringen bygges av det parsede treet og dropper XML-deklarasjonen
+sammen med alle andre prosesseringsinstruksjoner, og et dokument uten
+deklarasjon er UTF-8 per definisjon.
+
+Det eneste som varierer mellom dørene, er hvordan *raster* måles, og det er
+nettleserens dekoder og ikke en andre policy:
+
+- `raster: 'bitstream'` – `imageFile.ts` går gjennom hele filen og størrelsen tas
+  ut av den. Hodeløse dører: `upload_asset`, `create_svg_asset`.
+- `raster: 'caller'` – bytene beholdes som de er, og størrelsen kommer fra en
+  kilde døren allerede har. To dører kvalifiserer, av samme grunn: noen har
+  allerede dekodet dette bildet. Editoren har nettleseren, som er den ene
+  kjøretiden som kan lese størrelsen på en AVIF – derfor tar editoren imot AVIF
+  og agentveien ikke – og en `.slaids`-backup bærer størrelsen som ble lest den
+  gangen filen først ble lagret, ved en av disse dørene.
+
+Ingen av modusene slipper en byte usanitert SVG forbi, og begge bruker den samme
+listen over formater.
+
+**En avvist fil etterlater ingenting.** Valideringen skjer før den første
+skrivingen, ikke som en angring etterpå: ingen blob i IndexedDB eller Supabase
+Storage, ingen `AssetRef` i dokumentet, ingen halvplassert figur i en sone.
+Editorens dør er `src/state/assetUpload.ts` – lagt der og ikke i komponenten
+fordi en sikkerhetsgrense begravd i en event handler bare kan testes ved å kjøre
+en komponent.
+
+**`.slaids`-import er ekstern input.** En backup er nøyaktig like troverdig som
+en `.svg` noen sender deg, og åpnes av den samme parseren. Rasterfiler beholdes
+byte for byte med størrelsen arkivet husket (`raster: 'caller'`): å utlede den på
+nytt ville gjort et bilde som har ligget i et dekk i et år uimporterbart av en
+grunn eieren ikke kan gjøre noe med. SVG får ingen slik tvil til gode. En figur
+som avvises rapporteres ved navn og hoppes over – dekket importeres fortsatt,
+akkurat som når fildata mangler.
+
+«Hoppes over» gjelder dokumentet også. En fil som ikke blir lagret – avvist,
+uten bytes i arkivet, eller uten oppføring i registeret – fjernes med
+`dropAssetIds` (`src/domain/docs.ts`, speilbildet av `remapAssetIds`) fra
+assetlisten *og* fra hvert sted som viste den: sonen, bildet inne i teksten,
+sandkassen. Ellers ville importen svart `ok` med et dekk som peker på bytes
+ingen kommer til å skrive – nøyaktig det `unknownAssetIds` kaller ødelagt – og
+med en id-remapping på toppen ville pekeren til og med vært *ny*. En bildesone
+blir stående som en sone som venter på en fil (`assetId: null`) og beholder
+utsnitt, bildetekst og tittel; et bilde inne i teksten er en blokk som ikke kan
+tegnes uten fil, og tas ut, med et tomt avsnitt igjen hvis feltet ikke hadde
+annet. En SVG uten `viewBox` eller `width`/`height`
+avvises også her, og det er med vilje: Slaids plasserer bilder etter
+størrelsesforholdet, og forholdet arkivet husket for en slik fil var nettleserens
+egen 300 × 150-gjetning – altså nøyaktig gjetningen §44 nekter å plassere etter.
+
+**Interne kopier er unntaket, og de er ikke et hull.** Innliming på tvers av
+presentasjoner (`state/pasteAssets.ts`) og duplisering (`persistence/library.ts`)
+flytter bytes som allerede kom gjennom døren, fra ett Slaids-lager til et annet.
+Å validere dem på nytt ville dømt en lagret fil etter dagens regler i stedet for
+reglene den ble lagret under. Regelen døren håndhever gjelder hva som får
+*komme inn* i lageret, og den håndheves én gang, ved inngangen. Clipboard-
+payloaden navngir bare asset-id-er og bærer aldri bytes, så fremmed tekst kan
+ikke nå hit i det hele tatt.
+
+To tester håndhever dette mekanisk, fordi feilen ellers er stille:
+`src/domain/assetIngress.test.ts` leser kildetreet og krever at hver fil som
+kaller `putAsset` enten går gjennom `assetIngress.ts` eller står på den
+navngitte listen over interne kopier, og at `sanitizeSvg` har nøyaktig én
+kaller. En andre kaller ville stått fritt til å lese resultatet annerledes, og de
+to dørene ville glidd fra hverandre uten at noe feilet.
 
 #### Validering er to spørsmål, ikke ett
 
@@ -3123,7 +3242,9 @@ Tre bevisste avvik fra teksten over, med begrunnelse:
   fordi nettleseren dekoder det der.
 - SVG saneres uansett hvilken dør den kom inn gjennom, ikke bare i
   `create_svg_asset`. En SVG lastet opp som fil er den samme filen som en SVG
-  postet som markup, og skal møte de samme reglene.
+  postet som markup, og skal møte de samme reglene. Det er `assetIngress.ts` som
+  gjør det sant for editoren og `.slaids`-import også – se «Én dør inn til
+  assetlageret».
 
 #### CSS i SVG
 
@@ -3762,9 +3883,9 @@ alltid i det designrommet Slaids er definert i og bare samplingen endrer seg. En
 CSS-transform ville i stedet lagt ut sliden i én størrelse og strukket resultatet,
 som ikke er det noen ser.
 
-Én kjent skjevhet å rette: editorens opplastingsdialog lagrer fortsatt en SVG en
-bruker velger uten å gå gjennom `domain/svg.ts`. Dører inn til assetlageret bør
-på sikt være én dør.
+Assetlageret har nå én dør, `src/domain/assetIngress.ts` – se «Én dør inn til
+assetlageret» over. Editorens opplastingsdialog, `upload_asset`,
+`create_svg_asset` og `.slaids`-import går alle gjennom den.
 
 #### Fase 6: temaet, og hva som fortsatt mangler mot editoren
 

@@ -9,6 +9,7 @@
 
 import { imagePanelOf, withImagePanel } from './content'
 import { walkNodes } from './layout'
+import { emptyDoc } from './richdoc'
 import type {
   CardBody,
   ImagePanel,
@@ -181,6 +182,102 @@ export function remapAssetIds(
   }))
   const assets = presentation.assets.map((asset) => ({ ...asset, id: map.get(asset.id) ?? asset.id }))
   return { ...presentation, slides, sandbox, assets }
+}
+
+/**
+ * Remove every trace of these files from the presentation.
+ *
+ * The mirror of `remapAssetIds`, for the one case where a file a document names
+ * will not exist: a `.slaids` archive whose figure the ingress door refuses, or
+ * whose bytes are simply not in the zip. Keeping the `AssetRef` would import a
+ * deck pointing at bytes nobody is ever going to write — precisely the state
+ * `unknownAssetIds` calls broken — so the reference goes at the same moment the
+ * file does.
+ *
+ * What "removed" means depends on where the reference sits, and both answers
+ * are states the model already has rather than new ones:
+ *
+ *  - a picture zone keeps its crop, its caption and its title and simply has no
+ *    file (`assetId: null`), which is exactly a zone waiting for one;
+ *  - an inline picture is a block in the text, and a block pointing at nothing
+ *    cannot be drawn, so it is taken out. Whatever held it — the field itself, a
+ *    quote, a list item, a table cell — is left with an empty paragraph if the
+ *    picture was all it had. Every one of those requires at least one block, so
+ *    an emptied container is not a document any more; and the removal happens
+ *    *after* `migratePresentation` validated it, so nothing would catch it.
+ */
+export function dropAssetIds(
+  presentation: Presentation,
+  ids: ReadonlySet<string>,
+): Presentation {
+  if (ids.size === 0) return presentation
+  const drop = (content: ZoneContent): ZoneContent => dropContentAssetIds(content, ids)
+  return {
+    ...presentation,
+    slides: presentation.slides.map((slide) => ({
+      ...slide,
+      root: mapTreeContent(slide.root, drop),
+    })),
+    sandbox: presentation.sandbox.map((item) => ({ ...item, content: drop(item.content) })),
+    assets: presentation.assets.filter((asset) => !ids.has(asset.id)),
+  }
+}
+
+/** Remove every trace of these files from a single content object. */
+export function dropContentAssetIds(
+  content: ZoneContent,
+  ids: ReadonlySet<string>,
+): ZoneContent {
+  if (ids.size === 0) return content
+  const cleaned = mapContentDocs(content, makeAssetDocRemover(ids))
+  const panel = imagePanelOf(cleaned)
+  if (!panel?.assetId || !ids.has(panel.assetId)) return cleaned
+  return withImagePanel(cleaned, { ...panel, assetId: null })
+}
+
+function makeAssetDocRemover(ids: ReadonlySet<string>): DocTransform {
+  const walk = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
+    if (!nodes) return nodes
+    let changed = false
+    const kept: RichNode[] = []
+    for (const node of nodes) {
+      const assetId = node.attrs?.assetId
+      if (typeof assetId === 'string' && ids.has(assetId)) {
+        changed = true
+        continue
+      }
+      const content = walk(node.content)
+      if (content === node.content) {
+        kept.push(node)
+        continue
+      }
+      changed = true
+      /*
+       * A container emptied by the removal is repaired the same way the
+       * document is, and for the same reason. A picture is a *block*, so the
+       * only nodes that can hold one directly are the document, a quote, a list
+       * item and a table cell — and every one of them requires at least one
+       * block. "Keep it, empty" is not a state any of them has: ProseMirror
+       * refuses `blockquote: <>` outright, so a document that was valid when it
+       * was migrated would be made invalid *after* validation and saved that
+       * way. One rule rather than a list of node names, because the list is
+       * exactly the nodes this can empty.
+       */
+      kept.push({ ...node, content: content && content.length > 0 ? content : [emptyBlock()] })
+    }
+    return changed ? kept : nodes
+  }
+
+  return (doc: RichDoc): RichDoc => {
+    const content = walk(doc.content)
+    if (content === doc.content) return doc
+    return content && content.length > 0 ? { ...doc, content } : emptyDoc()
+  }
+}
+
+/** A fresh empty paragraph — the block every emptied container is left with. */
+function emptyBlock(): RichNode {
+  return { type: 'paragraph' }
 }
 
 function mapTreeContent(

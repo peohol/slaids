@@ -7,8 +7,12 @@ import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
-import { createImage, createUntitledCard } from '../domain/content'
+import { containerWithDoc, createImage, createUntitledCard } from '../domain/content'
+import { unknownAssetIds, usedAssetIds } from '../domain/commands'
 import { newAssetId, newTemplateId } from '../domain/ids'
+import { decodeBase64, realImageBase64 } from '../domain/testImages'
+import { bytesToBlob } from './blob'
+import { unzipSync, zipSync } from 'fflate'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
 
 let counter = 0
@@ -49,6 +53,23 @@ const assetRef: AssetRef = {
   width: 100,
   height: 80,
   isVector: true,
+}
+
+/**
+ * A real figure, because import is a door into the asset store.
+ *
+ * `.slaids` files come from outside Slaids, so their files go through
+ * `domain/assetIngress.ts` on the way back in — the same door the editor's
+ * upload dialog and `upload_asset` stand behind. A stand-in like `<svg />`
+ * would be refused there for having no intrinsic size, which is a property of
+ * the fixture rather than of the thing under test.
+ */
+function svgFixture(id: string): Blob {
+  return new Blob([svgMarkup(id)], { type: 'image/svg+xml' })
+}
+
+function svgMarkup(id: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80"><rect id="${id}" width="100" height="80"/></svg>`
 }
 
 interface RemoteQuirks {
@@ -232,7 +253,7 @@ describe('DexieSlaidsRepository', () => {
 
   it('round-trips asset blobs', async () => {
     const repository = freshRepository()
-    await repository.putAsset('p1', assetRef, new Blob(['<svg id="x" />'], { type: 'image/svg+xml' }))
+    await repository.putAsset('p1', assetRef, svgFixture('x'))
     const stored = await repository.getAsset(assetRef.id)
     expect(stored?.ref.name).toBe('figur.svg')
     expect(await stored?.blob.text()).toContain('<svg')
@@ -280,7 +301,7 @@ describe('.slaids backup', () => {
       ],
     }
     await source.savePresentation(presentation)
-    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
 
     const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
     expect(archive.size).toBeGreaterThan(0)
@@ -322,7 +343,7 @@ describe('.slaids backup', () => {
       ],
     }
     await repository.savePresentation(presentation)
-    await repository.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    await repository.putAsset(presentation.id, assetRef, svgFixture('figur'))
     const archive = await exportSlaidsArchive(repository, { presentationIds: [presentation.id] })
 
     const report = await importSlaidsArchive(repository, archive)
@@ -351,12 +372,12 @@ describe('.slaids backup', () => {
     const local = freshRepository()
     const mine = withAsset(samplePresentation())
     await local.savePresentation(mine)
-    await local.putAsset(mine.id, assetRef, new Blob(['<svg id="mine" />'], { type: 'image/svg+xml' }))
+    await local.putAsset(mine.id, assetRef, svgFixture('mine'))
 
     const other = freshRepository()
     const theirs = withAsset(createPresentation({ title: 'Fra en annen maskin' }))
     await other.savePresentation(theirs)
-    await other.putAsset(theirs.id, assetRef, new Blob(['<svg id="theirs" />'], { type: 'image/svg+xml' }))
+    await other.putAsset(theirs.id, assetRef, svgFixture('theirs'))
     const archive = await exportSlaidsArchive(other, { presentationIds: [theirs.id] })
 
     const report = await importSlaidsArchive(local, archive)
@@ -365,7 +386,7 @@ describe('.slaids backup', () => {
 
     // The local file is untouched, and still owned by the local presentation.
     const kept = await local.getAsset(assetRef.id)
-    expect(await kept?.blob.text()).toBe('<svg id="mine" />')
+    expect(await kept?.blob.text()).toBe(svgMarkup('mine'))
     expect((await local.listAssets(mine.id)).map((ref) => ref.id)).toEqual([assetRef.id])
 
     // The imported one got a fresh id, with its own bytes.
@@ -373,14 +394,14 @@ describe('.slaids backup', () => {
     expect(imported.assets[0].id).not.toBe(assetRef.id)
     expect(JSON.stringify(imported.slides[0].root)).not.toContain(assetRef.id)
     const copy = await local.getAsset(imported.assets[0].id)
-    expect(await copy?.blob.text()).toBe('<svg id="theirs" />')
+    expect(await copy?.blob.text()).toBe(svgMarkup('theirs'))
   })
 
   it('lagrer presentasjonen før filene, slik en fremmednøkkel krever', async () => {
     const source = freshRepository()
     const presentation = presentationWithAsset(samplePresentation())
     await source.savePresentation(presentation)
-    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
     const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
 
     const target = freshRepository()
@@ -395,7 +416,7 @@ describe('.slaids backup', () => {
     const source = freshRepository()
     const presentation = presentationWithAsset(samplePresentation())
     await source.savePresentation(presentation)
-    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
     const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
 
     // The target's own library is empty, so nothing looks taken — until the
@@ -422,7 +443,7 @@ describe('.slaids backup', () => {
     const source = freshRepository()
     const presentation = presentationWithAsset(samplePresentation())
     await source.savePresentation(presentation)
-    await source.putAsset(presentation.id, assetRef, new Blob(['<svg />'], { type: 'image/svg+xml' }))
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
     const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
 
     const target = freshRepository()
@@ -511,6 +532,206 @@ describe('.slaids backup', () => {
     expect(report.importedTemplates).toBe(0)
     expect(report.errors.some((error) => error.includes('avvist'))).toBe(true)
     expect(await target.listTemplates()).toEqual([])
+  })
+
+  /*
+   * A `.slaids` file is external input, whoever made it. The documents in it
+   * are validated and migrated; these check that its *files* are too — an old
+   * backup must not be the way around the SVG rule, since a `.slaids` handed to
+   * somebody is exactly as trustworthy as an `.svg` handed to them.
+   *
+   * The archives here are built by storing bytes straight into a source
+   * repository and exporting it, which is precisely the shape a hand-crafted
+   * archive would have: the export copies what it is given.
+   */
+  async function archiveCarrying(blob: Blob): Promise<Blob> {
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, blob)
+    return exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+  }
+
+  it.each([
+    ['<script>', `<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>`],
+    ['onclick', `<svg viewBox="0 0 1 1"><rect onclick="alert(1)" width="1" height="1"/></svg>`],
+    [
+      'ekstern referanse',
+      `<svg viewBox="0 0 1 1"><image href="https://evil.example/x.png" width="1" height="1"/></svg>`,
+    ],
+    [
+      'CSS-omvei',
+      `<svg viewBox="0 0 1 1"><rect style="fill:\\75 rl(https://evil.example/x)" width="1" height="1"/></svg>`,
+    ],
+  ])('lar ikke en backup smugle inn en SVG med %s', async (_label, markup) => {
+    const archive = await archiveCarrying(new Blob([markup], { type: 'image/svg+xml' }))
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+
+    // The deck still imports — the figure does not, and the report says which.
+    expect(report.importedPresentations).toHaveLength(1)
+    expect(report.importedAssets).toBe(0)
+    expect(report.errors.join(' ')).toContain('figur.svg')
+    expect(await target.getAsset(assetRef.id)).toBeNull()
+    expect(await target.listAssets(report.importedPresentations[0])).toEqual([])
+
+    /*
+     * And the document does not point at it. A refused file that stayed in the
+     * asset list — or in the zone that showed it — would be a deck importing
+     * "successfully" with a picture that can never load, which is the state
+     * `unknownAssetIds` exists to call broken.
+     */
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(JSON.stringify(restored.slides)).not.toContain(assetRef.id)
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
+  })
+
+  it('tar den avviste figuren ut av teksten og sandkassen også', async () => {
+    // Not only the asset list: an inline picture is a block in the text and a
+    // sandbox item is content too, and either one left pointing at a file that
+    // was never stored is the same broken deck.
+    const source = freshRepository()
+    const base = samplePresentation()
+    const presentation: Presentation = {
+      ...base,
+      assets: [assetRef],
+      slides: [
+        {
+          ...base.slides[0],
+          root: createSplit('x', [1, 1], [
+            createLeaf(createImage(assetRef.id)),
+            createLeaf(
+              containerWithDoc({
+                type: 'doc',
+                content: [
+                  { type: 'paragraph', content: [{ type: 'text', text: 'Teksten blir stående.' }] },
+                  { type: 'slaidsImage', attrs: { assetId: assetRef.id, alt: 'Figur' } },
+                ],
+              }),
+            ),
+          ]),
+        },
+      ],
+      sandbox: [{ id: 'sb1', content: createImage(assetRef.id), createdAt: '', note: '' }],
+    }
+    await source.savePresentation(presentation)
+    await source.putAsset(
+      presentation.id,
+      assetRef,
+      new Blob([`<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>`], {
+        type: 'image/svg+xml',
+      }),
+    )
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.importedPresentations).toHaveLength(1)
+
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(JSON.stringify(restored)).not.toContain(`"assetId":"${assetRef.id}"`)
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
+    // Everything the archive did describe correctly is still there.
+    expect(JSON.stringify(restored.slides)).toContain('Teksten blir stående.')
+    expect(restored.sandbox).toHaveLength(1)
+  })
+
+  it('fjerner også en referanse arkivet ikke har bytes for', async () => {
+    // Missing file data was already reported and skipped; now the reference
+    // goes with it, so the rule is one rule and not one per reason.
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, svgFixture('figur'))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // Strip the bytes out of the zip, leaving the index entry behind.
+    const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()))
+    const withoutBytes = Object.fromEntries(
+      Object.entries(entries).filter(([path]) => !/^assets\/[^/]+\.svg$/.test(path)),
+    )
+    const damaged = new Blob([zipSync(withoutBytes) as unknown as BlobPart])
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, damaged)
+    expect(report.errors.join(' ')).toContain('Mangler fildata')
+
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets).toEqual([])
+    expect(unknownAssetIds(restored, [...usedAssetIds(restored)])).toEqual([])
+  })
+
+  it('saniterer en lovlig SVG på vei inn, og lagrer den reserialiserte', async () => {
+    const archive = await archiveCarrying(
+      new Blob([`<svg viewBox="0 0 100 80"><rect width="100" height="80"/><blink/></svg>`], {
+        type: 'image/svg+xml',
+      }),
+    )
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.errors).toEqual([])
+    expect(report.importedAssets).toBe(1)
+
+    const stored = await target.getAsset(assetRef.id)
+    const markup = await stored!.blob.text()
+    expect(markup).not.toContain('blink')
+    expect(markup).toContain('<rect')
+    // The document describes the file that is actually there, not what the
+    // archive claimed about it.
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets[0].byteSize).toBe(new TextEncoder().encode(markup).byteLength)
+    expect(restored.assets[0]).toMatchObject({ mimeType: 'image/svg+xml', isVector: true })
+  })
+
+  it('leser formatet av bytene, ikke av det arkivet kaller filen', async () => {
+    // An index entry claiming `image/svg+xml` for PNG bytes, and the other way
+    // round: the type a file is served with is what makes it active content, so
+    // it can never be the archive's word for it.
+    const png = decodeBase64(realImageBase64.png)
+    const archive = await archiveCarrying(bytesToBlob(png, 'image/svg+xml'))
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.errors).toEqual([])
+
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets[0]).toMatchObject({ mimeType: 'image/png', isVector: false })
+    const stored = await target.getAsset(assetRef.id)
+    expect(new Uint8Array(await stored!.blob.arrayBuffer())).toEqual(png)
+  })
+
+  it('lar et rasterbilde stå byte for byte, med størrelsen arkivet husket', async () => {
+    const png = decodeBase64(realImageBase64.png)
+    const source = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    const rasterRef: AssetRef = {
+      ...assetRef,
+      name: 'bilde.png',
+      mimeType: 'image/png',
+      isVector: false,
+      byteSize: png.byteLength,
+      width: 640,
+      height: 480,
+    }
+    await source.savePresentation({ ...presentation, assets: [rasterRef] })
+    await source.putAsset(presentation.id, rasterRef, bytesToBlob(png, 'image/png'))
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.errors).toEqual([])
+
+    const stored = await target.getAsset(rasterRef.id)
+    expect(new Uint8Array(await stored!.blob.arrayBuffer())).toEqual(png)
+    // Not re-derived: the size the archive recorded is the size that was read
+    // when the file first came through a door, and a backup is not the place to
+    // start refusing decks over it.
+    const restored = await target.loadPresentation(report.importedPresentations[0])
+    expect(restored.assets[0]).toMatchObject({ width: 640, height: 480 })
   })
 
   it('reports a corrupt archive instead of throwing', async () => {
