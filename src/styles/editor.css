@@ -85,6 +85,72 @@
   color: var(--chrome-text-dim);
 }
 
+/* The Ω trigger reads as a character, not a stroke icon, so it sits at the
+   same size the inserted text will actually be. */
+.symbol-trigger {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Wider than an ordinary popover: the grid needs room, a formatting menu never
+   does. */
+.popover--symbols {
+  width: min(320px, calc(100vw - 24px));
+}
+
+/* The groups wrap over several lines instead of scrolling sideways — they are
+   there to switch between, and a tab you have to hunt for is a tab nobody uses. */
+.symbol-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+/* The grid scrolls on its own, so the tabs and the name line stay put. */
+.symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 2px;
+  max-height: min(240px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.symbol-cell {
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--chrome-text);
+  /* The font the inserted text will actually land in, so the cell shows what
+     you get. */
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.symbol-cell:hover,
+.symbol-cell:focus-visible {
+  background: var(--chrome-bg-raised);
+}
+
+/* Fixed height, so the menu does not jump as the pointer moves across cells. */
+.symbol-name {
+  height: 18px;
+  margin-top: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--chrome-text-dim);
+}
+
 .editor__body {
   flex: 1;
   min-height: 0;
