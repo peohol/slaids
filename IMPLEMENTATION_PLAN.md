@@ -298,77 +298,117 @@ Når tittelen fjernes, ekspanderer hovedområdet automatisk. Layouttreets relati
 
 ---
 
-## 8.5\. Forside
+## 8.5\. Seksjoner og forsiden
 
-Hver presentasjon har **nøyaktig én forside**, og den er obligatorisk. Den er
-første side i dekket, og ingen kommando kan slette den, flytte den eller lage en
-til.
-
-Det er ikke en regel en kommando må huske: forsiden er et **felt på
-presentasjonen** (`cover` på `DeckSource`), ikke et element i `slides`. Da er
-«alle presentasjoner har en forside» en egenskap ved typen, og «forsiden er
-først» en egenskap ved `deckPages`.
-
-Forsiden er heller ikke en `Slide`. Den har ikke noe layouttre, ingen soner,
-ingen splitting og ingen soneredigering – bare to linjer og en farge:
+En **seksjon** er en slide som åpner en del av dekket: en stor overskrift og en
+valgfri underoverskrift i fargede piller, og de to fargene alt etter den tegnes
+i. Den er en `Slide`, men ikke en med soner:
 
 ```ts
-type DeckCover = {
+type SectionSlide = {
+  id: string
+  kind: 'section'
   title: TitleDoc
   subtitle: TitleDoc
-  /** Fargen på pillene – og samtidig standardfargen for overskrifter. */
-  pillColor: string
+  /** Piller her, og standardfargen for overskrifter fram til neste seksjon. */
+  accentColor: string
+  /** Sidefargen for denne siden og hver slide fram til neste seksjon. */
+  backgroundColor: string
 }
+
+type Slide = ContentSlide | SectionSlide
 ```
+
+**Første slide er alltid en seksjon**, og det er dekkets forside. Det er ikke en
+regel en kommando må huske: `slides` har typen
+
+```ts
+type DeckSlides = readonly [SectionSlide, ...Slide[]]
+```
+
+så «alle presentasjoner har en forside» er en egenskap ved typen, ikke ved
+disiplinen til hver enkelt kommando. Den ene veien fra en vanlig liste til
+`DeckSlides` er `asDeckSlides` i `src/domain/deckSlides.ts`, og hver kommando som
+setter inn, fjerner eller stokker om slides ender der. Skjemaet stiller det
+samme spørsmålet én gang på lagrede dokumenter, så en kastet `as Presentation`
+etter en godkjent parse er en konstatering og ikke et håp.
+
+Forsiden kan derfor godt slettes – så lenge seksjonen etter den overtar som
+forside. Regelen er formulert om *resultatet*, ikke om posisjon 0, fordi «drop
+den første delen av dekket» er noe en forfatter mener. `canDeleteSlide` er den
+samme koden stilt som et spørsmål, slik at søppelbøtta i filmstripen og
+kommandoen svarer det samme.
 
 ### De to linjene
 
-- **Tittel** settes i nøyaktig samme størrelse som en slide-tittel
+- **Overskriften** settes i nøyaktig samme størrelse som en slide-tittel
   (`TITLE_FONT_SIZE`), slik at dekket åpner i typografien det fortsetter i.
-- **Undertittel** settes ett hakk under (`COVER_SUBTITLE_FONT_SIZE`) – et hakk,
-  ikke en annen slags tekst.
-- Begge er **alltid horisontalt midtstilt**, og de to er **samlet vertikalt
-  midtstilt**. Midtstillingen er ikke et valg som lagres: `titleExtensions`
-  fjerner justeringsattributtet helt for forsiden, så det finnes ingen annen
-  tilstand å havne i – heller ikke via paste eller et framtidig API-kall.
+- **Underoverskriften** settes ett hakk under (`SECTION_SUBTITLE_FONT_SIZE`) –
+  et hakk, ikke en annen slags tekst – og er **valgfri**.
+- Begge er **alltid horisontalt midtstilt**, og de er **samlet vertikalt
+  midtstilt**. En seksjon med bare overskrift midtstiller derfor den ene linjen,
+  og en med begge midtstiller paret; ingen av delene er skrevet ned noe sted, de
+  faller ut av `justify-content: center` på siden. Midtstillingen er heller ikke
+  et valg som lagres: `titleExtensions` fjerner justeringsattributtet helt, så
+  det finnes ingen annen tilstand å havne i – heller ikke via paste eller et
+  API-kall.
 - Hver linje er **én linje**, som en tittelsone: tekst som ikke får plass
-  avvises, den klippes aldri. `computeCoverGeometry` eier bredden hver linje
+  avvises, den klippes aldri. `computeSectionGeometry` eier bredden hver linje
   faktisk har (siden minus pillens egen polstring), og både fit-porten og
   `max-width` på pillen leser den samme.
-- Forsiden kan **ikke sitere**. Et citation-nummer utledes av første forekomst
-  blant *slidene*, så en citation på forsiden ville tegnet en tom pille.
-  `CitationExtension` er derfor ikke med i forsidens skjema.
+- En seksjon kan **ikke sitere**. Et citation-nummer utledes av første forekomst
+  blant *innholdsslidene*, så en citation her ville tegnet en tom pille.
+  `CitationExtension` er derfor ikke med i seksjonens skjema.
 - En linje uten tekst tegner **ingen pille** når dekket vises. I editoren tegnes
-  begge, ellers kan en tom undertittel aldri klikkes i.
+  begge: den tomme pillen *er* plassholderen, og det eneste det går an å klikke
+  på før en underoverskrift finnes.
 
-### Pillefargen er dekkets standardfarge for overskrifter
+### Fargene arves av slidene fram til neste seksjon
 
-Bakgrunnsfargen på forsidens piller er samtidig **standardfargen for de
-pilleformede overskriftene i innholdet**. Tekstfargen utledes av kontrast, som
-alle andre fargepar i Slaids.
+Hver side hører til seksjonen foran seg, og tegnes i dens to farger. Hvilken
+seksjon som styrer en gitt side er noe bare dekket vet – som et citation-nummer,
+eller hvor full fremdriftsindikatoren er – så det utledes én gang av siderekka
+(`deckSectionColors` i `src/domain/pages.ts`) og ligger i `SlideRenderContext`.
+De avledede sidene til slutt fortsetter den siste seksjonen: det er der leseren
+er når de kommer dit.
+
+- **`backgroundColor`** er sidefargen. Den lå før i temaet, som ett tall for hele
+  dekket; den er en seksjons nå, av samme grunn som aksentfargen er det – et dekk
+  leses som en rekke deler, og en del er det en forfatter fargelegger.
+- **`accentColor`** maler pillene her, og er samtidig standardfargen for de
+  pilleformede overskriftene, kortheaderne og bildetekstene i innholdet.
 
 Det avgjørende er hva «bruker standardfargen» betyr. Det betyr **ikke** at
-overskriften har samme hex-kode som forsiden. Det betyr at ingen har valgt en
+overskriften har samme hex-kode som seksjonen. Det betyr at ingen har valgt en
 farge for den:
 
 - en overskrift uten valgt farge lagrer **ingen** farge (`color: null`), og
-  males av `--slaids-heading-pill`, som settes fra `cover.pillColor`;
+  males av `--slaids-heading-pill`, som settes fra seksjonens `accentColor`;
 - en overskrift som *har* fått en farge lagrer den, og beholder den.
 
-Derfor treffer en fargeendring på forsiden hver eneste overskrift som følger
-standarden – også de som lages senere – uten at ett eneste lagret dokument
-endres, og uten at noe av dette kan angres bort som en dokumentendring.
-Alternativet, å skrive standardfargen inn i dokumentet, ville gjort «ikke valgt»
-og «valgte akkurat denne blåfargen» til det samme dokumentet, og da kunne ingen
-av dem følge forsiden igjen.
+Derfor treffer en fargeendring på en seksjon hver eneste overskrift i dens del av
+dekket som følger standarden – også de som lages senere – uten at ett eneste
+lagret dokument endres, og uten at noe av dette kan angres bort som en
+dokumentendring. Alternativet, å skrive standardfargen inn i dokumentet, ville
+gjort «ikke valgt» og «valgte akkurat denne blåfargen» til det samme dokumentet,
+og da kunne ingen av dem følge seksjonen igjen.
 
 Migrasjonen til v8 gjør nøyaktig dette for dokumenter som allerede finnes: en
 lagret farge som er *nøyaktig* den gamle standarden fjernes (den var aldri et
 valg), alle andre farger står urørt.
 
+### En ny seksjon arver den forriges farger
+
+`addSection` tar fargene fra seksjonen foran innsettingspunktet når kalleren ikke
+oppgir dem. En forfatter som vil holde samme uttrykk gjennom hele dekket får det
+ved å ikke gjøre noe; en som vil ha et nytt uttrykk bytter to fargeprøver.
+Overskriften måles på vei inn – absolutt, som enhver annen plassering: en
+seksjon som ikke fantes for et øyeblikk siden har ingen forrige tilstand å
+regrediere fra.
+
 ### Å opprette et dekk er også en redigering
 
-Forsidens tittel starter som dekkets navn. Da er navnet ikke lenger bare
+Forsidens overskrift starter som dekkets navn. Da er navnet ikke lenger bare
 metadata i biblioteket – det er en linje som tegnes – og et navn som ikke får
 plass på én linje ville blitt lagret som en klippet forside, i en tilstand den
 aller neste redigeringen av den linjen ville avvist.
@@ -376,14 +416,24 @@ aller neste redigeringen av den linjen ville avvist.
 `createPresentation` forblir derfor en ren fabrikk (lasting, migrering og
 import skal aldri stoppes av en fit-regel), mens kommandoen `createDeck` er
 formen de to stedene et menneske eller en agent lager et dekk av tekst de nettopp
-skrev. Den måler forsiden absolutt – det finnes ingen forrige tilstand å
-regrediere fra – og avviser med samme feilkode som en for lang slide-tittel.
+skrev. Den måler forsiden absolutt og avviser med samme feilkode som en for lang
+slide-tittel.
+
+### Migrering: v12 → v13
+
+Forsiden var før et felt (`cover`) ved siden av `slides`, og bakgrunnsfargen ett
+tall i temaet. Migrasjonen flytter begge inn i seksjonen den lager som dekkets
+første slide, og gir hver eksisterende slide `kind: 'content'` – som er det de
+alltid var. Ingenting ved et migrert dekk ser annerledes ut; det som endret seg
+er hvor fargen kan endres fra.
 
 ---
 
 ## 8.6\. Fremdriftsindikator
 
 Hver side unntatt forsiden har en fremdriftsindikator, og den er **obligatorisk**.
+Forsiden er dekkets første slide, så «unntatt forsiden» er «unntatt den første
+siden» – senere seksjoner er sider i flyten som alle andre og har en indikator.
 
 At den ikke kan slås av er ikke en forenkling, det er hele poenget. Et valg
 ville betydd at et dekk kunne bygges uten den og få den på etterpå – og da
@@ -411,7 +461,7 @@ G
 - Høyden er en tykkelse og ikke en avstand mellom to ting, så `spacing` skalerer
   den ikke – på samme måte som den ikke skalerer en kortradius eller en
   skillestrek.
-- En beholder i forsidens pillefarge med 30 % opacity, og en voksende del i den
+- En beholder i seksjonens aksentfarge med 30 % opacity, og en voksende del i den
   samme fargen med full opacity. De to er søsken i DOM-en, ikke forelder og
   barn: `opacity` gjelder for hele gruppen, så en voksende del inni en beholder
   på 30 % ville selv blitt 30 %.
@@ -746,7 +796,7 @@ Et bilde kan også settes inn *inne i* en tekst, og de to veiene møtes i
 opplastingsdialogen: «Fyll sonen» eller «I tekstfeltet». Om det siste er mulig,
 avgjøres av feltets eget skjema (`acceptsInlineImage`), ikke av hvilken felttype
 markøren står i. Bare `bodyExtensions` registrerer `slaidsImage`; en slide-tittel,
-en forsidelinje og en bildetekst er én linje tekst, og `titleExtensions` lar noden
+en seksjonslinje og en bildetekst er én linje tekst, og `titleExtensions` lar noden
 være ute i stedet for å skjule en knapp. Å spørre editoren i stedet for å liste
 felttyper er det som holder skjemaet og dialogen sammen: en liste svarer riktig i
 dag, må vedlikeholdes for hånd den dagen en femte felttype dukker opp, og første
@@ -759,7 +809,7 @@ En valgfri tekst over bildet, i en beholder som
 
 - alltid er horisontalt midtstilt;
 - har valgfri bakgrunnsfarge med 30 % opasitet og 3px backdrop-blur. Fargen er
-  `null` til noen velger en, og leser da forsidens pillefarge — samme arv som en
+  `null` til noen velger en, og leser da seksjonens aksentfarge — samme arv som en
   overskrift og et titteldpanel. Teksten er hvit med skygge uansett: 30 % av en
   farge over et ukjent fotografi er ingen bakgrunn å regne kontrast mot;
 - henger fra taket øverst (nedre hjørner avrundet), står på gulvet nederst
@@ -792,7 +842,8 @@ bildetekst og én renderer (`ImagePanelView`) for begge.
 
 ## 14\. Farger og kontrast
 
-Presentasjonen har global bakgrunnsfarge.
+Bakgrunnsfargen settes per seksjon og arves av slidene fram til neste – se §8.5.
+Et dekk med én seksjon har derfor én bakgrunnsfarge, slik det alltid har hatt.
 
 Kort kan bruke en begrenset, deterministisk palett.
 
@@ -808,7 +859,7 @@ Tekst på bakgrunn velges mellom svart og hvitt ved å beregne kontrast og velge
 Tekstskygge kan brukes dekorativt på mørke bakgrunner, men skal ikke være forutsetningen for lesbarhet.
 
 Standardfargen for de pilleformede overskriftene i innholdet er ikke en konstant
-i paletten, men **forsidens pillefarge** – se §8.5. En overskrift uten valgt
+i paletten, men **seksjonens aksentfarge** – se §8.5. En overskrift uten valgt
 farge lagrer ingen farge og følger den; en overskrift som har fått en farge,
 beholder den.
 
@@ -819,11 +870,14 @@ beholder den.
 Når en ny presentasjon opprettes velges:
 
 1. tittel;
-2. global bakgrunnsfarge;
+2. bakgrunnsfargen dekket starter i;
 3. font for titler/overskrifter;
 4. font for brødtekst.
 
-Disse gjelder globalt i presentasjonen.
+Fontene gjelder globalt i presentasjonen. Bakgrunnsfargen gjør det ikke: den
+settes på forsiden og arves av slidene fram til neste seksjon – se §8.5. Å lage
+et dekk er nettopp øyeblikket der det bare finnes én seksjon, og derfor er ett
+fargevalg fortsatt riktig spørsmål å stille her.
 
 Det skal ikke være mulig å få tilfeldig fontmiks per slide.
 
@@ -831,7 +885,6 @@ Designet skal være token-basert:
 
 ```ts
 type PresentationTheme = {
-  backgroundColor: string
   headingFontFamily: string
   bodyFontFamily: string
   /** Luft: én multiplikator på alle avstander. */
@@ -901,7 +954,7 @@ valideres på vei ut igjen.
 Bruk Tiptap/ProseMirror og lagre dokumentet som strukturert JSON, ikke rå HTML.
 
 En overskrift er en pille, og fargeattributtet er `null` når ingen har valgt noe.
-Standarden lagres aldri i dokumentet – den kommer fra forsiden gjennom en
+Standarden lagres aldri i dokumentet – den kommer fra seksjonen gjennom en
 CSS-variabel – slik at «ikke valgt» og «valgte akkurat denne fargen» forblir to
 forskjellige dokumenter. Se §8.5.
 
@@ -2080,7 +2133,7 @@ kjørt, mens en crawler kan nøye seg med det første HTML-svaret.
 ### Sidene i et dekk
 
 ```text
-forside → authored slides → avledede referansesider → avledet QR-side
+authored slides (forsiden først) → avledede referansesider → avledet QR-side
 ```
 
 De to første er lagret, de to siste ikke. QR-siden er ikke en `Slide` og ligger
@@ -2248,8 +2301,9 @@ delete_folder
 
 set_theme
 
-set_cover
-set_cover_color
+add_section
+set_section
+set_section_colors
 
 inspect_slide
 add_slide
@@ -2368,8 +2422,9 @@ set_zone_text
 
 ### Tema
 
-Temaet er globalt: bakgrunnsfarge, font for titler, font for brødtekst, luft og
-skriftstørrelse gjelder hele presentasjonen, og en enkelt slide kan ikke avvike.
+Temaet er globalt: font for titler, font for brødtekst, luft og skriftstørrelse
+gjelder hele presentasjonen, og en enkelt slide kan ikke avvike. Farger er ikke
+en del av det – de er en seksjons, og settes med `set_section_colors`.
 En agent som ikke kan styre det, kan bare lage innhold i standardtemaet – og da
 er «lag en gjennomført presentasjon» ikke en oppgave den kan gjøre ferdig.
 
@@ -2391,7 +2446,8 @@ Kontrakten er derfor:
   navn en agent kan bruke for å si «normal», ikke grensene den må holde seg til;
   de siteres i beskrivelsen fra `SPACING_PRESETS` og `FONT_SCALE_PRESETS`. En
   agent som ber om 1.12 har bedt om noe lovlig, og fit-guarden avgjør resten.
-- **Bakgrunnsfargen er en vanlig hex-farge**, som `set_cover_color`. Editorens
+- **Fargene ligger ikke i temaet**, de settes per seksjon med
+  `set_section_colors`. Editorens
   palett er en måte å klikke en farge på, ikke en begrensning domenet har.
 - **Endringen er atomisk.** En temaendring måler hele dekket på nytt mot det
   prospektive temaet, og en endring som ville skjult innhold avvises med
@@ -2712,8 +2768,9 @@ For eksempel:
 slaids_list_presentations
 slaids_get_presentation
 slaids_create_presentation
-slaids_set_cover
-slaids_set_cover_color
+slaids_add_section
+slaids_set_section
+slaids_set_section_colors
 slaids_inspect_slide
 slaids_add_slide
 slaids_split_zone
@@ -3099,7 +3156,7 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
 - Skriving: `create_presentation`, `set_presentation_title`,
   `create_folder`, `delete_folder`,
   `move_presentation`, `duplicate_presentation`, `delete_presentation`,
-  `set_theme`, `set_cover`, `set_cover_color`, `add_slide`,
+  `set_theme`, `add_section`, `set_section`, `set_section_colors`, `add_slide`,
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
   `adjust_split`, `delete_zone`,
@@ -3893,7 +3950,7 @@ skjermbilde at den er utdatert. Auditen får én rad under operasjonens eget nav
 og radformen er fortsatt lukket: det finnes ingen kolonne bildet kunne havnet i.
 
 **Adresseringen er `presentationId` + `slideId`**, der `slideId` er en slide,
-`__cover__` for forsiden, eller id-en til en avledet referanseside – oppslaget
+en seksjon (forsiden er den første), eller id-en til en avledet referanseside – oppslaget
 går mot `deckPages`, den samme sidemodellen presentasjonsmodus blar gjennom. En
 id som ikke finnes gir `SLIDE_NOT_FOUND` med id-ene som *finnes*, slik
 `inspect_slide` gjør. QR-siden er ikke med: den finnes bare mens delingen er på,

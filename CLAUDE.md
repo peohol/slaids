@@ -62,8 +62,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   tom fjerner seg selv – derfor er det trygt at *enhver* tom bildetekst autofokuseres: en
   tom kan bare være en helt fersk. Bildeteksten er alltid midtstilt, hvit med skygge
   uansett fargetone (30 % av en farge over et ukjent fotografi er ingen bakgrunn å regne
-  kontrast mot), og fargen er `null` til noen velger en – da leser den forsidens pillefarge,
-  akkurat som en overskrift og et titteldpanel gjør. Et kort med tittel og bilde har
+  kontrast mot), og fargen er `null` til noen velger en – da leser den seksjonens
+  aksentfarge, akkurat som en overskrift og et titteldpanel gjør. Et kort med tittel og bilde har
   allerede et panel langs overkanten, så bildeteksten kan bare stå i midten eller nederst.
 - `children.length === weights.length`; 2–10 barn; **alle weights er hele tall mellom 1
   og 10**. Et forholdstall er noe forfatteren leser og skriver ned, og en sluppet
@@ -85,6 +85,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   utledning av tema-skalerte tokens; geometrimotoren, DOM-en og estimatoren
   leser alle den samme.
 - **Hver side unntatt forsiden har en fremdriftsindikator, og den er obligatorisk.**
+  Forsiden er dekkets første slide, så «unntatt forsiden» er «unntatt den første siden»;
+  senere seksjoner er sider i flyten som alle andre og har en indikator.
   Var den valgfri, ville et dekk kunne bygges uten den og få den på etterpå – og da
   mistet hver slide en stripe med plass den allerede var full av. Fordi den alltid er
   der, reserverer `computeMainRect` stripen én gang, før noe innhold plasseres.
@@ -140,24 +142,37 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   den åpne editorens kjente versjon utdatert og laget en falsk samtidighetskonflikt ved neste
   autosave. Den ekte optimistiske låsen gjelder fortsatt for `document`, `title`, `folder_id`
   og `slide_count`.
-- Sidene i et dekk er `forside → authored slides → avledede referansesider → avledet QR-side`.
-  De to første er lagret, de to siste ikke. QR-siden er ikke en `Slide` og ligger aldri i
+- Sidene i et dekk er `authored slides → avledede referansesider → avledet QR-side`.
+  De første er lagret, de to siste ikke. QR-siden er ikke en `Slide` og ligger aldri i
   `presentation.slides`; den er et eget medlem av `DeckPage`-unionen i `src/domain/pages.ts`
   og finnes bare mens delingen er på.
-- **Hver presentasjon har nøyaktig én forside, alltid først.** Den er et felt (`cover`) på
-  `DeckSource`, ikke et element i `slides` – derfor er «alle presentasjoner har en forside»
-  en egenskap ved typen, ikke en regel en kommando må huske, og ingen kommando kan slette
-  den, flytte den eller lage en til. Den er ikke en `Slide`: intet layouttre, ingen soner,
-  ingen soneredigering. Tittel og undertittel er én linje hver, alltid midtstilt (skjemaet
-  har ikke noe justeringsattributt å sette), og de kan ikke sitere – et citation-nummer
-  utledes av første forekomst blant slidene, så en citation der ville tegnet en tom pille.
-  Se `IMPLEMENTATION_PLAN.md` §8.5.
-- Forsidens pillefarge er samtidig dekkets standardfarge for de pilleformede overskriftene
-  i innholdet. «Bruker standardfargen» betyr **ikke** samme hex-kode: en overskrift ingen
-  har valgt farge for lagrer ingen farge (`color: null`) og males av
-  `--slaids-heading-pill`, som settes fra `cover.pillColor`. Derfor treffer en endring på
-  forsiden hver slik overskrift – også de som lages senere – uten at ett eneste lagret
-  dokument endres. En overskrift som *har* fått en farge, beholder den.
+- **En slide er enten en `ContentSlide` eller en `SectionSlide`, og den første er alltid
+  en seksjon.** En seksjon åpner en del av dekket: to linjer i piller, ingen soner. Den
+  første er dekkets forside, og at den er en seksjon er en egenskap ved *typen* —
+  `DeckSlides = readonly [SectionSlide, ...Slide[]]` — ikke en regel hver kommando må
+  huske. Den ene veien fra en vanlig liste til den typen er `asDeckSlides` i
+  `src/domain/deckSlides.ts`, og hver kommando som setter inn, fjerner eller stokker om
+  ender der; skjemaet stiller det samme spørsmålet på lagrede dokumenter. Forsiden kan
+  derfor godt slettes så lenge seksjonen etter overtar — regelen er om *resultatet*, ikke
+  om posisjon 0 — og `canDeleteSlide` er den samme koden stilt som et spørsmål, så
+  søppelbøtta i filmstripen og kommandoen aldri svarer forskjellig. Overskrift og
+  underoverskrift er én linje hver, alltid midtstilt (skjemaet har ikke noe
+  justeringsattributt å sette); underoverskriften er valgfri, og den tomme pillen i
+  editoren *er* plassholderen for den. En seksjon kan ikke sitere – et citation-nummer
+  utledes av første forekomst blant innholdsslidene, så en citation der ville tegnet en
+  tom pille. Se `IMPLEMENTATION_PLAN.md` §8.5.
+- **En seksjons to farger gjelder til neste seksjon.** `accentColor` maler pillene der og
+  er standardfargen for overskrifter, kortheadere og bildetekster i dens del av dekket;
+  `backgroundColor` er sidefargen — den lå før i temaet, som ett tall for hele dekket.
+  Hvilken seksjon som styrer en side er noe bare dekket vet, som et citation-nummer, så
+  det utledes én gang av siderekka (`deckSectionColors`) og ligger i
+  `SlideRenderContext`. «Bruker standardfargen» betyr **ikke** samme hex-kode: en
+  overskrift ingen har valgt farge for lagrer ingen farge (`color: null`) og males av
+  `--slaids-heading-pill`, som settes fra seksjonens `accentColor`. Derfor treffer en
+  endring på en seksjon hver slik overskrift i dens del – også de som lages senere – uten
+  at ett eneste lagret dokument endres. En overskrift som *har* fått en farge, beholder
+  den. En ny seksjon arver den forriges farger, så samme uttrykk gjennom dekket koster
+  ingenting å beholde.
 - **Alt** under `/s/` er offentlig og går aldri gjennom `AuthGate` – grensen er stien, ikke
   tokenet. En avkortet eller feilskrevet lenke tilhører den som fikk den, og skal møte
   «Denne delingslenken er ikke aktiv», aldri eierens innlogging. Et syntaktisk umulig token
@@ -233,7 +248,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 - **Temaet styres av agenten gjennom den samme kommandoen som modalen.**
   `get_presentation` bærer temaet – ingen egen `get_theme`, fordi flaten skal være
   liten og en agent som har lest presentasjonen har lest temaet – og `set_theme`
-  setter det via `setTheme`. Ingen validering, klamping eller temalogikk i
+  setter det via `setTheme`. Farger er ikke en del av temaet: de er en seksjons,
+  og settes med `set_section_colors`. Ingen validering, klamping eller temalogikk i
   agentlaget. Fonter navngis med id fra `src/domain/fonts.ts`, og det publiserte
   fontenumet **genereres fra katalogens garanterte halvdel** (`isGuaranteedFont`);
   en andre liste ville blitt oppdaget først den dagen katalogen fikk en font
@@ -561,8 +577,8 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   multimodal modell; `structuredContent` beskriver bildet og gjentar det ikke.
 - Et preview er en **lesing**: `presentations:read` alene holder, ingenting lagres, og
   revisjonen svaret bærer er den lesingen bildet viser – så en agent kan rendre, tenke og
-  skrive mot den samme revisjonen. `slideId` slås opp mot `deckPages`, så forsiden
-  (`__cover__`) og de avledede referansesidene er adresserbare; QR-siden er ikke med, siden
+  skrive mot den samme revisjonen. `slideId` slås opp mot `deckPages`, så både seksjoner
+  (forsiden er den første) og de avledede referansesidene er adresserbare; QR-siden ikke, siden
   den bare finnes mens delingen er på.
 - Serverfunksjonen deployes som **én bundel** (`src/server/generated/agentApi.js`), ikke som
   kildetreet. Vercel kompilerer hver `.ts`-fil for seg og lar Node løse importene mellom

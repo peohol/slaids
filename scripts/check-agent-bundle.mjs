@@ -111,7 +111,7 @@ const source = readFileSync(bundle, 'utf8')
  * A custom property, a reset and two class names the slide renderer emits are
  * things it cannot remove without removing the styling itself.
  */
-for (const marker of ['box-sizing:border-box', '--slaids-body-font-size', '.rd-citation', '.cover-pill']) {
+for (const marker of ['box-sizing:border-box', '--slaids-body-font-size', '.rd-citation', '.section-pill']) {
   if (!source.includes(marker)) {
     fail(
       `Bundelen inneholder ikke «${marker}» fra Slaids' eget stilark. ` +

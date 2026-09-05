@@ -21,11 +21,13 @@ export function StatusBar({
   const saveStatus = useEditorStore((state) => state.saveStatus)
   const mode = useEditorStore((state) => state.mode)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
-  const viewingCover = useEditorStore((state) => state.viewingCover)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const slide = presentation.slides.find((entry) => entry.id === currentSlideId)
   const index = presentation.slides.findIndex((entry) => entry.id === currentSlideId)
-  const breadcrumb = slide && selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
+  const breadcrumb =
+    slide?.kind === 'content' && selectedNodeId
+      ? breadcrumbLabels(slide.root, selectedNodeId)
+      : []
 
   return (
     <footer className="statusbar" data-testid="statusbar">
@@ -34,9 +36,9 @@ export function StatusBar({
       </span>
       <span className="statusbar__sep">·</span>
       <span>
-        {viewingCover ? 'Forside' : `Slide ${index + 1} av ${presentation.slides.length}`}
+        {`${slide?.kind === 'section' ? (index === 0 ? 'Forside' : 'Seksjon') : 'Slide'} ${index + 1} av ${presentation.slides.length}`}
       </span>
-      {!viewingCover && mode === 'zone' && breadcrumb.length > 0 && (
+      {mode === 'zone' && breadcrumb.length > 0 && (
         <>
           <span className="statusbar__sep">·</span>
           <span data-testid="status-breadcrumb">{breadcrumb.join(' › ')}</span>

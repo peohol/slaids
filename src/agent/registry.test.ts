@@ -16,6 +16,7 @@ import { RepositoryError } from '../persistence/repository'
 import type { PresentationSummary } from '../domain/types'
 import { AGENT_TOOL_PREFIX, describeOperations, findOperation, operations, runOperation } from './registry'
 import { AGENT_SCOPES, type AgentContext } from './types'
+import { contentAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -541,14 +542,14 @@ describe('runOperation', () => {
     // No `fit`, no `replace`: the schema's defaults are the contract.
     const placed = await runOperation(context, 'set_zone_asset', {
       presentationId: presentation.id,
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       assetId,
     })
     expect(placed).toMatchObject({ ok: true, value: { movedToSandbox: 0 } })
 
     const reloaded = await context.repository.loadPresentation(presentation.id)
-    const root = reloaded.slides[0].root
+    const root = contentAt(reloaded, 1).root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
       kind: 'image',
       image: { assetId, focus: { x: 0.5, y: 0.5 } },

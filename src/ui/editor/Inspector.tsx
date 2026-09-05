@@ -25,8 +25,9 @@ import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
+import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
-import type { Axis, Slide, ZoneContentKind } from '../../domain/types'
+import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { Icon } from '../components/Icon'
 import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
@@ -37,14 +38,16 @@ export function Inspector({
   actions,
   onAddContent,
 }: {
-  slide: Slide
+  slide: ContentSlide
   actions: ZoneAction[]
   onAddContent: (nodeId: string, kind: ZoneContentKind) => void
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
-  const pillColor = useEditorStore(
-    (state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR,
+  // The colours a swatch offers as "the default" are the governing section's:
+  // a heading with no colour of its own is painted with that one.
+  const pillColor = useEditorStore((state) =>
+    state.presentation ? sectionGoverning(state.presentation, slide.id).accentColor : DEFAULT_PILL_COLOR,
   )
   const run = useEditorStore((state) => state.run)
 

@@ -22,16 +22,23 @@
  */
 
 import { contentAssetIds, contentDocs } from './content'
-import { coverOverflow, fitContextFor, slideOverflow } from './commands/fitGuard'
+import { sectionOverflow, fitContextFor, slideOverflow } from './commands/fitGuard'
 import { FIT_TOLERANCE } from './constants'
 import { collectLeaves, validateTree } from './layout'
 import { geometryForTheme } from './metrics'
 import { TITLE_NODE_ID, validateSlideGeometry } from './geometry'
-import { COVER_PAGE_ID } from './pages'
 import { collectCitationIds } from './richdoc'
 import { presentationSchema } from './schema'
 import type { StructuralOptions } from './commands/types'
-import type { NodeId, Presentation, RichDoc, Slide, ZoneContent } from './types'
+import type {
+  ContentSlide,
+  NodeId,
+  Presentation,
+  RichDoc,
+  SectionSlide,
+  Slide,
+  ZoneContent,
+} from './types'
 
 export type InvariantCode =
   /** The stored document does not match the schema at all. */
@@ -63,7 +70,7 @@ export interface InvariantIssue {
 }
 
 /** Everything drawn on a slide, with the zone it is drawn in. */
-function slideDocuments(slide: Slide): { nodeId: NodeId; doc: RichDoc }[] {
+function slideDocuments(slide: ContentSlide): { nodeId: NodeId; doc: RichDoc }[] {
   const docs: { nodeId: NodeId; doc: RichDoc }[] = slide.title
     ? [{ nodeId: TITLE_NODE_ID, doc: slide.title }]
     : []
@@ -123,6 +130,8 @@ export function findSlideIssues(
   slide: Slide,
   options: StructuralOptions = {},
 ): InvariantIssue[] {
+  if (slide.kind === 'section') return findSectionIssues(presentation, slide, options)
+
   const issues: InvariantIssue[] = []
   const slideId = slide.id
 
@@ -189,6 +198,37 @@ export function findSlideIssues(
   return issues
 }
 
+/**
+ * Everything wrong with a section slide.
+ *
+ * A section has no zone tree, no files and no citations, so the only thing that
+ * can be wrong with it is a line the audience cannot read — measured by the
+ * very function the guard uses, with the same tolerance and the same code a
+ * slide title gets.
+ */
+function findSectionIssues(
+  presentation: Presentation,
+  section: SectionSlide,
+  options: StructuralOptions,
+): InvariantIssue[] {
+  const issues: InvariantIssue[] = []
+  for (const [nodeId, overflow] of sectionOverflow(
+    section,
+    fitContextFor(presentation),
+    options,
+  )) {
+    if (overflow <= FIT_TOLERANCE) continue
+    issues.push({
+      code: 'TITLE_DOES_NOT_FIT',
+      message: 'Teksten får ikke plass på seksjonssliden.',
+      slideId: section.id,
+      nodeId,
+      details: { overflow },
+    })
+  }
+  return issues
+}
+
 /** Ids that occur more than once in a list. */
 function duplicates(ids: readonly string[]): string[] {
   const seen = new Set<string>()
@@ -242,24 +282,6 @@ export function findPresentationIssues(
         details: { [label]: id },
       })
     }
-  }
-
-  // The cover is a page the audience sees, so a line it clips is a finding —
-  // it is simply not a slide, and `findSlideIssues` would have nothing to look
-  // at. Same checker, same tolerance, same code as a slide title.
-  for (const [nodeId, overflow] of coverOverflow(
-    presentation.cover,
-    fitContextFor(presentation),
-    options,
-  )) {
-    if (overflow <= FIT_TOLERANCE) continue
-    issues.push({
-      code: 'TITLE_DOES_NOT_FIT',
-      message: 'Teksten får ikke plass på forsiden.',
-      slideId: COVER_PAGE_ID,
-      nodeId,
-      details: { overflow },
-    })
   }
 
   for (const slide of presentation.slides) {

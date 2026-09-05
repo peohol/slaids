@@ -11,6 +11,7 @@ import {
 } from './content'
 import { paragraphDoc, plainTextToDoc } from './richdoc'
 import type { Presentation } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 function build(): Presentation {
   const base = createPresentation({ title: 'Docs' })
@@ -25,8 +26,9 @@ function build(): Presentation {
   return {
     ...base,
     slides: [
+      sectionAt(base, 0),
       {
-        ...base.slides[0],
+        ...contentAt(base, 1),
         root: createSplit('x', [1, 1], [
           createLeaf(withBody),
           createLeaf(createImage('a1')),
@@ -76,8 +78,9 @@ describe('remapAssetIds', () => {
     const presentation: Presentation = {
       ...base,
       slides: [
+        sectionAt(base, 0),
         {
-          ...base.slides[0],
+          ...contentAt(base, 1),
           root: createLeaf(
             containerWithDoc({
               type: 'doc',
@@ -119,8 +122,9 @@ describe('dropAssetIds', () => {
     const presentation: Presentation = {
       ...base,
       slides: [
+        sectionAt(base, 0),
         {
-          ...base.slides[0],
+          ...contentAt(base, 1),
           root: createLeaf(
             containerWithDoc({
               type: 'doc',
@@ -147,8 +151,9 @@ describe('dropAssetIds', () => {
     const presentation: Presentation = {
       ...base,
       slides: [
+        sectionAt(base, 0),
         {
-          ...base.slides[0],
+          ...contentAt(base, 1),
           root: createLeaf(
             containerWithDoc({
               type: 'doc',

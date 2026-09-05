@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/core'
 import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import {
+  addSection,
   addSlide,
   canAcceptContent,
   clearLayoutNode,
@@ -37,7 +38,15 @@ import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
-import { deckPages, deckProgress, derivedPageNote, isDerivedPage } from '../../domain/pages'
+import {
+  deckPages,
+  deckProgress,
+  deckSectionColors,
+  derivedPageNote,
+  isDerivedPage,
+} from '../../domain/pages'
+import { sectionGoverning } from '../../domain/presentation'
+import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import {
   cloneSubtreeWithNewIds,
   collectLeaves,
@@ -62,14 +71,15 @@ import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
-import { CoverInspector } from './CoverInspector'
-import { CoverStage } from './CoverStage'
+import { SectionInspector } from './SectionInspector'
+import { SectionStage } from './SectionStage'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
+import { NewSectionModal } from './NewSectionModal'
 import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
@@ -119,7 +129,6 @@ export function EditorView({
   const loadError = useEditorStore((state) => state.loadError)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
-  const viewingCover = useEditorStore((state) => state.viewingCover)
   const setPresentation = useEditorStore((state) => state.setPresentation)
   const setLoading = useEditorStore((state) => state.setLoading)
   const setLoadError = useEditorStore((state) => state.setLoadError)
@@ -132,6 +141,7 @@ export function EditorView({
 
   const [splitOpen, setSplitOpen] = useState(false)
   const [newSlideOpen, setNewSlideOpen] = useState(false)
+  const [newSectionOpen, setNewSectionOpen] = useState(false)
   const [referencesOpen, setReferencesOpen] = useState(false)
   /** Reference to scroll to and highlight when the list is opened from a pill. */
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
@@ -326,6 +336,22 @@ export function EditorView({
     () => presentation?.slides.find((entry) => entry.id === currentSlideId) ?? null,
     [presentation, currentSlideId],
   )
+  /*
+   * The two kinds, named once.
+   *
+   * Everything about zones — the selection, the overlay, the zone tools, the
+   * clipboard, the sandbox drop targets — is about a slide that has them, and
+   * everything about pills and section colours is about one that does not.
+   * Deriving both here means the rest of the view says which it means instead
+   * of re-testing `slide.kind` at every use.
+   */
+  const contentSlide = slide?.kind === 'content' ? slide : null
+  const section = slide?.kind === 'section' ? slide : null
+  /** The accent in force here — for chrome drawn outside the slide's own box. */
+  const currentAccent =
+    presentation && currentSlideId
+      ? sectionGoverning(presentation, currentSlideId).accentColor
+      : DEFAULT_PILL_COLOR
 
   /**
    * The generated pages, derived on every render rather than stored: the
@@ -345,6 +371,15 @@ export function EditorView({
    * it takes is reserved on every slide whether or not anyone is watching.
    */
   const progress = useMemo(() => deckProgress(pages), [pages])
+  /**
+   * Which colours each page inherits, from the section that governs it.
+   *
+   * Derived from the same page list the indicator is, and for the same reason:
+   * it is a fact about the deck rather than about any one page, and every
+   * renderer under the provider reads it instead of counting backwards for
+   * itself.
+   */
+  const sectionColors = useMemo(() => deckSectionColors(pages), [pages])
 
   /**
    * Derived by construction rather than synchronised. Selecting an authored
@@ -362,11 +397,13 @@ export function EditorView({
     [presentation],
   )
 
-  const selectedNode = slide && selectedNodeId ? findNode(slide.root, selectedNodeId) : null
-  const selectedLeaf = slide && selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
+  const selectedNode =
+    contentSlide && selectedNodeId ? findNode(contentSlide.root, selectedNodeId) : null
+  const selectedLeaf =
+    contentSlide && selectedNodeId ? findLeaf(contentSlide.root, selectedNodeId) : null
   const geometry =
-    slide && presentation
-      ? computeSlideGeometry(slide, geometryForTheme(presentation.theme))
+    contentSlide && presentation
+      ? computeSlideGeometry(contentSlide, geometryForTheme(presentation.theme))
       : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
 
@@ -376,10 +413,10 @@ export function EditorView({
 
   const addContentTo = useCallback(
     (nodeId: string, kind: ZoneContentKind) => {
-      if (!slide) return
+      if (!contentSlide) return
       runStructural('content-add', (current) =>
         setZoneContent(current, {
-          slideId: slide.id,
+          slideId: contentSlide.id,
           nodeId,
           content: createContentOfKind(kind),
           ...domFitCheckers,
@@ -388,13 +425,13 @@ export function EditorView({
       useEditorStore.getState().selectNode(nodeId)
       setMode('content')
     },
-    [runStructural, setMode, slide],
+    [contentSlide, runStructural, setMode],
   )
 
   const applyContentKind = useCallback(
     (kind: ZoneContentKind) => {
-      if (!slide || !selectedNodeId) return
-      const leaf = findLeaf(slide.root, selectedNodeId)
+      if (!contentSlide || !selectedNodeId) return
+      const leaf = findLeaf(contentSlide.root, selectedNodeId)
       if (!leaf) {
         notify.error('Velg en bladsone for å legge inn innhold.')
         return
@@ -402,7 +439,7 @@ export function EditorView({
       if (leaf.content) {
         run('content-kind', (current) =>
           setContentKind(current, {
-            slideId: slide.id,
+            slideId: contentSlide.id,
             nodeId: selectedNodeId,
             kind,
             ...domFitCheckers,
@@ -412,7 +449,7 @@ export function EditorView({
       }
       runStructural('content-add', (current) =>
         setZoneContent(current, {
-          slideId: slide.id,
+          slideId: contentSlide.id,
           nodeId: selectedNodeId,
           content: createContentOfKind(kind),
           ...domFitCheckers,
@@ -420,17 +457,17 @@ export function EditorView({
       )
       setMode('content')
     },
-    [run, runStructural, selectedNodeId, setMode, slide],
+    [contentSlide, run, runStructural, selectedNodeId, setMode],
   )
 
   const handleSplitApply = useCallback(
     (result: SplitModalResult) => {
-      if (!slide || !selectedNodeId) return
+      if (!contentSlide || !selectedNodeId) return
       const isSplit = selectedNode?.kind === 'split'
       const ok = isSplit
         ? runStructural('update-split', (current) =>
             updateSplit(current, {
-              slideId: slide.id,
+              slideId: contentSlide.id,
               nodeId: selectedNodeId,
               axis: result.axis,
               weights: result.weights,
@@ -441,7 +478,7 @@ export function EditorView({
           )
         : runStructural('split-leaf', (current) =>
             splitLeaf(current, {
-              slideId: slide.id,
+              slideId: contentSlide.id,
               nodeId: selectedNodeId,
               axis: result.axis,
               weights: result.weights,
@@ -451,7 +488,7 @@ export function EditorView({
           )
       if (ok) setSplitOpen(false)
     },
-    [runStructural, selectedNode, selectedNodeId, slide],
+    [contentSlide, runStructural, selectedNode, selectedNodeId],
   )
 
   /**
@@ -490,14 +527,14 @@ export function EditorView({
    * command owns both rules.
    */
   const removeTitle = useCallback(() => {
-    if (!slide?.title) return
-    const removed = slide.title
+    if (!contentSlide?.title) return
+    const removed = contentSlide.title
     // `force` is the user's confirmation; the command refuses without it.
     const done = run('toggle-title', (current) =>
-      setSlideHasTitle(current, slide.id, false, { ...domFitCheckers, force: true }),
+      setSlideHasTitle(current, contentSlide.id, false, { ...domFitCheckers, force: true }),
     )
-    if (done) removedTitles.current.set(slide.id, removed)
-  }, [run, slide])
+    if (done) removedTitles.current.set(contentSlide.id, removed)
+  }, [contentSlide, run])
 
   /**
    * Put the zone and the remembered text back in one command.
@@ -510,13 +547,42 @@ export function EditorView({
    * actually been restored.
    */
   const restoreTitle = useCallback(() => {
-    if (!slide) return
-    const remembered = removedTitles.current.get(slide.id)
+    if (!contentSlide) return
+    const remembered = removedTitles.current.get(contentSlide.id)
     const restored = run('toggle-title', (current) =>
-      setSlideHasTitle(current, slide.id, true, { ...domFitCheckers, title: remembered }),
+      setSlideHasTitle(current, contentSlide.id, true, { ...domFitCheckers, title: remembered }),
     )
-    if (restored) removedTitles.current.delete(slide.id)
-  }, [run, slide])
+    if (restored) removedTitles.current.delete(contentSlide.id)
+  }, [contentSlide, run])
+
+  /**
+   * Insert a section after the current slide and move to it.
+   *
+   * The heading is asked for up front rather than left blank: a section is a
+   * heading, and an empty one is a coloured page that says nothing. It is
+   * measured on the way in by the command, so a heading too long for one line
+   * leaves the dialog open with the text still in it — which is where the
+   * author shortens it.
+   */
+  const insertSection = useCallback(
+    (title: string) => {
+      const current = useEditorStore.getState().presentation
+      if (!current) return false
+      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
+      const insertAt = index >= 0 ? index + 1 : current.slides.length
+      const created = run('add-section', (presentationState) =>
+        addSection(presentationState, { index: insertAt, title, ...domFitCheckers }),
+      )
+      if (!created) return false
+      const next = useEditorStore.getState().presentation?.slides[insertAt]
+      if (next) {
+        setDerivedView(null)
+        useEditorStore.getState().selectSlide(next.id)
+      }
+      return true
+    },
+    [currentSlideId, run],
+  )
 
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {
@@ -613,7 +679,8 @@ export function EditorView({
 
       if (!meta) return
       const current = state.presentation
-      const activeSlide = current?.slides.find((entry) => entry.id === state.currentSlideId)
+      // Only a slide with zones has anything to cut, copy or paste into.
+      const activeSlide = current ? state.currentContentSlide() : null
       if (!current || !activeSlide || !state.selectedNodeId) return
       const leaf = findLeaf(activeSlide.root, state.selectedNodeId)
 
@@ -707,7 +774,7 @@ export function EditorView({
     // Decide valid drop targets here, in an event handler, where the offscreen
     // fit measurement is allowed to render synchronously.
     const current = useEditorStore.getState().presentation
-    const activeSlide = current?.slides.find((entry) => entry.id === currentSlideId)
+    const activeSlide = useEditorStore.getState().currentContentSlide()
     const item = current?.sandbox.find((entry) => entry.id === String(data.itemId))
     if (!current || !activeSlide || !item) {
       setDropTargets(new Set())
@@ -749,11 +816,11 @@ export function EditorView({
 
     if (data?.kind === 'sandbox-item') {
       const overId = String(over.id)
-      if (!overId.startsWith('zone:') || !slide) return
+      if (!overId.startsWith('zone:') || !contentSlide) return
       runStructural('place-sandbox-item', (current) =>
         placeSandboxItem(current, {
           itemId: String(data.itemId),
-          slideId: slide.id,
+          slideId: contentSlide.id,
           nodeId: overId.slice('zone:'.length),
           ...domFitCheckers,
         }),
@@ -766,10 +833,10 @@ export function EditorView({
    * -------------------------------------------------------------- */
 
   const zoneActions: ZoneAction[] = useMemo(() => {
-    if (!slide || !selectedNodeId || !selectedNode) return []
+    if (!contentSlide || !selectedNodeId || !selectedNode) return []
     const isLeaf = selectedNode.kind === 'leaf'
     const hasContent = isLeaf && selectedLeaf?.content != null
-    const isRoot = slide.root.id === selectedNodeId
+    const isRoot = contentSlide.root.id === selectedNodeId
 
     return [
       {
@@ -800,7 +867,10 @@ export function EditorView({
         disabled: !hasContent,
         onSelect: () => {
           runStructural('to-sandbox', (current) =>
-            moveZoneContentToSandbox(current, { slideId: slide.id, nodeId: selectedNodeId }),
+            moveZoneContentToSandbox(current, {
+              slideId: contentSlide.id,
+              nodeId: selectedNodeId,
+            }),
           )
           setSandboxOpen(true)
         },
@@ -826,7 +896,7 @@ export function EditorView({
         onSelect: () => setImageOpen('ask'),
       },
     ]
-  }, [applyContentKind, runStructural, selectedLeaf, selectedNode, selectedNodeId, slide])
+  }, [applyContentKind, contentSlide, runStructural, selectedLeaf, selectedNode, selectedNodeId])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -849,12 +919,7 @@ export function EditorView({
     return (
       <PresentView
         presentation={presentation}
-        startIndex={
-          viewingCover
-            ? 0
-            : // The cover is page one, so slide n is page n + 1.
-              presentation.slides.findIndex((entry) => entry.id === currentSlideId) + 1
-        }
+        startIndex={presentation.slides.findIndex((entry) => entry.id === currentSlideId)}
         shareUrl={shareUrl}
         onExit={() => setPresenting(false)}
       />
@@ -862,9 +927,11 @@ export function EditorView({
   }
 
   // Recomputed on every render, so a dialog can never act on a stale snapshot.
-  const deletingZoneNode = deletingZoneId ? findNode(slide.root, deletingZoneId) : null
+  const deletingZoneNode =
+    contentSlide && deletingZoneId ? findNode(contentSlide.root, deletingZoneId) : null
   const deletingZoneHasContent = deletingZoneNode ? countContent(deletingZoneNode) > 0 : false
-  const clearingZoneNode = clearingZoneId ? findNode(slide.root, clearingZoneId) : null
+  const clearingZoneNode =
+    contentSlide && clearingZoneId ? findNode(contentSlide.root, clearingZoneId) : null
   const clearingZoneHasContent = clearingZoneNode ? countContent(clearingZoneNode) > 0 : false
 
   const draggedItem = dragItemId
@@ -876,7 +943,7 @@ export function EditorView({
       value={{
         theme: presentation.theme,
         numbering,
-        headingPillColor: presentation.cover.pillColor,
+        sectionColors,
         progress,
         isStatic: false,
         // A citation is the shortest path to the source it stands for: one
@@ -900,13 +967,13 @@ export function EditorView({
         <div className="editor" data-testid="editor" data-fonts={fontState}>
           <TopToolbar
             title={presentation.title}
-            hasTitleZone={slide.title !== null}
-            canToggleTitle={viewedDerivedPage === null && !viewingCover}
+            hasTitleZone={contentSlide?.title != null}
+            canToggleTitle={viewedDerivedPage === null && contentSlide !== null}
             selectionIsLeaf={
-              viewedDerivedPage === null && !viewingCover && selectedNode?.kind === 'leaf'
+              viewedDerivedPage === null && contentSlide !== null && selectedNode?.kind === 'leaf'
             }
-            selectionHasContent={!viewingCover && Boolean(selectedLeaf?.content)}
-            canEditZones={viewedDerivedPage === null && !viewingCover}
+            selectionHasContent={Boolean(selectedLeaf?.content)}
+            canEditZones={viewedDerivedPage === null && contentSlide !== null}
             sandboxCount={presentation.sandbox.length}
             onBack={() => void handleBack()}
             backPending={leaving}
@@ -915,8 +982,8 @@ export function EditorView({
               setRenameOpen(true)
             }}
             onToggleTitle={() => {
-              if (slide.title !== null) {
-                if (!isDocEmpty(slide.title)) {
+              if (contentSlide?.title != null) {
+                if (!isDocEmpty(contentSlide.title)) {
                   setRemovingTitle(true)
                   return
                 }
@@ -949,17 +1016,18 @@ export function EditorView({
               onSelectAuthored={() => setDerivedView(null)}
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
+              onRequestNewSection={() => setNewSectionOpen(true)}
             />
             {viewedDerivedPage ? (
               <ReadOnlySlideStage
                 page={viewedDerivedPage}
                 note={derivedPageNote(viewedDerivedPage)}
               />
-            ) : viewingCover ? (
-              <CoverStage cover={presentation.cover} />
-            ) : (
+            ) : section ? (
+              <SectionStage section={section} />
+            ) : contentSlide ? (
               <EditorStage
-                slide={slide}
+                slide={contentSlide}
                 actions={zoneActions}
                 onAddContent={addContentTo}
                 onPickImage={(nodeId) => {
@@ -968,7 +1036,7 @@ export function EditorView({
                 }}
                 dropTargets={dropTargets}
               />
-            )}
+            ) : null}
             {viewedDerivedPage ? (
               <aside className="inspector" data-testid="inspector">
                 <section className="inspector__section">
@@ -982,18 +1050,18 @@ export function EditorView({
                   </p>
                 </section>
               </aside>
-            ) : viewingCover ? (
-              <CoverInspector cover={presentation.cover} />
-            ) : (
+            ) : section ? (
+              <SectionInspector section={section} />
+            ) : contentSlide ? (
               <Inspector
                 // Remounting per selection drops any half-finished panel
                 // state, so a dialog can never apply to the wrong zone.
                 key={selectedNodeId ?? 'none'}
-                slide={slide}
+                slide={contentSlide}
                 actions={zoneActions}
                 onAddContent={addContentTo}
               />
-            )}
+            ) : null}
           </div>
 
           <StatusBar presentation={presentation} onShowShortcuts={() => setShortcutsOpen(true)} />
@@ -1009,8 +1077,9 @@ export function EditorView({
                   transform: 'scale(0.375)',
                   transformOrigin: 'top left',
                   pointerEvents: 'none',
-                  // Dragged outside the slide, but still the deck's heading.
-                  ...pillTokenStyle(presentation.cover.pillColor),
+                  // Dragged outside the slide, but still the accent of the
+                  // section the current page belongs to.
+                  ...pillTokenStyle(currentAccent),
                 }}
               >
                 <ZoneContentView content={draggedItem.content} />
@@ -1047,6 +1116,16 @@ export function EditorView({
         }}
       />
 
+      <NewSectionModal
+        open={newSectionOpen}
+        onOpenChange={setNewSectionOpen}
+        onCreate={(title) => {
+          const created = insertSection(title)
+          if (created) setNewSectionOpen(false)
+          return created
+        }}
+      />
+
       <ReferenceModal
         open={referencesOpen}
         focusReferenceId={focusedReference}
@@ -1058,7 +1137,7 @@ export function EditorView({
       <TemplateModal
         open={templatesOpen}
         onOpenChange={setTemplatesOpen}
-        currentSlide={slide}
+        currentSlide={contentSlide}
         onApplyTemplate={createSlideFromTemplate}
       />
       <ThemeModal open={themeOpen} onOpenChange={setThemeOpen} />

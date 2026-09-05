@@ -23,6 +23,14 @@ import { createSvgAsset, deleteAsset, listAssets, setZoneAsset, uploadAsset } fr
 import { getPresentation, inspectSlide } from './operations/deck'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
+import { contentAt } from '../domain/testDecks'
+import type { ContentSlideInspection, SlideInspection } from './operations/deck'
+
+/** `inspect_slide` on a slide with zones — a section has none to look at. */
+function withZones(inspection: SlideInspection): ContentSlideInspection {
+  if (inspection.kind !== 'content') throw new Error('Forventet en slide med soner.')
+  return inspection
+}
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -322,7 +330,7 @@ describe('set_zone_asset', () => {
         svgMarkup: SQUARE,
       }),
     )
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     return { presentationId: presentation.id, slideId: slide.id, nodeId: slide.root.id, assetId: stored.assetId }
   }
 
@@ -336,7 +344,7 @@ describe('set_zone_asset', () => {
     expect(placed).toMatchObject({ assetId: seeded.assetId, movedToSandbox: 0, discarded: 0 })
 
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
-    const root = reloaded.slides[0].root
+    const root = contentAt(reloaded, 1).root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
       kind: 'image',
       image: { assetId: seeded.assetId, focus: { x: 0.5, y: 0.5 }, caption: null },
@@ -378,7 +386,7 @@ describe('set_zone_asset', () => {
     ).toBe('INVALID_ARGUMENT')
 
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
-    const root = reloaded.slides[0].root
+    const root = contentAt(reloaded, 1).root
     expect(root.kind === 'leaf' && root.content?.kind === 'image' && root.content.image.caption)
       .toMatchObject({ position: 'middle' })
   })
@@ -398,7 +406,7 @@ describe('set_zone_asset', () => {
       }),
     )
     const reloaded = await context.repository.loadPresentation(seeded.presentationId)
-    const root = reloaded.slides[0].root
+    const root = contentAt(reloaded, 1).root
     expect(root.kind === 'leaf' && root.content).toMatchObject({
       kind: 'image',
       image: { assetId: seeded.assetId, focus: { x: 0, y: 0.75 } },
@@ -467,7 +475,7 @@ describe('set_zone_asset', () => {
     const seeded = await seedWithAsset(context)
     const inspection = { presentationId: seeded.presentationId, slideId: seeded.slideId }
 
-    const before = expectOk(await inspectSlide.run(context, inspection))
+    const before = withZones(expectOk(await inspectSlide.run(context, inspection)))
     const empty = before.zones.find((zone) => zone.kind === 'leaf' && zone.empty)
     expect(empty?.nodeId).toBe(seeded.nodeId)
     expect(empty?.rect.width).toBeGreaterThan(0)
@@ -482,7 +490,7 @@ describe('set_zone_asset', () => {
       }),
     )
 
-    const after = expectOk(await inspectSlide.run(context, inspection))
+    const after = withZones(expectOk(await inspectSlide.run(context, inspection)))
     expect(after.zones[0]).toMatchObject({
       empty: false,
       contentKind: 'image',
@@ -542,8 +550,8 @@ describe('asset-invariants', () => {
     expectOk(
       await setZoneAsset.run(context, {
         presentationId: presentation.id,
-        slideId: presentation.slides[0].id,
-        nodeId: presentation.slides[0].root.id,
+        slideId: presentation.slides[1].id,
+        nodeId: contentAt(presentation, 1).root.id,
         assetId: stored.assetId,
         replace: false,
         replacedDisposition: 'sandbox',
@@ -570,8 +578,8 @@ describe('asset-invariants', () => {
 
     await runOperation(context, 'set_zone_asset', {
       presentationId: presentation.id,
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       assetId: stored.assetId,
     })
 
@@ -603,8 +611,8 @@ describe('delete_asset', () => {
     )
     return {
       presentationId: presentation.id,
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       assetId: stored.assetId,
       revision: stored.revision,
     }
@@ -909,13 +917,18 @@ describe('get_presentation og inspect_slide', () => {
     expect(view).toMatchObject({
       presentationId: presentation.id,
       title: 'Agenttest',
-      slideCount: 1,
+      // The front section and the one slide the fixture builds on.
+      slideCount: 2,
       assetCount: 0,
       referenceCount: 0,
     })
-    expect(view.slides).toEqual([
-      { slideId: presentation.slides[0].id, index: 0, hasTitle: true, title: '' },
-    ])
+    expect(view.slides[1]).toEqual({
+      slideId: presentation.slides[1].id,
+      index: 1,
+      kind: 'content',
+      hasTitle: true,
+      title: '',
+    })
     // A description, not the document: no layout tree, no rich text, no sandbox.
     expect(Object.keys(view)).not.toContain('slidesJson')
     expect(JSON.stringify(view)).not.toContain('"root"')
@@ -924,18 +937,18 @@ describe('get_presentation og inspect_slide', () => {
   it('beskriver sonene i en slide med geometry engine-ens egne mål', async () => {
     const context = freshContext()
     const presentation = await seed(context)
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     const split = splitLeaf(presentation, {
       slideId,
-      nodeId: presentation.slides[0].root.id,
+      nodeId: contentAt(presentation, 1).root.id,
       axis: 'x',
       weights: [1, 1],
     })
     if (!split.ok) throw new Error('kunne ikke dele sonen')
     await context.repository.savePresentation(split.value.presentation)
 
-    const inspection = expectOk(
-      await inspectSlide.run(context, { presentationId: presentation.id, slideId }),
+    const inspection = withZones(
+      expectOk(await inspectSlide.run(context, { presentationId: presentation.id, slideId })),
     )
     const [root, first, second] = inspection.zones
     expect(root).toMatchObject({ kind: 'split', axis: 'x', weights: [1, 1] })

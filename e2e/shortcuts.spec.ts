@@ -85,22 +85,22 @@ test.describe('keyboard shortcuts', () => {
     await createPresentation(page, 'Piltaster')
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-without-title').click()
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 2')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
 
     await page.keyboard.press('ArrowUp')
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
-    // One page further up is the cover, which is page one of the deck.
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+    // One page further up is the front page, which is the deck's first section.
     await page.keyboard.press('ArrowUp')
-    await expect(page.getByTestId('statusbar')).toContainText('Forside')
+    await expect(page.getByTestId('statusbar')).toContainText('Forside 1 av 3')
     await page.keyboard.press('ArrowDown')
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
 
     // With a caret in a field the arrows belong to the text.
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'container')
     await stage(page).locator('.tiptap').last().click()
     await page.keyboard.press('ArrowUp')
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 1 av 2')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
   })
 
   test('Escape leaves zone editing for content editing', async ({ page }) => {

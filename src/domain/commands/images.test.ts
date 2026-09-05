@@ -29,6 +29,7 @@ import { createPresentation } from '../presentation'
 import { createLeaf } from '../layout'
 import { collectCitationIds, docToPlainText, paragraphDoc, titleDoc } from '../richdoc'
 import type { AssetRef, Presentation, ZoneContent } from '../types'
+import { contentAt, sectionAt } from '../testDecks'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
@@ -44,20 +45,20 @@ const asset: AssetRef = {
 
 function deckWith(content: ZoneContent): Presentation {
   const base = createPresentation({ title: 'Bilder' })
-  const slide = base.slides[0]
+  const slide = contentAt(base, 1)
   return {
     ...base,
     assets: [asset],
-    slides: [{ ...slide, title: null, root: createLeaf(content) }],
+    slides: [sectionAt(base, 0), { ...slide, title: null, root: createLeaf(content) }],
   }
 }
 
 function target(presentation: Presentation) {
-  return { slideId: presentation.slides[0].id, nodeId: presentation.slides[0].root.id }
+  return { slideId: presentation.slides[1].id, nodeId: contentAt(presentation, 1).root.id }
 }
 
 function contentOf(presentation: Presentation): ZoneContent {
-  const root = presentation.slides[0].root
+  const root = contentAt(presentation, 1).root
   if (root.kind !== 'leaf' || !root.content) throw new Error('forventet innhold')
   return root.content
 }

@@ -29,11 +29,12 @@ import {
 } from '../persistence/repository'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
 import { realImages } from '../domain/testImages'
-import type { Folder, Presentation } from '../domain/types'
+import type { Folder, LayoutNode, Presentation } from '../domain/types'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
 import type { PresentationView } from './operations/deck'
 import type { DeletedFolder, DeletedPresentation, MovedPresentation } from './operations/library'
+import { contentAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -611,7 +612,7 @@ async function filledDeck(context: AgentContext): Promise<{
     await call<PresentationView>(context, 'create_presentation', { title: 'Full presentasjon' }),
   )
   const presentationId = created.presentationId
-  const slideId = created.slides[0].slideId
+  const slideId = created.slides[1].slideId
 
   const inspected = expectOk(
     await call<{ rootNodeId: string }>(context, 'inspect_slide', { presentationId, slideId }),
@@ -678,7 +679,7 @@ describe('duplicate_presentation', () => {
 
     expect(copy.presentationId).not.toBe(source.presentationId)
     expect(copy.title).toBe('Full presentasjon (kopi)')
-    expect(copy.slideCount).toBe(1)
+    expect(copy.slideCount).toBe(2)
     expect(copy.referenceCount).toBe(1)
     expect(copy.assetCount).toBe(1)
     // The same view `create_presentation` answers with, so an agent that has
@@ -691,8 +692,8 @@ describe('duplicate_presentation', () => {
     const original = await context.repository.loadPresentation(source.presentationId)
 
     // Every identity inside the document is new …
-    expect(stored.slides[0].id).not.toBe(original.slides[0].id)
-    expect(stored.slides[0].root.id).not.toBe(original.slides[0].root.id)
+    expect(stored.slides[1].id).not.toBe(original.slides[1].id)
+    expect(contentAt(stored, 1).root.id).not.toBe(contentAt(original, 1).root.id)
     expect(stored.assets[0].id).not.toBe(original.assets[0].id)
     // … and the file is a real second file, not a shared reference.
     const copied = await context.repository.getAsset(stored.assets[0].id)
@@ -705,7 +706,7 @@ describe('duplicate_presentation', () => {
       await call<{ zones: { assetIds?: string[]; referenceIds?: string[] }[] }>(
         context,
         'inspect_slide',
-        { presentationId: copy.presentationId, slideId: stored.slides[0].id },
+        { presentationId: copy.presentationId, slideId: stored.slides[1].id },
       ),
     )
     const assetIds = inspected.zones.flatMap((zone) => zone.assetIds ?? [])
@@ -738,7 +739,7 @@ describe('duplicate_presentation', () => {
 
     const identities = (presentation: Presentation): string[] => {
       const ids: string[] = [presentation.id]
-      const walk = (node: (typeof presentation.slides)[number]['root']): void => {
+      const walk = (node: LayoutNode): void => {
         ids.push(node.id)
         if (node.kind === 'split') {
           for (const child of node.children) walk(child)
@@ -748,7 +749,7 @@ describe('duplicate_presentation', () => {
       }
       for (const slide of presentation.slides) {
         ids.push(slide.id)
-        walk(slide.root)
+        if (slide.kind === 'content') walk(slide.root)
       }
       for (const item of presentation.sandbox) ids.push(item.id, item.content.id)
       for (const asset of presentation.assets) ids.push(asset.id)
@@ -769,7 +770,7 @@ describe('duplicate_presentation', () => {
         presentationId: source.presentationId,
       }),
     )
-    const copySlideId = copy.slides[0].slideId
+    const copySlideId = copy.slides[1].slideId
     expectOk(
       await call(context, 'set_slide_title', {
         presentationId: copy.presentationId,

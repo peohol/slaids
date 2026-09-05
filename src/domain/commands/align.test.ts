@@ -13,6 +13,7 @@ import { emptyDoc } from '../richdoc'
 import { validatePresentation } from '../schema'
 import type { Presentation, ZoneContent } from '../types'
 import { setVerticalAlign, setZoneContent } from './index'
+import { contentAt } from '../testDecks'
 
 function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
   if (!result.ok || result.value === undefined) {
@@ -23,7 +24,7 @@ function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
 
 function deckWith(content: ZoneContent): Presentation {
   const presentation = createPresentation({ title: 'Justering', firstSlideHasTitle: false })
-  const slide = presentation.slides[0]
+  const slide = contentAt(presentation, 1)
   return unwrap(setZoneContent(presentation, { slideId: slide.id, nodeId: slide.root.id, content }))
     .presentation
 }
@@ -40,8 +41,7 @@ describe('setVerticalAlign', () => {
       ],
     }
     const presentation = deckWith({ ...card, body })
-    const slide = presentation.slides[0]
-
+    const slide = contentAt(presentation, 1)
     const aligned = unwrap(
       setVerticalAlign(presentation, {
         slideId: slide.id,
@@ -50,7 +50,8 @@ describe('setVerticalAlign', () => {
         align: 'bottom',
       }),
     )
-    const content = aligned.slides[0].root.kind === 'leaf' ? aligned.slides[0].root.content : null
+    const alignedRoot = contentAt(aligned, 1).root
+    const content = alignedRoot.kind === 'leaf' ? alignedRoot.content : null
     if (!content || content.kind !== 'untitled-card') throw new Error('expected a card')
     expect(content.body.subfields.map((field) => field.verticalAlign)).toEqual([undefined, 'bottom'])
     expect(validatePresentation(aligned).ok).toBe(true)
@@ -59,7 +60,7 @@ describe('setVerticalAlign', () => {
   it('aligns a container through its own field', () => {
     const container = containerWithDoc(emptyDoc())
     const presentation = deckWith(container)
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const aligned = unwrap(
       setVerticalAlign(presentation, {
         slideId: slide.id,
@@ -68,13 +69,14 @@ describe('setVerticalAlign', () => {
         align: 'middle',
       }),
     )
-    const content = aligned.slides[0].root.kind === 'leaf' ? aligned.slides[0].root.content : null
+    const alignedRoot = contentAt(aligned, 1).root
+    const content = alignedRoot.kind === 'leaf' ? alignedRoot.content : null
     expect(content?.kind === 'container' && content.body.subfields[0].verticalAlign).toBe('middle')
   })
 
   it('refuses a subfield that does not exist', () => {
     const presentation = deckWith(createUntitledCard())
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const result = setVerticalAlign(presentation, {
       slideId: slide.id,
       nodeId: slide.root.id,

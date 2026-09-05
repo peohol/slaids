@@ -32,6 +32,7 @@ import {
   splitLeaf,
   updateSplit,
 } from './index'
+import { contentAt, sectionAt } from '../testDecks'
 
 function base(): Presentation {
   return createPresentation({ title: 'Test' })
@@ -46,14 +47,15 @@ function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
 
 describe('slide commands', () => {
   it('adds a slide at the end by default', () => {
+    // A new deck is `[front section, one empty slide]`, so adding one makes three.
     const next = unwrap(addSlide(base(), {}))
-    expect(next.slides).toHaveLength(2)
-    expect(next.slides[1].title).not.toBeNull()
+    expect(next.slides).toHaveLength(3)
+    expect(next.slides[2].title).not.toBeNull()
   })
 
   it('adds a slide without a title zone', () => {
     const next = unwrap(addSlide(base(), { hasTitle: false }))
-    expect(next.slides[1].title).toBeNull()
+    expect(next.slides[2].title).toBeNull()
   })
 
   it('rejects an out-of-range insert index', () => {
@@ -63,7 +65,9 @@ describe('slide commands', () => {
   })
 
   it('refuses to delete the last remaining slide', () => {
-    const presentation = base()
+    const deck = base()
+    const presentation = unwrap(deleteSlide(deck, deck.slides[1].id))
+    expect(presentation.slides).toHaveLength(1)
     const result = deleteSlide(presentation, presentation.slides[0].id)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('CANNOT_DELETE_LAST_SLIDE')
@@ -73,46 +77,47 @@ describe('slide commands', () => {
     let presentation = base()
     presentation = unwrap(
       setZoneContent(presentation, {
-        slideId: presentation.slides[0].id,
-        nodeId: presentation.slides[0].root.id,
+        slideId: presentation.slides[1].id,
+        nodeId: contentAt(presentation, 1).root.id,
         content: createUntitledCard(),
       }),
     ).presentation
-    const next = unwrap(duplicateSlide(presentation, presentation.slides[0].id))
-    expect(next.slides).toHaveLength(2)
-    expect(next.slides[1].id).not.toBe(next.slides[0].id)
-    expect(next.slides[1].root.id).not.toBe(next.slides[0].root.id)
-    expect(findLeaf(next.slides[1].root, next.slides[1].root.id)?.content).not.toBeNull()
+    const next = unwrap(duplicateSlide(presentation, presentation.slides[1].id))
+    expect(next.slides).toHaveLength(3)
+    expect(next.slides[2].id).not.toBe(next.slides[1].id)
+    expect(contentAt(next, 2).root.id).not.toBe(contentAt(next, 1).root.id)
+    expect(findLeaf(contentAt(next, 2).root, contentAt(next, 2).root.id)?.content).not.toBeNull()
   })
 
   it('reorders slides', () => {
     let presentation = base()
     presentation = unwrap(addSlide(presentation, {}))
     presentation = unwrap(addSlide(presentation, {}))
-    const first = presentation.slides[0].id
-    const next = unwrap(moveSlide(presentation, first, 2))
-    expect(next.slides[2].id).toBe(first)
+    const first = presentation.slides[1].id
+    const next = unwrap(moveSlide(presentation, first, 3))
+    expect(next.slides[3].id).toBe(first)
   })
 
   it('toggles the title zone off and back on', () => {
     const presentation = base()
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     const removed = unwrap(setSlideHasTitle(presentation, slideId, false))
-    expect(removed.slides[0].title).toBeNull()
+    expect(removed.slides[1].title).toBeNull()
     const restored = unwrap(setSlideHasTitle(removed, slideId, true))
-    expect(restored.slides[0].title).not.toBeNull()
+    expect(restored.slides[1].title).not.toBeNull()
   })
 
   it('refuses to add a title when the layout would no longer fit', () => {
     let presentation = base()
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     presentation = unwrap(setSlideHasTitle(presentation, slideId, false))
     // Six stacked rows fit without a title but not with one.
     const rows = Array.from({ length: 6 }, () => createLeaf())
     presentation = {
       ...presentation,
       slides: [
-        { ...presentation.slides[0], root: createSplit('y', rows.map(() => 1), rows) },
+        sectionAt(presentation, 0),
+        { ...contentAt(presentation, 1), root: createSplit('y', rows.map(() => 1), rows) },
         ...presentation.slides.slice(1),
       ],
     }
@@ -125,7 +130,7 @@ describe('slide commands', () => {
 describe('splitLeaf', () => {
   it('replaces a leaf with a split of empty leaves', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const outcome = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
@@ -134,7 +139,7 @@ describe('splitLeaf', () => {
         weights: [2, 3],
       }),
     )
-    const root = outcome.presentation.slides[0].root as SplitNode
+    const root = contentAt(outcome.presentation, 1).root as SplitNode
     expect(root.kind).toBe('split')
     expect(root.children).toHaveLength(2)
     expect(root.weights).toEqual([2, 3])
@@ -142,7 +147,7 @@ describe('splitLeaf', () => {
 
   it('rejects fewer than two or more than ten children', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     for (const weights of [[1], Array.from({ length: 11 }, () => 1)]) {
       const result = splitLeaf(presentation, {
         slideId: slide.id,
@@ -158,8 +163,8 @@ describe('splitLeaf', () => {
   it('rejects non-positive weights', () => {
     const presentation = base()
     const result = splitLeaf(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       axis: 'x',
       weights: [1, 0],
     })
@@ -170,8 +175,8 @@ describe('splitLeaf', () => {
   it('rejects a split that would make a child too small', () => {
     const presentation = base()
     const result = splitLeaf(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       axis: 'x',
       weights: [1, 100],
     })
@@ -181,13 +186,13 @@ describe('splitLeaf', () => {
 
   it('refuses to split a node that is already a split', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const once = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
     const result = splitLeaf(once, {
       slideId: slide.id,
-      nodeId: once.slides[0].root.id,
+      nodeId: contentAt(once, 1).root.id,
       axis: 'y',
       weights: [1, 1],
     })
@@ -197,7 +202,7 @@ describe('splitLeaf', () => {
 
   it('moves existing content into the chosen child', () => {
     let presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     presentation = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -208,13 +213,13 @@ describe('splitLeaf', () => {
     const outcome = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
-        nodeId: presentation.slides[0].root.id,
+        nodeId: contentAt(presentation, 1).root.id,
         axis: 'x',
         weights: [1, 1],
         contentTargetIndex: 1,
       }),
     )
-    const root = outcome.presentation.slides[0].root as SplitNode
+    const root = contentAt(outcome.presentation, 1).root as SplitNode
     expect(findLeaf(root.children[0], root.children[0].id)?.content).toBeNull()
     expect(findLeaf(root.children[1], root.children[1].id)?.content).not.toBeNull()
     expect(outcome.movedToSandbox).toHaveLength(0)
@@ -222,7 +227,7 @@ describe('splitLeaf', () => {
 
   it('never leaves a node with both children and content', () => {
     let presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     presentation = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -233,20 +238,20 @@ describe('splitLeaf', () => {
     const outcome = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
-        nodeId: presentation.slides[0].root.id,
+        nodeId: contentAt(presentation, 1).root.id,
         axis: 'y',
         weights: [1, 1],
         contentTargetIndex: 0,
       }),
     )
-    const root = outcome.presentation.slides[0].root
+    const root = contentAt(outcome.presentation, 1).root
     expect(root.kind).toBe('split')
     expect('content' in root).toBe(false)
   })
 
   it('moves content to the sandbox when it cannot fit the chosen child', () => {
     let presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const card = createUntitledCard()
     const filled = {
       ...card,
@@ -261,7 +266,7 @@ describe('splitLeaf', () => {
     const outcome = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
-        nodeId: presentation.slides[0].root.id,
+        nodeId: contentAt(presentation, 1).root.id,
         axis: 'x',
         weights: [1, 1],
         contentTargetIndex: 0,
@@ -276,36 +281,36 @@ describe('splitLeaf', () => {
 describe('updateSplit', () => {
   function withSplit(): { presentation: Presentation; slideId: string; nodeId: string } {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const next = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    return { presentation: next, slideId: slide.id, nodeId: next.slides[0].root.id }
+    return { presentation: next, slideId: slide.id, nodeId: contentAt(next, 1).root.id }
   }
 
   it('changes the axis', () => {
     const { presentation, slideId, nodeId } = withSplit()
     const outcome = unwrap(updateSplit(presentation, { slideId, nodeId, axis: 'y' }))
-    expect((outcome.presentation.slides[0].root as SplitNode).axis).toBe('y')
+    expect((contentAt(outcome.presentation, 1).root as SplitNode).axis).toBe('y')
   })
 
   it('changes weights', () => {
     const { presentation, slideId, nodeId } = withSplit()
     const outcome = unwrap(updateSplit(presentation, { slideId, nodeId, weights: [1, 3] }))
-    expect((outcome.presentation.slides[0].root as SplitNode).weights).toEqual([1, 3])
+    expect((contentAt(outcome.presentation, 1).root as SplitNode).weights).toEqual([1, 3])
   })
 
   it('adds children as empty leaves', () => {
     const { presentation, slideId, nodeId } = withSplit()
     const outcome = unwrap(updateSplit(presentation, { slideId, nodeId, childCount: 4 }))
-    const root = outcome.presentation.slides[0].root as SplitNode
+    const root = contentAt(outcome.presentation, 1).root as SplitNode
     expect(root.children).toHaveLength(4)
     expect(root.weights).toEqual([1, 1, 1, 1])
   })
 
   it('moves content out of removed children into the sandbox', () => {
     const { presentation, slideId, nodeId } = withSplit()
-    const root = presentation.slides[0].root as SplitNode
+    const root = contentAt(presentation, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId,
@@ -328,7 +333,7 @@ describe('updateSplit', () => {
     let presentation = unwrap(
       updateSplit(initial.presentation, { slideId, nodeId, childCount: 3 }),
     ).presentation
-    const root = presentation.slides[0].root as SplitNode
+    const root = contentAt(presentation, 1).root as SplitNode
     presentation = unwrap(
       setZoneContent(presentation, {
         slideId,
@@ -345,7 +350,7 @@ describe('updateSplit', () => {
 
   it('rejects an update that would make a nested subtree too small', () => {
     const { presentation, slideId, nodeId } = withSplit()
-    const root = presentation.slides[0].root as SplitNode
+    const root = contentAt(presentation, 1).root as SplitNode
     const nested = unwrap(
       splitLeaf(presentation, {
         slideId,
@@ -371,8 +376,8 @@ describe('delete and clear', () => {
   it('refuses to delete the root', () => {
     const presentation = base()
     const result = deleteLayoutNode(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
     })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ROOT_CANNOT_BE_DELETED')
@@ -380,25 +385,25 @@ describe('delete and clear', () => {
 
   it('collapses the parent after deleting one of two children', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const outcome = unwrap(
       deleteLayoutNode(split, { slideId: slide.id, nodeId: root.children[1].id }),
     )
-    expect(outcome.presentation.slides[0].root.kind).toBe('leaf')
-    expect(outcome.presentation.slides[0].root.id).toBe(root.children[0].id)
+    expect(contentAt(outcome.presentation, 1).root.kind).toBe('leaf')
+    expect(contentAt(outcome.presentation, 1).root.id).toBe(root.children[0].id)
   })
 
   it('rescues content from a deleted subtree into the sandbox', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(split, { slideId: slide.id, nodeId: root.children[1].id, content: createTitledCard('Kort') }),
     ).presentation
@@ -411,21 +416,21 @@ describe('delete and clear', () => {
 
   it('clears a whole subtree back to one empty leaf', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1, 1] }),
     ).presentation
     const outcome = unwrap(
-      clearLayoutNode(split, { slideId: slide.id, nodeId: split.slides[0].root.id }),
+      clearLayoutNode(split, { slideId: slide.id, nodeId: contentAt(split, 1).root.id }),
     )
-    expect(outcome.presentation.slides[0].root.kind).toBe('leaf')
+    expect(contentAt(outcome.presentation, 1).root.kind).toBe('leaf')
   })
 })
 
 describe('content placement', () => {
   it('refuses to place content in an occupied zone', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -444,13 +449,13 @@ describe('content placement', () => {
 
   it('refuses to place content on a split node', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
     const result = setZoneContent(split, {
       slideId: slide.id,
-      nodeId: split.slides[0].root.id,
+      nodeId: contentAt(split, 1).root.id,
       content: createUntitledCard(),
     })
     expect(result.ok).toBe(false)
@@ -459,11 +464,11 @@ describe('content placement', () => {
 
   it('moves content between zones and clears the source', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(split, { slideId: slide.id, nodeId: root.children[0].id, content: createUntitledCard() }),
     ).presentation
@@ -474,7 +479,7 @@ describe('content placement', () => {
         toNodeId: root.children[1].id,
       }),
     )
-    const nextRoot = outcome.presentation.slides[0].root as SplitNode
+    const nextRoot = contentAt(outcome.presentation, 1).root as SplitNode
     expect(findLeaf(nextRoot, nextRoot.children[0].id)?.content).toBeNull()
     expect(findLeaf(nextRoot, nextRoot.children[1].id)?.content).not.toBeNull()
   })
@@ -483,11 +488,11 @@ describe('content placement', () => {
     // Two zones are addressed here, so a code alone cannot say which one the
     // caller has to fix. Every refusal carries the slide and node it is about.
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(split, { slideId: slide.id, nodeId: root.children[0].id, content: createUntitledCard() }),
     ).presentation
@@ -540,7 +545,7 @@ describe('content placement', () => {
 
   it('converts a container into a titled card, keeping the text', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const container = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -551,7 +556,7 @@ describe('content placement', () => {
     const converted = unwrap(
       setContentKind(container, { slideId: slide.id, nodeId: slide.root.id, kind: 'titled-card' }),
     )
-    const content = findLeaf(converted.slides[0].root, slide.root.id)?.content
+    const content = findLeaf(contentAt(converted, 1).root, slide.root.id)?.content
     expect(content?.kind).toBe('titled-card')
     if (content?.kind === 'titled-card') {
       expect(JSON.stringify(content.body.subfields[0].doc)).toContain('Hei verden')
@@ -563,7 +568,7 @@ describe('content placement', () => {
     // unreachable if the three questions are asked one at a time, because the
     // two *rows* it passes through on the way are measured on their own.
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -581,7 +586,7 @@ describe('content placement', () => {
         weights: [2, 1],
       }),
     )
-    const content = findLeaf(shaped.slides[0].root, slide.root.id)?.content
+    const content = findLeaf(contentAt(shaped, 1).root, slide.root.id)?.content
     if (content?.kind !== 'container') {
       throw new Error('expected a text container')
     }
@@ -592,7 +597,7 @@ describe('content placement', () => {
 
   it('matches weights against the count the call ends with', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -615,7 +620,7 @@ describe('content placement', () => {
 
   it('rejects weights that are not positive numbers, and leaves the document alone', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -637,7 +642,7 @@ describe('content placement', () => {
 
   it('leaves updatedAt alone when the layout asked for is the one it already has', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -658,7 +663,7 @@ describe('content placement', () => {
 
   it('validates body weights against the subfield count', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -673,7 +678,7 @@ describe('content placement', () => {
 
   it('writes a subfield document', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const card = createTitledCard('Kort')
     const filled = unwrap(
       setZoneContent(presentation, { slideId: slide.id, nodeId: slide.root.id, content: card }),
@@ -686,13 +691,13 @@ describe('content placement', () => {
         doc: paragraphDoc('Innhold'),
       }),
     )
-    const content = findLeaf(next.slides[0].root, slide.root.id)?.content
+    const content = findLeaf(contentAt(next, 1).root, slide.root.id)?.content
     expect(JSON.stringify(content)).toContain('Innhold')
   })
 
   it('divides a container into subfields like a card', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -704,7 +709,7 @@ describe('content placement', () => {
     const split = unwrap(
       setSubfieldCount(filled, { slideId: slide.id, nodeId: slide.root.id, count: 3 }),
     )
-    const content = findLeaf(split.slides[0].root, slide.root.id)?.content
+    const content = findLeaf(contentAt(split, 1).root, slide.root.id)?.content
     if (content?.kind !== 'container') {
       throw new Error('expected a text container')
     }
@@ -716,7 +721,7 @@ describe('content placement', () => {
     const sideways = unwrap(
       setBodyAxis(split, { slideId: slide.id, nodeId: slide.root.id, axis: 'x' }),
     )
-    const after = findLeaf(sideways.slides[0].root, slide.root.id)?.content
+    const after = findLeaf(contentAt(sideways, 1).root, slide.root.id)?.content
     if (after?.kind !== 'container') {
       throw new Error('expected a text container')
     }
@@ -740,7 +745,7 @@ describe('content placement', () => {
 describe('sandbox', () => {
   it('round-trips content out to the sandbox and back', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const filled = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -752,7 +757,7 @@ describe('sandbox', () => {
       moveZoneContentToSandbox(filled, { slideId: slide.id, nodeId: slide.root.id }),
     ).presentation
     expect(moved.sandbox).toHaveLength(1)
-    expect(findLeaf(moved.slides[0].root, slide.root.id)?.content).toBeNull()
+    expect(findLeaf(contentAt(moved, 1).root, slide.root.id)?.content).toBeNull()
 
     const placed = unwrap(
       placeSandboxItem(moved, {
@@ -763,12 +768,12 @@ describe('sandbox', () => {
       }),
     )
     expect(placed.presentation.sandbox).toHaveLength(0)
-    expect(findLeaf(placed.presentation.slides[0].root, slide.root.id)?.content).not.toBeNull()
+    expect(findLeaf(contentAt(placed.presentation, 1).root, slide.root.id)?.content).not.toBeNull()
   })
 
   it('refuses to place content that does not fit', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const card = createUntitledCard()
     const huge = {
       ...card,
@@ -780,7 +785,7 @@ describe('sandbox', () => {
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const withSandbox = { ...split, sandbox: [{ id: 'sb1', content: huge, createdAt: '', note: '' }] }
     const result = placeSandboxItem(withSandbox, {
       itemId: 'sb1',
@@ -805,10 +810,11 @@ describe('references', () => {
     const added = unwrap(
       addReference(presentation, { title: 'Kilde', authors: 'A', url: '', year: '2020' }),
     )
-    const slide = added.presentation.slides[0]
-    const withTitle = {
+    const slide = contentAt(added.presentation, 1)
+    const withTitle: Presentation = {
       ...added.presentation,
       slides: [
+        sectionAt(added.presentation, 0),
         {
           ...slide,
           title: {
@@ -827,7 +833,7 @@ describe('references', () => {
       ],
     }
     const cleaned = unwrap(deleteReference(withTitle, added.reference.id))
-    expect(JSON.stringify(cleaned.slides[0].title)).not.toContain('citation')
+    expect(JSON.stringify(cleaned.slides[1].title)).not.toContain('citation')
     expect(cleaned.references).toHaveLength(0)
   })
 })
@@ -837,15 +843,15 @@ describe('immutability', () => {
     const presentation = base()
     const snapshot = JSON.stringify(presentation)
     splitLeaf(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       axis: 'x',
       weights: [1, 1],
     })
     addSlide(presentation, {})
     setZoneContent(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       content: createUntitledCard(),
     })
     expect(JSON.stringify(presentation)).toBe(snapshot)
@@ -856,7 +862,7 @@ describe('immutability', () => {
     expect(splitLeaf(presentation, { slideId: 'nope', nodeId: 'x', axis: 'x', weights: [1, 1] }).ok).toBe(false)
     expect(
       splitLeaf(presentation, {
-        slideId: presentation.slides[0].id,
+        slideId: presentation.slides[1].id,
         nodeId: 'nope',
         axis: 'x',
         weights: [1, 1],
@@ -870,15 +876,15 @@ describe('titles', () => {
     let presentation = base()
     presentation = {
       ...presentation,
-      slides: [{ ...presentation.slides[0], title: titleDoc('Min tittel') }],
+      slides: [sectionAt(presentation, 0),{ ...contentAt(presentation, 1), title: titleDoc('Min tittel') }],
     }
-    const next = unwrap(duplicateSlide(presentation, presentation.slides[0].id))
-    expect(JSON.stringify(next.slides[1].title)).toContain('Min tittel')
+    const next = unwrap(duplicateSlide(presentation, presentation.slides[1].id))
+    expect(JSON.stringify(next.slides[2].title)).toContain('Min tittel')
   })
 
   it('finds nodes and splits by id', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     expect(findNode(slide.root, slide.root.id)).not.toBeNull()
     expect(findSplit(slide.root, slide.root.id)).toBeNull()
   })
@@ -898,11 +904,11 @@ describe('content fit on structural changes', () => {
 
   it('refuses a ratio change that would make existing content overflow', () => {
     let presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     presentation = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = presentation.slides[0].root as SplitNode
+    const root = contentAt(presentation, 1).root as SplitNode
     presentation = unwrap(
       setZoneContent(presentation, {
         slideId: slide.id,
@@ -934,12 +940,12 @@ describe('content fit on structural changes', () => {
 
   it('refuses to add a title zone when the content would then overflow', () => {
     let presentation = base()
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     presentation = unwrap(setSlideHasTitle(presentation, slideId, false))
     presentation = unwrap(
       setZoneContent(presentation, {
         slideId,
-        nodeId: presentation.slides[0].root.id,
+        nodeId: contentAt(presentation, 1).root.id,
         // Fits the full-height main zone, but not once the title zone and the
         // gap under it take their share off the top.
         content: filledCard('ord '.repeat(300)),
@@ -954,7 +960,7 @@ describe('content fit on structural changes', () => {
 
   it('refuses to remove a title that has text unless forced', () => {
     let presentation = base()
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     presentation = unwrap(setSlideTitle(presentation, slideId, titleDoc('Viktig overskrift')))
 
     const refused = setSlideHasTitle(presentation, slideId, false)
@@ -963,22 +969,22 @@ describe('content fit on structural changes', () => {
 
     const forced = setSlideHasTitle(presentation, slideId, false, { force: true })
     expect(forced.ok).toBe(true)
-    if (forced.ok) expect(forced.value.slides[0].title).toBeNull()
+    if (forced.ok) expect(forced.value.slides[1].title).toBeNull()
   })
 
   it('removes an empty title zone without forcing', () => {
     const presentation = base()
-    expect(setSlideHasTitle(presentation, presentation.slides[0].id, false).ok).toBe(true)
+    expect(setSlideHasTitle(presentation, presentation.slides[1].id, false).ok).toBe(true)
   })
 
   /** A slide split in two, with a titled card in the left half. */
   function filledPair(): { presentation: Presentation; slideId: string; root: SplitNode } {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(split, {
         slideId: slide.id,
@@ -1001,7 +1007,7 @@ describe('content fit on structural changes', () => {
       }),
     ).presentation
 
-    const nextRoot = copied.slides[0].root as SplitNode
+    const nextRoot = contentAt(copied, 1).root as SplitNode
     const a = findLeaf(nextRoot, nextRoot.children[0].id)?.content
     const b = findLeaf(nextRoot, nextRoot.children[1].id)?.content
     expect(a).not.toBeNull()
@@ -1013,7 +1019,7 @@ describe('content fit on structural changes', () => {
     // The source is not merely still there: it is the same object it was, ids
     // included. A copy that renewed the source's ids would look identical on
     // screen and break every id its caller was holding.
-    const sourceBefore = findLeaf(before.slides[0].root, root.children[0].id)?.content
+    const sourceBefore = findLeaf(contentAt(before, 1).root, root.children[0].id)?.content
     expect(a).toEqual(sourceBefore)
     // Commands are pure, so the document handed in is untouched too.
     expect(presentation).toEqual(before)
@@ -1025,11 +1031,11 @@ describe('content fit on structural changes', () => {
     // two card kinds left the copy sharing those ids with its source: not an
     // independent copy, and an agent handed them back was handed the source's.
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights: [1, 1] }),
     ).presentation
-    const root = split.slides[0].root as SplitNode
+    const root = contentAt(split, 1).root as SplitNode
     const filled = unwrap(
       setZoneContent(split, {
         slideId: slide.id,
@@ -1046,7 +1052,7 @@ describe('content fit on structural changes', () => {
       }),
     ).presentation
 
-    const nextRoot = copied.slides[0].root as SplitNode
+    const nextRoot = contentAt(copied, 1).root as SplitNode
     const source = findLeaf(nextRoot, nextRoot.children[0].id)?.content
     const copy = findLeaf(nextRoot, nextRoot.children[1].id)?.content
     expect(source?.kind).toBe('container')
@@ -1126,18 +1132,6 @@ describe('content fit on structural changes', () => {
 })
 
 describe('theme validation', () => {
-  it('rejects a colour the schema would refuse on load', () => {
-    const result = setTheme(base(), { backgroundColor: 'rgb(1,2,3)' })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.code).toBe('INVALID_ARGUMENT')
-  })
-
-  it('normalises shorthand hex', () => {
-    const result = setTheme(base(), { backgroundColor: '#678' })
-    expect(result.ok).toBe(true)
-    if (result.ok) expect(result.value.theme.backgroundColor).toBe('#667788')
-  })
-
   it('rejects an empty font stack', () => {
     expect(setTheme(base(), { bodyFontFamily: '  ' }).ok).toBe(false)
   })
@@ -1232,14 +1226,14 @@ describe('reference pruning', () => {
     // One citation in a zone's text, one in a slide title: both count.
     presentation = unwrap(
       setZoneContent(presentation, {
-        slideId: presentation.slides[0].id,
-        nodeId: presentation.slides[0].root.id,
+        slideId: presentation.slides[1].id,
+        nodeId: contentAt(presentation, 1).root.id,
         content: citedCard(cited),
         replace: true,
       }),
     ).presentation
     presentation = unwrap(
-      setSlideTitle(presentation, presentation.slides[0].id, {
+      setSlideTitle(presentation, presentation.slides[1].id, {
         type: 'doc',
         content: [
           {
@@ -1283,11 +1277,11 @@ describe('reference pruning', () => {
 describe('zone ratios', () => {
   const splitWith = (weights: number[]): SplitNode => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const outcome = unwrap(
       splitLeaf(presentation, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights }),
     )
-    return outcome.presentation.slides[0].root as SplitNode
+    return contentAt(outcome.presentation, 1).root as SplitNode
   }
 
   const whole = (weights: readonly number[]): boolean =>
@@ -1316,8 +1310,8 @@ describe('zone ratios', () => {
   it('still refuses a wish whose nearest whole ratio is too lopsided', () => {
     const presentation = base()
     const result = splitLeaf(presentation, {
-      slideId: presentation.slides[0].id,
-      nodeId: presentation.slides[0].root.id,
+      slideId: presentation.slides[1].id,
+      nodeId: contentAt(presentation, 1).root.id,
       axis: 'x',
       weights: [1, 40],
     })
@@ -1327,24 +1321,24 @@ describe('zone ratios', () => {
 
   it('writes whole ratios into a split that predates the rule, whatever was changed', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     // A split as an older version of Slaids could have stored it.
     const legacy = createSplit('x', [1.5, 2.5], [createLeaf(), createLeaf()])
     const stored: Presentation = {
       ...presentation,
-      slides: [{ ...slide, root: { ...legacy, id: slide.root.id } }],
+      slides: [sectionAt(presentation, 0), { ...slide, root: { ...legacy, id: slide.root.id } }],
     }
     const outcome = unwrap(
       updateSplit(stored, { slideId: slide.id, nodeId: slide.root.id, axis: 'y' }),
     )
-    const root = outcome.presentation.slides[0].root as SplitNode
+    const root = contentAt(outcome.presentation, 1).root as SplitNode
     expect(root.axis).toBe('y')
     expect(root.weights).toEqual([3, 5])
   })
 
   it('keeps whole ratios when a child is added or removed', () => {
     const presentation = base()
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     const split = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
@@ -1356,11 +1350,11 @@ describe('zone ratios', () => {
     const grown = unwrap(
       updateSplit(split, { slideId: slide.id, nodeId: slide.root.id, childCount: 3 }),
     ).presentation
-    expect((grown.slides[0].root as SplitNode).weights).toEqual([1, 2, 1])
+    expect((contentAt(grown, 1).root as SplitNode).weights).toEqual([1, 2, 1])
     const shrunk = unwrap(
       updateSplit(grown, { slideId: slide.id, nodeId: slide.root.id, childCount: 2 }),
     ).presentation
-    expect((shrunk.slides[0].root as SplitNode).weights).toEqual([1, 2])
+    expect((contentAt(shrunk, 1).root as SplitNode).weights).toEqual([1, 2])
   })
 
   it('never commits anything but whole ratios in range', () => {
@@ -1374,7 +1368,7 @@ describe('zone ratios', () => {
       const count = 2 + Math.floor(next() * 3)
       const weights = Array.from({ length: count }, () => 0.05 + next() * 30)
       const presentation = base()
-      const slide = presentation.slides[0]
+      const slide = contentAt(presentation, 1)
       const result = splitLeaf(presentation, {
         slideId: slide.id,
         nodeId: slide.root.id,
@@ -1385,7 +1379,7 @@ describe('zone ratios', () => {
       // never do is be accepted and stored as something other than a ratio.
       if (!result.ok || !result.value) continue
       accepted += 1
-      const root = result.value.presentation.slides[0].root as SplitNode
+      const root = contentAt(result.value.presentation, 1).root as SplitNode
       expect(whole(root.weights), weights.join(':')).toBe(true)
       expect(root.weights).toHaveLength(count)
     }

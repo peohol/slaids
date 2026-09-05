@@ -18,6 +18,7 @@ import { migratePresentation } from './migrations'
 
 import { emptyDoc, imageNode, paragraphDoc, trimTrailingBlankLines } from './richdoc'
 import type { Presentation, RichDoc, RichNode } from './types'
+import { contentAt, sectionAt } from './testDecks'
 
 const blank: RichNode = { type: 'paragraph' }
 const text = (value: string): RichNode => ({
@@ -70,9 +71,9 @@ function deckWithField(): { presentation: Presentation; nodeId: string; subfield
   const base = createPresentation({ title: 'Trailing' })
   const content = containerWithDoc(paragraphDoc('Start'))
   const leaf = createLeaf(content)
-  const presentation = {
+  const presentation: Presentation = {
     ...base,
-    slides: [{ ...base.slides[0], root: leaf }],
+    slides: [sectionAt(base, 0), { ...contentAt(base, 1), root: leaf }],
   }
   return { presentation, nodeId: leaf.id, subfieldId: content.body.subfields[0].id }
 }
@@ -81,14 +82,14 @@ describe('setSubfieldDoc', () => {
   it('never stores the blank line a field ends with', () => {
     const { presentation, nodeId, subfieldId } = deckWithField()
     const result = setSubfieldDoc(presentation, {
-      slideId: presentation.slides[0].id,
+      slideId: presentation.slides[1].id,
       nodeId,
       subfieldId,
       doc: doc(imageNode('a1'), blank),
     })
     if (!result.ok) throw new Error('expected ok')
 
-    const root = result.value.slides[0].root
+    const root = contentAt(result.value, 1).root
     if (root.kind !== 'leaf' || root.content?.kind !== 'container') throw new Error('expected leaf')
     expect(root.content.body.subfields[0].doc).toEqual(doc(imageNode('a1')))
   })
@@ -103,9 +104,11 @@ describe('migration to the current schema', () => {
       // «one below current» stops testing this step the moment a later one is
       // added, and does it silently.
       schemaVersion: 9,
+      // A v9 document had no sections: the front page is built by the chain.
       slides: [
         {
-          ...presentation.slides[0],
+          id: contentAt(presentation, 1).id,
+          title: contentAt(presentation, 1).title,
           root: {
             id: 'n1',
             kind: 'leaf',
@@ -128,7 +131,7 @@ describe('migration to the current schema', () => {
 
     const result = migratePresentation(stored)
     if (!result.ok) throw new Error(`expected ok: ${JSON.stringify(result.error)}`)
-    const root = result.value.slides[0].root
+    const root = contentAt(result.value, 1).root
     if (root.kind !== 'leaf' || root.content?.kind !== 'container') throw new Error('expected leaf')
     expect(root.content.body.subfields[0].doc.content).toHaveLength(1)
   })

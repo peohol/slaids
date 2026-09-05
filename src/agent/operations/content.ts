@@ -44,7 +44,7 @@ import {
 } from '../../domain/content'
 import { findLeaf, findNode } from '../../domain/layout'
 import { emptyDoc, isDocEmpty } from '../../domain/richdoc'
-import { findSlide } from '../../domain/presentation'
+import { findContentSlide, findSlide } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
 import type { Axis, CardBody, LeafNode, Presentation, ZoneContent } from '../../domain/types'
 import {
@@ -76,8 +76,14 @@ function findZone(
   slideId: string,
   nodeId: string,
 ): Result<LeafNode> {
-  const slide = findSlide(presentation, slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const slide = findContentSlide(presentation, slideId)
+  if (!slide) {
+    // Told apart, because the caller's next move is: an unknown id is a mistake
+    // about which deck this is, a section is a mistake about which page.
+    return findSlide(presentation, slideId)
+      ? err('NOT_A_CONTENT_SLIDE', 'Seksjonsslides har ingen soner.')
+      : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  }
   const leaf = findLeaf(slide.root, nodeId)
   if (leaf) return ok(leaf)
   return findNode(slide.root, nodeId)
@@ -245,7 +251,7 @@ export const setZoneCard = defineOperation({
       .optional()
       .describe(
         'Bakgrunnsfarge på kortet, eller fargen på tittellinjen. Ikke for beholdere. ' +
-          '`null` nullstiller et kort med tittel til forsidens pillefarge; et kort uten ' +
+          '`null` nullstiller et kort med tittel til seksjonens aksentfarge; et kort uten ' +
           'tittel har ingen arvet farge å nullstille til.',
       ),
     subfieldCount: z
@@ -551,7 +557,7 @@ export const setImageCaptionOperation = defineOperation({
       .nullable()
       .optional()
       .describe(
-        'Bakgrunnsfargen som hex. `null` betyr dekkets standardfarge fra forsiden, som er utgangspunktet.',
+        'Bakgrunnsfargen som hex. `null` betyr aksentfargen fra seksjonen sliden hører til, som er utgangspunktet.',
       ),
     remove: z.boolean().optional().describe('Sett til true for å fjerne bildeteksten.'),
   }),

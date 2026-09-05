@@ -19,12 +19,12 @@ import {
   removeNode,
   replaceNode,
 } from '../layout'
-import { findSlide, touch, withSlide } from '../presentation'
+import { touch, withSlide } from '../presentation'
 import { quantizeRatios } from '../ratios'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
 import { fitContextFor, guardFit } from './fitGuard'
-import { geometryFor, rectForNode } from './internal'
+import { contentSlide, geometryFor, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
 
@@ -73,8 +73,9 @@ export function splitLeaf(
   presentation: Presentation,
   input: SplitLeafInput,
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf) {
     return findNode(slide.root, input.nodeId)
@@ -170,8 +171,9 @@ export function updateSplit(
   presentation: Presentation,
   input: UpdateSplitInput,
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const split = findSplit(slide.root, input.nodeId)
   if (!split) {
     return findNode(slide.root, input.nodeId)
@@ -269,8 +271,9 @@ export function deleteLayoutNode(
   presentation: Presentation,
   input: DeleteNodeInput,
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   if (slide.root.id === input.nodeId) {
     return err('ROOT_CANNOT_BE_DELETED', 'Hovedsonen kan ikke slettes. Bruk «Tøm sone».')
   }
@@ -300,8 +303,9 @@ export function clearLayoutNode(
   presentation: Presentation,
   input: DeleteNodeInput,
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const target = findNode(slide.root, input.nodeId)
   if (!target) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
@@ -342,8 +346,9 @@ export function setZoneContent(
   presentation: Presentation,
   input: SetZoneContentInput,
 ): Result<StructuralOutcome> {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf) {
     return findNode(slide.root, input.nodeId)
@@ -468,13 +473,13 @@ function transferZoneContent(
   mode: TransferMode,
 ): Result<StructuralOutcome> {
   const copying = mode === 'copy'
-  const sourceSlide = findSlide(presentation, input.slideId)
-  if (!sourceSlide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.', { slideId: input.slideId })
+  const foundSource = contentSlide(presentation, input.slideId)
+  if (!foundSource.ok) return foundSource
+  const sourceSlide = foundSource.value
   const targetSlideId = input.toSlideId ?? input.slideId
-  const targetSlide = findSlide(presentation, targetSlideId)
-  if (!targetSlide) {
-    return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.', { slideId: targetSlideId })
-  }
+  const foundTarget = contentSlide(presentation, targetSlideId)
+  if (!foundTarget.ok) return foundTarget
+  const targetSlide = foundTarget.value
 
   const source = { slideId: input.slideId, nodeId: input.fromNodeId }
   const target = { slideId: targetSlideId, nodeId: input.toNodeId }
@@ -513,12 +518,10 @@ function transferZoneContent(
     const clearedRoot = replaceNode(sourceSlide.root, from.id, { ...from, content: null })
     next = withSlide(next, { ...sourceSlide, root: clearedRoot })
   }
-  const refreshedTarget = findSlide(next, targetSlideId)
-  if (!refreshedTarget) {
-    return err('SLIDE_NOT_FOUND', 'Fant ikke målsliden.', { slideId: targetSlideId })
-  }
-  const targetRoot = replaceNode(refreshedTarget.root, to.id, { ...to, content: placed })
-  next = touch(withSlide(next, { ...refreshedTarget, root: targetRoot }))
+  const refreshedTarget = contentSlide(next, targetSlideId)
+  if (!refreshedTarget.ok) return refreshedTarget
+  const targetRoot = replaceNode(refreshedTarget.value.root, to.id, { ...to, content: placed })
+  next = touch(withSlide(next, { ...refreshedTarget.value, root: targetRoot }))
 
   // Moving citation-bearing content between slides changes first-occurrence
   // order, and copying it adds an occurrence, so the label this very content
@@ -555,8 +558,9 @@ export function canAcceptContent(
   presentation: Presentation,
   input: { slideId: string; nodeId: NodeId; content: ZoneContent } & StructuralOptions,
 ): boolean {
-  const slide = findSlide(presentation, input.slideId)
-  if (!slide) return false
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return false
+  const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf || leaf.content) return false
   const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))

@@ -37,6 +37,7 @@ import {
   setZoneContent,
   splitLeaf,
 } from './index'
+import { contentAt } from '../testDecks'
 
 /** What the editor and any future REST/MCP caller pass. */
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
@@ -99,14 +100,14 @@ function bannerAndLine(aspect = 4): RichDoc {
 /** A one-slide deck, no title zone, with `content` filling the whole slide. */
 function deckWith(content: ZoneContent, theme?: Partial<Presentation['theme']>): Presentation {
   const presentation = createPresentation({ title: 'Fit', firstSlideHasTitle: false, theme })
-  const slide = presentation.slides[0]
+  const slide = contentAt(presentation, 1)
   return unwrap(
     setZoneContent(presentation, { slideId: slide.id, nodeId: slide.root.id, content }),
   ).presentation
 }
 
 function target(presentation: Presentation): { slideId: string; nodeId: string } {
-  const slide = presentation.slides[0]
+  const slide = contentAt(presentation, 1)
   return { slideId: slide.id, nodeId: slide.root.id }
 }
 
@@ -128,7 +129,7 @@ describe('setTheme og minstemålet for en sone', () => {
       firstSlideHasTitle: false,
       theme: { spacing: TIGHTEST },
     })
-    const slide = presentation.slides[0]
+    const slide = contentAt(presentation, 1)
     return unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
@@ -181,7 +182,7 @@ describe('setTheme og minstemålet for en sone', () => {
     // Less wrong is still allowed, all the way down to right.
     expect(setTheme(broken, { spacing: DEFAULT_SPACING }, checkers).ok).toBe(true)
     // And a change that leaves it exactly as broken is not a new regression.
-    expect(setTheme(broken, { backgroundColor: '#123456' }, checkers).ok).toBe(true)
+    expect(setTheme(broken, { spacing: 2.4 }, checkers).ok).toBe(true)
   })
 })
 
@@ -206,7 +207,7 @@ describe('setTheme', () => {
 
   it('refuses a heading font that pushes a slide title out of its zone', () => {
     const blank = createPresentation({ title: 'Fit' })
-    const slideId = blank.slides[0].id
+    const slideId = blank.slides[1].id
     const presentation = unwrap(
       setSlideTitle(blank, slideId, titleDoc('A'.repeat(48)), checkers),
     )
@@ -251,7 +252,7 @@ describe('setTheme', () => {
 
   it('measures a title against the zone the new type size gives it', () => {
     const blank = createPresentation({ title: 'Fit' })
-    const slideId = blank.slides[0].id
+    const slideId = blank.slides[1].id
     const presentation = unwrap(
       setSlideTitle(blank, slideId, titleDoc('A'.repeat(48)), checkers),
     )
@@ -269,7 +270,9 @@ describe('setTheme', () => {
       },
       fitsTitle: estimateTitleFitChecker,
     }
-    expect(setTheme(filled(), { backgroundColor: '#123456' }, counting).ok).toBe(true)
+    // Nothing fit-relevant moved — the same fonts and the same scales — so
+    // nothing is measured.
+    expect(setTheme(filled(), { ...filled().theme }, counting).ok).toBe(true)
     expect(measured).toBe(0)
   })
 })
@@ -473,7 +476,7 @@ describe('fit gate boundaries', () => {
 
   it('refuses a slide title that no longer fits, for headless callers', () => {
     const presentation = createPresentation({ title: 'Fit' })
-    const slideId = presentation.slides[0].id
+    const slideId = presentation.slides[1].id
     expectRefused(setSlideTitle(presentation, slideId, titleDoc('A'.repeat(120)), checkers))
     expect(setSlideTitle(presentation, slideId, titleDoc('A'.repeat(120))).ok).toBe(true)
   })

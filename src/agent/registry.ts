@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { RepositoryConflictError, RepositoryError } from '../persistence/repository'
 import { assetOperations } from './operations/assets'
 import { contentOperations } from './operations/content'
-import { coverOperations } from './operations/cover'
+import { sectionOperations } from './operations/sections'
 import { deckOperations } from './operations/deck'
 import { layoutOperations } from './operations/layout'
 import { libraryOperations } from './operations/library'
@@ -45,7 +45,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...deckOperations,
   ...libraryOperations,
   ...themeOperations,
-  ...coverOperations,
+  ...sectionOperations,
   ...slideOperations,
   ...layoutOperations,
   ...contentOperations,

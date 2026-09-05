@@ -11,10 +11,10 @@ import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import { emptyDoc, mergeAdjacentCitations, titleDoc, trimTrailingBlankLines } from './richdoc'
-import { newSubfieldId } from './ids'
+import { newSlideId, newSubfieldId } from './ids'
 import { quantizeStoredRatios } from './ratios'
 import { normalizeIdeas } from './ideas'
-import type { DeckCover, Presentation, RichDoc } from './types'
+import type { Presentation, RichDoc } from './types'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import {
   DEFAULT_FONT_SCALE,
@@ -314,7 +314,11 @@ const migrate6to7: MigrationFn = (data) => {
 const migrate7to8: MigrationFn = (data) => ({
   ...(dropDefaultHeadingColors(data) as Raw),
   schemaVersion: 8,
-  cover: coverFrom(data.cover, asString(data.title, '')),
+  cover: {
+    title: (data.cover as Raw | undefined)?.title ?? titleDoc(asString(data.title, '')),
+    subtitle: (data.cover as Raw | undefined)?.subtitle ?? titleDoc(''),
+    pillColor: (data.cover as Raw | undefined)?.pillColor ?? DEFAULT_PILL_COLOR,
+  },
 })
 
 /**
@@ -477,24 +481,35 @@ function trimBlankLinesInRaw(value: unknown): unknown {
 }
 
 /**
- * A cover, from whatever is there.
+ * The deck's front page as a section slide, from whatever is there.
  *
  * Used both by the migration and by `repairPresentation`, because a document
  * already at the current version runs no migration at all — and a presentation
- * without a cover is one the schema refuses and the editor therefore cannot
- * open. A missing cover is not corruption worth failing over: it is a field
- * that can be rebuilt from the deck's own name without guessing.
+ * whose first slide is not a section is one the schema refuses and the editor
+ * therefore cannot open. A missing front page is not corruption worth failing
+ * over: it is a page that can be rebuilt from the deck's own name without
+ * guessing.
+ *
+ * The two colours are read from wherever they were written down before: the
+ * cover's `pillColor` became the accent, and the theme's `backgroundColor`
+ * became the page colour of the first section — which is exactly what it meant
+ * while there was only one of them.
  */
-function coverFrom(value: unknown, presentationTitle: string): DeckCover {
-  const raw = (value ?? {}) as Raw
+function frontSectionFrom(data: Raw): Raw {
+  const raw = (data.cover ?? {}) as Raw
+  const theme = (data.theme ?? {}) as Raw
   const doc = (candidate: unknown, fallback: string): RichDoc => {
     const record = (candidate ?? {}) as Raw
     return record.type === 'doc' ? (record as unknown as RichDoc) : titleDoc(fallback)
   }
   return {
-    title: doc(raw.title, presentationTitle),
+    id: newSlideId(),
+    kind: 'section',
+    title: doc(raw.title, asString(data.title, '')),
     subtitle: doc(raw.subtitle, ''),
-    pillColor: normalizeHex(asString(raw.pillColor, '')) ?? DEFAULT_PILL_COLOR,
+    accentColor: normalizeHex(asString(raw.pillColor, '')) ?? DEFAULT_PILL_COLOR,
+    backgroundColor:
+      normalizeHex(asString(theme.backgroundColor, '')) ?? DEFAULT_BACKGROUND_COLOR,
   }
 }
 
@@ -519,6 +534,38 @@ const migrate11to12: MigrationFn = (data) => ({
   schemaVersion: 12,
 })
 
+/**
+ * The cover becomes the deck's first section slide.
+ *
+ * Sections are a slide kind now, and the front page is simply the first of
+ * them — so the one page that used to live beside `slides` moves into it, and
+ * "every deck has a front page" stops being a field and becomes the promise
+ * `DeckSlides` makes. Existing slides gain `kind: 'content'`, which is what
+ * they always were.
+ *
+ * The page colour moves the same way. It was one value in the theme for the
+ * whole deck; it is a section's now, so it is written into the section this
+ * migration creates and every slide after it inherits exactly the colour it
+ * was drawn in before. Nothing about a migrated deck looks different — which
+ * is the point: what changed is where the colour can be changed from.
+ */
+const migrate12to13: MigrationFn = (data) => {
+  const { cover, ...rest } = data
+  void cover
+  const theme = { ...((data.theme ?? {}) as Raw) }
+  delete theme.backgroundColor
+  const slides = asArray(data.slides).map((entry) => ({
+    ...((entry ?? {}) as Raw),
+    kind: 'content',
+  }))
+  return {
+    ...rest,
+    schemaVersion: 13,
+    theme,
+    slides: [frontSectionFrom(data), ...slides],
+  }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -533,6 +580,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   9: migrate9to10,
   10: migrate10to11,
   11: migrate11to12,
+  12: migrate12to13,
 }
 
 /**
@@ -556,8 +604,6 @@ export function repairPresentation(data: Raw): Raw {
   const theme = (data.theme ?? {}) as Raw
   const repairedTheme = {
     ...theme,
-    backgroundColor:
-      normalizeHex(asString(theme.backgroundColor, '')) ?? DEFAULT_BACKGROUND_COLOR,
     headingFontFamily: asString(theme.headingFontFamily, '').trim() || DEFAULT_HEADING_FONT,
     bodyFontFamily: asString(theme.bodyFontFamily, '').trim() || DEFAULT_BODY_FONT,
     spacing: clampScale(theme.spacing, SPACING_RANGE, DEFAULT_SPACING),
@@ -576,12 +622,16 @@ export function repairPresentation(data: Raw): Raw {
     return Object.fromEntries(entries)
   }
 
+  const repaired = repairColors(data) as Raw
+  const slides = asArray(repaired.slides)
+  const front = (slides[0] ?? {}) as Raw
   return {
-    ...(repairColors(data) as Raw),
-    /* The cover is rebuilt rather than refused, for the same reason the theme's
-       colours are coerced: it is a single small field whose absence would make
-       an otherwise perfectly readable document unopenable. */
-    cover: coverFrom(data.cover, asString(data.title, '')),
+    ...repaired,
+    /* The front page is rebuilt rather than refused, for the same reason the
+       theme's colours are coerced: a deck whose first slide is not a section is
+       one the schema refuses, and an otherwise perfectly readable document
+       would be unopenable over a page that can be rebuilt from its own name. */
+    slides: front.kind === 'section' ? slides : [frontSectionFrom(data), ...slides],
     /* The ideas list repairs rather than refuses — that is the contract
        `src/domain/ideas.ts` states, and this is the only place it can be kept.
        A document already at the current version runs no migration, so without

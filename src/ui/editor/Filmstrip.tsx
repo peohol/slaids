@@ -8,11 +8,11 @@
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { duplicateSlide } from '../../domain/commands'
+import { canDeleteSlide, duplicateSlide } from '../../domain/commands'
 import type { DeckPage } from '../../domain/pages'
-import { CoverPageView } from '../slide/CoverPageView'
+import { SectionPageView } from '../slide/SectionPageView'
 import { useEditorStore } from '../../state/store'
-import type { DeckCover, Presentation, Slide } from '../../domain/types'
+import type { Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView } from '../slide/SlideView'
@@ -41,50 +41,6 @@ function Thumb({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The cover: always first, never draggable, never deleted.
- *
- * It has no grip and no tools, because there is nothing a cover can be moved
- * before or duplicated into. That is not chrome the strip happens to leave out
- * — the commands to do either do not exist.
- */
-function CoverThumb({
-  cover,
-  active,
-  onSelect,
-}: {
-  cover: DeckCover
-  active: boolean
-  onSelect: () => void
-}) {
-  return (
-    <div
-      className={active ? 'filmstrip__item filmstrip__item--active' : 'filmstrip__item'}
-      data-testid="filmstrip-cover"
-    >
-      <div className="filmstrip__index">
-        <span>1</span>
-        <span className="filmstrip__badge">Forside</span>
-      </div>
-      <button
-        type="button"
-        className="filmstrip__thumb"
-        style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
-        onClick={onSelect}
-        data-testid="filmstrip-cover-thumb"
-        aria-label="Forside"
-      >
-        <Thumb>
-          <CoverPageView cover={cover} />
-        </Thumb>
-      </button>
-      <div className="filmstrip__tools">
-        <span className="hint">Alltid først</span>
-      </div>
-    </div>
-  )
-}
-
-/**
  * One authored slide in the strip.
  *
  * The thumbnail is both the way to the slide and the way to move it: a click
@@ -94,6 +50,11 @@ function CoverThumb({
  * ever swallowing an ordinary click. The grip keeps the immediate activation a
  * dedicated handle should have, and is the affordance that says the strip can
  * be reordered at all.
+ *
+ * A section is an authored slide like any other here: same grip, same tools,
+ * same reordering. The front page happens to be one, and what stops it being
+ * dragged away or deleted is not chrome the strip leaves out but the commands
+ * themselves, which refuse a deck that would stop opening with a section.
  */
 function SlideThumb({
   slide,
@@ -112,6 +73,12 @@ function SlideThumb({
   onDelete: () => void
   canDelete: boolean
 }) {
+  const isSection = slide.kind === 'section'
+  const label = isSection
+    ? index === 0
+      ? 'Forside'
+      : 'Seksjon'
+    : `Slide ${index + 1}`
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: slide.id,
     data: { kind: 'slide' },
@@ -126,8 +93,8 @@ function SlideThumb({
       data-slide-id={slide.id}
     >
       <div className="filmstrip__index">
-        {/* The cover is page one, so slide 1 is page two. */}
-        <span>{index + 2}</span>
+        <span>{index + 1}</span>
+        {isSection && <span className="filmstrip__badge">{label}</span>}
         <span
           className="filmstrip__grip"
           aria-hidden="true"
@@ -144,36 +111,43 @@ function SlideThumb({
         onClick={onSelect}
         data-testid="filmstrip-thumb"
         data-drag-activation="hold"
-        aria-label={`Slide ${index + 1}`}
+        aria-label={label}
         {...attributes}
         {...listeners}
       >
         <Thumb>
-          <SlideView slide={slide}>
-            {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
-            <SlideProgressBar pageId={slide.id} />
-          </SlideView>
+          {slide.kind === 'section' ? (
+            <div style={{ position: 'relative', width: SLIDE_WIDTH, height: SLIDE_HEIGHT }}>
+              <SectionPageView section={slide} />
+              <SlideProgressBar pageId={slide.id} />
+            </div>
+          ) : (
+            <SlideView slide={slide}>
+              {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
+              <SlideProgressBar pageId={slide.id} />
+            </SlideView>
+          )}
         </Thumb>
       </button>
       <div className="filmstrip__tools">
-        <Tooltip label="Dupliser slide">
+        <Tooltip label={isSection ? 'Dupliser seksjon' : 'Dupliser slide'}>
           <button
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
             onClick={onDuplicate}
-            aria-label={`Dupliser slide ${index + 1}`}
+            aria-label={`Dupliser ${label.toLowerCase()}`}
             data-testid="duplicate-slide"
           >
             <Icon name="copy" size={14} />
           </button>
         </Tooltip>
-        <Tooltip label="Slett slide">
+        <Tooltip label={isSection ? 'Slett seksjon' : 'Slett slide'}>
           <button
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
             onClick={onDelete}
             disabled={!canDelete}
-            aria-label={`Slett slide ${index + 1}`}
+            aria-label={`Slett ${label.toLowerCase()}`}
             data-testid="delete-slide"
           >
             <Icon name="trash" size={14} />
@@ -192,6 +166,7 @@ export function Filmstrip({
   onSelectAuthored,
   onRequestDelete,
   onRequestNewSlide,
+  onRequestNewSection,
 }: {
   presentation: Presentation
   /**
@@ -206,11 +181,10 @@ export function Filmstrip({
   onSelectAuthored: () => void
   onRequestDelete: (slide: Slide) => void
   onRequestNewSlide: () => void
+  onRequestNewSection: () => void
 }) {
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
-  const viewingCover = useEditorStore((state) => state.viewingCover)
   const selectSlide = useEditorStore((state) => state.selectSlide)
-  const selectCover = useEditorStore((state) => state.selectCover)
   const selectAuthored = (slideId: string): void => {
     onSelectAuthored()
     selectSlide(slideId)
@@ -226,15 +200,6 @@ export function Filmstrip({
   return (
     <aside className="filmstrip" data-testid="filmstrip">
       <div className="filmstrip__list">
-        <CoverThumb
-          cover={presentation.cover}
-          active={viewingCover && viewingDerivedId === null}
-          onSelect={() => {
-            onSelectAuthored()
-            selectCover()
-          }}
-        />
-
         <SortableContext
             items={presentation.slides.map((slide) => slide.id)}
             strategy={verticalListSortingStrategy}
@@ -244,8 +209,8 @@ export function Filmstrip({
                 key={slide.id}
                 slide={slide}
                 index={index}
-                active={slide.id === currentSlideId && !viewingCover && viewingDerivedId === null}
-                canDelete={presentation.slides.length > 1}
+                active={slide.id === currentSlideId && viewingDerivedId === null}
+                canDelete={canDeleteSlide(presentation, slide.id)}
                 onSelect={() => selectAuthored(slide.id)}
                 onDuplicate={() => duplicate(slide.id, index)}
                 onDelete={() => onRequestDelete(slide)}
@@ -267,7 +232,7 @@ export function Filmstrip({
               data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
             >
               <div className="filmstrip__index">
-                <span>{presentation.slides.length + index + 2}</span>
+                <span>{presentation.slides.length + index + 1}</span>
                 <span className="filmstrip__badge">Avledet</span>
               </div>
               <button
@@ -298,6 +263,14 @@ export function Filmstrip({
           data-testid="add-slide"
         >
           <Icon name="plus" /> Ny slide
+        </button>
+        <button
+          type="button"
+          className="btn btn--section"
+          onClick={onRequestNewSection}
+          data-testid="add-section"
+        >
+          <Icon name="plus" /> Ny seksjon
         </button>
       </div>
     </aside>

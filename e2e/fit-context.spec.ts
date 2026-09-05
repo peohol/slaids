@@ -416,8 +416,9 @@ test.describe('citation numbering and fit', () => {
     await fillLineToCapacity(page, titleField)
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
 
-    // Back to slide 1, and take its title away.
-    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    // Back to slide 1, and take its title away. Index 0 is the front page, so
+    // the deck's first ordinary slide is index 1.
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
     await page.getByTestId('toggle-title').click()
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await page.getByTestId('confirm-accept').click()
@@ -430,14 +431,14 @@ test.describe('citation numbering and fit', () => {
 
     // Give slide 3's title room again, keeping its pill, and the same removal
     // lands.
-    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
     await caretInto(titleField)
     await page.keyboard.press('ControlOrMeta+a')
     await page.keyboard.insertText('Kort ')
     await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
     await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
 
-    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
     await page.getByTestId('toggle-title').click()
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await page.getByTestId('confirm-accept').click()
@@ -445,7 +446,7 @@ test.describe('citation numbering and fit', () => {
 
     // And the renumbering the refusal was about is now visible on slide 3: the
     // same four references, two of them numbered after everything else.
-    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
     await expect(stage(page).locator('.rd-citation')).toHaveText('1, 2, 5, 6')
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
@@ -481,9 +482,11 @@ test.describe('citation numbering and fit', () => {
 
     // Drag slide 2 above slide 1, by its grip — the handle that drags on the
     // first millimetre of movement, unlike the thumbnail, which asks to be held.
+    // Index 0 is the front page, which stays where it is: the two ordinary
+    // slides are 1 and 2.
     const items = page.getByTestId('filmstrip-item')
-    const from = await items.nth(1).locator('.filmstrip__grip').boundingBox()
-    const to = await items.nth(0).boundingBox()
+    const from = await items.nth(2).locator('.filmstrip__grip').boundingBox()
+    const to = await items.nth(1).boundingBox()
     if (!from || !to) throw new Error('missing filmstrip geometry')
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
     await page.mouse.down()
@@ -495,7 +498,7 @@ test.describe('citation numbering and fit', () => {
 
     // The slide that used to be second now cites `1`, and the other one `2`.
     await expect(stage(page).locator('.rd-citation')).toHaveText('1')
-    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
     await expect(stage(page).locator('.rd-citation')).toHaveText('2')
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })

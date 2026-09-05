@@ -12,9 +12,9 @@
  */
 
 import {
-  COVER_PILL_PADDING_X_EM,
-  COVER_PILL_PADDING_Y_EM,
-  COVER_SUBTITLE_FONT_SIZE,
+  SECTION_PILL_PADDING_X_EM,
+  SECTION_PILL_PADDING_Y_EM,
+  SECTION_SUBTITLE_FONT_SIZE,
   GEOMETRY_EPSILON,
   G,
   MIN_ZONE_HEIGHT,
@@ -27,11 +27,11 @@ import {
   TITLE_LINE_HEIGHT,
   titleZoneHeightFor,
 } from './constants'
-import type { Axis, LayoutNode, NodeId, Rect, Slide } from './types'
+import type { Axis, ContentSlide, LayoutNode, NodeId, Rect } from './types'
 
 export const TITLE_NODE_ID = '__title__'
-export const COVER_TITLE_NODE_ID = '__cover_title__'
-export const COVER_SUBTITLE_NODE_ID = '__cover_subtitle__'
+export const SECTION_TITLE_NODE_ID = '__section_title__'
+export const SECTION_SUBTITLE_NODE_ID = '__section_subtitle__'
 
 export interface SlideGeometry {
   /** Rect of the deterministic title zone, or `null` when the slide has none. */
@@ -269,7 +269,10 @@ export function computeMainRect(hasTitle: boolean, options: GeometryOptions = {}
 }
 
 /** Full geometry for a slide: title rect, main rect and every node rect. */
-export function computeSlideGeometry(slide: Slide, options: GeometryOptions = {}): SlideGeometry {
+export function computeSlideGeometry(
+  slide: ContentSlide,
+  options: GeometryOptions = {},
+): SlideGeometry {
   const o = resolveOptions(options)
   const hasTitle = slide.title !== null
   const titleRect = computeTitleRect(hasTitle, o)
@@ -280,16 +283,16 @@ export function computeSlideGeometry(slide: Slide, options: GeometryOptions = {}
 }
 
 /* ------------------------------------------------------------------ *
- * The cover
+ * Section slides
  * ------------------------------------------------------------------ */
 
-export interface CoverGeometryOptions extends GeometryOptions {
-  /** Defaults to the slide title's size — the cover is set in the same type. */
+export interface SectionGeometryOptions extends GeometryOptions {
+  /** Defaults to the slide title's size — a section is set in the same type. */
   titleFontSize?: number
   subtitleFontSize?: number
 }
 
-export interface CoverGeometry {
+export interface SectionGeometry {
   /** The whole usable page: the slide minus its inset. */
   areaRect: Rect
   /** The two pills together, centred in `areaRect`. */
@@ -300,7 +303,7 @@ export interface CoverGeometry {
 }
 
 /**
- * Where the cover's two lines sit.
+ * Where a section's two lines sit.
  *
  * The pills themselves are only as wide as their text, so where each one starts
  * horizontally is decided by centring in CSS — exactly as a heading pill inside
@@ -310,21 +313,24 @@ export interface CoverGeometry {
  *
  * There is one gap between the two pills, and it is the deck's own gap.
  */
-export function computeCoverGeometry(options: CoverGeometryOptions = {}): CoverGeometry {
+export function computeSectionGeometry(options: SectionGeometryOptions = {}): SectionGeometry {
   const o = resolveOptions(options)
   const titleFont = options.titleFontSize ?? TITLE_FONT_SIZE
-  const subtitleFont = options.subtitleFontSize ?? COVER_SUBTITLE_FONT_SIZE
+  const subtitleFont = options.subtitleFontSize ?? SECTION_SUBTITLE_FONT_SIZE
 
+  // The progress strip is reserved here for the same reason `computeMainRect`
+  // reserves it: it is on every page but the first, and a block centred in the
+  // whole page would sit half a strip low on every section after that one.
   const areaRect: Rect = {
     x: o.inset,
     y: o.inset,
     width: o.slideWidth - o.inset * 2,
-    height: o.slideHeight - o.inset * 2,
+    height: o.slideHeight - o.inset * 2 - o.progressHeight,
   }
 
   const lineOf = (fontSize: number): { pillHeight: number; padX: number; padY: number } => {
-    const padX = fontSize * COVER_PILL_PADDING_X_EM
-    const padY = fontSize * COVER_PILL_PADDING_Y_EM
+    const padX = fontSize * SECTION_PILL_PADDING_X_EM
+    const padY = fontSize * SECTION_PILL_PADDING_Y_EM
     return { pillHeight: fontSize * TITLE_LINE_HEIGHT + padY * 2, padX, padY }
   }
 
@@ -536,7 +542,7 @@ export interface GeometryViolation {
  * parent, nothing escapes the slide, and no rect is degenerate.
  */
 export function validateSlideGeometry(
-  slide: Slide,
+  slide: ContentSlide,
   options: GeometryOptions = {},
 ): GeometryViolation[] {
   const o = resolveOptions(options)

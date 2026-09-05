@@ -27,7 +27,7 @@ import {
   PROGRESS_TRACK_OPACITY,
   PROGRESS_TRANSITION_MS,
 } from '../../domain/constants'
-import { useSlideRender } from './SlideRenderContext'
+import { useSectionColorsFor, useSlideRender } from './SlideRenderContext'
 
 /**
  * The fill, in per cent of the slide.
@@ -55,7 +55,10 @@ function fillRadius(progress: number): string {
 }
 
 export function SlideProgressBar({ pageId }: { pageId: string }) {
-  const { headingPillColor, progress } = useSlideRender()
+  const { progress } = useSlideRender()
+  // The indicator is drawn in the accent of the section the page belongs to,
+  // so it changes colour with the part of the deck it is measuring.
+  const { accent } = useSectionColorsFor(pageId)
   const position = progress.get(pageId)
   if (position === undefined) return null
   const filled = clampProgress(position)
@@ -69,13 +72,13 @@ export function SlideProgressBar({ pageId }: { pageId: string }) {
     >
       <div
         className="slide-progress__track"
-        style={{ background: headingPillColor, opacity: PROGRESS_TRACK_OPACITY }}
+        style={{ background: accent, opacity: PROGRESS_TRACK_OPACITY }}
       />
       <div
         className="slide-progress__fill"
         data-testid="slide-progress-fill"
         style={{
-          background: headingPillColor,
+          background: accent,
           width: `${filled * 100}%`,
           borderRadius: fillRadius(filled),
           transitionDuration: `${PROGRESS_TRANSITION_MS}ms`,

@@ -22,6 +22,7 @@ import { geometryForTheme } from '../metrics'
 import type { Presentation, Rect, Reference, RichDoc, ZoneContent } from '../types'
 import { findLeaf } from '../layout'
 import { addSlide, moveSlide, setSubfieldDoc, setZoneContent } from './index'
+import { contentAt } from '../testDecks'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
@@ -153,7 +154,8 @@ function deck(citations: number, text: string): Presentation {
   // states the commands under test then have to judge, including ones that are
   // deliberately right at the limit.
   presentation = unwrap(addSlide(presentation, { hasTitle: false, index: 1 }))
-  const [first, second] = presentation.slides
+  const first = contentAt(presentation, 1)
+  const second = contentAt(presentation, 2)
 
   presentation = unwrap(
     setZoneContent(presentation, {
@@ -215,7 +217,8 @@ function trailingDeck(earlier: number, citations: number, text: string): Present
     references,
   }
   presentation = unwrap(addSlide(presentation, { hasTitle: false, index: 1 }))
-  const [first, second] = presentation.slides
+  const first = contentAt(presentation, 1)
+  const second = contentAt(presentation, 2)
   presentation = unwrap(
     setZoneContent(presentation, {
       slideId: first.id,
@@ -238,7 +241,7 @@ function fillTrailingSlide(earlier: number, citations: number): Presentation {
   let best: Presentation | null = null
   for (let length = 100; length <= 4000; length += 20) {
     const candidate = trailingDeck(earlier, citations, 'ord '.repeat(length / 4))
-    const slide = candidate.slides[1]
+    const slide = contentAt(candidate, 2)
     const content = findLeaf(slide.root, slide.root.id)?.content
     if (!content) throw new Error('expected content')
     const fit = estimateFit(content, fullRect(candidate.theme), {
@@ -257,7 +260,7 @@ function fillFirstSlide(citations: number): Presentation {
   let best: Presentation | null = null
   for (let length = 100; length <= 4000; length += 20) {
     const candidate = deck(citations, 'ord '.repeat(length / 4))
-    const content = findLeaf(candidate.slides[0].root, candidate.slides[0].root.id)?.content
+    const content = findLeaf(contentAt(candidate, 1).root, contentAt(candidate, 1).root.id)?.content
     if (!content) throw new Error('expected content')
     const fit = estimateFit(content, fullRect(candidate.theme), {
       theme: candidate.theme,
@@ -273,22 +276,22 @@ function fillFirstSlide(citations: number): Presentation {
 describe('commands that renumber citations', () => {
   it('refuses a slide reorder that pushes a label from 1 to 10 in a full zone', () => {
     const presentation = fillFirstSlide(40)
-    const moved = moveSlide(presentation, presentation.slides[0].id, 1, checkers)
+    const moved = moveSlide(presentation, presentation.slides[1].id, 2, checkers)
     expect(moved.ok).toBe(false)
     if (!moved.ok) expect(moved.error.code).toBe('CONTENT_DOES_NOT_FIT')
   })
 
   it('allows the same reorder when the zone has room for the wider label', () => {
     const presentation = deck(40, 'ord '.repeat(20))
-    const moved = moveSlide(presentation, presentation.slides[0].id, 1, checkers)
+    const moved = moveSlide(presentation, presentation.slides[1].id, 2, checkers)
     expect(moved.ok).toBe(true)
   })
 
   it('allows a reorder that makes labels narrower', () => {
     const presentation = deck(40, 'ord '.repeat(20))
-    const swapped = unwrap(moveSlide(presentation, presentation.slides[0].id, 1, checkers))
+    const swapped = unwrap(moveSlide(presentation, presentation.slides[1].id, 2, checkers))
     // Back again: `10` becomes `1`, which can only free up room.
-    const back = moveSlide(swapped, swapped.slides[1].id, 0, checkers)
+    const back = moveSlide(swapped, swapped.slides[2].id, 1, checkers)
     expect(back.ok).toBe(true)
   })
 
@@ -297,7 +300,7 @@ describe('commands that renumber citations', () => {
     // The full slide is first, so its reference is number 1. Give the *second*
     // slide's document nine earlier citations by moving them ahead of it: a new
     // slide inserted in front with those citations does the same thing.
-    const second = presentation.slides[1]
+    const second = contentAt(presentation, 2)
     const withEarlier: RichDoc = {
       type: 'doc',
       content: [
@@ -312,7 +315,9 @@ describe('commands that renumber citations', () => {
     }
     const inserted = addSlide(presentation, {
       hasTitle: false,
-      index: 0,
+      // Right after the front section: a deck opens with one, so index 0 is
+      // taken and a slide inserted at 1 is still ahead of everything cited.
+      index: 1,
       root: {
         kind: 'leaf',
         id: 'seed',
@@ -323,7 +328,7 @@ describe('commands that renumber citations', () => {
     expect(inserted.ok).toBe(false)
     if (!inserted.ok) expect(inserted.error.code).toBe('CONTENT_DOES_NOT_FIT')
     // The same slide without citations changes nothing and is allowed.
-    const harmless = addSlide(presentation, { hasTitle: false, index: 0, ...checkers })
+    const harmless = addSlide(presentation, { hasTitle: false, index: 1, ...checkers })
     expect(harmless.ok).toBe(true)
     expect(second).toBeDefined()
   })
@@ -332,7 +337,7 @@ describe('commands that renumber citations', () => {
     // Eight citations ahead of the full slide, so its own label is `9` and one
     // more citation ahead of it makes it `10`.
     const presentation = fillTrailingSlide(8, 40)
-    const first = presentation.slides[0]
+    const first = contentAt(presentation, 1)
     const content = findLeaf(first.root, first.root.id)?.content
     if (!content || content.kind !== 'untitled-card') throw new Error('expected a card')
     const subfieldId = content.body.subfields[0].id

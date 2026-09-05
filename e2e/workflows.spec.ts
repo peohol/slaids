@@ -96,7 +96,7 @@ test.describe('layout templates', () => {
     await expect(page.getByTestId('template-item')).toHaveCount(1)
 
     await page.getByTestId('use-template').click()
-    await expect(page.getByTestId('filmstrip-item')).toHaveCount(2)
+    await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
     const zones = await zoneRects(page)
     expect(zones).toHaveLength(3)
     // Templates carry layout only.

@@ -14,6 +14,7 @@ import { decodeBase64, realImageBase64 } from '../domain/testImages'
 import { bytesToBlob } from './blob'
 import { unzipSync, zipSync } from 'fflate'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
+import { contentAt, sectionAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -37,8 +38,9 @@ function samplePresentation(): Presentation {
   return {
     ...presentation,
     slides: [
+      sectionAt(presentation, 0),
       {
-        ...presentation.slides[0],
+        ...contentAt(presentation, 1),
         root: createSplit('x', [2, 3], [createLeaf(createUntitledCard()), createLeaf()]),
       },
     ],
@@ -155,8 +157,9 @@ function presentationWithAsset(base: Presentation): Presentation {
     ...base,
     assets: [assetRef],
     slides: [
+      sectionAt(base, 0),
       {
-        ...base.slides[0],
+        ...contentAt(base, 1),
         root: createLeaf(createImage(assetRef.id)),
       },
     ],
@@ -180,7 +183,8 @@ describe('DexieSlaidsRepository', () => {
     await repository.savePresentation(newer)
     const summaries = await repository.listPresentations()
     expect(summaries.map((summary) => summary.title)).toEqual(['Nyere', 'Eldre'])
-    expect(summaries[0].slideCount).toBe(1)
+    // The front section counts: it is a slide like any other.
+    expect(summaries[0].slideCount).toBe(2)
   })
 
   it('rejects loading a presentation that does not exist', async () => {
@@ -191,9 +195,14 @@ describe('DexieSlaidsRepository', () => {
   it('migrates a legacy record on load', async () => {
     const repository = freshRepository()
     const presentation = samplePresentation()
-    const legacy = { ...presentation } as Record<string, unknown>
+    // A record from before sections: no `kind`, and no front page among the
+    // slides — the migration chain builds one from the deck's own title.
+    const legacy = JSON.parse(JSON.stringify(presentation)) as Record<string, unknown>
     delete legacy.schemaVersion
     delete legacy.sandbox
+    legacy.slides = (legacy.slides as Record<string, unknown>[])
+      .slice(1)
+      .map(({ kind: _kind, ...rest }) => rest)
     await repository.savePresentation(legacy as unknown as Presentation)
     const loaded = await repository.loadPresentation(presentation.id)
     expect(loaded.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
@@ -203,7 +212,12 @@ describe('DexieSlaidsRepository', () => {
   it('surfaces an unreadable record as an error', async () => {
     const repository = freshRepository()
     const presentation = samplePresentation()
-    await repository.savePresentation({ ...presentation, slides: [] } as Presentation)
+    // A first slide that is not a section: the schema refuses it, and no
+    // repair can invent the layout tree it would need to be one.
+    await repository.savePresentation({
+      ...presentation,
+      slides: [{ ...presentation.slides[0], kind: 'content' }],
+    } as unknown as Presentation)
     await expect(repository.loadPresentation(presentation.id)).rejects.toThrow(/ugyldig/i)
   })
 
@@ -326,8 +340,9 @@ describe('.slaids backup', () => {
       ...samplePresentation(),
       assets: [assetRef],
       slides: [
+        sectionAt(samplePresentation(), 0),
         {
-          ...samplePresentation().slides[0],
+          ...contentAt(samplePresentation(), 1),
           root: createLeaf(createImage(assetRef.id)),
         },
       ],
@@ -368,8 +383,9 @@ describe('.slaids backup', () => {
       ...samplePresentation(),
       assets: [assetRef],
       slides: [
+        sectionAt(samplePresentation(), 0),
         {
-          ...samplePresentation().slides[0],
+          ...contentAt(samplePresentation(), 1),
           root: createLeaf(createImage(assetRef.id)),
         },
       ],
@@ -381,7 +397,7 @@ describe('.slaids backup', () => {
     const report = await importSlaidsArchive(repository, archive)
     const copy = await repository.loadPresentation(report.importedPresentations[0])
     expect(copy.assets[0].id).not.toBe(assetRef.id)
-    const payload = JSON.stringify(copy.slides[0].root)
+    const payload = JSON.stringify(contentAt(copy, 1).root)
     expect(payload).toContain(copy.assets[0].id)
     expect(payload).not.toContain(assetRef.id)
     expect(await repository.getAsset(copy.assets[0].id)).not.toBeNull()
@@ -394,8 +410,9 @@ describe('.slaids backup', () => {
       ...presentation,
       assets: [assetRef],
       slides: [
+        sectionAt(presentation, 0),
         {
-          ...presentation.slides[0],
+          ...contentAt(presentation, 1),
           root: createLeaf(createImage(assetRef.id)),
         },
       ],
@@ -424,7 +441,7 @@ describe('.slaids backup', () => {
     // The imported one got a fresh id, with its own bytes.
     const imported = await local.loadPresentation(theirs.id)
     expect(imported.assets[0].id).not.toBe(assetRef.id)
-    expect(JSON.stringify(imported.slides[0].root)).not.toContain(assetRef.id)
+    expect(JSON.stringify(contentAt(imported, 1).root)).not.toContain(assetRef.id)
     const copy = await local.getAsset(imported.assets[0].id)
     expect(await copy?.blob.text()).toBe(svgMarkup('theirs'))
   })
@@ -467,7 +484,7 @@ describe('.slaids backup', () => {
     expect(imported.title).toBe(`${presentation.title} (importert)`)
     // Its files got fresh ids too: they would have clashed the same way.
     expect(imported.assets[0].id).not.toBe(assetRef.id)
-    expect(JSON.stringify(imported.slides[0].root)).toContain(imported.assets[0].id)
+    expect(JSON.stringify(contentAt(imported, 1).root)).toContain(imported.assets[0].id)
     expect(await target.getAsset(imported.assets[0].id)).not.toBeNull()
   })
 
@@ -630,8 +647,9 @@ describe('.slaids backup', () => {
       ...base,
       assets: [assetRef],
       slides: [
+        sectionAt(base, 0),
         {
-          ...base.slides[0],
+          ...contentAt(base, 1),
           root: createSplit('x', [1, 1], [
             createLeaf(createImage(assetRef.id)),
             createLeaf(

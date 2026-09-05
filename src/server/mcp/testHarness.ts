@@ -360,19 +360,29 @@ export function restRaw(
 export async function seedDeck(
   harnessed: Harness,
   title = 'Seedet dekk',
-): Promise<{ presentationId: string; slideId: string; rootNodeId: string; revision: string }> {
+): Promise<{
+  presentationId: string
+  frontSlideId: string
+  slideId: string
+  rootNodeId: string
+  revision: string
+}> {
   const created = await runOperation(harnessed.context, 'create_presentation', { title })
   if (!created.ok) throw new Error(`Kunne ikke opprette dekket: ${created.error.code}`)
   const deck = created.value as { presentationId: string; slides: { slideId: string }[] }
+  // A new deck is `[front section, one empty slide]`; the slide with zones is
+  // the second one.
+  const slideId = deck.slides[1].slideId
   const inspected = await runOperation(harnessed.context, 'inspect_slide', {
     presentationId: deck.presentationId,
-    slideId: deck.slides[0].slideId,
+    slideId,
   })
   if (!inspected.ok) throw new Error(`Kunne ikke inspisere sliden: ${inspected.error.code}`)
   const slide = inspected.value as { rootNodeId: string; revision: string }
   return {
     presentationId: deck.presentationId,
-    slideId: deck.slides[0].slideId,
+    frontSlideId: deck.slides[0].slideId,
+    slideId,
     rootNodeId: slide.rootNodeId,
     revision: slide.revision,
   }
@@ -382,13 +392,21 @@ export async function seedDeck(
 export async function newPresentation(
   harnessed: Harness,
   title = 'Agentdekk',
-): Promise<{ presentationId: string; revision: string; slideId: string; rootNodeId: string }> {
+): Promise<{
+  presentationId: string
+  revision: string
+  frontSlideId: string
+  slideId: string
+  rootNodeId: string
+}> {
   const created = await callOk(harnessed, 'slaids_create_presentation', { title })
   const presentationId = created.presentationId as string
-  const slideId = (created.slides as { slideId: string }[])[0].slideId
+  const slides = created.slides as { slideId: string }[]
+  const slideId = slides[1].slideId
   const inspected = await callOk(harnessed, 'slaids_inspect_slide', { presentationId, slideId })
   return {
     presentationId,
+    frontSlideId: slides[0].slideId,
     slideId,
     revision: inspected.revision as string,
     rootNodeId: inspected.rootNodeId as string,

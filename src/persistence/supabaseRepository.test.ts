@@ -23,6 +23,7 @@ import {
   type QueryRecord,
   type QueryResolver,
 } from './supabaseTestClient'
+import { contentAt } from '../domain/testDecks'
 
 function repositoryFor(options: FakeSupabaseOptions) {
   const fake = createFakeSupabase(options)
@@ -102,8 +103,12 @@ describe('SupabaseSlaidsRepository – lesing', () => {
     const stored = {
       ...current,
       schemaVersion: 4,
+      // v4 had no sections either: the front page is built by the chain.
+      slides: (JSON.parse(JSON.stringify(current.slides)) as Record<string, unknown>[])
+        .slice(1)
+        .map(({ kind: _kind, ...rest }) => rest),
       theme: {
-        backgroundColor: current.theme.backgroundColor,
+        backgroundColor: '#ffffff',
         headingFontFamily: current.theme.headingFontFamily,
         bodyFontFamily: current.theme.bodyFontFamily,
       },
@@ -118,7 +123,9 @@ describe('SupabaseSlaidsRepository – lesing', () => {
     expect(loaded.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(loaded.id).toBe(current.id)
     expect(loaded.title).toBe('Fra Supabase')
-    expect(loaded.slides).toHaveLength(1)
+    // The front page the migration built, and the slide the row carried.
+    expect(loaded.slides).toHaveLength(2)
+    expect(loaded.slides[0].kind).toBe('section')
     // Migrated to the neutral multiplier the row was drawn at, then clamped
     // into the range the theme offers today.
     expect(loaded.theme.spacing).toBe(SPACING_RANGE.min)
@@ -160,8 +167,8 @@ describe('SupabaseSlaidsRepository – skriving', () => {
     const values = insert?.values as Record<string, unknown>
     expect(values.owner_id).toBe(TEST_OWNER_ID)
     expect(values.id).toBe(presentation.id)
-    expect(values.slide_count).toBe(1)
-    expect((values.document as Presentation).slides).toHaveLength(1)
+    expect(values.slide_count).toBe(2)
+    expect((values.document as Presentation).slides).toHaveLength(2)
   })
 
   it('nekter å skrive uten innlogget bruker', async () => {
@@ -1057,7 +1064,7 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
         id: 't_deres',
         name: 'Vår mal',
         createdAt: EARLIER,
-        root: ours.slides[0].root,
+        root: contentAt(ours, 1).root,
         hasTitle: false,
       }),
     ).rejects.toBeInstanceOf(RepositoryConflictError)

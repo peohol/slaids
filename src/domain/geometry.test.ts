@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  COVER_PILL_PADDING_X_EM,
-  COVER_PILL_PADDING_Y_EM,
-  COVER_SUBTITLE_FONT_SIZE,
+  SECTION_PILL_PADDING_X_EM,
+  SECTION_PILL_PADDING_Y_EM,
+  SECTION_SUBTITLE_FONT_SIZE,
   G,
   MIN_ZONE_HEIGHT,
   MIN_ZONE_WIDTH,
@@ -15,7 +15,7 @@ import {
   titleZoneHeightFor,
 } from './constants'
 import {
-  computeCoverGeometry,
+  computeSectionGeometry,
   computeLayoutRects,
   computeMainRect,
   computeSlideGeometry,
@@ -458,20 +458,20 @@ describe('degenerate rects', () => {
   })
 })
 
-describe('computeCoverGeometry', () => {
-  const geometry = computeCoverGeometry()
+describe('computeSectionGeometry', () => {
+  const geometry = computeSectionGeometry()
 
   it('leaves each line the page less its own pill padding', () => {
     const usable = SLIDE_WIDTH - SLIDE_INSET * 2
     expect(geometry.areaRect.width).toBe(usable)
     expect(geometry.titleRect.width).toBeCloseTo(
-      usable - TITLE_FONT_SIZE * COVER_PILL_PADDING_X_EM * 2,
+      usable - TITLE_FONT_SIZE * SECTION_PILL_PADDING_X_EM * 2,
       9,
     )
     // The subtitle is set smaller, so its padding is smaller and its line is
     // wider — which is exactly why it holds more characters than the title.
     expect(geometry.subtitleRect.width).toBeCloseTo(
-      usable - COVER_SUBTITLE_FONT_SIZE * COVER_PILL_PADDING_X_EM * 2,
+      usable - SECTION_SUBTITLE_FONT_SIZE * SECTION_PILL_PADDING_X_EM * 2,
       9,
     )
     expect(geometry.subtitleRect.width).toBeGreaterThan(geometry.titleRect.width)
@@ -487,14 +487,14 @@ describe('computeCoverGeometry', () => {
     // put them there — the distance between them is the deck's one gap, and
     // nothing here adds a second one.
     const titlePadY = titleRect.y - blockRect.y
-    const subtitlePadY = COVER_SUBTITLE_FONT_SIZE * COVER_PILL_PADDING_Y_EM
+    const subtitlePadY = SECTION_SUBTITLE_FONT_SIZE * SECTION_PILL_PADDING_Y_EM
     const titlePillBottom = rectBottom(titleRect) + titlePadY
     expect(subtitleRect.y - subtitlePadY - titlePillBottom).toBeCloseTo(G, 9)
     expect(rectBottom(subtitleRect) + subtitlePadY).toBeCloseTo(rectBottom(blockRect), 9)
   })
 
   it('grows the block with the type it is set in', () => {
-    const bigger = computeCoverGeometry({ titleFontSize: TITLE_FONT_SIZE * 2 })
+    const bigger = computeSectionGeometry({ titleFontSize: TITLE_FONT_SIZE * 2 })
     expect(bigger.blockRect.height).toBeGreaterThan(geometry.blockRect.height)
     expect(bigger.titleRect.height).toBeCloseTo(TITLE_FONT_SIZE * 2 * TITLE_LINE_HEIGHT, 9)
     // Still centred, and still inside the page.

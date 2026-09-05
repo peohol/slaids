@@ -28,11 +28,11 @@ import {
   SPACING_RANGE,
   geometryForTheme,
 } from '../domain/metrics'
-import { COVER_PAGE_ID } from '../domain/pages'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation } from '../domain/types'
-import type { PresentationView, SlideInspection } from './operations/deck'
+import { contentAt } from '../domain/testDecks'
+import type { PresentationView, ContentSlideInspection } from './operations/deck'
 import type { ThemeView } from './operations/theme'
 import { describeOperations, runOperation } from './registry'
 import type { AgentContext, AgentError, AgentResult } from './types'
@@ -91,7 +91,7 @@ async function newDeck(context: AgentContext): Promise<{ presentationId: string;
     title: 'Temadekk',
     firstSlideHasTitle: false,
   })
-  const slideId = created.slides[0].slideId
+  const slideId = created.slides[1].slideId
   const inspected = await ok<{ rootNodeId: string }>(context, 'inspect_slide', {
     presentationId: created.presentationId,
     slideId,
@@ -135,7 +135,6 @@ describe('å lese temaet', () => {
       presentationId: deck.presentationId,
     })
     expect(view.theme).toEqual({
-      backgroundColor: expect.stringMatching(/^#[0-9a-f]{6}$/),
       headingFont: {
         fontId: 'quicksand',
         label: 'Quicksand',
@@ -171,20 +170,18 @@ describe('å lese temaet', () => {
  * ------------------------------------------------------------------ */
 
 describe('set_theme', () => {
-  it('setter alle fem feltene i ett kall, og lagrer dem', async () => {
+  it('setter alle fire feltene i ett kall, og lagrer dem', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
 
     const result = await ok<{ theme: ThemeView; revision: string }>(context, 'set_theme', {
       presentationId: deck.presentationId,
-      backgroundColor: '#101828',
       headingFont: 'space-grotesk',
       bodyFont: 'source-sans',
       spacing: 2.4,
       fontScale: 1.75,
     })
     expect(result.theme).toMatchObject({
-      backgroundColor: '#101828',
       headingFont: { fontId: 'space-grotesk' },
       bodyFont: { fontId: 'source-sans' },
       spacing: 2.4,
@@ -193,7 +190,6 @@ describe('set_theme', () => {
 
     const document = await stored(context, deck.presentationId)
     expect(document.theme).toEqual({
-      backgroundColor: '#101828',
       headingFontFamily: findFontById('space-grotesk')?.stack,
       bodyFontFamily: findFontById('source-sans')?.stack,
       spacing: 2.4,
@@ -216,7 +212,7 @@ describe('set_theme', () => {
 
     const after = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
-      backgroundColor: '#ffffff',
+      fontScale: 1.6,
     })
     expect(after.theme.spacing).toBe(2.4)
     expect(after.theme.bodyFont.fontId).toBe('atkinson')
@@ -226,17 +222,13 @@ describe('set_theme', () => {
     const context = freshContext()
     const deck = await newDeck(context)
 
-    const short = await ok<{ theme: ThemeView }>(context, 'set_theme', {
-      presentationId: deck.presentationId,
-      backgroundColor: '#ABC',
-    })
-    expect(short.theme.backgroundColor).toBe('#aabbcc')
-
+    // A colour is a section's now, not the theme's, so the theme's own schema
+    // has no field for one to normalise.
     const refused = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
-      backgroundColor: 'rebeccapurple',
+      backgroundColor: '#aabbcc',
     })
-    expect(refused.code).toBe('INVALID_ARGUMENT')
+    expect(refused.code).toBe('INVALID_INPUT')
   })
 
   it('tar imot en revisjon, og avviser en som er utdatert uten å skrive', async () => {
@@ -255,12 +247,11 @@ describe('set_theme', () => {
     const conflict = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
       expectedRevision: read.revision,
-      backgroundColor: '#000000',
+      fontScale: 1.75,
     })
     expect(conflict.code).toBe('CONFLICT')
     const document = await stored(context, deck.presentationId)
     expect(document.theme.fontScale).toBe(1.6)
-    expect(document.theme.backgroundColor).not.toBe('#000000')
   })
 })
 
@@ -379,9 +370,10 @@ describe('en temaendring som ville skjult innhold', () => {
 
     const refused = await fails(context, 'set_theme', {
       presentationId: deck.presentationId,
-      // A colour can never hide anything, and it is still refused: the theme is
-      // one value, and half a theme is not a state anybody asked for.
-      backgroundColor: '#123456',
+      // The heading font only touches titles and could never hide this zone's
+      // body text; it is refused all the same, because the theme is one value
+      // and half a theme is not a state anybody asked for.
+      headingFont: 'source-sans',
       spacing: SPACING_RANGE.max,
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
@@ -416,7 +408,7 @@ describe('en temaendring som ville skjult innhold', () => {
     // shorten its text by an amount that is not the amount missing.
     const context = freshContext()
     const deck = await filledDeck(context)
-    const before = await ok<SlideInspection>(context, 'inspect_slide', {
+    const before = await ok<ContentSlideInspection>(context, 'inspect_slide', {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
     })
@@ -498,7 +490,7 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
     const document = await stored(context, deck.presentationId)
     const nodeId = refused.details?.nodeId as string
     const prospective = computeSlideGeometry(
-      document.slides[0],
+      contentAt(document, 1),
       geometryForTheme({ ...document.theme, spacing: SPACING_RANGE.max }),
     ).rects.get(nodeId)
     expect(refused.details?.rect).toEqual(prospective)
@@ -571,33 +563,43 @@ describe('fonten en hodeløs måling dømmer etter', () => {
     expect(document.theme.bodyFontFamily).toBe(findFontById('source-sans')?.stack)
   })
 
-  it('måler forsiden også, og sier at det var den', async () => {
-    // The cover is not a slide, and a global theme change is exactly the kind of
+  it('måler seksjonsslides også, og sier hvilken det var', async () => {
+    // A section has no zones, and a global theme change is exactly the kind of
     // change that can push its one line off the page. An agent has to be able
     // to tell that apart from a slide that no longer fits, so the refusal
-    // carries the cover's own page id.
+    // carries the section's own slide id.
     const context = freshContext()
     const created = await ok<PresentationView>(context, 'create_presentation', {
       title: 'Forsidemåling',
     })
+    const frontId = created.slides[0].slideId
     let length = 20
+    let longest = 20
     for (;;) {
-      const attempt = await call(context, 'set_cover', {
+      const attempt = await call(context, 'set_section', {
         presentationId: created.presentationId,
+        slideId: frontId,
         title: 'A'.repeat(length),
       })
       if (!attempt.ok) break
+      longest = length
       length += 5
       if (length > 400) throw new Error('Forsiden tok imot alt.')
     }
+    // The longest line that still fits, so a wider font has to push *it* over.
+    await ok(context, 'set_section', {
+      presentationId: created.presentationId,
+      slideId: frontId,
+      title: 'A'.repeat(longest),
+    })
 
     const refused = await fails(context, 'set_theme', {
       presentationId: created.presentationId,
       headingFont: 'merriweather',
     })
     expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
-    expect(refused.details?.slideId).toBe(COVER_PAGE_ID)
-    // The cover has no zone tree, so the room its one line has is the only
+    expect(refused.details?.slideId).toBe(frontId)
+    // A section has no zone tree, so the room its one line has is the only
     // rectangle there is to report — and it is the prospective one.
     expect(refused.details?.rect).toMatchObject({ width: expect.any(Number) })
     expect((await stored(context, created.presentationId)).theme.headingFontFamily).toBe(
@@ -610,7 +612,7 @@ describe('fonten en hodeløs måling dømmer etter', () => {
     const created = await ok<PresentationView>(context, 'create_presentation', {
       title: 'Tittelmåling',
     })
-    const slideId = created.slides[0].slideId
+    const slideId = created.slides[1].slideId
     // A title exactly as long as the zone allows in the default face. Grown one
     // character at a time on purpose: a coarser step would leave slack, and the
     // slack would be the thing the next assertion measured.

@@ -14,7 +14,7 @@ import { Fragment } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { collectNodes, findNode } from '../../domain/layout'
 import { breadcrumbLabels } from '../../domain/layout'
-import type { LayoutNode, NodeId, Rect, Slide } from '../../domain/types'
+import type { ContentSlide, LayoutNode, NodeId, Rect } from '../../domain/types'
 import type { SlideGeometry } from '../../domain/geometry'
 import { absoluteStyle } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
@@ -39,7 +39,7 @@ export interface ZoneAction {
 }
 
 export interface ZoneOverlayProps {
-  slide: Slide
+  slide: ContentSlide
   geometry: SlideGeometry
   selectedNodeId: NodeId | null
   hoveredNodeId: NodeId | null

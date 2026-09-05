@@ -24,7 +24,7 @@ import type {
   VerticalAlign,
   ZoneContent,
 } from '../../domain/types'
-import { useSlideRender } from './SlideRenderContext'
+import { usePageColors, useSlideRender } from './SlideRenderContext'
 
 export interface ZoneContentFrameProps {
   content: ZoneContent
@@ -125,23 +125,24 @@ export function ZoneContentFrame({
   renderField,
   renderImage,
 }: ZoneContentFrameProps) {
-  const { theme, headingPillColor } = useSlideRender()
+  const { theme } = useSlideRender()
+  const colors = usePageColors()
   const tokens = themeMetrics(theme)
 
   if (content.kind === 'container') {
     // A container is a card without the card: same subfields, same dividers,
     // but drawn on the slide background, so the divider follows the text colour
     // the background dictates rather than a card's own palette.
-    const color = bestTextColor(theme.backgroundColor)
+    const color = bestTextColor(colors.background)
     return (
       <div
         className="zone-content zone-content--container"
         data-content-kind="container"
-        style={{ color, textShadow: textShadowFor(theme.backgroundColor) }}
+        style={{ color, textShadow: textShadowFor(colors.background) }}
       >
         <SubfieldStack
           body={content.body}
-          dividerColor={dividerColorFor(theme.backgroundColor)}
+          dividerColor={dividerColorFor(colors.background)}
           gap={tokens.subfieldGap}
           renderField={renderField}
         />
@@ -195,7 +196,7 @@ export function ZoneContentFrame({
    * single stored document.
    */
   const titled = content
-  const headerColor = titled.headerColor ?? headingPillColor
+  const headerColor = titled.headerColor ?? colors.accent
   const headerText = bestTextColor(headerColor)
   return (
     /*

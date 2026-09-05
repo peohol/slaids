@@ -373,9 +373,10 @@ describe('resultater over ledningen', () => {
   it('gir CONFLICT sin egen HTTP-status når agenten skriver mot en gammel lesing', async () => {
     const api = harness()
     const { id, revision } = await newPresentation(api)
+    // Index 0 is the deck's front section; the slide with zones is the next one.
     const slideId = (dataOf((await call(api, 'get_presentation', { presentationId: id })).body).slides as {
       slideId: string
-    }[])[0].slideId
+    }[])[1].slideId
 
     const first = await call(api, 'set_slide_title', {
       presentationId: id,
@@ -402,9 +403,10 @@ describe('resultater over ledningen', () => {
   it('skiller «du sendte tull» fra «Slaids sa nei»', async () => {
     const api = harness()
     const { id } = await newPresentation(api)
+    // Index 0 is the deck's front section; the slide with zones is the next one.
     const slideId = (dataOf((await call(api, 'get_presentation', { presentationId: id })).body).slides as {
       slideId: string
-    }[])[0].slideId
+    }[])[1].slideId
     const inspection = dataOf((await call(api, 'inspect_slide', { presentationId: id, slideId })).body)
     const zone = (inspection.zones as { nodeId: string; kind: string }[]).find(
       (entry) => entry.kind === 'leaf',
@@ -510,9 +512,10 @@ describe('binær opplasting', () => {
     expect(dataOf(uploaded.body).ref).toMatchObject({ mimeType: 'image/png', width: 3, height: 2 })
 
     // And it is a normal asset: `set_zone_asset` places it like any other.
+    // Index 0 is the deck's front section; the slide with zones is the next one.
     const slideId = (dataOf((await call(api, 'get_presentation', { presentationId: id })).body).slides as {
       slideId: string
-    }[])[0].slideId
+    }[])[1].slideId
     const inspection = dataOf((await call(api, 'inspect_slide', { presentationId: id, slideId })).body)
     const nodeId = (inspection.zones as { nodeId: string; kind: string }[]).find(
       (zone) => zone.kind === 'leaf',
@@ -649,9 +652,10 @@ describe('audit', () => {
   it('lagrer aldri innholdet, filen eller hele forespørselen', async () => {
     const api = harness()
     const { id } = await newPresentation(api)
+    // Index 0 is the deck's front section; the slide with zones is the next one.
     const slideId = (dataOf((await call(api, 'get_presentation', { presentationId: id })).body).slides as {
       slideId: string
-    }[])[0].slideId
+    }[])[1].slideId
     const inspection = dataOf((await call(api, 'inspect_slide', { presentationId: id, slideId })).body)
     const nodeId = (inspection.zones as { nodeId: string; kind: string }[]).find(
       (zone) => zone.kind === 'leaf',

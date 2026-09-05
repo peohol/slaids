@@ -19,18 +19,18 @@ import { computeSlideGeometry, type GeometryOptions } from '../../domain/geometr
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { collectLeaves } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
-import type { LeafNode, PresentationTheme, Rect, Slide } from '../../domain/types'
-import { useSlideRender } from './SlideRenderContext'
+import type { ContentSlide, LeafNode, PresentationTheme, Rect } from '../../domain/types'
+import { PageColorsProvider, useSectionColorsFor, useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
 import { ZoneContentView } from './ZoneContentView'
 
 /**
- * The deck's default heading pill, as the two custom properties a pill reads.
+ * The governing section's accent, as the two custom properties a pill reads.
  *
  * A heading that was never given a colour stores none, so what it is painted
  * with is decided here rather than in the document — which is exactly what lets
- * one change on the cover repaint every such heading at once, with no edit to
- * any slide and nothing for undo to walk back through.
+ * one change on a section repaint every such heading in its part of the deck at
+ * once, with no edit to any slide and nothing for undo to walk back through.
  */
 export function pillTokenStyle(pillColor: string): React.CSSProperties {
   return {
@@ -72,7 +72,7 @@ export function absoluteStyle(rect: Rect): React.CSSProperties {
 }
 
 export interface SlideViewProps {
-  slide: Slide
+  slide: ContentSlide
   geometryOptions?: GeometryOptions
   /** Editor hooks: replace how a leaf's content is rendered. */
   renderLeaf?: (leaf: LeafNode, rect: Rect) => ReactNode
@@ -90,23 +90,25 @@ export function SlideView({
   children,
   className,
 }: SlideViewProps) {
-  const { theme, headingPillColor } = useSlideRender()
+  const { theme } = useSlideRender()
+  const colors = useSectionColorsFor(slide.id)
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(theme),
     ...geometryOptions,
   })
   const leaves = collectLeaves(slide.root)
-  const titleColor = bestTextColor(theme.backgroundColor)
+  const titleColor = bestTextColor(colors.background)
 
   return (
+    <PageColorsProvider colors={colors}>
     <div
       className={className ? `slide ${className}` : 'slide'}
       data-slide-id={slide.id}
       style={{
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
-        background: theme.backgroundColor,
-        ...slideTokenStyle(theme, headingPillColor),
+        background: colors.background,
+        ...slideTokenStyle(theme, colors.accent),
       }}
     >
       {geometry.titleRect &&
@@ -121,7 +123,7 @@ export function SlideView({
               fontFamily: theme.headingFontFamily,
               fontSize: themeMetrics(theme).titleFontSize,
               lineHeight: TITLE_LINE_HEIGHT,
-              textShadow: textShadowFor(theme.backgroundColor),
+              textShadow: textShadowFor(colors.background),
             }}
           >
             {slide.title && <RichDocView doc={slide.title} className="rich-doc--title" />}
@@ -145,5 +147,6 @@ export function SlideView({
 
       {children}
     </div>
+    </PageColorsProvider>
   )
 }

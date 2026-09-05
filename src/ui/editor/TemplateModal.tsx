@@ -17,10 +17,10 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { computeSlideGeometry, hitTestLayout } from '../../domain/geometry'
 import { collectNodes, findNode, stripContent } from '../../domain/layout'
 import { newTemplateId } from '../../domain/ids'
-import { createPresentation, createSlide } from '../../domain/presentation'
+import { createPresentation, createSlide, findContentSlide } from '../../domain/presentation'
 import { repository } from '../../persistence/activeRepository'
 import { notify } from '../../state/toast'
-import type { LayoutNode, LayoutTemplate, Slide } from '../../domain/types'
+import type { ContentSlide, LayoutNode, LayoutTemplate, Presentation } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
@@ -29,11 +29,26 @@ import { absoluteStyle } from '../slide/SlideView'
 
 const PREVIEW_WIDTH = 560
 
-/** A throwaway presentation so template edits can reuse the real commands. */
-function scratchFor(root: LayoutNode, hasTitle: boolean) {
+/**
+ * A throwaway presentation so template edits can reuse the real commands.
+ *
+ * Its own section comes first, because every deck opens with one — a template
+ * is a layout, so the section is scaffolding the commands need and nothing the
+ * template carries. The slide the template *is* comes after it, and is handed
+ * back by id so no call site has to know which index that put it at.
+ */
+function scratchFor(
+  root: LayoutNode,
+  hasTitle: boolean,
+): { deck: Presentation; slideId: string } {
   const base = createPresentation({ title: 'Mal' })
-  const slide: Slide = { ...createSlide({ hasTitle }), root }
-  return { ...base, slides: [slide] }
+  const slide: ContentSlide = { ...createSlide({ hasTitle }), root }
+  return { deck: { ...base, slides: [base.slides[0], slide] }, slideId: slide.id }
+}
+
+/** The layout a command left behind on the scratch deck's one template slide. */
+function scratchRoot(presentation: Presentation, slideId: string): LayoutNode | null {
+  return findContentSlide(presentation, slideId)?.root ?? null
 }
 
 function LayoutPreview({
@@ -47,7 +62,7 @@ function LayoutPreview({
   selectedId: string | null
   onSelect?: (id: string) => void
 }) {
-  const slide: Slide = { ...createSlide({ hasTitle }), root }
+  const slide: ContentSlide = { ...createSlide({ hasTitle }), root }
   const geometry = computeSlideGeometry(slide)
   const scale = PREVIEW_WIDTH / SLIDE_WIDTH
 
@@ -112,7 +127,7 @@ export function TemplateModal({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  currentSlide: Slide | null
+  currentSlide: ContentSlide | null
   onApplyTemplate: (template: LayoutTemplate) => void
 }) {
   const [templates, setTemplates] = useState<LayoutTemplate[]>([])
@@ -164,11 +179,11 @@ export function TemplateModal({
   }
 
   const applyEdit = (
-    mutate: (scratch: ReturnType<typeof scratchFor>, slideId: string, nodeId: string) => LayoutNode | null,
+    mutate: (scratch: Presentation, slideId: string, nodeId: string) => LayoutNode | null,
   ): void => {
     if (!editing || !selectedNode) return
-    const scratch = scratchFor(editing.root, editing.hasTitle)
-    const next = mutate(scratch, scratch.slides[0].id, selectedNode)
+    const { deck, slideId } = scratchFor(editing.root, editing.hasTitle)
+    const next = mutate(deck, slideId, selectedNode)
     if (!next) return
     setEditing({ ...editing, root: next })
   }
@@ -177,11 +192,10 @@ export function TemplateModal({
 
   const handleSplitApply = (result: SplitModalResult): void => {
     if (!editing || !selectedNode) return
-    const scratch = scratchFor(editing.root, editing.hasTitle)
-    const slideId = scratch.slides[0].id
+    const { deck, slideId } = scratchFor(editing.root, editing.hasTitle)
     const isSplit = selectedTemplateNode?.kind === 'split'
     const outcome = isSplit
-      ? updateSplit(scratch, {
+      ? updateSplit(deck, {
           slideId,
           nodeId: selectedNode,
           axis: result.axis,
@@ -189,7 +203,7 @@ export function TemplateModal({
           childCount: result.weights.length,
           removedDisposition: 'delete',
         })
-      : splitLeaf(scratch, {
+      : splitLeaf(deck, {
           slideId,
           nodeId: selectedNode,
           axis: result.axis,
@@ -199,7 +213,8 @@ export function TemplateModal({
       notify.error(outcome.error.message)
       return
     }
-    setEditing({ ...editing, root: outcome.value.presentation.slides[0].root })
+    const next = scratchRoot(outcome.value.presentation, slideId)
+    if (next) setEditing({ ...editing, root: next })
     setSplitOpen(false)
   }
 
@@ -361,7 +376,7 @@ export function TemplateModal({
                       return null
                     }
                     setSelectedNode(null)
-                    return outcome.value.presentation.slides[0].root
+                    return scratchRoot(outcome.value.presentation, slideId)
                   })
                 }
               >
@@ -382,7 +397,7 @@ export function TemplateModal({
                       notify.error(outcome.error.message)
                       return null
                     }
-                    return outcome.value.presentation.slides[0].root
+                    return scratchRoot(outcome.value.presentation, slideId)
                   })
                 }
               >

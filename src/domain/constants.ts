@@ -53,25 +53,26 @@ export function titleZoneHeightFor(fontSize: number): number {
 /**
  * The colour every pill starts out as.
  *
- * One number rather than three: the cover's pills, the header of a new titled
+ * One number rather than three: a section's pills, the header of a new titled
  * card and the pill a heading falls back to are the same blue, and a heading
  * that never had a colour picked for it does not store this value at all — it
- * reads whatever the cover currently says. See `DeckCover.pillColor`.
+ * reads whatever the governing section currently says. See
+ * `SectionSlide.accentColor`.
  */
 export const DEFAULT_PILL_COLOR = '#33475b'
 
 /**
- * The cover.
+ * Section slides — the front page included, since it is the first of them.
  *
- * The title is set in the slide title's own size, so a deck opens in the type
- * it continues in, and the subtitle is one clear step below it — a step, not a
- * different class of text. Both pills are padded in `em` of their own type, so
- * the two keep the same shape at every font scale and the deterministic width
- * a fit check needs is a pure function of the type size.
+ * The heading is set in the slide title's own size, so a deck opens in the type
+ * it continues in, and the subheading is one clear step below it — a step, not
+ * a different class of text. Both pills are padded in `em` of their own type,
+ * so the two keep the same shape at every font scale and the deterministic
+ * width a fit check needs is a pure function of the type size.
  */
-export const COVER_SUBTITLE_FONT_SIZE = 30
-export const COVER_PILL_PADDING_X_EM = 0.6
-export const COVER_PILL_PADDING_Y_EM = 0.16
+export const SECTION_SUBTITLE_FONT_SIZE = 30
+export const SECTION_PILL_PADDING_X_EM = 0.6
+export const SECTION_PILL_PADDING_Y_EM = 0.16
 
 /** Card typography and chrome. */
 export const CARD_RADIUS = 14
@@ -235,7 +236,7 @@ export const MAX_ASSET_BYTES = 25 * 1024 * 1024
 /**
  * The progress indicator.
  *
- * Every page but the cover carries one, and it is not optional: a deck that
+ * Every page but the front page carries one, and it is not optional: a deck that
  * could be laid out without it and have it switched on later would be a deck
  * whose slides suddenly lost a strip of room they were already full of. Making
  * it unconditional is what lets the geometry engine reserve the strip once, for

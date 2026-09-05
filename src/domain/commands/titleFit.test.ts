@@ -14,6 +14,7 @@ import { createPresentation } from '../presentation'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { FONT_OPTIONS } from '../fonts'
 import { docToPlainText, titleDoc } from '../richdoc'
+import { contentAt, sectionAt } from '../testDecks'
 import type { Presentation, TitleDoc } from '../types'
 import { addSlide, setSlideHasTitle, setTheme } from './index'
 
@@ -35,17 +36,22 @@ function unwrap<T>(result: { ok: boolean; value?: T; error?: unknown }): T {
 /** Long enough to fit the default font but not Verdana, which is 16% wider. */
 const BORDERLINE_TITLE = 'Overskrift som får plass i dag'.padEnd(46, ' x')
 
+/** The deck's one ordinary slide is the second: index 0 is the front section. */
+const SLIDE = 1
+
 function deckWithTitle(text: string): Presentation {
   const presentation = createPresentation({ title: 'Titler', firstSlideHasTitle: true })
-  const slide = presentation.slides[0]
   return {
     ...presentation,
-    slides: [{ ...slide, title: titleDoc(text) }],
+    slides: [
+      sectionAt(presentation, 0),
+      { ...contentAt(presentation, SLIDE), title: titleDoc(text) },
+    ],
   }
 }
 
 function titleOf(presentation: Presentation): TitleDoc | null {
-  return presentation.slides[0].title
+  return contentAt(presentation, SLIDE).title
 }
 
 describe('restoring a removed title', () => {
@@ -54,7 +60,7 @@ describe('restoring a removed title', () => {
     const title = titleOf(before)
     if (!title) throw new Error('expected a title')
     const deck = unwrap(
-      setSlideHasTitle(before, before.slides[0].id, false, { force: true, ...checkers }),
+      setSlideHasTitle(before, before.slides[SLIDE].id, false, { force: true, ...checkers }),
     )
     expect(titleOf(deck)).toBeNull()
     return { deck, title }
@@ -63,7 +69,7 @@ describe('restoring a removed title', () => {
   it('puts the zone and the remembered text back in one command', () => {
     const { deck, title } = removed('Kort overskrift')
     const restored = unwrap(
-      setSlideHasTitle(deck, deck.slides[0].id, true, { ...checkers, title }),
+      setSlideHasTitle(deck, deck.slides[SLIDE].id, true, { ...checkers, title }),
     )
     expect(docToPlainText(titleOf(restored))).toBe('Kort overskrift')
   })
@@ -72,13 +78,13 @@ describe('restoring a removed title', () => {
     const { deck, title } = removed(BORDERLINE_TITLE)
     // Precondition: this title is fine as things stand, so a refusal below can
     // only come from the font change.
-    expect(setSlideHasTitle(deck, deck.slides[0].id, true, { ...checkers, title }).ok).toBe(true)
+    expect(setSlideHasTitle(deck, deck.slides[SLIDE].id, true, { ...checkers, title }).ok).toBe(true)
     // The font changed while the title was gone — the zone was empty, so
     // nothing objected at the time.
     const widened = unwrap(
       setTheme(deck, { headingFontFamily: stack('verdana') }, checkers),
     )
-    const restored = setSlideHasTitle(widened, widened.slides[0].id, true, { ...checkers, title })
+    const restored = setSlideHasTitle(widened, widened.slides[SLIDE].id, true, { ...checkers, title })
     expect(restored.ok).toBe(false)
     if (!restored.ok) expect(restored.error.code).toBe('CONTENT_DOES_NOT_FIT')
   })
@@ -86,7 +92,7 @@ describe('restoring a removed title', () => {
   it('leaves the slide exactly as it was when the restore is refused', () => {
     const { deck, title } = removed(BORDERLINE_TITLE)
     const widened = unwrap(setTheme(deck, { headingFontFamily: stack('verdana') }, checkers))
-    const restored = setSlideHasTitle(widened, widened.slides[0].id, true, { ...checkers, title })
+    const restored = setSlideHasTitle(widened, widened.slides[SLIDE].id, true, { ...checkers, title })
     expect(restored.ok).toBe(false)
     // No half-applied state: not even an empty title zone is left behind.
     expect(titleOf(widened)).toBeNull()
@@ -95,19 +101,19 @@ describe('restoring a removed title', () => {
   it('accepts the same title once the font is narrow again', () => {
     const { deck, title } = removed(BORDERLINE_TITLE)
     const widened = unwrap(setTheme(deck, { headingFontFamily: stack('verdana') }, checkers))
-    expect(setSlideHasTitle(widened, widened.slides[0].id, true, { ...checkers, title }).ok).toBe(
+    expect(setSlideHasTitle(widened, widened.slides[SLIDE].id, true, { ...checkers, title }).ok).toBe(
       false,
     )
     const narrowed = unwrap(setTheme(widened, { headingFontFamily: stack('times') }, checkers))
     const restored = unwrap(
-      setSlideHasTitle(narrowed, narrowed.slides[0].id, true, { ...checkers, title }),
+      setSlideHasTitle(narrowed, narrowed.slides[SLIDE].id, true, { ...checkers, title }),
     )
     expect(docToPlainText(titleOf(restored)).trim()).toBe(BORDERLINE_TITLE.trim())
   })
 
   it('refuses text on a title that is being removed', () => {
     const deck = deckWithTitle('Overskrift')
-    const result = setSlideHasTitle(deck, deck.slides[0].id, false, {
+    const result = setSlideHasTitle(deck, deck.slides[SLIDE].id, false, {
       force: true,
       title: titleDoc('noe annet'),
       ...checkers,

@@ -28,7 +28,7 @@
  *    from `SPACING_PRESETS` and `FONT_SCALE_PRESETS`, so the vocabulary an agent
  *    is told is the vocabulary the editor shows — as a way to say "normal",
  *    never as the only values accepted.
- *  - **The background is any hex colour**, exactly like `set_cover_color`. The
+ *  - **A colour is any hex value**, exactly like `set_section_colors`. The
  *    editor's swatch grid is a way to click a colour, not a restriction the
  *    domain has.
  *
@@ -116,7 +116,6 @@ export interface ThemeFontView {
 }
 
 export interface ThemeView {
-  backgroundColor: string
   headingFont: ThemeFontView
   bodyFont: ThemeFontView
   /** Luft: one multiplier on every distance in the deck. */
@@ -137,7 +136,6 @@ function fontView(stack: string): ThemeFontView {
 
 export function themeView(theme: PresentationTheme): ThemeView {
   return {
-    backgroundColor: theme.backgroundColor,
     headingFont: fontView(theme.headingFontFamily),
     bodyFont: fontView(theme.bodyFontFamily),
     spacing: theme.spacing,
@@ -169,18 +167,12 @@ const fontChoices = GUARANTEED_FONT_IDS.join(', ')
 export const setThemeOperation = defineOperation({
   name: 'set_theme',
   summary:
-    'Sett presentasjonens tema: bakgrunnsfarge, font for titler, font for brødtekst, luft og skriftstørrelse. Temaet er globalt – enkeltslides kan ikke avvike. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
+    'Sett presentasjonens tema: font for titler, font for brødtekst, luft og skriftstørrelse. Temaet er globalt – enkeltslides kan ikke avvike. Farger er ikke her: de settes per seksjon med set_section_colors, og arves av slidene fram til neste seksjon. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
-    backgroundColor: z
-      .string()
-      .optional()
-      .describe(
-        'Hex-farge for hele dekket, for eksempel «#101828». Tekstfargen utledes av kontrast og settes ikke.',
-      ),
     headingFont: fontIdSchema
       .optional()
       .describe(
@@ -208,9 +200,9 @@ export const setThemeOperation = defineOperation({
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; theme: ThemeView }>> {
     return mutatePresentation(context, input, (presentation) => {
-      // One command for all five fields, which is what makes the change atomic
+      // One command for all four fields, which is what makes the change atomic
       // in the only sense that matters here: a bigger type size that hides text
-      // is refused *together with* the colour that came with it, so a deck never
+      // is refused *together with* the font that came with it, so a deck never
       // ends up half-way into a theme nobody asked for.
       const themed = setTheme(presentation, patchFrom(input), structuralOptions(context))
       if (!themed.ok) return themed
@@ -224,14 +216,12 @@ export const setThemeOperation = defineOperation({
 
 /** The domain's own field names, for the fields the caller actually sent. */
 function patchFrom(input: {
-  backgroundColor?: string
   headingFont?: FontId
   bodyFont?: FontId
   spacing?: number
   fontScale?: number
 }): Partial<PresentationTheme> {
   return {
-    ...(input.backgroundColor === undefined ? {} : { backgroundColor: input.backgroundColor }),
     ...(input.headingFont === undefined
       ? {}
       : { headingFontFamily: fontStackFor(input.headingFont) }),

@@ -20,7 +20,8 @@ import {
 } from '../../domain/constants'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
-import { useSlideRender } from './SlideRenderContext'
+import { QR_PAGE_ID } from '../../domain/pages'
+import { useSectionColorsFor, useSlideRender } from './SlideRenderContext'
 import { slideTokenStyle } from './SlideView'
 
 /** Big enough to scan across a room, small enough to leave the page airy. */
@@ -30,9 +31,10 @@ const QR_PADDING = 28
 
 export function QrPageView({ url }: { url: string }) {
   const { theme } = useSlideRender()
+  const colors = useSectionColorsFor(QR_PAGE_ID)
   const metrics = themeMetrics(theme)
   const gap = geometryForTheme(theme).gap
-  const foreground = bestTextColor(theme.backgroundColor)
+  const foreground = bestTextColor(colors.background)
 
   return (
     <div
@@ -41,14 +43,14 @@ export function QrPageView({ url }: { url: string }) {
       style={{
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
-        background: theme.backgroundColor,
+        background: colors.background,
         gap,
         // The page has no zone tree for the geometry engine to reserve the
         // indicator's strip in, so the one column it does have is kept clear of
         // it here instead. The indicator itself is `DeckPageView`'s.
         paddingBottom: PROGRESS_BAR_HEIGHT,
         boxSizing: 'border-box',
-        ...slideTokenStyle(theme),
+        ...slideTokenStyle(theme, colors.accent),
       }}
     >
       <p
@@ -58,7 +60,7 @@ export function QrPageView({ url }: { url: string }) {
           fontFamily: theme.headingFontFamily,
           fontSize: metrics.titleFontSize,
           lineHeight: TITLE_LINE_HEIGHT,
-          textShadow: textShadowFor(theme.backgroundColor),
+          textShadow: textShadowFor(colors.background),
         }}
       >
         Se presentasjonen
@@ -77,7 +79,7 @@ export function QrPageView({ url }: { url: string }) {
         style={{
           color: foreground,
           fontSize: metrics.bodyFontSize,
-          textShadow: textShadowFor(theme.backgroundColor),
+          textShadow: textShadowFor(colors.background),
         }}
       >
         {url}

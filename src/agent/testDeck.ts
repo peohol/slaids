@@ -66,6 +66,9 @@ export async function agentRefusal(
 
 export interface NewDeck {
   presentationId: string
+  /** The deck's front page — its first section. */
+  frontSlideId: string
+  /** The one ordinary slide a new deck opens onto. */
   slideId: string
   /** The slide's single root zone, before anything has been split. */
   rootNodeId: string
@@ -80,7 +83,10 @@ export async function newAgentDeck(
     presentationId: string
     slides: { slideId: string }[]
   }>(context, 'create_presentation', { title })
-  const slideId = created.slides[0].slideId
+  // A new deck is `[front section, one empty slide]`, so the slide these
+  // helpers are about is the second one.
+  const frontSlideId = created.slides[0].slideId
+  const slideId = created.slides[1].slideId
   const inspected = await agentOperation<{ rootNodeId: string; revision: string }>(
     context,
     'inspect_slide',
@@ -88,6 +94,7 @@ export async function newAgentDeck(
   )
   return {
     presentationId: created.presentationId,
+    frontSlideId,
     slideId,
     rootNodeId: inspected.rootNodeId,
     revision: inspected.revision,

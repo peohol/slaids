@@ -109,11 +109,16 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   }, [reloadToken, mode])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
-    // The deck's name is also the first line of its cover, so it is measured
-    // like any other line on a page. A refusal leaves the dialog open with the
-    // name still in it, which is where the author fixes it.
+    // The deck's name is also the first line of its front page, so it is
+    // measured like any other line on a page. A refusal leaves the dialog open
+    // with the name still in it, which is where the author fixes it.
     const created = createDeck(
-      { title: result.title, theme: result.theme, folderId: activeFolder },
+      {
+        title: result.title,
+        theme: result.theme,
+        backgroundColor: result.backgroundColor,
+        folderId: activeFolder,
+      },
       domFitCheckers,
     )
     if (!created.ok) {

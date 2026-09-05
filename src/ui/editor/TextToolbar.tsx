@@ -11,6 +11,7 @@ import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import type { VerticalAlign } from '../../domain/types'
 import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
+import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
 import type { Alignment } from './extensions'
 import { Icon, type IconName } from '../components/Icon'
@@ -33,9 +34,11 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
   const activeField = useEditorStore((state) => state.activeField)
   const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
-  /** What a heading with no colour of its own is painted with. */
-  const defaultPillColor = useEditorStore(
-    (state) => state.presentation?.cover.pillColor ?? DEFAULT_PILL_COLOR,
+  /** What a heading with no colour of its own is painted with: the section's. */
+  const defaultPillColor = useEditorStore((state) =>
+    state.presentation && state.currentSlideId
+      ? sectionGoverning(state.presentation, state.currentSlideId).accentColor
+      : DEFAULT_PILL_COLOR,
   )
 
   useEffect(() => {
@@ -49,13 +52,14 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     }
   }, [editor, bump])
 
-  // The cover's two lines carry no formatting and no alignment at all: they are
+  // A section's two lines carry no formatting and no alignment at all: they are
   // centred by construction, so there is nothing here to offer for them.
-  if (activeField?.kind === 'cover-title' || activeField?.kind === 'cover-subtitle') {
+  if (activeField?.kind === 'section-title' || activeField?.kind === 'section-subtitle') {
     return (
       <div className="text-toolbar" data-testid="text-toolbar">
         <span className="hint">
-          {activeField.kind === 'cover-title' ? 'Forsidetittel' : 'Undertittel'} – alltid midtstilt
+          {activeField.kind === 'section-title' ? 'Overskrift' : 'Underoverskrift'} – alltid
+          midtstilt
         </span>
       </div>
     )

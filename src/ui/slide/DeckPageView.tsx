@@ -15,14 +15,14 @@
 
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import type { DeckPage } from '../../domain/pages'
-import { CoverPageView } from './CoverPageView'
+import { SectionPageView } from './SectionPageView'
 import { QrPageView } from './QrPageView'
 import { SlideProgressBar } from './SlideProgressBar'
 import { SlideView } from './SlideView'
 
 function PageBody({ page }: { page: DeckPage }) {
-  if (page.kind === 'cover') return <CoverPageView cover={page.cover} />
   if (page.kind === 'qr') return <QrPageView url={page.shareUrl} />
+  if (page.slide.kind === 'section') return <SectionPageView section={page.slide} />
   return <SlideView slide={page.slide} />
 }
 

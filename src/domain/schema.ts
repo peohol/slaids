@@ -18,7 +18,7 @@ import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 12
+export const CURRENT_SCHEMA_VERSION = 13
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -139,27 +139,35 @@ export const layoutNodeSchema: z.ZodType<LayoutNode> = z.lazy(() =>
   ]),
 )
 
-export const slideSchema = z.object({
+export const contentSlideSchema = z.object({
   id: z.string().min(1),
+  kind: z.literal('content'),
   title: richDocSchema.nullable(),
   root: layoutNodeSchema,
 })
 
 /**
- * The cover.
+ * A section slide.
  *
- * Two documents and a colour — no layout, no alignment and no id: there is
- * exactly one cover per deck, it is always centred, and nothing addresses it by
- * id because nothing can move it.
+ * Two documents and two colours — no layout and no alignment: a section is
+ * always centred, and the colours are the defaults it hands to every page from
+ * itself up to the next section.
  */
-export const coverSchema = z.object({
+export const sectionSlideSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal('section'),
   title: richDocSchema,
   subtitle: richDocSchema,
-  pillColor: hexColor,
+  accentColor: hexColor,
+  backgroundColor: hexColor,
 })
 
+export const slideSchema = z.discriminatedUnion('kind', [
+  contentSlideSchema,
+  sectionSlideSchema,
+])
+
 export const themeSchema = z.object({
-  backgroundColor: hexColor,
   headingFontFamily: z.string().min(1),
   bodyFontFamily: z.string().min(1),
   spacing: z.number().finite().min(SPACING_RANGE.min).max(SPACING_RANGE.max),
@@ -218,8 +226,16 @@ export const presentationSchema = z.object({
   title: z.string(),
   folderId: z.string().nullable(),
   theme: themeSchema,
-  cover: coverSchema,
-  slides: z.array(slideSchema).min(1),
+  /* At least one slide, and the first one is a section. The refinement is the
+     runtime half of `DeckSlides`: it is the only place a stored document is
+     asked the question, and everything downstream is typed as though it can
+     only have been answered yes. */
+  slides: z
+    .array(slideSchema)
+    .min(1)
+    .refine((slides) => slides[0]?.kind === 'section', {
+      message: 'Første slide må være en seksjon',
+    }),
   references: z.array(referenceSchema),
   sandbox: z.array(sandboxItemSchema),
   ideas: z.array(ideaRowSchema),
@@ -278,12 +294,15 @@ export function validatePresentation(input: unknown): SchemaResult<Presentation>
 
   const issues: ValidationIssue[] = []
   parsed.data.slides.forEach((slide, index) => {
+    if (slide.kind !== 'content') return
     for (const violation of validateTree(slide.root)) {
       issues.push({ path: `slides.${index}.root.${violation.nodeId}`, message: violation.message })
     }
   })
   if (issues.length > 0) return { ok: false, issues }
-  return { ok: true, value: parsed.data as Presentation, issues: [] }
+  // The refinement above is what makes this cast a statement of fact rather
+  // than a hope: a `slides` array that reached here opens with a section.
+  return { ok: true, value: parsed.data as unknown as Presentation, issues: [] }
 }
 
 /**

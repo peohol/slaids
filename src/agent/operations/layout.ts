@@ -38,7 +38,7 @@ import {
 } from '../../domain/commands'
 import { bodyOf } from '../../domain/content'
 import { findLeaf, findSplit } from '../../domain/layout'
-import { findSlide } from '../../domain/presentation'
+import { findContentSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { StructuralOutcome } from '../../domain/commands'
 import type { Presentation, ZoneContent } from '../../domain/types'
@@ -95,7 +95,7 @@ function zoneChange(
 
 /** The children a split has, read out of the document the command produced. */
 function childNodeIds(presentation: Presentation, slideId: string, nodeId: string): string[] {
-  const slide = findSlide(presentation, slideId)
+  const slide = findContentSlide(presentation, slideId)
   const split = slide ? findSplit(slide.root, nodeId) : null
   return split?.children.map((child) => child.id) ?? []
 }
@@ -327,7 +327,7 @@ function contentAt(
   slideId: string,
   nodeId: string,
 ): ZoneContent | null {
-  const slide = findSlide(presentation, slideId)
+  const slide = findContentSlide(presentation, slideId)
   const leaf = slide ? findLeaf(slide.root, nodeId) : null
   return leaf?.content ?? null
 }

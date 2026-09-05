@@ -50,7 +50,7 @@
  *    listed with the removals below because the same citation is already gated
  *    when `setSlideTitle` edits it out of the text, and one way of dropping a
  *    citation must not be the way around the other —
- *    `setCoverTitle`, `setCoverSubtitle`,
+ *    `setSectionTitle`, `setSectionSubtitle`,
  *    `updateSplit` / `setSplitWeights`,
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent`, `copyZoneContent` and
@@ -66,8 +66,9 @@
  *    overflowed must not license content that overflows slightly less.
  *  - **Cannot shrink anything, deliberately ungated**: `duplicateSlide` (a copy
  *    lands after its original, so no earlier first occurrence moves),
- *    `setPresentationTitle`, `setFolder`, `setCoverPillColor` (a colour is not
- *    a size), every idea command, and every asset command.
+ *    `setPresentationTitle`, `setFolder`, `setSectionAccentColor` and
+ *    `setSectionBackgroundColor` (a colour is not a size), every idea command,
+ *    and every asset command.
  *  - **Deliberate exception — removals**: `deleteSlide`, `deleteLayoutNode`,
  *    `clearLayoutNode`, `moveContentToSandbox` and `deleteReference` take
  *    content off the deck. They cannot shrink a zone, but they *can* renumber
@@ -103,9 +104,9 @@
  */
 
 import {
-  COVER_SUBTITLE_NODE_ID,
-  COVER_TITLE_NODE_ID,
-  computeCoverGeometry,
+  SECTION_SUBTITLE_NODE_ID,
+  SECTION_TITLE_NODE_ID,
+  computeSectionGeometry,
   computeLayoutRects,
   computeSlideGeometry,
   TITLE_NODE_ID,
@@ -114,20 +115,20 @@ import {
 import { collectContent, collectLeaves } from '../layout'
 import { contentDocs } from '../content'
 import { FIT_TOLERANCE, GEOMETRY_EPSILON, MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH } from '../constants'
-import { coverGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
+import { sectionGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
-import { COVER_PAGE_ID } from '../pages'
 import { walkRichNodes } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { GeometryOptions } from '../geometry'
 import type {
-  DeckCover,
+  ContentSlide,
   LayoutNode,
   NodeId,
   Presentation,
   Rect,
   RichDoc,
+  SectionSlide,
   Slide,
 } from '../types'
 import type { StructuralOptions } from './types'
@@ -146,6 +147,10 @@ export function fitContextFor(presentation: Presentation): FitContext {
 
 /** Every document rendered on a slide, including its title zone. */
 function slideDocs(slide: Slide): RichDoc[] {
+  // A section cannot cite — that is why it has no numbering-sensitive docs to
+  // list here — but it still has two lines, and listing them keeps this the
+  // honest answer to "what text does this page draw".
+  if (slide.kind === 'section') return [slide.title, slide.subtitle]
   const docs: RichDoc[] = slide.title ? [slide.title] : []
   for (const content of collectContent(slide.root)) docs.push(...contentDocs(content))
   return docs
@@ -212,7 +217,7 @@ export function subtreeOverflow(
 
 /** Overflow per node for a whole slide, including its deterministic title zone. */
 export function slideOverflow(
-  slide: Slide,
+  slide: ContentSlide,
   context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
@@ -230,36 +235,47 @@ export function slideOverflow(
 }
 
 /**
- * Overflow per line for the cover.
+ * Overflow per line for a section slide.
  *
- * The cover is two single lines of heading type in pills only as wide as their
+ * A section is two single lines of heading type in pills only as wide as their
  * text, so it fails the same way a slide title does — sideways — and is
  * measured by the same checker. The two lines are set in different sizes, which
  * is why the checker is told which size it is looking at.
  *
- * Nothing here consults the citation numbering: the cover cannot cite, so the
+ * Nothing here consults the citation numbering: a section cannot cite, so the
  * one thing that makes a slide's fit depend on the rest of the deck does not
  * reach it.
  */
-export function coverOverflow(
-  cover: DeckCover,
+export function sectionOverflow(
+  section: SectionSlide,
   context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
   const overflow = new Map<NodeId, number>()
   if (!options.fitsTitle) return overflow
-  const resolved = { ...coverGeometryForTheme(context.theme), ...options.geometry }
-  const geometry = computeCoverGeometry(resolved)
+  const resolved = { ...sectionGeometryForTheme(context.theme), ...options.geometry }
+  const geometry = computeSectionGeometry(resolved)
   overflow.set(
-    COVER_TITLE_NODE_ID,
-    options.fitsTitle(cover.title, geometry.titleRect, context, resolved.titleFontSize).overflow,
+    SECTION_TITLE_NODE_ID,
+    options.fitsTitle(section.title, geometry.titleRect, context, resolved.titleFontSize).overflow,
   )
   overflow.set(
-    COVER_SUBTITLE_NODE_ID,
-    options.fitsTitle(cover.subtitle, geometry.subtitleRect, context, resolved.subtitleFontSize)
+    SECTION_SUBTITLE_NODE_ID,
+    options.fitsTitle(section.subtitle, geometry.subtitleRect, context, resolved.subtitleFontSize)
       .overflow,
   )
   return overflow
+}
+
+/** Overflow per node for whichever kind of slide this is. */
+function pageOverflow(
+  slide: Slide,
+  context: FitContext,
+  options: StructuralOptions = {},
+): Map<NodeId, number> {
+  return slide.kind === 'section'
+    ? sectionOverflow(slide, context, options)
+    : slideOverflow(slide, context, options)
 }
 
 /**
@@ -306,21 +322,10 @@ export function findFitRegressions(
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
   const regressions: FitRegression[] = []
 
-  // The cover is not a slide, but it is text on a page and the rule is the same
-  // one: a change may not end with a line the audience can no longer read. It
-  // is checked here rather than in the cover's own commands so that everything
-  // above it — a wider font, more air, a larger type scale — is caught too.
-  if (after.cover !== before.cover || !typographyUnchanged) {
-    const next = coverOverflow(after.cover, afterContext, options)
-    let baseline: Map<NodeId, number> | null = null
-    for (const entry of overflowRegressions(next, (nodeId) => {
-      baseline ??= coverOverflow(before.cover, beforeContext, options)
-      return baseline.get(nodeId) ?? 0
-    })) {
-      regressions.push({ slideId: COVER_PAGE_ID, ...entry })
-    }
-  }
-
+  // Sections go through the same loop as everything else. They are pages with
+  // two lines of text on them and the rule is the one rule — a change may not
+  // end with a line the audience can no longer read — so what decides how a
+  // slide is measured is its kind, not which loop it happens to be in.
   for (const slide of after.slides) {
     const previous = previousSlides.get(slide.id)
     // A slide that is new in `after` has no baseline: its content was placed by
@@ -334,10 +339,10 @@ export function findFitRegressions(
       continue
     }
 
-    const next = slideOverflow(slide, afterContext, options)
+    const next = pageOverflow(slide, afterContext, options)
     let baseline: Map<NodeId, number> | null = null
     const entries = overflowRegressions(next, (nodeId) => {
-      baseline ??= slideOverflow(previous, beforeContext, options)
+      baseline ??= pageOverflow(previous, beforeContext, options)
       return baseline.get(nodeId) ?? 0
     })
     for (const entry of entries) regressions.push({ slideId: slide.id, ...entry })
@@ -391,6 +396,10 @@ export function findGeometryRegression(
   const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
 
   for (const slide of after.slides) {
+    // A section has no zone tree, so there is no zone in it to fall below a
+    // minimum. Its own failure mode is a line that no longer fits, which is the
+    // content check above.
+    if (slide.kind !== 'content') continue
     const now = belowMinimum(slide, afterGeometry)
     if (now.size === 0) continue
     const old = previous.get(slide.id)
@@ -398,7 +407,7 @@ export function findGeometryRegression(
     // costs a full geometry pass per slide.
     let already: Map<NodeId, Undersized> | null = null
     for (const [nodeId, entry] of now) {
-      already ??= old ? belowMinimum(old, beforeGeometry) : new Map()
+      already ??= old?.kind === 'content' ? belowMinimum(old, beforeGeometry) : new Map()
       const was = already.get(nodeId)
       if (
         was &&
@@ -427,7 +436,7 @@ interface Undersized {
  * arithmetic on the same rect, and it exists only to compare two states with
  * each other — never to decide the question itself.
  */
-function belowMinimum(slide: Slide, geometry: GeometryOptions): Map<NodeId, Undersized> {
+function belowMinimum(slide: ContentSlide, geometry: GeometryOptions): Map<NodeId, Undersized> {
   const undersized = new Map<NodeId, Undersized>()
   const violations = validateSlideGeometry(slide, geometry).filter(
     (violation) => violation.kind === 'below-minimum',
@@ -494,18 +503,17 @@ function failingRect(
   regression: FitRegression,
   options: StructuralOptions,
 ): Rect | null {
-  if (regression.slideId === COVER_PAGE_ID) {
-    const cover = computeCoverGeometry({
-      ...coverGeometryForTheme(after.theme),
-      ...options.geometry,
-    })
-    if (regression.nodeId === COVER_TITLE_NODE_ID) return cover.titleRect
-    if (regression.nodeId === COVER_SUBTITLE_NODE_ID) return cover.subtitleRect
-    return null
-  }
-
   const slide = after.slides.find((candidate) => candidate.id === regression.slideId)
   if (!slide) return null
+  if (slide.kind === 'section') {
+    const section = computeSectionGeometry({
+      ...sectionGeometryForTheme(after.theme),
+      ...options.geometry,
+    })
+    if (regression.nodeId === SECTION_TITLE_NODE_ID) return section.titleRect
+    if (regression.nodeId === SECTION_SUBTITLE_NODE_ID) return section.subtitleRect
+    return null
+  }
   const geometry = { ...geometryForTheme(after.theme), ...options.geometry }
   return computeSlideGeometry(slide, geometry).rects.get(regression.nodeId) ?? null
 }

@@ -26,7 +26,7 @@ import {
 } from '../../domain/commands'
 import { createImage, imagePanelOf } from '../../domain/content'
 import { findLeaf } from '../../domain/layout'
-import { findSlide } from '../../domain/presentation'
+import { findContentSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { AssetRef } from '../../domain/types'
 import { fileContentSchema, readFileContent, transportFileContentSchema } from '../binary'
@@ -191,7 +191,7 @@ export const setZoneAsset = defineOperation({
        * protect. A panel that already shows a file is ordinary content and goes
        * through the ordinary rule.
        */
-      const slide = findSlide(presentation, input.slideId)
+      const slide = findContentSlide(presentation, input.slideId)
       const existing = slide ? (findLeaf(slide.root, input.nodeId)?.content ?? null) : null
       const empty = existing ? imagePanelOf(existing) : null
       if (empty && !empty.assetId) {
