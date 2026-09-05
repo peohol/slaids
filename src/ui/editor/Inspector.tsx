@@ -76,6 +76,15 @@ export function Inspector({
       ? content
       : null
 
+  /* A caption with no colour of its own reads its picture's title panel when
+     there is one — the same header a titled image card's title already
+     inherits from the cover — and the cover directly otherwise, since a plain
+     picture has no panel to read. */
+  const captionInheritedColor =
+    content?.kind === 'titled-image-card' ? (content.headerColor ?? pillColor) : pillColor
+  const captionInheritedLabel =
+    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra forsiden)'
+
   return (
     <aside className="inspector" data-testid="inspector">
       <section className="inspector__section">
@@ -273,7 +282,7 @@ export function Inspector({
             <>
               <h3 className="inspector__subheading">Bakgrunnsfarge</h3>
               <ColorSwatchGrid
-                value={panel.caption.color ?? pillColor}
+                value={panel.caption.color ?? captionInheritedColor}
                 onSelect={(color) =>
                   run('caption-color', (current) =>
                     setImageCaption(current, {
@@ -284,8 +293,8 @@ export function Inspector({
                   )
                 }
                 inherited={{
-                  color: pillColor,
-                  label: 'Standard (fra forsiden)',
+                  color: captionInheritedColor,
+                  label: captionInheritedLabel,
                   active: panel.caption.color === null,
                   onSelect: () =>
                     run('caption-color', (current) =>

@@ -105,10 +105,13 @@ export type CaptionPosition = 'top' | 'middle' | 'bottom'
  * blurred box that hangs from the top edge, floats in the middle, or stands on
  * the floor of the picture.
  *
- * `color` is `null` by default and means the deck's heading pill colour, the
- * same inheritance a titled card's header and an uncoloured heading follow: a
- * caption nobody picked a colour for follows the cover, and one that was given
- * a colour keeps it.
+ * `color` is `null` by default and means "whatever this picture's own title
+ * panel is painted with" for a `titled-image-card` — so recolouring that
+ * panel's header repaints its caption too, the same inheritance a title
+ * panel's header takes from the cover — and the deck's heading pill colour
+ * directly for a plain `image`, which has no header to read. Either way, a
+ * caption that was given a colour of its own keeps it regardless of what the
+ * header or the cover does later.
  */
 export interface ImageCaption {
   doc: TitleDoc
