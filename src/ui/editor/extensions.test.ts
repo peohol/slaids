@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Editor, type Extensions } from '@tiptap/core'
+import { Editor, getSchema, type Extensions } from '@tiptap/core'
 import { acceptsInlineImage } from './SlaidsImageExtension'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
+import { dropAssetIds } from '../../domain/docs'
+import { containerWithDoc } from '../../domain/content'
+import { createLeaf } from '../../domain/layout'
+import { createPresentation } from '../../domain/presentation'
+import type { Presentation, RichDoc } from '../../domain/types'
 
 describe('normalizePastedHtml', () => {
   it('strips all inline styling', () => {
@@ -99,5 +104,89 @@ describe('a field that can hold a picture', () => {
     const title = editorWith(titleExtensions())
     expect(typeof body.commands.insertSlaidsImage).toBe('function')
     expect(title.commands.insertSlaidsImage).toBeUndefined()
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * dropAssetIds against the schema the editor actually uses
+ * ------------------------------------------------------------------ */
+
+/**
+ * A picture is a *block*, so it can be the only thing inside a quote or a table
+ * cell — and both of those require at least one block. Removing it therefore
+ * has to leave something behind, or the document stops being a document. The
+ * check belongs here rather than beside `dropAssetIds` because the authority on
+ * "is this a valid document" is the schema the editor is built from, not our
+ * reading of it: `node.check()` is ProseMirror answering.
+ */
+function parsedByTheEditor(doc: RichDoc): void {
+  getSchema(bodyExtensions()).nodeFromJSON(doc).check()
+}
+
+function deckWithDoc(doc: RichDoc): Presentation {
+  const base = createPresentation({ title: 'Figur i en beholder' })
+  return {
+    ...base,
+    slides: [{ ...base.slides[0], root: createLeaf(containerWithDoc(doc)) }],
+  }
+}
+
+function docOf(presentation: Presentation): RichDoc {
+  const content = presentation.slides[0].root
+  if (content.kind !== 'leaf' || !content.content) throw new Error('Fant ikke innholdet')
+  const body = 'body' in content.content ? content.content.body : null
+  if (!body) throw new Error('Fant ikke kroppen')
+  return body.subfields[0].doc
+}
+
+const IMAGE = { type: 'slaidsImage', attrs: { assetId: 'borte', alt: '' } }
+
+describe('dropAssetIds mot editorens schema', () => {
+  it('bekrefter at en tom beholder faktisk er ugyldig', () => {
+    // The premise of the two tests below, stated rather than assumed.
+    expect(() => parsedByTheEditor({ type: 'doc', content: [{ type: 'blockquote' }] })).toThrow()
+  })
+
+  it('etterlater et gyldig dokument når figuren var alt sitatet hadde', () => {
+    const doc: RichDoc = { type: 'doc', content: [{ type: 'blockquote', content: [IMAGE] }] }
+    const dropped = dropAssetIds(deckWithDoc(doc), new Set(['borte']))
+    const after = docOf(dropped)
+
+    expect(JSON.stringify(after)).not.toContain('borte')
+    expect(() => parsedByTheEditor(after)).not.toThrow()
+  })
+
+  it('etterlater et gyldig dokument når figuren var alt en tabellcelle hadde', () => {
+    const doc: RichDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'tableRow',
+              content: [
+                { type: 'tableCell', content: [IMAGE] },
+                { type: 'tableCell', content: [{ type: 'paragraph' }] },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const dropped = dropAssetIds(deckWithDoc(doc), new Set(['borte']))
+    const after = docOf(dropped)
+
+    expect(JSON.stringify(after)).not.toContain('borte')
+    expect(() => parsedByTheEditor(after)).not.toThrow()
+  })
+
+  it('etterlater et gyldig dokument når figuren var alt et listepunkt hadde', () => {
+    const doc: RichDoc = {
+      type: 'doc',
+      content: [{ type: 'bulletList', content: [{ type: 'listItem', content: [IMAGE] }] }],
+    }
+    const dropped = dropAssetIds(deckWithDoc(doc), new Set(['borte']))
+    expect(() => parsedByTheEditor(docOf(dropped))).not.toThrow()
   })
 })

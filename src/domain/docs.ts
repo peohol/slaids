@@ -200,9 +200,11 @@ export function remapAssetIds(
  *  - a picture zone keeps its crop, its caption and its title and simply has no
  *    file (`assetId: null`), which is exactly a zone waiting for one;
  *  - an inline picture is a block in the text, and a block pointing at nothing
- *    cannot be drawn, so it is taken out. A field left with nothing in it
- *    becomes an empty paragraph rather than an empty document, because that is
- *    what every other empty field is.
+ *    cannot be drawn, so it is taken out. Whatever held it — the field itself, a
+ *    quote, a list item, a table cell — is left with an empty paragraph if the
+ *    picture was all it had. Every one of those requires at least one block, so
+ *    an emptied container is not a document any more; and the removal happens
+ *    *after* `migratePresentation` validated it, so nothing would catch it.
  */
 export function dropAssetIds(
   presentation: Presentation,
@@ -250,11 +252,18 @@ function makeAssetDocRemover(ids: ReadonlySet<string>): DocTransform {
         continue
       }
       changed = true
-      // An emptied node loses the key rather than carrying an empty array: a
-      // list item with `content: []` and one with no content at all are the
-      // same thing, and only one of them is how the rest of the code writes it.
-      const { content: _emptied, ...withoutContent } = node
-      kept.push(content && content.length > 0 ? { ...node, content } : withoutContent)
+      /*
+       * A container emptied by the removal is repaired the same way the
+       * document is, and for the same reason. A picture is a *block*, so the
+       * only nodes that can hold one directly are the document, a quote, a list
+       * item and a table cell — and every one of them requires at least one
+       * block. "Keep it, empty" is not a state any of them has: ProseMirror
+       * refuses `blockquote: <>` outright, so a document that was valid when it
+       * was migrated would be made invalid *after* validation and saved that
+       * way. One rule rather than a list of node names, because the list is
+       * exactly the nodes this can empty.
+       */
+      kept.push({ ...node, content: content && content.length > 0 ? content : [emptyBlock()] })
     }
     return changed ? kept : nodes
   }
@@ -264,6 +273,11 @@ function makeAssetDocRemover(ids: ReadonlySet<string>): DocTransform {
     if (content === doc.content) return doc
     return content && content.length > 0 ? { ...doc, content } : emptyDoc()
   }
+}
+
+/** A fresh empty paragraph — the block every emptied container is left with. */
+function emptyBlock(): RichNode {
+  return { type: 'paragraph' }
 }
 
 function mapTreeContent(
