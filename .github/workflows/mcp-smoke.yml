@@ -11,6 +11,14 @@
 # catalogue and every refusal — needs no credential at all, so that is what a run
 # does by default.
 #
+# **A red run here is a statement about the installation it was pointed at, not
+# about the commit it ran from.** Nothing triggers this workflow on a push or a
+# pull request; every run is one somebody started by hand, against an address
+# they chose. GitHub still files it against whichever commit was checked out, so
+# a run against a deployment that has not caught up yet — or against a preview
+# with no Supabase behind it — leaves a red `smoke` check sitting on a perfectly
+# good commit. Read the run before reading the colour.
+#
 # ## Hvor tokenet kommer fra, og hvorfor ikke fra et input
 #
 # **Et agenttoken hører hjemme i en GitHub-secret, aldri i et
