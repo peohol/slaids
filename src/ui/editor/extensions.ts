@@ -11,6 +11,7 @@ import Heading from '@tiptap/extension-heading'
 import TextAlign from '@tiptap/extension-text-align'
 import { Placeholder } from '@tiptap/extensions'
 import { bestTextColor } from '../../domain/color'
+import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import type { Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
@@ -95,6 +96,47 @@ export const ALIGNMENTS = ['left', 'center', 'right'] as const
 export type Alignment = (typeof ALIGNMENTS)[number]
 
 /**
+ * Alignment, written down every time rather than only when it differs from the
+ * default.
+ *
+ * Tiptap's own rule is to omit the style for whichever value the default
+ * happens to be, which would make the editor's markup and `RichDocView`'s
+ * markup differ for exactly one alignment — the common one. That difference is
+ * not cosmetic: a heading pill is `max-content` wide and a picture is narrower
+ * than its column, so both are placed by `margin-inline` through selectors that
+ * read the inline style. Omitting it would leave a centred pill sitting at the
+ * left while it is being edited and centred everywhere else. Writing it always
+ * keeps one stylesheet correct for both renderers, and keeps the default a
+ * thing only `DEFAULT_TEXT_ALIGN` decides.
+ */
+const SlaidsTextAlign = TextAlign.extend({
+  addGlobalAttributes() {
+    return (this.parent?.() ?? []).map((group) => ({
+      ...group,
+      attributes: {
+        ...group.attributes,
+        textAlign: {
+          ...(group.attributes as Record<string, object>).textAlign,
+          renderHTML: (attributes: Record<string, unknown>) =>
+            typeof attributes.textAlign === 'string'
+              ? { style: `text-align: ${attributes.textAlign}` }
+              : {},
+        },
+      },
+    }))
+  },
+})
+
+/** The alignment extension every field shares, differing only in what it applies to. */
+function textAlignFor(types: string[]) {
+  return SlaidsTextAlign.configure({
+    types,
+    alignments: [...ALIGNMENTS],
+    defaultAlignment: DEFAULT_TEXT_ALIGN,
+  })
+}
+
+/**
  * Headings are pills. There is exactly one heading level; the only thing the
  * author picks is the pill colour, and the text colour follows from contrast.
  *
@@ -156,10 +198,7 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     // three paragraphs and a caret in one aligns that one. An image is a block
     // among the others, and is aligned the same way — it is narrower than the
     // column it sits in, so where it sits is a decision to make.
-    TextAlign.configure({
-      types: ['paragraph', 'heading', 'slaidsImage'],
-      alignments: [...ALIGNMENTS],
-    }),
+    textAlignFor(['paragraph', 'heading', 'slaidsImage']),
     CitationExtension,
     SlaidsImageExtension,
     PlainPasteExtension,
@@ -197,9 +236,7 @@ export function titleExtensions(placeholder?: string, variant: TitleVariant = 's
     Placeholder.configure({ placeholder: placeholder ?? '' }),
     // A title is one paragraph, but it is still a paragraph: the same alignment
     // attribute, so a title reads the same in the editor and on the slide.
-    ...(cover
-      ? []
-      : [TextAlign.configure({ types: ['paragraph'], alignments: [...ALIGNMENTS] })]),
+    ...(cover ? [] : [textAlignFor(['paragraph'])]),
     StarterKit.configure({
       heading: false,
       bold: false,

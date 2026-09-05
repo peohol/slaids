@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs'
 import { expect, familiesFrom, localFaceCss, test, type Locator, type Page } from './fixtures'
 import {
   addContentToZone,
+  caretInto,
   createPresentation,
   fillZoneToCapacity,
   renderedBodyFont,
@@ -270,17 +271,6 @@ test.describe('restoring a slide title', () => {
 
 test.describe('citation numbering and fit', () => {
   /**
-   * Put the caret in a field that has a citation in it.
-   *
-   * Never the middle: a citation pill is a button in the editor — clicking one
-   * opens the reference modal — and a short, centred line is mostly pill. The
-   * corner is text, or the empty run before it.
-   */
-  async function caretInto(field: Locator): Promise<void> {
-    await field.click({ position: { x: 4, y: 4 } })
-  }
-
-  /**
    * Type into a one-line field until it will not take any more.
    *
    * Coarse first, then one narrow glyph at a time: a rejected insert rolls back
@@ -359,11 +349,11 @@ test.describe('citation numbering and fit', () => {
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     const field = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .tiptap`).first()
-    await field.click()
+    await caretInto(field)
     await citeNewReference(page, 'Kilde')
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
 
-    await field.click()
+    await caretInto(field)
     await fillZoneToCapacity(page, zones[0].id)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
 

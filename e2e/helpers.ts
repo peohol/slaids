@@ -205,6 +205,19 @@ export function expectGap(actual: number, message: string): void {
 }
 
 /**
+ * Put the caret in a text field without pressing what is in it.
+ *
+ * Never the middle. A field is centred on both axes unless somebody aligned it
+ * otherwise, so the middle of the box is exactly where its content sits — and
+ * content is not always inert: a citation pill is a button in the editor, and
+ * clicking one opens the reference modal over the very field the test was
+ * about to type in. The corner is text, or the empty run before it.
+ */
+export async function caretInto(field: Locator): Promise<void> {
+  await field.click({ position: { x: 4, y: 4 } })
+}
+
+/**
  * Fill a zone's body field until the editor stops accepting more — the text is
  * then close to the zone's capacity for the current font and numbering.
  *
@@ -218,7 +231,7 @@ export async function fillZoneToCapacity(
   options: { chunks?: number; topUp?: boolean } = {},
 ): Promise<void> {
   const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
-  await field.click()
+  await caretInto(field)
   for (let i = 0; i < (options.chunks ?? 40); i += 1) {
     await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
   }
@@ -236,7 +249,7 @@ export async function fillZoneToCapacity(
  * what lets the deferred validation run between attempts.
  */
 export async function topUpToCapacity(page: Page, field: Locator, attempts = 40): Promise<void> {
-  await field.click()
+  await caretInto(field)
   // A narrow glyph on purpose: the slack this leaves behind is the smallest
   // effect a test can hope to observe afterwards, and 'i' is a third of 'm'.
   for (let i = 0; i < attempts; i += 1) {

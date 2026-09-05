@@ -15,13 +15,17 @@
  */
 
 import type { ChangeEvent } from 'react'
-import { TEXT_SUBSTITUTIONS } from './TypographyExtension'
+import { TEXT_SUBSTITUTIONS, substitutionPattern } from './TypographyExtension'
 
 function typedSubstitution(value: string, caret: number): { value: string; caret: number } | null {
   const before = value.slice(0, caret)
   for (const { typed, written } of TEXT_SUBSTITUTIONS) {
-    if (!before.endsWith(typed)) continue
-    const head = before.slice(0, before.length - typed.length)
+    // The same pattern the input rule matches on, rather than a plain
+    // `endsWith`: what counts as a space is decided in one place, so a field
+    // that hands over a non-breaking one is understood here too.
+    const match = substitutionPattern(typed).exec(before)
+    if (!match) continue
+    const head = before.slice(0, before.length - match[0].length)
     return { value: head + written + value.slice(caret), caret: head.length + written.length }
   }
   return null

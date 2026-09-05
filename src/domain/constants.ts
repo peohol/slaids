@@ -5,6 +5,8 @@
  * defined here. Nothing in the codebase may hardcode these numbers.
  */
 
+import type { TextAlign, VerticalAlign } from './types'
+
 /** Logical slide width. All geometry is computed in this coordinate space. */
 export const SLIDE_WIDTH = 1600
 /** Logical slide height (16:9 against SLIDE_WIDTH). */
@@ -162,6 +164,26 @@ export const INLINE_IMAGE_DEFAULT_ASPECT = 16 / 9
  * not decoration, and tinting it made every card read as a different component.
  */
 export const CARD_DIVIDER_COLOR = 'rgba(0, 0, 0, 0.14)'
+
+/**
+ * Where content sits when nobody has said otherwise, on both axes.
+ *
+ * A slide is not a page of prose: a field holds a few lines in a box that is
+ * usually taller and wider than they are, and text pinned to the top-left
+ * corner of it reads as an accident rather than as a decision. Centring is
+ * therefore the default a new field starts from — the same default a slide
+ * title and a card title have always had — and an author who wants something
+ * else picks it, which is what stores an alignment.
+ *
+ * Both are read as the meaning of *absent*, never written into new content:
+ * that is what lets the default move without rewriting a single document, and
+ * what keeps a field that was deliberately aligned aligned. The editor, the
+ * static renderer and the agent's reading all resolve absent through these two
+ * constants, so no two of them can disagree about what an unaligned field looks
+ * like.
+ */
+export const DEFAULT_TEXT_ALIGN: TextAlign = 'center'
+export const DEFAULT_VERTICAL_ALIGN: VerticalAlign = 'middle'
 
 /** Body typography inside cards and containers. */
 export const BODY_FONT_SIZE = 21

@@ -8,6 +8,7 @@
 
 import { Fragment, type ReactNode } from 'react'
 import { citationLabel } from '../../domain/references'
+import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
 import { bestTextColor } from '../../domain/color'
 import { inlineImageOf } from '../../domain/richdoc'
 import type { RichDoc, RichMark, RichNode } from '../../domain/types'
@@ -83,7 +84,10 @@ function SlaidsImage({ node }: { node: RichNode }) {
         {
           width: `${image.widthPercent}%`,
           '--slaids-image-aspect': image.aspect === null ? undefined : String(image.aspect),
-          ...(image.align ? { textAlign: image.align } : {}),
+          // Resolved here rather than in `inlineImageOf`, for the same reason
+          // a paragraph's is: what is *stored* is what the agent's text format
+          // reports, and a picture nobody aligned stores nothing.
+          textAlign: image.align ?? DEFAULT_TEXT_ALIGN,
         } as React.CSSProperties
       }
     >
@@ -98,10 +102,17 @@ function SlaidsImage({ node }: { node: RichNode }) {
  * Identical markup from both renderers is what lets one stylesheet position a
  * heading pill (which is `max-content` wide and needs margins, not text-align)
  * without knowing which renderer drew it.
+ *
+ * A block that stores no alignment is drawn with the default rather than with
+ * nothing: the editor fills the attribute in from `DEFAULT_TEXT_ALIGN` the
+ * moment the document is loaded, so a block written by a command or by the
+ * agent has to be drawn the way it will look the first time somebody opens it.
  */
-function alignStyle(node: RichNode): React.CSSProperties | undefined {
+function alignStyle(node: RichNode): React.CSSProperties {
   const align = node.attrs?.textAlign
-  if (align !== 'center' && align !== 'right' && align !== 'left') return undefined
+  if (align !== 'center' && align !== 'right' && align !== 'left') {
+    return { textAlign: DEFAULT_TEXT_ALIGN }
+  }
   return { textAlign: align }
 }
 

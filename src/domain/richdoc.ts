@@ -50,7 +50,7 @@ export interface InlineImage {
   widthPercent: number
   /** Intrinsic width / height, or `null` in a document written before it. */
   aspect: number | null
-  /** Where the picture sits in its column, or `null` for the default. */
+  /** Where the picture sits in its column, or `null` when it stores no choice. */
   align: TextAlign | null
 }
 

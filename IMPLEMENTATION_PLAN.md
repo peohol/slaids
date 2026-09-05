@@ -975,13 +975,82 @@ Støtt minst:
   mellom teksten;
 - senere citations og tabeller.
 
-Titler – både slidetittel og korttittel – er midtstilt som standard: en
-tittel er en etikett, ikke et avsnitt. Justering lagres på dokumentet som
-den samme inline-stilen begge rendringene skriver, så editoren og sliden
-ikke kan bli uenige.
+Justering lagres på dokumentet som den samme inline-stilen begge rendringene
+skriver, så editoren og sliden ikke kan bli uenige. Innhold justeres også
+loddrett (topp/midt/bunn) i feltet det står i; det er en egenskap ved feltet,
+ikke ved teksten.
 
-Innhold justeres også loddrett (topp/midt/bunn) i feltet det står i. Det er
-en egenskap ved feltet, ikke ved teksten.
+### Standarden er midtstilt, begge veier
+
+En slide er ikke en side med brødtekst: et felt holder noen få linjer i en boks
+som stort sett er både høyere og bredere enn dem, og tekst festet i øvre venstre
+hjørne leser som et uhell heller enn som en beslutning. Derfor er *midtstilt*
+standarden et nytt felt starter fra – vannrett og loddrett – akkurat som en
+slidetittel og en korttittel alltid har vært midtstilt: en tittel er en etikett,
+ikke et avsnitt.
+
+`DEFAULT_TEXT_ALIGN` og `DEFAULT_VERTICAL_ALIGN` i `src/domain/constants.ts` er
+de to eneste stedene det avgjøres, og de leses som betydningen av **fravær** –
+de skrives aldri inn i nytt innhold. Det er dét som gjør at standarden kan
+flyttes uten å skrive om ett eneste lagret dokument, og at et felt noen
+*har* justert beholder justeringen sin. Editoren, den statiske rendringen og
+agentens lesing løser alle fravær gjennom de samme to konstantene.
+
+Editoren skriver justeringen ut hver gang, ikke bare når den avviker fra
+standarden. Tiptaps egen regel er det motsatte, og den ville gjort editorens
+markup ulik `RichDocView` sin for nøyaktig én justering – den vanligste. Den
+forskjellen er ikke kosmetisk: en overskriftspille er `max-content` bred og et
+bilde er smalere enn spalten sin, så begge plasseres med `margin-inline` gjennom
+selektorer som leser inline-stilen.
+
+**En justert listeboks flytter seg som én ting – kulepunkt og tekst sammen.**
+Å justere avsnittet inne i punktet er ikke nok, og ser ødelagt ut: et
+listemerke plasseres mot punktets egen innholdskant og ikke mot linja med ord
+inne i det, så midtstilling flyttet teksten inn til midten og lot hvert eneste
+kulepunkt bli igjen ytterst til venstre. Punktet krymper derfor rundt sin egen
+tekst og skyves på plass med automatiske marger – samme svar som en
+overskriftspille og et bilde får. Lista beholder innrykket sitt, og det er dét
+som holder dette innenfor regelen om at ingenting en sone holder males utenfor
+den: et punkt som er for langt til å krympe fyller spalten, og merket har
+innrykket å henge i.
+
+**En plassholder står der teksten den står for kommer til å stå.** Den er et
+pseudoelement uten node å måle, så en flytende boks kan si `text-align: center`
+og likevel males ytterst til venstre – som er nøyaktig det som skjedde: en
+midtstilt tittel viste plassholderen sin til venstre og hoppet til midten ved
+første tastetrykk. Den tegnes derfor som en blokk med høyde null, som arver
+avsnittets `text-align` og følger den av seg selv, og som fortsatt koster
+ingen plass i målingen.
+
+### Autoerstatning mens man skriver
+
+` - ` blir ` – `, `...` blir `…` og ` * ` blir ` · `, overalt hvor noen skriver
+tekst: innholdsfelt, slidetittel, korttittel, en seksjons to linjer, en
+bildetekst – og de to helt vanlige `<input>`-feltene som også ender opp på en
+slide (ny seksjon, og referansens tittel og forfattere). `TEXT_SUBSTITUTIONS` er
+den ene lista over hva som erstattes, og `substitutionPattern` den ene
+beskrivelsen av hva en erstatning treffer; input-regelen i editoren og
+`useTypedSubstitution` for et vanlig felt leser begge den samme.
+
+**Et felt der man skriver må ta vare på mellomrommene sine.** Å kollapse dem er
+ikke bare et rendringsvalg: et mellomrom sist på linja ville vært usynlig, så
+nettleserens redigeringsmotor skriver et hardt mellomrom (U+00A0) i stedet, og
+det som leses tilbake ut av DOM-en etterpå er kollapset på nytt. Det var dét som
+i stillhet slo ut de to erstatningene som er bygget rundt et mellomrom: de
+utløses på det avsluttende mellomrommet, altså nøyaktig det tegnet et
+`white-space: nowrap`-felt ikke klarte å holde på, mens `...` – den ene regelen
+uten mellomrom i seg – virket overalt hele tiden. Enlinjefelt settes derfor med
+`white-space: pre`: én linje som før, men mellomrommene beholdes, akkurat som en
+bildetekst alltid har gjort. Reglene tåler i tillegg det harde mellomrommet, så
+de handler om hva som ble skrevet og ikke om hvordan feltet tilfeldigvis er
+stylet.
+
+Egenskapen er verdiløs uten en test som skriver på ordentlig:
+`e2e/typography.spec.ts` bruker ekte tastetrykk i en ekte nettleser, i hvert av
+feltene over. En simulert innsetting går en annen kodevei enn tastaturet og sier
+ingenting om hvorvidt det å skrive virker – som er nøyaktig hvordan
+titteltilfellet kunne rapporteres som dekket uten at noen noensinne hadde
+skrevet i en tittel.
 
 ### Den tomme linjen på slutten er ikke innhold
 

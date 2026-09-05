@@ -23,6 +23,7 @@ import {
   hasCardTitle,
   imagePanelOf,
 } from '../../domain/content'
+import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
@@ -444,7 +445,7 @@ export function inspectContent(content: ZoneContent): ContentInspection {
     subfields:
       body?.subfields.map((field) => ({
         subfieldId: field.id,
-        verticalAlign: field.verticalAlign ?? 'top',
+        verticalAlign: field.verticalAlign ?? DEFAULT_VERTICAL_ALIGN,
         blocks: docToBlocks(field.doc),
       })) ?? [],
     assetIds: contentAssetIds(content),

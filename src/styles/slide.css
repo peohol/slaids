@@ -335,6 +335,38 @@
 }
 
 /*
+ * An aligned list item moves as one — marker and text together.
+ *
+ * Aligning the paragraph inside the item is not enough, and looks broken: a
+ * marker is placed against its item's content edge rather than against the line
+ * of words inside it, so centring the paragraph slid the text into the middle
+ * of the column and left every bullet behind at the far left. Shrinking the
+ * item around its own text and pushing it there with automatic margins moves
+ * the box the marker is measured from, so the bullet travels with the words it
+ * belongs to — the same answer a heading pill and a picture get, both of which
+ * are also blocks narrower than the column they stand in.
+ *
+ * The list keeps its indent, and that is what keeps this inside the rule that
+ * nothing a zone holds is painted outside it: an item too long to shrink fills
+ * the column, and its marker has the padding to hang in. It also very nearly
+ * cancels the offset the padding introduces, since a marker hangs about one
+ * indent to the left of the text it belongs to.
+ */
+.rich-doc :is(li, .rd-li):has(> [style*='text-align: center']),
+.rich-doc :is(li, .rd-li):has(> [style*='text-align:center']) {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.rich-doc :is(li, .rd-li):has(> [style*='text-align: right']),
+.rich-doc :is(li, .rd-li):has(> [style*='text-align:right']) {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto 0;
+}
+
+/*
  * The quote marks are absolutely positioned, so they have to be positioned
  * *inside* the block: a zone clips anything that reaches past its edge, and a
  * quote at the bottom of a field had its closing mark cut in half.
@@ -556,10 +588,24 @@
   overflow: hidden;
 }
 
+/*
+ * `pre`, not `nowrap`: one line either way, but the spaces are kept.
+ *
+ * Collapsing white space is not only a rendering choice in a field somebody
+ * types in — it changes what the field can hold. A space at the end of the line
+ * would be invisible, so the browser writes a non-breaking one in its place,
+ * and what is read back out of the DOM afterwards has been re-collapsed. That
+ * is what silently broke the two typing substitutions built around a space
+ * (` - ` and ` * `): they fire on the trailing space, which is exactly the
+ * character the field was not able to keep, while `...` — the one rule with no
+ * space in it — worked here all along. A caption has always preserved its
+ * spaces, and has always substituted correctly; this is the same setting, with
+ * wrapping still switched off because a title is one line.
+ */
 .rich-doc--title :is(p, .rd-p) {
   margin: 0;
   overflow: visible;
-  white-space: nowrap;
+  white-space: pre;
   width: 100%;
 }
 
@@ -568,13 +614,26 @@
   min-height: 0;
 }
 
-/* Placeholder text for empty fields (Tiptap's Placeholder extension). */
+/*
+ * Placeholder text for empty fields (Tiptap's Placeholder extension).
+ *
+ * A zero-height block rather than a float. A float is pulled out of the flow
+ * and lands against the left edge whatever the paragraph is aligned to, so a
+ * centred title showed its placeholder on the left and then jumped to the
+ * middle at the first keystroke — a placeholder has to stand where the text it
+ * stands in for will. A block inherits the paragraph's `text-align` and follows
+ * it by itself, and being a block is also what keeps an empty field as wide as
+ * the words it is offering: an out-of-flow box contributes no width, and an
+ * empty caption drawn around nothing collapses to a box nobody can click. At
+ * zero height it still costs no room, so what is measured for fit is the empty
+ * field, exactly as before.
+ */
 .rich-doc.tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
+  display: block;
+  height: 0;
   color: currentColor;
   opacity: 0.42;
-  float: left;
-  height: 0;
   pointer-events: none;
 }
 
@@ -618,7 +677,8 @@
   margin: 0;
   /* Centred by construction: a section carries no alignment to override this. */
   text-align: center;
-  white-space: nowrap;
+  /* One line that keeps its spaces — see `.rich-doc--title :is(p, .rd-p)`. */
+  white-space: pre;
 }
 
 /*

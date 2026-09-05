@@ -11,6 +11,7 @@ import {
   CARD_DIVIDER_COLOR,
   CARD_RADIUS,
   CARD_SHADOW,
+  DEFAULT_VERTICAL_ALIGN,
   SUBFIELD_DIVIDER_THICKNESS,
 } from '../../domain/constants'
 import { themeMetrics } from '../../domain/metrics'
@@ -59,9 +60,9 @@ const VERTICAL_ALIGNMENT = {
   bottom: 'safe end',
 } as const satisfies Record<VerticalAlign, string>
 
-/** Where a field's flowed content sits, defaulting to the top of the field. */
+/** Where a field's flowed content sits, defaulting to `DEFAULT_VERTICAL_ALIGN`. */
 export function flowAlign(align: VerticalAlign | undefined): string {
-  return VERTICAL_ALIGNMENT[align ?? 'top']
+  return VERTICAL_ALIGNMENT[align ?? DEFAULT_VERTICAL_ALIGN]
 }
 
 function SubfieldStack({
@@ -102,7 +103,7 @@ function SubfieldStack({
             className="subfield"
             data-fit-scroll=""
             data-subfield-id={field.id}
-            data-align={field.verticalAlign ?? 'top'}
+            data-align={field.verticalAlign ?? DEFAULT_VERTICAL_ALIGN}
             style={
               {
                 flexGrow: (body.weights[index] ?? 1) / total,

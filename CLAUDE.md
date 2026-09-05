@@ -678,6 +678,38 @@ Nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
   et filhode er ikke et bilde, og størrelsen tas alltid fra bitstrømmen. Et rendret
   preview er ikke et unntak: det er et fotografi av en slide som allerede finnes, aldri
   en generert illustrasjon. Se `IMPLEMENTATION_PLAN.md` §44.
+- **Midtstilt er standarden, begge veier.** En slide er ikke en side med
+  brødtekst: et felt holder noen få linjer i en boks som er både høyere og
+  bredere enn dem, og tekst festet i øvre venstre hjørne leser som et uhell.
+  `DEFAULT_TEXT_ALIGN` og `DEFAULT_VERTICAL_ALIGN` i `src/domain/constants.ts`
+  er de eneste to stedene det avgjøres, og de leses som betydningen av
+  **fravær** – aldri skrevet inn i nytt innhold, slik at standarden kan flyttes
+  uten å skrive om ett lagret dokument og et felt noen *har* justert beholder
+  justeringen. Editoren skriver stilen ut hver gang, ikke bare når den avviker
+  fra standarden: Tiptaps egen regel er det motsatte, og ville gjort editorens
+  markup ulik `RichDocView` sin for nøyaktig den vanligste justeringen – og en
+  overskriftspille (`max-content` bred) og et bilde plasseres med
+  `margin-inline` gjennom selektorer som leser den inline-stilen. Et justert
+  listepunkt flytter seg som én ting: et listemerke plasseres mot punktets egen
+  innholdskant og ikke mot linja inne i det, så punktet krymper rundt teksten
+  sin og skyves på plass med automatiske marger – lista beholder innrykket, som
+  er det et for langt punkts merke henger i. En plassholder er en blokk med
+  høyde null og ikke en flytende boks, så den arver avsnittets `text-align` og
+  står der teksten den står for kommer til å stå. Se `IMPLEMENTATION_PLAN.md`
+  §16.
+- **Et felt der man skriver tar vare på mellomrommene sine.** Å kollapse dem er
+  ikke bare et rendringsvalg: et mellomrom sist på linja ville vært usynlig, så
+  nettleseren skriver et hardt mellomrom i stedet og det som leses tilbake er
+  kollapset på nytt. Det slo i stillhet ut de to autoerstatningene som er bygget
+  rundt et mellomrom (` - `, ` * `) i hvert eneste enlinjefelt, mens `...` –
+  regelen uten mellomrom – virket overalt. Enlinjefelt settes derfor med
+  `white-space: pre`, som en bildetekst alltid har vært, og reglene tåler i
+  tillegg det harde mellomrommet: `TEXT_SUBSTITUTIONS` sier hva som erstattes og
+  `substitutionPattern` hva en erstatning treffer, én gang for både editoren og
+  det vanlige `<input>`-feltet. Egenskapen holdes av `e2e/typography.spec.ts`,
+  som skriver med ekte tastetrykk i hvert felt – en simulert innsetting går en
+  annen kodevei enn tastaturet og sier ingenting om hvorvidt det å skrive
+  virker.
 - **Den tomme linjen på slutten av et felt er ikke innhold.** Et felt justerer hele
   flyten sin, så en blank linje til slutt – eller bunnmargen til den siste blokken –
   er luft ingen har valgt, og det var dét som gjorde «midtstilt» litt for høyt.

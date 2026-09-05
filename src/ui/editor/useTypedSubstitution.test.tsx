@@ -73,6 +73,15 @@ describe('useTypedSubstitution', () => {
     expect(input.value).toBe('Ett · to')
   })
 
+  it('reads a non-breaking space as the space it stands in for', () => {
+    const input = mount()
+    // What a contenteditable field hands over when the space would otherwise
+    // collapse. It is the same key press, so it triggers the same rule — and
+    // what is written back is an ordinary space, whatever arrived.
+    type(input, 'Del 1\u00A0-\u00A0konklusjon')
+    expect(input.value).toBe('Del 1 – konklusjon')
+  })
+
   it('leaves a bare hyphen alone, as in a word', () => {
     const input = mount()
     type(input, 'e-post')
