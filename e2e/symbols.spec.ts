@@ -1,5 +1,11 @@
 import { expect, test } from './fixtures'
-import { addContentToZone, createPresentation, stage, watchForErrors, zoneRects } from './helpers'
+import {
+  addContentToZone,
+  createPresentation,
+  stage,
+  watchForErrors,
+  zoneRects,
+} from './helpers'
 
 /**
  * The Ω symbol picker, wherever text is edited.
@@ -90,6 +96,25 @@ test.describe('special characters', () => {
     await page.getByTestId('symbol-group-typography').click()
     await page.getByTestId('symbol-cell-§').click()
     await expect(title).toHaveText('Del§')
+    expect(guard.errors).toEqual([])
+  })
+
+  test('inserts a character into a card title', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Spesialtegn i korttittel')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'titled-card')
+    const title = stage(page).locator('.card-header .tiptap')
+    await title.click()
+    await title.pressSequentially('Kort')
+
+    await page.getByTestId('format-symbol').click()
+    // '§' lives in "Typografi", not the default "Piler" group.
+    await page.getByTestId('symbol-group-typography').click()
+    await page.getByTestId('symbol-cell-§').click()
+    await expect(title).toHaveText('Kort§')
     expect(guard.errors).toEqual([])
   })
 })
