@@ -641,27 +641,81 @@ i rekkefølge, så samme input gir alltid samme output.
 
 ### Dragging: trinnløst under, snapp ved slipp
 
-Mens pekeren er nede kvantiseres ingenting. Grensen følger pekeren nøyaktig, og
-bare de to sonene den ligger mellom endres – summen deres er bevart, så resten
-av splitten står stille. Å snappe underveis ville gitt et hakkete håndtak og
-målt fit på tilstander forfatteren bare er innom.
+Mens pekeren er nede kvantiseres ingenting. Layouten følger pekeren nøyaktig. Å
+snappe underveis ville gitt et hakkete håndtak og målt fit på tilstander
+forfatteren bare er innom.
 
 Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
 
-> Soner som hadde samme forholdstall før dragingen, og som den dratte
-> separatoren ikke ligger mellom, skal ha samme forholdstall etterpå.
+> Soner som hadde samme forholdstall før dragingen, og som gesten ikke skilte
+> fra hverandre, skal ha samme forholdstall etterpå.
 
 `2 : 5 : 3 : 3 : 3` med den første separatoren dratt vurderer altså bare
 løsninger på formen `a : b : c : c : c`. Gruppene leses fra forholdstallene
 **før** gesten – aldri fra midlertidige flyttallsbredder, som aldri er nøyaktig
-like. Paret på hver side av den dratte separatoren er unntatt: `2 : 2 : 5` med
-separatoren mellom de to første dratt *skal* kunne ende med ulike tall, fordi
-det er nettopp det forfatteren ba om.
+like. Hvilke soner gesten frigjør fra regelen, avgjør gesten selv; se
+`equalityKeysForDrag` og `equalityKeysForZoneDrag`.
 
 Nærmeste trinn kan fortsatt bli avvist av minstemål eller fit-guarden. Da prøves
 de nest nærmeste i tur (`RATIO_SNAP_CANDIDATES`), og først når alle er avvist
 får forfatteren avvisningen fra det nærmeste – et håndtak som ikke gjør noe
 fordi snappet bommet med en hårsbredd, leser som ødelagt.
+
+### De tre gestene
+
+Alle tre er rene funksjoner av forholdstallene splitten **startet** med, aldri
+av forrige frames tall. Det er det som gjør at et langt drag ikke akkumulerer
+avrundingsfeil, og at pekeren kan vandre og komme tilbake til nøyaktig samme
+layout. Alle tre regner i vektenheter: antall barn endres ikke under et drag, så
+gapene er konstante og vektrom og lengderom er proporsjonale.
+
+**Grensedrag** (`draggedWeights`) – et trykk i mellomrommet mellom to soner.
+Grensen følger pekeren, bare de to sonene den ligger mellom endres, og summen
+deres er bevart, så resten av splitten står stille. Paret på hver side av
+separatoren er unntatt fra likhetsregelen over: `2 : 2 : 5` med separatoren
+mellom de to første dratt *skal* kunne ende med ulike tall, fordi det er nettopp
+det forfatteren ba om.
+
+**Symmetrisk resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
+tvers av splittens retning. Begge sonens grenser flyttes like langt i hver sin
+retning: sonen endrer størrelse og blir liggende der den lå. Hver side
+komprimeres eller utvides med samme lengde, men sidene er sjelden like lange, så
+de skaleres med hver sin faktor – og innenfor en side beholder hver sone sin
+andel, slik at forholdstall gesten ikke handler om overlever den urørt.
+
+**Forskyvning** (`translatedWeights`) – samme trykk, dratt langs splittens
+retning. Sonen beholder forholdstallet sitt; siden den beveger seg mot
+komprimeres med nøyaktig det siden den forlater vokser med. Begge sider skaleres,
+så begge beholder sine innbyrdes forhold.
+
+Retningene er én gest tegnet to ganger, en kvart omdreining fra hverandre: en rad
+vokser oppover, og den samme gesten på en kolonne – rotert med klokka – vokser
+mot høyre. En rads sone forskyves mot venstre mot starten av splitten, og den
+samme kvarte omdreiningen gjør «venstre» til «opp». Ingen retning velges særskilt
+for kolonner; `zoneDragAmount` er hele rotasjonen.
+
+Hvilken av de to gestene et drag inni en sone er, avgjøres av den dominerende
+retningen og **låses** så snart bevegelsen er stor nok til å bety noe
+(`ZONE_DRAG_THRESHOLD_PX`). Uten dødsonen ville en hånd som starter litt skjevt
+vippet mellom modusene før den satte seg, og layouten ville hoppet med den.
+Hit-testing skiller de to trykkene uten avstandsmåling: mellomrommet er dekket
+av sitt eget håndtak, og et trykk der når aldri sonen under.
+
+### Stoppbetingelser
+
+Ingen gest avvises fordi den ble dratt for langt; den stopper der geometrien
+stopper, og blir stående der. Grensen stopper ved naboens minstemål. En resize
+stopper ved den *minste* av de to sidenes kapasitet – å fortsette inn i siden som
+fortsatt har plass ville gjort operasjonen usymmetrisk halvveis og begynt å
+forskyve sonen i stedet – eller ved sonens eget minstemål når det er den som
+krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
+sine soners minstemål.
+
+En sone ytterst i splitten har en grense den ikke kan flytte: splittens egen
+kant. Da er største lovlige symmetriske endring ingen endring, og det finnes
+verken plass å åpne bak sonen eller noen til å ta plassen den forlater – begge
+gestene lar layouten stå. En split med to soner består bare av ytterste soner:
+der er grensedraget det eneste som flytter noe.
 
 ### Håndhevelse og bakoverkompatibilitet
 
@@ -695,9 +749,10 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
 
-Direkte drag handles for ratios finnes: separatoren mellom to soner kan dras.
-Under dragingen er bevegelsen trinnløs, ved slipp snapper layouten til nærmeste
-lovlige forhold. Se §11.5.
+Direkte manipulasjon av ratios finnes, i tre gester: separatoren mellom to soner
+kan dras, og et drag inni en sone endrer størrelsen på den symmetrisk (på tvers
+av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
+trinnløs, ved slipp snapper layouten til nærmeste lovlige forhold. Se §11.5.
 
 ---
 

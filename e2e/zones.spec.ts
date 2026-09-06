@@ -9,11 +9,13 @@ import {
   enterContentMode,
   enterZoneMode,
   expectGap,
+  slidePoint,
   splitSelected,
   stage,
   waitForSaved,
   watchForErrors,
   zoneRects,
+  type ZoneRect,
 } from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
@@ -36,6 +38,37 @@ async function dragHandle(page: Page, index: number, deltaLogical: number): Prom
   await page.mouse.move(x + deltaLogical * scale, y, { steps: 8 })
   await page.mouse.up()
   await page.waitForTimeout(250)
+}
+
+/** Drag from the middle of `zone` by `dx`/`dy` design-space pixels. */
+async function dragZone(page: Page, zone: ZoneRect, dx: number, dy: number): Promise<void> {
+  const from = await slidePoint(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
+  const scale = await page.evaluate(() =>
+    Number((document.querySelector('[data-testid="stage-slide"]') as HTMLElement).dataset.scale),
+  )
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + dx * scale, from.y + dy * scale, { steps: 8 })
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+}
+
+/** The ratios the inspector reports for the split the zones belong to. */
+async function rootRatios(page: Page): Promise<string> {
+  await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+  return (await page.getByTestId('zone-ratios').textContent()) ?? ''
+}
+
+/**
+ * How far the pointer has to travel for a gesture to ask for `weight` units of
+ * a split's ratio, in design-space pixels.
+ *
+ * The zones share whatever is left of the split once its gaps are taken out, so
+ * one unit of ratio is that length divided by the split's total.
+ */
+function travelFor(zones: ZoneRect[], weight: number, total: number, axis: 'x' | 'y'): number {
+  const usable = zones.reduce((sum, zone) => sum + (axis === 'x' ? zone.w : zone.h), 0)
+  return (weight / total) * usable
 }
 
 test.describe('zone editing', () => {
@@ -232,6 +265,128 @@ test.describe('zone editing', () => {
     await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 3')
     const zones = await zoneRects(page)
     expect(zones[1].w / zones[0].w).toBeCloseTo(3, 1)
+  })
+
+  test('resizes a zone about its own centre when dragged across its row', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Symmetrisk')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 2, 3], 'x')
+
+    const before = await zoneRects(page)
+    const centre = before[1].x + before[1].w / 2
+    // Up is bigger: two units of an eight-unit ratio takes 3 : 2 : 3 to 1 : 2 : 1.
+    await dragZone(page, before[1], 0, -travelFor(before, 2, 8, 'x'))
+
+    const after = await zoneRects(page)
+    expect(after[1].w).toBeGreaterThan(before[1].w)
+    // Symmetric: both neighbours gave up the same room, so the zone has not moved.
+    expect(after[1].x + after[1].w / 2).toBeCloseTo(centre, 0)
+    expect(after[0].w).toBeCloseTo(after[2].w, 0)
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
+    expect(guard.errors).toEqual([])
+  })
+
+  test('shrinks a zone dragged the other way across its row', async ({ page }) => {
+    await createPresentation(page, 'Symmetrisk mindre')
+    await enterZoneMode(page)
+    await splitSelected(page, [2, 4, 2], 'x')
+
+    const before = await zoneRects(page)
+    await dragZone(page, before[1], 0, travelFor(before, 2, 8, 'x'))
+
+    const after = await zoneRects(page)
+    expect(after[1].w).toBeLessThan(before[1].w)
+    expect(after[0].w).toBeCloseTo(after[2].w, 0)
+    expect(await rootRatios(page)).toBe('3 : 2 : 3')
+  })
+
+  test('moves a zone along its row without resizing it', async ({ page }) => {
+    await createPresentation(page, 'Forskyvning')
+    await enterZoneMode(page)
+    await splitSelected(page, [2, 3, 3], 'x')
+
+    const before = await zoneRects(page)
+    await dragZone(page, before[1], travelFor(before, 1, 8, 'x'), 0)
+
+    const after = await zoneRects(page)
+    // The zone kept its size and took its room from the side it moved towards.
+    expect(after[1].w).toBeCloseTo(before[1].w, 0)
+    expect(after[1].x).toBeGreaterThan(before[1].x + 100)
+    expect(after[0].w).toBeGreaterThan(before[0].w)
+    expect(after[2].w).toBeLessThan(before[2].w)
+    expectGap(after[1].x - (after[0].x + after[0].w), 'gap after moving a zone')
+    expect(await rootRatios(page)).toBe('3 : 3 : 2')
+  })
+
+  test('resizes a zone in a column by dragging across it, a quarter turn round', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Kolonne')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 2, 3], 'y')
+
+    const before = await zoneRects(page)
+    const centre = before[1].y + before[1].h / 2
+    // Right is bigger in a column where up was bigger in a row.
+    await dragZone(page, before[1], travelFor(before, 2, 8, 'y'), 0)
+
+    const after = await zoneRects(page)
+    expect(after[1].h).toBeGreaterThan(before[1].h)
+    expect(after[1].y + after[1].h / 2).toBeCloseTo(centre, 0)
+    expect(after[0].h).toBeCloseTo(after[2].h, 0)
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
+  })
+
+  test('moves a zone down its column without resizing it', async ({ page }) => {
+    await createPresentation(page, 'Forskyvning i kolonne')
+    await enterZoneMode(page)
+    await splitSelected(page, [2, 3, 3], 'y')
+
+    const before = await zoneRects(page)
+    await dragZone(page, before[1], 0, travelFor(before, 1, 8, 'y'))
+
+    const after = await zoneRects(page)
+    expect(after[1].h).toBeCloseTo(before[1].h, 0)
+    expect(after[1].y).toBeGreaterThan(before[1].y + 40)
+    expect(after[0].h).toBeGreaterThan(before[0].h)
+    expect(after[2].h).toBeLessThan(before[2].h)
+    expectGap(after[1].y - (after[0].y + after[0].h), 'gap after moving a zone in a column')
+    expect(await rootRatios(page)).toBe('3 : 3 : 2')
+  })
+
+  test('leaves a zone at the end of its split where the split holds it', async ({ page }) => {
+    await createPresentation(page, 'Ytterste sone')
+    await enterZoneMode(page)
+    await splitSelected(page, [2, 3, 3], 'x')
+
+    const before = await zoneRects(page)
+    // A first zone has one boundary it cannot move, so neither gesture can do
+    // anything symmetric — or make room behind it — and the layout stands still.
+    await dragZone(page, before[0], 0, -travelFor(before, 2, 8, 'x'))
+    await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
+
+    const after = await zoneRects(page)
+    for (let index = 0; index < before.length; index += 1) {
+      expect(after[index].w).toBeCloseTo(before[index].w, 1)
+      expect(after[index].x).toBeCloseTo(before[index].x, 1)
+    }
+    expect(await rootRatios(page)).toBe('2 : 3 : 3')
+  })
+
+  test('undoes a whole zone drag in one step', async ({ page }) => {
+    await createPresentation(page, 'Angre soneflytting')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 2, 3], 'x')
+
+    const before = await zoneRects(page)
+    await dragZone(page, before[1], 0, -travelFor(before, 2, 8, 'x'))
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
+
+    await page.getByTestId('undo').click()
+    expect(await rootRatios(page)).toBe('3 : 2 : 3')
+    await page.getByTestId('redo').click()
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
   })
 
   test('rescues the text a picture displaces instead of throwing it away', async ({ page }) => {

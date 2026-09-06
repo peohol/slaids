@@ -135,8 +135,9 @@ export function Inspector({
             {node.weights.join(' : ')}
           </p>
           <p className="hint">
-            Dra i mellomrommet mellom subsonene for å justere. Layouten låses til nærmeste
-            heltallsforhold når du slipper.
+            Dra i mellomrommet mellom subsonene for å flytte grensen. Dra inni en subsone på
+            tvers av retningen for å endre størrelsen på den symmetrisk, eller langs retningen
+            for å forskyve den. Layouten låses til nærmeste heltallsforhold når du slipper.
           </p>
         </section>
       )}

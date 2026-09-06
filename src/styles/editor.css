@@ -542,6 +542,22 @@
   justify-content: flex-start;
 }
 
+/*
+ * Zone mode is a dragging surface: a press inside a zone resizes it or moves it
+ * along its split. So a press must not start a text selection instead, and a
+ * touch must not be taken over by the browser's own panning before the gesture
+ * has been read — the same reason `.zone-handle` gives up `touch-action`.
+ */
+.slide--zone-mode {
+  user-select: none;
+  touch-action: none;
+}
+
+/* The zones themselves are what a press moves; the title zone is not one. */
+.slide--zone-mode .slide-zone {
+  cursor: move;
+}
+
 .zone-handle {
   position: absolute;
   pointer-events: auto;

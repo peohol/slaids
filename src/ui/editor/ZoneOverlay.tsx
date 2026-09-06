@@ -158,8 +158,10 @@ export function ZoneOverlay({
             className="zone-actions"
             style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top left' }}
             // The stage hit-tests every click; overlay controls must not also
-            // re-select whatever zone happens to sit underneath them.
+            // re-select whatever zone happens to sit underneath them — nor, on
+            // the press, start dragging it around.
             onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
           >
             <div className="zone-breadcrumb" data-testid="zone-breadcrumb">
               {breadcrumb.map((label, index) => (

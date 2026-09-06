@@ -54,7 +54,10 @@
  * ratios *before* the drag — never from the temporary pixel widths, which are
  * floats that are never exactly equal — and the two zones the dragged boundary
  * sits between are deliberately left free, because moving that boundary is
- * precisely the author saying those two should differ.
+ * precisely the author saying those two should differ. Dragging a zone itself
+ * keys the groups by side as well, for the reason `equalityKeysForZoneDrag`
+ * gives: that gesture scales the two sides by different factors, so equal zones
+ * only stay equal to each other while they are on the same side of it.
  */
 
 import { MAX_ZONE_RATIO, MIN_ZONE_RATIO } from './constants'
@@ -107,6 +110,26 @@ export function equalityKeysForDrag(
 ): (number | null)[] {
   return before.map((weight, index) =>
     index === boundary || index === boundary + 1 ? null : weight,
+  )
+}
+
+/**
+ * Which zones must keep sharing a ratio when the zone at `index` is resized or
+ * moved inside its own split.
+ *
+ * Both of those gestures leave the zones before the selection scaled by one
+ * factor and the zones after it scaled by another, so the side is part of the
+ * key: two zones written down as the same number stay one number while they are
+ * on the same side of the selection, and are free to part when the gesture is
+ * pulling their sides in opposite directions. The selected zone is a group of
+ * its own — it is the one the gesture is about.
+ */
+export function equalityKeysForZoneDrag(
+  before: readonly number[],
+  index: number,
+): (string | null)[] {
+  return before.map((weight, position) =>
+    position === index ? null : `${position < index ? 'before' : 'after'}:${weight}`,
   )
 }
 
