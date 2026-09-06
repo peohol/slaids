@@ -1373,8 +1373,35 @@ agenttoken: `authorizeOperation` vet ikke hvilken familie kalleren kom fra.
 OAuth er **av** i en installasjon som ikke har fått en eierliste. Det er med
 vilje: Supabase-prosjektet deles med Huskis og mdeditz, agent-API-et holder en
 nøkkel som går forbi row level security, og «hvilken som helst bruker av
-prosjektet» ville vært en videre dør enn nettleseren har. Se «Servermiljø» for
-variablene, og PR-beskrivelsen for stegene i Supabase-dashbordet.
+prosjektet» ville vært en videre dør enn nettleseren har.
+
+Tre ting må være på plass, og ingen av dem skjer av seg selv. Fram til de er
+det, oppfører API-et seg nøyaktig som før: agenttokens virker, discovery er
+offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
+
+1. **Migrasjonen.** `20260905190000_slaids_agent_oauth_audit.sql` gir
+   auditloggen kolonnene et OAuth-kall skrives i. Se «Deploye
+   Slaids-migrasjoner».
+2. **Autorisasjonsserveren**, i Supabase-dashbordet for det prosjektet Slaids
+   allerede bruker, under Authentication → OAuth Server:
+   - slå på **OAuth 2.1 Server**. Er den av, svarer autorisasjonsserverens
+     metadata `feature_disabled`, og ingen klient kommer forbi pålogging;
+   - sett **Authorization Path** til `/oauth/consent` – adressen til
+     samtykkesiden Slaids selv tegner;
+   - kontroller **Site URL**. Den er *prosjektglobal* og deles med Huskis og
+     mdeditz, og det er den samtykkesiden bygges på. Er den ikke
+     `https://www.slaids.no`, sendes brukeren til feil app midt i påloggingen;
+   - slå på **Dynamic Client Registration**. ChatGPT registrerer seg selv som
+     klient, og uten den finnes det ingen `client_id` å godkjenne.
+3. **Servervariablene i Vercel**, uten `VITE_`-prefiks:
+   `SLAIDS_AGENT_OAUTH_OWNERS` med Supabase-bruker-ID-en som skal få koble seg
+   på, og `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no`. Se «Servermiljø».
+   Variablene leses ved oppstart, så deployen må kjøres på nytt etterpå.
+
+`node scripts/mcp-smoke.mjs --base-url https://www.slaids.no` går gjennom hele
+den offentlige halvdelen etterpå og sier hva som eventuelt mangler – den ser
+blant annet forskjell på «OAuth 2.1 Server er ikke slått på i Supabase» og
+«installasjonen har ingen eierliste».
 
 ### Katalogen er den samme katalogen
 
