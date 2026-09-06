@@ -482,13 +482,25 @@
   pointer-events: none;
 }
 
+/*
+ * The toolbar floats over the top-left of the selected zone, and the selected
+ * zone is exactly the one an author reaches for: a press inside it resizes or
+ * moves it. So only the controls themselves take the pointer. Everything the
+ * toolbar is made of besides its buttons — its padding, the space between its
+ * two rows, the bars those rows are drawn on — is a picture, and a press there
+ * goes through to the zone underneath rather than landing on nothing.
+ */
 .zone-actions {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  pointer-events: auto;
+  pointer-events: none;
   width: max-content;
+}
+
+.zone-actions button {
+  pointer-events: auto;
 }
 
 .zone-actions__buttons {

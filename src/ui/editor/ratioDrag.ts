@@ -37,7 +37,7 @@
  */
 
 import { areWeightsValid, sumWeights } from '../../domain/geometry'
-import { rankedRatioQuantizations } from '../../domain/ratios'
+import { MAX_RANKED_QUANTIZATIONS, rankedRatioQuantizations } from '../../domain/ratios'
 import type { StructuralOutcome } from '../../domain/commands'
 import type { Result } from '../../domain/result'
 import type { Axis } from '../../domain/types'
@@ -137,24 +137,27 @@ export function draggedWeights(
 }
 
 /**
- * The ratios for a zone grown (or shrunk) by `growth` about its own centre.
+ * The ratios for a zone grown (or shrunk) by `growth`.
  *
- * Symmetric means both of the zone's boundaries move by half of `growth`, in
- * opposite directions: the zone changes size and stays exactly where it was.
- * Each side gives up — or takes back — the same length, but they do not
- * generally have the same length to begin with, so they are scaled by different
- * factors. Within a side every zone keeps its share of that side, so ratios the
- * gesture is not about survive it untouched.
+ * Every side the zone has gives up — or takes back — an equal share of the
+ * change. A zone with neighbours on both sides therefore moves both of its
+ * boundaries by half of `growth`, in opposite directions: it changes size and
+ * stays exactly where it was. The two sides do not generally have the same
+ * length to begin with, so they are scaled by different factors; within a side
+ * every zone keeps its share of that side, so ratios the gesture is not about
+ * survive it untouched.
  *
- * The stop condition is the reason `growth` is clamped rather than refused: the
- * two sides run out of room at different moments, and a resize that carried on
- * into the side that still had room would stop being symmetric halfway through
- * and start moving the zone instead. So the whole operation stops at the
- * smaller of the two, which is the largest symmetric change the split allows.
+ * A zone at either end of the split has one side, and that side takes the whole
+ * change. There is nothing there to be symmetric about — the zone's outer edge
+ * is the split's own and cannot move — and the alternative reading, that such a
+ * zone simply does not resize, leaves the commonest layout there is with no
+ * gesture at all: in a split in two, both zones are end zones.
  *
- * A zone at either end of the split has a boundary it cannot move — the split's
- * own edge — so the largest symmetric change there is no change at all, and the
- * ratios come back exactly as they went in.
+ * The stop condition is the reason `growth` is clamped rather than refused: two
+ * sides run out of room at different moments, and a resize that carried on into
+ * the side that still had room would stop being symmetric halfway through and
+ * start moving the zone instead. So the whole operation stops at the smaller of
+ * the two, which is the largest symmetric change the split allows.
  */
 export function resizedWeights(
   original: readonly number[],
@@ -163,22 +166,26 @@ export function resizedWeights(
   minShare: readonly number[],
 ): number[] | null {
   if (!Number.isFinite(growth)) return null
-  const nearSide = sideTotal(original, 0, index)
-  const farSide = sideTotal(original, index + 1, original.length)
-  if (nearSide <= 0 || farSide <= 0) return [...original]
+  const sides = sidesOf(original, index)
+  if (sides.length === 0) return [...original]
 
   const room = Math.min(
-    shrinkCapacity(original, minShare, 0, index),
-    shrinkCapacity(original, minShare, index + 1, original.length),
+    ...sides.map((side) => shrinkCapacity(original, minShare, side.from, side.to)),
   )
   // Growing is bounded by whichever side runs out first; shrinking only ever
   // gives the sides room, so there it is the zone's own minimum that stops it.
-  const clamped = clamp(growth, -Math.max(0, original[index] - minShare[index]), room * 2)
-  const half = clamped / 2
+  const clamped = clamp(
+    growth,
+    -Math.max(0, original[index] - minShare[index]),
+    room * sides.length,
+  )
+  const share = clamped / sides.length
 
   const weights = [...original]
-  scaleSide(weights, original, 0, index, (nearSide - half) / nearSide)
-  scaleSide(weights, original, index + 1, original.length, (farSide - half) / farSide)
+  for (const side of sides) {
+    const total = sideTotal(original, side.from, side.to)
+    scaleSide(weights, original, side.from, side.to, (total - share) / total)
+  }
   weights[index] = original[index] + clamped
   return areWeightsValid(weights) ? weights : null
 }
@@ -205,6 +212,9 @@ export function translatedWeights(
   if (!Number.isFinite(distance)) return null
   const nearSide = sideTotal(original, 0, index)
   const farSide = sideTotal(original, index + 1, original.length)
+  // Unlike a resize, this one really is impossible at either end of the split:
+  // a zone there has nothing behind it to open a space, and nothing to take the
+  // space it would leave.
   if (nearSide <= 0 || farSide <= 0) return [...original]
 
   const moved = clamp(
@@ -219,6 +229,28 @@ export function translatedWeights(
 }
 
 /**
+ * A snapped layout that leaves the zone at `index` exactly the size it is now.
+ *
+ * A move promises the zone keeps its size, and it does — right up until the
+ * snap, which is free to trade a hair off it for a closer fit everywhere else.
+ * A few per cent is enough to see, and what the author sees then is a move that
+ * also resized the thing it moved.
+ *
+ * The comparison is exact rather than approximate because both sides of it are
+ * whole numbers: a committed split is written in integers, so "the same share"
+ * is `w · Σbefore = before · Σw`, a question about integers with no rounding in
+ * it. A layout carrying anything else simply never matches, and the caller
+ * falls back to the nearest rung.
+ */
+export function keepsZoneSize(
+  before: readonly number[],
+  index: number,
+): (weights: readonly number[]) => boolean {
+  const total = sumWeights(before)
+  return (weights) => weights[index] * total === before[index] * sumWeights(weights)
+}
+
+/**
  * Snap a released drag to whole ratios and commit the closest one `attempt`
  * accepts.
  *
@@ -229,6 +261,13 @@ export function translatedWeights(
  * zones the gesture frees from that is the gesture's own business —
  * `equalityKeysForDrag` and `equalityKeysForZoneDrag` each state theirs.
  *
+ * `prefer` lets a gesture say that some rungs answer it better than closeness
+ * alone can tell — a move, whose whole promise is that the zone keeps its size.
+ * Those rungs are tried first, in the order they were ranked, and the rest
+ * follow, so a preference narrows what is chosen without ever making the
+ * gesture fail. It also looks further down the ladder, because a rung a
+ * preference is asking for is by definition not the nearest one.
+ *
  * If every candidate is refused, the refusal handed back is the nearest one's:
  * it is the one that explains what is actually in the way.
  */
@@ -236,8 +275,17 @@ export function commitDraggedRatios(
   equalityKeys: readonly (number | string | null)[],
   released: readonly number[],
   attempt: (weights: number[]) => Result<StructuralOutcome>,
+  prefer?: (weights: readonly number[]) => boolean,
 ): Result<StructuralOutcome> {
-  const candidates = rankedRatioQuantizations(released, RATIO_SNAP_CANDIDATES, { equalityKeys })
+  const ranked = rankedRatioQuantizations(
+    released,
+    prefer ? MAX_RANKED_QUANTIZATIONS : RATIO_SNAP_CANDIDATES,
+    { equalityKeys },
+  )
+  const candidates = prefer
+    ? [...ranked.filter(prefer), ...ranked.filter((weights) => !prefer(weights))]
+    : ranked
+
   const nearest = attempt(candidates[0])
   if (nearest.ok) return nearest
   for (let index = 1; index < candidates.length; index += 1) {
@@ -253,6 +301,14 @@ export function commitDraggedRatios(
 
 function clamp(value: number, lowest: number, highest: number): number {
   return Math.max(lowest, Math.min(value, highest))
+}
+
+/** The runs of zones beside the one at `index`; an end zone has only one. */
+function sidesOf(weights: readonly number[], index: number): Array<{ from: number; to: number }> {
+  return [
+    { from: 0, to: index },
+    { from: index + 1, to: weights.length },
+  ].filter((side) => sideTotal(weights, side.from, side.to) > 0)
 }
 
 /** The weight the zones in `[from, to)` hold between them; `0` for none. */

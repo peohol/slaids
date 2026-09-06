@@ -157,9 +157,11 @@ export function ZoneOverlay({
           <div
             className="zone-actions"
             style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top left' }}
-            // The stage hit-tests every click; overlay controls must not also
-            // re-select whatever zone happens to sit underneath them — nor, on
-            // the press, start dragging it around.
+            // Only the controls reach these handlers — the toolbar around them
+            // takes no pointer events at all, so a press on its padding goes
+            // through to the zone. A press that does land on a control must not
+            // also re-select the zone underneath it, or start dragging that zone
+            // around instead of pressing the button.
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >

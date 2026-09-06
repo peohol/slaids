@@ -57,6 +57,7 @@ import { RichTextEditor } from './RichTextEditor'
 import {
   commitDraggedRatios,
   draggedWeights,
+  keepsZoneSize,
   resizedWeights,
   translatedWeights,
   zoneDragAmount,
@@ -417,15 +418,24 @@ export function EditorStage({
         drag.gesture.kind === 'boundary'
           ? equalityKeysForDrag(drag.originalWeights, drag.gesture.boundary)
           : equalityKeysForZoneDrag(drag.originalWeights, drag.gesture.index)
+      // A move promised the zone would keep its size, so the snap is held to it.
+      const prefer =
+        drag.gesture.kind === 'zone' && drag.gesture.mode === 'translate'
+          ? keepsZoneSize(drag.originalWeights, drag.gesture.index)
+          : undefined
       runStructural('ratio', (presentation) =>
-        commitDraggedRatios(equalityKeys, pending.weights, (weights) =>
-          setSplitWeights(presentation, {
-            slideId: slide.id,
-            nodeId: pending.nodeId,
-            weights,
-            // A ratio change may not shrink a zone past what its content needs.
-            ...domFitCheckers,
-          }),
+        commitDraggedRatios(
+          equalityKeys,
+          pending.weights,
+          (weights) =>
+            setSplitWeights(presentation, {
+              slideId: slide.id,
+              nodeId: pending.nodeId,
+              weights,
+              // A ratio change may not shrink a zone past what its content needs.
+              ...domFitCheckers,
+            }),
+          prefer,
         ),
       )
     }

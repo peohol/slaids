@@ -18,5 +18,7 @@ import { useAssetUrl } from '../../state/assetSource'
 export function InlineAssetImage({ assetId, alt }: { assetId: string | null; alt?: string }) {
   const url = useAssetUrl(assetId)
   if (!url) return <span className="rd-image rd-image--pending" aria-label={alt} />
-  return <img className="rd-image" src={url} alt={alt ?? ''} />
+  // Not draggable, for the reason `PanelImage` gives: the browser's own image
+  // drag would take over a press meant for the zone around it.
+  return <img className="rd-image" src={url} alt={alt ?? ''} draggable={false} />
 }

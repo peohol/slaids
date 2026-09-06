@@ -661,6 +661,17 @@ de nest nærmeste i tur (`RATIO_SNAP_CANDIDATES`), og først når alle er avvist
 får forfatteren avvisningen fra det nærmeste – et håndtak som ikke gjør noe
 fordi snappet bommet med en hårsbredd, leser som ødelagt.
 
+En gest kan i tillegg si at noen trinn svarer den bedre enn nærhet alene kan
+avgjøre. Forskyvning gjør det: hele løftet dens er at sonen beholder størrelsen,
+og det gjør den helt fram til snappet, som ellers gjerne bytter en hårsbredd av
+den mot en bedre helhet. `3 : 2 : 3` skjøvet mot høyre lander på `9 : 5 : 5`,
+der midtsonen stille har vokst fra en firedel av splitten til 5/19 – nok til å
+ses. `keepsZoneSize` plukker derfor ut trinnene som lar sonen beholde nøyaktig
+sin andel, og de prøves først, i den rekkefølgen de ble rangert. Sammenligningen
+er eksakt fordi begge sider av den er heltall. En preferanse innsnevrer bare
+hvilket trinn som velges; finnes ingen, faller gesten tilbake til det nærmeste,
+og den kan derfor aldri få en gest til å mislykkes.
+
 ### De tre gestene
 
 Alle tre er rene funksjoner av forholdstallene splitten **startet** med, aldri
@@ -677,11 +688,18 @@ mellom de to første dratt *skal* kunne ende med ulike tall, fordi det er nettop
 det forfatteren ba om.
 
 **Symmetrisk resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
-tvers av splittens retning. Begge sonens grenser flyttes like langt i hver sin
-retning: sonen endrer størrelse og blir liggende der den lå. Hver side
-komprimeres eller utvides med samme lengde, men sidene er sjelden like lange, så
-de skaleres med hver sin faktor – og innenfor en side beholder hver sone sin
-andel, slik at forholdstall gesten ikke handler om overlever den urørt.
+tvers av splittens retning. Hver side sonen har, gir fra seg – eller tar tilbake
+– like stor del av endringen. En sone med naboer på begge sider flytter derfor
+begge grensene sine like langt i hver sin retning: den endrer størrelse og blir
+liggende der den lå. Sidene er sjelden like lange, så de skaleres med hver sin
+faktor – og innenfor en side beholder hver sone sin andel, slik at forholdstall
+gesten ikke handler om overlever den urørt.
+
+En sone ytterst i splitten har bare én side, og den siden tar hele endringen.
+Der finnes ingenting å være symmetrisk om: sonens ytterkant er splittens egen og
+kan ikke flyttes. Den andre lesningen – at en slik sone ikke endrer størrelse i
+det hele tatt – gjør den vanligste layouten som finnes gestløs, siden begge
+sonene i en todeling er ytterste soner.
 
 **Forskyvning** (`translatedWeights`) – samme trykk, dratt langs splittens
 retning. Sonen beholder forholdstallet sitt; siden den beveger seg mot
@@ -711,11 +729,9 @@ forskyve sonen i stedet – eller ved sonens eget minstemål når det er den som
 krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
 sine soners minstemål.
 
-En sone ytterst i splitten har en grense den ikke kan flytte: splittens egen
-kant. Da er største lovlige symmetriske endring ingen endring, og det finnes
-verken plass å åpne bak sonen eller noen til å ta plassen den forlater – begge
-gestene lar layouten stå. En split med to soner består bare av ytterste soner:
-der er grensedraget det eneste som flytter noe.
+En sone ytterst i splitten kan ikke forskyves: det finnes verken plass å åpne
+bak den eller noen til å ta plassen den forlater. Den kan derimot endre
+størrelse, med den ene siden sin som mottaker – se over.
 
 ### Håndhevelse og bakoverkompatibilitet
 
