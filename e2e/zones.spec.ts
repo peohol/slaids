@@ -355,6 +355,81 @@ test.describe('zone editing', () => {
     expect(await rootRatios(page)).toBe('3 : 3 : 2')
   })
 
+  /*
+   * The regression: everything drawn on top of a zone used to swallow the press
+   * that starts these gestures. The action toolbar took the pointer across its
+   * whole box — padding, the space between its two rows and all — and a picture
+   * handed the press to the browser's own image drag, so the zones an author
+   * most wanted to arrange were the ones that would not move.
+   */
+  test('drags a zone from under its own toolbar', async ({ page }) => {
+    await createPresentation(page, 'Under verktøylinja')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 2, 3], 'x')
+
+    const before = await zoneRects(page)
+    await clickZone(page, before[1])
+    await expect(page.locator('.zone-actions')).toBeVisible()
+
+    // A point the toolbar covers that is not one of its buttons: the press has
+    // to reach the zone underneath it.
+    const spot = await page.evaluate(() => {
+      const actions = document.querySelector('.zone-actions') as HTMLElement
+      const box = actions.getBoundingClientRect()
+      for (let y = box.top + 2; y < box.bottom - 2; y += 3) {
+        for (let x = box.left + 2; x < box.right - 2; x += 3) {
+          const element = document.elementFromPoint(x, y)
+          if (element && !element.closest('button')) return { x, y }
+        }
+      }
+      return null
+    })
+    expect(spot, 'the toolbar has room that is not a button').not.toBeNull()
+    if (!spot) return
+
+    const scale = await page.evaluate(() =>
+      Number((document.querySelector('[data-testid="stage-slide"]') as HTMLElement).dataset.scale),
+    )
+    await page.mouse.move(spot.x, spot.y)
+    await page.mouse.down()
+    await page.mouse.move(spot.x, spot.y - travelFor(before, 2, 8, 'x') * scale, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(250)
+
+    const after = await zoneRects(page)
+    expect(after[1].w).toBeGreaterThan(before[1].w)
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
+  })
+
+  test('drags a zone a picture fills', async ({ page }) => {
+    await createPresentation(page, 'Bildesone')
+    await enterZoneMode(page)
+    await splitSelected(page, [3, 2, 3], 'x')
+
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await stage(page)
+      .locator(`.slide-zone[data-node-id="${zones[1].id}"] [data-testid="empty-zone-image"]`)
+      .click()
+    await stage(page).locator('.image-panel').click()
+    await expect(page.getByTestId('image-modal')).toBeVisible()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'flate.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    await expect(page.getByTestId('image-modal')).toBeHidden()
+    await enterZoneMode(page)
+
+    const before = await zoneRects(page)
+    // The middle of the picture, which is where a hand naturally lands.
+    await dragZone(page, before[1], 0, -travelFor(before, 2, 8, 'x'))
+
+    const after = await zoneRects(page)
+    expect(after[1].w).toBeGreaterThan(before[1].w)
+    expect(await rootRatios(page)).toBe('1 : 2 : 1')
+  })
+
   test('leaves a zone at the end of its split where the split holds it', async ({ page }) => {
     await createPresentation(page, 'Ytterste sone')
     await enterZoneMode(page)

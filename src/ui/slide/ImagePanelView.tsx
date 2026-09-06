@@ -126,6 +126,10 @@ export function PanelImage({ assetId, focus }: { assetId: string | null; focus: 
       className="image-panel__img"
       src={url}
       alt=""
+      // A picture on a slide is a picture *of* the slide, not a file to carry
+      // off it. Left draggable, the browser's own image drag takes over the
+      // press and the gesture the zone was expecting never arrives.
+      draggable={false}
       style={{ objectPosition: focusPosition(focus) }}
     />
   )
