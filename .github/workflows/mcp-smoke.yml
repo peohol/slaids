@@ -34,6 +34,21 @@
 # på `authenticated` for å kjøre den halvdelen. Selve valget er et vanlig input,
 # fordi «skal den autentiserte halvdelen med?» ikke er en hemmelighet.
 #
+# ## OAuth
+#
+# OAuth-halvdelen av skriptet krever ingenting: metadatadokumentet,
+# utfordringen som peker på det, og autorisasjonsserveren bak den sjekkes
+# anonymt hver eneste kjøring. Det er dét en ChatGPT-tilkobling ser før noen har
+# logget på, og det er den delen som går i stykker hvis OAuth ikke er slått på i
+# Supabase.
+#
+# Et *ekte* OAuth-kall trenger et access token, og et slikt token skaffes bare
+# gjennom en interaktiv nettleserflyt. Skriptet starter aldri en, og denne
+# workflowen limer aldri et token inn i et input – nøyaktig av samme grunn som
+# over. Har du et kortlevd token å teste med, legg det i secreten
+# `SLAIDS_OAUTH_ACCESS_TOKEN` og slå på `oauth`. Det utløper av seg selv innen en
+# time, som er den beste egenskapen det har.
+#
 # ## Adressen
 #
 # Pek den mot produksjon, eller mot hvilken som helst installasjon en vanlig
@@ -53,6 +68,11 @@ on:
         default: 'https://www.slaids.no'
       authenticated:
         description: 'Kjør også den autentiserte halvdelen, med secreten SLAIDS_AGENT_TOKEN.'
+        type: boolean
+        required: false
+        default: false
+      oauth:
+        description: 'Kjør også et ekte OAuth-kall, med secreten SLAIDS_OAUTH_ACCESS_TOKEN. OAuth-oppdagelsen kjøres uansett, uten legitimasjon.'
         type: boolean
         required: false
         default: false
@@ -115,14 +135,22 @@ jobs:
           SLAIDS_BASE_URL: ${{ inputs.base_url }}
           EXPECT_TOOLS: ${{ inputs.expect_tools }}
           RUN_AUTHENTICATED: ${{ inputs.authenticated }}
+          RUN_OAUTH: ${{ inputs.oauth }}
           # From the secret store and nowhere else — see the note at the top.
           # GitHub masks a secret in the log by itself; nothing can unmask an
           # input it has already recorded with the run.
           SLAIDS_TOKEN: ${{ inputs.authenticated && secrets.SLAIDS_AGENT_TOKEN || '' }}
+          SLAIDS_OAUTH_TOKEN: ${{ inputs.oauth && secrets.SLAIDS_OAUTH_ACCESS_TOKEN || '' }}
         run: |
           if [ "$RUN_AUTHENTICATED" = "true" ] && [ -z "$SLAIDS_TOKEN" ]; then
             echo "Mangler secreten SLAIDS_AGENT_TOKEN. Lag et agenttoken i Slaids-biblioteket" >&2
             echo "og legg det inn under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
+          if [ "$RUN_OAUTH" = "true" ] && [ -z "$SLAIDS_OAUTH_TOKEN" ]; then
+            echo "Mangler secreten SLAIDS_OAUTH_ACCESS_TOKEN. Et OAuth-token skaffes gjennom" >&2
+            echo "en interaktiv påloggingsflyt; legg det inn under Settings → Secrets and" >&2
+            echo "variables → Actions, og regn med at det utløper innen en time." >&2
             exit 1
           fi
           if [ -n "$SMOKE_COOKIE" ]; then set -- --header "Cookie: $SMOKE_COOKIE"; fi

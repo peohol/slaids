@@ -10,10 +10,18 @@
  * between the two: a share link is opened, and the workspace is left by closing
  * it. Adding a router for a single boundary would be more machinery than the
  * boundary is worth, and less obvious to check.
+ *
+ * The OAuth consent screen is the third address, and it sits on the *private*
+ * side deliberately: approving an application's access to the owner's decks is
+ * the owner's act, so it goes behind the same gate the workspace does. It is
+ * not the workspace, though — it must not mount the library, the editor or
+ * anything that starts loading decks, because a consent screen has one job and
+ * a user arrives at it mid-flow from somewhere else.
  */
 
-import App from './App'
+import App, { PrivatePage } from './App'
 import { parseRoute } from './routing'
+import { OAuthConsentView } from './ui/auth/OAuthConsentView'
 import { SharedPresentationView } from './ui/share/SharedPresentationView'
 
 export function Root({
@@ -24,5 +32,12 @@ export function Root({
 }) {
   const route = parseRoute(pathname)
   if (route.kind === 'shared') return <SharedPresentationView token={route.token} />
+  if (route.kind === 'oauth-consent') {
+    return (
+      <PrivatePage>
+        <OAuthConsentView />
+      </PrivatePage>
+    )
+  }
   return <App />
 }

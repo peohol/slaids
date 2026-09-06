@@ -3,6 +3,7 @@ import { newShareToken } from './domain/ids'
 import {
   AGENT_API_BASE_PATH,
   AGENT_API_PATH_PARAM,
+  OAUTH_CONSENT_PATH,
   SHARE_PATH_PREFIX,
   agentApiUrl,
   isShareToken,
@@ -40,6 +41,22 @@ describe('parseRoute', () => {
   it('behandler en avkortet delingsadresse som en delingsadresse', () => {
     expect(parseRoute('/s/')).toEqual({ kind: 'shared', token: null })
     expect(parseRoute('/s')).toEqual({ kind: 'shared', token: null })
+  })
+
+  it('kjenner igjen samtykkesiden, og bare den', () => {
+    expect(parseRoute(OAUTH_CONSENT_PATH)).toEqual({ kind: 'oauth-consent' })
+    expect(parseRoute(`${OAUTH_CONSENT_PATH}/`)).toEqual({ kind: 'oauth-consent' })
+    // Neighbours are not it. The path is a Supabase setting, so it has to match
+    // exactly rather than by prefix.
+    for (const near of ['/oauth', '/oauth/consents', `${OAUTH_CONSENT_PATH}/noe`]) {
+      expect(parseRoute(near)).toEqual({ kind: 'workspace' })
+    }
+  })
+
+  it('holder samtykkesiden på den private siden', () => {
+    // Approving an application's access to the owner's decks is the owner's
+    // act: this address must never end up where `/s/` is.
+    expect(parseRoute(OAUTH_CONSENT_PATH)).not.toEqual({ kind: 'shared', token: null })
   })
 })
 

@@ -24,6 +24,7 @@ import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import type { AgentAuditRecord, AgentAuditSink } from '../agent/audit'
 import { handleAgentRequest, type AgentApiDeps } from '../agent/handler'
+import type { OAuthResourceConfig } from '../agent/oauth'
 import type { AgentPrincipal, AuthOutcome } from '../agent/tokens'
 import { AGENT_API_BASE_PATH, AGENT_MCP_PATH } from '../../routing'
 import type { JsonRpcId, JsonRpcResponse } from './jsonrpc'
@@ -31,6 +32,9 @@ import { resultText, type McpToolResult } from './result'
 
 export const ORIGIN = 'https://slaids.example'
 export const TOKEN = 'slaids_at_0123456789012345678901234567890123456789012'
+
+/** Who the default agent token belongs to. Every store here is keyed on an owner. */
+export const DEFAULT_OWNER = 'owner-1'
 
 export const ALL_SCOPES: AgentScope[] = [
   'presentations:read',
@@ -51,8 +55,20 @@ export class MemoryAudit implements AgentAuditSink {
 export interface Harness {
   deps: AgentApiDeps
   audit: MemoryAudit
+  /** The default principal's own store. See `contextOf`. */
   context: AgentContext
   database: SlaidsDatabase
+  /**
+   * One owner's store, created on first use.
+   *
+   * The deployment builds a repository *from the principal* — in production a
+   * `SupabaseSlaidsRepository` pinned to `principal.ownerId`, which filters
+   * every query on it — so a harness that handed every principal the same store
+   * could not tell an isolation bug from a passing test. Here each owner gets
+   * its own database, which is the same property said in the way Dexie can say
+   * it.
+   */
+  contextOf(ownerId: string): AgentContext
   /**
    * How many times this deployment was asked to build an `AgentContext`.
    *
@@ -88,6 +104,19 @@ export interface HarnessOptions {
    */
   authenticate?: (presentedToken: string) => Promise<AuthOutcome>
   /**
+   * How this deployment resolves an OAuth access token.
+   *
+   * Absent is the honest default, and it is what production looks like until
+   * somebody sets an owner allowlist: no authorization server, no metadata
+   * document, and a JWT answered exactly as any other string that is not an
+   * agent token.
+   */
+  authenticateOAuth?: (presentedToken: string) => Promise<AuthOutcome>
+  /** The OAuth resource-server half this deployment publishes, if any. */
+  oauth?: OAuthResourceConfig
+  /** A pinned origin for the metadata and the challenge. */
+  publicOrigin?: string | null
+  /**
    * Make building a context an error.
    *
    * For the claim that a public MCP method never reads anything: the context is
@@ -106,26 +135,43 @@ export class ContextRequested extends Error {
 
 export function harness(options: HarnessOptions = {}): Harness {
   counter += 1
-  const database = new SlaidsDatabase(`slaids-mcp-${counter}`)
-  databases.push(database)
-  const context: AgentContext = {
-    repository: new DexieSlaidsRepository(database),
-    ...(options.preview ? { preview: options.preview } : {}),
-  }
+  const instance = counter
   const audit = new MemoryAudit()
 
   const principal: AgentPrincipal = {
+    kind: 'agent_token',
     tokenId: 'token-1',
     tokenName: 'Testagenten',
-    ownerId: 'owner-1',
+    ownerId: DEFAULT_OWNER,
     scopes: options.scopes ?? ALL_SCOPES,
   }
+
+  // One store per owner, built on first use — the same shape production has,
+  // where the repository is constructed from the principal and pinned to its
+  // owner. A shared store would make every isolation test vacuous.
+  const contexts = new Map<string, AgentContext>()
+  const contextOf = (ownerId: string): AgentContext => {
+    const existing = contexts.get(ownerId)
+    if (existing) return existing
+    const database = new SlaidsDatabase(`slaids-mcp-${instance}-${contexts.size}`)
+    databases.push(database)
+    const built: AgentContext = {
+      repository: new DexieSlaidsRepository(database),
+      ...(options.preview ? { preview: options.preview } : {}),
+    }
+    contexts.set(ownerId, built)
+    return built
+  }
+
+  const context = contextOf(principal.ownerId)
+  const database = databases[databases.length - 1]
 
   let contextRequests = 0
 
   return {
     audit,
     context,
+    contextOf,
     database,
     get contextRequests() {
       return contextRequests
@@ -137,10 +183,13 @@ export function harness(options: HarnessOptions = {}): Harness {
           Promise.resolve(
             presented === TOKEN ? { ok: true, principal } : { ok: false, reason: 'unknown' },
           )),
-      contextFor: () => {
+      ...(options.authenticateOAuth ? { authenticateOAuth: options.authenticateOAuth } : {}),
+      ...(options.oauth ? { oauth: options.oauth } : {}),
+      ...(options.publicOrigin === undefined ? {} : { publicOrigin: options.publicOrigin }),
+      contextFor: (called) => {
         contextRequests += 1
         if (options.refuseContext) throw new ContextRequested()
-        return context
+        return contextOf(called.ownerId)
       },
       audit,
       maxRequestBytes: 1024 * 1024,

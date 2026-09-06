@@ -422,8 +422,13 @@ describe('transporten', () => {
     )
     expect(response.status).toBe(401)
     expect(response.headers.get('WWW-Authenticate')).toContain('Bearer')
-    const body = (await response.json()) as { error: { code: string } }
-    expect(body.error.code).toBe('UNAUTHENTICATED')
+    // The status is the transport's answer; the body is the same refusal in the
+    // envelope a client already knows how to read. See `anonymousRefusal`.
+    const body = (await response.json()) as {
+      result: { isError: boolean; structuredContent: { error: { code: string } } }
+    }
+    expect(body.result.isError).toBe(true)
+    expect(body.result.structuredContent.error.code).toBe('UNAUTHENTICATED')
   })
 
   it('tilbyr ingen SSE-strøm, og sier det med 405 i stedet for å henge', async () => {

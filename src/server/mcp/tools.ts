@@ -27,6 +27,12 @@
  *    that does not exist, and inventing one here as a list of names is exactly
  *    the second contract this file is built to avoid. Its own default — "a
  *    write may be destructive" — is the honest answer instead.
+ *  - the **security schemes**, which say that a tool needs a credential and
+ *    which authority it needs. Derived from `operation.requiredScopes` for the
+ *    same reason everything else here is derived: a hand-written list of which
+ *    tools need OAuth would be discovered to be wrong on the day an operation
+ *    was added to one list and not the other, and the wrong direction of that
+ *    mistake is a tool that looks public.
  *  - the **protocol version**, negotiated in `initialize`.
  */
 
@@ -57,16 +63,50 @@ export interface McpToolAnnotations {
   openWorldHint: boolean
 }
 
+/**
+ * How a client learns that a tool needs a credential, and which one.
+ *
+ * Slaids' MCP endpoint is *mixed*: `initialize`, `ping` and `tools/list` answer
+ * anonymously so a client can be built before an owner has connected an
+ * account, while every tool needs the same authority a REST call needs. A
+ * client that has connected without a credential therefore has to be able to
+ * tell, from the catalogue alone, which calls will require one — otherwise its
+ * first tool call is a failure it has to interpret.
+ *
+ * `securitySchemes` is that statement, and it is the one clients converging on
+ * mixed authentication read. Slaids publishes exactly one scheme per tool,
+ * `oauth2`, because there is no tool that works without a credential — a tool
+ * that did would carry `{ type: 'noauth' }` beside it, and none does.
+ */
+export interface McpToolSecurityScheme {
+  type: 'oauth2'
+  /**
+   * The authority this call needs, in Slaids' own vocabulary.
+   *
+   * `operation.requiredScopes`, verbatim. Not a second list: the value here and
+   * the value `authorizeOperation` compares a principal against are the same
+   * field, so a tool cannot advertise less than it enforces or more.
+   */
+  scopes: string[]
+}
+
 export interface McpToolDefinition {
   name: string
   description: string
   inputSchema: Record<string, unknown>
   annotations: McpToolAnnotations
+  /** Which credential this tool needs. See `McpToolSecurityScheme`. */
+  securitySchemes: McpToolSecurityScheme[]
   /**
    * The scopes, published so an agent can tell in advance which of its calls a
    * token will refuse. Off `operation.scopes`, the same field the server
    * enforces — the catalogue and the check cannot disagree, because there is
    * only one of them.
+   *
+   * `securitySchemes` is repeated in here as well as beside it, and that is
+   * deliberate rather than sloppy: clients disagree about where a tool's
+   * security schemes live — the field, or the metadata bag — and both readings
+   * are of the same array built once below.
    */
   _meta: Record<string, unknown>
 }
@@ -98,18 +138,24 @@ let cached: readonly McpToolDefinition[] | null = null
 export function mcpTools(): readonly McpToolDefinition[] {
   if (!cached) {
     cached = Object.freeze(
-      describeOperations().map((operation) =>
-        Object.freeze({
+      describeOperations().map((operation) => {
+        // One array, read twice. See `McpToolDefinition._meta`.
+        const securitySchemes: McpToolSecurityScheme[] = [
+          { type: 'oauth2', scopes: [...operation.requiredScopes] },
+        ]
+        return Object.freeze({
           name: operation.toolName,
           description: describeTool(operation.summary, operation.requiredScopes, operation.mutates),
           inputSchema: operation.inputSchema,
           annotations: { readOnlyHint: !operation.mutates, openWorldHint: false },
+          securitySchemes,
           _meta: {
             'slaids/operation': operation.name,
             'slaids/requiredScopes': operation.requiredScopes,
+            securitySchemes,
           },
-        }),
-      ),
+        })
+      }),
     )
   }
   return cached

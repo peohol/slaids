@@ -444,6 +444,29 @@ textarea {
 }
 
 /*
+ * The OAuth consent screen's two buttons.
+ *
+ * Side by side and the same width, because they are the same size of decision:
+ * one grants an application access to every deck the owner has, and the other
+ * does not. A layout that made approving the obvious one would be the consent
+ * screen arguing for a particular answer.
+ */
+.auth__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.auth__card ul.hint {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.auth__card code {
+  overflow-wrap: anywhere;
+}
+
+/*
  * The public shared view.
  *
  * Everything visible here is the deck itself; these rules only cover the states

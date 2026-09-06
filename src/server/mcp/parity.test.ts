@@ -640,6 +640,7 @@ async function fillToCapacity(
  */
 function withScopes(harnessed: Harness, scopes: AgentScope[]): Harness {
   const principal: AgentPrincipal = {
+    kind: 'agent_token',
     tokenId: `token-${scopes.join('+')}`,
     tokenName: 'Smalt token',
     ownerId: 'owner-1',

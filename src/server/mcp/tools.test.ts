@@ -77,6 +77,36 @@ describe('verktøykatalogen er operasjonskatalogen', () => {
     }
   })
 
+  it('sier om hvert verktøy at det krever OAuth, med operasjonens egne scopes', () => {
+    // Mixed authentication: discovery here is anonymous, so a client has to be
+    // able to see from the catalogue alone which calls will need a credential.
+    // Every tool needs one — there is no operation without a required scope —
+    // and the scopes are the operation's own rather than a second list.
+    for (const [index, tool] of mcpTools().entries()) {
+      expect(tool.securitySchemes).toEqual([
+        { type: 'oauth2', scopes: [...operations[index].scopes] },
+      ])
+      // Repeated in the metadata bag, because clients disagree about where a
+      // tool's security schemes live — and it is the same array either way.
+      expect(tool._meta.securitySchemes).toEqual(tool.securitySchemes)
+    }
+  })
+
+  it('har ingen håndskrevet liste over hvilke verktøy som krever hva', () => {
+    // The same argument the operation-name rule below makes, for the scopes: a
+    // hand-written list would be discovered to be wrong on the day an operation
+    // was added to one list and not the other, and the wrong direction of that
+    // mistake is a tool that looks public. So no scope name is a literal in the
+    // shipped sources of this directory either — the catalogue can only be
+    // reading `operation.scopes`.
+    for (const file of shippedSources()) {
+      const source = readFileSync(file, 'utf8')
+      for (const scope of AGENT_SCOPES) {
+        expect(source, `${relative(process.cwd(), file)} nevner «${scope}»`).not.toContain(scope)
+      }
+    }
+  })
+
   it('starter hver beskrivelse med operasjonens eget sammendrag', () => {
     for (const [index, tool] of mcpTools().entries()) {
       expect(tool.description.startsWith(operations[index].summary)).toBe(true)

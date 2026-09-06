@@ -92,6 +92,25 @@ export function agentApiUrl(requested: URL): URL {
   return url
 }
 
+/**
+ * Where the OAuth consent screen lives.
+ *
+ * Supabase Auth is the authorization server, but the *consent* — the screen
+ * that says which application is asking and what it is asking for — is the
+ * application's own. Supabase sends the user here with an `authorization_id`,
+ * and the page approves or denies it through the SDK. There is nothing to
+ * decide about the path except that it has to match what the project is
+ * configured with, so it is written down once, here with the other addresses.
+ *
+ * It is a *private* page, unlike `/s/`: approving an authorization is something
+ * only the signed-in owner may do, so it mounts behind `AuthGate` like the
+ * workspace does.
+ */
+export const OAUTH_CONSENT_PATH = '/oauth/consent'
+
+/** The query parameter Supabase Auth hands the pending authorization over in. */
+export const OAUTH_AUTHORIZATION_ID_PARAM = 'authorization_id'
+
 /** `/s` with nothing after it is a share link someone cut short, not a page. */
 const SHARE_PATH_ROOT = '/s'
 
@@ -108,6 +127,11 @@ export type AppRoute =
    * token — still the public side, just with nothing to fetch.
    */
   | { kind: 'shared'; token: string | null }
+  /**
+   * The OAuth consent screen. Private, and behind the same gate the workspace
+   * is: only the owner may approve an application's access to their decks.
+   */
+  | { kind: 'oauth-consent' }
 
 /** Whether this path is under the share namespace at all. */
 function isSharePath(pathname: string): boolean {
@@ -115,6 +139,9 @@ function isSharePath(pathname: string): boolean {
 }
 
 export function parseRoute(pathname: string): AppRoute {
+  if ((pathname.replace(/\/+$/, '') || '/') === OAUTH_CONSENT_PATH) {
+    return { kind: 'oauth-consent' }
+  }
   if (!isSharePath(pathname)) return { kind: 'workspace' }
   // A trailing slash is the same page; anything deeper is not a token.
   const rest = pathname.slice(SHARE_PATH_PREFIX.length).replace(/\/+$/, '')
@@ -128,4 +155,44 @@ export function isShareToken(value: string): boolean {
 /** The address to hand out. Built from the origin the editor is served from. */
 export function shareUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, '')}${SHARE_PATH_PREFIX}${token}`
+}
+
+/**
+ * The canonical address of the MCP endpoint, as a client must name it.
+ *
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728) and Resource Indicators
+ * (RFC 8707) both identify a resource by a URI, and MCP requires the two to be
+ * the same string: the `resource` a client sends in its authorization request,
+ * the `resource` the metadata document publishes, and the address the client
+ * then posts to. So it is built here, from the one path constant above, rather
+ * than written out anywhere.
+ *
+ * `origin` decides which deployment this is. It matters that it is the origin a
+ * client actually reached: `slaids.no` answers `308` to `www.slaids.no`, and a
+ * metadata document that named the apex would send a client to an address that
+ * redirects — which drops `Authorization` on the way, by the Fetch standard's
+ * own rule. See `scripts/mcp-smoke.mjs`, where that cost a whole debugging
+ * session once already.
+ */
+export function canonicalMcpUrl(origin: string): string {
+  return `${origin.replace(/\/+$/, '')}${AGENT_MCP_PATH}`
+}
+
+/**
+ * Where a protected resource publishes its metadata.
+ *
+ * RFC 9728 §3.1 builds the address by *inserting* the well-known segment
+ * between the host and the resource's own path — `/.well-known/oauth-protected-resource/api/agent/v1/mcp`
+ * for a resource at `/api/agent/v1/mcp` — rather than appending it, so one host
+ * can describe several resources. MCP's authorization specification names the
+ * same construction, and says a client must also fall back to the bare
+ * `/.well-known/oauth-protected-resource` at the root. Slaids answers both, with
+ * the same document, because a client is allowed to ask for either.
+ */
+export const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource'
+export const MCP_PROTECTED_RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}${AGENT_MCP_PATH}`
+
+/** The metadata address a client is pointed at from a `WWW-Authenticate` challenge. */
+export function protectedResourceMetadataUrl(origin: string): string {
+  return `${origin.replace(/\/+$/, '')}${MCP_PROTECTED_RESOURCE_METADATA_PATH}`
 }

@@ -44,7 +44,14 @@ import type { AgentContext } from '../../agent/types'
 import { runOperation } from '../../agent/registry'
 import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
-import { AGENT_API_BASE_PATH, AGENT_API_PATH_PARAM, AGENT_MCP_PATH } from '../../routing'
+import {
+  AGENT_API_BASE_PATH,
+  AGENT_API_PATH_PARAM,
+  AGENT_MCP_PATH,
+  MCP_PROTECTED_RESOURCE_METADATA_PATH,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  canonicalMcpUrl,
+} from '../../routing'
 import type { AgentAuditRecord, AgentAuditSink } from './audit'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
 import type { AgentPrincipal, AuthOutcome } from './tokens'
@@ -160,9 +167,29 @@ describe('adressene til agent-API-et', () => {
     `${AGENT_API_BASE_PATH}/operations/upload_asset?presentationId=p_1&name=figur.png`,
     `${AGENT_API_BASE_PATH}/operations/render_slide_preview`,
     AGENT_MCP_PATH,
+    // The two addresses RFC 9728 discovery uses. Neither is under the API's
+    // version prefix — they are at the *host* root, which is what the
+    // specification builds them from — so neither is carried by the rewrite
+    // that carries everything else, and both would land on the SPA without a
+    // line of their own.
+    MCP_PROTECTED_RESOURCE_METADATA_PATH,
+    PROTECTED_RESOURCE_METADATA_PATH,
   ])('%s når inngangsfilen', (address) => {
     expect(routeOf(address)?.file).toBe(join('api', 'agent', 'v1.ts'))
   })
+
+  it.each([MCP_PROTECTED_RESOURCE_METADATA_PATH, PROTECTED_RESOURCE_METADATA_PATH])(
+    'lar SPA-rewriten aldri svelge %s',
+    (address) => {
+      // It would: neither starts with `api/`, so the catch-all matches both.
+      // What keeps them out of `index.html` is that their own rewrites are
+      // declared *before* it, and a reordering would break discovery silently —
+      // a client would fetch the metadata document and get a page of HTML.
+      const routes = convertRewrites(rewrites)
+      const first = routes.find((route) => new RegExp(route.src ?? '').test(address))
+      expect(first?.dest).not.toBe('/index.html')
+    },
+  )
 
   it('bærer stien videre i parameteren ruteren pakker den ut av', () => {
     const routed = routeOf(`${AGENT_API_BASE_PATH}/operations/list_presentations`)
@@ -223,7 +250,11 @@ interface Deployment {
   context: AgentContext
 }
 
-function deployment(options: { preview?: SlidePreviewRenderer } = {}): Deployment {
+/** The canonical origin and authorization server the metadata test expects. */
+const PUBLIC_ORIGIN = 'https://www.slaids.no'
+const OAUTH_ISSUER = 'https://project.supabase.co/auth/v1'
+
+function deployment(options: { preview?: SlidePreviewRenderer; oauth?: boolean } = {}): Deployment {
   counter += 1
   const database = new SlaidsDatabase(`slaids-api-routing-${counter}`)
   databases.push(database)
@@ -232,6 +263,7 @@ function deployment(options: { preview?: SlidePreviewRenderer } = {}): Deploymen
     ...(options.preview ? { preview: options.preview } : {}),
   }
   const principal: AgentPrincipal = {
+    kind: 'agent_token',
     tokenId: 'token-1',
     tokenName: 'Testagenten',
     ownerId: 'owner-1',
@@ -249,6 +281,19 @@ function deployment(options: { preview?: SlidePreviewRenderer } = {}): Deploymen
       audit: new MemoryAudit(),
       maxRequestBytes: 1024 * 1024,
       now: () => new Date('2026-09-03T12:00:00.000Z'),
+      ...(options.oauth
+        ? {
+            publicOrigin: PUBLIC_ORIGIN,
+            oauth: {
+              issuer: OAUTH_ISSUER,
+              jwksUri: `${OAUTH_ISSUER}/.well-known/jwks.json`,
+              audiences: ['authenticated'],
+              owners: new Set(['owner-1']),
+              clients: null,
+              defaultScopes: ['presentations:read'],
+            },
+          }
+        : {}),
     },
   }
 }
@@ -360,6 +405,27 @@ describe('en adresse med to ledd etter versjonsprefikset, hele veien', () => {
     expect(body.jsonrpc).toBe('2.0')
     expect(body.result.tools.length).toBeGreaterThan(0)
   })
+
+  it.each([MCP_PROTECTED_RESOURCE_METADATA_PATH, PROTECTED_RESOURCE_METADATA_PATH])(
+    'svarer med metadatadokumentet på %s, uten legitimasjon',
+    async (address) => {
+      // Followed the whole way — through `vercel.json` compiled by Vercel's own
+      // rules, into the function's URL, through the router — because this is a
+      // *new* address at the host root, and a new address is exactly the thing
+      // that has deployed green and answered the platform's 404 before.
+      const site = deployment({ oauth: true })
+      const response = await handleAgentRequest(site.deps, deployed(address, { method: 'GET' }))
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('application/json')
+      const document = (await response.json()) as {
+        resource: string
+        authorization_servers: string[]
+      }
+      expect(document.resource).toBe(canonicalMcpUrl(PUBLIC_ORIGIN))
+      expect(document.authorization_servers).toEqual([OAUTH_ISSUER])
+    },
+  )
 
   it('svarer på katalogen og på basisadressen med det de er', async () => {
     const shared = deps()

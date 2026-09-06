@@ -1039,6 +1039,11 @@ Tokens lages i biblioteket, under **Agenttokens**. Et token er
 
 Det sendes som `Authorization: Bearer slaids_at_…`.
 
+**ChatGPT kan ikke ta imot et slikt token.** En egendefinert MCP-app der tilbyr
+ingen legitimasjon eller OAuth, og ingenting imellom – så for ChatGPT er svaret
+[OAuth](#oauth-å-koble-slaids-til-chatgpt), ikke et agenttoken. Alle andre
+klienter, og hele REST-API-et, bruker agenttokens som før.
+
 Scopene er fire, og de er skilt fra hverandre med vilje:
 
 | Scope                  | Gir rett til                                          |
@@ -1068,9 +1073,12 @@ eieren, og det er derfra `owner_id` kommer på hver skriving.
 
 ### Audit
 
-Hvert autentisert kall skriver én rad i `slaids_agent_audit`: hvilket token (id
-og navn, aldri tokenet selv), tidspunkt, operasjon, presentasjon, om det gikk, og
-feilkoden. Også katalogoppslag (`index`, `catalogue`) og forespørsler til en
+Hvert autentisert kall skriver én rad i `slaids_agent_audit`: hvilken familie
+legitimasjonen kom fra (`agent_token` eller `oauth`), hvilket token (id og navn,
+aldri tokenet selv) eller hvilken OAuth-klient (`client_id`, som er offentlig og
+reiser i nettleserens adresselinje uansett), tidspunkt, operasjon, presentasjon,
+om det gikk, og feilkoden. Et OAuth-kall får aldri en oppdiktet tokenrad: en
+logg som sier noe usant er verre enn en som sier mindre. Også katalogoppslag (`index`, `catalogue`) og forespørsler til en
 ukjent adresse (`unknown_route`) – et stjålet tokens første trekk er å spørre hva
 det får lov til, og det er det tidligste en eier kunne legge merke til. Tabellen har ingen kolonne slideinnhold, filbytes eller hele
 forespørsler kan havne i. Et tilbakekalt token som brukes igjen skrives også
@@ -1088,6 +1096,42 @@ SLAIDS_SUPABASE_SECRET_KEY=sb_secret_…          # eller SUPABASE_SERVICE_ROLE_
 SLAIDS_AGENT_MAX_REQUEST_BYTES=4194304          # valgfri; standard 4 MB
 ```
 
+**OAuth er av med mindre du slår det på**, og bryteren er én variabel:
+
+```bash
+# Påkrevd for OAuth. Supabase-bruker-ID-ene som får koble seg på Slaids.
+# Er den tom, finnes det ingen autorisasjonsserver: metadatadokumentet svarer
+# 404, utfordringen peker ingen steder, og et JWT avvises som et hvilket som
+# helst annet ukjent token. Ingenting annet i API-et endrer seg.
+SLAIDS_AGENT_OAUTH_OWNERS=<uuid>[,<uuid>…]
+
+# Valgfrie.
+SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no  # adressen metadataen navngir
+SLAIDS_AGENT_OAUTH_CLIENTS=<client_id>[,…]  # bare disse OAuth-klientene
+SLAIDS_AGENT_OAUTH_SCOPES='presentations:read presentations:write assets:write'
+SLAIDS_AGENT_OAUTH_AUDIENCE=<aud>[ <aud>…]  # hvis du setter en egen med en hook
+```
+
+`SLAIDS_AGENT_OAUTH_AUDIENCE` **erstatter** standardmottakeren, den legges ikke
+til. Uten variabelen godtas Supabases egen `authenticated`; med den godtas
+nøyaktig det som står der og ingenting annet. Det er hele poenget med å sette
+den: `authenticated` står på hvert eneste brukertoken prosjektet utsteder, så en
+smalere mottaker *ved siden av* den ville ikke vært smalere i det hele tatt.
+
+Skal du gå over til en egen mottaker med en Custom Access Token Hook, lever
+tokens av begge slag i inntil en time. Da navngir du begge – `'authenticated
+https://www.slaids.no/api/agent/v1/mcp'` – og fjerner den første når timen har
+gått. Listen er overgangen, uttrykt, og bare så lenge du mener den.
+
+Utstederen og nøkkelsettet utledes av `SLAIDS_SUPABASE_URL` og har ingen egne
+variabler: autorisasjonsserveren og databasen *er* det samme prosjektet, og to
+variabler som må stemme overens er en måte for dem å slutte å gjøre det på.
+
+`SLAIDS_PUBLIC_ORIGIN` er verdt å sette i produksjon. En ressurs-ID er en fast
+streng i OAuth, og uten den leses adressen av forespørselen – som er riktig på
+Vercel, der `slaids.no` svarer `308` til `www.slaids.no` lenge før noe når koden,
+men som gjør at en vert i en header bestemmer hva Slaids kaller seg.
+
 **Agenten må bruke Slaids' eget domene, ikke en `.vercel.app`-adresse.** Vercel
 Authentication er slått på for alt annet enn egne domener, så et kall til en
 preview- eller `.vercel.app`-adresse svarer med en omdirigering til Vercels
@@ -1102,7 +1146,8 @@ variablene svarer API-et `503` og sier hvilken som mangler; en server har ingen
 IndexedDB å falle tilbake på.
 
 Tabellene `slaids_agent_tokens` og `slaids_agent_audit` kommer med migrasjonen
-`20260902190000_slaids_agent_api.sql`. Se «Deploye Slaids-migrasjoner».
+`20260902190000_slaids_agent_api.sql`, og kolonnene for OAuth-kall med
+`20260905190000_slaids_agent_oauth_audit.sql`. Se «Deploye Slaids-migrasjoner».
 
 ### Ruting av agent-API-et
 
@@ -1184,14 +1229,25 @@ adressen du skal bruke i stedet.
 
 Transporten er **Streamable HTTP** i revisjonen `2025-06-18`, i den tilstandsløse
 formen: én JSON-RPC-melding per POST, svaret som `application/json` på den samme
-responsen. Pek en MCP-klient dit, med tokenet i den vanlige headeren:
+responsen.
+
+Det finnes to måter å legitimere seg på, og hvilken du bruker avgjøres av
+klienten din, ikke av Slaids:
+
+- **Et agenttoken** (`slaids_at_…`) for enhver klient som kan få en fast streng:
+  Claude Desktop, en editor, et skript, `curl`, og hele REST-API-et. Ingenting
+  om dette er endret.
+- **OAuth** for klienter som ikke tilbyr det – ChatGPT er den viktigste av dem.
+  Se «[OAuth: å koble Slaids til ChatGPT](#oauth-å-koble-slaids-til-chatgpt)».
+
+En klient av den første sorten peker du dit med tokenet i den vanlige headeren:
 
 ```jsonc
 {
   "mcpServers": {
     "slaids": {
       "type": "http",
-      "url": "https://<domenet>/api/agent/v1/mcp",
+      "url": "https://www.slaids.no/api/agent/v1/mcp",
       "headers": { "Authorization": "Bearer slaids_at_…" }
     }
   }
@@ -1202,9 +1258,18 @@ responsen. Pek en MCP-klient dit, med tokenet i den vanlige headeren:
 
 **MCP discovery er offentlig; Slaids-operasjoner er autentiserte og
 scope-gatede.** `initialize`, `ping`, `tools/list` og notifikasjonene besvares
-uten token; `tools/call` krever nøyaktig det tokenet og de scopene et REST-kall
-krever, og uten det svarer endepunktet `401` med `WWW-Authenticate`. Hele
-REST-API-et er uendret: hver rute der krever fortsatt et token.
+uten legitimasjon; `tools/call` krever nøyaktig den legitimasjonen og de scopene
+et REST-kall krever, og uten den svarer endepunktet `401` med
+`WWW-Authenticate`. Hele REST-API-et er uendret: hver rute der krever fortsatt
+en legitimasjon.
+
+Avvisningen sies to steder i det samme svaret, og det er ikke overdrivelse:
+statuslinjen er `401` med utfordringen i headeren, som spesifikasjonen krever og
+som en SDK-klient gjør om til en påloggingsflyt, og kroppen er det vanlige
+Slaids-resultatet med den samme utfordringen i
+`_meta["mcp/www_authenticate"]`, som er der klientene med «mixed
+authentication» leter. Ingen av dem er en innrømmelse til én bestemt klient –
+det er den samme utfordringen sagt på de to måtene klienter leser den.
 
 Grunnen er rekkefølgen en klient bygges i. En egendefinert MCP-app i ChatGPT
 skanner serveren for verktøy **når appen opprettes** – før, og uavhengig av, at en
@@ -1237,6 +1302,79 @@ Verktøyene heter `slaids_<operasjon>` – `slaids_create_presentation`,
 `slaids_inspect_slide`, `slaids_set_zone_text` og så videre. Prefikset er et
 navnerom, ikke en del av navnet: en klient holder alle serveres verktøy i én flat
 liste, og korte navn er noe to servere kan velge det samme av.
+
+### OAuth: å koble Slaids til ChatGPT
+
+**ChatGPT tar ikke imot en API-nøkkel.** En egendefinert MCP-app der har to
+valg: ingen legitimasjon, eller OAuth. Å lime inn et `slaids_at_…` er altså ikke
+noe du *kan* gjøre i ChatGPT, uansett hvor gjerne du skulle ville – så Slaids er
+også en OAuth-ressursserver, med Supabase Auth som autorisasjonsserver.
+
+Det er den samme påloggingen du allerede bruker i Slaids. Det opprettes ingen ny
+bruker, ingen ny konto og ingen ny passordbase.
+
+#### Slik ser det ut for deg
+
+1. Du legger til Slaids som en egendefinert MCP-app i ChatGPT, med adressen
+   `https://www.slaids.no/api/agent/v1/mcp`. ChatGPT leser verktøylisten med én
+   gang – uten pålogging, siden discovery er offentlig.
+2. Første gang du ber ChatGPT gjøre noe med presentasjonene dine, sier den at
+   Slaids krever pålogging.
+3. Du blir sendt til Slaids' egen samtykkeside, logger inn slik du pleier, og
+   godkjenner at ChatGPT får jobbe med dekkene dine.
+4. ChatGPT får et tidsbegrenset token og fornyer det selv. Du gjør ingenting mer.
+5. ChatGPT ser bare **dine** presentasjoner – de samme du ser i biblioteket.
+
+#### Hva som skjer under
+
+Slaids gjør nøyaktig det en OAuth-ressursserver skal gjøre, og ikke mer:
+
+- **Peker på autorisasjonsserveren.** Et dokument etter RFC 9728 ligger på
+  `https://www.slaids.no/.well-known/oauth-protected-resource/api/agent/v1/mcp`
+  (og på rot-adressen `/.well-known/oauth-protected-resource`, som
+  spesifikasjonen ber klienter prøve som nummer to). Det er offentlig – det er
+  jo det man leser *fordi* man ikke har en legitimasjon ennå – og det navngir
+  Supabase-prosjektets `/auth/v1` som autorisasjonsserver. Derfra finner klienten
+  selv authorization- og token-endepunktene, PKCE og eventuell dynamisk
+  klientregistrering.
+- **Sier fra i `WWW-Authenticate`.** Et kall uten legitimasjon svarer `401` med
+  `Bearer realm="slaids-agent", resource_metadata="…"`, som er pekeren RFC 9728
+  §5.1 definerer. Var det et token som ble avvist, står `error="invalid_token"`
+  der også; var det ingen, står det ikke, fordi ingenting ble avvist.
+- **Sier hvilke verktøy som krever hva.** Hvert verktøy i katalogen bærer
+  `securitySchemes: [{ "type": "oauth2", "scopes": [...] }]`, med operasjonens
+  egne scopes. Det er dét en klient med «mixed authentication» leser for å vite
+  at den må be om pålogging før den kaller – og listen er utledet av
+  `operation.scopes`, ikke skrevet ned et sted til.
+- **Verifiserer tokenet selv.** Signaturen sjekkes mot prosjektets JWKS
+  (asymmetrisk, ES256), og utsteder, mottaker og utløp mot det installasjonen er
+  satt opp med. Ingenting leses ut av et token som ikke er verifisert. Mottakeren
+  er `authenticated` – det Supabase utsteder – med mindre installasjonen har
+  navngitt en smalere i `SLAIDS_AGENT_OAUTH_AUDIENCE`, som da er den eneste som
+  godtas.
+
+#### Scopene er de samme
+
+Supabase' OAuth-server støtter ikke egendefinerte scopes ennå. Et OAuth-token får
+derfor **et standardsett** som installasjonen bestemmer, og standarden er de tre
+redigerende: `presentations:read`, `presentations:write`, `assets:write`.
+`sharing:write` er ikke med – vanlig redigering gir aldri rett til å publisere –
+så en ChatGPT-tilkobling kan bygge dekk, men ikke legge dem ut på en offentlig
+lenke uten at du sier fra. Sett `SLAIDS_AGENT_OAUTH_SCOPES` hvis du vil ha det
+annerledes.
+
+Bærer tokenet *selv* Slaids-scopes en dag – Supabase har det på veikartet, og en
+Custom Access Token Hook kan gjøre det i dag – er det tokenet som gjelder, og
+aldri noe mer enn det. Håndhevingen etterpå er den samme koden som for et
+agenttoken: `authorizeOperation` vet ikke hvilken familie kalleren kom fra.
+
+#### Hva som må slås på
+
+OAuth er **av** i en installasjon som ikke har fått en eierliste. Det er med
+vilje: Supabase-prosjektet deles med Huskis og mdeditz, agent-API-et holder en
+nøkkel som går forbi row level security, og «hvilken som helst bruker av
+prosjektet» ville vært en videre dør enn nettleseren har. Se «Servermiljø» for
+variablene, og PR-beskrivelsen for stegene i Supabase-dashbordet.
 
 ### Katalogen er den samme katalogen
 

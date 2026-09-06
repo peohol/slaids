@@ -86,6 +86,7 @@ describe('tokenValidity', () => {
     expect(tokenValidity(record(), NOW)).toEqual({
       ok: true,
       principal: {
+        kind: 'agent_token',
         tokenId: 'token-1',
         tokenName: 'Byggeagenten',
         ownerId: 'owner-1',
@@ -101,7 +102,7 @@ describe('tokenValidity', () => {
       reason: 'revoked',
       // Recognised, so the refusal can be written down. The caller is still
       // told only «UNAUTHENTICATED».
-      identified: { ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Byggeagenten' },
+      identified: { kind: 'agent_token' as const, ownerId: 'owner-1', tokenId: 'token-1', tokenName: 'Byggeagenten' },
     })
     expect(isAgentTokenActive(revoked, NOW)).toBe(false)
   })

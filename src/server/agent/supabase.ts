@@ -27,6 +27,7 @@ import type { SupabaseAgentTokens } from '../../persistence/agentTokens'
 import { SupabaseSlaidsRepository } from '../../persistence/supabaseRepository'
 import type { AgentAuditRecord, AgentAuditSink } from './audit'
 import type { AgentApiConfig } from './config'
+import { JwksCache, authenticateOAuthToken, type OAuthResourceConfig } from './oauth'
 import { tokenValidity, type AgentPrincipal, type AuthOutcome } from './tokens'
 
 export function createServerClient(config: AgentApiConfig): SupabaseClient {
@@ -64,7 +65,7 @@ export async function authenticateAgentToken(
     return { ok: false, reason: 'unavailable' }
   }
 
-  if (outcome.ok) {
+  if (outcome.ok && outcome.principal.kind === 'agent_token') {
     try {
       await tokens.touch(outcome.principal.tokenId, now)
     } catch (error) {
@@ -72,6 +73,29 @@ export async function authenticateAgentToken(
     }
   }
   return outcome
+}
+
+/**
+ * Resolving an OAuth access token.
+ *
+ * The mirror of `authenticateAgentToken`, and deliberately shaped the same way:
+ * one function that turns a presented credential into an outcome, with the
+ * round trip it needs held behind it. The round trip here is the authorization
+ * server's key set rather than a database, and `JwksCache` keeps it to roughly
+ * one fetch per warm instance — the verification itself is local, so a token
+ * costs no network at all in the ordinary case.
+ *
+ * There is no `touch` counterpart. An OAuth token is the authorization server's
+ * to account for, it expires on its own within the hour, and Slaids has no row
+ * for it to update.
+ */
+export function oauthAuthenticator(
+  config: OAuthResourceConfig,
+  now: () => Date,
+): (presentedToken: string) => Promise<AuthOutcome> {
+  const jwks = new JwksCache(config.jwksUri)
+  return (presentedToken) =>
+    authenticateOAuthToken({ token: presentedToken, config, jwks, now: now() })
 }
 
 /**
@@ -117,8 +141,10 @@ export function supabaseAuditSink(client: SupabaseClient): AgentAuditSink {
     async record(entry: AgentAuditRecord): Promise<void> {
       const { error } = await client.from(AGENT_AUDIT_TABLE).insert({
         owner_id: entry.ownerId,
+        principal_kind: entry.principalKind,
         token_id: entry.tokenId,
         token_name: entry.tokenName,
+        client_id: entry.clientId,
         at: entry.at,
         operation: entry.operation,
         presentation_id: entry.presentationId,
