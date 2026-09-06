@@ -1375,7 +1375,7 @@ vilje: Supabase-prosjektet deles med Huskis og mdeditz, agent-API-et holder en
 nøkkel som går forbi row level security, og «hvilken som helst bruker av
 prosjektet» ville vært en videre dør enn nettleseren har.
 
-Tre ting må være på plass, og ingen av dem skjer av seg selv. Fram til de er
+Fire ting må være på plass, og ingen av dem skjer av seg selv. Fram til de er
 det, oppfører API-et seg nøyaktig som før: agenttokens virker, discovery er
 offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
 
@@ -1386,22 +1386,49 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    allerede bruker, under Authentication → OAuth Server:
    - slå på **OAuth 2.1 Server**. Er den av, svarer autorisasjonsserverens
      metadata `feature_disabled`, og ingen klient kommer forbi pålogging;
-   - sett **Authorization Path** til `/oauth/consent` – adressen til
-     samtykkesiden Slaids selv tegner;
-   - kontroller **Site URL**. Den er *prosjektglobal* og deles med Huskis og
-     mdeditz, og det er den samtykkesiden bygges på. Er den ikke
-     `https://www.slaids.no`, sendes brukeren til feil app midt i påloggingen;
    - slå på **Dynamic Client Registration**. ChatGPT registrerer seg selv som
-     klient, og uten den finnes det ingen `client_id` å godkjenne.
-3. **Servervariablene i Vercel**, uten `VITE_`-prefiks:
-   `SLAIDS_AGENT_OAUTH_OWNERS` med Supabase-bruker-ID-en som skal få koble seg
-   på, og `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no`. Se «Servermiljø».
-   Variablene leses ved oppstart, så deployen må kjøres på nytt etterpå.
+     klient, og uten den finnes det ingen `client_id` å godkjenne;
+   - sett **Authorization Path** til `/oauth/consent`.
+3. **Veien fram til samtykkesiden**, som ikke går gjennom Slaids' eget domene og
+   ikke ordnes i dette repoet. Se «Samtykkesiden ligger på en delt adresse»
+   under – og les den før du rører noe i Authentication → URL Configuration.
+4. **Servervariabelen i Vercel**: `SLAIDS_AGENT_OAUTH_OWNERS`, uten
+   `VITE_`-prefiks, med Supabase-bruker-ID-en som skal få koble seg på. Den er
+   hele på-knappen. `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no` er *ikke*
+   påkrevd – uten den leses adressen av forespørselen – men bør settes i
+   produksjon, av grunnen som står under «Servermiljø». Variabler leses ved
+   oppstart, så deployen må kjøres på nytt etterpå.
 
 `node scripts/mcp-smoke.mjs --base-url https://www.slaids.no` går gjennom hele
 den offentlige halvdelen etterpå og sier hva som eventuelt mangler – den ser
 blant annet forskjell på «OAuth 2.1 Server er ikke slått på i Supabase» og
 «installasjonen har ingen eierliste».
+
+#### Samtykkesiden ligger på en delt adresse
+
+Supabase bygger adressen til samtykkesiden av **Site URL + Authorization Path**,
+ikke av en full adresse man kan skrive inn: «The authorization path is combined
+with your Site URL … to create the full authorization endpoint URL.» Det finnes
+nøyaktig én Site URL per prosjekt, og den bestemmer hvilket domene som får være
+autorisasjonsflate for hele prosjektet.
+
+Prosjektet deles med Huskis og mdeditz, og Huskis dokumenterer
+`https://huskis.no` som Site URL og bruker den som fallback for Supabase Auth i
+flyter som ikke sender `redirectTo` selv. Å sette Site URL til Slaids er derfor
+ikke et isolert dashboardsteg: det bryter en invariant en annen app har skrevet
+ned, og en fremtidig Huskis-flyt som glemmer `redirectTo` ville landet i Slaids.
+
+**Slaids flytter derfor ikke Site URL.** I stedet skal
+`https://huskis.no/oauth/consent` svare med en omdirigering til
+`https://www.slaids.no/oauth/consent` som beholder `authorization_id`-parameteren
+– den er hele forespørselen, og en omdirigering som mister den sender brukeren
+til en samtykkeside uten noe å samtykke til. Omdirigeringen hører hjemme i
+Huskis-repoet; Authorization Path blir stående på `/oauth/consent`.
+
+Retningen er valgt fordi den feiler høyt og lokalt: ryker omdirigeringen, slutter
+Slaids' OAuth-samtykke å virke og ingenting annet endrer seg. Den andre
+retningen – å flytte Site URL – feiler stille, i en annen app, en gang i
+fremtiden.
 
 ### Katalogen er den samme katalogen
 
