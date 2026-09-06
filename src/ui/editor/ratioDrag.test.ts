@@ -1,31 +1,62 @@
 /**
- * Dragging a zone boundary, from the first pointer move to the commit.
+ * Dragging zones, from the first pointer move to the commit.
  *
- * The two halves are tested for the two different promises they make: while the
- * pointer is down the boundary is free and only the two zones beside it move,
- * and once it is released the layout is a whole ratio — arrived at without
- * pulling apart zones that the gesture never touched.
+ * The halves are tested for the different promises they make. While the pointer
+ * is down the arithmetic is exact — a boundary moves and only its two zones
+ * change, a resize is symmetric to the last bit, a move leaves the zone's ratio
+ * untouched — and every gesture stops where the layout stops being legal rather
+ * than running past it and springing back. Once released the layout is a whole
+ * ratio, arrived at without pulling apart zones the gesture never touched.
+ *
+ * The gesture tests go in through the same three steps the stage does: the
+ * direction decides the operation, the operation produces a wish, and the wish
+ * is committed by the real domain command against a real slide's geometry. So
+ * "drag up" means the same thing here as it does under the pointer.
  */
 
 import { describe, expect, it } from 'vitest'
 import { setSplitWeights, splitLeaf } from '../../domain/commands'
 import type { StructuralOutcome } from '../../domain/commands'
 import { estimateFitChecker } from '../../domain/fit'
-import { computeSlideGeometry, minimumSizeFor } from '../../domain/geometry'
+import { computeSlideGeometry, minimumSizeFor, sumWeights } from '../../domain/geometry'
 import { findSplit } from '../../domain/layout'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { createPresentation } from '../../domain/presentation'
-import { areRatiosQuantized } from '../../domain/ratios'
+import {
+  areRatiosQuantized,
+  equalityKeysForDrag,
+  equalityKeysForZoneDrag,
+} from '../../domain/ratios'
 import { err, ok, type Result } from '../../domain/result'
-import type { Presentation } from '../../domain/types'
-import { RATIO_SNAP_CANDIDATES, commitDraggedRatios, draggedWeights } from './ratioDrag'
+import type { Axis, Presentation } from '../../domain/types'
+import {
+  RATIO_SNAP_CANDIDATES,
+  ZONE_DRAG_THRESHOLD_PX,
+  commitDraggedRatios,
+  draggedWeights,
+  resizedWeights,
+  translatedWeights,
+  zoneDragAmount,
+  zoneDragMode,
+} from './ratioDrag'
 import { contentAt } from '../../domain/testDecks'
 
+/** Minimums small enough to stay out of the way of the arithmetic under test. */
+const NO_LIMIT = (count: number): number[] => new Array<number>(count).fill(0.01)
+
+/** Where the zone at `index` starts, in weight units. */
+function startOf(weights: readonly number[], index: number): number {
+  return sumWeights(weights.slice(0, index))
+}
+
 /** A slide whose root is a split with the given ratios. */
-function deckWithSplit(weights: number[]): { presentation: Presentation; nodeId: string; slideId: string } {
+function deckWithSplit(
+  weights: number[],
+  axis: Axis,
+): { presentation: Presentation; nodeId: string; slideId: string } {
   const base = createPresentation({ title: 'Test' })
   const slide = contentAt(base, 1)
-  const result = splitLeaf(base, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights })
+  const result = splitLeaf(base, { slideId: slide.id, nodeId: slide.root.id, axis, weights })
   if (!result.ok || !result.value) throw new Error('could not build the fixture')
   return { presentation: result.value.presentation, nodeId: slide.root.id, slideId: slide.id }
 }
@@ -37,30 +68,48 @@ function ratiosOf(presentation: Presentation, slideId: string, nodeId: string): 
   return split.weights
 }
 
+interface Fixture {
+  presentation: Presentation
+  slideId: string
+  nodeId: string
+  /** The length the zones share, in design-space pixels. */
+  usable: number
+  total: number
+  /** Each zone's minimum size expressed in weight units, as the stage does it. */
+  minShare: number[]
+}
+
 /**
- * Release a drag on a real split: the boundary is moved by `deltaWeight`, and
- * what comes back is what the commands actually stored.
- *
- * The minimum shares are the ones the stage computes — each zone's minimum size
- * expressed in weight units — so a delta that would push a zone under its
- * minimum is stopped here exactly as the handle stops, and the commit is asked
- * the same question the editor asks it.
+ * A real split on a real slide, measured exactly the way the stage measures the
+ * one under the pointer — so a gesture that is stopped here is stopped there.
  */
-function dragAndRelease(before: number[], boundary: number, deltaWeight: number): number[] {
-  const { presentation, slideId, nodeId } = deckWithSplit(before)
+function fixture(weights: number[], axis: Axis): Fixture {
+  const { presentation, slideId, nodeId } = deckWithSplit(weights, axis)
   const slide = contentAt(presentation, 1)
   const rect = computeSlideGeometry(slide, geometryForTheme(presentation.theme)).rects.get(nodeId)
   const split = findSplit(slide.root, nodeId)
   if (!rect || !split) throw new Error('could not measure the split')
-  const total = before.reduce((sum, weight) => sum + weight, 0)
-  const usable = rect.width - themeMetrics(presentation.theme).gap * (before.length - 1)
-  const minShare = split.children.map((child) => (minimumSizeFor(child).width / usable) * total)
-  const released = draggedWeights(before, boundary, deltaWeight, minShare)
-  if (!released) throw new Error('the drag collapsed a zone')
-  const committed = commitDraggedRatios(before, boundary, released, (weights) =>
-    setSplitWeights(presentation, {
-      slideId,
-      nodeId,
+  const total = sumWeights(weights)
+  const along = axis === 'x' ? rect.width : rect.height
+  const usable = along - themeMetrics(presentation.theme).gap * (weights.length - 1)
+  const minShare = split.children.map((child) => {
+    const min = minimumSizeFor(child)
+    return ((axis === 'x' ? min.width : min.height) / usable) * total
+  })
+  return { presentation, slideId, nodeId, usable, total, minShare }
+}
+
+/** Release a gesture onto the real command and report what it stored. */
+function release(
+  fx: Fixture,
+  equalityKeys: readonly (number | string | null)[],
+  released: readonly number[] | null,
+): number[] {
+  if (!released) throw new Error('the gesture produced no layout')
+  const committed = commitDraggedRatios(equalityKeys, released, (weights) =>
+    setSplitWeights(fx.presentation, {
+      slideId: fx.slideId,
+      nodeId: fx.nodeId,
       weights,
       fits: estimateFitChecker,
     }),
@@ -68,7 +117,58 @@ function dragAndRelease(before: number[], boundary: number, deltaWeight: number)
   if (!committed.ok || !committed.value) {
     throw new Error(`the commit was refused: ${JSON.stringify(committed)}`)
   }
-  return ratiosOf(committed.value.presentation, slideId, nodeId)
+  return ratiosOf(committed.value.presentation, fx.slideId, fx.nodeId)
+}
+
+/**
+ * Release a boundary drag on a real split: the boundary is moved by
+ * `deltaWeight`, and what comes back is what the commands actually stored.
+ */
+function dragAndRelease(before: number[], boundary: number, deltaWeight: number): number[] {
+  const fx = fixture(before, 'x')
+  const released = draggedWeights(before, boundary, deltaWeight, fx.minShare)
+  return release(fx, equalityKeysForDrag(before, boundary), released)
+}
+
+const DIRECTIONS = {
+  up: { x: 0, y: -1 },
+  down: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+} as const
+
+type Direction = keyof typeof DIRECTIONS
+
+/**
+ * A whole drag that started inside a zone: `amount` is how far the hand went,
+ * given in weight units so the fixture can turn it into the pixels a pointer
+ * would have travelled.
+ */
+function zoneDragAndRelease(
+  before: number[],
+  axis: Axis,
+  index: number,
+  direction: Direction,
+  amount: number,
+): number[] {
+  const fx = fixture(before, axis)
+  const distance = (amount / fx.total) * fx.usable
+  const deltaX = DIRECTIONS[direction].x * distance
+  const deltaY = DIRECTIONS[direction].y * distance
+  const mode = zoneDragMode(axis, deltaX, deltaY)
+  if (!mode) throw new Error('the movement was too small to mean anything')
+  const asked = (zoneDragAmount(axis, mode, deltaX, deltaY) / fx.usable) * fx.total
+  const released =
+    mode === 'resize'
+      ? resizedWeights(before, index, asked, fx.minShare)
+      : translatedWeights(before, index, asked, fx.minShare)
+  return release(fx, equalityKeysForZoneDrag(before, index), released)
+}
+
+/** What share of the split a zone holds, so layouts written at different totals compare. */
+function shares(weights: readonly number[]): number[] {
+  const total = sumWeights(weights)
+  return weights.map((weight) => weight / total)
 }
 
 describe('draggedWeights', () => {
@@ -92,7 +192,224 @@ describe('draggedWeights', () => {
   })
 })
 
-describe('releasing a drag', () => {
+describe('zoneDragMode', () => {
+  it('says nothing at all until the movement is big enough to mean something', () => {
+    const small = ZONE_DRAG_THRESHOLD_PX - 1
+    expect(zoneDragMode('x', small, -small)).toBeNull()
+    expect(zoneDragMode('y', -small, small)).toBeNull()
+    expect(zoneDragMode('x', 0, -ZONE_DRAG_THRESHOLD_PX)).toBe('resize')
+  })
+
+  it('reads a row: across it resizes, along it moves', () => {
+    expect(zoneDragMode('x', 4, -40)).toBe('resize')
+    expect(zoneDragMode('x', 4, 40)).toBe('resize')
+    expect(zoneDragMode('x', -40, 4)).toBe('translate')
+    expect(zoneDragMode('x', 40, 4)).toBe('translate')
+  })
+
+  it('reads a column as the same gesture turned a quarter of a turn', () => {
+    expect(zoneDragMode('y', 40, 4)).toBe('resize')
+    expect(zoneDragMode('y', -40, 4)).toBe('resize')
+    expect(zoneDragMode('y', 4, -40)).toBe('translate')
+    expect(zoneDragMode('y', 4, 40)).toBe('translate')
+  })
+
+  it('reads an exact diagonal as the gesture that leaves the size alone', () => {
+    expect(zoneDragMode('x', 40, 40)).toBe('translate')
+    expect(zoneDragMode('y', 40, 40)).toBe('translate')
+  })
+
+  it('refuses to decide on a movement that is not a number', () => {
+    expect(zoneDragMode('x', Number.NaN, 40)).toBeNull()
+  })
+})
+
+describe('zoneDragAmount', () => {
+  it('grows a row upwards and a column rightwards', () => {
+    expect(zoneDragAmount('x', 'resize', 0, -30)).toBe(30)
+    expect(zoneDragAmount('x', 'resize', 0, 30)).toBe(-30)
+    expect(zoneDragAmount('y', 'resize', 30, 0)).toBe(30)
+    expect(zoneDragAmount('y', 'resize', -30, 0)).toBe(-30)
+  })
+
+  it('moves a zone with the hand, along whichever axis its split runs', () => {
+    expect(zoneDragAmount('x', 'translate', 30, 0)).toBe(30)
+    expect(zoneDragAmount('x', 'translate', -30, 0)).toBe(-30)
+    expect(zoneDragAmount('y', 'translate', 0, 30)).toBe(30)
+    expect(zoneDragAmount('y', 'translate', 0, -30)).toBe(-30)
+  })
+})
+
+describe('resizedWeights', () => {
+  it('moves both of the zone’s boundaries by the same amount, in opposite directions', () => {
+    const before = [1, 2, 3, 4]
+    const after = resizedWeights(before, 2, 2, NO_LIMIT(4))
+    expect(after).not.toBeNull()
+    if (!after) return
+    const startMoved = startOf(before, 2) - startOf(after, 2)
+    const endMoved = startOf(after, 3) - startOf(before, 3)
+    expect(startMoved).toBeCloseTo(1, 10)
+    expect(endMoved).toBeCloseTo(1, 10)
+    expect(after[2]).toBeCloseTo(5, 10)
+    expect(sumWeights(after)).toBeCloseTo(sumWeights(before), 10)
+  })
+
+  it('leaves the zone where it was: this is resizing, not moving', () => {
+    const before = [1, 2, 3, 1]
+    const centre = (weights: readonly number[]): number =>
+      (startOf(weights, 2) + startOf(weights, 3)) / 2 / sumWeights(weights)
+    for (const growth of [-1, -0.25, 0.25, 1, 2]) {
+      const after = resizedWeights(before, 2, growth, NO_LIMIT(4))
+      expect(after).not.toBeNull()
+      if (after) expect(centre(after)).toBeCloseTo(centre(before), 10)
+    }
+  })
+
+  it('keeps every other zone’s share of its own side', () => {
+    const before = [1, 2, 3, 1, 4]
+    const after = resizedWeights(before, 2, 1.5, NO_LIMIT(5))
+    expect(after).not.toBeNull()
+    if (!after) return
+    expect(after[0] / after[1]).toBeCloseTo(before[0] / before[1], 10)
+    expect(after[3] / after[4]).toBeCloseTo(before[3] / before[4], 10)
+  })
+
+  it('gives the sides room back when the zone shrinks', () => {
+    const before = [2, 4, 2]
+    const after = resizedWeights(before, 1, -2, NO_LIMIT(3))
+    expect(after).not.toBeNull()
+    if (!after) return
+    expect(after[1]).toBeCloseTo(2, 10)
+    expect(after[0]).toBeCloseTo(3, 10)
+    expect(after[2]).toBeCloseTo(3, 10)
+  })
+
+  it('stops at the largest symmetric change rather than carrying on into one side', () => {
+    // The right zone can give up 1 and the left 3, so the whole gesture stops
+    // once the right one is spent — and stays symmetric doing it.
+    const before = [4, 2, 2]
+    const minShare = [1, 1, 1]
+    const stopped = resizedWeights(before, 1, 100, minShare)
+    expect(stopped).not.toBeNull()
+    if (!stopped) return
+    expect(stopped).toEqual(resizedWeights(before, 1, 2, minShare))
+    expect(stopped[0]).toBeCloseTo(3, 10)
+    expect(stopped[1]).toBeCloseTo(4, 10)
+    expect(stopped[2]).toBeCloseTo(1, 10)
+    expect(startOf(before, 1) - startOf(stopped, 1)).toBeCloseTo(
+      startOf(stopped, 2) - startOf(before, 2),
+      10,
+    )
+  })
+
+  it('stops at the zone’s own minimum when it is the one shrinking', () => {
+    const before = [2, 4, 2]
+    const minShare = [0.5, 1.5, 0.5]
+    const stopped = resizedWeights(before, 1, -100, minShare)
+    expect(stopped?.[1]).toBeCloseTo(1.5, 10)
+    expect(stopped).toEqual(resizedWeights(before, 1, -2.5, minShare))
+  })
+
+  it('cannot move a boundary a zone at the end of the split does not have', () => {
+    const before = [1, 2, 3]
+    expect(resizedWeights(before, 0, 2, NO_LIMIT(3))).toEqual(before)
+    expect(resizedWeights(before, 2, -2, NO_LIMIT(3))).toEqual(before)
+    // With two zones every zone is an end zone, so nothing can resize.
+    expect(resizedWeights([1, 1], 0, 5, NO_LIMIT(2))).toEqual([1, 1])
+    expect(resizedWeights([1, 1], 1, 5, NO_LIMIT(2))).toEqual([1, 1])
+  })
+
+  it('refuses a movement that is not a number', () => {
+    expect(resizedWeights([1, 2, 1], 1, Number.NaN, NO_LIMIT(3))).toBeNull()
+  })
+})
+
+describe('translatedWeights', () => {
+  it('slides the zone along without changing its size', () => {
+    const before = [2, 3, 4]
+    const after = translatedWeights(before, 1, 1, NO_LIMIT(3))
+    expect(after).not.toBeNull()
+    if (!after) return
+    expect(after[1]).toBe(before[1])
+    expect(after[0]).toBeCloseTo(3, 10)
+    expect(after[2]).toBeCloseTo(3, 10)
+    expect(startOf(after, 1) - startOf(before, 1)).toBeCloseTo(1, 10)
+    expect(sumWeights(after)).toBeCloseTo(sumWeights(before), 10)
+  })
+
+  it('compresses the side it moves towards and expands the other', () => {
+    const before = [2, 3, 4]
+    const forwards = translatedWeights(before, 1, 1, NO_LIMIT(3))
+    const backwards = translatedWeights(before, 1, -1, NO_LIMIT(3))
+    expect(forwards?.[0]).toBeGreaterThan(before[0])
+    expect(forwards?.[2]).toBeLessThan(before[2])
+    expect(backwards?.[0]).toBeLessThan(before[0])
+    expect(backwards?.[2]).toBeGreaterThan(before[2])
+    expect(backwards?.[1]).toBe(before[1])
+  })
+
+  it('keeps both sides’ internal ratios, compressed and expanded alike', () => {
+    const before = [1, 2, 5, 3, 6]
+    const after = translatedWeights(before, 2, -1.5, NO_LIMIT(5))
+    expect(after).not.toBeNull()
+    if (!after) return
+    expect(after[0] / after[1]).toBeCloseTo(before[0] / before[1], 10)
+    expect(after[3] / after[4]).toBeCloseTo(before[3] / before[4], 10)
+    expect(after[2]).toBe(before[2])
+  })
+
+  it('stops when the side it is compressing has nothing left to give', () => {
+    const before = [3, 2, 3]
+    const minShare = [1, 1, 1]
+    const stopped = translatedWeights(before, 1, 100, minShare)
+    expect(stopped).not.toBeNull()
+    if (!stopped) return
+    expect(stopped).toEqual(translatedWeights(before, 1, 2, minShare))
+    expect(stopped[2]).toBeCloseTo(1, 10)
+    expect(stopped[0]).toBeCloseTo(5, 10)
+    expect(stopped[1]).toBe(before[1])
+  })
+
+  it('cannot move a zone the split’s own edge is holding in place', () => {
+    const before = [1, 2, 3]
+    expect(translatedWeights(before, 0, 1, NO_LIMIT(3))).toEqual(before)
+    expect(translatedWeights(before, 2, -1, NO_LIMIT(3))).toEqual(before)
+    expect(translatedWeights([1, 1], 0, 0.5, NO_LIMIT(2))).toEqual([1, 1])
+  })
+
+  it('refuses a movement that is not a number', () => {
+    expect(translatedWeights([1, 2, 1], 1, Number.NaN, NO_LIMIT(3))).toBeNull()
+  })
+})
+
+describe('a gesture never drifts', () => {
+  it('answers from the ratios it started with, however the pointer got there', () => {
+    const before = [2, 3, 4, 1]
+    const minShare = NO_LIMIT(4)
+    // Every frame of a drag is computed from the same starting ratios, so a
+    // pointer that wanders and comes back lands exactly where it left.
+    const direct = resizedWeights(before, 1, 0.75, minShare)
+    for (const detour of [-2, 0.1, 3, -0.4]) {
+      resizedWeights(before, 1, detour, minShare)
+      expect(resizedWeights(before, 1, 0.75, minShare)).toEqual(direct)
+    }
+    const moved = translatedWeights(before, 2, -1.25, minShare)
+    for (const detour of [2, -0.3, 1.9]) {
+      translatedWeights(before, 2, detour, minShare)
+      expect(translatedWeights(before, 2, -1.25, minShare)).toEqual(moved)
+    }
+  })
+
+  it('keeps the split’s total whole, wherever the pointer stops', () => {
+    const before = [3, 5, 2, 4]
+    for (const amount of [-1.7, -0.3, 0.05, 1.1, 2.9]) {
+      expect(sumWeights(resizedWeights(before, 1, amount, NO_LIMIT(4)) ?? [])).toBeCloseTo(14, 10)
+      expect(sumWeights(translatedWeights(before, 2, amount, NO_LIMIT(4)) ?? [])).toBeCloseTo(14, 10)
+    }
+  })
+})
+
+describe('releasing a boundary drag', () => {
   it('snaps to a whole ratio', () => {
     expect(dragAndRelease([1, 1], 0, 0.5)).toEqual([3, 1])
     expect(dragAndRelease([1, 1], 0, 0.25)).toEqual([5, 3])
@@ -126,13 +443,93 @@ describe('releasing a drag', () => {
   })
 })
 
+describe('releasing a drag inside a zone', () => {
+  it('grows the zone dragged up in a row, and shrinks the one dragged down', () => {
+    expect(zoneDragAndRelease([3, 2, 3], 'x', 1, 'up', 2)).toEqual([1, 2, 1])
+
+    const smaller = zoneDragAndRelease([2, 4, 2], 'x', 1, 'down', 2)
+    expect(shares(smaller)[1]).toBeLessThan(shares([2, 4, 2])[1])
+    expect(smaller[0]).toBe(smaller[2])
+    expect(areRatiosQuantized(smaller)).toBe(true)
+  })
+
+  it('grows the zone dragged right in a column, and shrinks the one dragged left', () => {
+    expect(zoneDragAndRelease([3, 2, 3], 'y', 1, 'right', 2)).toEqual([1, 2, 1])
+
+    const smaller = zoneDragAndRelease([2, 4, 2], 'y', 1, 'left', 2)
+    expect(shares(smaller)[1]).toBeLessThan(shares([2, 4, 2])[1])
+    expect(smaller[0]).toBe(smaller[2])
+    expect(areRatiosQuantized(smaller)).toBe(true)
+  })
+
+  it('moves the zone along its row without resizing it', () => {
+    expect(zoneDragAndRelease([2, 3, 3], 'x', 1, 'right', 1)).toEqual([3, 3, 2])
+    expect(zoneDragAndRelease([3, 3, 2], 'x', 1, 'left', 1)).toEqual([2, 3, 3])
+  })
+
+  it('moves the zone along its column without resizing it', () => {
+    expect(zoneDragAndRelease([2, 3, 3], 'y', 1, 'down', 1)).toEqual([3, 3, 2])
+    expect(zoneDragAndRelease([3, 3, 2], 'y', 1, 'up', 1)).toEqual([2, 3, 3])
+  })
+
+  it('keeps the moved zone’s own share of the split', () => {
+    const before = [2, 2, 2, 2, 2]
+    for (const direction of ['left', 'right'] as const) {
+      const committed = zoneDragAndRelease(before, 'x', 2, direction, 1)
+      expect(shares(committed)[2]).toBeCloseTo(shares(before)[2], 10)
+      expect(committed[0]).toBe(committed[1])
+      expect(committed[3]).toBe(committed[4])
+      expect(areRatiosQuantized(committed)).toBe(true)
+    }
+  })
+
+  it('keeps zones on the same side that shared a ratio sharing one', () => {
+    const committed = zoneDragAndRelease([2, 2, 3, 2, 2], 'x', 2, 'up', 1)
+    expect(committed[0]).toBe(committed[1])
+    expect(committed[3]).toBe(committed[4])
+    expect(shares(committed)[2]).toBeGreaterThan(shares([2, 2, 3, 2, 2])[2])
+    expect(areRatiosQuantized(committed)).toBe(true)
+  })
+
+  it('stops at the largest change the split allows instead of refusing the drag', () => {
+    const before = [3, 2, 3]
+    const stopped = zoneDragAndRelease(before, 'x', 1, 'up', 100)
+    expect(areRatiosQuantized(stopped)).toBe(true)
+    expect(stopped[0]).toBe(stopped[2])
+    expect(shares(stopped)[1]).toBeGreaterThan(shares(before)[1])
+    // Far past the limit is the same layout as far enough: the gesture stops.
+    expect(zoneDragAndRelease(before, 'x', 1, 'up', 1000)).toEqual(stopped)
+  })
+
+  it('leaves a zone at either end of its split exactly where it is', () => {
+    for (const direction of ['up', 'down', 'left', 'right'] as const) {
+      expect(zoneDragAndRelease([2, 3, 3], 'x', 0, direction, 1)).toEqual([2, 3, 3])
+      expect(zoneDragAndRelease([2, 3, 3], 'x', 2, direction, 1)).toEqual([2, 3, 3])
+      expect(zoneDragAndRelease([2, 3, 3], 'y', 0, direction, 1)).toEqual([2, 3, 3])
+      // Two zones are two end zones: only their shared boundary can move them.
+      expect(zoneDragAndRelease([1, 1], 'x', 0, direction, 0.4)).toEqual([1, 1])
+      expect(zoneDragAndRelease([1, 1], 'x', 1, direction, 0.4)).toEqual([1, 1])
+    }
+  })
+
+  it('is deterministic, and always commits whole ratios in range', () => {
+    for (const direction of ['up', 'down', 'left', 'right'] as const) {
+      for (const amount of [0.2, 0.9, 1.7]) {
+        const committed = zoneDragAndRelease([2, 3, 4, 3], 'x', 1, direction, amount)
+        expect(areRatiosQuantized(committed)).toBe(true)
+        expect(zoneDragAndRelease([2, 3, 4, 3], 'x', 1, direction, amount)).toEqual(committed)
+      }
+    }
+  })
+})
+
 describe('commitDraggedRatios', () => {
   const outcome = (weights: number[]): Result<StructuralOutcome> =>
     ok({ presentation: { weights } as unknown as Presentation, movedToSandbox: [], discarded: [] })
 
   it('takes the next-closest ratio when the nearest one is refused', () => {
     const tried: number[][] = []
-    const result = commitDraggedRatios([1, 1], 0, [3.1, 0.9], (weights) => {
+    const result = commitDraggedRatios(equalityKeysForDrag([1, 1], 0), [3.1, 0.9], (weights) => {
       tried.push(weights)
       return tried.length === 1
         ? err('ZONE_TOO_SMALL', 'Sonen blir for liten.')
@@ -146,7 +543,7 @@ describe('commitDraggedRatios', () => {
 
   it('reports the nearest ratio’s refusal when every one of them is refused', () => {
     const tried: number[][] = []
-    const result = commitDraggedRatios([1, 1], 0, [3.1, 0.9], (weights) => {
+    const result = commitDraggedRatios(equalityKeysForDrag([1, 1], 0), [3.1, 0.9], (weights) => {
       tried.push(weights)
       return err('ZONE_TOO_SMALL', `for liten: ${weights.join(':')}`)
     })
@@ -157,7 +554,7 @@ describe('commitDraggedRatios', () => {
 
   it('never offers the same layout twice', () => {
     const tried: number[][] = []
-    commitDraggedRatios([1, 1, 1], 1, [1, 1.5, 0.5], (weights) => {
+    commitDraggedRatios(equalityKeysForDrag([1, 1, 1], 1), [1, 1.5, 0.5], (weights) => {
       tried.push(weights)
       return err('ZONE_TOO_SMALL', 'nei')
     })
@@ -168,5 +565,23 @@ describe('commitDraggedRatios', () => {
       }),
     )
     expect(shapes.size).toBe(tried.length)
+  })
+
+  it('holds a zone drag’s sides apart while keeping each side together', () => {
+    const before = [4, 4, 3, 4, 4]
+    const tried: number[][] = []
+    // The gesture took twice as much from the near side as from the far one.
+    commitDraggedRatios(equalityKeysForZoneDrag(before, 2), [2, 2, 8, 4, 4], (weights) => {
+      tried.push(weights)
+      return err('ZONE_TOO_SMALL', 'nei')
+    })
+    expect(tried.length).toBeGreaterThan(1)
+    for (const weights of tried) {
+      // Zones that shared a ratio on the same side still share one …
+      expect(weights[0]).toBe(weights[1])
+      expect(weights[3]).toBe(weights[4])
+    }
+    // … while the two sides, scaled by different factors, are free to part.
+    expect(tried[0][0]).not.toBe(tried[0][3])
   })
 })
