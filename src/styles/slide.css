@@ -267,6 +267,16 @@
 }
 
 /*
+ * A reference entry gets more air below it than an ordinary paragraph, so a
+ * bibliography's entries stay visually separate. `--slaids-reference-gap` is
+ * `referenceEntryGap` from `themeMetrics` — the same number the pagination
+ * planner in `referenceSlides.ts` measures each entry against.
+ */
+.rich-doc--reference :is(p, .rd-p) {
+  margin: 0 0 var(--slaids-reference-gap, 16px);
+}
+
+/*
  * A heading is a pill: it is only as wide as its text, so aligning it is a
  * question of margins rather than of `text-align`. The selectors match the
  * inline style both renderers write, so one rule covers the editor and the

@@ -30,6 +30,7 @@ import {
   HEADING_FONT_SIZE,
   HEADING_SPACING,
   LIST_INDENT,
+  REFERENCE_ENTRY_GAP,
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
   titleZoneHeightFor,
@@ -43,6 +44,8 @@ export interface ThemeMetrics {
   subfieldGap: number
   /** Space below a paragraph, list or quote. */
   blockSpacing: number
+  /** Space below one reference-slide entry — more than `blockSpacing` gives, for visual separation between entries. */
+  referenceEntryGap: number
   /** Space below a heading — the distance from a heading to the text it heads. */
   headingSpacing: number
   listIndent: number
@@ -143,6 +146,7 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     cardPadding: Math.max(4, scaled(CARD_PADDING, spacing)),
     subfieldGap: Math.max(4, scaled(SUBFIELD_GAP, spacing)),
     blockSpacing: Math.max(2, scaled(BLOCK_SPACING, spacing)),
+    referenceEntryGap: Math.max(4, scaled(REFERENCE_ENTRY_GAP, spacing)),
     headingSpacing: Math.max(2, scaled(HEADING_SPACING, spacing)),
     listIndent: Math.max(8, scaled(LIST_INDENT, spacing)),
     bodyFontSize: scaled(BODY_FONT_SIZE, font),
