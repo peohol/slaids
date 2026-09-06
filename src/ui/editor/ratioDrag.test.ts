@@ -34,6 +34,7 @@ import {
   ZONE_DRAG_THRESHOLD_PX,
   commitDraggedRatios,
   draggedWeights,
+  keepsZoneSize,
   resizedWeights,
   translatedWeights,
   zoneDragAmount,
@@ -104,15 +105,20 @@ function release(
   fx: Fixture,
   equalityKeys: readonly (number | string | null)[],
   released: readonly number[] | null,
+  prefer?: (weights: readonly number[]) => boolean,
 ): number[] {
   if (!released) throw new Error('the gesture produced no layout')
-  const committed = commitDraggedRatios(equalityKeys, released, (weights) =>
-    setSplitWeights(fx.presentation, {
-      slideId: fx.slideId,
-      nodeId: fx.nodeId,
-      weights,
-      fits: estimateFitChecker,
-    }),
+  const committed = commitDraggedRatios(
+    equalityKeys,
+    released,
+    (weights) =>
+      setSplitWeights(fx.presentation, {
+        slideId: fx.slideId,
+        nodeId: fx.nodeId,
+        weights,
+        fits: estimateFitChecker,
+      }),
+    prefer,
   )
   if (!committed.ok || !committed.value) {
     throw new Error(`the commit was refused: ${JSON.stringify(committed)}`)
@@ -162,7 +168,13 @@ function zoneDragAndRelease(
     mode === 'resize'
       ? resizedWeights(before, index, asked, fx.minShare)
       : translatedWeights(before, index, asked, fx.minShare)
-  return release(fx, equalityKeysForZoneDrag(before, index), released)
+  return release(
+    fx,
+    equalityKeysForZoneDrag(before, index),
+    released,
+    // The same preference the stage applies: a move keeps the zone's size.
+    mode === 'translate' ? keepsZoneSize(before, index) : undefined,
+  )
 }
 
 /** What share of the split a zone holds, so layouts written at different totals compare. */
@@ -310,13 +322,31 @@ describe('resizedWeights', () => {
     expect(stopped).toEqual(resizedWeights(before, 1, -2.5, minShare))
   })
 
-  it('cannot move a boundary a zone at the end of the split does not have', () => {
-    const before = [1, 2, 3]
-    expect(resizedWeights(before, 0, 2, NO_LIMIT(3))).toEqual(before)
-    expect(resizedWeights(before, 2, -2, NO_LIMIT(3))).toEqual(before)
-    // With two zones every zone is an end zone, so nothing can resize.
-    expect(resizedWeights([1, 1], 0, 5, NO_LIMIT(2))).toEqual([1, 1])
-    expect(resizedWeights([1, 1], 1, 5, NO_LIMIT(2))).toEqual([1, 1])
+  it('gives the whole change to the one side a zone at the end of the split has', () => {
+    // Nothing to be symmetric about: the outer edge is the split's own.
+    const grown = resizedWeights([1, 2, 3], 0, 2, NO_LIMIT(3))
+    expect(grown).not.toBeNull()
+    if (!grown) return
+    expect(grown[0]).toBeCloseTo(3, 10)
+    expect(grown[1] / grown[2]).toBeCloseTo(2 / 3, 10)
+    expect(sumWeights(grown)).toBeCloseTo(6, 10)
+
+    const shrunk = resizedWeights([1, 2, 3], 2, -1, NO_LIMIT(3))
+    expect(shrunk?.[2]).toBeCloseTo(2, 10)
+    expect(shrunk?.[0]).toBeCloseTo(4 / 3, 10)
+    expect(shrunk?.[1]).toBeCloseTo(8 / 3, 10)
+
+    // A split in two is two end zones, and both of them resize.
+    expect(resizedWeights([1, 1], 0, 0.5, NO_LIMIT(2))).toEqual([1.5, 0.5])
+    expect(resizedWeights([1, 1], 1, 0.5, NO_LIMIT(2))).toEqual([0.5, 1.5])
+  })
+
+  it('stops an end zone at its one side’s minimum', () => {
+    const before = [2, 4]
+    const minShare = [1, 1]
+    const stopped = resizedWeights(before, 0, 100, minShare)
+    expect(stopped).toEqual([5, 1])
+    expect(stopped).toEqual(resizedWeights(before, 0, 3, minShare))
   })
 
   it('refuses a movement that is not a number', () => {
@@ -483,6 +513,24 @@ describe('releasing a drag inside a zone', () => {
     }
   })
 
+  it('keeps the moved zone exactly the size it was, snapped and all', () => {
+    // Closeness alone would trade a few per cent off the moved zone for a
+    // better fit elsewhere — 3 : 2 : 3 nudged right lands on 9 : 5 : 5, where
+    // the middle has quietly grown from a quarter of the split to 5/19.
+    const cases = [
+      { before: [3, 2, 3], index: 1, direction: 'right' as const, amount: 0.85 },
+      { before: [3, 2, 3], index: 1, direction: 'left' as const, amount: 0.85 },
+      { before: [2, 3, 4, 3], index: 2, direction: 'right' as const, amount: 0.7 },
+      { before: [4, 3, 2, 3], index: 1, direction: 'left' as const, amount: 0.4 },
+    ]
+    for (const { before, index, direction, amount } of cases) {
+      const committed = zoneDragAndRelease(before, 'x', index, direction, amount)
+      expect(shares(committed)[index]).toBeCloseTo(shares(before)[index], 12)
+      expect(areRatiosQuantized(committed)).toBe(true)
+      expect(committed).not.toEqual(before)
+    }
+  })
+
   it('keeps zones on the same side that shared a ratio sharing one', () => {
     const committed = zoneDragAndRelease([2, 2, 3, 2, 2], 'x', 2, 'up', 1)
     expect(committed[0]).toBe(committed[1])
@@ -501,14 +549,29 @@ describe('releasing a drag inside a zone', () => {
     expect(zoneDragAndRelease(before, 'x', 1, 'up', 1000)).toEqual(stopped)
   })
 
-  it('leaves a zone at either end of its split exactly where it is', () => {
-    for (const direction of ['up', 'down', 'left', 'right'] as const) {
+  it('resizes a zone at the end of its split into its one neighbour', () => {
+    // Its outer edge cannot move, so the whole change lands on the inner one:
+    // 2 : 3 : 3 grown by two whole units is 4 : 2 : 2, written 2 : 1 : 1.
+    expect(zoneDragAndRelease([2, 3, 3], 'x', 0, 'up', 2)).toEqual([2, 1, 1])
+
+    const smaller = zoneDragAndRelease([4, 3, 3], 'x', 0, 'down', 1)
+    expect(shares(smaller)[0]).toBeLessThan(shares([4, 3, 3])[0])
+    expect(smaller[1]).toBe(smaller[2])
+    // A split in two is two end zones, and both of them resize.
+    expect(zoneDragAndRelease([1, 1], 'x', 0, 'up', 0.5)).toEqual([3, 1])
+    expect(zoneDragAndRelease([1, 1], 'x', 1, 'up', 0.5)).toEqual([1, 3])
+    expect(zoneDragAndRelease([1, 1], 'y', 0, 'right', 0.5)).toEqual([3, 1])
+  })
+
+  it('cannot move a zone the split’s own edge is holding in place', () => {
+    for (const direction of ['left', 'right'] as const) {
       expect(zoneDragAndRelease([2, 3, 3], 'x', 0, direction, 1)).toEqual([2, 3, 3])
       expect(zoneDragAndRelease([2, 3, 3], 'x', 2, direction, 1)).toEqual([2, 3, 3])
-      expect(zoneDragAndRelease([2, 3, 3], 'y', 0, direction, 1)).toEqual([2, 3, 3])
-      // Two zones are two end zones: only their shared boundary can move them.
       expect(zoneDragAndRelease([1, 1], 'x', 0, direction, 0.4)).toEqual([1, 1])
-      expect(zoneDragAndRelease([1, 1], 'x', 1, direction, 0.4)).toEqual([1, 1])
+    }
+    for (const direction of ['up', 'down'] as const) {
+      expect(zoneDragAndRelease([2, 3, 3], 'y', 0, direction, 1)).toEqual([2, 3, 3])
+      expect(zoneDragAndRelease([2, 3, 3], 'y', 2, direction, 1)).toEqual([2, 3, 3])
     }
   })
 

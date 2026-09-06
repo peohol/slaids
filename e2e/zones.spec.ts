@@ -430,16 +430,52 @@ test.describe('zone editing', () => {
     expect(await rootRatios(page)).toBe('1 : 2 : 1')
   })
 
-  test('leaves a zone at the end of its split where the split holds it', async ({ page }) => {
+  test('resizes a zone at the end of its split into its one neighbour', async ({ page }) => {
     await createPresentation(page, 'Ytterste sone')
     await enterZoneMode(page)
     await splitSelected(page, [2, 3, 3], 'x')
 
     const before = await zoneRects(page)
-    // A first zone has one boundary it cannot move, so neither gesture can do
-    // anything symmetric — or make room behind it — and the layout stands still.
+    // The first zone's outer edge is the split's own, so the whole change lands
+    // on the other side: 2 : 3 : 3 grown by two units is 4 : 2 : 2.
     await dragZone(page, before[0], 0, -travelFor(before, 2, 8, 'x'))
+
+    const after = await zoneRects(page)
+    expect(after[0].w).toBeGreaterThan(before[0].w)
+    expect(after[1].w).toBeCloseTo(after[2].w, 0)
+    expect(await rootRatios(page)).toBe('2 : 1 : 1')
+  })
+
+  test('resizes either zone of a split in two, where both are end zones', async ({ page }) => {
+    await createPresentation(page, 'To soner')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+
+    const before = await zoneRects(page)
+    await dragZone(page, before[0], 0, -travelFor(before, 0.5, 2, 'x'))
+    expect(await rootRatios(page)).toBe('3 : 1')
+
+    const grown = await zoneRects(page)
+    expect(grown[0].w).toBeGreaterThan(before[0].w)
+    expectGap(grown[1].x - (grown[0].x + grown[0].w), 'gap after resizing an end zone')
+
+    // And the same gesture the other way round on the other end zone.
+    await dragZone(page, grown[1], 0, -travelFor(grown, 1, 4, 'x'))
+    const shared = await zoneRects(page)
+    expect(shared[1].w).toBeGreaterThan(grown[1].w)
+    expect(await rootRatios(page)).toBe('1 : 1')
+  })
+
+  test('cannot move a zone the split’s own edge holds in place', async ({ page }) => {
+    await createPresentation(page, 'Ingen plass bak')
+    await enterZoneMode(page)
+    await splitSelected(page, [2, 3, 3], 'x')
+
+    const before = await zoneRects(page)
+    // There is nothing behind a first zone to open a space, and nothing to take
+    // the space it would leave, so sideways it stands still.
     await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
+    await dragZone(page, before[0], -travelFor(before, 1, 8, 'x'), 0)
 
     const after = await zoneRects(page)
     for (let index = 0; index < before.length; index += 1) {
