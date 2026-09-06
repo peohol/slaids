@@ -95,4 +95,21 @@ describe('buildReferenceSlides', () => {
     expect(json).toContain('"type":"link"')
     expect(json).toContain('https://example.com')
   })
+
+  it('links only the url itself, not the whole reference text', () => {
+    const [slide] = buildReferenceSlides(withReferences(1))
+    const leaf = slide.root as { content: { body: { subfields: { doc: RichDoc }[] } } }
+    const [paragraph] = leaf.content.body.subfields[0].doc.content as {
+      content: { text: string; marks?: { type: string }[] }[]
+    }[]
+    const linked = paragraph.content.filter((node) => node.marks?.some((m) => m.type === 'link'))
+    const plain = paragraph.content.filter((node) => !node.marks?.some((m) => m.type === 'link'))
+
+    // The url is a link…
+    expect(linked).toHaveLength(1)
+    expect(linked[0].text).toBe('https://example.com')
+    // …but the title/authors/year before it are not.
+    expect(plain.some((node) => node.text.includes('Kilde nummer 0'))).toBe(true)
+    expect(plain.every((node) => !node.text.includes('https://example.com'))).toBe(true)
+  })
 })

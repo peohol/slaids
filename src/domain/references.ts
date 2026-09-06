@@ -149,7 +149,16 @@ export function citationLabel(
 
 /** `Tittel ⋅ Forfatter(e) ⋅ År ⋅ Lenke`, skipping empty parts. */
 export function formatReference(reference: Reference): string {
-  return [reference.title, reference.authors, reference.year, reference.url]
+  return formatReferenceParts(reference, true)
+}
+
+function formatReferenceParts(
+  reference: Pick<Reference, 'title' | 'authors' | 'year' | 'url'>,
+  includeUrl: boolean,
+): string {
+  const parts = [reference.title, reference.authors, reference.year]
+  if (includeUrl) parts.push(reference.url)
+  return parts
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .join(' ⋅ ')
@@ -159,6 +168,8 @@ export interface ReferenceEntry {
   id: string
   number: number
   text: string
+  /** `text` with the url stripped off, so a renderer can link only the url itself. */
+  label: string
   url: string
 }
 
@@ -173,6 +184,7 @@ export function referenceEntries(deck: DeckSource): ReferenceEntry[] {
         id,
         number: numbering.get(id) ?? 0,
         text: formatReference(reference),
+        label: formatReferenceParts(reference, false),
         url: reference.url.trim(),
       },
     ]

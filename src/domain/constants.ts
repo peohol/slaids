@@ -208,14 +208,22 @@ export const LIST_INDENT = 24
 /**
  * Fallback typography for paginating reference slides.
  *
- * Only used when no measurer is supplied. The app always supplies one — a
- * reference entry is a plain paragraph in a container and renders with the
- * deck's body typography, so paginating it with numbers of its own is how a
- * bibliography ends up one entry too long for its column.
+ * `REFERENCE_FONT_SIZE`/`REFERENCE_LINE_HEIGHT` are only used when no measurer
+ * is supplied. The app always supplies one — a reference entry is a plain
+ * paragraph in a container and renders with the deck's body typography, so
+ * paginating it with numbers of its own is how a bibliography ends up one
+ * entry too long for its column.
+ *
+ * `REFERENCE_ENTRY_GAP` has no such stand-in: it is the one base value for the
+ * space below a reference entry, wider than an ordinary paragraph's so a
+ * bibliography's entries stay visually separate. `themeMetrics` scales it into
+ * `referenceEntryGap`, which both the real measurer (`buildReferenceSlides`)
+ * and the stylesheet (`--slaids-reference-gap`) read, so pagination can never
+ * plan for a gap the page draws differently.
  */
 export const REFERENCE_FONT_SIZE = 18
 export const REFERENCE_LINE_HEIGHT = 1.35
-export const REFERENCE_ENTRY_GAP = 10
+export const REFERENCE_ENTRY_GAP = 20
 export const REFERENCE_MAX_COLUMNS = 3
 
 /**

@@ -9,7 +9,7 @@
 import { computeMainRect } from './geometry'
 import { estimateDocHeight } from './fit'
 import { titleDoc } from './richdoc'
-import { geometryForTheme } from './metrics'
+import { geometryForTheme, themeMetrics } from './metrics'
 import {
   REFERENCE_SLIDE_ID_PREFIX,
   planReferenceSlides,
@@ -28,17 +28,20 @@ import type { ContentSlide, DeckSource, LayoutNode, RichDoc, RichNode, Slide } f
  */
 function entryParagraph(entry: ReferenceEntry): RichNode {
   const children: RichNode[] = [{ type: 'text', text: `${entry.number}. ` }]
+  if (entry.label) children.push({ type: 'text', text: entry.label })
   if (entry.url) {
-    const label = entry.text || entry.url
+    if (entry.label) children.push({ type: 'text', text: ' ⋅ ' })
     children.push({
       type: 'text',
-      text: label,
+      text: entry.url,
       marks: [{ type: 'link', attrs: { href: entry.url, target: '_blank' } }],
     })
-  } else {
-    children.push({ type: 'text', text: entry.text })
   }
-  return { type: 'paragraph', content: children }
+  if (!entry.label && !entry.url) children.push({ type: 'text', text: '' })
+  // Explicit rather than left implicit, since an unaligned paragraph draws
+  // centered — see `DEFAULT_TEXT_ALIGN`. A bibliography is a list, and a list
+  // reads left-justified regardless of the deck's default alignment.
+  return { type: 'paragraph', attrs: { textAlign: 'left' }, content: children }
 }
 
 function entriesToDoc(entries: ReferenceEntry[]): RichDoc {
@@ -74,19 +77,23 @@ export function buildReferenceSlides(deck: DeckSource): ContentSlide[] {
 
   const geometry = geometryForTheme(deck.theme)
   const mainRect = computeMainRect(true, geometry)
+  const tokens = themeMetrics(deck.theme)
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const plan = planReferenceSlides(entries, {
     width: mainRect.width,
     height: mainRect.height,
     gap: geometry.gap,
     // Measured with the deck's own typography, through the same estimator every
-    // other zone is measured with, on the same paragraph the column will hold.
+    // other zone is measured with, on the same paragraph the column will hold —
+    // but with the ordinary paragraph spacing traded for the wider entry gap the
+    // stylesheet draws (`--slaids-reference-gap`), so the plan never packs a
+    // column tighter than the page actually renders it.
     measureEntryHeight: (_text, columnWidth, entryId) => {
       const entry = byId.get(entryId)
       if (!entry) return 0
-      return estimateDocHeight({ type: 'doc', content: [entryParagraph(entry)] }, columnWidth, {
-        theme: deck.theme,
-      })
+      const doc: RichDoc = { type: 'doc', content: [entryParagraph(entry)] }
+      const height = estimateDocHeight(doc, columnWidth, { theme: deck.theme })
+      return height - tokens.blockSpacing + tokens.referenceEntryGap
     },
   })
 
