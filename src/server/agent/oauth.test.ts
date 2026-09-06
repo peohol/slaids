@@ -35,6 +35,7 @@ import {
   grantedScopes,
   looksLikeJwt,
   readOAuthConfig,
+  SUPABASE_DEFAULT_AUDIENCE,
   supabaseIssuer,
 } from './oauth'
 import type { AuthOutcome } from './tokens'
@@ -272,6 +273,58 @@ describe('påstandene i et ellers gyldig token', () => {
     expect((await verify(server, token)).ok).toBe(true)
   })
 
+  it('avviser Supabases egen mottaker når installasjonen har navngitt en smalere', async () => {
+    // The whole point of naming one. `authenticated` is on every user token the
+    // project issues, OAuth or not, so a configuration that added a narrower
+    // audience *beside* it would have narrowed nothing: the same tokens would
+    // still be accepted, and the setting would be a comment rather than a
+    // check.
+    const server = await testAuthorizationServer()
+    const resource = 'https://www.slaids.no/api/agent/v1/mcp'
+    const narrowed = { audiences: [resource] }
+
+    const ordinary = await server.sign(claims({ aud: 'authenticated' }))
+    expect(reasonOf(await verify(server, ordinary, narrowed))).toBe('oauth-audience')
+
+    const bound = await server.sign(claims({ aud: resource }))
+    expect((await verify(server, bound, narrowed)).ok).toBe(true)
+  })
+
+  it('avviser aud: authenticated for en installasjon som er satt opp med en Slaids-mottaker', async () => {
+    // The same claim as above, but end to end: the config comes out of
+    // `readOAuthConfig` from a real environment rather than being written by
+    // hand, because the bug this guards was in *building* the list and not in
+    // checking it. A test that handed the checker a narrowed list directly
+    // passed the whole time the setting did nothing.
+    const resource = 'https://www.slaids.no/api/agent/v1/mcp'
+    const config = readOAuthConfig(
+      { [OAUTH_OWNERS_VAR]: TEST_OWNER, [OAUTH_AUDIENCE_VAR]: resource },
+      { supabaseUrl: TEST_SUPABASE_URL },
+    )
+    if (!config) throw new Error('Forventet en OAuth-konfigurasjon.')
+
+    const server = await testAuthorizationServer()
+    const outcome = await authenticateOAuthToken({
+      token: await server.sign(claims({ aud: SUPABASE_DEFAULT_AUDIENCE })),
+      config,
+      jwks: server.jwks(),
+      now: NOW,
+    })
+    expect(reasonOf(outcome)).toBe('oauth-audience')
+  })
+
+  it('lar en installasjon navngi begge mens den går over', async () => {
+    // Tokens of both shapes are in the wild for up to an hour after a hook is
+    // turned on, and the list is how a deployment says so — for exactly as long
+    // as it means it.
+    const server = await testAuthorizationServer()
+    const resource = 'https://www.slaids.no/api/agent/v1/mcp'
+    const both = { audiences: ['authenticated', resource] }
+
+    expect((await verify(server, await server.sign(claims()), both)).ok).toBe(true)
+    expect((await verify(server, await server.sign(claims({ aud: resource })), both)).ok).toBe(true)
+  })
+
   it('avviser et vanlig innloggingstoken fra nettleseren', async () => {
     // The replay this protects against: a Supabase session token has the same
     // issuer, the same audience and the same signature chain as an OAuth one.
@@ -500,6 +553,14 @@ describe('oppsettet', () => {
     ).toBeNull()
   })
 
+  it('faller tilbake til Supabases egen mottaker når ingen er navngitt', async () => {
+    const config = readOAuthConfig(
+      { [OAUTH_OWNERS_VAR]: TEST_OWNER },
+      { supabaseUrl: TEST_SUPABASE_URL },
+    )
+    expect(config?.audiences).toEqual([SUPABASE_DEFAULT_AUDIENCE])
+  })
+
   it('utleder utsteder og nøkkelsett av Supabase-URL-en som allerede er satt', async () => {
     const config = readOAuthConfig(
       { [OAUTH_OWNERS_VAR]: TEST_OWNER },
@@ -525,6 +586,8 @@ describe('oppsettet', () => {
     expect([...(config?.clients ?? [])]).toEqual([TEST_CLIENT])
     // An unknown scope name is never treated as authority.
     expect(config?.defaultScopes).toEqual(['presentations:read', 'sharing:write'])
-    expect(config?.audiences).toEqual(['authenticated', 'https://www.slaids.no/api/agent/v1/mcp'])
+    // The configured list *is* the list: Supabase's own audience is the
+    // fallback for a deployment that named none, not a floor under one that did.
+    expect(config?.audiences).toEqual(['https://www.slaids.no/api/agent/v1/mcp'])
   })
 })

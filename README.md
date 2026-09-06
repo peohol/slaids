@@ -1109,8 +1109,19 @@ SLAIDS_AGENT_OAUTH_OWNERS=<uuid>[,<uuid>…]
 SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no  # adressen metadataen navngir
 SLAIDS_AGENT_OAUTH_CLIENTS=<client_id>[,…]  # bare disse OAuth-klientene
 SLAIDS_AGENT_OAUTH_SCOPES='presentations:read presentations:write assets:write'
-SLAIDS_AGENT_OAUTH_AUDIENCE=<aud>           # hvis du setter en egen med en hook
+SLAIDS_AGENT_OAUTH_AUDIENCE=<aud>[ <aud>…]  # hvis du setter en egen med en hook
 ```
+
+`SLAIDS_AGENT_OAUTH_AUDIENCE` **erstatter** standardmottakeren, den legges ikke
+til. Uten variabelen godtas Supabases egen `authenticated`; med den godtas
+nøyaktig det som står der og ingenting annet. Det er hele poenget med å sette
+den: `authenticated` står på hvert eneste brukertoken prosjektet utsteder, så en
+smalere mottaker *ved siden av* den ville ikke vært smalere i det hele tatt.
+
+Skal du gå over til en egen mottaker med en Custom Access Token Hook, lever
+tokens av begge slag i inntil en time. Da navngir du begge – `'authenticated
+https://www.slaids.no/api/agent/v1/mcp'` – og fjerner den første når timen har
+gått. Listen er overgangen, uttrykt, og bare så lenge du mener den.
 
 Utstederen og nøkkelsettet utledes av `SLAIDS_SUPABASE_URL` og har ingen egne
 variabler: autorisasjonsserveren og databasen *er* det samme prosjektet, og to
@@ -1337,7 +1348,10 @@ Slaids gjør nøyaktig det en OAuth-ressursserver skal gjøre, og ikke mer:
   `operation.scopes`, ikke skrevet ned et sted til.
 - **Verifiserer tokenet selv.** Signaturen sjekkes mot prosjektets JWKS
   (asymmetrisk, ES256), og utsteder, mottaker og utløp mot det installasjonen er
-  satt opp med. Ingenting leses ut av et token som ikke er verifisert.
+  satt opp med. Ingenting leses ut av et token som ikke er verifisert. Mottakeren
+  er `authenticated` – det Supabase utsteder – med mindre installasjonen har
+  navngitt en smalere i `SLAIDS_AGENT_OAUTH_AUDIENCE`, som da er den eneste som
+  godtas.
 
 #### Scopene er de samme
 

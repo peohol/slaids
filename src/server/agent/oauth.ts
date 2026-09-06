@@ -43,7 +43,9 @@
  *     another project is a token from another authorization server.
  *  4. **`aud` is one this resource accepts.** Supabase issues `authenticated`
  *     for every user token today, so that is the default; a deployment that
- *     arranges a narrower audience names it in `SLAIDS_AGENT_OAUTH_AUDIENCE`.
+ *     arranges a narrower audience names it in `SLAIDS_AGENT_OAUTH_AUDIENCE`,
+ *     which *replaces* the default rather than adding to it — otherwise the
+ *     narrower audience would be one every ordinary token still satisfied.
  *  5. **`client_id` is present.** This is the load-bearing one, and it is the
  *     closest thing to audience binding that today's Supabase can express: only
  *     a token minted through the OAuth authorization-code flow carries it. A
@@ -106,19 +108,33 @@ export const OAUTH_CLIENTS_VAR = 'SLAIDS_AGENT_OAUTH_CLIENTS'
 /** Optional: what an OAuth token that names no Slaids scopes may do. */
 export const OAUTH_SCOPES_VAR = 'SLAIDS_AGENT_OAUTH_SCOPES'
 
-/** Optional: extra `aud` values to accept, beside the two below. */
+/**
+ * The `aud` values this deployment accepts — **the whole list**, when it is set.
+ *
+ * Not "extra values beside the default", which is what this was and what made
+ * the setting worthless: a deployment that arranged for its tokens to carry the
+ * canonical MCP URL still accepted every token carrying only `authenticated`,
+ * so naming the narrower audience bought nothing. Setting it now *replaces* the
+ * default, which is the only reading under which it is the RFC 8707 binding it
+ * claims to be.
+ *
+ * It is a list, and that is the transition: a deployment turning a Custom Access
+ * Token Hook on has tokens of both shapes in the wild for up to an hour, and it
+ * says so by naming both — explicitly, and only for as long as it means it. A
+ * separate "accept the old one too" flag would be the same statement made
+ * implicitly, and it would outlive the transition it was added for.
+ */
 export const OAUTH_AUDIENCE_VAR = 'SLAIDS_AGENT_OAUTH_AUDIENCE'
 
 /**
- * The audience Supabase actually issues.
+ * The audience Supabase issues on its own, and this resource's fallback.
  *
  * Not a Slaids choice — it is what every user token from a Supabase project
- * carries, OAuth or not. MCP asks a resource server to reject tokens that were
- * not issued for it, and this string alone does not establish that, which is
- * why `client_id` (step 5 above) is checked as well and why
- * `SLAIDS_AGENT_OAUTH_AUDIENCE` exists: a deployment that makes its tokens
- * carry the canonical MCP URL — a Custom Access Token Hook can — gets the real
- * RFC 8707 binding by naming it there, with no code change here.
+ * carries, OAuth or not, so it establishes nothing about *which* resource a
+ * token was for. That is why `client_id` (step 5 above) is checked as well, and
+ * why it is only the default: a deployment that can do better says so in
+ * `SLAIDS_AGENT_OAUTH_AUDIENCE`, and that setting replaces this string rather
+ * than joining it.
  */
 export const SUPABASE_DEFAULT_AUDIENCE = 'authenticated'
 
@@ -199,15 +215,16 @@ export function readOAuthConfig(
   const issuer = supabaseIssuer(input.supabaseUrl)
   const clients = list(env[OAUTH_CLIENTS_VAR])
   const scopes = list(env[OAUTH_SCOPES_VAR]).filter(isAgentScope)
+  const configuredAudiences = list(env[OAUTH_AUDIENCE_VAR])
 
   return {
     issuer,
     jwksUri: `${issuer}/.well-known/jwks.json`,
-    // Supabase's own audience, plus anything this deployment has arranged to be
-    // issued instead — which is how a Custom Access Token Hook that sets `aud`
-    // to the canonical MCP URL, the real RFC 8707 binding, is honoured without
-    // a code change.
-    audiences: [...new Set([SUPABASE_DEFAULT_AUDIENCE, ...list(env[OAUTH_AUDIENCE_VAR])])],
+    // What this deployment accepts, and nothing else. A configured list
+    // *replaces* Supabase's own audience rather than joining it — see
+    // `OAUTH_AUDIENCE_VAR`: a narrower audience that the broader one still
+    // satisfies is not a narrower audience.
+    audiences: configuredAudiences.length > 0 ? configuredAudiences : [SUPABASE_DEFAULT_AUDIENCE],
     owners: new Set(owners),
     clients: clients.length > 0 ? new Set(clients) : null,
     defaultScopes: scopes.length > 0 ? scopes : DEFAULT_OAUTH_SCOPES,
