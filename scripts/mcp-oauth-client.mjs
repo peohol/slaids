@@ -43,10 +43,17 @@
  * access token as the last line of stdout, for `SLAIDS_OAUTH_TOKEN` in
  * `scripts/mcp-smoke.mjs` or the `SLAIDS_OAUTH_ACCESS_TOKEN` secret in Actions.
  * It is a credential for your own account, valid for about an hour; treat it
- * as one. A client secret, if a hand-registered confidential client needs one,
- * is read from `SLAIDS_OAUTH_CLIENT_SECRET` in the environment and from nowhere
+ * as one.
+ *
+ * **A hand-registered confidential client** brings a secret, and the secret is
+ * read from `SLAIDS_OAUTH_CLIENT_SECRET` in the environment and from nowhere
  * else, for the reason given at the top of the smoke script: an argument list
- * is readable by every process on the machine.
+ * is readable by every process on the machine. How the secret is presented has
+ * to be the method the client was registered with — the token endpoint
+ * refuses any other — so `--token-auth` names it: `client_secret_basic`
+ * (Supabase's default for confidential clients, and the default here whenever a
+ * secret is set), `client_secret_post`, or `none` for a public client. The
+ * client this script registers for itself is public, and needs none of this.
  *
  * Nothing a tool answered with is printed either — statuses and names only, so
  * the output is safe to paste into an issue.
@@ -78,6 +85,8 @@ const port = Number(flag('port') ?? '8765')
 const givenClientId = flag('client-id') ?? process.env.SLAIDS_OAUTH_CLIENT_ID ?? null
 /** Environment only. See the note at the top. */
 const clientSecret = process.env.SLAIDS_OAUTH_CLIENT_SECRET ?? null
+/** How the secret is presented. Supabase's default for confidential clients is Basic. */
+const tokenAuth = flag('token-auth') ?? (clientSecret ? 'client_secret_basic' : 'none')
 const scope = flag('scope') ?? null
 const printToken = has('print-token')
 const timeoutSeconds = Number(flag('timeout') ?? '600')
@@ -92,6 +101,32 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
   console.error(`Ugyldig --timeout «${flag('timeout')}». Bruk et antall sekunder.`)
+  process.exit(2)
+}
+if (!['none', 'client_secret_basic', 'client_secret_post'].includes(tokenAuth)) {
+  console.error(
+    `Ugyldig --token-auth «${tokenAuth}». Bruk none, client_secret_basic eller client_secret_post.`,
+  )
+  process.exit(2)
+}
+// A secret and its method belong together, and both belong to a client that was
+// registered by hand: the client this script registers for itself is public.
+if (tokenAuth === 'none' && clientSecret) {
+  console.error(
+    'SLAIDS_OAUTH_CLIENT_SECRET er satt, men --token-auth er none. En public klient har ingen\n' +
+      'hemmelighet; velg client_secret_basic (Supabases standard) eller client_secret_post.',
+  )
+  process.exit(2)
+}
+if (tokenAuth !== 'none' && !clientSecret) {
+  console.error(`--token-auth ${tokenAuth} krever SLAIDS_OAUTH_CLIENT_SECRET i miljøet.`)
+  process.exit(2)
+}
+if (tokenAuth !== 'none' && !givenClientId) {
+  console.error(
+    'En hemmelighet hører til en klient som er registrert for hånd. Oppgi den med --client-id;\n' +
+      'den dynamiske registreringen her lager en public klient uten hemmelighet.',
+  )
   process.exit(2)
 }
 
@@ -242,7 +277,7 @@ ok('autorisasjonsserverens metadata', `${server.issuer}, PKCE S256`)
 
 let clientId = givenClientId
 if (clientId) {
-  ok('klient', `bruker den oppgitte client_id-en${clientSecret ? ', med hemmelighet' : ''}`)
+  ok('klient', `bruker den oppgitte client_id-en${clientSecret ? `, med hemmelighet (${tokenAuth})` : ''}`)
 } else {
   // RFC 7591. A public client: no secret to keep, PKCE is the proof of
   // possession, which is exactly what a native/loopback client is meant to be.
@@ -371,11 +406,19 @@ const form = new URLSearchParams({
   code_verifier: verifier,
   resource,
 })
-if (clientSecret) form.set('client_secret', clientSecret)
+const tokenHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' }
+if (tokenAuth === 'client_secret_post') {
+  form.set('client_secret', clientSecret)
+} else if (tokenAuth === 'client_secret_basic') {
+  // RFC 6749 §2.3.1: the id and the secret, each form-urlencoded, joined with a
+  // colon and base64-encoded. The same thing `curl -u` does.
+  const credentials = `${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`
+  tokenHeaders.Authorization = `Basic ${Buffer.from(credentials).toString('base64')}`
+}
 
 const exchange = await json(server.token_endpoint, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  headers: tokenHeaders,
   body: form.toString(),
 })
 if (exchange.status !== 200 || typeof exchange.body?.access_token !== 'string') {

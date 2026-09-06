@@ -1476,7 +1476,7 @@ samme `authorization_id`-en.
    ok    protected resource metadata — ressursen er https://www.slaids.no/api/agent/v1/mcp
    ok    den samme metadataen på rot-adressen — identisk
    ok    autorisasjonsserveren finnes og er slått på — https://<ref>.supabase.co/auth/v1, PKCE S256
-   ok    dynamisk klientregistrering er på — på (en tom registrering avvises med 400)
+   ok    dynamisk klientregistrering er på — på (en tom registrering avvises med 400, …)
    ok    401-utfordringen peker på metadataen — peker på dokumentet
    ok    verktøyene sier at de krever OAuth — 51 verktøy, alle med oauth2
    ```
@@ -1519,32 +1519,6 @@ samme `authorization_id`-en.
 
 En godkjent app trekkes tilbake fra Supabase (Authentication → brukeren →
 OAuth grants), og et token slutter å virke innen en time uansett.
-
-#### Samtykkesiden ligger på en delt adresse
-
-Supabase bygger adressen til samtykkesiden av **Site URL + Authorization Path**,
-ikke av en full adresse man kan skrive inn: «The authorization path is combined
-with your Site URL … to create the full authorization endpoint URL.» Det finnes
-nøyaktig én Site URL per prosjekt, og den bestemmer hvilket domene som får være
-autorisasjonsflate for hele prosjektet.
-
-Prosjektet deles med Huskis og mdeditz, og Huskis dokumenterer
-`https://huskis.no` som Site URL og bruker den som fallback for Supabase Auth i
-flyter som ikke sender `redirectTo` selv. Å sette Site URL til Slaids er derfor
-ikke et isolert dashboardsteg: det bryter en invariant en annen app har skrevet
-ned, og en fremtidig Huskis-flyt som glemmer `redirectTo` ville landet i Slaids.
-
-**Slaids flytter derfor ikke Site URL.** I stedet skal
-`https://huskis.no/oauth/consent` svare med en omdirigering til
-`https://www.slaids.no/oauth/consent` som beholder `authorization_id`-parameteren
-– den er hele forespørselen, og en omdirigering som mister den sender brukeren
-til en samtykkeside uten noe å samtykke til. Omdirigeringen hører hjemme i
-Huskis-repoet; Authorization Path blir stående på `/oauth/consent`.
-
-Retningen er valgt fordi den feiler høyt og lokalt: ryker omdirigeringen, slutter
-Slaids' OAuth-samtykke å virke og ingenting annet endrer seg. Den andre
-retningen – å flytte Site URL – feiler stille, i en annen app, en gang i
-fremtiden.
 
 ### Katalogen er den samme katalogen
 

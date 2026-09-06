@@ -482,16 +482,38 @@ await check('dynamisk klientregistrering er på', async () => {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: '{}',
   })
+  let body
+  try {
+    body = await response.json()
+  } catch {
+    // Not JSON is a fact about the answer, and the status below says enough.
+    body = null
+  }
+  const code = [body?.error_code, body?.error].find((value) => typeof value === 'string') ?? ''
+  const said = code ? ` (${code})` : ''
+  // Only the one answer a working registration endpoint gives an empty
+  // registration counts: 400, the validation failure. Every other status is a
+  // fact of its own, and none of them is «på» — a rate limit in particular
+  // says nothing about the switch, and reading it as green would be guessing.
   expect(
-    response.status !== 403 && response.status !== 404,
-    `${endpoint} svarte ${response.status}. Er Dynamic Client Registration slått på i Supabase-prosjektet?\n` +
+    response.status !== 403,
+    `${endpoint} svarte 403${said}. Dynamic Client Registration er av i Supabase-prosjektet.\n` +
       'ChatGPT registrerer seg selv som klient, og kan ikke koble til uten.',
   )
   expect(
-    response.status >= 400 && response.status < 500,
-    `en tom registrering skulle vært avvist, men fikk ${response.status}`,
+    response.status !== 404,
+    `${endpoint} svarte 404${said}. Autorisasjonsserveren har ikke noe registreringsendepunkt der.`,
   )
-  return `på (en tom registrering avvises med ${response.status})`
+  expect(
+    response.status !== 429,
+    `${endpoint} svarte 429${said}: registreringen er rate-begrenset akkurat nå, så denne sjekken\n` +
+      'kan ikke si om den er på. Prøv igjen om litt.',
+  )
+  expect(
+    response.status === 400,
+    `en tom registrering skulle vært avvist med 400, men fikk ${response.status}${said}`,
+  )
+  return `på (en tom registrering avvises med 400${code ? `, ${code}` : ''})`
 })
 
 await check('401-utfordringen peker på metadataen', async () => {
