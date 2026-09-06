@@ -149,6 +149,7 @@ describe('planReferenceSlides', () => {
       id: `r${index}`,
       number: index + 1,
       text: `Referanse nummer ${index} med en ganske lang tittel som tar plass`,
+      label: `Referanse nummer ${index} med en ganske lang tittel som tar plass`,
       url: '',
     }))
     const plan = planReferenceSlides(many, { width: 1552, height: 400 })
@@ -160,6 +161,7 @@ describe('planReferenceSlides', () => {
       id: `r${index}`,
       number: index + 1,
       text: `Referanse ${index} med en veldig lang tittel som tar mye plass i kolonnen`,
+      label: `Referanse ${index} med en veldig lang tittel som tar mye plass i kolonnen`,
       url: '',
     }))
     const plan = planReferenceSlides(many, { width: 1552, height: 500 })

@@ -28,16 +28,16 @@ import type { ContentSlide, DeckSource, LayoutNode, RichDoc, RichNode, Slide } f
  */
 function entryParagraph(entry: ReferenceEntry): RichNode {
   const children: RichNode[] = [{ type: 'text', text: `${entry.number}. ` }]
+  if (entry.label) children.push({ type: 'text', text: entry.label })
   if (entry.url) {
-    const label = entry.text || entry.url
+    if (entry.label) children.push({ type: 'text', text: ' ⋅ ' })
     children.push({
       type: 'text',
-      text: label,
+      text: entry.url,
       marks: [{ type: 'link', attrs: { href: entry.url, target: '_blank' } }],
     })
-  } else {
-    children.push({ type: 'text', text: entry.text })
   }
+  if (!entry.label && !entry.url) children.push({ type: 'text', text: '' })
   return { type: 'paragraph', content: children }
 }
 
