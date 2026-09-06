@@ -117,6 +117,21 @@ function hasOpenDialog(): boolean {
   return document.querySelector('[role="dialog"]') !== null
 }
 
+/*
+ * A wheel tick smaller than this is trackpad noise, not an intentional
+ * scroll — without a deadzone the faint inertia at the end of a gesture would
+ * read as another step.
+ */
+const WHEEL_STEP_DEADZONE = 4
+
+/*
+ * One scroll gesture, one slide. A trackpad or a fast wheel fires many events
+ * for a single motion; without a cooldown between steps the deck would fly
+ * past several slides on one swipe instead of moving the one the arrow keys
+ * would.
+ */
+const WHEEL_STEP_COOLDOWN_MS = 350
+
 export function EditorView({
   presentationId,
   onClose,
@@ -752,6 +767,30 @@ export function EditorView({
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [presenting, redo, runStructural, setMode, toggleMode, undo])
+
+  /*
+   * The mouse wheel has exactly one job in the editor: step through the deck,
+   * the same slide the up and down arrow keys land on. Unlike those keys it is
+   * never shadowed — not by a focused text field, not by an open dialog, not
+   * by zone mode's own arrow-key meaning — because scrolling has no other
+   * meaning here for it to compete with; there is no page taller than the
+   * screen to scroll.
+   */
+  useEffect(() => {
+    let lastStepAt = 0
+    const onWheel = (event: WheelEvent): void => {
+      if (presenting) return
+      event.preventDefault()
+      if (Math.abs(event.deltaY) < WHEEL_STEP_DEADZONE) return
+      const now = Date.now()
+      if (now - lastStepAt < WHEEL_STEP_COOLDOWN_MS) return
+      lastStepAt = now
+      setDerivedView(null)
+      useEditorStore.getState().stepPage(event.deltaY > 0 ? 1 : -1)
+    }
+    window.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => window.removeEventListener('wheel', onWheel, { capture: true })
+  }, [presenting])
 
   /* -------------------------------------------------------------- *
    * Drag and drop

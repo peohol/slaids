@@ -103,6 +103,39 @@ test.describe('keyboard shortcuts', () => {
     await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
   })
 
+  test('mouse wheel pages through the deck, even with a caret in a field', async ({ page }) => {
+    await createPresentation(page, 'Musehjul')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+
+    await page.mouse.wheel(0, -120)
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+    // One page further up is the front page, which is the deck's first section.
+    await page.waitForTimeout(400)
+    await page.mouse.wheel(0, -120)
+    await expect(page.getByTestId('statusbar')).toContainText('Forside 1 av 3')
+    await page.waitForTimeout(400)
+    await page.mouse.wheel(0, 120)
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+
+    // Unlike the arrow keys, the wheel keeps paging with a caret in a field:
+    // it has no other job in the app to hand off to.
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    await stage(page).locator('.tiptap').last().click()
+    await page.waitForTimeout(400)
+    await page.mouse.wheel(0, -120)
+    await expect(page.getByTestId('statusbar')).toContainText('Forside 1 av 3')
+
+    // A single scroll gesture moves one slide, not several: repeated ticks
+    // inside the same gesture collapse into one step rather than flying past
+    // the deck the way five separate arrow presses would.
+    await page.waitForTimeout(400)
+    for (let i = 0; i < 5; i += 1) await page.mouse.wheel(0, 120)
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+  })
+
   test('Escape leaves zone editing for content editing', async ({ page }) => {
     await createPresentation(page, 'Escape ut av soner')
     await enterZoneMode(page)
