@@ -45,9 +45,10 @@
 # Et *ekte* OAuth-kall trenger et access token, og et slikt token skaffes bare
 # gjennom en interaktiv nettleserflyt. Skriptet starter aldri en, og denne
 # workflowen limer aldri et token inn i et input – nøyaktig av samme grunn som
-# over. Har du et kortlevd token å teste med, legg det i secreten
-# `SLAIDS_OAUTH_ACCESS_TOKEN` og slå på `oauth`. Det utløper av seg selv innen en
-# time, som er den beste egenskapen det har.
+# over. `node scripts/mcp-oauth-client.mjs --base-url … --print-token` kjører
+# flyten fra din egen maskin og skriver tokenet på siste linje; legg det i
+# secreten `SLAIDS_OAUTH_ACCESS_TOKEN` og slå på `oauth`. Det utløper av seg selv
+# innen en time, som er den beste egenskapen det har.
 #
 # ## Adressen
 #
