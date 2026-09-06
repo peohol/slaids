@@ -40,8 +40,12 @@ export interface PresentationPlayerProps {
   /** The share link, when sharing is on: what the derived QR page points at. */
   shareUrl?: string | null
   startIndex?: number
-  /** `null` in the public view: there is nowhere to go back to. */
-  onExit?: (() => void) | null
+  /**
+   * `null` in the public view: there is nowhere to go back to. Called with the
+   * id of the last authored slide the audience was shown, so the editor can
+   * return to exactly that slide rather than wherever it was before presenting.
+   */
+  onExit?: ((lastSlideId: string) => void) | null
 }
 
 export function PresentationPlayer({
@@ -67,6 +71,12 @@ export function PresentationPlayer({
   // on every edit, and the QR page goes when sharing is turned off.
   const lastIndex = Math.max(0, pages.length - 1)
   const current = Math.min(index, lastIndex)
+  // Only authored slides exist in `presentation.slides` for the editor to
+  // return to — a derived page (a reference slide, the QR page) has no slide
+  // of its own, so leaving from one of those hands back the last authored
+  // slide before it, which is always the deck's last one: authored slides are
+  // exactly the pages before the derived ones.
+  const lastAuthoredSlideId = deck.slides[Math.min(current, deck.slides.length - 1)].id
 
   const go = useCallback(
     (delta: number) => {
@@ -100,13 +110,13 @@ export function PresentationPlayer({
         case 'Escape':
           if (!onExit) return
           event.preventDefault()
-          onExit()
+          onExit(lastAuthoredSlideId)
           break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [go, lastIndex, onExit])
+  }, [go, lastIndex, onExit, lastAuthoredSlideId])
 
   const page = pages[current]
 
