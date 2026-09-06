@@ -19,7 +19,8 @@ export function PresentView({
   startIndex: number
   /** The live share link, so the author sees the QR page the audience will. */
   shareUrl?: string | null
-  onExit: () => void
+  /** Called with the id of the last slide shown, to select it back in the editor. */
+  onExit: (lastSlideId: string) => void
 }) {
   return (
     <PresentationPlayer

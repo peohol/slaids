@@ -921,7 +921,10 @@ export function EditorView({
         presentation={presentation}
         startIndex={presentation.slides.findIndex((entry) => entry.id === currentSlideId)}
         shareUrl={shareUrl}
-        onExit={() => setPresenting(false)}
+        onExit={(lastSlideId) => {
+          useEditorStore.getState().selectSlide(lastSlideId)
+          setPresenting(false)
+        }}
       />
     )
   }

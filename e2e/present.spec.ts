@@ -80,6 +80,28 @@ test.describe('presentation mode', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('returns to the last slide shown, not the one presenting started from', async ({ page }) => {
+    await createPresentation(page, 'Tilbake til riktig slide')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+
+    // Select the cover before presenting, so leaving would return there if the
+    // editor's prior selection were used instead of where presenting left off.
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('filmstrip-item').first()).toHaveClass(/filmstrip__item--active/)
+
+    await page.getByTestId('present').click()
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 1, count: 4 })
+    await page.keyboard.press('End')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 4, count: 4 })
+
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(page.getByTestId('filmstrip-item').last()).toHaveClass(/filmstrip__item--active/)
+  })
+
   test('renders the same content as the editor', async ({ page }) => {
     await createPresentation(page, 'Samme innhold')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
