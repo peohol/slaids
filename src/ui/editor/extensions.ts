@@ -13,7 +13,7 @@ import { Placeholder } from '@tiptap/extensions'
 import { bestTextColor } from '../../domain/color'
 import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
-import type { Extensions } from '@tiptap/react'
+import type { Editor, Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
 import { PlainPasteExtension } from './PlainPasteExtension'
@@ -96,18 +96,30 @@ export const ALIGNMENTS = ['left', 'center', 'right'] as const
 export type Alignment = (typeof ALIGNMENTS)[number]
 
 /**
- * Alignment, written down every time rather than only when it differs from the
- * default.
+ * Alignment: stored only when somebody picked one, drawn always.
  *
- * Tiptap's own rule is to omit the style for whichever value the default
- * happens to be, which would make the editor's markup and `RichDocView`'s
- * markup differ for exactly one alignment — the common one. That difference is
- * not cosmetic: a heading pill is `max-content` wide and a picture is narrower
- * than its column, so both are placed by `margin-inline` through selectors that
- * read the inline style. Omitting it would leave a centred pill sitting at the
- * left while it is being edited and centred everywhere else. Writing it always
- * keeps one stylesheet correct for both renderers, and keeps the default a
- * thing only `DEFAULT_TEXT_ALIGN` decides.
+ * Two separate things, and Tiptap's own attribute conflates them. Its rule is
+ * that whichever value is configured as the default becomes the attribute's
+ * schema default *and* the one value whose style is left unwritten. Both halves
+ * are wrong here.
+ *
+ * A schema default is not "absent": ProseMirror fills it into every node, and
+ * `editor.getJSON()` writes it back out — so configuring `center` as the
+ * default would stamp `textAlign: "center"` into every previously unaligned
+ * paragraph the first time anyone typed in the field. That is the exact
+ * opposite of what the default is for: absent has to *stay* absent, so the
+ * default can be moved later without rewriting a single document, and so a
+ * paragraph somebody centred on purpose stays distinguishable from one nobody
+ * touched. `null` is how this codebase already stores "not chosen" — see the
+ * heading pill's colour, a few lines down.
+ *
+ * And the style has to be written every time, including for absent. Omitting
+ * it would make the editor's markup differ from `RichDocView`'s for exactly one
+ * alignment — the common one — and that difference is not cosmetic: a heading
+ * pill is `max-content` wide and a picture is narrower than its column, so both
+ * are placed by `margin-inline` through selectors that read the inline style. A
+ * centred pill would sit at the left while it was being edited and centred
+ * everywhere else.
  */
 const SlaidsTextAlign = TextAlign.extend({
   addGlobalAttributes() {
@@ -117,23 +129,46 @@ const SlaidsTextAlign = TextAlign.extend({
         ...group.attributes,
         textAlign: {
           ...(group.attributes as Record<string, object>).textAlign,
-          renderHTML: (attributes: Record<string, unknown>) =>
-            typeof attributes.textAlign === 'string'
-              ? { style: `text-align: ${attributes.textAlign}` }
-              : {},
+          default: null,
+          parseHTML: (element: HTMLElement) => {
+            const value = element.style.textAlign
+            return (ALIGNMENTS as readonly string[]).includes(value) ? value : null
+          },
+          renderHTML: (attributes: Record<string, unknown>) => ({
+            style: `text-align: ${
+              typeof attributes.textAlign === 'string' ? attributes.textAlign : DEFAULT_TEXT_ALIGN
+            }`,
+          }),
         },
       },
     }))
   },
 })
 
-/** The alignment extension every field shares, differing only in what it applies to. */
+/**
+ * The alignment extension every field shares, differing only in what it applies
+ * to.
+ *
+ * No `defaultAlignment`: what an unaligned block looks like is decided by the
+ * `renderHTML` above and by `RichDocView`, both from `DEFAULT_TEXT_ALIGN`.
+ * Passing it here would only set the schema default this extension exists to
+ * keep at `null`.
+ */
 function textAlignFor(types: string[]) {
-  return SlaidsTextAlign.configure({
-    types,
-    alignments: [...ALIGNMENTS],
-    defaultAlignment: DEFAULT_TEXT_ALIGN,
-  })
+  return SlaidsTextAlign.configure({ types, alignments: [...ALIGNMENTS] })
+}
+
+/**
+ * Whether the caret sits in a block that is drawn with this alignment.
+ *
+ * Not the same question as "does it store this alignment": a block nobody has
+ * aligned stores nothing and is drawn with `DEFAULT_TEXT_ALIGN`, so the toolbar
+ * has to light that button up — it says what the text on screen looks like, and
+ * the button and the slide would otherwise disagree.
+ */
+export function alignmentIsActive(editor: Editor, value: Alignment): boolean {
+  if (editor.isActive({ textAlign: value })) return true
+  return value === DEFAULT_TEXT_ALIGN && editor.isActive({ textAlign: null })
 }
 
 /**

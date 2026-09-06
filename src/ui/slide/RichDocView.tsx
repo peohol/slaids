@@ -8,10 +8,9 @@
 
 import { Fragment, type ReactNode } from 'react'
 import { citationLabel } from '../../domain/references'
-import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
 import { bestTextColor } from '../../domain/color'
-import { inlineImageOf } from '../../domain/richdoc'
-import type { RichDoc, RichMark, RichNode } from '../../domain/types'
+import { drawnAlign, inlineImageOf } from '../../domain/richdoc'
+import type { RichDoc, RichMark, RichNode, TextAlign } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
 
@@ -84,10 +83,7 @@ function SlaidsImage({ node }: { node: RichNode }) {
         {
           width: `${image.widthPercent}%`,
           '--slaids-image-aspect': image.aspect === null ? undefined : String(image.aspect),
-          // Resolved here rather than in `inlineImageOf`, for the same reason
-          // a paragraph's is: what is *stored* is what the agent's text format
-          // reports, and a picture nobody aligned stores nothing.
-          textAlign: image.align ?? DEFAULT_TEXT_ALIGN,
+          textAlign: drawnAlign(image.align),
         } as React.CSSProperties
       }
     >
@@ -97,23 +93,16 @@ function SlaidsImage({ node }: { node: RichNode }) {
 }
 
 /**
- * The stored alignment, as the same inline style Tiptap writes.
+ * The alignment a block is drawn with, as the same inline style Tiptap writes.
  *
  * Identical markup from both renderers is what lets one stylesheet position a
  * heading pill (which is `max-content` wide and needs margins, not text-align)
- * without knowing which renderer drew it.
- *
- * A block that stores no alignment is drawn with the default rather than with
- * nothing: the editor fills the attribute in from `DEFAULT_TEXT_ALIGN` the
- * moment the document is loaded, so a block written by a command or by the
- * agent has to be drawn the way it will look the first time somebody opens it.
+ * without knowing which renderer drew it — so a block that stores nothing is
+ * written out with the default here too, never left bare. `drawnAlign` is the
+ * one place absent becomes a value.
  */
 function alignStyle(node: RichNode): React.CSSProperties {
-  const align = node.attrs?.textAlign
-  if (align !== 'center' && align !== 'right' && align !== 'left') {
-    return { textAlign: DEFAULT_TEXT_ALIGN }
-  }
-  return { textAlign: align }
+  return { textAlign: drawnAlign(node.attrs?.textAlign as TextAlign | undefined) }
 }
 
 function renderNodes(nodes: RichNode[] | undefined): ReactNode {

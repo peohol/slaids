@@ -996,12 +996,28 @@ flyttes uten å skrive om ett eneste lagret dokument, og at et felt noen
 *har* justert beholder justeringen sin. Editoren, den statiske rendringen og
 agentens lesing løser alle fravær gjennom de samme to konstantene.
 
-Editoren skriver justeringen ut hver gang, ikke bare når den avviker fra
-standarden. Tiptaps egen regel er det motsatte, og den ville gjort editorens
-markup ulik `RichDocView` sin for nøyaktig én justering – den vanligste. Den
-forskjellen er ikke kosmetisk: en overskriftspille er `max-content` bred og et
-bilde er smalere enn spalten sin, så begge plasseres med `margin-inline` gjennom
-selektorer som leser inline-stilen.
+Tiptaps egen justeringsattributt slår de to spørsmålene sammen, og må derfor
+deles opp: verdien man konfigurerer som standard blir både attributtets
+skjemastandard *og* den ene verdien hvis stil ikke skrives ut. Begge halvdeler
+er gale her.
+
+En skjemastandard er ikke «fravær»: ProseMirror fyller den inn i hver node, og
+`editor.getJSON()` skriver den rett ut igjen – så `center` som skjemastandard
+ville stemplet `textAlign: "center"` inn i hvert tidligere ujustert avsnitt
+første gang noen skrev i feltet, altså akkurat det motsatte av det standarden er
+til for. Attributten står derfor på `null`, som er måten dette kodebasen
+allerede lagrer «ikke valgt» på – se overskriftspillens farge.
+
+Og stilen skrives ut hver gang, fravær inkludert. Å utelate den ville gjort
+editorens markup ulik `RichDocView` sin for nøyaktig én justering – den
+vanligste – og den forskjellen er ikke kosmetisk: en overskriftspille er
+`max-content` bred og et bilde er smalere enn spalten sin, så begge plasseres
+med `margin-inline` gjennom selektorer som leser inline-stilen.
+
+Verktøylinja spør et tredje spørsmål, og skal ha det tredje svaret: knappen som
+lyser er den justeringen teksten *tegnes* med, ikke den som er lagret
+(`alignmentIsActive`). Ellers ville et midtstilt avsnitt ingen har justert vist
+ingen knapp som valgt.
 
 **En justert listeboks flytter seg som én ting – kulepunkt og tekst sammen.**
 Å justere avsnittet inne i punktet er ikke nok, og ser ødelagt ut: et

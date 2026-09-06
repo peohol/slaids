@@ -13,7 +13,7 @@ import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
 import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
-import type { Alignment } from './extensions'
+import { alignmentIsActive, type Alignment } from './extensions'
 import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
@@ -90,7 +90,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           <button
             type="button"
             className={
-              editor.isActive({ textAlign: value })
+              alignmentIsActive(editor, value)
                 ? 'btn btn--sm btn--icon btn--active'
                 : 'btn btn--sm btn--icon'
             }
@@ -98,7 +98,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
             onClick={() => editor.chain().focus().setTextAlign(value).run()}
             data-testid={`align-${value}`}
             aria-label={label}
-            aria-pressed={editor.isActive({ textAlign: value })}
+            aria-pressed={alignmentIsActive(editor, value)}
           >
             <Icon name={icon} size={15} />
           </button>
