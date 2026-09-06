@@ -109,6 +109,7 @@ test.describe('keyboard shortcuts', () => {
     await page.getByTestId('new-slide-without-title').click()
     await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
 
+    await stage(page).hover()
     await page.mouse.wheel(0, -120)
     await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
     // One page further up is the front page, which is the deck's first section.
@@ -134,6 +135,25 @@ test.describe('keyboard shortcuts', () => {
     await page.waitForTimeout(400)
     for (let i = 0; i < 5; i += 1) await page.mouse.wheel(0, 120)
     await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+  })
+
+  test('mouse wheel scrolls the filmstrip and inspector instead of paging the deck', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Musehjul over paneler')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+
+    await page.getByTestId('filmstrip').hover()
+    await page.mouse.wheel(0, 120)
+    await page.waitForTimeout(400)
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+
+    await page.getByTestId('inspector').hover()
+    await page.mouse.wheel(0, 120)
+    await page.waitForTimeout(400)
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
   })
 
   test('Escape leaves zone editing for content editing', async ({ page }) => {

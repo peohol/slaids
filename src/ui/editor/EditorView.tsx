@@ -769,17 +769,19 @@ export function EditorView({
   }, [presenting, redo, runStructural, setMode, toggleMode, undo])
 
   /*
-   * The mouse wheel has exactly one job in the editor: step through the deck,
-   * the same slide the up and down arrow keys land on. Unlike those keys it is
-   * never shadowed — not by a focused text field, not by an open dialog, not
-   * by zone mode's own arrow-key meaning — because scrolling has no other
-   * meaning here for it to compete with; there is no page taller than the
-   * screen to scroll.
+   * The mouse wheel steps through the deck, the same slide the up and down
+   * arrow keys land on — but only while it hovers the stage itself. The
+   * filmstrip and inspector panels can scroll their own content, and every
+   * stage variant (editor, section, read-only derived page) shares the same
+   * `stage-viewport` root, so that's the one selector this checks against
+   * rather than naming the panels to exclude.
    */
   useEffect(() => {
     let lastStepAt = 0
     const onWheel = (event: WheelEvent): void => {
       if (presenting) return
+      const target = event.target instanceof Element ? event.target : null
+      if (!target?.closest('[data-testid="stage-viewport"]')) return
       event.preventDefault()
       if (Math.abs(event.deltaY) < WHEEL_STEP_DEADZONE) return
       const now = Date.now()
