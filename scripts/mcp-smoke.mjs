@@ -29,7 +29,8 @@
  *
  * An **OAuth** access token is read from `SLAIDS_OAUTH_TOKEN` and from nowhere
  * else — there is deliberately no flag for it. Obtaining one is an interactive
- * browser flow, so this script never starts one and never depends on one: the
+ * browser flow (`scripts/mcp-oauth-client.mjs` runs it, and `--print-token`
+ * hands the token over), so this script never starts one and never depends on one: the
  * OAuth half below runs only if a token was handed to it, and everything about
  * the OAuth *contract* that a client can see without a credential — the metadata
  * document, the challenge that points at it, the authorization server behind it
@@ -373,6 +374,8 @@ console.log('\nOAuth-oppdagelse uten Authorization')
 
 /** The metadata document, or `null` when this deployment offers no OAuth. */
 let resourceMetadata = null
+/** The authorization server's own metadata, once it has answered. */
+let authorizationServer = null
 
 /**
  * The metadata document at one address, or `null` when there is none there.
@@ -444,6 +447,13 @@ await check('autorisasjonsserveren finnes og er slått på', async () => {
     `${discovery} svarte ${response.status}. Er OAuth 2.1 Server slått på i Supabase-prosjektet?`,
   )
   const metadata = await response.json()
+  // RFC 8414 §3.3: the document has to name the issuer it was fetched for, or
+  // a client has been handed some other server's endpoints — and every token
+  // it then brings back carries an `iss` Slaids will refuse.
+  expect(
+    typeof metadata.issuer === 'string' && metadata.issuer.replace(/\/+$/, '') === issuer,
+    `metadataens «issuer» er ${metadata.issuer}, men ressursen navnga ${issuer}`,
+  )
   expect(typeof metadata.authorization_endpoint === 'string', 'ingen authorization_endpoint')
   expect(typeof metadata.token_endpoint === 'string', 'ingen token_endpoint')
   expect(
@@ -451,8 +461,59 @@ await check('autorisasjonsserveren finnes og er slått på', async () => {
       metadata.code_challenge_methods_supported.includes('S256'),
     'autorisasjonsserveren annonserer ikke PKCE med S256, som OAuth 2.1 krever',
   )
-  const registration = typeof metadata.registration_endpoint === 'string'
-  return `PKCE S256, dynamisk klientregistrering ${registration ? 'på' : 'av'}`
+  authorizationServer = metadata
+  return `${metadata.issuer}, PKCE S256`
+})
+
+await check('dynamisk klientregistrering er på', async () => {
+  if (!authorizationServer) return 'hoppet over'
+  // ChatGPT registers itself as a client the moment a connector is created, and
+  // can do nothing without that. The probe is an *empty* registration: a server
+  // with registration on refuses it for what it lacks (400), one with it off
+  // refuses it for what it is (403), and neither leaves anything behind —
+  // nothing was registered either way. Whether the metadata happens to list a
+  // `registration_endpoint` says nothing by itself.
+  const endpoint =
+    typeof authorizationServer.registration_endpoint === 'string'
+      ? authorizationServer.registration_endpoint
+      : `${authorizationServer.issuer.replace(/\/+$/, '')}/oauth/clients/register`
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: '{}',
+  })
+  let body
+  try {
+    body = await response.json()
+  } catch {
+    // Not JSON is a fact about the answer, and the status below says enough.
+    body = null
+  }
+  const code = [body?.error_code, body?.error].find((value) => typeof value === 'string') ?? ''
+  const said = code ? ` (${code})` : ''
+  // Only the one answer a working registration endpoint gives an empty
+  // registration counts: 400, the validation failure. Every other status is a
+  // fact of its own, and none of them is «på» — a rate limit in particular
+  // says nothing about the switch, and reading it as green would be guessing.
+  expect(
+    response.status !== 403,
+    `${endpoint} svarte 403${said}. Dynamic Client Registration er av i Supabase-prosjektet.\n` +
+      'ChatGPT registrerer seg selv som klient, og kan ikke koble til uten.',
+  )
+  expect(
+    response.status !== 404,
+    `${endpoint} svarte 404${said}. Autorisasjonsserveren har ikke noe registreringsendepunkt der.`,
+  )
+  expect(
+    response.status !== 429,
+    `${endpoint} svarte 429${said}: registreringen er rate-begrenset akkurat nå, så denne sjekken\n` +
+      'kan ikke si om den er på. Prøv igjen om litt.',
+  )
+  expect(
+    response.status === 400,
+    `en tom registrering skulle vært avvist med 400, men fikk ${response.status}${said}`,
+  )
+  return `på (en tom registrering avvises med 400${code ? `, ${code}` : ''})`
 })
 
 await check('401-utfordringen peker på metadataen', async () => {

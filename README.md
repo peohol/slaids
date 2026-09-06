@@ -1320,8 +1320,10 @@ bruker, ingen ny konto og ingen ny passordbase.
    gang – uten pålogging, siden discovery er offentlig.
 2. Første gang du ber ChatGPT gjøre noe med presentasjonene dine, sier den at
    Slaids krever pålogging.
-3. Du blir sendt til Slaids' egen samtykkeside, logger inn slik du pleier, og
-   godkjenner at ChatGPT får jobbe med dekkene dine.
+3. Du blir sendt til Slaids' egen samtykkeside (via `huskis.no`, som bare
+   sender deg videre – se «Samtykkesiden ligger på en delt adresse» under),
+   logger inn slik du pleier, og godkjenner at ChatGPT får jobbe med dekkene
+   dine.
 4. ChatGPT får et tidsbegrenset token og fornyer det selv. Du gjør ingenting mer.
 5. ChatGPT ser bare **dine** presentasjoner – de samme du ser i biblioteket.
 
@@ -1388,21 +1390,24 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
      metadata `feature_disabled`, og ingen klient kommer forbi pålogging;
    - slå på **Dynamic Client Registration**. ChatGPT registrerer seg selv som
      klient, og uten den finnes det ingen `client_id` å godkjenne;
-   - sett **Authorization Path** til `/oauth/consent`.
+   - sett **Authorization Path** til `/oauth/consent`;
+   - la **JWT Signing Keys** være. Prosjektet signerer allerede med ES256 og
+     publiserer nøkkelsettet på `…/auth/v1/.well-known/jwks.json`; det er den
+     verifiseringen bruker, og en symmetrisk algoritme nekter den å bruke.
 3. **Veien fram til samtykkesiden**, som ikke går gjennom Slaids' eget domene og
    ikke ordnes i dette repoet. Se «Samtykkesiden ligger på en delt adresse»
    under – og les den før du rører noe i Authentication → URL Configuration.
-4. **Servervariabelen i Vercel**: `SLAIDS_AGENT_OAUTH_OWNERS`, uten
-   `VITE_`-prefiks, med Supabase-bruker-ID-en som skal få koble seg på. Den er
-   hele på-knappen. `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no` er *ikke*
+4. **Servervariablene i Vercel** (Settings → Environment Variables, for
+   Production), uten `VITE_`-prefiks. `SLAIDS_AGENT_OAUTH_OWNERS` med
+   Supabase-bruker-ID-en som skal få koble seg på – den samme eieren
+   RLS-policyene er festet til, `SLAIDS_OWNER_ID` i `src/supabase/access.ts` –
+   er hele på-knappen. `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no` er *ikke*
    påkrevd – uten den leses adressen av forespørselen – men bør settes i
-   produksjon, av grunnen som står under «Servermiljø». Variabler leses ved
-   oppstart, så deployen må kjøres på nytt etterpå.
-
-`node scripts/mcp-smoke.mjs --base-url https://www.slaids.no` går gjennom hele
-den offentlige halvdelen etterpå og sier hva som eventuelt mangler – den ser
-blant annet forskjell på «OAuth 2.1 Server er ikke slått på i Supabase» og
-«installasjonen har ingen eierliste».
+   produksjon, av grunnen som står under «Servermiljø». **Ikke sett
+   `SLAIDS_AGENT_OAUTH_AUDIENCE`:** Supabase utsteder `aud: "authenticated"`,
+   og en annen verdi ville avvist hvert eneste token prosjektet faktisk lager.
+   Variabler leses ved oppstart, så deployen må kjøres på nytt etterpå –
+   Deployments → ⋯ → Redeploy, eller en ny merge til `main`.
 
 #### Samtykkesiden ligger på en delt adresse
 
@@ -1417,6 +1422,7 @@ Prosjektet deles med Huskis og mdeditz, og Huskis dokumenterer
 flyter som ikke sender `redirectTo` selv. Å sette Site URL til Slaids er derfor
 ikke et isolert dashboardsteg: det bryter en invariant en annen app har skrevet
 ned, og en fremtidig Huskis-flyt som glemmer `redirectTo` ville landet i Slaids.
+mdeditz bruker ikke Supabase Auth, og er upåvirket uansett.
 
 **Slaids flytter derfor ikke Site URL.** I stedet skal
 `https://huskis.no/oauth/consent` svare med en omdirigering til
@@ -1429,6 +1435,90 @@ Retningen er valgt fordi den feiler høyt og lokalt: ryker omdirigeringen, slutt
 Slaids' OAuth-samtykke å virke og ingenting annet endrer seg. Den andre
 retningen – å flytte Site URL – feiler stille, i en annen app, en gang i
 fremtiden.
+
+Konkret er det én `redirects`-regel i Huskis' `vercel.json`, og ingenting annet
+i Huskis endres:
+
+```json
+{
+  "redirects": [
+    {
+      "source": "/oauth/consent",
+      "has": [
+        { "type": "query", "key": "authorization_id", "value": "(?<authorization_id>.*)" }
+      ],
+      "destination": "https://www.slaids.no/oauth/consent?authorization_id=:authorization_id",
+      "permanent": false
+    }
+  ]
+}
+```
+
+`has` fanger `authorization_id` fra spørrestrengen og setter den inn i målet,
+eksplisitt, så forespørselen kommer fram uansett hva plattformen gjør med
+spørrestrenger på egen hånd. Redirects avgjøres før rewrites, så Huskis' egen
+SPA-rewrite ser aldri adressen. På Slaids-siden ligger `/oauth/consent` bak
+`AuthGate`: eieren logger inn som vanlig – med passord, uten omdirigering, så
+forespørselen overlever påloggingen – og ser deretter samtykkeskjermen for den
+samme `authorization_id`-en.
+
+#### Slik verifiserer du at det virker, i rekkefølge
+
+1. **Uten legitimasjon**, fra hvor som helst:
+
+   ```bash
+   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+   ```
+
+   – eller «MCP smoke test» under Actions, som kjører det samme. Se etter:
+
+   ```text
+   ok    protected resource metadata — ressursen er https://www.slaids.no/api/agent/v1/mcp
+   ok    den samme metadataen på rot-adressen — identisk
+   ok    autorisasjonsserveren finnes og er slått på — https://<ref>.supabase.co/auth/v1, PKCE S256
+   ok    dynamisk klientregistrering er på — på (en tom registrering avvises med 400, …)
+   ok    401-utfordringen peker på metadataen — peker på dokumentet
+   ok    verktøyene sier at de krever OAuth — 51 verktøy, alle med oauth2
+   ```
+
+   Den ser forskjell på «OAuth 2.1 Server er ikke slått på i Supabase»,
+   «Dynamic Client Registration er av» og «installasjonen har ingen eierliste».
+2. **Hele flyten, som en ekte klient**, fra din egen maskin og uten ChatGPT:
+
+   ```bash
+   node scripts/mcp-oauth-client.mjs --base-url https://www.slaids.no
+   ```
+
+   Skriptet registrerer seg som klient (det er den dynamiske registreringen i
+   bruk), skriver ut en adresse du åpner i nettleseren, tar imot koden på
+   `127.0.0.1` når du har gitt tilgang på samtykkesiden, bytter den i et token
+   og gjør ett ekte, autentisert `tools/call`. Går det gjennom, er alt som
+   gjenstår for ChatGPT ChatGPT. `--print-token` skriver tokenet på siste
+   linje, for `SLAIDS_OAUTH_TOKEN` i smoke-testen eller secreten
+   `SLAIDS_OAUTH_ACCESS_TOKEN` i Actions; det utløper innen en time.
+3. **ChatGPT.** Settings → Apps & Connectors → Advanced settings → slå på
+   **Developer mode**. Så Create: navn «Slaids», MCP Server URL
+   `https://www.slaids.no/api/agent/v1/mcp`, Authentication **OAuth**, og la
+   client id og secret stå tomme – ChatGPT registrerer seg selv. Verktøylisten
+   dukker opp med én gang. Første gang du ber om noe – «list presentasjonene
+   mine i Slaids» – sender ChatGPT deg gjennom påloggingen over, og kaller
+   deretter `slaids_list_presentations` med et OAuth-token.
+4. **Auditloggen** sier det samme fra innsiden:
+
+   ```sql
+   select at, principal_kind, client_id, operation, status
+   from public.slaids_agent_audit
+   order by at desc
+   limit 10;
+   ```
+
+   Radene skal ha `principal_kind = 'oauth'`, `token_id` som `null`, og en
+   `client_id` som stemmer med ChatGPT-klienten under Authentication → OAuth
+   Apps i Supabase. Vil du at bare den klienten skal slippe inn, er det
+   `SLAIDS_AGENT_OAUTH_CLIENTS`.
+
+En godkjent app trekkes tilbake fra Supabase (Authentication → brukeren →
+OAuth grants), og et token slutter å virke innen en time uansett.
 
 ### Katalogen er den samme katalogen
 
