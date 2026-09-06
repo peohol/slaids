@@ -9,8 +9,8 @@
 import { Fragment, type ReactNode } from 'react'
 import { citationLabel } from '../../domain/references'
 import { bestTextColor } from '../../domain/color'
-import { inlineImageOf } from '../../domain/richdoc'
-import type { RichDoc, RichMark, RichNode } from '../../domain/types'
+import { drawnAlign, inlineImageOf } from '../../domain/richdoc'
+import type { RichDoc, RichMark, RichNode, TextAlign } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
 
@@ -83,7 +83,7 @@ function SlaidsImage({ node }: { node: RichNode }) {
         {
           width: `${image.widthPercent}%`,
           '--slaids-image-aspect': image.aspect === null ? undefined : String(image.aspect),
-          ...(image.align ? { textAlign: image.align } : {}),
+          textAlign: drawnAlign(image.align),
         } as React.CSSProperties
       }
     >
@@ -93,16 +93,16 @@ function SlaidsImage({ node }: { node: RichNode }) {
 }
 
 /**
- * The stored alignment, as the same inline style Tiptap writes.
+ * The alignment a block is drawn with, as the same inline style Tiptap writes.
  *
  * Identical markup from both renderers is what lets one stylesheet position a
  * heading pill (which is `max-content` wide and needs margins, not text-align)
- * without knowing which renderer drew it.
+ * without knowing which renderer drew it — so a block that stores nothing is
+ * written out with the default here too, never left bare. `drawnAlign` is the
+ * one place absent becomes a value.
  */
-function alignStyle(node: RichNode): React.CSSProperties | undefined {
-  const align = node.attrs?.textAlign
-  if (align !== 'center' && align !== 'right' && align !== 'left') return undefined
-  return { textAlign: align }
+function alignStyle(node: RichNode): React.CSSProperties {
+  return { textAlign: drawnAlign(node.attrs?.textAlign as TextAlign | undefined) }
 }
 
 function renderNodes(nodes: RichNode[] | undefined): ReactNode {

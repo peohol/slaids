@@ -15,7 +15,8 @@ import {
   INLINE_IMAGE_MAX_WIDTH_PERCENT,
   INLINE_IMAGE_MIN_WIDTH_PERCENT,
 } from '../../domain/constants'
-import { IMAGE_NODE } from '../../domain/richdoc'
+import { drawnAlign, IMAGE_NODE } from '../../domain/richdoc'
+import type { TextAlign } from '../../domain/types'
 import { InlineAssetImage } from '../slide/AssetImage'
 
 declare module '@tiptap/core' {
@@ -221,7 +222,11 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
   const assetId = typeof node.attrs.assetId === 'string' ? node.attrs.assetId : null
   const stored = Number(node.attrs.widthPercent)
   const aspect = Number(node.attrs.aspect)
-  const align = node.attrs.textAlign
+  // Resolved through the same function the static renderer uses: a node view
+  // draws its own DOM, so `renderHTML` — and with it the alignment attribute's
+  // own rendering — never runs here. A picture nobody aligned would otherwise
+  // be the one block drawn one way while it is edited and another on the slide.
+  const align = drawnAlign(node.attrs.textAlign as TextAlign | undefined)
   const wrapperRef = useRef<HTMLDivElement>(null)
   /** Width while a drag is in flight; the document only learns about it on release. */
   const [dragPercent, setDragPercent] = useState<number | null>(null)
@@ -275,9 +280,7 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
           '--slaids-image-aspect': Number.isFinite(aspect) && aspect > 0 ? String(aspect) : undefined,
           // The same inline style the static renderer writes, so one stylesheet
           // positions the picture in both.
-          ...(align === 'center' || align === 'right' || align === 'left'
-            ? { textAlign: align as 'center' | 'right' | 'left' }
-            : {}),
+          textAlign: align,
         } as React.CSSProperties
       }
     >

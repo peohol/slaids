@@ -6,7 +6,11 @@
  * numbering pass alike.
  */
 
-import { INLINE_IMAGE_MAX_WIDTH_PERCENT, INLINE_IMAGE_MIN_WIDTH_PERCENT } from './constants'
+import {
+  DEFAULT_TEXT_ALIGN,
+  INLINE_IMAGE_MAX_WIDTH_PERCENT,
+  INLINE_IMAGE_MIN_WIDTH_PERCENT,
+} from './constants'
 import type { RichDoc, RichNode, TextAlign, TitleDoc } from './types'
 
 export const CITATION_NODE = 'citation'
@@ -50,8 +54,24 @@ export interface InlineImage {
   widthPercent: number
   /** Intrinsic width / height, or `null` in a document written before it. */
   aspect: number | null
-  /** Where the picture sits in its column, or `null` for the default. */
+  /** Where the picture sits in its column, or `null` when it stores no choice. */
   align: TextAlign | null
+}
+
+/**
+ * The alignment a block is *drawn* with: its own, or the default when it stores
+ * none.
+ *
+ * Separate from what a block stores, and deliberately the only place the two
+ * meet. Every renderer resolves absent through here — the static one, the
+ * editor's picture node view, and the fit measurement that reads the same
+ * markup — so a block nobody aligned cannot end up drawn one way while it is
+ * edited and another way on the slide. What is *stored* stays untouched: that
+ * is what the agent's text format reports, and what lets the default move
+ * later without rewriting a single document.
+ */
+export function drawnAlign(align: TextAlign | null | undefined): TextAlign {
+  return align === 'left' || align === 'center' || align === 'right' ? align : DEFAULT_TEXT_ALIGN
 }
 
 export function imageNode(

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Editor, getSchema, type Extensions } from '@tiptap/core'
 import { acceptsInlineImage } from './SlaidsImageExtension'
-import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { alignmentIsActive, bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
+import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
+import { RichDocView } from '../slide/RichDocView'
 import { dropAssetIds } from '../../domain/docs'
 import { containerWithDoc } from '../../domain/content'
 import { createLeaf } from '../../domain/layout'
@@ -105,6 +109,89 @@ describe('a field that can hold a picture', () => {
     const title = editorWith(titleExtensions())
     expect(typeof body.commands.insertSlaidsImage).toBe('function')
     expect(title.commands.insertSlaidsImage).toBeUndefined()
+  })
+})
+
+describe('alignment: what is stored versus what is drawn', () => {
+  const mounted: { editor: Editor; element: HTMLElement }[] = []
+
+  function editorWith(content: RichDoc): Editor {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    const editor = new Editor({ element, extensions: bodyExtensions({}), content })
+    mounted.push({ editor, element })
+    return editor
+  }
+
+  afterEach(() => {
+    for (const { editor, element } of mounted.splice(0)) {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  const unaligned: RichDoc = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hei' }] }],
+  }
+
+  /** The alignment a paragraph of the emitted document actually carries. */
+  function storedAlign(editor: Editor): unknown {
+    const doc = editor.getJSON() as RichDoc
+    return doc.content?.[0]?.attrs?.textAlign
+  }
+
+  it('leaves an unaligned paragraph unaligned after it is edited', () => {
+    // The whole point of the default living in one constant is that it can be
+    // moved later without rewriting documents — which only holds if absent
+    // stays absent. A schema default would not: ProseMirror fills it into
+    // every node and `getJSON` writes it straight back out, so the first
+    // keystroke in an old field would freeze today's default into it forever.
+    const editor = editorWith(unaligned)
+    expect(storedAlign(editor)).toBeNull()
+
+    editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'x')
+    expect(editor.getText()).toBe('Heix')
+    expect(storedAlign(editor)).toBeNull()
+  })
+
+  it('stores an alignment somebody picked, the default one included', () => {
+    // Centred-by-default and centred-on-purpose are two different documents:
+    // the first follows the default wherever it goes, the second does not.
+    const editor = editorWith(unaligned)
+    editor.commands.setTextAlign(DEFAULT_TEXT_ALIGN)
+    expect(storedAlign(editor)).toBe(DEFAULT_TEXT_ALIGN)
+
+    editor.commands.setTextAlign('right')
+    expect(storedAlign(editor)).toBe('right')
+
+    // And taking the choice back stores nothing again, rather than a third
+    // state that means the same as the first.
+    editor.commands.unsetTextAlign()
+    expect(storedAlign(editor)).toBeNull()
+  })
+
+  it('draws the default for a paragraph that stores nothing', () => {
+    // Both renderers write the same inline style, so one stylesheet can place a
+    // heading pill and a picture — which are positioned by `margin-inline`
+    // through selectors that read it — without knowing which one drew them.
+    const editor = editorWith(unaligned)
+    expect(editor.getHTML()).toContain(`text-align: ${DEFAULT_TEXT_ALIGN}`)
+    expect(renderToStaticMarkup(createElement(RichDocView, { doc: unaligned }))).toContain(
+      `text-align:${DEFAULT_TEXT_ALIGN}`,
+    )
+  })
+
+  it('lights up the button for the alignment the text is drawn with', () => {
+    // A block nobody aligned is drawn centred, so the centre button has to read
+    // as pressed: the toolbar says what is on screen, not what is in the file.
+    const editor = editorWith(unaligned)
+    expect(alignmentIsActive(editor, DEFAULT_TEXT_ALIGN)).toBe(true)
+    expect(alignmentIsActive(editor, 'right')).toBe(false)
+
+    editor.commands.setTextAlign('right')
+    expect(alignmentIsActive(editor, 'right')).toBe(true)
+    expect(alignmentIsActive(editor, DEFAULT_TEXT_ALIGN)).toBe(false)
   })
 })
 

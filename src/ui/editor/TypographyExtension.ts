@@ -38,14 +38,41 @@ export const TEXT_SUBSTITUTIONS = [
 ] as const
 
 /**
+ * A space, in both of the forms a field can hand one over.
+ *
+ * Pressing the space bar does not always leave U+0020 behind. Where the
+ * surrounding CSS collapses white space — `white-space: nowrap`, which is what
+ * makes a slide title, a card title and a section pill one unwrapped line — a
+ * space at the end of the line would be invisible, so the browser's editing
+ * engine writes a non-breaking space instead and swaps it back for an ordinary
+ * one once something follows it. The author pressed the space bar either way.
+ *
+ * That is the whole of the bug this class exists for: the substitutions that
+ * carry a space (` - ` and ` * `) fire on the *trailing* space, which is
+ * precisely the position where the browser has just written U+00A0 — so they
+ * matched in a body field and silently did nothing in every one-line field,
+ * while `...`, which contains no space, worked everywhere. Recognising the
+ * character the browser actually delivered keeps the rule about what was
+ * typed rather than about what the field happens to be styled with; the
+ * replacement is always written with ordinary spaces, so nothing collapsing
+ * ever reaches the document.
+ */
+const SPACE = '[ \\u00A0]'
+
+/**
  * The literal typed sequence, anchored to the caret.
  *
  * An input rule matches the text immediately before the caret, so every find
  * ends at `$`; the sequences are escaped rather than written as hand-tuned
  * patterns, so the list above stays the single description of the rule.
+ *
+ * Exported because the plain-`<input>` counterpart (`useTypedSubstitution`)
+ * has to recognise exactly the same thing: one description of what a
+ * substitution matches, not two that agree today.
  */
-function findFor(typed: string): RegExp {
-  return new RegExp(`${typed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+export function substitutionPattern(typed: string): RegExp {
+  const escaped = typed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`${escaped.replace(/ /g, SPACE)}$`)
 }
 
 export const TypographyExtension = Extension.create({
@@ -53,7 +80,7 @@ export const TypographyExtension = Extension.create({
 
   addInputRules() {
     return TEXT_SUBSTITUTIONS.map(({ typed, written }) =>
-      textInputRule({ find: findFor(typed), replace: written, undoable: true }),
+      textInputRule({ find: substitutionPattern(typed), replace: written, undoable: true }),
     )
   },
 })

@@ -6,6 +6,7 @@
  */
 
 import { expect, test } from './fixtures'
+import { decodePng } from './png'
 import {
   addContentToZone,
   createPresentation,
@@ -87,16 +88,16 @@ test.describe('alignment', () => {
         }
       })
 
-    // A picture is narrower than the column, so it starts at the left edge.
+    // A picture is narrower than the column, and a block nobody has aligned is
+    // centred — the same default the words around it start from.
     const start = await margins()
-    expect(start.left).toBe(0)
-    expect(start.right).toBeGreaterThan(0)
+    expect(start.left).toBeGreaterThan(0)
+    expect(Math.abs(start.left - start.right)).toBeLessThanOrEqual(1)
 
     await wrapper.click()
-    await page.getByTestId('align-center').click()
-    await expect.poll(async () => (await margins()).left).toBeGreaterThan(0)
-    const centred = await margins()
-    expect(Math.abs(centred.left - centred.right)).toBeLessThanOrEqual(1)
+    await page.getByTestId('align-left').click()
+    await expect.poll(async () => (await margins()).left).toBe(0)
+    expect((await margins()).right).toBeGreaterThan(0)
 
     await wrapper.click()
     await page.getByTestId('align-right').click()
@@ -125,17 +126,18 @@ test.describe('alignment', () => {
     await page.keyboard.press('Enter')
     await page.keyboard.type('Andre avsnitt')
 
-    // The caret is in the second paragraph; only that one moves.
+    // The caret is in the second paragraph; only that one moves, and the one
+    // left alone keeps the default every new paragraph starts from.
     await page.getByTestId('align-right').click()
     const alignments = () =>
       field.locator('p').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).textAlign))
-    expect(await alignments()).toEqual(['start', 'right'])
+    expect(await alignments()).toEqual(['center', 'right'])
 
     // A selection across both aligns both.
     await field.click()
     await page.keyboard.press('Control+a')
-    await page.getByTestId('align-center').click()
-    expect(await alignments()).toEqual(['center', 'center'])
+    await page.getByTestId('align-left').click()
+    expect(await alignments()).toEqual(['left', 'left'])
   })
 
   test('moves content within the height its field is given', async ({ page }) => {
@@ -174,6 +176,8 @@ test.describe('alignment', () => {
       await page.waitForTimeout(150)
     }
 
+    // Explicitly, because the top is no longer where a field starts out.
+    await align('top')
     const atTop = await placements()
     await align('bottom')
     const atBottom = await placements()
@@ -190,6 +194,159 @@ test.describe('alignment', () => {
 
     // Moving text within a box it already fits in cannot make it stop fitting.
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+  })
+
+  test('starts a new field centred on both axes', async ({ page }) => {
+    await createPresentation(page, 'Standard i innhold')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    const field = stage(page).locator('.subfield').first()
+    await field.locator('.tiptap').click()
+    await page.keyboard.type('Uten at noen har valgt noe')
+
+    /*
+     * Where the one line of text sits in the field it was given. Centred on
+     * both axes means the space left over is shared equally above and below it,
+     * and equally to the left and right — measured rather than read off a style,
+     * because that is the claim: a field nobody has aligned looks aligned.
+     */
+    const slack = async (): Promise<{ x: number; y: number }> =>
+      page.evaluate(() => {
+        const outer = (
+          document.querySelector('[data-testid="stage-slide"] .subfield') as HTMLElement
+        ).getBoundingClientRect()
+        const line = document.createRange()
+        line.selectNodeContents(
+          document.querySelector('[data-testid="stage-slide"] .subfield p') as HTMLElement,
+        )
+        const text = line.getBoundingClientRect()
+        return {
+          x: text.left - outer.left - (outer.right - text.right),
+          y: text.top - outer.top - (outer.bottom - text.bottom),
+        }
+      })
+
+    const editing = await slack()
+    expect(Math.abs(editing.x)).toBeLessThan(2)
+    expect(Math.abs(editing.y)).toBeLessThan(2)
+
+    // And the static renderer — presentation mode, the filmstrip, the offscreen
+    // fit measurement — puts it in the same place.
+    await enterZoneMode(page)
+    const presented = await slack()
+    expect(Math.abs(presented.x - editing.x)).toBeLessThan(1)
+    expect(Math.abs(presented.y - editing.y)).toBeLessThan(1)
+  })
+
+  test('carries a list’s markers along when the list is centred', async ({ page }) => {
+    await createPresentation(page, 'Midtstilt liste')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    const field = stage(page).locator('.subfield .tiptap').first()
+    await field.click()
+    await page.keyboard.type('- Kort')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Et merkbart lengre punkt i den samme lista')
+    await expect(stage(page).locator('.subfield li')).toHaveCount(2)
+
+    /**
+     * Each item's own box against the list's content box.
+     *
+     * A marker is drawn against its item's content edge, not against the line
+     * of words inside it — so the bug this pins down is a bullet stranded at
+     * the far left while its text moved to the middle. What has to be true is
+     * that the *item* moved: then the marker had no choice but to come along.
+     */
+    const insets = async (): Promise<{ left: number; right: number }[]> =>
+      page.evaluate(() => {
+        const stage = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
+        // Everything back in logical pixels: the stage is drawn through a CSS
+        // scale, so a measured box and a computed padding are in different
+        // units until the scale is divided out of the first.
+        const scale = Number(stage.dataset.scale)
+        const list = stage.querySelector('.subfield :is(ul, .rd-ul)') as HTMLElement
+        const box = list.getBoundingClientRect()
+        const padding = Number.parseFloat(getComputedStyle(list).paddingLeft)
+        // `+ 0` turns a rounded `-0` — sub-pixel drift the wrong way — into 0,
+        // which is a needlessly surprising thing to read in a failure.
+        const round = (value: number): number => Math.round(value) + 0
+        return [...list.children].map((item) => {
+          const rect = item.getBoundingClientRect()
+          return {
+            left: round((rect.left - box.left) / scale - padding),
+            right: round((box.right - rect.right) / scale),
+          }
+        })
+      })
+
+    const centred = await insets()
+    for (const item of centred) {
+      expect(item.left).toBeGreaterThan(0)
+      expect(Math.abs(item.left - item.right)).toBeLessThanOrEqual(1)
+    }
+    // Each line finds its own middle: a block shifted as a whole would move the
+    // short item and the long one by the same amount.
+    expect(centred[0].left).toBeGreaterThan(centred[1].left + 10)
+
+    // The static renderer — presentation mode, the filmstrip, the offscreen fit
+    // measurement — puts them in the same places.
+    await enterZoneMode(page)
+    const presented = await insets()
+    expect(presented.map((item) => item.left)).toEqual(centred.map((item) => item.left))
+
+    // And left-aligned they go back flush against the column, which is what
+    // says the centring was the alignment's doing rather than something done to
+    // every list.
+    await enterContentMode(page)
+    await field.click()
+    await page.keyboard.press('Control+a')
+    await page.getByTestId('align-left').click()
+    await expect.poll(async () => (await insets()).map((item) => item.left)).toEqual([0, 0])
+  })
+
+  test('shows a placeholder where the text it stands in for will be', async ({ page }) => {
+    await createPresentation(page, 'Plassholder')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+
+    /*
+     * A title is centred, so its placeholder has to be — it used to sit at the
+     * far left and jump to the middle at the first keystroke.
+     *
+     * Read off the pixels rather than off a style. The placeholder is a
+     * pseudo-element: there is no node to measure, and a `text-align` that
+     * computes to `center` says nothing about where a floated box is actually
+     * painted — which is exactly how this went unnoticed. Where the ink is, is
+     * the whole question.
+     */
+    const ink = async (selector: string): Promise<{ left: number; right: number }> => {
+      const bitmap = decodePng(await stage(page).locator(selector).screenshot())
+      const background = bitmap.at(0, 0)
+      let left = bitmap.width
+      let right = -1
+      for (let x = 0; x < bitmap.width; x += 1) {
+        for (let y = 0; y < bitmap.height; y += 1) {
+          const pixel = bitmap.at(x, y)
+          const differs = pixel.some((value, index) => Math.abs(value - background[index]) > 12)
+          if (!differs) continue
+          left = Math.min(left, x)
+          right = Math.max(right, x)
+          break
+        }
+      }
+      return { left, right: bitmap.width - 1 - right }
+    }
+
+    const empty = await ink('[data-testid="slide-title"]')
+    expect(empty.left).toBeGreaterThan(10)
+    expect(Math.abs(empty.left - empty.right)).toBeLessThanOrEqual(4)
+
+    // And the text that replaces it lands in the same place, which is the
+    // point of a placeholder standing where the words will.
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Slidetittel')
+    const typed = await ink('[data-testid="slide-title"]')
+    expect(Math.abs(typed.left - empty.left)).toBeLessThanOrEqual(4)
   })
 
   test('keeps alignment through a reload', async ({ page }) => {

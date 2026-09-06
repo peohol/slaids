@@ -68,7 +68,12 @@ export type VerticalAlign = 'top' | 'middle' | 'bottom'
 export interface Subfield {
   id: string
   doc: RichDoc
-  /** Defaults to `top` when absent, which is what every older document means. */
+  /**
+   * Absent means `DEFAULT_VERTICAL_ALIGN` — a field nobody has aligned, whether
+   * it was made yesterday or before the property existed. Storing the default
+   * instead would freeze it into every document and make "no choice" and "chose
+   * exactly this" the same field.
+   */
   verticalAlign?: VerticalAlign
 }
 

@@ -120,8 +120,11 @@ describe('a section page', () => {
 describe('a heading pill', () => {
   it('carries no colour of its own until one is picked', () => {
     const markup = render(deck(), <RichDocView doc={headings()} />)
-    // The inherited one paints nothing inline; the picked one paints itself.
-    expect(markup).toContain('<h1 class="rd-heading">Arvet</h1>')
+    // The inherited one paints no background inline — its alignment is a
+    // separate question, and every block carries one — while the picked one
+    // paints itself.
+    expect(markup).toContain('>Arvet</h1>')
+    expect(markup).not.toMatch(/background:[^"]*">Arvet/)
     expect(markup).toContain(`background:${PICKED}`)
     expect(markup).not.toContain(`background:${SECTION_COLOR}`)
   })

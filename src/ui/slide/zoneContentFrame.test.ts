@@ -7,11 +7,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
 import { flowAlign } from './ZoneContentFrame'
 
 describe('flowAlign', () => {
-  it('defaults to the top of the field', () => {
-    expect(flowAlign(undefined)).toBe(flowAlign('top'))
+  it('reads an absent alignment as the default', () => {
+    expect(flowAlign(undefined)).toBe(flowAlign(DEFAULT_VERTICAL_ALIGN))
     expect(flowAlign('top')).toBe('start')
   })
 
