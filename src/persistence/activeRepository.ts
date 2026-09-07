@@ -143,6 +143,8 @@ function onSharing<T>(call: (repository: SharingRepository) => Promise<T>): Prom
 
 export const repository: SlaidsRepository = {
   listPresentations: (): Promise<PresentationSummary[]> => on((repo) => repo.listPresentations()),
+  listTrashedPresentations: (): Promise<PresentationSummary[]> =>
+    on((repo) => repo.listTrashedPresentations()),
   loadPresentation: (id: string): Promise<Presentation> => on((repo) => repo.loadPresentation(id)),
   // Both preconditions are forwarded rather than dropped. The editor never
   // passes one, but the façade is the interface for everyone: a guard silently
@@ -151,6 +153,11 @@ export const repository: SlaidsRepository = {
     on((repo) => repo.savePresentation(presentation, guard)),
   deletePresentation: (id: string, guard?: SaveGuard): Promise<void> =>
     on((repo) => repo.deletePresentation(id, guard)),
+  trashPresentation: (id: string, guard?: SaveGuard): Promise<void> =>
+    on((repo) => repo.trashPresentation(id, guard)),
+  restorePresentation: (id: string): Promise<void> => on((repo) => repo.restorePresentation(id)),
+  purgePresentation: (id: string, deletedAt: string): Promise<boolean> =>
+    on((repo) => repo.purgePresentation(id, deletedAt)),
 
   listFolders: (): Promise<Folder[]> => on((repo) => repo.listFolders()),
   saveFolder: (folder: Folder): Promise<void> => on((repo) => repo.saveFolder(folder)),

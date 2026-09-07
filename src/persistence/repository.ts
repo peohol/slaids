@@ -36,7 +36,19 @@ export interface SaveGuard {
 }
 
 export interface SlaidsRepository {
+  /**
+   * The library: every presentation that is not in the trash, most recently
+   * edited first. What the trash holds is `listTrashedPresentations`, and the
+   * two never overlap — a caller that wants "everything" asks both, and a
+   * caller that forgets the trash exists gets the library, which is the safe
+   * mistake.
+   */
   listPresentations(): Promise<PresentationSummary[]>
+  /**
+   * The trash: every presentation that was moved there and not yet purged, most
+   * recently trashed first, each with its `deletedAt` set.
+   */
+  listTrashedPresentations(): Promise<PresentationSummary[]>
   loadPresentation(id: string): Promise<Presentation>
   /**
    * Store the document. With a `guard`, refuse — `RepositoryConflictError` —
@@ -44,6 +56,15 @@ export interface SlaidsRepository {
    *
    * Without one the write is unconditional, which is what the editor's autosave
    * wants: it owns the document it is editing and re-saves it continuously.
+   *
+   * One thing neither form of the write ever does is bring a deleted row back.
+   * "Nothing known about this id" means "new", and a new presentation is
+   * inserted; but a row this repository has seen and cannot find any more was
+   * deleted for good by somebody else, and a save of it is refused —
+   * `RepositoryConflictError` — rather than re-inserted. Both stores keep that
+   * memory (Supabase as the versions it has seen, Dexie as the ids), because
+   * the alternative is a stale editor in another tab resurrecting a deck the
+   * trash was just emptied of, without the files that went with it.
    */
   savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void>
   /**
@@ -54,7 +75,10 @@ export interface SlaidsRepository {
    * One call rather than a sequence a caller assembles, because the parts have
    * to go in an order that never leaves a document pointing at files that are
    * gone, and a second caller writing that sequence out again is a second
-   * chance to get it wrong. There is no undo: what this removes is removed.
+   * chance to get it wrong. There is no undo: what this removes is removed —
+   * which is why the library never calls it directly. A deletion from the
+   * library is `trashPresentation`, and the trash is emptied by
+   * `purgePresentation`, which is this with one precondition.
    *
    * With a `guard`, refuse — `RepositoryConflictError` — if the stored copy is no
    * longer the revision the guard names. The same precondition
@@ -66,10 +90,64 @@ export interface SlaidsRepository {
    * insert, and an insert is not a lost update; a guarded *delete* names a
    * document — remove the one I read — and a row somebody else already removed
    * is not it. Without a guard the delete is unconditional and idempotent: an id
-   * that is not there is not an error, which is what a rollback and the library's
-   * own delete rely on.
+   * that is not there is not an error, which is what the duplication rollback
+   * relies on.
    */
   deletePresentation(id: string, guard?: SaveGuard): Promise<void>
+  /**
+   * Delete a trashed presentation for good — if, and only if, it is still the
+   * trash entry the caller saw: in the trash, trashed at exactly `deletedAt`.
+   *
+   * `deletePresentation` is unconditional, and unconditional is wrong for the
+   * trash. Between listing the trash and emptying it, another tab or device can
+   * restore the deck, and a delete that does not look would then destroy a
+   * live presentation, files and all. So the check and the delete are one
+   * atomic step in the store — one statement in Supabase, one transaction in
+   * Dexie — and `deletedAt` is the identity of the trash entry: a deck restored
+   * and trashed again is a new entry with a new time and a fresh thirty days,
+   * which the caller has not seen and must not purge on an old reading.
+   *
+   * Answers whether the deletion happened. `false` means the entry is not
+   * there any more — restored, trashed again, or already purged — and nothing
+   * was touched: a caller emptying the trash skips it, and a caller acting on
+   * one card tells the user. Not a `RepositoryConflictError`, because for the
+   * sweep this is the expected outcome of a race it is built to lose safely,
+   * not a failure of the call.
+   */
+  purgePresentation(id: string, deletedAt: string): Promise<boolean>
+  /**
+   * Move the presentation to the trash.
+   *
+   * Nothing is destroyed: the document, its files and its share columns all
+   * stay exactly where they are, and only `deletedAt` is written — which is
+   * why a deck open in another tab keeps autosaving without either resurrecting
+   * itself or losing anything. What changes is which listing it appears in,
+   * and that it is now on the clock: `persistence/library.ts` purges the trash
+   * after `TRASH_RETENTION_DAYS` with `purgePresentation`, which is the one
+   * and only way out of the trash that is not `restorePresentation`.
+   *
+   * `deletedAt` is set to now, also for a row that is already in the trash —
+   * trashing twice restarts the clock rather than being refused, because the
+   * two stores cannot both express "set only if unset" in one statement and
+   * one rule is worth more than the distinction.
+   *
+   * With a `guard`, the same precondition `deletePresentation` takes, for the
+   * same reason: a caller that names a reading is asking to trash *that*
+   * document, and a row that has moved on or is gone is not it —
+   * `RepositoryConflictError`. Without a guard, a row that is not there is a
+   * `RepositoryNotFoundError`: unlike a permanent delete, which the duplication
+   * rollback needs to be idempotent, nothing relies on trashing an absent row
+   * quietly succeeding, and the library would rather say so.
+   */
+  trashPresentation(id: string, guard?: SaveGuard): Promise<void>
+  /**
+   * Take the presentation back out of the trash, into the library where it
+   * was — same folder, same document, same files, same share state. A row that
+   * is not there is a `RepositoryNotFoundError`: the trash was purged in the
+   * meantime, and the caller must be told rather than shown an empty library.
+   * A row that was never in the trash is left as it is.
+   */
+  restorePresentation(id: string): Promise<void>
 
   listFolders(): Promise<Folder[]>
   /**

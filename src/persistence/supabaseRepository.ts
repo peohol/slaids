@@ -4,8 +4,8 @@
  * The remote schema deliberately mirrors the local one rather than normalising
  * it: a presentation is one row with the whole document in a `jsonb` column,
  * exactly the object the domain already knows. The indexable columns (`title`,
- * `folder_id`, `slide_count`) exist only so the library grid can be listed
- * without downloading every document.
+ * `folder_id`, `slide_count`, `byte_size`, `deleted_at`) exist only so the
+ * library grid and the trash can be listed without downloading every document.
  *
  * Two rules hold everywhere in this file:
  *
@@ -21,6 +21,7 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
 import { newShareToken } from '../domain/ids'
 import { migratePresentation } from '../domain/migrations'
+import { presentationByteSize } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { assetRefSchema, folderSchema, validateLayoutTemplate } from '../domain/schema'
 import { buildSharedSnapshot, type SharedPresentationSnapshot } from '../domain/sharing'
@@ -32,6 +33,7 @@ import type {
   PresentationSummary,
 } from '../domain/types'
 import { getSupabaseClient } from '../supabase/client'
+import { trashedMessage } from './dexieRepository'
 import {
   RepositoryConflictError,
   RepositoryError,
@@ -86,14 +88,24 @@ function deleteFolderFailure(error: FailureDetail): string {
   return 'Kunne ikke slette mappen'
 }
 
+/**
+ * What a listing reads: the metadata columns, and never `document`. The whole
+ * point of those columns is that the library can be drawn without downloading
+ * every deck in it.
+ */
+const SUMMARY_COLUMNS =
+  'id, title, folder_id, slide_count, byte_size, version, created_at, updated_at, deleted_at'
+
 interface PresentationListRow {
   id: string
   title: string
   folder_id: string | null
   slide_count: number | null
+  byte_size: number | null
   version: number | null
   created_at: string | null
   updated_at: string | null
+  deleted_at: string | null
 }
 
 interface VersionRow {
@@ -324,29 +336,41 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
 
   async listPresentations(): Promise<PresentationSummary[]> {
     const { data, error } = await this.scoped(
-      this.client
-        .from(PRESENTATIONS_TABLE)
-        .select('id, title, folder_id, slide_count, version, created_at, updated_at'),
+      this.client.from(PRESENTATIONS_TABLE).select(SUMMARY_COLUMNS).is('deleted_at', null),
     ).order('updated_at', { ascending: false })
     if (error) fail('Kunne ikke hente presentasjonene fra Supabase', error)
+    return ((data ?? []) as PresentationListRow[]).map((row) => this.summaryOf(row))
+  }
 
-    return ((data ?? []) as PresentationListRow[]).map((row) => {
-      // A listing establishes that a row exists, which is enough to save it
-      // with an update. It does not refresh a version a read gave us, though:
-      // that would hand a stale editor a fresh guard to overwrite with.
-      if (typeof row.version === 'number' && !this.knownVersions.has(row.id)) {
-        this.knownVersions.set(row.id, row.version)
-      }
-      const createdAt = toIso(row.created_at, EPOCH)
-      return {
-        id: row.id,
-        title: row.title,
-        folderId: row.folder_id ?? null,
-        slideCount: numberOr(row.slide_count, 0),
-        createdAt,
-        updatedAt: toIso(row.updated_at, createdAt),
-      }
-    })
+  async listTrashedPresentations(): Promise<PresentationSummary[]> {
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).select(SUMMARY_COLUMNS).not('deleted_at', 'is', null),
+    ).order('deleted_at', { ascending: false })
+    if (error) fail('Kunne ikke hente søppelkassen fra Supabase', error)
+    return ((data ?? []) as PresentationListRow[]).map((row) => this.summaryOf(row))
+  }
+
+  private summaryOf(row: PresentationListRow): PresentationSummary {
+    // A listing establishes that a row exists, which is enough to save it
+    // with an update. It does not refresh a version a read gave us, though:
+    // that would hand a stale editor a fresh guard to overwrite with.
+    if (typeof row.version === 'number' && !this.knownVersions.has(row.id)) {
+      this.knownVersions.set(row.id, row.version)
+    }
+    const createdAt = toIso(row.created_at, EPOCH)
+    // `deleted_at` is a timestamp or nothing; a value that is not a date is
+    // read as nothing rather than as a deck trashed at the epoch.
+    const deletedAt = typeof row.deleted_at === 'string' ? toIso(row.deleted_at, '') : ''
+    return {
+      id: row.id,
+      title: row.title,
+      folderId: row.folder_id ?? null,
+      slideCount: numberOr(row.slide_count, 0),
+      byteSize: numberOr(row.byte_size, 0),
+      createdAt,
+      updatedAt: toIso(row.updated_at, createdAt),
+      deletedAt: deletedAt || null,
+    }
   }
 
   async loadPresentation(id: string): Promise<Presentation> {
@@ -355,12 +379,16 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         .from(PRESENTATIONS_TABLE)
         // `is_shared` comes along so a save knows whether it also has to publish,
         // without a second round trip and without depending on the share UI
-        // having asked first.
-        .select('document, version, is_shared')
+        // having asked first. `deleted_at` comes along because a trashed deck is
+        // refused here, the same way Dexie refuses it: it is restored, not opened.
+        .select('document, version, is_shared, deleted_at')
         .eq('id', id),
     ).maybeSingle()
     if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
     if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
+    if ((data as { deleted_at?: unknown }).deleted_at != null) {
+      throw new RepositoryNotFoundError(trashedMessage(id))
+    }
 
     const migrated = migratePresentation((data as { document: unknown }).document)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message, migrated.error)
@@ -404,6 +432,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // Same defensive round-trip as the Dexie repository: what goes on the wire
     // is plain JSON, never a live object with accidental extras.
     const document = JSON.parse(JSON.stringify(presentation)) as Presentation
+    // The metadata columns are written from the document, the way `slide_count`
+    // always was: one rule, in `presentationByteSize`, rather than a trigger
+    // restating it in SQL. `deleted_at` is deliberately not among them — a save
+    // must never move a deck into or out of the trash; see the interface.
     const row = {
       id: document.id,
       owner_id: ownerId,
@@ -411,6 +443,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       folder_id: document.folderId,
       document,
       slide_count: document.slides.length,
+      byte_size: presentationByteSize(document),
     }
 
     // A guarded save is pinned to its own reading and never falls back to the
@@ -551,6 +584,46 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   /**
+   * The permanent delete, conditioned on the trash entry still being there.
+   *
+   * One `DELETE … WHERE id = … AND deleted_at = …`, so the check that the deck
+   * is still in the trash and the removal are the same statement: a restore
+   * that lands first clears `deleted_at`, the statement matches nothing, and
+   * the deck — restored, live, with its files — is untouched. That is the whole
+   * difference from `deletePresentation`, and it is the difference between
+   * emptying the trash and emptying whatever happens to be in the library.
+   *
+   * The time is matched to the millisecond rather than exactly. The client
+   * writes `deleted_at` with millisecond precision and reads it back the same
+   * way, so for every row this repository trashed the two are equal — but a
+   * timestamp is stored to the microsecond, and a row trashed by hand in the
+   * SQL editor would otherwise be an entry the sweep could never match and
+   * never purge. The range says "this millisecond", which is as exactly as the
+   * listing can say it.
+   *
+   * The caches are cleared and the objects reclaimed only when the row really
+   * went: a `false` is a deck that is still somebody's, and its files must stay.
+   */
+  async purgePresentation(id: string, deletedAt: string): Promise<boolean> {
+    const from = new Date(deletedAt)
+    if (Number.isNaN(from.getTime())) return false
+    const until = new Date(from.getTime() + 1)
+    const paths = await this.assetPaths(id)
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
+    )
+      .gte('deleted_at', from.toISOString())
+      .lt('deleted_at', until.toISOString())
+      .select('id')
+    if (error) fail('Kunne ikke slette presentasjonen fra søppelkassen', error)
+    if (((data ?? []) as unknown[]).length === 0) return false
+    this.knownVersions.delete(id)
+    this.knownShared.delete(id)
+    await this.reclaimObjects(paths)
+    return true
+  }
+
+  /**
    * The conditional delete, which is `updateGuarded` with nothing left to write.
    *
    * The version comes from the *named reading* rather than from
@@ -581,6 +654,62 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       throw new RepositoryConflictError(
         `Presentasjonen «${id}» er endret eller slettet et annet sted siden den ble lest. Les den på nytt før du sletter den.`,
       )
+    }
+  }
+
+  /**
+   * Into the trash: one column on the row, and nothing else moves.
+   *
+   * The touch trigger leaves `version` and `updated_at` alone for a write that
+   * does not change the document, so an editor holding this deck open keeps a
+   * valid version and its next autosave lands — into the trash, where the row
+   * now is, because a save never writes `deleted_at`. The share columns stay
+   * too; it is the public function that refuses a trashed row, so a restored
+   * deck comes back with the link it had.
+   *
+   * The guard is the same version comparison `deleteGuarded` makes, and for the
+   * same reason a row that matches nothing is a conflict when a reading was
+   * named. Unguarded, nothing matching means the row is gone, which the caller
+   * is told — see the interface for why that differs from the permanent delete.
+   */
+  async trashPresentation(id: string, guard?: SaveGuard): Promise<void> {
+    const update = this.scoped(
+      this.client
+        .from(PRESENTATIONS_TABLE)
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id),
+    )
+    if (!guard) {
+      const { data, error } = await update.select('id')
+      if (error) fail('Kunne ikke flytte presentasjonen til søppelkassen', error)
+      if (((data ?? []) as unknown[]).length === 0) {
+        throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
+      }
+      return
+    }
+
+    const version = this.versionOfReading.get(readingKey(id, guard.expectedRevision))
+    if (version === undefined) {
+      throw new RepositoryConflictError(
+        `Presentasjonen «${id}» ble ikke lest av denne økten, eller lesingen er for gammel til å slettes mot. Les den på nytt før du sletter den.`,
+      )
+    }
+    const { data, error } = await update.eq('version', version).select('id')
+    if (error) fail('Kunne ikke flytte presentasjonen til søppelkassen', error)
+    if (((data ?? []) as unknown[]).length === 0) {
+      throw new RepositoryConflictError(
+        `Presentasjonen «${id}» er endret eller slettet et annet sted siden den ble lest. Les den på nytt før du sletter den.`,
+      )
+    }
+  }
+
+  async restorePresentation(id: string): Promise<void> {
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).update({ deleted_at: null }).eq('id', id),
+    ).select('id')
+    if (error) fail('Kunne ikke gjenopprette presentasjonen', error)
+    if (((data ?? []) as unknown[]).length === 0) {
+      throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}» i søppelkassen.`)
     }
   }
 

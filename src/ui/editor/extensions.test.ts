@@ -112,6 +112,66 @@ describe('a field that can hold a picture', () => {
   })
 })
 
+describe('subscript and superscript: everywhere text can be typed', () => {
+  const mounted: { editor: Editor; element: HTMLElement }[] = []
+
+  function editorWith(extensions: Extensions): Editor {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    const editor = new Editor({ element, extensions, content: '<p>x</p>' })
+    mounted.push({ editor, element })
+    return editor
+  }
+
+  afterEach(() => {
+    for (const { editor, element } of mounted.splice(0)) {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  it.each([
+    ['the body', bodyExtensions({})],
+    ['a slide title', titleExtensions()],
+    ['a cover line', titleExtensions(undefined, 'cover')],
+  ])('toggles both marks in %s', (_label, extensions) => {
+    const editor = editorWith(extensions)
+    editor.commands.selectAll()
+
+    editor.commands.toggleSuperscript()
+    expect(editor.isActive('superscript')).toBe(true)
+
+    // Applying subscript on top clears superscript rather than stacking: a
+    // character cannot be sunk below the baseline and raised above it at once.
+    editor.commands.toggleSubscript()
+    expect(editor.isActive('subscript')).toBe(true)
+    expect(editor.isActive('superscript')).toBe(false)
+
+    editor.commands.toggleSubscript()
+    expect(editor.isActive('subscript')).toBe(false)
+  })
+
+  it('draws the marks as the same tags the browser gives sub/sup their meaning from', () => {
+    const doc: RichDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'H' },
+            { type: 'text', text: '2', marks: [{ type: 'subscript' }] },
+            { type: 'text', text: 'O' },
+            { type: 'text', text: '2', marks: [{ type: 'superscript' }] },
+          ],
+        },
+      ],
+    }
+    const html = renderToStaticMarkup(createElement(RichDocView, { doc }))
+    expect(html).toContain('<sub>2</sub>')
+    expect(html).toContain('<sup>2</sup>')
+  })
+})
+
 describe('alignment: what is stored versus what is drawn', () => {
   const mounted: { editor: Editor; element: HTMLElement }[] = []
 

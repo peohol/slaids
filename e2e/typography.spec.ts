@@ -74,7 +74,6 @@ test.describe('autoerstatning', () => {
     await page.getByTestId('new-slide-without-title').click()
 
     await page.getByTestId('empty-zone-image').click()
-    await stage(page).locator('.image-panel').click()
     await expect(page.getByTestId('image-modal')).toBeVisible()
     await page.getByTestId('image-input').setInputFiles({
       name: 'flate.svg',

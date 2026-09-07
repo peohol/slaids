@@ -1616,6 +1616,76 @@ Første UI må ha en enkel startside med:
 
 Mappeorganisering kan komme senere.
 
+### Søppelkasse
+
+Å slette en presentasjon fra biblioteket sletter ingenting. Den flyttes til
+søppelkassen: `deletedAt` settes ved siden av dokumentet (`deleted_at` i
+Supabase, et felt på Dexie-recorden), og dokumentet, filene og delingskolonnene
+står urørt. Derfra kan den **gjenopprettes** – tilbake til biblioteket, i mappen
+den lå i, med lenken den hadde – eller **slettes for godt**. Søppelkassen tømmes
+automatisk etter `TRASH_RETENTION_DAYS` (30) dager, og kan tømmes for hånd.
+
+Reglene, og hvor de bor:
+
+- `deletedAt` er lagringsmetadata, ikke et felt i dokumentet. Editoren lagrer
+  dokumentet den holder, og en lagring skriver aldri `deletedAt` – så et dekk som
+  kastes fra én fane blir liggende i søppelkassen når en annen fane autolagrer
+  det. Dexie bærer den lagrede verdien over ved `put`; Supabase-raden nevner
+  aldri kolonnen i en lagring, og version-triggeren lar `version` og `updated_at`
+  stå for en skriving som bare rører `deleted_at`.
+- Repositoryet har `trashPresentation` (vaktet som `deletePresentation`),
+  `restorePresentation`, `listTrashedPresentations` og `purgePresentation`.
+  `listPresentations` er biblioteket alene, og de to listene overlapper aldri.
+  `deletePresentation` er fortsatt den ubetingede permanente slettingen, og
+  kalles nå bare av tilbakerullingen i en duplisering.
+- **En presentasjon i søppelkassen kan ikke åpnes.** `loadPresentation` avviser
+  den med `RepositoryNotFoundError`, så editoren åpner den ikke fra en husket id,
+  og for agentflaten er den `PRESENTATION_NOT_FOUND` – ikke listet, ikke lest,
+  ikke redigert, ikke kopiert og ikke slettet en gang til. Agentens
+  `delete_presentation` er den samme flyttingen som biblioteket gjør, med de
+  samme scopene; det finnes ingen agentoperasjon som ser søppelkassen.
+- Den offentlige delingslenken er død så lenge presentasjonen ligger i
+  søppelkassen (`slaids-share` filtrerer på `deleted_at is null`, og
+  `publishedDocument` avviser raden i tillegg), og virker igjen når den
+  gjenopprettes. Delingskolonnene roteres ikke: en sletting som kan angres skal
+  kunne angres helt.
+- Tømmingen ligger i `src/persistence/library.ts` (`purgeExpiredTrash`,
+  `emptyTrash`), tar repositoryet som argument som resten av bibliotekreglene, og
+  sletter én presentasjon om gangen med `purgePresentation` – aldri en egen
+  slettesekvens, og aldri den ubetingede `deletePresentation`. Listingen er en
+  lesing, og mellom den og slettingen kan en annen fane gjenopprette dekket; en
+  ubetinget sletting ville da tatt en levende presentasjon med alle filene.
+  `purgePresentation(id, deletedAt)` gjør «fortsatt i søppelkassen, kastet på
+  akkurat dette tidspunktet» og slettingen til ett atomisk steg i lageret – én
+  `DELETE`-setning med `id` og `deleted_at` i Supabase, én transaksjon i Dexie –
+  og svarer `false` for en oppføring som ikke lenger er der (gjenopprettet,
+  kastet på nytt, allerede slettet) uten å røre noe. Det samme kallet står bak
+  «Slett for godt» på ett kort. Den automatiske tømmingen kjører når biblioteket
+  åpnes, før listingen, slik orphan-sveipet gjør. Slaids har ingen serverklokke,
+  og trenger ingen: en søppelkasse ingen ser på koster ingenting før noen ser på
+  den.
+- Å kaste noe som allerede ligger i søppelkassen starter klokken på nytt heller
+  enn å avvises; det er den ene regelen begge lagrene kan uttrykke i én setning.
+- **En slettet presentasjon gjenoppstår aldri fra en gammel editor.** En fane
+  som fortsatt holder dekket etter at en annen fane har tømt søppelkassen,
+  autolagrer mot en rad som er borte. Supabase avviser det allerede: en rad
+  repositoryet har sett lagres med en vaktet `UPDATE`, og en `UPDATE` som ikke
+  treffer er en konflikt, ikke en `INSERT`. Dexie holder nå det samme minnet
+  (`knownIds`: id-er den har lest, listet eller lagret), og en lagring av en
+  kjent id uten rad er en `RepositoryConflictError` – med eller uten vakt, siden
+  vakten handler om revisjonen og dette om at raden finnes i det hele tatt. Bare
+  en sletting gjennom det samme repositoryet glemmer id-en igjen, som
+  tilbakerullingen i en duplisering er avhengig av.
+- Import behandler en id i søppelkassen som opptatt, og importerer som kopi.
+
+Kortet i biblioteket viser også hvor mye plass presentasjonen tar.
+`PresentationSummary.byteSize` er dokumentets JSON i UTF-8 pluss `byteSize` for
+hver fil dokumentet lister (`presentationByteSize` i `domain/presentation.ts`,
+én regel). Dexie regner det ut ved listing; Supabase skriver det i kolonnen
+`byte_size` ved hver lagring, som `slide_count`, og migrasjonen fyller den inn
+for radene som fantes fra før uten å røre `document` – og dermed uten å flytte
+`version`.
+
 ---
 
 ## 22\. Editor shell
@@ -2322,7 +2392,7 @@ den samme brukerens UUID:
 | Tabell                  | Innhold                                                  |
 | ----------------------- | -------------------------------------------------------- |
 | `slaids_folders`        | mapper                                                    |
-| `slaids_presentations`  | hele `Presentation` som `document jsonb`, pluss `title`, `folder_id`, `slide_count`, `version` |
+| `slaids_presentations`  | hele `Presentation` som `document jsonb`, pluss `title`, `folder_id`, `slide_count`, `byte_size`, `version` og `deleted_at` (søppelkassen, § 21) |
 | `slaids_templates`      | hele `LayoutTemplate` som `template jsonb`                |
 | `slaids_assets`         | hele `AssetRef` som `ref jsonb` + `object_path` i Storage  |
 
@@ -2595,7 +2665,9 @@ forsøker derfor aldri den autentiserte veien.
 5. `sandbox`, `ideas`, mapper og annet privat finnes ikke i snapshotet.
 6. Asset-endepunktet serverer bare filer som er i akkurat det publiserte snapshotet.
 7. Deling gir aldri skrivetilgang.
-8. En deaktivert eller slettet presentasjon kan ikke leses via et gammelt token.
+8. En deaktivert eller slettet presentasjon kan ikke leses via et gammelt token,
+   og heller ikke en som ligger i søppelkassen – den virker igjen først når den
+   gjenopprettes.
 9. Reaktivering gir nytt token; det gamle forblir dødt.
 10. Delingsmetadata utløser aldri en falsk dokumentversjonskonflikt.
 11. Import og duplisering arver aldri delingsstatus eller token.
@@ -3565,8 +3637,10 @@ For bibliotekets livsløp i tillegg:
   filskriving feiler, når en kildefil forsvinner fra lagringen etter at
   revisjonen er sjekket, og når selve kopiraden ble skrevet mens svaret forsvant;
 - tilbakerullingen fjerner kopien også når filoppryddingen i lagringen er ødelagt;
-- en vanlig presentasjon slettes; en med filer tar radene og bytene med seg; en
-  publisert slettes uten `sharing:write`;
+- en vanlig presentasjon slettes – til søppelkassen; en med filer beholder
+  radene og bytene til søppelkassen tømmes, og da går de med; en publisert
+  slettes uten `sharing:write`; en presentasjon i søppelkassen er
+  `PRESENTATION_NOT_FOUND` for hver operasjon, denne inkludert;
 - en sletting av noe som ikke finnes er `PRESENTATION_NOT_FOUND`, ikke et stille
   `ok`;
 - en utdatert `expectedRevision` gir `CONFLICT` på flytting, duplisering og
@@ -4779,12 +4853,14 @@ mekanisk: `newFolderId` har nøyaktig én kaller i hele `src/`.
   krav som var avhengig av kildens innhold ville vært et krav ingen katalog kunne
   publisere og ingen kaller kunne forutse.
 - `delete_presentation` krever `presentations:write` **og** `assets:write`, fordi
-  det er nøyaktig de to tingene den ødelegger: dokumentet, og hver eneste fil
-  lagret under det. `delete_asset` trekker allerede den linjen – autoriteten som
-  legger en fil inn er autoriteten som tar den ut – og en sletting tar ut alle
-  sammen på én gang. Det er ikke ekstra autoritet; det er all autoriteten
-  handlingen bruker, og en sletting er det ene kallet det ikke går an å
-  diskutere i etterkant.
+  det er nøyaktig de to tingene den setter på klokken: dokumentet, og hver eneste
+  fil lagret under det. Slettingen er bibliotekets egen – til søppelkassen (§ 21),
+  der dekket kan gjenopprettes i `TRASH_RETENTION_DAYS` dager før det slettes for
+  godt med filene – og scopene er dem den endelige slettingen bruker, deklarert
+  på forhånd heller enn i det øyeblikket søppelkassen tømmes av et sveip ingen
+  token holder. `delete_asset` trekker allerede den linjen – autoriteten som
+  legger en fil inn er autoriteten som tar den ut – og å kaste et dekk er det som
+  tar ut alle sammen, tretti dager senere.
 
 `sharing:write` er bevisst ikke med i noen av dem. Det scopet finnes for at
 vanlig redigering ikke skal kunne publisere et dekk til internett, og ingen av
@@ -4794,10 +4870,13 @@ retningen, og en kopi er aldri delt – delingsstatus bor på raden og arves ald
 det ene som tilfeldigvis er delt, og det er ingen beskyttelse, bare et dekk ingen
 kan rydde bort.
 
-**Slettesemantikken.** Det som skal bort er dokumentet, slidene, filradene,
-bytene i objektlageret og en eventuell publisert kopi. Alt det gjør
-`SlaidsRepository.deletePresentation` allerede, og det er hele grunnen til at
-agentoperasjonen er ett kall og ikke en sekvens: Dexie tar dokumentet og
+**Slettesemantikken.** Operasjonen er ett kall til
+`SlaidsRepository.trashPresentation`, vaktet mot lesingen den selv tok, og
+ingenting går tapt i det kallet. Det som til slutt skal bort – når søppelkassen
+tømmes – er dokumentet, slidene, filradene, bytene i objektlageret og en
+eventuell publisert kopi. Alt det gjør `SlaidsRepository.deletePresentation`
+allerede, og det er hele grunnen til at tømmingen er ett kall per dekk og ikke
+en sekvens: Dexie tar dokumentet og
 filradene i én `rw`-transaksjon, og Supabase sletter raden – filradene henger på
 den gjennom en fremmednøkkel, og `is_shared`, `share_token` og `shared_document`
 er kolonner *på* den, så den delte lenken dør i den samme setningen. En andre
@@ -4808,10 +4887,12 @@ koster sliden.
 
 To ting operasjonen legger til på egen hånd, og begge er om det som *ikke* skjer:
 
-- **En rad som ikke finnes er `PRESENTATION_NOT_FOUND`.** Begge lagrene sletter
-  på id og bryr seg ikke om at id-en ikke er der, så uten lesingen først ville en
-  sletting av noe som aldri fantes svart `ok`. En agent må kunne skille «den er
-  borte nå» fra «den var aldri der».
+- **En rad som ikke finnes er `PRESENTATION_NOT_FOUND`.** Uten lesingen først
+  kunne en sletting av noe som aldri fantes svart `ok`, og en agent må kunne
+  skille «den er borte nå» fra «den var aldri der». En rad som ligger i
+  søppelkassen er *også* `PRESENTATION_NOT_FOUND` – `loadPresentation` avviser
+  den – så et dekk kan ikke kastes to ganger, og klokken startes aldri på nytt
+  fra agentflaten.
 - **Slettingen er vaktet.** `SlaidsRepository.deletePresentation` tar den samme
   `SaveGuard` som `savePresentation`, og agentoperasjonen sender alltid med
   revisjonen den nettopp leste – ikke bare når kalleren oppga en. Det er de to

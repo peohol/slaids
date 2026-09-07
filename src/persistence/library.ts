@@ -31,7 +31,7 @@
 import { newFolderId } from '../domain/ids'
 import { duplicatePresentationDocument } from '../domain/presentation'
 import { err, ok, type Result } from '../domain/result'
-import type { Folder, Presentation } from '../domain/types'
+import type { Folder, Presentation, PresentationSummary } from '../domain/types'
 import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 
 /**
@@ -225,4 +225,90 @@ export async function createFolder(
   }
   await repository.saveFolder(folder)
   return ok(folder)
+}
+
+/* ------------------------------------------------------------------ *
+ * The trash
+ * ------------------------------------------------------------------ */
+
+/**
+ * How long a presentation stays in the trash before it is deleted for good.
+ *
+ * Here, beside the other library rules, rather than in the view that shows
+ * the countdown: the sweep that purges and the sentence that warns must count
+ * the same days, and a number in two places is two numbers the day one of them
+ * is changed.
+ */
+export const TRASH_RETENTION_DAYS = 30
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** The moment a presentation trashed at `deletedAt` is purged. */
+export function trashExpiry(deletedAt: string): Date {
+  return new Date(Date.parse(deletedAt) + TRASH_RETENTION_DAYS * DAY_MS)
+}
+
+/**
+ * Whether a trashed presentation has outstayed its retention.
+ *
+ * A `deletedAt` that is not a date counts as expired. It cannot come from the
+ * repositories, which only ever write ISO timestamps, so a row carrying one has
+ * been edited by hand — and the safe reading of a trash entry nobody can date
+ * is that it has been there long enough.
+ */
+export function isTrashExpired(deletedAt: string, now: Date): boolean {
+  const expiry = trashExpiry(deletedAt)
+  return Number.isNaN(expiry.getTime()) || expiry.getTime() <= now.getTime()
+}
+
+/**
+ * Delete, for good, every trashed presentation `expired` says yes to — as long
+ * as it is still the trash entry the listing showed.
+ *
+ * One entry at a time through `purgePresentation`, never the unconditional
+ * `deletePresentation`. The listing is a reading, and between it and the
+ * delete another tab or device can restore a deck; an unconditional delete
+ * would then take a live presentation down with all of its files, on the
+ * strength of a listing that was true a moment ago. `purgePresentation` makes
+ * "still in the trash, trashed at this time" and the delete one atomic step in
+ * the store, and answers `false` for an entry that is no longer there — which
+ * the sweep counts as nothing to do, not as a failure.
+ *
+ * A store that refuses one of them stops the sweep with the error: what has
+ * been purged stays purged, and the rest is still in the trash for the next
+ * time, which is the state this must leave behind if it leaves at all.
+ */
+async function purgeTrash(
+  repository: SlaidsRepository,
+  expired: (summary: PresentationSummary) => boolean,
+): Promise<number> {
+  let purged = 0
+  for (const summary of await repository.listTrashedPresentations()) {
+    if (summary.deletedAt === null || !expired(summary)) continue
+    if (await repository.purgePresentation(summary.id, summary.deletedAt)) purged += 1
+  }
+  return purged
+}
+
+/**
+ * The automatic emptying: purge what has been in the trash for
+ * `TRASH_RETENTION_DAYS` or longer, and say how many went.
+ *
+ * Run when the library opens, the way the orphan sweep is. There is no server
+ * clock in Slaids to run it from, and none is needed: a trash nobody looks at
+ * costs nothing until somebody does, and then this runs first.
+ */
+export function purgeExpiredTrash(
+  repository: SlaidsRepository,
+  now: Date = new Date(),
+): Promise<number> {
+  return purgeTrash(
+    repository,
+    (summary) => summary.deletedAt !== null && isTrashExpired(summary.deletedAt, now),
+  )
+}
+
+/** The manual emptying: everything in the trash, regardless of age. */
+export function emptyTrash(repository: SlaidsRepository): Promise<number> {
+  return purgeTrash(repository, () => true)
 }

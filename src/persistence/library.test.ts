@@ -11,11 +11,20 @@
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { RepositoryError } from './repository'
-import { FOLDER_NAME_MAX_LENGTH, createFolder } from './library'
+import { createPresentation } from '../domain/presentation'
+import {
+  FOLDER_NAME_MAX_LENGTH,
+  TRASH_RETENTION_DAYS,
+  createFolder,
+  emptyTrash,
+  isTrashExpired,
+  purgeExpiredTrash,
+  trashExpiry,
+} from './library'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -102,6 +111,138 @@ describe('createFolder', () => {
 
     await expect(createFolder(failing, 'Kundemøter')).rejects.toBeInstanceOf(RepositoryError)
     expect(await repository.listFolders()).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The trash
+ * ------------------------------------------------------------------ */
+
+/** Trash a presentation as if at this moment. Only the clock is faked. */
+async function trashedAt(repository: DexieSlaidsRepository, id: string, at: string): Promise<void> {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(new Date(at))
+    await repository.trashPresentation(id)
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
+describe('søppelkassen', () => {
+  it('regner utløpet fra kastetidspunktet', () => {
+    expect(TRASH_RETENTION_DAYS).toBe(30)
+    expect(trashExpiry('2026-09-07T10:00:00.000Z').toISOString()).toBe('2026-10-07T10:00:00.000Z')
+    expect(isTrashExpired('2026-09-07T10:00:00.000Z', new Date('2026-10-07T09:59:59.999Z'))).toBe(
+      false,
+    )
+    expect(isTrashExpired('2026-09-07T10:00:00.000Z', new Date('2026-10-07T10:00:00.000Z'))).toBe(
+      true,
+    )
+    // A trash entry nobody can date has been there long enough.
+    expect(isTrashExpired('ikke en dato', new Date())).toBe(true)
+  })
+
+  it('tømmer det som har ligget der lenge nok, og lar resten ligge', async () => {
+    const repository = freshRepository()
+    const old = createPresentation({ title: 'Gammel' })
+    const fresh = createPresentation({ title: 'Ny' })
+    const kept = createPresentation({ title: 'I biblioteket' })
+    for (const presentation of [old, fresh, kept]) await repository.savePresentation(presentation)
+    await trashedAt(repository, old.id, '2026-08-01T12:00:00.000Z')
+    await trashedAt(repository, fresh.id, '2026-08-20T12:00:00.000Z')
+
+    // The moment before the old one expires, nothing goes.
+    expect(await purgeExpiredTrash(repository, new Date('2026-08-31T11:59:59.999Z'))).toBe(0)
+    expect(await repository.listTrashedPresentations()).toHaveLength(2)
+
+    expect(await purgeExpiredTrash(repository, new Date('2026-08-31T12:00:00.000Z'))).toBe(1)
+
+    expect((await repository.listTrashedPresentations()).map((summary) => summary.id)).toEqual([
+      fresh.id,
+    ])
+    await expect(repository.loadPresentation(old.id)).rejects.toThrow(/Fant ikke/)
+    // The library is not the trash's business.
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([kept.id])
+  })
+
+  it('tømmes helt på forespørsel, uansett alder', async () => {
+    const repository = freshRepository()
+    const first = createPresentation({ title: 'Første' })
+    const second = createPresentation({ title: 'Andre' })
+    const kept = createPresentation({ title: 'I biblioteket' })
+    for (const presentation of [first, second, kept]) await repository.savePresentation(presentation)
+    await repository.trashPresentation(first.id)
+    await repository.trashPresentation(second.id)
+
+    expect(await emptyTrash(repository)).toBe(2)
+
+    expect(await repository.listTrashedPresentations()).toEqual([])
+    await expect(repository.loadPresentation(first.id)).rejects.toThrow(/Fant ikke/)
+    await expect(repository.loadPresentation(second.id)).rejects.toThrow(/Fant ikke/)
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([kept.id])
+    // An empty trash empties to nothing.
+    expect(await emptyTrash(repository)).toBe(0)
+  })
+
+  it('sletter aldri en presentasjon som ble gjenopprettet etter at søppelkassen ble listet', async () => {
+    // The race: the sweep reads the trash, and before it gets to an entry
+    // another tab restores that deck. The listing was true when it was taken
+    // and is not any more, and the deck must survive — automatically and by
+    // hand alike, since both go through the same purge.
+    const repository = freshRepository()
+    const restored = createPresentation({ title: 'Gjenopprettet i mellomtiden' })
+    const expired = createPresentation({ title: 'Virkelig utløpt' })
+    await repository.savePresentation(restored)
+    await repository.savePresentation(expired)
+    await trashedAt(repository, restored.id, '2026-08-01T12:00:00.000Z')
+    await trashedAt(repository, expired.id, '2026-08-02T12:00:00.000Z')
+
+    const racing = Object.assign(Object.create(repository) as DexieSlaidsRepository, {
+      listTrashedPresentations: async () => {
+        const listed = await repository.listTrashedPresentations()
+        await repository.restorePresentation(restored.id)
+        return listed
+      },
+    })
+
+    expect(await purgeExpiredTrash(racing, new Date('2026-09-15T12:00:00.000Z'))).toBe(1)
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([
+      restored.id,
+    ])
+    expect(await repository.listTrashedPresentations()).toEqual([])
+
+    await repository.trashPresentation(restored.id)
+    expect(await emptyTrash(racing)).toBe(0)
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([
+      restored.id,
+    ])
+  })
+
+  it('stopper ved en lagringsfeil, uten å late som resten er tømt', async () => {
+    // What was purged stays purged, what was not is still in the trash, and the
+    // caller hears about it: a sweep that swallowed the error would report a
+    // trash that is empty while it is not.
+    const repository = freshRepository()
+    const first = createPresentation({ title: 'Første' })
+    const second = createPresentation({ title: 'Andre' })
+    await repository.savePresentation(first)
+    await repository.savePresentation(second)
+    await trashedAt(repository, first.id, '2026-08-01T12:00:00.000Z')
+    await trashedAt(repository, second.id, '2026-08-02T12:00:00.000Z')
+
+    const failing = Object.assign(Object.create(repository) as DexieSlaidsRepository, {
+      purgePresentation: (id: string, deletedAt: string) =>
+        id === first.id
+          ? Promise.reject(new RepositoryError('Basen svarer ikke.'))
+          : repository.purgePresentation(id, deletedAt),
+    })
+
+    // Newest first, so the second is purged before the first is refused.
+    await expect(emptyTrash(failing)).rejects.toBeInstanceOf(RepositoryError)
+    expect((await repository.listTrashedPresentations()).map((summary) => summary.id)).toEqual([
+      first.id,
+    ])
   })
 })
 

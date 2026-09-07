@@ -12,6 +12,7 @@ import { expect, test } from './fixtures'
 import {
   addContentToZone,
   createPresentation,
+  dismissImageModal,
   enterContentMode,
   enterZoneMode,
   splitSelected,
@@ -39,10 +40,10 @@ function panel(page: Page) {
 }
 
 async function fillZoneWithPicture(page: Page): Promise<void> {
+  // Choosing a picture for an empty zone is choosing a file: the upload dialog
+  // opens by itself, over the empty panel it will fill.
   await page.getByTestId('empty-zone-image').click()
   await expect(panel(page)).toBeVisible()
-  // A panel with no file yet is a click away from the upload dialog.
-  await panel(page).click()
   await expect(page.getByTestId('image-modal')).toBeVisible()
   await page.getByTestId('image-input').setInputFiles({
     name: 'bånd.svg',
@@ -269,6 +270,8 @@ test.describe('pictures', () => {
     await stage(page)
       .locator(`.slide-zone[data-node-id="${zones[1].id}"] [data-testid="empty-zone-image"]`)
       .click()
+    // The dialog the new panel opens is not what this test is about.
+    await dismissImageModal(page)
     await expect(page.getByTestId('caption-panel')).toBeVisible()
 
     // A picture has no text field to focus, so without a press of its own the
@@ -284,6 +287,9 @@ test.describe('pictures', () => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Kort med bilde')
     await page.getByTestId('empty-zone-titled-image-card').click()
+    // A titled picture card is a picture too, so it asks for its file at once.
+    await expect(page.getByTestId('image-modal')).toBeVisible()
+    await dismissImageModal(page)
     await expect(stage(page).locator('.card-header')).toBeVisible()
 
     await stage(page).locator('.card-header .tiptap').click()

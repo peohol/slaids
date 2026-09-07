@@ -32,7 +32,9 @@ layoutet er nestet.
 
 - passordinnlogging for Slaids' ene personlige bruker når appen kjører mot Supabase (se «Lagring»)
 - opprett presentasjon med tittel, startfarge og globale fonter
-- åpne, gi nytt navn, dupliser (inkludert filer), slett med bekreftelse
+- åpne, gi nytt navn, dupliser (inkludert filer), slett til søppelkassen – med
+  gjenoppretting, sletting for godt og automatisk tømming etter 30 dager
+- hvert kort sier hvor mye plass presentasjonen tar: dokumentet pluss filene
 - mapper, og flytting av presentasjoner mellom dem
 - eksport og import av `.slaids`-sikkerhetskopi (zip med manifest, data og filer)
 - agenttokens: lag, se og trekk tilbake nøklene en KI-agent bruker mot REST-API-et
@@ -49,8 +51,9 @@ layoutet er nestet.
   krever tokenet
 - tilbakekallbare tokens med scopes; vanlig redigering gir ikke rett til å dele
 - **bibliotekets livsløp**: lage og slette mapper, se dem, flytte en presentasjon
-  mellom dem, duplisere en presentasjon med filene sine, og slette en for godt –
-  med scope-grensen tegnet per operasjon og en vaktet, uangrelig sletting
+  mellom dem, duplisere en presentasjon med filene sine, og slette en – til
+  søppelkassen, som i biblioteket – med scope-grensen tegnet per operasjon og en
+  vaktet sletting
 - binær filopplasting uten base64, og `409 CONFLICT` når noen skrev først
 - **rendret preview** (`render_slide_preview`): én side som PNG, tegnet av
   Slaids' egne komponenter og stilark i en ekte Chromium, så en agent kan se på
@@ -309,6 +312,11 @@ supabase functions deploy slaids-share --project-ref <prosjekt-ref>
 
 **Aldri med `--prune`.** Det flagget sletter Edge Functions som finnes i
 prosjektet men ikke lokalt – altså Huskis' og mdeditz' funksjoner.
+
+Rekkefølgen mellom de to er ikke likegyldig når begge har endret seg: kjør
+migrasjonene **før** funksjonen deployes. `slaids-share` filtrerer på kolonnen
+`deleted_at` (søppelkassen), og en funksjon som spør etter en kolonne som ikke
+finnes ennå svarer 404 på hver eneste delingslenke til migrasjonen er kjørt.
 
 Supabase-oppsettet er **verifisert mot et ekte prosjekt**: innlogging,
 reload/session-persistens, filer, mapper, import/eksport, sletting, utlogging,
@@ -954,7 +962,7 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
      -d '{"presentationId":"p_…","title":"Variant for styret"}' \
      "$SLAIDS_API/operations/duplicate_presentation"
 
-# Slett for godt, mot revisjonen du så
+# Slett – til søppelkassen – mot revisjonen du så
 curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
      -d '{"presentationId":"p_…","expectedRevision":"…"}' \
      "$SLAIDS_API/operations/delete_presentation"
@@ -982,19 +990,23 @@ mappens navn eller hva som lå i den.
 
 En kopi svarer med kopien slik `get_presentation` ville lest den – derfor
 lesescopet – og lagrer én ny fil for hver fil kilden har, derfor `assets:write`.
-En sletting ødelegger både dokumentet og hver eneste fil under det, som er
-nøyaktig de to tingene de to skrivescopene beskytter. Filscopet gjelder begge
+En sletting setter både dokumentet og hver eneste fil under det på 30 dagers
+klokke – de går for godt når søppelkassen tømmes – og det er nøyaktig de to
+tingene de to skrivescopene beskytter. Filscopet gjelder begge
 veier: autoriteten som legger en fil inn i lageret er den samme som tar den ut,
 så et token uten `assets:write` kan verken laste opp, kopiere eller slette filer.
 `sharing:write` kreves av ingen av dem: ingenting her publiserer noe, og en
 sletting tar en publisert lenke *ned*.
 
-**En sletting kan ikke angres**, og det som følger med er dokumentet, slidene,
-filradene, bytene i lagringen og en eventuell delingslenke – lenken fordi
-delingsstatusen er kolonner på den samme raden som slettes. Den er vaktet mot
-revisjonen operasjonen leste, også når du ikke oppgir en, og en id som ikke
-finnes svarer `PRESENTATION_NOT_FOUND` i stedet for et stille `ok`. Kvitteringen
-er `{ "presentationId": "…", "deleted": true }` – ingen `revision`, siden det
+**En sletting er en flytting til søppelkassen**, den samme som i biblioteket:
+presentasjonen forsvinner fra `list_presentations`, er `PRESENTATION_NOT_FOUND`
+for hver operasjon etterpå – også en ny sletting – og kan gjenopprettes i
+biblioteket i 30 dager. Deretter går dokumentet, slidene, filradene, bytene i
+lagringen og en eventuell delingslenke for godt, og lenken er død hele tiden
+den ligger der. Slettingen er vaktet mot revisjonen operasjonen leste, også når
+du ikke oppgir en, og en id som ikke finnes svarer `PRESENTATION_NOT_FOUND` i
+stedet for et stille `ok`. Kvitteringen er
+`{ "presentationId": "…", "deleted": true }` – ingen `revision`, siden det
 ikke finnes et dokument igjen å skrive mot.
 
 **En kopi er selvstendig.** Filene kopieres i stedet for å deles, så kopien

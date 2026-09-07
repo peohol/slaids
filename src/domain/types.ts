@@ -399,8 +399,23 @@ export interface PresentationSummary {
   title: string
   folderId: string | null
   slideCount: number
+  /**
+   * How much room the presentation takes in the store: the document itself and
+   * every file it lists. See `presentationByteSize`.
+   */
+  byteSize: number
   createdAt: string
   updatedAt: string
+  /**
+   * When it was moved to the trash, or `null` while it is in the library.
+   *
+   * Storage metadata rather than a field of the document, deliberately: the
+   * editor saves the document it holds, and a trashed deck that is still open
+   * in another tab must not come back out of the trash because that tab
+   * autosaved. So the stores keep it beside the document, and a save never
+   * writes it.
+   */
+  deletedAt: string | null
 }
 
 export interface Folder {

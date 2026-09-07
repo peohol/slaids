@@ -173,6 +173,20 @@ export async function waitForSaved(page: Page): Promise<void> {
   })
 }
 
+/**
+ * Close the upload dialog without choosing a file.
+ *
+ * Filling an empty zone with a picture opens the dialog by itself, so a test
+ * about anything other than the file — the caption, the selection, the crop —
+ * closes it first and is left with the empty panel, exactly as a person who
+ * changed their mind is.
+ */
+export async function dismissImageModal(page: Page): Promise<void> {
+  await expect(page.getByTestId('image-modal')).toBeVisible()
+  await page.getByTestId('image-modal').getByRole('button', { name: 'Avbryt' }).click()
+  await expect(page.getByTestId('image-modal')).toBeHidden()
+}
+
 /** Adds content of the given kind to a specific zone via the empty-zone buttons. */
 export async function addContentToZone(
   page: Page,

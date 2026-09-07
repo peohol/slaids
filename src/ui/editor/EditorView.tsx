@@ -34,7 +34,7 @@ import {
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
-import { CONTENT_KIND_LABELS, createContentOfKind } from '../../domain/content'
+import { CONTENT_KIND_LABELS, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
@@ -435,19 +435,34 @@ export function EditorView({
    * Commands
    * -------------------------------------------------------------- */
 
+  /**
+   * Put fresh content of this kind into an empty zone, and go where it leads.
+   *
+   * The one way an empty zone is filled, whichever control asked — the picker
+   * drawn in the zone, the inspector, the toolbar menu — so that what follows
+   * is the same from all three. What follows for a picture is the upload
+   * dialog: a new picture panel has no file, and the only thing anyone does
+   * with an empty panel is choose one, so asking for a click on the panel first
+   * was a step that led nowhere else. The dialog opens in `'zone'` mode for the
+   * reason a press on the panel does — the user has already pointed at where
+   * the picture goes — and cancelling it leaves the empty panel, exactly as
+   * cancelling after that press did.
+   */
   const addContentTo = useCallback(
     (nodeId: string, kind: ZoneContentKind) => {
       if (!contentSlide) return
-      runStructural('content-add', (current) =>
+      const content = createContentOfKind(kind)
+      const placed = runStructural('content-add', (current) =>
         setZoneContent(current, {
           slideId: contentSlide.id,
           nodeId,
-          content: createContentOfKind(kind),
+          content,
           ...domFitCheckers,
         }),
       )
       useEditorStore.getState().selectNode(nodeId)
       setMode('content')
+      if (placed && imagePanelOf(content)) setImageOpen('zone')
     },
     [contentSlide, runStructural, setMode],
   )
@@ -471,17 +486,9 @@ export function EditorView({
         )
         return
       }
-      runStructural('content-add', (current) =>
-        setZoneContent(current, {
-          slideId: contentSlide.id,
-          nodeId: selectedNodeId,
-          content: createContentOfKind(kind),
-          ...domFitCheckers,
-        }),
-      )
-      setMode('content')
+      addContentTo(selectedNodeId, kind)
     },
-    [contentSlide, run, runStructural, selectedNodeId, setMode],
+    [addContentTo, contentSlide, run, selectedNodeId],
   )
 
   const handleSplitApply = useCallback(
