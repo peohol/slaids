@@ -2,7 +2,12 @@
  * Presentation and slide factories plus small pure queries.
  */
 
-import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from './constants'
+import {
+  CURRENT_INTERACTIVE_STYLE_CONTRACT,
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_PILL_COLOR,
+  type InteractiveStyleContract,
+} from './constants'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
 import { DEFAULT_FONT_SCALE, DEFAULT_SPACING } from './metrics'
 import { remapAssetIds } from './docs'
@@ -81,6 +86,8 @@ export function createInteractiveSlide(input: {
   name: string
   fileName: string
   html: string
+  /** Which design contract it was written against. New slides get today's. */
+  styleContract?: InteractiveStyleContract
 }): InteractiveSlide {
   return {
     id: newSlideId(),
@@ -88,6 +95,7 @@ export function createInteractiveSlide(input: {
     name: input.name,
     fileName: input.fileName,
     html: input.html,
+    styleContract: input.styleContract ?? CURRENT_INTERACTIVE_STYLE_CONTRACT,
   }
 }
 

@@ -9,7 +9,11 @@ import { detectSchemaVersion, migratePresentation } from './migrations'
 import { createInteractiveSlide, createPresentation } from './presentation'
 import { createTitledCard, createUntitledCard } from './content'
 import { docToPlainText, paragraphDoc, titleDoc } from './richdoc'
-import { DEFAULT_PILL_COLOR, MAX_INTERACTIVE_HTML_BYTES } from './constants'
+import {
+  DEFAULT_PILL_COLOR,
+  MAX_INTERACTIVE_HTML_BYTES,
+  MAX_INTERACTIVE_HTML_TOTAL_BYTES,
+} from './constants'
 import { FONT_SCALE_RANGE, NEUTRAL_SCALE, SPACING_RANGE } from './metrics'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
@@ -827,6 +831,61 @@ describe('en interaktiv slide i lagret form', () => {
       slides: [interactiveAt(presentation, 2), ...presentation.slides.slice(0, 2)],
     }
     expect(validatePresentation(broken).ok).toBe(false)
+  })
+
+  /*
+   * The rule this closes: a stored or imported document may not hold an
+   * interactive slide the typed commands would have refused. A `.slaids`
+   * archive is written by hand as easily as by Slaids, and it reaches the
+   * repository without passing a command — so the load gate has to ask the
+   * command's own question. See `storedInteractiveRefusal`.
+   */
+  it('avviser et navn, et filnavn eller en kilde kommandoene ville avvist', () => {
+    const presentation = withApp()
+    const bad = (fields: Record<string, unknown>): Record<string, unknown> => ({
+      ...presentation,
+      slides: [...presentation.slides.slice(0, 2), { ...interactiveAt(presentation, 2), ...fields }],
+    })
+
+    expect(validatePresentation(bad({ name: '   ' })).ok).toBe(false)
+    expect(validatePresentation(bad({ name: 'x'.repeat(201) })).ok).toBe(false)
+    expect(validatePresentation(bad({ fileName: 'teller.txt' })).ok).toBe(false)
+    expect(validatePresentation(bad({ fileName: '  ' })).ok).toBe(false)
+    expect(validatePresentation(bad({ html: '<p>x</p>\u0000' })).ok).toBe(false)
+    expect(validatePresentation(bad({ html: 'bare tekst uten elementer' })).ok).toBe(false)
+
+    // And the ones a command would have accepted still open.
+    expect(validatePresentation(bad({ name: 'Et helt vanlig navn' })).ok).toBe(true)
+    expect(validatePresentation(bad({ fileName: 'QUIZ.HTML' })).ok).toBe(true)
+  })
+
+  it('avviser et dekk som holder mer miniapp-kilde enn budsjettet, uansett hvordan det ble skrevet', () => {
+    // Every file inside the per-file limit, the deck as a whole outside the
+    // budget: exactly the document a hand-written archive can hold and no
+    // command can produce.
+    const presentation = sample()
+    const count = Math.floor(MAX_INTERACTIVE_HTML_TOTAL_BYTES / MAX_INTERACTIVE_HTML_BYTES) + 1
+    const overBudget = {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        ...Array.from({ length: count }, (_, index) =>
+          createInteractiveSlide({
+            name: `App ${index}`,
+            fileName: `app-${index}.html`,
+            html: htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES),
+          }),
+        ),
+      ],
+    }
+    const result = validatePresentation(overBudget)
+    expect(result.ok).toBe(false)
+    expect(result.issues.some((issue) => /budsjett|plass/i.test(issue.message))).toBe(true)
+
+    // One file fewer is the same deck within the budget, and it opens.
+    expect(
+      validatePresentation({ ...overBudget, slides: overBudget.slides.slice(0, -1) }).ok,
+    ).toBe(true)
   })
 
   it('åpner et dokument fra før typen fantes, uendret, som gjeldende versjon', () => {

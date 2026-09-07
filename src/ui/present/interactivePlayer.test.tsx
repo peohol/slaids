@@ -14,7 +14,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createInteractiveSlide, createPresentation } from '../../domain/presentation'
 import { buildSharedSnapshot } from '../../domain/sharing'
 import { sectionAt } from '../../domain/testDecks'
@@ -24,6 +24,23 @@ import { INTERACTIVE_SANDBOX_FLAGS } from '../interactive/sandboxDocument'
 import { PresentationPlayer } from './PresentationPlayer'
 
 const APP = '<!doctype html><html><body><p>Teller</p></body></html>'
+
+/**
+ * No real network from a unit test.
+ *
+ * Mounting the surface asks for the theme's faces so they are ready before
+ * anybody presses play (see `interactiveFontCss`). That is a fetch, and a test
+ * that made it would be a test that depends on Google being reachable. Refusing
+ * it here is the same thing an offline browser does, and the same thing the
+ * code is written to survive: the app is drawn in the fallback stack.
+ */
+beforeEach(() => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ingen nettverk i test'))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function deck(): Presentation {
   const presentation = createPresentation({ title: 'Delt dekk' })

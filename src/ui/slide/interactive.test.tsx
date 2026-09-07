@@ -16,7 +16,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bestTextColor } from '../../domain/color'
 import { deckPages, deckProgress, deckSectionColors } from '../../domain/pages'
 import { createInteractiveSlide, createPresentation } from '../../domain/presentation'
@@ -25,6 +25,8 @@ import type { InteractiveSlide, Presentation } from '../../domain/types'
 import { isInteractiveRuntimeActive, useInteractiveRuntime } from '../../state/interactiveRuntime'
 import { InteractiveSlideSurface } from '../interactive/InteractiveSlideSurface'
 import { EXIT_LABEL } from '../interactive/InteractiveRuntime'
+import { interactiveDocumentStyle } from '../interactive/documentStyle'
+import { escapeHtmlAttribute } from '../interactive/sandboxDocument'
 import {
   INTERACTIVE_PERMISSIONS_POLICY,
   INTERACTIVE_REFERRER_POLICY,
@@ -32,8 +34,25 @@ import {
   buildInteractiveWrapperDocument,
 } from '../interactive/sandboxDocument'
 import { DeckPageView } from './DeckPageView'
-import { ACTIVATE_LABEL, INTERACTIVE_BADGE } from './InteractivePageView'
+import { ACTIVATE_LABEL } from './InteractivePageView'
 import { SlideRenderProvider } from './SlideRenderContext'
+
+/**
+ * No real network from a unit test.
+ *
+ * Mounting the surface asks for the theme's faces so they are ready before
+ * anybody presses play (see `interactiveFontCss`). That is a fetch, and a test
+ * that made it would be a test that depends on Google being reachable. Refusing
+ * it here is the same thing an offline browser does, and the same thing the
+ * code is written to survive: the app is drawn in the fallback stack.
+ */
+beforeEach(() => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ingen nettverk i test'))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const BACKGROUND = '#101828'
 const ACCENT = '#bfccd9'
@@ -76,22 +95,34 @@ function provider(presentation: Presentation, isStatic: boolean, node: React.Rea
 }
 
 describe('forsiden, tegnet uten en aktivering', () => {
-  it('viser navnet, merkingen og knappen som en form — og ingenting av appen', () => {
+  it('viser navnet og en inert play-knapp — og ingenting av appen', () => {
     const presentation = deck()
     const [, page] = deckPages(presentation)
     const markup = renderToStaticMarkup(provider(presentation, true, <DeckPageView page={page} />))
 
     expect(markup).toContain('data-testid="interactive-page"')
     expect(markup).toContain('Teller for salen')
-    expect(markup).toContain(INTERACTIVE_BADGE)
-    expect(markup).toContain('teller.html')
-    expect(markup).toContain(ACTIVATE_LABEL)
+    // The play triangle is drawn, not typed: a glyph would be at the mercy of
+    // whatever font the machine taking the picture happens to have.
+    expect(markup).toContain('<svg')
     expect(markup).toContain('data-testid="activate-interactive-inert"')
     expect(markup).not.toContain('data-testid="activate-interactive"')
     expect(markup).not.toContain('<button')
     expect(markup).not.toContain('<iframe')
     expect(markup).not.toContain('miniapp-hemmelig')
     expect(markup).not.toContain('<script')
+  })
+
+  it('sier ikke mer enn den trenger: ingen merkelapp og ikke filnavnet', () => {
+    const presentation = deck()
+    const [, page] = deckPages(presentation)
+    const markup = renderToStaticMarkup(provider(presentation, true, <DeckPageView page={page} />))
+
+    // The file name belongs to whoever edits the deck, and it is in the
+    // inspector. A badge saying that a play button is interactive is a label
+    // on a play button.
+    expect(markup).not.toContain('teller.html')
+    expect(markup).not.toContain('Interaktiv miniapp')
   })
 
   it('tegnes i seksjonens farger, som enhver annen side i dens del av dekket', () => {
@@ -158,7 +189,10 @@ function frameOf(host: HTMLElement): HTMLIFrameElement | null {
 describe('flaten som kan starte appen', () => {
   it('tegner forsiden med en ekte knapp, og ingen ramme før den trykkes', () => {
     const host = mount(deck())
-    expect(host.querySelector('[data-testid="activate-interactive"]')?.tagName).toBe('BUTTON')
+    const button = host.querySelector('[data-testid="activate-interactive"]')
+    expect(button?.tagName).toBe('BUTTON')
+    // An icon-only control still has to say what it does.
+    expect(button?.getAttribute('aria-label')).toBe(ACTIVATE_LABEL)
     expect(host.querySelector('[data-testid="activate-interactive-inert"]')).toBeNull()
     expect(frameOf(host)).toBeNull()
     expect(host.innerHTML).not.toContain('miniapp-hemmelig')
@@ -176,8 +210,20 @@ describe('flaten som kan starte appen', () => {
     expect(frame!.getAttribute('referrerpolicy')).toBe(INTERACTIVE_REFERRER_POLICY)
     expect(frame!.getAttribute('allow')).toBe(INTERACTIVE_PERMISSIONS_POLICY)
     expect(frame!.getAttribute('src')).toBeNull()
+    // The document is the file plus the deck's design, and nothing else. No
+    // web font is reachable in this environment, so the style is the tokens
+    // and the base sheet — which is exactly what a system-font deck gets too.
     expect(frame!.getAttribute('srcdoc')).toBe(
-      buildInteractiveWrapperDocument({ html: APP, title: 'Teller for salen' }),
+      buildInteractiveWrapperDocument({
+        html: APP,
+        title: 'Teller for salen',
+        styleCss: interactiveDocumentStyle({
+          theme: presentation.theme,
+          colors: { accent: ACCENT, background: BACKGROUND },
+          contract: 1,
+          fontCss: '',
+        }),
+      }),
     )
     expect(host.querySelector('[data-testid="interactive-surface"]')?.hasAttribute('data-active')).toBe(true)
     expect(isInteractiveRuntimeActive()).toBe(true)
@@ -241,6 +287,68 @@ describe('flaten som kan starte appen', () => {
     // And it can be started again, with the new source.
     click(host, 'activate-interactive')
     expect(frameOf(host)!.getAttribute('srcdoc')).toContain('&lt;p&gt;ny&lt;/p&gt;')
+    click(host, 'exit-interactive')
+  })
+
+  it('gir appen dekkets design, fra seksjonen sliden ligger i', () => {
+    const presentation = deck()
+    const host = mount(presentation)
+    click(host, 'activate-interactive')
+    const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
+
+    // The section's colours, not the deck's first or a default.
+    expect(srcdoc).toContain(escapeHtmlAttribute(`--slaids-background: ${BACKGROUND}`))
+    expect(srcdoc).toContain(escapeHtmlAttribute(`--slaids-accent: ${ACCENT}`))
+    // The theme's two font roles, as stacks.
+    expect(srcdoc).toContain(escapeHtmlAttribute(`--slaids-heading-font: ${presentation.theme.headingFontFamily}`))
+    expect(srcdoc).toContain(escapeHtmlAttribute(`--slaids-body-font: ${presentation.theme.bodyFontFamily}`))
+    // And Slaids' base stylesheet, so an app with no CSS is still the deck's.
+    expect(srcdoc).toContain(escapeHtmlAttribute('font-family: var(--slaids-body-font)'))
+    click(host, 'exit-interactive')
+  })
+
+  it('slår gjennom en temaendring ved neste kjøring, uten å røre den lagrede filen', () => {
+    const before = deck()
+    const host = mount(before)
+    click(host, 'activate-interactive')
+    expect(frameOf(host)!.getAttribute('srcdoc')).toContain(escapeHtmlAttribute(ACCENT))
+    click(host, 'exit-interactive')
+
+    // The section is recoloured — an ordinary edit to the *deck*, which does
+    // not touch the interactive slide at all.
+    const recoloured: Presentation = {
+      ...before,
+      slides: [{ ...sectionAt(before, 0), accentColor: '#7d3cff' }, before.slides[1]],
+    }
+    expect(appSlide(recoloured)).toEqual(appSlide(before))
+    rerender(recoloured)
+
+    click(host, 'activate-interactive')
+    const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
+    expect(srcdoc).toContain(escapeHtmlAttribute('--slaids-accent: #7d3cff'))
+    expect(srcdoc).not.toContain(escapeHtmlAttribute(`--slaids-accent: ${ACCENT}`))
+    // The file itself is byte for byte what it was: the design is injected,
+    // never written in.
+    expect(srcdoc).toContain(escapeHtmlAttribute(APP))
+    click(host, 'exit-interactive')
+  })
+
+  it('bygger ikke dokumentet på nytt under en app som kjører', () => {
+    // A theme change while the app runs must not restart it: the design is
+    // captured with the run and picked up by the next one.
+    const before = deck()
+    const host = mount(before)
+    click(host, 'activate-interactive')
+    const running = frameOf(host)
+    const srcdoc = running!.getAttribute('srcdoc')
+
+    rerender({
+      ...before,
+      slides: [{ ...sectionAt(before, 0), accentColor: '#7d3cff' }, before.slides[1]],
+    })
+
+    expect(frameOf(host)).toBe(running)
+    expect(frameOf(host)!.getAttribute('srcdoc')).toBe(srcdoc)
     click(host, 'exit-interactive')
   })
 

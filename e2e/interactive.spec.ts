@@ -106,11 +106,12 @@ test.describe('ny interaktiv slide', () => {
     await expect(create).toBeDisabled()
     // The contract, in words, before any file is picked.
     const notes = page.getByTestId('interactive-notes').locator('li')
-    await expect(notes).toHaveCount(4)
+    await expect(notes).toHaveCount(5)
     await expect(notes.nth(0)).toContainText('Eksterne skript')
-    await expect(notes.nth(1)).toContainText('starter på nytt')
-    await expect(notes.nth(2)).toContainText('følger med når presentasjonen deles')
-    await expect(notes.nth(3)).toContainText('stoler på')
+    await expect(notes.nth(1)).toContainText('arver presentasjonens farger')
+    await expect(notes.nth(2)).toContainText('starter på nytt')
+    await expect(notes.nth(3)).toContainText('følger med når presentasjonen deles')
+    await expect(notes.nth(4)).toContainText('stoler på')
 
     // The wrong kind of file is refused in the dialog, and nothing is created.
     await pickFile(page, 'interactive-file-input', 'bilde.png', Buffer.from('not html'), 'image/png')
@@ -149,13 +150,21 @@ test.describe('ny interaktiv slide', () => {
     await expect(items.nth(2).locator('.filmstrip__badge')).toHaveText('Interaktiv')
     await expect(page.getByTestId('statusbar')).toContainText('Interaktiv 3 av 4')
 
-    // The stage shows the cover in the deck's design: name, marking, button.
+    // The stage shows the cover in the deck's design: the name, and a play
+    // button. Nothing else — the file name is the author's business and lives
+    // in the inspector beside the stage.
     const cover = stage(page).getByTestId('interactive-page')
     await expect(cover).toBeVisible()
     await expect(cover.getByTestId('interactive-name')).toHaveText('Teller for salen')
-    await expect(cover).toContainText('Interaktiv miniapp')
-    await expect(cover).toContainText('counter-app.html')
-    await expect(stage(page).getByRole('button', { name: 'Aktiver miniapp' })).toBeVisible()
+    await expect(cover).not.toContainText('counter-app.html')
+    await expect(cover).not.toContainText('Interaktiv miniapp')
+    const play = stage(page).getByRole('button', { name: 'Aktiver miniapp' })
+    await expect(play).toBeVisible()
+    // Square, and a real target rather than a line of text.
+    const playBox = (await play.boundingBox())!
+    expect(Math.abs(playBox.width - playBox.height)).toBeLessThan(1.5)
+    expect(playBox.width).toBeGreaterThanOrEqual(40)
+    await expect(play.locator('svg')).toHaveCount(1)
     await expect(page.getByTestId('inspector').getByTestId('interactive-inspector-file')).toHaveText(
       'counter-app.html',
     )
@@ -215,10 +224,11 @@ test.describe('presentasjon', () => {
     expect(Math.abs(frameBox.width - slideBox.width)).toBeLessThan(1.5)
     expect(Math.abs(frameBox.height - slideBox.height)).toBeLessThan(1.5)
 
-    // The app is drawn in its own design, not Slaids'.
+    // The app is drawn in the deck's design: it names no font of its own, and
+    // gets the deck's body role for text and its heading role for a heading.
     const inner = app(view)
     await expect(inner.locator('#title')).toHaveText('Teller')
-    await expect(inner.locator('#font')).toContainText('Courier New')
+    await expect(inner.locator('#font')).toContainText('Atkinson Hyperlegible Next')
 
     // Keyboard focus went into the app without a click.
     await expect
@@ -328,6 +338,126 @@ test.describe('presentasjon', () => {
   })
 })
 
+
+test.describe('temaet i miniappen', () => {
+  /** The section colours the front page starts with, read off the cover. */
+  async function coverColors(page: Page): Promise<{ background: string }> {
+    const background = await stage(page)
+      .getByTestId('interactive-page')
+      .evaluate((node) => getComputedStyle(node).backgroundColor)
+    return { background }
+  }
+
+  test('appen arver seksjonens farger, dekkets fonter og Slaids’ basisstilark', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Tema')
+    await addCounterSlide(page)
+    const cover = await coverColors(page)
+
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    const inner = app(page)
+    await expect(inner.locator('#title')).toHaveText('Teller')
+
+    // The variables Slaids sets are the ones the deck draws the slide in.
+    const background = await inner.locator('#background').textContent()
+    expect(background?.trim()).toBeTruthy()
+    await expect(inner.locator('#accent')).not.toHaveText('')
+    expect(
+      await inner.locator('body').evaluate((node) => getComputedStyle(node).backgroundColor),
+    ).toBe(cover.background)
+
+    // The type is the deck's two roles, as stacks — not a font name the app
+    // knows. Body text gets the body role; a heading gets the heading role,
+    // which in this deck is a different family entirely.
+    await expect(inner.locator('#font')).toContainText('Atkinson Hyperlegible Next')
+    expect(
+      await inner.locator('#title').evaluate((node) => getComputedStyle(node).fontFamily),
+    ).toContain('Quicksand')
+
+    // Slaids' base stylesheet styled a button the app never styled…
+    const buttonBackground = (await inner.locator('#button-background').textContent())?.trim()
+    expect(buttonBackground).toMatch(/^rgb/)
+    expect(buttonBackground).not.toBe('rgba(0, 0, 0, 0)')
+    // …and the app's own CSS still wins where the two meet.
+    expect(
+      await inner.locator('#styled-by-app').evaluate((node) => getComputedStyle(node).letterSpacing),
+    ).toBe('4px')
+
+    await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
+    expect(relevant(guard.errors)).toEqual([])
+  })
+
+  test('fontene ligger i dokumentet: rammen ber om ingenting', async ({ page }) => {
+    // Slaids' own font route serves the family from `fonts.gstatic.com`, as
+    // Google's stylesheet does, so the inliner has something real to embed.
+    await page.route('https://fonts.googleapis.com/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/css',
+        body: "@font-face{font-family:'Quicksand';font-style:normal;font-weight:400;src:url(https://fonts.gstatic.com/s/quicksand/v1/face.ttf) format('truetype');}",
+      }),
+    )
+    await page.route('https://fonts.gstatic.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'font/ttf', body: Buffer.from([0, 1, 0, 0]) }),
+    )
+
+    // Everything the browser asks for, and which frame asked for it.
+    const fromFrames: string[] = []
+    page.on('request', (request) => {
+      const frame = request.frame()
+      if (frame && frame !== page.mainFrame()) fromFrames.push(request.url())
+    })
+
+    await createPresentation(page, 'Fonter')
+    await addCounterSlide(page)
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    await expect(app(page).locator('#title')).toHaveText('Teller')
+    await page.waitForTimeout(500)
+
+    // The faces are in the document, with the file itself inside them.
+    const srcdoc = await page.getByTestId('interactive-frame').getAttribute('srcdoc')
+    expect(srcdoc).toContain('@font-face')
+    expect(srcdoc).toContain('url(data:font/ttf;base64,')
+    // Nothing in the frame reached for anything: not the font, not anything.
+    expect(fromFrames).toEqual([])
+    await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
+  })
+
+  test('en ny seksjonsfarge slår gjennom neste gang, uten å røre den lagrede filen', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Farge')
+    await addCounterSlide(page)
+
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    const before = (await app(page).locator('#accent').textContent())?.trim()
+    expect(before).toBeTruthy()
+    await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
+
+    // Recolour the section that governs the slide. The interactive slide is
+    // not touched by this edit at all.
+    const fileBefore = await page.getByTestId('interactive-inspector-size').textContent()
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    await page
+      .getByTestId('inspector')
+      .locator('section')
+      .filter({ hasText: 'Aksentfarge' })
+      .getByTestId('palette')
+      .locator('[data-color]')
+      .nth(3)
+      .click()
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb').click()
+
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    const after = (await app(page).locator('#accent').textContent())?.trim()
+    expect(after).toBeTruthy()
+    expect(after).not.toBe(before)
+    // The file is the same file: the design is injected, never written in.
+    expect(await page.getByTestId('interactive-inspector-size').textContent()).toBe(fileBefore)
+    await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
+  })
+})
+
 test.describe('editoren', () => {
   test('scenen kan prøve appen, og låser navigasjon og snarveier mens den kjører', async ({ page }) => {
     const guard = watchForErrors(page)
@@ -388,7 +518,6 @@ test.describe('editoren', () => {
     await pickFile(page, 'interactive-replace-input', 'escape-app.html', ESCAPE)
     await expect(page.getByTestId('interactive-inspector-file')).toHaveText('escape-app.html')
     await expect(stage(page).getByTestId('interactive-name')).toHaveText('Quiz')
-    await expect(stage(page).getByTestId('interactive-page')).toContainText('escape-app.html')
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
 
     // Undo and redo, from the keyboard, with the focus off the inputs.

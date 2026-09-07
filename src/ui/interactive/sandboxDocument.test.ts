@@ -170,6 +170,47 @@ describe('innpakningen', () => {
   })
 })
 
+describe('Slaids’ eget stilark i dokumentet', () => {
+  const STYLE = ':root { --slaids-accent: #bfccd9; }\nbody { color: var(--slaids-text); }'
+
+  it('står i hodet, etter policyen og før én byte av filen', () => {
+    const document = buildInteractiveAppDocument(APP, STYLE)
+    const policyAt = document.indexOf('Content-Security-Policy')
+    const styleAt = document.indexOf('--slaids-accent')
+    const fileAt = document.indexOf(APP)
+
+    expect(policyAt).toBeGreaterThan(-1)
+    expect(styleAt).toBeGreaterThan(policyAt)
+    // Before the file, so the author's own <style> is parsed after Slaids'
+    // and wins wherever the two disagree.
+    expect(fileAt).toBeGreaterThan(styleAt)
+    expect(document.indexOf('</head>')).toBeLessThan(fileAt)
+  })
+
+  it('trenger ingen ny tillatelse: inline stil og data-fonter er allerede lov', () => {
+    const csp = directives(INTERACTIVE_CONTENT_SECURITY_POLICY)
+    expect(csp.get('style-src')).toBe("'unsafe-inline'")
+    expect(csp.get('font-src')).toBe('data: blob:')
+    // And still nothing that reaches a host.
+    expect(csp.get('default-src')).toBe("'none'")
+  })
+
+  it('følger med gjennom innpakningen, inn i apprammens srcdoc', () => {
+    const wrapper = parse(buildInteractiveWrapperDocument({ html: APP, title: 'T', styleCss: STYLE }))
+    expect(wrapper.querySelector('iframe#app')!.getAttribute('srcdoc')).toBe(
+      buildInteractiveAppDocument(APP, STYLE),
+    )
+    // The deck's design is the app's, not the wrapper's: the wrapper is a
+    // frame holder, and its own style says only how to hold a frame.
+    const own = [...wrapper.querySelectorAll('head style')].map((node) => node.textContent).join('')
+    expect(own).not.toContain('--slaids-')
+  })
+
+  it('er borte, ikke tomt, når det ikke er noe å legge ved', () => {
+    expect(buildInteractiveAppDocument(APP)).not.toContain('<style>')
+  })
+})
+
 describe('escapeHtmlAttribute', () => {
   it('nøytraliserer alt som kan avslutte eller ligne markup', () => {
     expect(escapeHtmlAttribute(`a&b"c<d>e'f`)).toBe('a&amp;b&quot;c&lt;d&gt;e&#39;f')

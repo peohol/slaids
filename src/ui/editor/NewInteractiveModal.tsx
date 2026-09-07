@@ -29,6 +29,7 @@ import { useTypedSubstitution } from './useTypedSubstitution'
 /** What the author is told before a file becomes a slide. */
 export const INTERACTIVE_UPLOAD_NOTES: readonly string[] = [
   'Alt appen trenger må ligge i denne ene filen: HTML, CSS og JavaScript. Eksterne skript, stilark, fonter, bilder og tjenester er ikke støttet i denne versjonen.',
+  'Appen arver presentasjonens farger, fonter og mål. Den som skriver appen bruker Slaids\u2019 CSS-variabler, og da følger den temaet og seksjonen den ligger i.',
   'Appen kjører bare når noen trykker «Aktiver miniapp», og starter på nytt hver gang den avsluttes.',
   'Hele HTML-kilden følger med når presentasjonen deles.',
   'Aktiver bare filer du stoler på. Slaids sjekker at filen er en HTML-fil, ikke hva den gjør.',

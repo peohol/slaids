@@ -40,11 +40,14 @@ export const EXIT_LABEL = 'Avslutt miniapp'
 export function InteractiveRuntime({
   slide,
   scale,
+  styleCss,
   onExit,
 }: {
   slide: InteractiveSlide
   /** How the 1600 × 900 design space is scaled on screen, for the exit button. */
   scale: number
+  /** The deck's design for this run — see `InteractiveSlideSurface`. */
+  styleCss: string
   onExit: () => void
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
@@ -60,8 +63,8 @@ export function InteractiveRuntime({
   // Built once per run: the same source in, the same document out, and a new
   // run is a new component (the surface keys it), so a fresh document too.
   const document = useMemo(
-    () => buildInteractiveWrapperDocument({ html: slide.html, title: slide.name }),
-    [slide.html, slide.name],
+    () => buildInteractiveWrapperDocument({ html: slide.html, title: slide.name, styleCss }),
+    [slide.html, slide.name, styleCss],
   )
 
   useEffect(() => {

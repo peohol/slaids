@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from './metrics'
 import {
+  INTERACTIVE_STYLE_CONTRACTS,
   MAX_SPLIT_CHILDREN,
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
@@ -16,11 +17,10 @@ import {
 } from './constants'
 import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
-import { MAX_INTERACTIVE_HTML_BYTES } from './constants'
-import { utf8ByteLength } from './interactive'
+import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactive'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 14
+export const CURRENT_SCHEMA_VERSION = 15
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -167,25 +167,26 @@ export const sectionSlideSchema = z.object({
 /**
  * An interactive slide.
  *
- * Three strings and nothing else: no layout tree, no title zone, no colours of
- * its own — it is drawn in the governing section's. `html` is a bounded field
- * for exactly this kind, never an extension of the rich-text model, and the
- * bound is measured in bytes of UTF-8 as every transport measures it. The
- * refinement is the stored-document half of the rule the commands enforce on
- * the way in (`domain/interactive.ts`), so a document cannot be written past
- * the limit by any door and then refused by the next load.
+ * Strings and nothing else: no layout tree, no title zone, no colours of its
+ * own — it is drawn in the governing section's. `html` is a bounded field for
+ * exactly this kind, never an extension of the rich-text model.
+ *
+ * The shape is here; what the strings may *contain* is
+ * `storedInteractiveRefusal` in `domain/interactive.ts`, asked by
+ * `validatePresentation` below in the same breath as the layout-tree
+ * invariants. Both halves are checked on every load, and neither is restated:
+ * a stored slide meets exactly what a command demands because it is asked the
+ * command's own question.
  */
 export const interactiveSlideSchema = z.object({
   id: z.string().min(1),
   kind: z.literal('interactive'),
   name: z.string(),
   fileName: z.string(),
-  html: z
-    .string()
-    .min(1)
-    .refine((html) => utf8ByteLength(html) <= MAX_INTERACTIVE_HTML_BYTES, {
-      message: `HTML-kilden er større enn grensen på ${MAX_INTERACTIVE_HTML_BYTES} byte`,
-    }),
+  html: z.string(),
+  /* Read from the list rather than written out, so adding a version is one
+     edit in `constants.ts` and not two that can disagree. */
+  styleContract: z.literal([...INTERACTIVE_STYLE_CONTRACTS]),
 })
 
 export const slideSchema = z.discriminatedUnion('kind', [
@@ -321,11 +322,25 @@ export function validatePresentation(input: unknown): SchemaResult<Presentation>
 
   const issues: ValidationIssue[] = []
   parsed.data.slides.forEach((slide, index) => {
+    if (slide.kind === 'interactive') {
+      const refusal = storedInteractiveRefusal(slide)
+      if (refusal) issues.push({ path: `slides.${index}`, message: refusal.error.message })
+      return
+    }
     if (slide.kind !== 'content') return
     for (const violation of validateTree(slide.root)) {
       issues.push({ path: `slides.${index}.root.${violation.nodeId}`, message: violation.message })
     }
   })
+  /*
+   * The deck-wide budget, which no single slide can be measured against: every
+   * miniapp can be inside the per-file limit while the document as a whole is
+   * larger than the transports that have to carry it. A `.slaids` archive is
+   * the door this closes — it is written by hand as easily as by Slaids, and it
+   * reaches the repository without passing a command.
+   */
+  const overBudget = interactiveBudgetRefusal({ slides: parsed.data.slides }, 0)
+  if (overBudget) issues.push({ path: 'slides', message: overBudget.error.message })
   if (issues.length > 0) return { ok: false, issues }
   // The refinement above is what makes this cast a statement of fact rather
   // than a hope: a `slides` array that reached here opens with a section.

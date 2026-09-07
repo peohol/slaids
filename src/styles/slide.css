@@ -743,25 +743,10 @@
   text-align: center;
 }
 
-.interactive-page__badge {
-  display: inline-block;
-  padding: 0.3em 1em;
-  border-radius: 999px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 .interactive-page__name {
   margin: 0;
   max-width: 84%;
   font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.interactive-page__file {
-  max-width: 84%;
-  opacity: 0.8;
   overflow-wrap: anywhere;
 }
 
@@ -775,11 +760,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.5em 1.4em;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
-  font-weight: 600;
-  white-space: nowrap;
   cursor: pointer;
 }
 

@@ -29,8 +29,8 @@
  */
 
 import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
-import { err, ok, type Result } from './result'
-import type { InteractiveSlide, Presentation } from './types'
+import { err, ok, type Refusal, type Result } from './result'
+import type { InteractiveSlide } from './types'
 
 /** The one extension an interactive slide takes, compared case-insensitively. */
 export const INTERACTIVE_FILE_EXTENSION = '.html'
@@ -205,7 +205,7 @@ export function acceptInteractiveHtml(input: {
   return ok({ fileName: fileName.value, html, byteSize })
 }
 
-function tooLarge(byteSize: number): Result<never> | null {
+function tooLarge(byteSize: number): Refusal | null {
   if (byteSize <= MAX_INTERACTIVE_HTML_BYTES) return null
   return err(
     'INTERACTIVE_HTML_TOO_LARGE',
@@ -224,19 +224,60 @@ export function interactiveByteSize(slide: InteractiveSlide): number {
 }
 
 /**
+ * Anything with a list of slides in it.
+ *
+ * A `Presentation` is one; so is a document Zod has just parsed but nothing has
+ * yet called a presentation. The budget is the same question either way, and
+ * asking it of the parsed shape is what lets the *schema* refuse an import that
+ * is over — see `validatePresentation`.
+ */
+export interface InteractiveDeck {
+  slides: readonly { kind: string }[]
+}
+
+/** The interactive slides in a deck, whatever else it holds. */
+export function interactiveSlidesIn(deck: InteractiveDeck): InteractiveSlide[] {
+  return deck.slides.filter((slide): slide is InteractiveSlide => slide.kind === 'interactive')
+}
+
+/**
  * Bytes of miniapp source across the deck, leaving out one slide when its
  * source is about to be replaced.
  */
 export function interactiveHtmlBytesIn(
-  presentation: Presentation,
+  deck: InteractiveDeck,
   options: { excludingSlideId?: string } = {},
 ): number {
   let total = 0
-  for (const slide of presentation.slides) {
-    if (slide.kind !== 'interactive' || slide.id === options.excludingSlideId) continue
+  for (const slide of interactiveSlidesIn(deck)) {
+    if (slide.id === options.excludingSlideId) continue
     total += interactiveByteSize(slide)
   }
   return total
+}
+
+/**
+ * What is wrong with an interactive slide as a document holds it, or `null`.
+ *
+ * The rule is one sentence: a stored document may not hold an interactive slide
+ * that the typed commands would have refused. It is asked of every document
+ * that is loaded or imported — see `validatePresentation` — because the door in
+ * this module guards the *editor's* and the *agent's* way in, and a `.slaids`
+ * archive is a third way in that goes straight to the repository. A file that
+ * never passed a command must still meet what a command demands, or the
+ * document does not open.
+ *
+ * Deliberately the same two calls the commands make, in the same order, rather
+ * than a restatement of their rules: a rule that were restated here could come
+ * to differ from the one that is enforced, which is the whole failure this
+ * closes.
+ */
+export function storedInteractiveRefusal(slide: InteractiveSlide): Refusal | null {
+  const name = normalizeInteractiveName(slide.name)
+  if (!name.ok) return name
+  const source = acceptInteractiveHtml({ fileName: slide.fileName, html: slide.html })
+  if (!source.ok) return source
+  return null
 }
 
 /**
@@ -246,11 +287,11 @@ export function interactiveHtmlBytesIn(
  * committed over its budget — a state a later save might not be able to move.
  */
 export function interactiveBudgetRefusal(
-  presentation: Presentation,
+  deck: InteractiveDeck,
   byteSize: number,
   options: { excludingSlideId?: string } = {},
-): Result<never> | null {
-  const held = interactiveHtmlBytesIn(presentation, options)
+): Refusal | null {
+  const held = interactiveHtmlBytesIn(deck, options)
   if (held + byteSize <= MAX_INTERACTIVE_HTML_TOTAL_BYTES) return null
   return err(
     'INTERACTIVE_BUDGET_EXCEEDED',

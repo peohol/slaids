@@ -15,6 +15,7 @@ import {
   presentationByteSize,
 } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
+import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from '../domain/constants'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
 import { containerWithDoc, createImage, createUntitledCard } from '../domain/content'
@@ -24,7 +25,7 @@ import { decodeBase64, realImageBase64 } from '../domain/testImages'
 import { bytesToBlob } from './blob'
 import { unzipSync, zipSync } from 'fflate'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
-import { contentAt, interactiveAt, sectionAt } from '../domain/testDecks'
+import { contentAt, htmlOfBytes, interactiveAt, sectionAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -837,6 +838,75 @@ describe('en interaktiv slide i lageret', () => {
     await repository.savePresentation(presentation)
     const loaded = await repository.loadPresentation(presentation.id)
     expect(interactiveAt(loaded, 2)).toEqual(interactiveAt(presentation, 2))
+  })
+
+  /**
+   * The door a hand-written archive comes through.
+   *
+   * Import runs `migratePresentation` and then saves; the repository does not
+   * re-ask the domain's questions, so whatever the load gate accepts is what
+   * gets stored. These two are the cases the commands could never have
+   * produced — the whole reason the gate has to ask.
+   */
+  async function importedFromArchive(
+    presentation: Presentation,
+    rewrite: (document: Record<string, unknown>) => Record<string, unknown>,
+  ) {
+    const source = freshRepository()
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    // Rewritten inside the zip, exactly as somebody editing an archive would.
+    const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()))
+    const path = `presentations/${presentation.id}.json`
+    const document = JSON.parse(new TextDecoder().decode(entries[path])) as Record<string, unknown>
+    entries[path] = new TextEncoder().encode(JSON.stringify(rewrite(document)))
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, new Blob([zipSync(entries) as unknown as BlobPart]))
+    return { report, target }
+  }
+
+  it('avviser en håndskrevet backup der miniappene til sammen sprenger budsjettet', async () => {
+    const { report, target } = await importedFromArchive(withApp(), (document) => {
+      const slides = document.slides as Record<string, unknown>[]
+      const app = slides[slides.length - 1]
+      const count = Math.floor(MAX_INTERACTIVE_HTML_TOTAL_BYTES / MAX_INTERACTIVE_HTML_BYTES) + 1
+      return {
+        ...document,
+        slides: [
+          ...slides.slice(0, -1),
+          ...Array.from({ length: count }, (_, index) => ({
+            ...app,
+            id: `s-app-${index}`,
+            fileName: `app-${index}.html`,
+            html: htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES),
+          })),
+        ],
+      }
+    })
+
+    expect(report.errors).toHaveLength(1)
+    expect(report.importedPresentations).toEqual([])
+    expect(await target.listPresentations()).toEqual([])
+  })
+
+  it('avviser en håndskrevet backup med et filnavn eller en kilde kommandoene ville avvist', async () => {
+    for (const fields of [
+      { fileName: 'teller.txt' },
+      { name: '   ' },
+      { html: 'bare tekst uten elementer' },
+    ]) {
+      const { report, target } = await importedFromArchive(withApp(), (document) => {
+        const slides = document.slides as Record<string, unknown>[]
+        return {
+          ...document,
+          slides: [...slides.slice(0, -1), { ...slides[slides.length - 1], ...fields }],
+        }
+      })
+      expect(report.importedPresentations, JSON.stringify(fields)).toEqual([])
+      expect(await target.listPresentations()).toEqual([])
+    }
   })
 
   it('følger med i en .slaids-sikkerhetskopi uendret', async () => {

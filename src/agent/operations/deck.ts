@@ -23,7 +23,7 @@ import {
   hasCardTitle,
   imagePanelOf,
 } from '../../domain/content'
-import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
+import { DEFAULT_VERTICAL_ALIGN, type InteractiveStyleContract } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
@@ -140,6 +140,14 @@ export interface InteractiveSlideSummary {
   fileName: string
   /** The size of the stored source, in bytes of UTF-8. */
   htmlByteSize: number
+  /**
+   * The design contract the file was written against.
+   *
+   * Here because it decides what the app inherits — which CSS variables it is
+   * given and what an unstyled element looks like. See
+   * `get_interactive_contract`.
+   */
+  styleContract: InteractiveStyleContract
 }
 
 export interface PresentationView {
@@ -186,6 +194,7 @@ function summarizeSlide(slide: Slide, index: number): SlideSummary {
         name: slide.name,
         fileName: slide.fileName,
         htmlByteSize: interactiveByteSize(slide),
+        styleContract: slide.styleContract,
       }
     case 'content':
       return {

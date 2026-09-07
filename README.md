@@ -101,6 +101,11 @@ layoutet er nestet.
 - appen kjører i en sandkasset ramme uten nettverk, lagring, popups,
   nedlastinger eller tilgang til Slaids; eksterne skript, stilark, fonter og
   tjenester er ikke støttet i denne versjonen
+- **appen arver presentasjonens design**: Slaids gir den seksjonens farger,
+  dekkets to fontroller og et basisstilark som CSS-variabler, og legger
+  webfontene inn i dokumentet som `data:`-URL-er — så en app som skriver
+  `var(--slaids-accent)` følger temaet uten at noe lagres om det. Kontrakten er
+  versjonert og beskrevet i [`docs/INTERACTIVE_MINIAPPS.md`](docs/INTERACTIVE_MINIAPPS.md)
 - navn og fil endres i panelet ved scenen (en fil som avvises beholder appen);
   dupliser, slett, flytt og angre som for enhver annen slide; hele HTML-kilden
   følger med når presentasjonen deles
@@ -525,6 +530,7 @@ museklikk eller databasetilgang:
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
 | `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
 | `add_interactive_slide`, `set_interactive_slide`                       | en interaktiv slide fra én HTML-fil, og nytt navn eller ny fil på den; listes aldri med kilden |
+| `get_interactive_contract`                                             | hva en miniapp skrives mot: designkontraktens versjon, CSS-variablene, flaten, grensene og hva sandkassen nekter |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_presentation_title`                                  | typografien og navnet på hele dekket          |
 | `add_section`, `set_section`, `set_section_colors`                     | seksjonene, og fargene delene av dekket arver |

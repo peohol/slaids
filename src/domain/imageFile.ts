@@ -102,7 +102,7 @@ function validate(mimeType: string, bytes: Uint8Array): Result<Size> {
   }
 }
 
-const broken = (what: string) => err<Size>('INVALID_IMAGE', `Bildefilen er ufullstendig eller ødelagt: ${what}.`)
+const broken = (what: string) => err('INVALID_IMAGE', `Bildefilen er ufullstendig eller ødelagt: ${what}.`)
 
 /* ------------------------------------------------------------------ *
  * PNG

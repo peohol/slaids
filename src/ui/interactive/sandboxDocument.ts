@@ -42,6 +42,18 @@
  * `base-uri 'none'`, and the file's own `<meta http-equiv>` lands in the body
  * where the parser ignores it.
  *
+ * ## What Slaids puts in front of the file
+ *
+ * The app document's head carries the charset, the policy and then one
+ * `<style>` — the deck's design as CSS: `@font-face` rules whose files are
+ * `data:` URLs, the theme tokens, and Slaids' base stylesheet (see
+ * `domain/interactiveStyle.ts`). It needs no new permission: `style-src 'unsafe-inline'`
+ * already allows the rules and `font-src data:` already allows the faces, so
+ * the app is drawn in the deck's real type without the frame being able to
+ * fetch anything. Slaids' CSS comes first and the author's `<style>` is parsed
+ * after it, which is what makes the base sheet a starting point rather than
+ * something to fight.
+ *
  * The file goes into the app frame's `srcdoc` attribute, inside the wrapper's
  * markup, as an escaped attribute value. That is the one place untrusted text
  * is embedded, the escaping is the complete one for that context, and it is
@@ -156,13 +168,14 @@ export function escapeHtmlAttribute(text: string): string {
  * reach in front of the policy: the parser is sequential, and the policy is
  * already in force when the first byte of the file is read.
  */
-export function buildInteractiveAppDocument(html: string): string {
+export function buildInteractiveAppDocument(html: string, styleCss = ''): string {
   return [
     '<!DOCTYPE html>',
     '<html>',
     '<head>',
     '<meta charset="utf-8">',
     `<meta http-equiv="Content-Security-Policy" content="${INTERACTIVE_CONTENT_SECURITY_POLICY}">`,
+    ...(styleCss ? ['<style>', styleCss, '</style>'] : []),
     '</head>',
     '<body>',
     html,
@@ -184,8 +197,18 @@ export function buildInteractiveAppDocument(html: string): string {
  * wrapper or to Slaids, and no channel for one to be added to by the app: the
  * app's markup exists only as an attribute value here.
  */
-export function buildInteractiveWrapperDocument(input: { html: string; title: string }): string {
-  const app = buildInteractiveAppDocument(input.html)
+export function buildInteractiveWrapperDocument(input: {
+  html: string
+  title: string
+  /**
+   * Slaids' own CSS for this run: the deck's tokens, the base stylesheet and
+   * the theme's faces with their files in them. Built by
+   * `interactiveDocumentStyle`, and always *before* the file, so the author's
+   * own CSS is what wins where the two disagree.
+   */
+  styleCss?: string
+}): string {
+  const app = buildInteractiveAppDocument(input.html, input.styleCss ?? '')
   const title = escapeHtmlAttribute(`Miniapp: ${input.title}`)
   return [
     '<!DOCTYPE html>',

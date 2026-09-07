@@ -71,10 +71,18 @@ export async function readBody(request: Request, limits: BodyLimits): Promise<
   return { ok: true, bytes }
 }
 
+/**
+ * Too big — and, because it usually is, what to do about it.
+ *
+ * A file sent as a JSON string is escaped on the way, so a body can be half
+ * again the size of the file in it; sent as the body itself it is not. The
+ * limit is the platform's as much as Slaids' (see `config.ts`), so the way
+ * past it is the other shape rather than a larger number.
+ */
 function tooLarge(byteSize: number, limit: number): ApiError {
   return {
     code: 'REQUEST_TOO_LARGE',
-    message: `Forespørselen er større enn grensen på ${limit} byte.`,
+    message: `Forespørselen er større enn grensen på ${limit} byte. Send filen som ren binær kropp med feltene i query-strengen; da escapes den ikke.`,
     details: { byteSize, maxRequestBytes: limit },
   }
 }

@@ -17,34 +17,26 @@
   nothing keeps running after exit.
 -->
 <style>
-  html, body { margin: 0; height: 100%; }
+  /*
+   * Layout is the app's; colour and type are the deck's. Nothing here names a
+   * colour or a font — that is what makes this app follow the section it sits
+   * in and the theme the deck is set in, with nothing stored about either.
+   */
   body {
-    font-family: "Courier New", monospace;
-    background: #fdf6e3;
-    color: #073642;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 14px;
+    gap: var(--slaids-gap);
   }
-  h1 { font-size: 40px; margin: 0; }
-  button {
-    font: inherit;
-    font-size: 28px;
-    padding: 12px 24px;
-    background: #268bd2;
-    color: #fff;
-    border: 0;
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  input { font: inherit; font-size: 24px; padding: 8px; }
-  .row { display: flex; gap: 12px; align-items: center; }
+  .row { display: flex; gap: var(--slaids-gap); align-items: center; }
+  /* One thing of its own, so a test can tell the app's CSS from Slaids'. */
+  #styled-by-app { letter-spacing: 4px; }
 </style>
 </head>
 <body>
   <h1 id="title">Teller</h1>
+  <p id="styled-by-app">Appens egen CSS</p>
   <div class="row">
     <button id="count" type="button">Trykk: <span id="value">0</span></button>
     <input id="text" type="text" placeholder="Skriv her" autocomplete="off">
@@ -53,13 +45,23 @@
   <p>Tikk: <span id="ticks">0</span></p>
   <p>Startet: <span id="started"></span></p>
   <p>Font: <span id="font"></span></p>
+  <p>Bakgrunn: <span id="background"></span></p>
+  <p>Aksent: <span id="accent"></span></p>
+  <p>Knappefarge: <span id="button-background"></span></p>
   <script>
     (function () {
       var n = 0
       var ticks = 0
       var started = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
       document.getElementById('started').textContent = started
-      document.getElementById('font').textContent = getComputedStyle(document.body).fontFamily
+      var styles = getComputedStyle(document.body)
+      document.getElementById('font').textContent = styles.fontFamily
+      // What Slaids handed the app, read back the way the app itself reads it.
+      document.getElementById('background').textContent = styles.getPropertyValue('--slaids-background').trim()
+      document.getElementById('accent').textContent = styles.getPropertyValue('--slaids-accent').trim()
+      // And what Slaids' base stylesheet did with it, with no CSS from the app.
+      document.getElementById('button-background').textContent =
+        getComputedStyle(document.getElementById('count')).backgroundColor
 
       function report(type, detail) {
         try {

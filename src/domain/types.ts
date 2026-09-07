@@ -9,6 +9,7 @@
  */
 
 import type { IdeaRow } from './ideas'
+import type { InteractiveStyleContract } from './constants'
 
 export type NodeId = string
 
@@ -297,6 +298,14 @@ export interface InteractiveSlide {
   fileName: string
   /** The complete file, decoded as UTF-8. Data, never markup Slaids renders. */
   html: string
+  /**
+   * The design contract the file was written against.
+   *
+   * Stored rather than assumed, so Slaids can change what an unstyled miniapp
+   * looks like without changing how one that already exists looks. See
+   * `INTERACTIVE_STYLE_CONTRACTS`.
+   */
+  styleContract: InteractiveStyleContract
 }
 
 export type Slide = ContentSlide | SectionSlide | InteractiveSlide
