@@ -124,6 +124,7 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
     deletePresentation: (id) => inner.deletePresentation(id),
     trashPresentation: (id, guard) => inner.trashPresentation(id, guard),
     restorePresentation: (id) => inner.restorePresentation(id),
+    purgePresentation: (id, deletedAt) => inner.purgePresentation(id, deletedAt),
     listFolders: () => inner.listFolders(),
     saveFolder: (folder) => inner.saveFolder(folder),
     deleteFolder: (id) => inner.deleteFolder(id),
@@ -947,6 +948,48 @@ describe('DexieSlaidsRepository – søppelkassen', () => {
       expectedRevision: presentationRevision(edited),
     })
     expect(await repository.listTrashedPresentations()).toHaveLength(1)
+  })
+
+  it('sletter for godt bare den oppføringen som ble sett, aldri en gjenopprettet presentasjon', async () => {
+    // The race the trash is built to lose safely: the trash is listed, and
+    // before the entry is purged another tab restores the deck. A permanent
+    // delete that did not look would take the live deck down, files and all.
+    const repository = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await repository.savePresentation(presentation)
+    await repository.putAsset(presentation.id, assetRef, svgFixture('a'))
+    await repository.trashPresentation(presentation.id)
+    const [seen] = await repository.listTrashedPresentations()
+    if (!seen.deletedAt) throw new Error('forventet en kastet presentasjon')
+
+    await repository.restorePresentation(presentation.id)
+
+    expect(await repository.purgePresentation(presentation.id, seen.deletedAt)).toBe(false)
+    // Live, whole, and with its file.
+    expect(await repository.loadPresentation(presentation.id)).toEqual(presentation)
+    expect(await repository.getAsset(assetRef.id)).not.toBeNull()
+
+    // Trashed again since the listing: a new entry, with a new time, which the
+    // old reading must not purge either. Only the clock is faked.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(Date.parse(seen.deletedAt) + 60_000))
+      await repository.trashPresentation(presentation.id)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(await repository.purgePresentation(presentation.id, seen.deletedAt)).toBe(false)
+    expect(await repository.listTrashedPresentations()).toHaveLength(1)
+
+    // The entry that is actually there goes, and the files with it.
+    const [again] = await repository.listTrashedPresentations()
+    if (!again.deletedAt) throw new Error('forventet en kastet presentasjon')
+    expect(await repository.purgePresentation(presentation.id, again.deletedAt)).toBe(true)
+    expect(await repository.listTrashedPresentations()).toEqual([])
+    await expect(repository.loadPresentation(presentation.id)).rejects.toThrow(/Fant ikke/)
+    expect(await repository.getAsset(assetRef.id)).toBeNull()
+    // And a second purge of what is gone is nothing to do, not an error.
+    expect(await repository.purgePresentation(presentation.id, again.deletedAt)).toBe(false)
   })
 
   it('lister søppelkassen med den sist kastede først', async () => {

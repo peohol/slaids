@@ -262,15 +262,21 @@ export function isTrashExpired(deletedAt: string, now: Date): boolean {
 }
 
 /**
- * Delete, for good, every trashed presentation `expired` says yes to.
+ * Delete, for good, every trashed presentation `expired` says yes to — as long
+ * as it is still the trash entry the listing showed.
  *
- * One entry at a time through `deletePresentation`, because that is the call
- * that takes a deck down whole — files and share columns included — and a
- * purge that reached around it into the rows would be the second deletion
- * sequence the repository's own comment warns against. A store that refuses one
- * of them stops the sweep with the error: what has been purged stays purged,
- * and the rest is still in the trash for the next time, which is the state
- * this must leave behind if it leaves at all.
+ * One entry at a time through `purgePresentation`, never the unconditional
+ * `deletePresentation`. The listing is a reading, and between it and the
+ * delete another tab or device can restore a deck; an unconditional delete
+ * would then take a live presentation down with all of its files, on the
+ * strength of a listing that was true a moment ago. `purgePresentation` makes
+ * "still in the trash, trashed at this time" and the delete one atomic step in
+ * the store, and answers `false` for an entry that is no longer there — which
+ * the sweep counts as nothing to do, not as a failure.
+ *
+ * A store that refuses one of them stops the sweep with the error: what has
+ * been purged stays purged, and the rest is still in the trash for the next
+ * time, which is the state this must leave behind if it leaves at all.
  */
 async function purgeTrash(
   repository: SlaidsRepository,
@@ -278,9 +284,8 @@ async function purgeTrash(
 ): Promise<number> {
   let purged = 0
   for (const summary of await repository.listTrashedPresentations()) {
-    if (!expired(summary)) continue
-    await repository.deletePresentation(summary.id)
-    purged += 1
+    if (summary.deletedAt === null || !expired(summary)) continue
+    if (await repository.purgePresentation(summary.id, summary.deletedAt)) purged += 1
   }
   return purged
 }
@@ -297,8 +302,9 @@ export function purgeExpiredTrash(
   repository: SlaidsRepository,
   now: Date = new Date(),
 ): Promise<number> {
-  return purgeTrash(repository, (summary) =>
-    summary.deletedAt === null ? false : isTrashExpired(summary.deletedAt, now),
+  return purgeTrash(
+    repository,
+    (summary) => summary.deletedAt !== null && isTrashExpired(summary.deletedAt, now),
   )
 }
 

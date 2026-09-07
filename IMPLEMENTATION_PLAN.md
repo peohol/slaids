@@ -1380,9 +1380,10 @@ Reglene, og hvor de bor:
   aldri kolonnen i en lagring, og version-triggeren lar `version` og `updated_at`
   stå for en skriving som bare rører `deleted_at`.
 - Repositoryet har `trashPresentation` (vaktet som `deletePresentation`),
-  `restorePresentation` og `listTrashedPresentations`. `listPresentations` er
-  biblioteket alene, og de to listene overlapper aldri. `deletePresentation` er
-  fortsatt den permanente slettingen, og kalles nå bare når søppelkassen tømmes.
+  `restorePresentation`, `listTrashedPresentations` og `purgePresentation`.
+  `listPresentations` er biblioteket alene, og de to listene overlapper aldri.
+  `deletePresentation` er fortsatt den ubetingede permanente slettingen, og
+  kalles nå bare av tilbakerullingen i en duplisering.
 - **En presentasjon i søppelkassen kan ikke åpnes.** `loadPresentation` avviser
   den med `RepositoryNotFoundError`, så editoren åpner den ikke fra en husket id,
   og for agentflaten er den `PRESENTATION_NOT_FOUND` – ikke listet, ikke lest,
@@ -1396,10 +1397,19 @@ Reglene, og hvor de bor:
   kunne angres helt.
 - Tømmingen ligger i `src/persistence/library.ts` (`purgeExpiredTrash`,
   `emptyTrash`), tar repositoryet som argument som resten av bibliotekreglene, og
-  sletter én presentasjon om gangen med `deletePresentation` – aldri en egen
-  slettesekvens. Den automatiske tømmingen kjører når biblioteket åpnes, før
-  listingen, slik orphan-sveipet gjør. Slaids har ingen serverklokke, og trenger
-  ingen: en søppelkasse ingen ser på koster ingenting før noen ser på den.
+  sletter én presentasjon om gangen med `purgePresentation` – aldri en egen
+  slettesekvens, og aldri den ubetingede `deletePresentation`. Listingen er en
+  lesing, og mellom den og slettingen kan en annen fane gjenopprette dekket; en
+  ubetinget sletting ville da tatt en levende presentasjon med alle filene.
+  `purgePresentation(id, deletedAt)` gjør «fortsatt i søppelkassen, kastet på
+  akkurat dette tidspunktet» og slettingen til ett atomisk steg i lageret – én
+  `DELETE`-setning med `id` og `deleted_at` i Supabase, én transaksjon i Dexie –
+  og svarer `false` for en oppføring som ikke lenger er der (gjenopprettet,
+  kastet på nytt, allerede slettet) uten å røre noe. Det samme kallet står bak
+  «Slett for godt» på ett kort. Den automatiske tømmingen kjører når biblioteket
+  åpnes, før listingen, slik orphan-sveipet gjør. Slaids har ingen serverklokke,
+  og trenger ingen: en søppelkasse ingen ser på koster ingenting før noen ser på
+  den.
 - Å kaste noe som allerede ligger i søppelkassen starter klokken på nytt heller
   enn å avvises; det er den ene regelen begge lagrene kan uttrykke i én setning.
 - Import behandler en id i søppelkassen som opptatt, og importerer som kopi.

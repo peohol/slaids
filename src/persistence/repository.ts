@@ -68,7 +68,8 @@ export interface SlaidsRepository {
    * gone, and a second caller writing that sequence out again is a second
    * chance to get it wrong. There is no undo: what this removes is removed —
    * which is why the library never calls it directly. A deletion from the
-   * library is `trashPresentation`, and this is what empties the trash.
+   * library is `trashPresentation`, and the trash is emptied by
+   * `purgePresentation`, which is this with one precondition.
    *
    * With a `guard`, refuse — `RepositoryConflictError` — if the stored copy is no
    * longer the revision the guard names. The same precondition
@@ -80,10 +81,31 @@ export interface SlaidsRepository {
    * insert, and an insert is not a lost update; a guarded *delete* names a
    * document — remove the one I read — and a row somebody else already removed
    * is not it. Without a guard the delete is unconditional and idempotent: an id
-   * that is not there is not an error, which is what a rollback and the purge of
-   * the trash rely on.
+   * that is not there is not an error, which is what the duplication rollback
+   * relies on.
    */
   deletePresentation(id: string, guard?: SaveGuard): Promise<void>
+  /**
+   * Delete a trashed presentation for good — if, and only if, it is still the
+   * trash entry the caller saw: in the trash, trashed at exactly `deletedAt`.
+   *
+   * `deletePresentation` is unconditional, and unconditional is wrong for the
+   * trash. Between listing the trash and emptying it, another tab or device can
+   * restore the deck, and a delete that does not look would then destroy a
+   * live presentation, files and all. So the check and the delete are one
+   * atomic step in the store — one statement in Supabase, one transaction in
+   * Dexie — and `deletedAt` is the identity of the trash entry: a deck restored
+   * and trashed again is a new entry with a new time and a fresh thirty days,
+   * which the caller has not seen and must not purge on an old reading.
+   *
+   * Answers whether the deletion happened. `false` means the entry is not
+   * there any more — restored, trashed again, or already purged — and nothing
+   * was touched: a caller emptying the trash skips it, and a caller acting on
+   * one card tells the user. Not a `RepositoryConflictError`, because for the
+   * sweep this is the expected outcome of a race it is built to lose safely,
+   * not a failure of the call.
+   */
+  purgePresentation(id: string, deletedAt: string): Promise<boolean>
   /**
    * Move the presentation to the trash.
    *
@@ -92,7 +114,7 @@ export interface SlaidsRepository {
    * why a deck open in another tab keeps autosaving without either resurrecting
    * itself or losing anything. What changes is which listing it appears in,
    * and that it is now on the clock: `persistence/library.ts` purges the trash
-   * after `TRASH_RETENTION_DAYS` with `deletePresentation`, which is the one
+   * after `TRASH_RETENTION_DAYS` with `purgePresentation`, which is the one
    * and only way out of the trash that is not `restorePresentation`.
    *
    * `deletedAt` is set to now, also for a row that is already in the trash —

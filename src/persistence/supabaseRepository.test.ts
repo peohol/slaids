@@ -866,13 +866,19 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
 
   function matches(row: Row, filters: QueryRecord['filters']): boolean {
     return filters.every((filter) => {
+      const stored = row[filter.column]
       // `is null` is true of a column that was never set, as it is in Postgres.
-      if (filter.operator === 'is') return (row[filter.column] ?? null) === filter.value
-      if (filter.operator === 'not.is') return (row[filter.column] ?? null) !== filter.value
-      return Array.isArray(filter.value)
-        ? filter.value.includes(row[filter.column])
-        : row[filter.column] === filter.value
+      if (filter.operator === 'is') return (stored ?? null) === filter.value
+      if (filter.operator === 'not.is') return (stored ?? null) !== filter.value
+      // Timestamps compare as instants, whatever precision either side wrote.
+      if (filter.operator === 'gte') return timestamp(stored) >= timestamp(filter.value)
+      if (filter.operator === 'lt') return timestamp(stored) < timestamp(filter.value)
+      return Array.isArray(filter.value) ? filter.value.includes(stored) : stored === filter.value
     })
+  }
+
+  function timestamp(value: unknown): number {
+    return typeof value === 'string' ? Date.parse(value) : Number.NaN
   }
 
   function numberish(value: unknown): number {
@@ -1391,6 +1397,52 @@ describe('SupabaseSlaidsRepository – søppelkassen', () => {
     remoteVersion = 4
     await repository.trashPresentation(presentation.id, { expectedRevision: revision })
     expect(filterValue(fake.queries.at(-1) as QueryRecord, 'version')).toBe(4)
+  })
+
+  it('sletter for godt i én setning som krever at raden fortsatt er den kastede', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'delete' ? { data: [{ id: 'p1' }] } : { data: [{ object_path: 'o/p1/a' }] },
+    })
+
+    expect(await repository.purgePresentation('p1', '2026-09-01T10:00:00.123Z')).toBe(true)
+
+    const remove = fake.queries.find((record) => record.op === 'delete') as QueryRecord
+    expect(remove.table).toBe(PRESENTATIONS_TABLE)
+    expect(filterValue(remove, 'id')).toBe('p1')
+    // The trash entry's own time is in the statement, as the millisecond the
+    // listing could express — never a version, which trashing does not move.
+    expect(remove.filters).toContainEqual({
+      column: 'deleted_at',
+      value: '2026-09-01T10:00:00.123Z',
+      operator: 'gte',
+    })
+    expect(remove.filters).toContainEqual({
+      column: 'deleted_at',
+      value: '2026-09-01T10:00:00.124Z',
+      operator: 'lt',
+    })
+    expect(remove.filters.some((filter) => filter.column === 'version')).toBe(false)
+    // The row went, so its objects are reclaimed.
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toEqual([
+      { op: 'remove', bucket: ASSETS_BUCKET, paths: ['o/p1/a'] },
+    ])
+  })
+
+  it('lar en presentasjon som ble gjenopprettet i mellomtiden være, filene inkludert', async () => {
+    // Nothing matched: restored, trashed again, or already gone. Either way the
+    // row is still somebody's, and reclaiming its files would strip a live deck.
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'delete' ? { data: [] } : { data: [{ object_path: 'o/p1/a' }] },
+    })
+
+    expect(await repository.purgePresentation('p1', '2026-09-01T10:00:00.000Z')).toBe(false)
+
+    expect(fake.storageCalls.filter((call) => call.op === 'remove')).toEqual([])
+    // A time nobody can read matches nothing, and sends nothing.
+    expect(await repository.purgePresentation('p1', 'ikke en dato')).toBe(false)
+    expect(fake.queries.filter((record) => record.op === 'delete')).toHaveLength(1)
   })
 
   it('gjenoppretter ved å nulle deleted_at, og sier fra om raden er borte', async () => {

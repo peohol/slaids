@@ -584,6 +584,46 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   }
 
   /**
+   * The permanent delete, conditioned on the trash entry still being there.
+   *
+   * One `DELETE … WHERE id = … AND deleted_at = …`, so the check that the deck
+   * is still in the trash and the removal are the same statement: a restore
+   * that lands first clears `deleted_at`, the statement matches nothing, and
+   * the deck — restored, live, with its files — is untouched. That is the whole
+   * difference from `deletePresentation`, and it is the difference between
+   * emptying the trash and emptying whatever happens to be in the library.
+   *
+   * The time is matched to the millisecond rather than exactly. The client
+   * writes `deleted_at` with millisecond precision and reads it back the same
+   * way, so for every row this repository trashed the two are equal — but a
+   * timestamp is stored to the microsecond, and a row trashed by hand in the
+   * SQL editor would otherwise be an entry the sweep could never match and
+   * never purge. The range says "this millisecond", which is as exactly as the
+   * listing can say it.
+   *
+   * The caches are cleared and the objects reclaimed only when the row really
+   * went: a `false` is a deck that is still somebody's, and its files must stay.
+   */
+  async purgePresentation(id: string, deletedAt: string): Promise<boolean> {
+    const from = new Date(deletedAt)
+    if (Number.isNaN(from.getTime())) return false
+    const until = new Date(from.getTime() + 1)
+    const paths = await this.assetPaths(id)
+    const { data, error } = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).delete().eq('id', id),
+    )
+      .gte('deleted_at', from.toISOString())
+      .lt('deleted_at', until.toISOString())
+      .select('id')
+    if (error) fail('Kunne ikke slette presentasjonen fra søppelkassen', error)
+    if (((data ?? []) as unknown[]).length === 0) return false
+    this.knownVersions.delete(id)
+    this.knownShared.delete(id)
+    await this.reclaimObjects(paths)
+    return true
+  }
+
+  /**
    * The conditional delete, which is `updateGuarded` with nothing left to write.
    *
    * The version comes from the *named reading* rather than from

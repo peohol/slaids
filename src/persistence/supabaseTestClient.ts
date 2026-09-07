@@ -26,8 +26,9 @@ export interface QueryRecord {
   values?: unknown
   /**
    * `operator` is absent for the equality filters that make up nearly every
-   * statement, and names the PostgREST operator otherwise — `is`, `not.is` —
-   * so a test can tell "deleted_at is null" from "deleted_at = null".
+   * statement, and names the PostgREST operator otherwise — `is`, `not.is`,
+   * `gte`, `lt` — so a test can tell "deleted_at is null" from
+   * "deleted_at = null".
    */
   filters: { column: string; value: unknown; operator?: string }[]
   single: 'none' | 'maybe' | 'one'
@@ -104,6 +105,16 @@ class FakeQuery implements PromiseLike<QueryOutcome> {
 
   not(column: string, operator: string, value: unknown): this {
     this.record.filters.push({ column, value, operator: `not.${operator}` })
+    return this
+  }
+
+  gte(column: string, value: unknown): this {
+    this.record.filters.push({ column, value, operator: 'gte' })
+    return this
+  }
+
+  lt(column: string, value: unknown): this {
+    this.record.filters.push({ column, value, operator: 'lt' })
     return this
   }
 

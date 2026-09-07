@@ -179,8 +179,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
    * "remove the one I read" — and a row that is gone is not it. Somebody else
    * removed it, and the caller should read again rather than be told its own
    * delete is what happened. An *unguarded* delete is unchanged and still
-   * idempotent, which is what the duplication rollback and the purge of the
-   * trash rely on.
+   * idempotent, which is what the duplication rollback relies on.
    */
   async deletePresentation(id: string, guard?: SaveGuard): Promise<void> {
     await this.database.transaction('rw', this.database.presentations, this.database.assets, async () => {
@@ -192,9 +191,38 @@ export class DexieSlaidsRepository implements SlaidsRepository {
           )
         }
       }
-      await this.database.presentations.delete(id)
-      await this.database.assets.where('presentationId').equals(id).delete()
+      await this.removeRows(id)
     })
+  }
+
+  /**
+   * The permanent delete, conditioned on the trash entry still being there.
+   *
+   * Read and delete in the one `rw` transaction, for the reason the guards
+   * above are compared there: a restore that lands between a check and a
+   * delete made outside it would be a restore that was silently undone, and
+   * with it every file the deck has. `deletedAt` is compared as the string the
+   * listing handed out — the same string `trashPresentation` wrote — so a deck
+   * trashed again since the listing is a different entry and is left alone.
+   */
+  async purgePresentation(id: string, deletedAt: string): Promise<boolean> {
+    return this.database.transaction(
+      'rw',
+      this.database.presentations,
+      this.database.assets,
+      async () => {
+        const stored = await this.database.presentations.get(id)
+        if (!stored || (stored.deletedAt ?? null) !== deletedAt) return false
+        await this.removeRows(id)
+        return true
+      },
+    )
+  }
+
+  /** The document and its asset rows, together. Only ever inside a transaction. */
+  private async removeRows(id: string): Promise<void> {
+    await this.database.presentations.delete(id)
+    await this.database.assets.where('presentationId').equals(id).delete()
   }
 
   async listFolders(): Promise<Folder[]> {

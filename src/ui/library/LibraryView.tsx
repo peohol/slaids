@@ -211,8 +211,18 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const handlePurge = async (): Promise<void> => {
     if (!purging) return
     try {
-      await repository.deletePresentation(purging.id)
-      notify.info(`«${purging.title}» ble slettet for godt.`)
+      // Conditioned on the card still being the trash entry it was when the
+      // dialog opened. A deck restored from another tab in the meantime is
+      // live again, and a delete that did not look would take it down.
+      const purged =
+        purging.deletedAt !== null &&
+        (await repository.purgePresentation(purging.id, purging.deletedAt))
+      if (purged) notify.info(`«${purging.title}» ble slettet for godt.`)
+      else {
+        notify.warning(
+          `«${purging.title}» ligger ikke lenger i søppelkassen – den er gjenopprettet eller slettet et annet sted, og ble ikke rørt.`,
+        )
+      }
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Kunne ikke slette presentasjonen.')
     }

@@ -156,6 +156,8 @@ export const repository: SlaidsRepository = {
   trashPresentation: (id: string, guard?: SaveGuard): Promise<void> =>
     on((repo) => repo.trashPresentation(id, guard)),
   restorePresentation: (id: string): Promise<void> => on((repo) => repo.restorePresentation(id)),
+  purgePresentation: (id: string, deletedAt: string): Promise<boolean> =>
+    on((repo) => repo.purgePresentation(id, deletedAt)),
 
   listFolders: (): Promise<Folder[]> => on((repo) => repo.listFolders()),
   saveFolder: (folder: Folder): Promise<void> => on((repo) => repo.saveFolder(folder)),

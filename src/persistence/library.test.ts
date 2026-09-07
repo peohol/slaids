@@ -185,6 +185,40 @@ describe('søppelkassen', () => {
     expect(await emptyTrash(repository)).toBe(0)
   })
 
+  it('sletter aldri en presentasjon som ble gjenopprettet etter at søppelkassen ble listet', async () => {
+    // The race: the sweep reads the trash, and before it gets to an entry
+    // another tab restores that deck. The listing was true when it was taken
+    // and is not any more, and the deck must survive — automatically and by
+    // hand alike, since both go through the same purge.
+    const repository = freshRepository()
+    const restored = createPresentation({ title: 'Gjenopprettet i mellomtiden' })
+    const expired = createPresentation({ title: 'Virkelig utløpt' })
+    await repository.savePresentation(restored)
+    await repository.savePresentation(expired)
+    await trashedAt(repository, restored.id, '2026-08-01T12:00:00.000Z')
+    await trashedAt(repository, expired.id, '2026-08-02T12:00:00.000Z')
+
+    const racing = Object.assign(Object.create(repository) as DexieSlaidsRepository, {
+      listTrashedPresentations: async () => {
+        const listed = await repository.listTrashedPresentations()
+        await repository.restorePresentation(restored.id)
+        return listed
+      },
+    })
+
+    expect(await purgeExpiredTrash(racing, new Date('2026-09-15T12:00:00.000Z'))).toBe(1)
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([
+      restored.id,
+    ])
+    expect(await repository.listTrashedPresentations()).toEqual([])
+
+    await repository.trashPresentation(restored.id)
+    expect(await emptyTrash(racing)).toBe(0)
+    expect((await repository.listPresentations()).map((summary) => summary.id)).toEqual([
+      restored.id,
+    ])
+  })
+
   it('stopper ved en lagringsfeil, uten å late som resten er tømt', async () => {
     // What was purged stays purged, what was not is still in the trash, and the
     // caller hears about it: a sweep that swallowed the error would report a
@@ -198,10 +232,10 @@ describe('søppelkassen', () => {
     await trashedAt(repository, second.id, '2026-08-02T12:00:00.000Z')
 
     const failing = Object.assign(Object.create(repository) as DexieSlaidsRepository, {
-      deletePresentation: (id: string) =>
+      purgePresentation: (id: string, deletedAt: string) =>
         id === first.id
           ? Promise.reject(new RepositoryError('Basen svarer ikke.'))
-          : repository.deletePresentation(id),
+          : repository.purgePresentation(id, deletedAt),
     })
 
     // Newest first, so the second is purged before the first is refused.
