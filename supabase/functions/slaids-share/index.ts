@@ -74,11 +74,17 @@ Deno.serve(async (request: Request): Promise<Response> => {
   // `id` is needed to scope the asset lookup to this presentation; it never
   // leaves the function. `owner_id`, `document` and `object_path` are not
   // selected at all — what is not fetched cannot be leaked.
+  //
+  // A presentation in the trash is deleted as far as the public is concerned:
+  // its share columns are still on the row, so that a restore brings the link
+  // back, but while it is trashed the link is dead. Filtered here *and* checked
+  // again in `publishedDocument`, for the reason that function gives.
   const { data, error } = await client
     .from(PRESENTATIONS_TABLE)
-    .select('id, is_shared, shared_document')
+    .select('id, is_shared, shared_document, deleted_at')
     .eq('share_token', intent.token)
     .eq('is_shared', true)
+    .is('deleted_at', null)
     .maybeSingle()
   if (error) return notFound()
 

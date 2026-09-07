@@ -63,6 +63,13 @@ export interface SharedRow {
   id: string
   is_shared: boolean | null
   shared_document: unknown
+  /**
+   * When the owner moved the presentation to the trash, or `null`/absent while
+   * it is in the library. Absent is allowed so a row read by an older query
+   * still parses; it is read as "not trashed", which is what absent meant
+   * before the column existed.
+   */
+  deleted_at?: unknown
 }
 
 /**
@@ -72,9 +79,15 @@ export interface SharedRow {
  * together, and this checks both anyway: it is the last gate before data leaves
  * for an anonymous reader, and a gate that trusts an invariant it could verify
  * is not a gate.
+ *
+ * A trashed row is refused for the same reason, even though the query already
+ * filters it out. The owner deleted the deck; that the deletion can be undone
+ * for thirty days is the owner's business, not the public's, and the link must
+ * be dead for exactly as long as the deck is in the trash.
  */
 export function publishedDocument(row: SharedRow | null | undefined): unknown | null {
   if (!row || row.is_shared !== true) return null
+  if (row.deleted_at !== null && row.deleted_at !== undefined) return null
   const document = row.shared_document
   if (!document || typeof document !== 'object') return null
   return document

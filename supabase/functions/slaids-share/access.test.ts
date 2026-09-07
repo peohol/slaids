@@ -86,6 +86,27 @@ describe('publishedDocument', () => {
     expect(publishedDocument(null)).toBeNull()
     expect(publishedDocument(undefined)).toBeNull()
   })
+
+  it('gir ingenting for en rad som ligger i søppelkassen', () => {
+    // Slettet er slettet for offentligheten, selv om eieren kan angre i tretti
+    // dager: delingskolonnene står urørt på raden, og lenken er død likevel.
+    const document = { format: 'slaids-shared', title: 'Delt' }
+    expect(
+      publishedDocument({
+        id: 'p1',
+        is_shared: true,
+        shared_document: document,
+        deleted_at: '2026-09-07T08:00:00+00:00',
+      }),
+    ).toBeNull()
+    // `null` og fraværende er det samme: ikke i søppelkassen.
+    expect(
+      publishedDocument({ id: 'p1', is_shared: true, shared_document: document, deleted_at: null }),
+    ).toEqual(document)
+    expect(publishedDocument({ id: 'p1', is_shared: true, shared_document: document })).toEqual(
+      document,
+    )
+  })
 })
 
 describe('publishedAssetIds', () => {

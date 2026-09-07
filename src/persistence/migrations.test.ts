@@ -31,11 +31,17 @@ function statementsIn(file: string): string {
     .join('\n')
 }
 
-const file =
-  readdirSync(MIGRATIONS)
-    .filter((name) => name.endsWith('.sql'))
-    .sort()
-    .find((name) => name.includes('delete_folder')) ?? ''
+/** The migration whose name carries this fragment, or `''` when there is none. */
+function migrationNamed(fragment: string): string {
+  return (
+    readdirSync(MIGRATIONS)
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .find((name) => name.includes(fragment)) ?? ''
+  )
+}
+
+const file = migrationNamed('delete_folder')
 
 describe(DELETE_FOLDER_FUNCTION, () => {
   const sql = file ? statementsIn(file) : ''
@@ -108,5 +114,48 @@ describe(DELETE_FOLDER_FUNCTION, () => {
     // browser and leave the owner argument as the only limit — and that argument
     // is the caller's to choose.
     expect(sql).not.toMatch(/security\s+definer/i)
+  })
+})
+
+/**
+ * The trash and the size column.
+ *
+ * Less is at stake than in the folder function — two columns and a backfill —
+ * but the backfill has one property that would break an open editor if it were
+ * lost: it must not touch `document`, or the touch trigger bumps every row's
+ * `version` and every deck open at the time refuses its next autosave as a lost
+ * race. That is the kind of edit somebody makes to "keep the two in sync".
+ */
+describe('søppelkassen og lagringsstørrelsen', () => {
+  const migration = migrationNamed('trash_and_size')
+  const sql = migration ? statementsIn(migration) : ''
+
+  it('finnes som en migrasjon som kan kjøres på nytt', () => {
+    expect(migration).not.toBe('')
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+deleted_at\s+timestamptz/i)
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+byte_size\s+bigint\s+not\s+null\s+default\s+0/i)
+    expect(sql).toMatch(/drop\s+constraint\s+if\s+exists\s+slaids_presentations_byte_size_check/i)
+    expect(sql).toMatch(/check\s*\(\s*byte_size\s*>=\s*0\s*\)/i)
+    expect(sql).toMatch(/create\s+index\s+if\s+not\s+exists\s+slaids_presentations_\w+/i)
+    for (const created of sql.match(/create\s+index\s+if\s+not\s+exists\s+(\S+)/gi) ?? []) {
+      expect(created).toMatch(/slaids_/i)
+    }
+  })
+
+  it('fyller inn byte_size uten å røre dokumentet, så versjonen står stille', () => {
+    const update = sql.match(/update\s+public\.slaids_presentations[\s\S]*?;/i)?.[0] ?? ''
+    expect(update).not.toBe('')
+    const assigned = update.match(/\bset\s+([\s\S]*?)\bwhere\b/i)?.[1] ?? ''
+    // Exactly one column on the left-hand side of the SET list.
+    expect(assigned.match(/\b\w+\s*=(?!=)/g)).toEqual(['byte_size ='])
+    // Only the rows the client has not written yet, and from the document.
+    expect(update).toMatch(/where\s+p\.byte_size\s*=\s*0/i)
+    expect(assigned).toMatch(/octet_length\(p\.document::text\)/i)
+    expect(assigned).toMatch(/byteSize/)
+  })
+
+  it('rører ikke tilgangen, og gir anon ingenting', () => {
+    expect(sql).not.toMatch(/create\s+policy|alter\s+policy|grant\s+/i)
+    expect(sql).toMatch(/revoke\s+all\s+on\s+table\s+public\.slaids_presentations\s+from\s+anon/i)
   })
 })

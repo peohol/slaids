@@ -5,8 +5,9 @@
  * folders it is filed under, where it lives, copying it, ending it — and what
  * has to be pinned about them is not that a method was called. It is what is
  * left in the store afterwards: a copy that survives the deletion of its
- * original, an original that survives an edit to its copy, a deck that is gone
- * along with its files, a folder id that never reaches the document unless the
+ * original, an original that survives an edit to its copy, a deck that is in
+ * the trash with its files intact until the trash is emptied and gone along
+ * with them after, a folder id that never reaches the document unless the
  * library actually has that folder, and — the one this file exists to prove —
  * every presentation still there, at the root, after the folder holding it was
  * deleted. A stub could not answer any of those, so this uses
@@ -18,7 +19,7 @@ import { newFolderId, newShareToken } from '../domain/ids'
 import { createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { blobToBytes } from '../persistence/blob'
-import { FOLDER_NAME_MAX_LENGTH } from '../persistence/library'
+import { FOLDER_NAME_MAX_LENGTH, emptyTrash } from '../persistence/library'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import {
@@ -798,7 +799,10 @@ describe('duplicate_presentation', () => {
     )
     const stored = await context.repository.loadPresentation(copy.presentationId)
 
+    // A deletion is into the trash; emptying it is what takes the original's
+    // files, and that is the moment a shared file would have broken the copy.
     expectOk(await call(context, 'delete_presentation', { presentationId: source.presentationId }))
+    await emptyTrash(context.repository)
 
     expect(await context.repository.getAsset(source.assetId)).toBeNull()
     expect(await context.repository.getAsset(stored.assets[0].id)).not.toBeNull()
@@ -981,12 +985,28 @@ describe('delete_presentation', () => {
     expect(await context.repository.listPresentations()).toEqual([])
   })
 
-  it('tar filene med seg, både radene og bytene', async () => {
+  it('flytter presentasjonen til søppelkassen, med filene i behold til den tømmes', async () => {
+    // The same deletion the library makes: nothing is destroyed by the call
+    // itself. The deck leaves the library, lands in the trash with a time on
+    // it, and keeps its document and its files until the trash is emptied —
+    // which is what takes the rows and the bytes, whole.
     const context = freshContext()
     const source = await filledDeck(context)
 
     expectOk(await call(context, 'delete_presentation', { presentationId: source.presentationId }))
 
+    expect(await context.repository.listPresentations()).toEqual([])
+    const trashed = await context.repository.listTrashedPresentations()
+    expect(trashed.map((summary) => summary.id)).toEqual([source.presentationId])
+    expect(Date.parse(trashed[0].deletedAt ?? '')).not.toBeNaN()
+    expect(await context.repository.listAssets(source.presentationId)).toHaveLength(1)
+    expect(await context.repository.getAsset(source.assetId)).not.toBeNull()
+    // A trashed deck still owns its files: the sweep leaves them alone.
+    expect(await context.repository.deleteOrphanAssets()).toBe(0)
+
+    expect(await emptyTrash(context.repository)).toBe(1)
+
+    expect(await context.repository.listTrashedPresentations()).toEqual([])
     expect(await context.repository.listAssets(source.presentationId)).toEqual([])
     expect(await context.repository.getAsset(source.assetId)).toBeNull()
     // And nothing is left for the sweep to find, which is what "no half-deleted
@@ -1021,6 +1041,31 @@ describe('delete_presentation', () => {
     expect(expectErr(await call(context, 'delete_presentation', { presentationId: 'p_nei' })).code).toBe(
       'PRESENTATION_NOT_FOUND',
     )
+  })
+
+  it('ser ikke søppelkassen: en kastet presentasjon er borte for hver operasjon', async () => {
+    // The trash is the owner's, in the library. To an agent a deleted deck is
+    // deleted — it is not listed, not read, not edited, not copied and not
+    // deleted a second time — until the owner restores it.
+    const context = freshContext()
+    const deck = await deckIn(context)
+    expectOk(await call(context, 'delete_presentation', { presentationId: deck.id }))
+
+    for (const [name, input] of [
+      ['get_presentation', {}],
+      ['set_presentation_title', { title: 'Endret' }],
+      ['duplicate_presentation', {}],
+      ['delete_presentation', {}],
+    ] as const) {
+      const refused = expectErr(await call(context, name, { presentationId: deck.id, ...input }))
+      expect({ name, code: refused.code }).toEqual({ name, code: 'PRESENTATION_NOT_FOUND' })
+    }
+    // Still in the trash, exactly once, with nothing changed.
+    const trashed = await context.repository.listTrashedPresentations()
+    expect(trashed.map((summary) => summary.title)).toEqual([deck.title])
+
+    await context.repository.restorePresentation(deck.id)
+    expectOk(await call(context, 'get_presentation', { presentationId: deck.id }))
   })
 
   it('avviser en gammel revisjon med CONFLICT, og sletter ingenting', async () => {
@@ -1068,7 +1113,7 @@ describe('delete_presentation', () => {
     const context = freshContext()
     const deck = await deckIn(context)
     const failing = overriding(context.repository, {
-      deletePresentation: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
+      trashPresentation: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
     })
 
     const refused = expectErr(
