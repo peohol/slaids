@@ -16,9 +16,11 @@ import {
 } from './constants'
 import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
+import { MAX_INTERACTIVE_HTML_BYTES } from './constants'
+import { utf8ByteLength } from './interactive'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 14
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -162,9 +164,34 @@ export const sectionSlideSchema = z.object({
   backgroundColor: hexColor,
 })
 
+/**
+ * An interactive slide.
+ *
+ * Three strings and nothing else: no layout tree, no title zone, no colours of
+ * its own — it is drawn in the governing section's. `html` is a bounded field
+ * for exactly this kind, never an extension of the rich-text model, and the
+ * bound is measured in bytes of UTF-8 as every transport measures it. The
+ * refinement is the stored-document half of the rule the commands enforce on
+ * the way in (`domain/interactive.ts`), so a document cannot be written past
+ * the limit by any door and then refused by the next load.
+ */
+export const interactiveSlideSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal('interactive'),
+  name: z.string(),
+  fileName: z.string(),
+  html: z
+    .string()
+    .min(1)
+    .refine((html) => utf8ByteLength(html) <= MAX_INTERACTIVE_HTML_BYTES, {
+      message: `HTML-kilden er større enn grensen på ${MAX_INTERACTIVE_HTML_BYTES} byte`,
+    }),
+})
+
 export const slideSchema = z.discriminatedUnion('kind', [
   contentSlideSchema,
   sectionSlideSchema,
+  interactiveSlideSchema,
 ])
 
 export const themeSchema = z.object({

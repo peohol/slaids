@@ -12,11 +12,12 @@ import { describe, expect, it } from 'vitest'
 import { splitLeaf } from './commands'
 import { estimateFitChecker, estimateTitleFitChecker } from './fit'
 import { TITLE_NODE_ID } from './geometry'
-import { createPresentation } from './presentation'
+import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
+import { createInteractiveSlide, createPresentation } from './presentation'
 import { findPresentationIssues, findSlideIssues } from './validation'
 import type { InvariantCode } from './validation'
 import type { Presentation, RichDoc } from './types'
-import { contentAt, sectionAt } from './testDecks'
+import { contentAt, htmlOfBytes, interactiveAt, sectionAt } from './testDecks'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
@@ -255,5 +256,42 @@ describe('validering er lesing', () => {
     findPresentationIssues(presentation, checkers)
     findSlideIssues(presentation, presentation.slides[1], checkers)
     expect(JSON.stringify(presentation)).toBe(before)
+  })
+})
+
+describe('interaktive slider', () => {
+  function withApps(...sizes: number[]): Presentation {
+    const presentation = deck()
+    return {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        ...sizes.map((size, index) =>
+          createInteractiveSlide({
+            name: `App ${index}`,
+            fileName: `app-${index}.html`,
+            html: htmlOfBytes(size),
+          }),
+        ),
+      ],
+    }
+  }
+
+  it('har ingen soner, og derfor ingen anmerkninger om soner eller fit', () => {
+    const presentation = withApps(1024)
+    expect(findSlideIssues(presentation, interactiveAt(presentation, 2), checkers)).toEqual([])
+    expect(findPresentationIssues(presentation, checkers)).toEqual([])
+  })
+
+  it('anmerker et dekk over budsjettet for miniapp-kilde som ett dekkomfattende funn', () => {
+    // Built directly: the commands refuse to get here, which is the point.
+    const count = Math.floor(MAX_INTERACTIVE_HTML_TOTAL_BYTES / MAX_INTERACTIVE_HTML_BYTES) + 1
+    const presentation = withApps(...Array.from({ length: count }, () => MAX_INTERACTIVE_HTML_BYTES))
+    const issues = findPresentationIssues(presentation, checkers)
+    expect(codes(issues)).toEqual(['INTERACTIVE_BUDGET_EXCEEDED'])
+    expect(issues[0].details).toMatchObject({
+      byteSize: count * MAX_INTERACTIVE_HTML_BYTES,
+      maxTotalByteSize: MAX_INTERACTIVE_HTML_TOTAL_BYTES,
+    })
   })
 })

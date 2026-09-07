@@ -9,8 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { canDeleteSlide, duplicateSlide } from '../../domain/commands'
-import type { DeckPage } from '../../domain/pages'
-import { SectionPageView } from '../slide/SectionPageView'
+import { authoredPage, type DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
 import type { Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
@@ -38,6 +37,18 @@ function Thumb({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   )
+}
+
+/** What a thumbnail is called: its kind, and for an ordinary slide its number. */
+function thumbLabel(slide: Slide, index: number): string {
+  switch (slide.kind) {
+    case 'section':
+      return index === 0 ? 'Forside' : 'Seksjon'
+    case 'interactive':
+      return 'Interaktiv'
+    case 'content':
+      return `Slide ${index + 1}`
+  }
 }
 
 /**
@@ -73,12 +84,10 @@ function SlideThumb({
   onDelete: () => void
   canDelete: boolean
 }) {
-  const isSection = slide.kind === 'section'
-  const label = isSection
-    ? index === 0
-      ? 'Forside'
-      : 'Seksjon'
-    : `Slide ${index + 1}`
+  const label = thumbLabel(slide, index)
+  // Content slides are what the strip is mostly made of; the other kinds wear
+  // a badge that says which they are.
+  const badged = slide.kind !== 'content'
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: slide.id,
     data: { kind: 'slide' },
@@ -94,7 +103,7 @@ function SlideThumb({
     >
       <div className="filmstrip__index">
         <span>{index + 1}</span>
-        {isSection && <span className="filmstrip__badge">{label}</span>}
+        {badged && <span className="filmstrip__badge">{label}</span>}
         <span
           className="filmstrip__grip"
           aria-hidden="true"
@@ -116,21 +125,22 @@ function SlideThumb({
         {...listeners}
       >
         <Thumb>
-          {slide.kind === 'section' ? (
-            <div style={{ position: 'relative', width: SLIDE_WIDTH, height: SLIDE_HEIGHT }}>
-              <SectionPageView section={slide} />
-              <SlideProgressBar pageId={slide.id} />
-            </div>
-          ) : (
+          {slide.kind === 'content' ? (
             <SlideView slide={slide}>
               {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
               <SlideProgressBar pageId={slide.id} />
             </SlideView>
+          ) : (
+            /* A section, or the cover of an interactive slide: the same page
+               the audience sees, indicator and all. Nothing here has an
+               activation, so the cover's button is drawn inert — a thumbnail
+               can show a miniapp and can never start one. */
+            <DeckPageView page={authoredPage(slide)} />
           )}
         </Thumb>
       </button>
       <div className="filmstrip__tools">
-        <Tooltip label={isSection ? 'Dupliser seksjon' : 'Dupliser slide'}>
+        <Tooltip label={`Dupliser ${label.toLowerCase()}`}>
           <button
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
@@ -141,7 +151,7 @@ function SlideThumb({
             <Icon name="copy" size={14} />
           </button>
         </Tooltip>
-        <Tooltip label={isSection ? 'Slett seksjon' : 'Slett slide'}>
+        <Tooltip label={`Slett ${label.toLowerCase()}`}>
           <button
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
@@ -167,6 +177,7 @@ export function Filmstrip({
   onRequestDelete,
   onRequestNewSlide,
   onRequestNewSection,
+  onRequestNewInteractive,
 }: {
   presentation: Presentation
   /**
@@ -182,6 +193,7 @@ export function Filmstrip({
   onRequestDelete: (slide: Slide) => void
   onRequestNewSlide: () => void
   onRequestNewSection: () => void
+  onRequestNewInteractive: () => void
 }) {
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const selectSlide = useEditorStore((state) => state.selectSlide)
@@ -271,6 +283,14 @@ export function Filmstrip({
           data-testid="add-section"
         >
           <Icon name="plus" /> Seksjon
+        </button>
+        <button
+          type="button"
+          className="btn btn--interactive"
+          onClick={onRequestNewInteractive}
+          data-testid="add-interactive"
+        >
+          <Icon name="plus" /> Interaktiv
         </button>
       </div>
     </aside>

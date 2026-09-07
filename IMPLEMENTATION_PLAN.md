@@ -316,8 +316,10 @@ type SectionSlide = {
   backgroundColor: string
 }
 
-type Slide = ContentSlide | SectionSlide
+type Slide = ContentSlide | SectionSlide | InteractiveSlide
 ```
+
+(Den tredje sorten, en miniapp fra én HTML-fil, er § 8.7.)
 
 **Første slide er alltid en seksjon**, og det er dekkets forside. Det er ikke en
 regel en kommando må huske: `slides` har typen
@@ -484,6 +486,258 @@ noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
 Tellingen følger sidene, ikke de lagrede slidene: **forsiden telles ikke**, den
 første vanlige sliden er side 1, og den siste siden er full – uansett om det er
 en vanlig slide, en referanseside eller QR-siden.
+
+---
+
+## 8.7\. Interaktive slider (miniapper)
+
+En **interaktiv slide** viser én selvstendig miniapp fra én HTML-fil som
+forfatteren laster opp. Publikum ser en forside i dekkets design – navnet,
+merkingen «Interaktiv miniapp» og knappen «Aktiver miniapp» – og appen kjører
+først når noen trykker på knappen, i en ramme som fyller slideflaten. «Avslutt
+miniapp» øverst til høyre tar den ned igjen. Slaids kjører aldri filen selv:
+ikke i miniatyrer, ikke på en server, ikke i en eksport.
+
+### Modellen
+
+```ts
+type InteractiveSlide = {
+  id: string
+  kind: 'interactive'
+  /** Det forsiden viser. */
+  name: string
+  /** Filnavnet, som tekst. */
+  fileName: string
+  /** Hele filen, som UTF-8-tekst. Lagres som data, kjøres aldri av Slaids. */
+  html: string
+}
+
+type Slide = ContentSlide | SectionSlide | InteractiveSlide
+```
+
+Ingen soner og ingen layouttre: sliden er ikke en `ContentSlide` med et tomt
+tre, den er en tredje sort. `mapDeckSlides` i `src/domain/deckSlides.ts` krever
+en gren per sort, så hvert sted som tidligere antok «ikke seksjon ⇒ innhold»
+måtte si hva det mener om en interaktiv slide, og kompilatoren sier fra neste
+gang en sort kommer til. Forsiden er fortsatt en seksjon (§ 8.5); en interaktiv
+slide kan aldri stå først, og `withSlides` avviser det for enhver kommando.
+
+Duplisering gir en kopi med ny id og samme navn, filnavn og kilde; sletting og
+flytting er `deleteSlide` og `moveSlide` som for enhver annen slide. Fit-vakten
+(`src/domain/commands/fitGuard.ts`) måler ingenting på den – det er ingen tekst
+et fonttrinn kan dytte ut av en boks, og sliden kan ikke sitere – og det er
+skrevet ned i vaktens kommandoliste som en bevisst utelatelse, ikke en glemt.
+Geometrimotoren ser den aldri.
+
+### Filen: hva som godtas
+
+Én dør, `src/domain/interactive.ts`, for opplastingsdialogen, panelets «Erstatt
+HTML-fil» og agentoperasjonene, så hva Slaids godtar ikke avhenger av hvem som
+spør. Alt i den er datavalidering: filen dekodes og måles, aldri parses til et
+dokument, aldri evalueres.
+
+- **Én `.html`-fil**, etter navn, uansett hvordan endelsen er skrevet.
+  `File.type` brukes ikke; navnet er en høflig sjekk som stopper feil fil før
+  den leses, innholdet er det som valideres.
+- **UTF-8**, dekodet strengt. Et UTF-8-merke hoppes over; en UTF-16-fil
+  gjenkjennes på merket og avvises med beskjed om å lagre som UTF-8; en fil som
+  ikke er gyldig UTF-8 (en Latin-1-eksport, et omdøpt binærformat) avvises i
+  stedet for å lagres med hvert tegn som ikke lot seg lese erstattet.
+- **Ikke tom**, ingen NUL-byte, og minst ett element (`<` fulgt av en bokstav
+  eller `!`). Det er ikke en parse og ikke en sikkerhetssjekk: det fanger en
+  tekstfil med feil navn før den blir en blank slide.
+- **Innenfor grensen** `MAX_INTERACTIVE_HTML_BYTES` (2 MiB), målt i byte av
+  UTF-8 på teksten som faktisk lagres – aldri `string.length`, som teller
+  UTF-16-enheter og ville sluppet en fil av trebytetegn gjennom tre ganger for
+  stor. Skjemaet måler det samme på lagrede dokumenter.
+- **Innenfor budsjettet** `MAX_INTERACTIVE_HTML_TOTAL_BYTES` (tre filers verdi,
+  6 MiB) for hele dekket, spurt *før* noe lagres. En utskifting måles med
+  slidens egen kilde holdt utenfor. `findPresentationIssues` rapporterer
+  `INTERACTIVE_BUDGET_EXCEEDED` på et dokument som likevel er over.
+- Navn og filnavn trimmes, må ha innhold og er begrenset til 200 tegn. De vises
+  som tekst, aldri som markup.
+
+Å passere døren sier at filen *kan lagres*. Det sier ingenting om hva appen
+gjør når publikum starter den, og ingenting i modulen er en påstand om at filen
+er trygg. Dialogen sier det samme til forfatteren, i fire setninger: alt appen
+trenger må ligge i filen; den kjører bare etter «Aktiver miniapp» og starter på
+nytt hver gang; hele kilden følger med når presentasjonen deles; aktiver bare
+filer du stoler på.
+
+Grensene mot transportene: agent-API-ets standard kroppsgrense er 4 MiB
+(`src/server/agent/config.ts`), så én fil på grensen får plass JSON-escapet;
+Vercel-funksjoner tar 4,5 MB per forespørsel; dokumentet lagres som én rad i
+Supabase, og budsjettet holder hele dokumentet godt under det som er praktisk
+å autosave og publisere som snapshot.
+
+### Kommandoene
+
+`src/domain/commands/interactive.ts`: `addInteractiveSlide` (fil → navn →
+budsjett → innsetting; en avvisning oppretter ingenting), `setInteractiveSlideName`
+og `setInteractiveSlideHtml` (fil og filnavn sammen; id, plass og navn beholdes;
+en avvisning gir det samme objektet tilbake, så appen som lå der beholdes).
+Alle tre går gjennom `withSlides` og er vanlige, angrbare redigeringer. Sone- og
+tittelkommandoer avviser sliden som `NOT_A_CONTENT_SLIDE`.
+
+### Forside og kjøretid er to ting
+
+`InteractivePageView` er forsiden: statisk markup i seksjonens farger og temaets
+type, tegnet av `DeckPageView` overalt en side tegnes – filmstripen, scenen,
+spilleren, den rendrede previewen, en eksport. Ikke én byte av appen er i den.
+Knappen er en ekte `<button>` bare der en *aktivering* er gitt gjennom
+`InteractiveActivation`-konteksten; ellers tegnes den samme formen inert
+(`aria-hidden`). Om et render kan starte kode avledes altså aldri fra
+`isStatic`, `pointer-events` eller hvor pekeren er: det er om treet har fått en
+aktivering, og nøyaktig én komponent deler dem ut.
+
+`InteractiveSlideSurface` er den komponenten. Den monteres to steder:
+`PlayerPage` i `PresentationPlayer` – og dermed også i den delte visningen, som
+er samme spiller – og `InteractiveStage` på editorens scene, så forfatteren kan
+prøve appen der den redigeres. Miniatyrer, den skrivebeskyttede scenen og
+serverens preview monterer den aldri.
+
+Hver aktivering er en ny økt med egen nøkkel, så React bygger en ny
+`InteractiveRuntime` og en ny ramme: appen starter på nytt hver gang, og ingen
+tilstand fra en forrige kjøring finnes noe sted – ingenting av kjøretiden
+lagres, autosaves, deles eller angres. Økten husker slidens id og kilde, og er
+avledet «ikke lenger i live» i det sliden bytter fil under den (en utskifting,
+en angring). Å forlate presentasjonen, bytte slide eller modus avmonterer
+flaten, og med den rammen. Ved avslutning fjernes `<iframe>`-elementet – aldri
+bare skjult – som er det som stopper appens dokument og hver timer i det;
+fokus går tilbake til «Aktiver miniapp».
+
+### Låsen
+
+`src/state/interactiveRuntime.ts` er ett faktum alle navigasjonshåndterere spør
+om: kjører en miniapp nå? `InteractiveRuntime` holder låsen nøyaktig så lenge
+rammen er montert. Spillerens tastatur-, klikk- og sveipehåndterere og
+editorens tastatur- og hjulhåndterere står da av – piler, Space, PageUp/Down,
+Home/End, klikk for neste side, Ctrl+E, F5, Ctrl+Z – uten `preventDefault`, så
+Space og Enter på Slaids' egen avslutt-knapp fortsatt er et trykk på den.
+Escape avslutter ikke presentasjonen mens appen kjører; «Avslutt miniapp» er
+den ene veien ut, og den ligger utenfor rammen, over den, tegnet i skjermstørrelse
+uansett slidens skalering.
+
+### Isolasjonsgrensen
+
+Opplastet HTML er aldri Slaids' egen markup. Den lastes som data inn i en ramme
+nettleseren holder atskilt fra siden rundt, og `src/ui/interactive/sandboxDocument.ts`
+bygger den rammens dokument. Det er sikkerhetsgrensen, sagt på ett sted og
+testet som data.
+
+To rammer, ikke én:
+
+- **Apprammen** holder filen, med `sandbox="allow-scripts"` og ingenting mer:
+  opak origin (ingen tilgang til Slaids' lagring, økt eller DOM), ingen
+  skjemaer, popups, toppnavigasjon, modaldialoger, nedlastinger, pekerlås,
+  fullskjerm. `referrerpolicy="no-referrer"`, og en Permissions Policy som
+  nekter kamera, mikrofon, geolokasjon, skjermdeling, betaling, USB, MIDI,
+  utklippstavle og resten ved navn. Dokumentet bærer en Content Security Policy
+  som nekter alt som utgangspunkt og tillater nøyaktig det en selvstendig fil
+  trenger: `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+  img-src data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none';
+  object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none';
+  form-action 'none'; base-uri 'none'`. Ingen nettverk: ikke `fetch`, XHR,
+  WebSocket, beacon, eksternt skript, stilark, font, bilde, ramme, objekt eller
+  worker; ingen `eval`; ingen `<base>`.
+- **Innpakningen** er et lite dokument Slaids skriver selv, sandkasset likt, og
+  apprammen er dens barn. Den finnes for den ene regelen appens egen policy
+  ikke kan uttrykke: hvilke adresser apprammen får *navigere til*. `connect-src`
+  stopper forespørsler, ikke navigasjoner, og en rammes egen `frame-src` sier
+  ingenting om rammen selv – men *forelderens* gjør det. Innpakningens
+  `frame-src 'none'` får nettleseren til å nekte hver navigasjon av apprammen –
+  `location`, en lenke, et skjema, `<meta refresh>`, til internett eller til
+  Slaids' egen origin – før forespørselen lages. Chromium viser deretter sin
+  egen blokkeringsside i rammen; appen er borte, og «Avslutt miniapp» er veien
+  tilbake.
+
+Policyen står foran innholdet: et `srcdoc`-dokument arver forelderens policy,
+så apprammen kjører under innpakningens policy fra første byte, før noe av
+filen er parset, og kopien i appdokumentets eget `<head>` kan bare stramme
+inn. Filen kan ikke løsne noe: en `<meta>` kan legge til en policy men aldri
+lempe på en, `<base>` avvises av `base-uri 'none'`, og filens egne
+`<meta http-equiv>` havner i `<body>` der parseren overser dem. Filen legges
+inn som en escapet attributtverdi i innpakningens markup – det ene stedet
+upålitelig tekst går inn, med den komplette escapingen for den konteksten – og
+innpakningen settes som `srcdoc` på rammen Slaids monterer, som en egenskap,
+ikke serialisert inn i noe. Aldri `innerHTML`, `dangerouslySetInnerHTML`,
+`document.write` eller `eval`; aldri en URL på Slaids' origin som serverer den
+opplastede filen; ingen `postMessage`-bro, ingen meldingslyttere, ingen token,
+tilstand eller repository-tilgang i rammen.
+
+Det som *ikke* beskyttes, sagt like tydelig: dette er ikke en nettverksbrannmur
+– en `<link rel=preconnect>` kan fortsatt åpne en forbindelse som ikke bærer
+noe, og nettleserens DNS er nettleserens; CPU, minne og lyd isoleres ikke; og
+det er ikke et vern mot en feil i nettleserens sandkasse- eller
+CSP-implementasjon. Det er nettleserens egen isolasjon, konfigurert så stramt
+som en selvstendig app tillater. Chromium logger «Potential permissions policy
+violation» i konsollen for hver funksjon `allow`-attributtet nekter; det er
+kosmetisk, og e2e-vaktene ser bort fra det. Firefox og WebKit har ikke vært
+kjørt i utviklingsmiljøet (se «Tester»).
+
+### Migrering: v13 → v14
+
+Ingen lagret data endres; versjonen finnes for at et dokument med en
+`interactive`-slide aldri skal åpnes av en klient som ikke kjenner sorten.
+Skjemaet avviser en ukjent `kind`, en tom kilde og en kilde over grensen.
+
+### Lagring, deling og statisk rendering
+
+Kilden er et felt i JSON som alt annet: begge lagringsmodusene, `.slaids`-
+sikkerhetskopi og import, duplisering og reload bevarer den byte for byte uten
+å kjøre den. Det publiserte snapshotet tar den med – det er det deling *er* for
+denne sorten, og dialogen sier det. Eldre presentasjoner og snapshots åpner som
+før. Den rendrede previewen (§ 44), miniatyrer og enhver eksport tegner
+forsiden: ingen `<iframe>`, ingen `<script>`, ingen byte av kilden.
+
+Agentflaten: `add_interactive_slide` og `set_interactive_slide` (begge
+`presentations:write`) går gjennom nøyaktig de samme kommandoene, så en agents
+fil møter den samme døren som et menneskes. `get_presentation` og
+`inspect_slide` beskriver sliden med navn, filnavn og `htmlByteSize` – aldri
+kilden – og `render_slide_preview` tegner forsiden.
+
+### Editoren
+
+`+ Interaktiv` under `+ Slide` og `+ Seksjon` i filmstripen. Dialogen tar én
+fil (velg eller dra), viser navn og størrelse, foreslår filnavnet uten endelsen
+som navn, viser avvisningen der den står og oppretter ingenting før filen har
+passert og «Opprett» er trykket; avbryt oppretter ingenting. Sliden settes inn
+etter gjeldende slide, som en vanlig slide. Panelet ved scenen gir nytt navn og
+bytter fil (en fil som avvises beholder appen); begge er angrbare. Statuslinjen
+kaller den «Interaktiv».
+
+### Tester
+
+Enhet: `src/domain/interactive.test.ts` (endelse, navn, dekoding, NUL,
+elementkrav, bytegrense i UTF-8, budsjett), `src/domain/commands/interactive.test.ts`
+(innsetting og forsideregelen, navn, atomisk utskifting som gir samme objekt ved
+avvisning, budsjett med og uten egen slide, duplisering/flytting/sletting,
+sonekommandoer), skjema og migrering, delingssnapshot, invariantsjekken,
+Dexie og `.slaids`-rundtur byte for byte, store-oppførsel,
+`src/ui/interactive/sandboxDocument.test.ts` (policyen som data, rekkefølgen,
+escapingen, én ramme og ett skript uansett fil), `src/agent/interactive.test.ts`
+(operasjonene, avvisninger med kode, ingen kilde i lister eller inspeksjon,
+scopes), `src/render/document.test.tsx` (previewen er forsiden),
+`src/ui/slide/interactive.test.tsx` (forside uten aktivering; flaten monterer og
+avmonterer rammen, holder låsen, gir fokus tilbake) og
+`src/ui/present/interactivePlayer.test.tsx` (spilleren uten `onExit` – den delte
+visningen – eier tastene mens appen kjører).
+
+E2E, Chromium: `e2e/interactive.spec.ts` (dialogen og avvisningene, forsiden
+og miniatyren uten kjøring, presentasjon med aktivering, rammen som fyller
+slideflaten, tastatur inn i appen, ingen sidebytte mens den kjører, avslutning
+med samme side og fokus, ny kjøring med ny tilstand, ingen timer etter
+avslutning, scenen med låste snarveier, nytt navn, utskifting, angre/gjør om,
+reload, duplisering og sletting) og `e2e/interactive-security.spec.ts`
+(`e2e/apps/escape-app.html` forsøker alt over, med og uten brukeraktivering;
+spec-en måler utenfra: ingen forespørsel når nettverkslaget, det som
+rapporteres er nektet av policyen i rendereren, ingen popups, nedlastinger,
+dialoger eller rammenavigasjoner, og siden rundt er urørt). Spesifikasjonene
+kjøres i et eget Playwright-prosjekt med `--disable-features=IsolateSandboxedIframes`,
+fordi Playwright ellers ikke ser den innerste rammen i Chromiums egen prosess
+for sandkassede rammer; policyen og sandkassen håndheves av rendereren uansett
+prosess. Den delte visningen mot en ekte backend, og Firefox og WebKit, er
+ikke kjørt i utviklingsmiljøet og står som ubekreftet.
 
 ---
 
@@ -1416,6 +1670,12 @@ Krav:
 > oppå sliden. Hvor langt ut i dekket man er, er det fremdriftsindikatoren som
 > sier (§ 8.6), og veien ut er Escape — som bare finnes der `onExit` gjør det,
 > altså ikke i den delte visningen.
+>
+> Én side kan gjøre mer enn å tegnes: en interaktiv slide (§ 8.7) har en knapp
+> som starter miniappen i en ramme over sliden. Mens den kjører eier appen
+> tastatur, klikk og sveip – spilleren blar ikke, og Escape avslutter ikke
+> presentasjonen – og «Avslutt miniapp», Slaids' egen knapp utenfor rammen,
+> er den ene veien tilbake til siden.
 
 ---
 
@@ -1944,7 +2204,9 @@ Minst:
   bildefiler som testdata, ikke håndlagde filhoder;
 - Agent Core: se testlisten i §44. Asset-kontraktene kjøres mot et ekte
   repository, ikke en stubb – kontrakten er at filen faktisk er lagret og at
-  dokumentet peker på den.
+  dokumentet peker på den;
+- interaktive slider: døren for filen, kommandoene, rammedokumentet som data,
+  forsiden uten aktivering, flaten og spilleren med – se «Tester» i § 8.7.
 
 ### E2E
 
@@ -1964,7 +2226,9 @@ Minst:
 - `/s/<token>` går utenom `AuthGate`, mens arbeidsområdet fortsatt er portet;
 - delt visning uten editor-UI;
 - `Del`-bryterens tilstander, kopiering av lenken, og at den avledede QR-siden
-  kommer og går sammen med delingen.
+  kommer og går sammen med delingen;
+- interaktiv slide: hele løpet fra fil til kjørende app og tilbake, og
+  isolasjonen målt utenfra med en fiendtlig app (§ 8.7).
 
 ### Visuell regresjon
 
@@ -3373,7 +3637,12 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `set_image_focus`, `set_image_caption`, `set_vertical_alignment`,
   `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item`,
   `add_reference`, `update_reference`, `delete_reference`, `upload_asset`,
-  `create_svg_asset`, `set_zone_asset`.
+  `create_svg_asset`, `set_zone_asset`, `add_interactive_slide`,
+  `set_interactive_slide`.
+- En interaktiv slide (§ 8.7) listes og inspiseres med navn, filnavn og
+  `htmlByteSize`, aldri med kilden; de to operasjonene tar kilden inn gjennom
+  den samme døren som opplastingsdialogen, og `render_slide_preview` tegner
+  forsiden.
 - Ingen av dem inneholder domenelogikk. Manglet det en kommando, ble den laget i
   `src/domain/` og brukes av begge: `src/domain/validation.ts` (read-only
   invariantsjekk) og `src/domain/revision.ts` (revisjonen).

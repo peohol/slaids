@@ -50,12 +50,12 @@ describe('slide commands', () => {
     // A new deck is `[front section, one empty slide]`, so adding one makes three.
     const next = unwrap(addSlide(base(), {}))
     expect(next.slides).toHaveLength(3)
-    expect(next.slides[2].title).not.toBeNull()
+    expect(contentAt(next, 2).title).not.toBeNull()
   })
 
   it('adds a slide without a title zone', () => {
     const next = unwrap(addSlide(base(), { hasTitle: false }))
-    expect(next.slides[2].title).toBeNull()
+    expect(contentAt(next, 2).title).toBeNull()
   })
 
   it('rejects an out-of-range insert index', () => {
@@ -102,9 +102,9 @@ describe('slide commands', () => {
     const presentation = base()
     const slideId = presentation.slides[1].id
     const removed = unwrap(setSlideHasTitle(presentation, slideId, false))
-    expect(removed.slides[1].title).toBeNull()
+    expect(contentAt(removed, 1).title).toBeNull()
     const restored = unwrap(setSlideHasTitle(removed, slideId, true))
-    expect(restored.slides[1].title).not.toBeNull()
+    expect(contentAt(restored, 1).title).not.toBeNull()
   })
 
   it('refuses to add a title when the layout would no longer fit', () => {
@@ -833,7 +833,7 @@ describe('references', () => {
       ],
     }
     const cleaned = unwrap(deleteReference(withTitle, added.reference.id))
-    expect(JSON.stringify(cleaned.slides[1].title)).not.toContain('citation')
+    expect(JSON.stringify(contentAt(cleaned, 1).title)).not.toContain('citation')
     expect(cleaned.references).toHaveLength(0)
   })
 })
@@ -879,7 +879,7 @@ describe('titles', () => {
       slides: [sectionAt(presentation, 0),{ ...contentAt(presentation, 1), title: titleDoc('Min tittel') }],
     }
     const next = unwrap(duplicateSlide(presentation, presentation.slides[1].id))
-    expect(JSON.stringify(next.slides[2].title)).toContain('Min tittel')
+    expect(JSON.stringify(contentAt(next, 2).title)).toContain('Min tittel')
   })
 
   it('finds nodes and splits by id', () => {
@@ -969,7 +969,7 @@ describe('content fit on structural changes', () => {
 
     const forced = setSlideHasTitle(presentation, slideId, false, { force: true })
     expect(forced.ok).toBe(true)
-    if (forced.ok) expect(forced.value.slides[1].title).toBeNull()
+    if (forced.ok) expect(contentAt(forced.value, 1).title).toBeNull()
   })
 
   it('removes an empty title zone without forcing', () => {

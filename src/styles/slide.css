@@ -723,6 +723,134 @@
 }
 
 /* ----------------------------------------------------------------- *
+ * An interactive slide
+ *
+ * The cover is a page in the deck's own design — the governing section's
+ * colours and the theme's type — with a badge, the app's name and the button
+ * that starts it. Same 1600 x 900 design space, no zone tree: one centred
+ * column, spaced by the deck's own gap, exactly like a section or the QR page.
+ * Nothing of the app itself is drawn on it.
+ *
+ * The runtime is the frame the app runs in, over the cover, and Slaids' own
+ * exit button over that. Both are `src/ui/interactive/`'s; the frame's
+ * isolation is `sandboxDocument.ts`'s, not this file's.
+ * ----------------------------------------------------------------- */
+.interactive-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.interactive-page__badge {
+  display: inline-block;
+  padding: 0.3em 1em;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.interactive-page__name {
+  margin: 0;
+  max-width: 84%;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.interactive-page__file {
+  max-width: 84%;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The button and its inert twin are one shape: what tells them apart is
+ * whether the surface around the cover handed it an activation, never how it
+ * looks. The inert one is exactly what a thumbnail, a preview or an export
+ * shows — a cover, recognisably, that can start nothing.
+ */
+.interactive-page__activate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5em 1.4em;
+  border: 0;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.interactive-page__activate--inert {
+  cursor: default;
+}
+
+button.interactive-page__activate:focus-visible {
+  outline: 4px solid #fff;
+  outline-offset: 4px;
+}
+
+.interactive-surface {
+  position: relative;
+}
+
+.interactive-runtime {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  /* The app's pointer is the app's; the presenting cursor stops here. */
+  cursor: default;
+}
+
+.interactive-runtime__frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/*
+ * Slaids' way out, over the frame, top right. The chrome undoes the slide's
+ * scale (an inline transform from the runtime), so the button is the same size
+ * on screen at every zoom; its own sizes below are therefore screen pixels.
+ */
+.interactive-runtime__chrome {
+  position: absolute;
+  top: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.interactive-runtime__exit {
+  pointer-events: auto;
+  margin: 14px;
+  height: 44px;
+  padding: 0 20px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(16, 18, 22, 0.92);
+  color: #fff;
+  font: 600 15px/1 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.01em;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.interactive-runtime__exit:hover {
+  background: rgba(40, 44, 52, 0.96);
+}
+
+.interactive-runtime__exit:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* ----------------------------------------------------------------- *
  * The progress indicator
  *
  * Flush with the bottom edge and with both sides — the only distance around it

@@ -264,6 +264,35 @@ export const DEFAULT_BACKGROUND_COLOR = '#667788'
 export const MAX_ASSET_BYTES = 25 * 1024 * 1024
 
 /**
+ * The largest miniapp an interactive slide may carry, in bytes of UTF-8.
+ *
+ * Bytes and not characters: a file full of three-byte glyphs is three times
+ * the size its `string.length` suggests, and what every transport moves is the
+ * encoded form. The source is stored *inside* the presentation document rather
+ * than beside it as an asset, so it rides along with every save, every share
+ * snapshot and every agent call that carries the deck — which is why the number
+ * is small next to `MAX_ASSET_BYTES`, and why there is a second, deck-wide
+ * bound below it.
+ *
+ * Both are checked in one place, `domain/interactive.ts`, for every door a
+ * file can come through: the upload dialog, a replacement, and the agent
+ * operations.
+ */
+export const MAX_INTERACTIVE_HTML_BYTES = 2 * 1024 * 1024
+
+/**
+ * How much miniapp source one presentation may hold in total.
+ *
+ * The document is serialised whole on every autosave, published whole as the
+ * share snapshot, and read whole by every agent operation — so a deck full of
+ * two-megabyte apps would be a deck that saves, shares and loads slowly long
+ * before any single file broke a rule. Three maximum-size apps is the budget:
+ * generous for a deck, and still well inside what the row, the share endpoint
+ * and the browser handle comfortably.
+ */
+export const MAX_INTERACTIVE_HTML_TOTAL_BYTES = 3 * MAX_INTERACTIVE_HTML_BYTES
+
+/**
  * The progress indicator.
  *
  * Every page but the front page carries one, and it is not optional: a deck that

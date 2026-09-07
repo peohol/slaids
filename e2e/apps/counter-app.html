@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Teller</title>
+<!--
+  A small self-contained miniapp for the Playwright flow spec.
+
+  Everything observable about its lifecycle is on purpose: the counter and the
+  text field show that the app works and that its state is fresh per run, the
+  «Siste tast» line shows which keys reach the app rather than Slaids, the
+  timer shows that a closed app stops, and the own stylesheet shows that the
+  app is drawn in its own design rather than Slaids'.
+
+  It reports the same events to the top window with postMessage. Slaids does
+  not listen; the spec does, to measure that nothing runs before activation and
+  nothing keeps running after exit.
+-->
+<style>
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Courier New", monospace;
+    background: #fdf6e3;
+    color: #073642;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+  h1 { font-size: 40px; margin: 0; }
+  button {
+    font: inherit;
+    font-size: 28px;
+    padding: 12px 24px;
+    background: #268bd2;
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  input { font: inherit; font-size: 24px; padding: 8px; }
+  .row { display: flex; gap: 12px; align-items: center; }
+</style>
+</head>
+<body>
+  <h1 id="title">Teller</h1>
+  <div class="row">
+    <button id="count" type="button">Trykk: <span id="value">0</span></button>
+    <input id="text" type="text" placeholder="Skriv her" autocomplete="off">
+  </div>
+  <p>Siste tast: <span id="key">ingen</span></p>
+  <p>Tikk: <span id="ticks">0</span></p>
+  <p>Startet: <span id="started"></span></p>
+  <p>Font: <span id="font"></span></p>
+  <script>
+    (function () {
+      var n = 0
+      var ticks = 0
+      var started = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
+      document.getElementById('started').textContent = started
+      document.getElementById('font').textContent = getComputedStyle(document.body).fontFamily
+
+      function report(type, detail) {
+        try {
+          top.postMessage({ source: 'slaids-e2e-counter', type: type, detail: detail, run: started }, '*')
+        } catch (error) {
+          // No parent to reach: still a working app.
+        }
+      }
+
+      document.getElementById('count').addEventListener('click', function () {
+        n += 1
+        document.getElementById('value').textContent = String(n)
+        report('count', n)
+      })
+      window.addEventListener('keydown', function (event) {
+        document.getElementById('key').textContent = event.key === ' ' ? 'Space' : event.key
+        report('key', event.key)
+      })
+      setInterval(function () {
+        ticks += 1
+        document.getElementById('ticks').textContent = String(ticks)
+        report('tick', ticks)
+      }, 200)
+      setTimeout(function () {
+        report('late', 1)
+      }, 1500)
+      report('ready', 0)
+    })()
+  </script>
+</body>
+</html>

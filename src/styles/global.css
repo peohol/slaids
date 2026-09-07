@@ -16,6 +16,8 @@
   --chrome-accent: #4f8ef7;
   /* The other kind of page: a new section, told apart from a new slide. */
   --chrome-section: #7b52cc;
+  /* And the third: an interactive slide, a page that runs a miniapp. */
+  --chrome-interactive: #1f8577;
   --chrome-accent-soft: rgba(79, 142, 247, 0.18);
   --chrome-danger: #e5484d;
   --chrome-warning: #e0a03a;
@@ -136,6 +138,23 @@ textarea {
 .btn--section:hover:not(:disabled) {
   background: #8b62d8;
   border-color: #8b62d8;
+}
+
+/*
+ * Adding a miniapp is a third thing again: a page that runs rather than one
+ * that is read. Its own colour, a step warmer than the other two, so the three
+ * doors in the strip read as three doors.
+ */
+.btn--interactive {
+  background: var(--chrome-interactive);
+  border-color: var(--chrome-interactive);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn--interactive:hover:not(:disabled) {
+  background: #2f9c8a;
+  border-color: #2f9c8a;
 }
 
 .btn--danger {

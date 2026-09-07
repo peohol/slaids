@@ -15,15 +15,27 @@
 
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import type { DeckPage } from '../../domain/pages'
+import { InteractivePageView } from './InteractivePageView'
 import { SectionPageView } from './SectionPageView'
 import { QrPageView } from './QrPageView'
 import { SlideProgressBar } from './SlideProgressBar'
 import { SlideView } from './SlideView'
 
+/**
+ * Every kind of page, named. An interactive slide is drawn as its cover here
+ * and everywhere: what may *run* it is decided by the surface around this
+ * component, never by this component.
+ */
 function PageBody({ page }: { page: DeckPage }) {
   if (page.kind === 'qr') return <QrPageView url={page.shareUrl} />
-  if (page.slide.kind === 'section') return <SectionPageView section={page.slide} />
-  return <SlideView slide={page.slide} />
+  switch (page.slide.kind) {
+    case 'section':
+      return <SectionPageView section={page.slide} />
+    case 'interactive':
+      return <InteractivePageView slide={page.slide} />
+    case 'content':
+      return <SlideView slide={page.slide} />
+  }
 }
 
 export function DeckPageView({ page }: { page: DeckPage }) {

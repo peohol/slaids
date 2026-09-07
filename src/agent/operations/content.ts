@@ -81,7 +81,7 @@ function findZone(
     // Told apart, because the caller's next move is: an unknown id is a mistake
     // about which deck this is, a section is a mistake about which page.
     return findSlide(presentation, slideId)
-      ? err('NOT_A_CONTENT_SLIDE', 'Seksjonsslides har ingen soner.')
+      ? err('NOT_A_CONTENT_SLIDE', 'Sliden har ingen soner.')
       : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
   }
   const leaf = findLeaf(slide.root, nodeId)

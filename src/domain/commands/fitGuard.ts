@@ -68,7 +68,12 @@
  *    lands after its original, so no earlier first occurrence moves),
  *    `setPresentationTitle`, `setFolder`, `setSectionAccentColor` and
  *    `setSectionBackgroundColor` (a colour is not a size), every idea command,
- *    and every asset command.
+ *    every asset command, and the three interactive-slide commands
+ *    (`addInteractiveSlide`, `setInteractiveSlideName`,
+ *    `setInteractiveSlideHtml`): a miniapp's own layout is never measured as a
+ *    zone tree, its cover draws no text a font could push out of a box, and it
+ *    cannot cite — so inserting one renumbers nothing. `pageOverflow` says the
+ *    same thing in code: an interactive slide has no overflow to report.
  *  - **Deliberate exception — removals**: `deleteSlide`, `deleteLayoutNode`,
  *    `clearLayoutNode`, `moveContentToSandbox` and `deleteReference` take
  *    content off the deck. They cannot shrink a zone, but they *can* renumber
@@ -147,13 +152,22 @@ export function fitContextFor(presentation: Presentation): FitContext {
 
 /** Every document rendered on a slide, including its title zone. */
 function slideDocs(slide: Slide): RichDoc[] {
-  // A section cannot cite — that is why it has no numbering-sensitive docs to
-  // list here — but it still has two lines, and listing them keeps this the
-  // honest answer to "what text does this page draw".
-  if (slide.kind === 'section') return [slide.title, slide.subtitle]
-  const docs: RichDoc[] = slide.title ? [slide.title] : []
-  for (const content of collectContent(slide.root)) docs.push(...contentDocs(content))
-  return docs
+  switch (slide.kind) {
+    case 'section':
+      // A section cannot cite — that is why it has no numbering-sensitive docs
+      // to list here — but it still has two lines, and listing them keeps this
+      // the honest answer to "what text does this page draw".
+      return [slide.title, slide.subtitle]
+    case 'interactive':
+      // The cover draws the slide's name as plain text, and the miniapp's own
+      // markup is not a document of the deck's: nothing here is rich text.
+      return []
+    case 'content': {
+      const docs: RichDoc[] = slide.title ? [slide.title] : []
+      for (const content of collectContent(slide.root)) docs.push(...contentDocs(content))
+      return docs
+    }
+  }
 }
 
 /**
@@ -267,15 +281,28 @@ export function sectionOverflow(
   return overflow
 }
 
-/** Overflow per node for whichever kind of slide this is. */
-function pageOverflow(
+/**
+ * Overflow per node for whichever kind of slide this is.
+ *
+ * The one place the kinds are told apart for measuring, so every caller — the
+ * guard, the read-only validator, the editor's after-the-fact count — measures
+ * a page the same way. An interactive slide answers with nothing: the deck
+ * draws a cover for it whose only text is a name that wraps, and the miniapp's
+ * own layout is the miniapp's, never a zone tree Slaids measures.
+ */
+export function pageOverflow(
   slide: Slide,
   context: FitContext,
   options: StructuralOptions = {},
 ): Map<NodeId, number> {
-  return slide.kind === 'section'
-    ? sectionOverflow(slide, context, options)
-    : slideOverflow(slide, context, options)
+  switch (slide.kind) {
+    case 'section':
+      return sectionOverflow(slide, context, options)
+    case 'content':
+      return slideOverflow(slide, context, options)
+    case 'interactive':
+      return new Map()
+  }
 }
 
 /**
@@ -514,6 +541,8 @@ function failingRect(
     if (regression.nodeId === SECTION_SUBTITLE_NODE_ID) return section.subtitleRect
     return null
   }
+  // Nothing on an interactive slide is measured, so nothing on it can regress.
+  if (slide.kind !== 'content') return null
   const geometry = { ...geometryForTheme(after.theme), ...options.geometry }
   return computeSlideGeometry(slide, geometry).rects.get(regression.nodeId) ?? null
 }

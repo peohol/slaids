@@ -7,6 +7,9 @@ import { defineConfig, devices } from '@playwright/test'
  */
 const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
 
+/** The specs that reach into a miniapp's frame; see the project below. */
+const INTERACTIVE_SPECS = /interactive(-security)?\.spec\.ts$/
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -23,7 +26,29 @@ export default defineConfig({
     deviceScaleFactor: 1,
     ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: INTERACTIVE_SPECS },
+    {
+      // The interactive slide's app runs in a sandboxed frame inside another
+      // sandboxed frame. Chromium puts sandboxed frames in their own process
+      // (IsolateSandboxedIframes), and Playwright then misses the inner frame
+      // most of the time — the app runs, but the runner cannot reach into it.
+      // With that one feature off the frames stay in the page's process and
+      // every locator works. The sandbox and the Content Security Policy the
+      // security spec measures are enforced by the renderer either way; the
+      // process boundary is an extra layer on top of them, not the thing under
+      // test.
+      name: 'chromium-interactive',
+      testMatch: INTERACTIVE_SPECS,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          ...(chromiumExecutable ? { executablePath: chromiumExecutable } : {}),
+          args: ['--disable-features=IsolateSandboxedIframes'],
+        },
+      },
+    },
+  ],
   webServer: {
     command: 'npm run build && npm run preview',
     url: 'http://127.0.0.1:4173',

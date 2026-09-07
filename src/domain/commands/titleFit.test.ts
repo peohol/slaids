@@ -140,7 +140,7 @@ describe('addSlide with a title', () => {
     const created = unwrap(
       addSlide(presentation, { hasTitle: true, title: 'En helt vanlig overskrift', ...checkers }),
     )
-    expect(docToPlainText(created.slides[created.slides.length - 1].title)).toBe(
+    expect(docToPlainText(contentAt(created, created.slides.length - 1).title)).toBe(
       'En helt vanlig overskrift',
     )
   })

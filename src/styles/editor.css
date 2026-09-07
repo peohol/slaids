@@ -326,6 +326,7 @@
   padding: 10px;
   border-top: 1px solid var(--chrome-border);
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -335,6 +336,11 @@
   padding-inline: 8px;
   justify-content: center;
   white-space: nowrap;
+}
+
+/* The third door takes a row of its own, under the two it is not one of. */
+.filmstrip__footer .btn--interactive {
+  flex-basis: 100%;
 }
 
 /* ----------------------------------------------------------------- *
@@ -1507,6 +1513,50 @@
   border-color: var(--chrome-accent);
   background: var(--chrome-accent-soft);
   color: var(--chrome-text);
+}
+
+/*
+ * The picked miniapp file, and the notes under the picker.
+ *
+ * The file line is what the author picked and how big it is — the two facts
+ * the dialog can state — and the refusal, when there is one, under them in the
+ * same box, so the thing that was refused and the reason stand together.
+ */
+.interactive-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+}
+
+.interactive-file__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.interactive-file .error-text {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}
+
+.interactive-notes {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--chrome-text-dim);
+}
+
+.inspector .interactive-notes {
+  margin: 0;
+  padding-left: 16px;
 }
 
 .new-slide__choices {

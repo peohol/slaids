@@ -268,7 +268,38 @@ export interface SectionSlide {
   backgroundColor: string
 }
 
-export type Slide = ContentSlide | SectionSlide
+/**
+ * An interactive slide: one self-contained miniapp, delivered as a single
+ * `.html` file with everything it needs — markup, styles and scripts —
+ * embedded in it.
+ *
+ * It is a slide of its own kind rather than a content slide with a special
+ * zone, because nothing about it is a zone: there is no layout tree to split,
+ * no text to fit and no title zone. What the deck stores is the file's source
+ * as ordinary data, and *only* as data. Slaids never parses `html` into its own
+ * document, never evaluates it, and never serves it from its own origin — a
+ * miniapp runs only inside a sandboxed frame that the audience has expressly
+ * activated, and only on a surface built for that (see
+ * `src/ui/interactive/`). Everywhere else — thumbnails, the editor's stage
+ * before activation, the rendered preview, an export — the slide is a static
+ * cover: its name, a badge saying what it is, and the button that would start
+ * it.
+ *
+ * `html` is a bounded field: `MAX_INTERACTIVE_HTML_BYTES` of UTF-8 per slide,
+ * and `MAX_INTERACTIVE_HTML_TOTAL_BYTES` across the deck, measured as bytes and
+ * never as string length. `name` is what the cover shows and `fileName` is
+ * what was uploaded; both are plain text and are drawn as text.
+ */
+export interface InteractiveSlide {
+  id: string
+  kind: 'interactive'
+  name: string
+  fileName: string
+  /** The complete file, decoded as UTF-8. Data, never markup Slaids renders. */
+  html: string
+}
+
+export type Slide = ContentSlide | SectionSlide | InteractiveSlide
 
 export type SlideKind = Slide['kind']
 

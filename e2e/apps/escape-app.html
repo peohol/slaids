@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Utbryter</title>
+<!--
+  A hostile miniapp for the Playwright security spec.
+
+  Everything an uploaded file might try in order to reach past its frame is
+  tried here — on load, and again with a real click for the things a browser
+  only allows on user activation — and every outcome is written into the
+  document as data the spec can read:
+
+    <li data-probe="name" data-outcome="blocked | allowed | ..."></li>
+
+  «blocked» is what the browser refused; «allowed» is a finding. The spec does
+  not take the app's word for anything that can be measured from outside:
+  requests, popups, downloads, dialogs, navigations and the state of the page
+  around the frame are all measured there.
+
+  The navigations of this frame itself are the exception: a refused
+  navigation still replaces the document with the browser's block page, so
+  those wait for a press on their button, and the spec starts a fresh app
+  for each one.
+
+  Every URL a probe reaches for carries the word «probe», so that any request
+  that does get out is recognisable, and the hosts are `.invalid` so that one
+  which did could not reach anything.
+-->
+<style>
+  body { font: 14px/1.4 monospace; margin: 12px; background: #fff0f0; color: #300; }
+  li { margin: 2px 0; }
+  li::after { content: ' → ' attr(data-outcome); }
+  button { margin: 2px; }
+</style>
+</head>
+<body>
+  <h1>Utbryter</h1>
+  <p>Puls: <span id="pulse">0</span></p>
+  <ul id="results"></ul>
+  <p id="actions">
+    <button id="ua-window-open" type="button">window.open</button>
+    <button id="ua-top-navigation" type="button">top.location</button>
+    <button id="ua-fetch" type="button">fetch</button>
+    <button id="ua-fullscreen" type="button">fullscreen</button>
+    <button id="ua-pointer-lock" type="button">pointer lock</button>
+    <button id="ua-alert" type="button">alert</button>
+    <button id="ua-form" type="button">form.submit</button>
+    <a id="ua-link-blank" href="https://probe-link-blank.slaids.invalid/" target="_blank">lenke _blank</a>
+    <a id="ua-link-top" href="https://probe-link-top.slaids.invalid/" target="_top">lenke _top</a>
+    <a id="ua-link-self" href="https://probe-link-self.slaids.invalid/">lenke i egen ramme</a>
+    <a id="ua-link-slaids" href="/?probe=link-slaids-origin">lenke til Slaids</a>
+    <a id="ua-download" href="data:text/plain,probe" download="probe.txt">nedlasting</a>
+  </p>
+  <p id="navigations">
+    <!--
+      Each of these navigates this very frame. The browser refuses them, but
+      a refused navigation still replaces the document with its block page, so
+      they are never run on load: the spec starts a fresh app for each and
+      presses one at a time.
+    -->
+    <button id="nav-location-external" type="button">location.assign (ekstern)</button>
+    <button id="nav-location-slaids" type="button">location.href (Slaids)</button>
+    <button id="nav-location-replace" type="button">location.replace</button>
+    <button id="nav-meta-refresh" type="button">meta refresh</button>
+  </p>
+  <form id="probe-form" action="https://probe-form.slaids.invalid/" method="get">
+    <input type="hidden" name="probe" value="form">
+    <button id="ua-form-submit" type="submit">send skjema</button>
+  </form>
+  <script>
+    (function () {
+      var results = document.getElementById('results')
+      var done = {}
+
+      function record(name, outcome) {
+        var item = done[name]
+        if (!item) {
+          item = document.createElement('li')
+          item.setAttribute('data-probe', name)
+          item.textContent = name
+          results.appendChild(item)
+          done[name] = item
+        }
+        item.setAttribute('data-outcome', String(outcome))
+      }
+
+      /** Run a synchronous probe: a throw is the browser refusing. */
+      function attempt(name, run) {
+        try {
+          var value = run()
+          record(name, value === undefined ? 'allowed' : value)
+        } catch (error) {
+          record(name, 'blocked:' + (error && error.name ? error.name : 'error'))
+        }
+      }
+
+      /** Run a probe that answers later: `resolve(outcome)` when it knows. */
+      function later(name, run, timeoutMs) {
+        var settled = false
+        var timer = setTimeout(function () {
+          if (!settled) {
+            settled = true
+            record(name, 'timeout')
+          }
+        }, timeoutMs || 3000)
+        record(name, 'pending')
+        try {
+          run(function (outcome) {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            record(name, outcome)
+          })
+        } catch (error) {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          record(name, 'blocked:' + (error && error.name ? error.name : 'error'))
+        }
+      }
+
+      function probeUrl(name) {
+        return 'https://probe-' + name + '.slaids.invalid/' + name
+      }
+
+      record('ready', 'ready')
+
+      /** A URL on Slaids' own origin, resolved against the inherited base. */
+      function slaidsUrl(name) {
+        return new URL('/?probe=' + name, document.baseURI).href
+      }
+
+      function fetchProbe(name, url) {
+        later(name, function (resolve) {
+          fetch(url, { mode: 'no-cors' }).then(
+            function () { resolve('allowed') },
+            function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+          )
+        })
+      }
+
+      // A heartbeat, so the spec can tell that the frame is still this
+      // document after every navigation attempt below.
+      var pulse = 0
+      setInterval(function () {
+        pulse += 1
+        document.getElementById('pulse').textContent = String(pulse)
+      }, 100)
+
+      /* ---------------- The page around the frame ---------------- */
+      attempt('origin', function () { return 'origin:' + self.origin })
+      attempt('parent-document', function () { return 'allowed:' + parent.document.title })
+      attempt('top-document', function () { return 'allowed:' + top.document.title })
+      attempt('frame-element', function () { return window.frameElement === null ? 'blocked:null' : 'allowed' })
+      attempt('parent-is-not-self', function () { return parent === window ? 'allowed:no-parent' : 'blocked:has-parent' })
+
+      /* ---------------- Storage ---------------- */
+      attempt('local-storage', function () { localStorage.setItem('probe', '1'); return 'allowed' })
+      attempt('session-storage', function () { sessionStorage.setItem('probe', '1'); return 'allowed' })
+      attempt('cookie', function () {
+        document.cookie = 'probe=1'
+        return document.cookie.indexOf('probe') >= 0 ? 'allowed' : 'blocked:no-cookie'
+      })
+      later('indexeddb', function (resolve) {
+        var request = indexedDB.open('probe')
+        request.onsuccess = function () { resolve('allowed') }
+        request.onerror = function () { resolve('blocked:' + (request.error && request.error.name)) }
+      })
+
+      /* ---------------- Network ---------------- */
+      fetchProbe('fetch-external', probeUrl('fetch'))
+      fetchProbe('fetch-slaids-origin', slaidsUrl('fetch-slaids-origin'))
+      later('xhr', function (resolve) {
+        var xhr = new XMLHttpRequest()
+        xhr.onload = function () { resolve('allowed') }
+        xhr.onerror = function () { resolve('blocked:error') }
+        xhr.open('GET', probeUrl('xhr'))
+        xhr.send()
+      })
+      later('websocket', function (resolve) {
+        var socket = new WebSocket('wss://probe-ws.slaids.invalid/probe')
+        socket.onopen = function () { resolve('allowed') }
+        socket.onerror = function () { resolve('blocked:error') }
+      })
+      // `sendBeacon` answers «queued», not «sent»: whether anything left is
+      // the spec's to measure from outside.
+      attempt('beacon', function () {
+        return 'attempted:' + navigator.sendBeacon(probeUrl('beacon'), 'probe')
+      })
+      later('image', function (resolve) {
+        var image = new Image()
+        image.onload = function () { resolve('allowed') }
+        image.onerror = function () { resolve('blocked:error') }
+        image.src = probeUrl('image') + '.png'
+      })
+      later('stylesheet', function (resolve) {
+        var link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.onload = function () { resolve('allowed') }
+        link.onerror = function () { resolve('blocked:error') }
+        link.href = probeUrl('stylesheet') + '.css'
+        document.head.appendChild(link)
+      })
+      later('script-external', function (resolve) {
+        var script = document.createElement('script')
+        script.onload = function () { resolve('allowed') }
+        script.onerror = function () { resolve('blocked:error') }
+        script.src = probeUrl('script') + '.js'
+        document.head.appendChild(script)
+      })
+      later('font', function (resolve) {
+        var face = new FontFace('ProbeFace', 'url(' + probeUrl('font') + '.woff2)')
+        face.load().then(
+          function () { resolve('allowed') },
+          function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+        )
+      })
+      later('worker', function (resolve) {
+        // A refused worker is an `error` event, not a throw: the script is
+        // refused when it is fetched, after the constructor has returned.
+        var url = URL.createObjectURL(new Blob(['self.postMessage(1)'], { type: 'text/javascript' }))
+        var worker = new Worker(url)
+        worker.onmessage = function () { resolve('allowed') }
+        worker.onerror = function () { resolve('blocked:error') }
+      })
+
+      /* ---------------- Code ---------------- */
+      attempt('eval', function () { eval('1 + 1'); return 'allowed' })
+      attempt('new-function', function () { new Function('return 1')(); return 'allowed' })
+
+      /* ---------------- Trying to loosen the policy ---------------- */
+      attempt('csp-weaken', function () {
+        var meta = document.createElement('meta')
+        meta.setAttribute('http-equiv', 'Content-Security-Policy')
+        meta.setAttribute('content', "default-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *")
+        document.head.appendChild(meta)
+        return 'attempted'
+      })
+      fetchProbe('fetch-after-weaken', probeUrl('fetch-after-weaken'))
+      attempt('eval-after-weaken', function () { eval('1 + 1'); return 'allowed' })
+      attempt('base-href', function () {
+        var base = document.createElement('base')
+        base.href = 'https://probe-base.slaids.invalid/'
+        document.head.appendChild(base)
+        var anchor = document.createElement('a')
+        anchor.href = 'relative-probe'
+        // With the base refused, a relative URL still resolves against the
+        // inherited base — never against the injected one.
+        return anchor.href.indexOf('probe-base') >= 0 ? 'allowed' : 'blocked:' + anchor.href
+      })
+
+      /* ---------------- Frames ---------------- */
+      attempt('subframe-external', function () {
+        var frame = document.createElement('iframe')
+        frame.src = probeUrl('subframe')
+        document.body.appendChild(frame)
+        return 'attempted'
+      })
+      later('subframe-escalation', function (resolve) {
+        // A child frame that asks for every flag its parent lacks. A sandbox
+        // is inherited and only ever narrows, so the child must be as
+        // powerless as this document.
+        var inner = [
+          '<script>',
+          '(function () {',
+          '  var report = {}',
+          '  try { report.parentDocument = "allowed:" + parent.parent.document.title } catch (e) { report.parentDocument = "blocked:" + e.name }',
+          '  try { localStorage.setItem("probe", "1"); report.storage = "allowed" } catch (e) { report.storage = "blocked:" + e.name }',
+          '  report.origin = "origin:" + self.origin',
+          '  fetch("' + probeUrl('subframe-fetch') + '", { mode: "no-cors" }).then(',
+          '    function () { report.fetch = "allowed"; parent.postMessage({ probe: "subframe", report: report }, "*") },',
+          '    function (e) { report.fetch = "blocked:" + e.name; parent.postMessage({ probe: "subframe", report: report }, "*") })',
+          '})()',
+          '<\/script>'
+        ].join('\n')
+        window.addEventListener('message', function (event) {
+          if (event.data && event.data.probe === 'subframe') {
+            var report = event.data.report
+            record('subframe-parent-document', report.parentDocument)
+            record('subframe-storage', report.storage)
+            record('subframe-origin', report.origin)
+            resolve(report.fetch)
+          }
+        })
+        var frame = document.createElement('iframe')
+        frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-top-navigation allow-popups allow-forms')
+        frame.setAttribute('srcdoc', inner)
+        document.body.appendChild(frame)
+      }, 5000)
+
+      /* ---------------- Talking to the page around the frame ---------------- */
+      attempt('postmessage-control', function () {
+        top.postMessage({ type: 'slaids:navigate', to: 999, source: 'probe' }, '*')
+        parent.postMessage({ type: 'slaids:exit', source: 'probe' }, '*')
+        return 'attempted'
+      })
+
+      /* ---------------- Powerful features ---------------- */
+      later('get-user-media', function (resolve) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          resolve('blocked:unavailable')
+          return
+        }
+        navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(
+          function () { resolve('allowed') },
+          function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+        )
+      })
+      later('geolocation', function (resolve) {
+        if (!navigator.geolocation) {
+          resolve('blocked:unavailable')
+          return
+        }
+        navigator.geolocation.getCurrentPosition(
+          function () { resolve('allowed') },
+          function (error) { resolve('blocked:' + error.code) },
+          { timeout: 1500 }
+        )
+      })
+      later('clipboard-read', function (resolve) {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          resolve('blocked:unavailable')
+          return
+        }
+        navigator.clipboard.readText().then(
+          function () { resolve('allowed') },
+          function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+        )
+      })
+
+      /* ---------------- Navigation, without activation ---------------- */
+      attempt('window-open', function () {
+        return window.open(probeUrl('window-open')) === null ? 'blocked:null' : 'allowed'
+      })
+      attempt('top-navigation', function () { top.location.href = probeUrl('top-navigation'); return 'allowed' })
+      attempt('form-submit', function () { document.getElementById('probe-form').submit(); return 'attempted' })
+      attempt('alert', function () { alert('probe'); return 'attempted' })
+      attempt('download-click', function () {
+        document.getElementById('ua-download').click()
+        return 'attempted'
+      })
+
+      /* ---------------- Navigating this frame, one press each ---------------- */
+      document.getElementById('nav-location-external').addEventListener('click', function () {
+        attempt('nav-location-external', function () { location.assign(probeUrl('location-external')); return 'attempted' })
+      })
+      document.getElementById('nav-location-slaids').addEventListener('click', function () {
+        attempt('nav-location-slaids', function () { location.href = slaidsUrl('location-slaids-origin'); return 'attempted' })
+      })
+      document.getElementById('nav-location-replace').addEventListener('click', function () {
+        attempt('nav-location-replace', function () { location.replace(probeUrl('location-replace')); return 'attempted' })
+      })
+      document.getElementById('nav-meta-refresh').addEventListener('click', function () {
+        attempt('nav-meta-refresh', function () {
+          var meta = document.createElement('meta')
+          meta.setAttribute('http-equiv', 'refresh')
+          meta.setAttribute('content', '0;url=' + probeUrl('meta-refresh'))
+          document.head.appendChild(meta)
+          return 'attempted'
+        })
+      })
+
+      /* ---------------- With a real click ---------------- */
+      document.getElementById('ua-window-open').addEventListener('click', function () {
+        attempt('ua-window-open', function () {
+          return window.open(probeUrl('ua-window-open')) === null ? 'blocked:null' : 'allowed'
+        })
+      })
+      document.getElementById('ua-top-navigation').addEventListener('click', function () {
+        attempt('ua-top-navigation', function () { top.location.href = probeUrl('ua-top-navigation'); return 'allowed' })
+      })
+      document.getElementById('ua-fetch').addEventListener('click', function () {
+        fetchProbe('ua-fetch', probeUrl('ua-fetch'))
+      })
+      document.getElementById('ua-fullscreen').addEventListener('click', function () {
+        later('ua-fullscreen', function (resolve) {
+          var request = document.documentElement.requestFullscreen()
+          if (request && request.then) {
+            request.then(
+              function () { resolve('allowed') },
+              function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+            )
+          } else {
+            resolve(document.fullscreenElement ? 'allowed' : 'blocked:no-promise')
+          }
+        })
+      })
+      document.getElementById('ua-pointer-lock').addEventListener('click', function () {
+        later('ua-pointer-lock', function (resolve) {
+          document.addEventListener('pointerlockerror', function () { resolve('blocked:error') }, { once: true })
+          document.addEventListener('pointerlockchange', function () {
+            resolve(document.pointerLockElement ? 'allowed' : 'blocked:released')
+          }, { once: true })
+          var request = document.body.requestPointerLock()
+          if (request && request.then) {
+            request.then(
+              function () { resolve('allowed') },
+              function (error) { resolve('blocked:' + (error && error.name ? error.name : 'error')) }
+            )
+          }
+        })
+      })
+      document.getElementById('ua-alert').addEventListener('click', function () {
+        attempt('ua-alert', function () { alert('probe'); return 'attempted' })
+      })
+      document.getElementById('ua-form').addEventListener('click', function () {
+        attempt('ua-form', function () { document.getElementById('probe-form').submit(); return 'attempted' })
+      })
+    })()
+  </script>
+</body>
+</html>

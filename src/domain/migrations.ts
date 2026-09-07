@@ -566,6 +566,18 @@ const migrate12to13: MigrationFn = (data) => {
   }
 }
 
+/**
+ * Interactive slides become a slide kind.
+ *
+ * Nothing in a stored deck changes shape: a v13 document holds sections and
+ * content slides, and both are exactly what they were. What the version
+ * carries is the *vocabulary* — from here a deck may contain
+ * `kind: 'interactive'`, and a Slaids that only knows v13 refuses such a
+ * document by version, with the message that says so, rather than by tripping
+ * over a slide kind it has never heard of halfway through validation.
+ */
+const migrate13to14: MigrationFn = (data) => ({ ...data, schemaVersion: 14 })
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -581,6 +593,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   10: migrate10to11,
   11: migrate11to12,
   12: migrate12to13,
+  13: migrate13to14,
 }
 
 /**

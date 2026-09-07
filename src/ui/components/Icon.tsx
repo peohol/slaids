@@ -54,6 +54,7 @@ export type IconName =
   | 'align-top-v'
   | 'align-middle-v'
   | 'align-bottom-v'
+  | 'interactive'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -106,6 +107,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
   heading: <path d="M6 5v14M18 5v14M6 12h12" />,
   move: <path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />,
   code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />,
+  /* A window with a prompt in it: a page that runs. */
+  interactive: <path d="M4 5h16v14H4zM4 9h16M8 12.5l2 2-2 2M12.5 16.5H16" />,
   'align-left': <path d="M4 6h16M4 12h10M4 18h13" />,
   'align-center': <path d="M4 6h16M7 12h10M6 18h12" />,
   'align-right': <path d="M4 6h16M10 12h10M7 18h13" />,

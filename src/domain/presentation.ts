@@ -14,6 +14,7 @@ import { CURRENT_SCHEMA_VERSION } from './schema'
 import type {
   ContentSlide,
   DeckSlides,
+  InteractiveSlide,
   LayoutNode,
   Presentation,
   PresentationSummary,
@@ -69,7 +70,34 @@ export function createSlide(
   }
 }
 
-export { asDeckSlides, isContentSlide, isSectionSlide, mapDeckSlides } from './deckSlides'
+/**
+ * An interactive slide, from a file that has already passed the door.
+ *
+ * A factory and nothing more: the name, the file name and the source are
+ * stored as they arrive, and what may arrive is `domain/interactive.ts`'s
+ * decision — `addInteractiveSlide` asks it before calling this.
+ */
+export function createInteractiveSlide(input: {
+  name: string
+  fileName: string
+  html: string
+}): InteractiveSlide {
+  return {
+    id: newSlideId(),
+    kind: 'interactive',
+    name: input.name,
+    fileName: input.fileName,
+    html: input.html,
+  }
+}
+
+export {
+  asDeckSlides,
+  isContentSlide,
+  isInteractiveSlide,
+  isSectionSlide,
+  mapDeckSlides,
+} from './deckSlides'
 
 /**
  * The section whose colours a slide is drawn in: itself, or the nearest one
@@ -223,7 +251,16 @@ export function summarize(presentation: Presentation): PresentationSummary {
 
 /** Every slide copied, with every identity inside it made new. */
 function cloneSlides(slides: DeckSlides): DeckSlides {
-  return mapDeckSlides(slides, { section: cloneSection, content: cloneContentSlide })
+  return mapDeckSlides(slides, {
+    section: cloneSection,
+    content: cloneContentSlide,
+    interactive: cloneInteractiveSlide,
+  })
+}
+
+/** The source is an immutable string, so the only thing to renew is the id. */
+function cloneInteractiveSlide(slide: InteractiveSlide): InteractiveSlide {
+  return { ...slide, id: newSlideId() }
 }
 
 function cloneSection(slide: SectionSlide): SectionSlide {
@@ -263,6 +300,14 @@ export function findSectionSlide(
 ): SectionSlide | null {
   const slide = findSlide(presentation, slideId)
   return slide && slide.kind === 'section' ? slide : null
+}
+
+export function findInteractiveSlide(
+  presentation: Presentation,
+  slideId: string,
+): InteractiveSlide | null {
+  const slide = findSlide(presentation, slideId)
+  return slide && slide.kind === 'interactive' ? slide : null
 }
 
 export function slideIndexOf(presentation: Presentation, slideId: string): number {

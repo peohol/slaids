@@ -22,6 +22,10 @@ export type DomainErrorCode =
   | 'CANNOT_DELETE_LAST_SLIDE'
   | 'NOT_A_CONTENT_SLIDE'
   | 'NOT_A_SECTION_SLIDE'
+  | 'NOT_AN_INTERACTIVE_SLIDE'
+  | 'INVALID_INTERACTIVE_FILE'
+  | 'INTERACTIVE_HTML_TOO_LARGE'
+  | 'INTERACTIVE_BUDGET_EXCEEDED'
   | 'FIRST_SLIDE_MUST_BE_SECTION'
   | 'REFERENCE_NOT_FOUND'
   | 'REFERENCE_INVALID'
@@ -74,8 +78,12 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   SLIDE_NOT_FOUND: 'Fant ikke sliden.',
   SLIDE_INDEX_OUT_OF_RANGE: 'Ugyldig slideposisjon.',
   CANNOT_DELETE_LAST_SLIDE: 'Presentasjonen må ha minst én slide.',
-  NOT_A_CONTENT_SLIDE: 'Seksjonsslides har ingen soner.',
+  NOT_A_CONTENT_SLIDE: 'Sliden har ingen soner.',
   NOT_A_SECTION_SLIDE: 'Sliden er ikke en seksjon.',
+  NOT_AN_INTERACTIVE_SLIDE: 'Sliden er ikke en interaktiv slide.',
+  INVALID_INTERACTIVE_FILE: 'Filen kan ikke brukes som miniapp.',
+  INTERACTIVE_HTML_TOO_LARGE: 'HTML-filen er for stor.',
+  INTERACTIVE_BUDGET_EXCEEDED: 'Presentasjonen har ikke plass til flere miniapper.',
   FIRST_SLIDE_MUST_BE_SECTION: 'Første slide må være en seksjon.',
   REFERENCE_NOT_FOUND: 'Fant ikke referansen.',
   REFERENCE_INVALID: 'Referansen må ha minst tittel, forfatter eller lenke.',

@@ -3,7 +3,7 @@ import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from './backup'
-import { createPresentation } from '../domain/presentation'
+import { createInteractiveSlide, createPresentation } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
@@ -14,7 +14,7 @@ import { decodeBase64, realImageBase64 } from '../domain/testImages'
 import { bytesToBlob } from './blob'
 import { unzipSync, zipSync } from 'fflate'
 import type { AssetRef, LayoutTemplate, Presentation } from '../domain/types'
-import { contentAt, sectionAt } from '../domain/testDecks'
+import { contentAt, interactiveAt, sectionAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -799,5 +799,42 @@ describe('.slaids backup', () => {
 
   it('generates unique asset ids', () => {
     expect(newAssetId()).not.toBe(newAssetId())
+  })
+})
+
+describe('en interaktiv slide i lageret', () => {
+  const APP =
+    '<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0}</style></head><body><p>Blåbær 🙂 日本</p><script>let n = 0; // </script</script></body></html>'
+
+  function withApp(): Presentation {
+    const presentation = samplePresentation()
+    return {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        createInteractiveSlide({ name: 'Teller', fileName: 'teller.html', html: APP }),
+      ],
+    }
+  }
+
+  it('lagres og leses tilbake byte for byte, som data', async () => {
+    const repository = freshRepository()
+    const presentation = withApp()
+    await repository.savePresentation(presentation)
+    const loaded = await repository.loadPresentation(presentation.id)
+    expect(interactiveAt(loaded, 2)).toEqual(interactiveAt(presentation, 2))
+  })
+
+  it('følger med i en .slaids-sikkerhetskopi uendret', async () => {
+    const source = freshRepository()
+    const presentation = withApp()
+    await source.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.errors).toEqual([])
+    const restored = await target.loadPresentation(presentation.id)
+    expect(interactiveAt(restored, 2)).toEqual(interactiveAt(presentation, 2))
   })
 })

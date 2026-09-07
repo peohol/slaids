@@ -84,6 +84,24 @@ layoutet er nestet.
 - en ny seksjon arver den forriges farger, så samme uttrykk gjennom dekket koster
   ingenting å beholde
 
+**Interaktive slider (miniapper)**
+
+- `+ Interaktiv` under de to andre: last opp **én selvstendig HTML-fil** med all
+  CSS og JavaScript innebygget (maks 2 MiB, UTF-8), gi den et navn, og sliden
+  viser en forside i dekkets design med knappen «Aktiver miniapp»
+- appen kjører bare etter at noen trykker på knappen – i presentasjonen, i den
+  delte visningen og på editorens scene – og starter på nytt hver gang;
+  miniatyrer, rendret preview og eksport viser alltid forsiden og kjører aldri
+  noe
+- mens appen kjører eier den tastaturet og klikkene; «Avslutt miniapp» øverst
+  til høyre er veien tilbake, og Escape avslutter ikke presentasjonen
+- appen kjører i en sandkasset ramme uten nettverk, lagring, popups,
+  nedlastinger eller tilgang til Slaids; eksterne skript, stilark, fonter og
+  tjenester er ikke støttet i denne versjonen
+- navn og fil endres i panelet ved scenen (en fil som avvises beholder appen);
+  dupliser, slett, flytt og angre som for enhver annen slide; hele HTML-kilden
+  følger med når presentasjonen deles
+
 **Soneredigering**
 
 - stiplede sonegrenser, slør med backdrop blur over valgt subtre, handlingsknapper
@@ -498,6 +516,7 @@ museklikk eller databasetilgang:
 | `copy_zone_content`                                                    | kopierer et helt innhold til en tom sone; kilden blir stående, kopien får nye id-er |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |
 | `adjust_subfields`                                                     | retning, forholdstall og antall subfelt inne i ett kort |
+| `add_interactive_slide`, `set_interactive_slide`                       | en interaktiv slide fra én HTML-fil, og nytt navn eller ny fil på den; listes aldri med kilden |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_presentation_title`                                  | typografien og navnet på hele dekket          |
 | `add_section`, `set_section`, `set_section_colors`                     | seksjonene, og fargene delene av dekket arver |

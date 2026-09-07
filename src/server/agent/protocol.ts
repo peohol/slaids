@@ -117,7 +117,13 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   // is right there.
   NOT_A_CONTENT_SLIDE: 400,
   NOT_A_SECTION_SLIDE: 400,
+  NOT_AN_INTERACTIVE_SLIDE: 400,
   INVALID_ARGUMENT: 400,
+  // A file that is not a usable miniapp is a request wrong on its face, like
+  // an SVG that is not an SVG; one over the per-slide limit is too large the
+  // way an asset is, and one the deck has no room for is a rule saying no.
+  INVALID_INTERACTIVE_FILE: 400,
+  INTERACTIVE_HTML_TOO_LARGE: 413,
   INVALID_WEIGHTS: 400,
   INVALID_CHILD_COUNT: 400,
   INVALID_CONTENT: 400,
@@ -135,6 +141,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   // content slide first is refused whole: the request was understood, and the
   // rule said no.
   FIRST_SLIDE_MUST_BE_SECTION: 422,
+  INTERACTIVE_BUDGET_EXCEEDED: 422,
   CONTENT_DOES_NOT_FIT: 422,
   ZONE_TOO_SMALL: 422,
   // The request named a file that exists and a rule refused it, so it belongs
