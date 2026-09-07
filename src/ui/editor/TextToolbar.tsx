@@ -1,11 +1,13 @@
 /**
  * Formatting toolbar for the field that currently has focus.
  *
- * It is deliberately absent while editing a title: titles carry no formatting,
- * which is what keeps them geometrically predictable.
+ * Most of it is deliberately absent while editing a title: titles carry no
+ * formatting beyond subscript and superscript, which is what keeps them
+ * geometrically predictable — see `titleExtensions` in `./extensions`.
  */
 
 import { useEffect } from 'react'
+import type { Editor } from '@tiptap/react'
 import { setVerticalAlign } from '../../domain/commands'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import type { VerticalAlign } from '../../domain/types'
@@ -26,6 +28,49 @@ interface MarkButton {
   icon: IconName
   isActive: () => boolean
   run: () => void
+}
+
+/**
+ * Sub- and superscript, offered wherever text can be typed: they only ever
+ * shrink and shift a run of characters, never wrap a line or widen it by more
+ * than the characters themselves would, so nothing about the geometry that
+ * keeps a title zone predictable stands in the way of them.
+ */
+function scriptButtons(editor: Editor): MarkButton[] {
+  return [
+    {
+      id: 'subscript',
+      label: 'Senket skrift (Ctrl+,)',
+      icon: 'subscript',
+      isActive: () => editor.isActive('subscript'),
+      run: () => editor.chain().focus().toggleSubscript().run(),
+    },
+    {
+      id: 'superscript',
+      label: 'Hevet skrift (Ctrl+.)',
+      icon: 'superscript',
+      isActive: () => editor.isActive('superscript'),
+      run: () => editor.chain().focus().toggleSuperscript().run(),
+    },
+  ]
+}
+
+function renderMarkButtons(buttons: MarkButton[]) {
+  return buttons.map((button) => (
+    <Tooltip key={button.id} label={button.label}>
+      <button
+        type="button"
+        className={button.isActive() ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={button.run}
+        data-testid={`format-${button.id}`}
+        aria-label={button.label}
+        aria-pressed={button.isActive()}
+      >
+        <Icon name={button.icon} size={15} />
+      </button>
+    </Tooltip>
+  ))
 }
 
 export function TextToolbar({ onInsertReference }: { onInsertReference: () => void }) {
@@ -53,10 +98,10 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     }
   }, [editor, bump])
 
-  // A section's two lines carry no formatting and no alignment at all: they are
-  // centred by construction, so there is nothing here to offer for them —
-  // except the symbol picker, which is not a formatting choice but a way to
-  // type a character the keyboard doesn't have.
+  // A section's two lines carry no alignment at all — they are centred by
+  // construction, so there is nothing to offer for that — but they are still
+  // text somebody types, so subscript, superscript and the symbol picker
+  // still apply.
   if (activeField?.kind === 'section-title' || activeField?.kind === 'section-subtitle') {
     return (
       <div className="text-toolbar" data-testid="text-toolbar">
@@ -64,6 +109,11 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
           {activeField.kind === 'section-title' ? 'Overskrift' : 'Underoverskrift'} – alltid
           midtstilt
         </span>
+        {editor && (
+          <div className="text-toolbar__group" data-testid="script-tools">
+            {renderMarkButtons(scriptButtons(editor))}
+          </div>
+        )}
         {editor && <SymbolPickerButton editor={editor} />}
       </div>
     )
@@ -107,13 +157,17 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
     </div>
   )
 
-  // A title carries no formatting — that is what keeps the title zone
-  // geometrically predictable — but it is still text on a slide, and where it
-  // sits on the line is a layout decision the author gets to make.
+  // A title carries no formatting beyond subscript and superscript — that
+  // restriction is what keeps the title zone geometrically predictable — but
+  // it is still text on a slide, and where it sits on the line is a layout
+  // decision the author gets to make.
   if (activeField.kind !== 'body') {
     return (
       <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
         <span className="hint">Overskrift</span>
+        <div className="text-toolbar__group" data-testid="script-tools">
+          {renderMarkButtons(scriptButtons(editor))}
+        </div>
         {alignButtons}
         <SymbolPickerButton editor={editor} />
       </div>
@@ -142,6 +196,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
       isActive: () => editor.isActive('underline'),
       run: () => editor.chain().focus().toggleUnderline().run(),
     },
+    ...scriptButtons(editor),
     {
       id: 'heading',
       label: 'Overskrift',
@@ -239,21 +294,7 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
 
   return (
     <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
-      {buttons.map((button) => (
-        <Tooltip key={button.id} label={button.label}>
-          <button
-            type="button"
-            className={button.isActive() ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={button.run}
-            data-testid={`format-${button.id}`}
-            aria-label={button.label}
-            aria-pressed={button.isActive()}
-          >
-            <Icon name={button.icon} size={15} />
-          </button>
-        </Tooltip>
-      ))}
+      {renderMarkButtons(buttons)}
 
       {alignButtons}
       {verticalButtons}

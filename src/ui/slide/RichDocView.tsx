@@ -26,6 +26,10 @@ function applyMarks(node: RichNode, children: ReactNode): ReactNode {
         return <u>{content}</u>
       case 'strike':
         return <s>{content}</s>
+      case 'subscript':
+        return <sub>{content}</sub>
+      case 'superscript':
+        return <sup>{content}</sup>
       case 'code':
         return <code className="rd-code">{content}</code>
       case 'link': {
