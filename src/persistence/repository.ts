@@ -56,6 +56,15 @@ export interface SlaidsRepository {
    *
    * Without one the write is unconditional, which is what the editor's autosave
    * wants: it owns the document it is editing and re-saves it continuously.
+   *
+   * One thing neither form of the write ever does is bring a deleted row back.
+   * "Nothing known about this id" means "new", and a new presentation is
+   * inserted; but a row this repository has seen and cannot find any more was
+   * deleted for good by somebody else, and a save of it is refused —
+   * `RepositoryConflictError` — rather than re-inserted. Both stores keep that
+   * memory (Supabase as the versions it has seen, Dexie as the ids), because
+   * the alternative is a stale editor in another tab resurrecting a deck the
+   * trash was just emptied of, without the files that went with it.
    */
   savePresentation(presentation: Presentation, guard?: SaveGuard): Promise<void>
   /**

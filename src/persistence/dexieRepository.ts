@@ -33,6 +33,25 @@ export function trashedMessage(id: string): string {
 }
 
 export class DexieSlaidsRepository implements SlaidsRepository {
+  /**
+   * The presentation ids this repository has seen as rows.
+   *
+   * The same memory `SupabaseSlaidsRepository` keeps as `knownVersions`, kept
+   * for the same reason: "nothing known" means "new", and a save of a new
+   * presentation is an insert. Without it, a save of a row that is *gone* is an
+   * insert too — and that is a resurrection: an editor in another tab still
+   * holds a deck this tab trashed and purged, its next autosave finds no row,
+   * and the deck comes back to life without its files, which the purge took.
+   * With it, a row this repository once saw and cannot find any more is a
+   * conflict the caller is told about, never a fresh insert.
+   *
+   * Entries are added by reading a row, by listing it, and by a save that
+   * stored it. Only one thing removes an entry: deleting the presentation
+   * through this repository — a local decision — after which the same id
+   * really is new again, which the duplication rollback relies on.
+   */
+  private readonly knownIds = new Set<string>()
+
   constructor(private readonly database: SlaidsDatabase = db) {}
 
   async listPresentations(): Promise<PresentationSummary[]> {
@@ -65,6 +84,8 @@ export class DexieSlaidsRepository implements SlaidsRepository {
    * something the owner can see and delete rather than a gap in the grid.
    */
   private summaryOf(record: PresentationRecord): PresentationSummary {
+    // A listing establishes that the row exists, as it does in Supabase.
+    this.knownIds.add(record.id)
     const deletedAt = record.deletedAt ?? null
     const migrated = migratePresentation(record.data)
     if (migrated.ok) return summarize(migrated.value, deletedAt)
@@ -89,6 +110,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     if (record.deletedAt) throw new RepositoryNotFoundError(trashedMessage(id))
     const migrated = migratePresentation(record.data)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message)
+    this.knownIds.add(id)
     return migrated.value
   }
 
@@ -120,13 +142,26 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     // compare-and-swap that the Supabase `version` guard is over there.
     await this.database.transaction('rw', this.database.presentations, async () => {
       const stored = await this.database.presentations.get(data.id)
-      // No row means nothing to overwrite: an insert is not a lost update.
+      // No row means nothing to overwrite — an insert is not a lost update —
+      // unless this repository has seen the row before. Then the row was
+      // deleted for good since, by somebody else, and writing it back would
+      // be the one thing a permanent delete must not allow: a stale editor
+      // bringing the deck back, without the files that went with it. The
+      // same refusal Supabase's guarded UPDATE gives when it matches nothing,
+      // and it holds with or without a guard, because the guard is about the
+      // *revision* and this is about the row being there at all.
+      if (!stored && this.knownIds.has(data.id)) {
+        throw new RepositoryConflictError(
+          `«${data.title}» er slettet for godt et annet sted (en annen fane eller enhet). Lagring nå ville gjenopprettet en slettet presentasjon.`,
+        )
+      }
       if (guard && stored && presentationRevision(stored.data) !== guard.expectedRevision) {
         throw new RepositoryConflictError(
           `«${data.title}» er endret et annet sted siden den ble lest. Les den på nytt før du lagrer.`,
         )
       }
       await this.database.presentations.put({ ...record, deletedAt: stored?.deletedAt ?? null })
+      this.knownIds.add(data.id)
     })
   }
 
@@ -193,6 +228,9 @@ export class DexieSlaidsRepository implements SlaidsRepository {
       }
       await this.removeRows(id)
     })
+    // Deleting through this repository is a local decision, so this is the one
+    // place the row may be forgotten: a later save of the same id really is new.
+    this.knownIds.delete(id)
   }
 
   /**
@@ -214,6 +252,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
         const stored = await this.database.presentations.get(id)
         if (!stored || (stored.deletedAt ?? null) !== deletedAt) return false
         await this.removeRows(id)
+        this.knownIds.delete(id)
         return true
       },
     )

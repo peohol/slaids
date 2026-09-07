@@ -1412,6 +1412,16 @@ Reglene, og hvor de bor:
   den.
 - Å kaste noe som allerede ligger i søppelkassen starter klokken på nytt heller
   enn å avvises; det er den ene regelen begge lagrene kan uttrykke i én setning.
+- **En slettet presentasjon gjenoppstår aldri fra en gammel editor.** En fane
+  som fortsatt holder dekket etter at en annen fane har tømt søppelkassen,
+  autolagrer mot en rad som er borte. Supabase avviser det allerede: en rad
+  repositoryet har sett lagres med en vaktet `UPDATE`, og en `UPDATE` som ikke
+  treffer er en konflikt, ikke en `INSERT`. Dexie holder nå det samme minnet
+  (`knownIds`: id-er den har lest, listet eller lagret), og en lagring av en
+  kjent id uten rad er en `RepositoryConflictError` – med eller uten vakt, siden
+  vakten handler om revisjonen og dette om at raden finnes i det hele tatt. Bare
+  en sletting gjennom det samme repositoryet glemmer id-en igjen, som
+  tilbakerullingen i en duplisering er avhengig av.
 - Import behandler en id i søppelkassen som opptatt, og importerer som kopi.
 
 Kortet i biblioteket viser også hvor mye plass presentasjonen tar.

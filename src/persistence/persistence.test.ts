@@ -992,6 +992,85 @@ describe('DexieSlaidsRepository – søppelkassen', () => {
     expect(await repository.purgePresentation(presentation.id, again.deletedAt)).toBe(false)
   })
 
+  it('lar ikke en annen fane gjenopprette en presentasjon som er slettet for godt', async () => {
+    // Two repositories on one database, as two tabs are. A has the deck open;
+    // B trashes it and empties the trash; A autosaves its old copy. The row is
+    // gone, and a save that treated "no row" as "new" would insert it again —
+    // a deck back from the dead, pointing at files the purge took.
+    counter += 1
+    const database = new SlaidsDatabase(`slaids-test-${counter}`)
+    databases.push(database)
+    const tabA = new DexieSlaidsRepository(database)
+    const tabB = new DexieSlaidsRepository(database)
+    const presentation = presentationWithAsset(samplePresentation())
+    await tabA.savePresentation(presentation)
+    await tabA.putAsset(presentation.id, assetRef, svgFixture('a'))
+    const held = await tabA.loadPresentation(presentation.id)
+
+    await tabB.trashPresentation(presentation.id)
+    const [entry] = await tabB.listTrashedPresentations()
+    expect(await tabB.purgePresentation(presentation.id, entry.deletedAt ?? '')).toBe(true)
+
+    // The plain autosave, and the guarded save an agent makes: both refused.
+    await expect(tabA.savePresentation({ ...held, title: 'Skrevet etterpå' })).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    await expect(
+      tabA.savePresentation(held, { expectedRevision: presentationRevision(held) }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // Still gone, in every listing and for every reader, and no file came back.
+    for (const tab of [tabA, tabB]) {
+      expect(await tab.listPresentations()).toEqual([])
+      expect(await tab.listTrashedPresentations()).toEqual([])
+      await expect(tab.loadPresentation(presentation.id)).rejects.toBeInstanceOf(
+        RepositoryNotFoundError,
+      )
+      expect(await tab.getAsset(assetRef.id)).toBeNull()
+    }
+    expect(await database.assets.count()).toBe(0)
+
+    // A genuinely new presentation is still an insert, from either tab.
+    const fresh = samplePresentation()
+    await tabA.savePresentation(fresh)
+    expect((await tabB.listPresentations()).map((summary) => summary.id)).toEqual([fresh.id])
+
+    // And a deletion this tab made itself is its own to forget: the same id is
+    // new again afterwards, which the duplication rollback relies on.
+    await tabA.deletePresentation(fresh.id)
+    await tabA.savePresentation(fresh)
+    expect((await tabB.listPresentations()).map((summary) => summary.id)).toEqual([fresh.id])
+  })
+
+  it('husker en rad den listet, ikke bare en den leste', async () => {
+    // The library lists, the editor loads; an id known from either is a row
+    // that existed. A row purged elsewhere after a listing is therefore
+    // refused too, and an import of an archive carrying that id lands as a copy
+    // — the same path the Supabase conflict takes.
+    counter += 1
+    const database = new SlaidsDatabase(`slaids-test-${counter}`)
+    databases.push(database)
+    const here = new DexieSlaidsRepository(database)
+    const elsewhere = new DexieSlaidsRepository(database)
+    const presentation = samplePresentation()
+    await elsewhere.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(elsewhere, { presentationIds: [presentation.id] })
+
+    expect(await here.listPresentations()).toHaveLength(1)
+    await elsewhere.trashPresentation(presentation.id)
+    const [entry] = await elsewhere.listTrashedPresentations()
+    await elsewhere.purgePresentation(presentation.id, entry.deletedAt ?? '')
+
+    await expect(here.savePresentation(presentation)).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    const report = await importSlaidsArchive(here, archive)
+    expect(report.errors).toEqual([])
+    const [imported] = await here.listPresentations()
+    expect(imported.id).not.toBe(presentation.id)
+    expect(imported.title).toBe(`${presentation.title} (importert)`)
+  })
+
   it('lister søppelkassen med den sist kastede først', async () => {
     const repository = freshRepository()
     const first = { ...samplePresentation(), title: 'Først kastet' }
