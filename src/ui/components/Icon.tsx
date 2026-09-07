@@ -20,6 +20,8 @@ export type IconName =
   | 'bold'
   | 'italic'
   | 'underline'
+  | 'subscript'
+  | 'superscript'
   | 'link'
   | 'table'
   | 'reference'
@@ -74,6 +76,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
   bold: <path d="M7 5h6a3.5 3.5 0 010 7H7zM7 12h7a3.5 3.5 0 010 7H7z" />,
   italic: <path d="M10 5h7M7 19h7M14 5l-4 14" />,
   underline: <path d="M7 5v6a5 5 0 0010 0V5M5 20h14" />,
+  subscript: <path d="M4 7l7 10M11 7l-7 10M14.5 15.3c0-1 .9-1.8 2-1.8s2 .7 2 1.6c0 .9-.9 1.5-2.1 2.6-.5.5-1 .9-1.4 1.3h3.5" />,
+  superscript: <path d="M4 9l7 10M11 9l-7 10M14.5 6.3c0-1 .9-1.8 2-1.8s2 .7 2 1.6c0 .9-.9 1.5-2.1 2.6-.5.5-1 .9-1.4 1.3h3.5" />,
   link: <path d="M10 13a4 4 0 006 .5l2-2a4 4 0 10-6-6l-1 1M14 11a4 4 0 00-6-.5l-2 2a4 4 0 106 6l1-1" />,
   table: <path d="M4 5h16v14H4zM4 10h16M4 15h16M10 5v14" />,
   reference: <path d="M6 4h9l4 4v12H6zM15 4v4h4M9 13h7M9 16h5" />,

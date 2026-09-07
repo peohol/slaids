@@ -9,6 +9,8 @@
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
 import TextAlign from '@tiptap/extension-text-align'
+import Subscript from '@tiptap/extension-subscript'
+import Superscript from '@tiptap/extension-superscript'
 import { Placeholder } from '@tiptap/extensions'
 import { bestTextColor } from '../../domain/color'
 import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
@@ -204,6 +206,16 @@ const SlaidsHeading = Heading.extend({
   },
 }).configure({ levels: [1] })
 
+/**
+ * Subscript and superscript exclude one another: text sunk below the baseline
+ * and text raised above it are two different choices about the same
+ * character, never both at once. Declaring the exclusion on both marks makes
+ * it symmetric — toggling either one always clears the other, regardless of
+ * which was applied first.
+ */
+const SlaidsSubscript = Subscript.extend({ excludes: 'superscript' })
+const SlaidsSuperscript = Superscript.extend({ excludes: 'subscript' })
+
 interface ExtensionOptions {
   placeholder?: string
   enableTables?: boolean
@@ -228,6 +240,8 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
       undoRedo: false,
     }),
     SlaidsHeading,
+    SlaidsSubscript,
+    SlaidsSuperscript,
     TypographyExtension,
     // Alignment is per block, so a selection spanning three paragraphs aligns
     // three paragraphs and a caret in one aligns that one. An image is a block
@@ -254,8 +268,10 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
 }
 
 /**
- * Titles are one line of plain text (citations allowed) — no marks, no breaks,
- * no lists. This is what makes the title zone geometrically deterministic.
+ * Titles are one line of plain text (citations allowed) — no breaks, no
+ * lists, and no marks besides subscript and superscript, which is what makes
+ * the title zone geometrically deterministic: neither can wrap a line or
+ * widen it by more than the character itself would.
  *
  * The cover's two lines are titles too, with two things taken away: they carry
  * no alignment, because a cover line is centred by construction and there is no
@@ -293,6 +309,8 @@ export function titleExtensions(placeholder?: string, variant: TitleVariant = 's
       // See `NO_LOCAL_HISTORY` below.
       undoRedo: false,
     }),
+    SlaidsSubscript,
+    SlaidsSuperscript,
     // A title is text somebody types, so it gets the same substitutions the
     // body does — there is no reading of «Del 1 - konklusjon» in which the
     // hyphen was meant.
