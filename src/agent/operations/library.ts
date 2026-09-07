@@ -59,12 +59,15 @@
  *    source holds. Without it a token denied `upload_asset` could still fill the
  *    store, one duplication of a picture-heavy deck at a time.
  *  - **`delete_presentation`** needs `presentations:write` **and** `assets:write`,
- *    because those are exactly the two things it destroys: the document, and
- *    every file stored under it. `delete_asset` already draws that line — the
- *    authority that puts a file in is the authority that takes it out — and
- *    deleting a deck takes out all of them at once. It is not extra authority; it
- *    is all the authority the act consumes, and a deletion is the one call with
- *    nothing to argue about afterwards.
+ *    because those are exactly the two things it puts on the clock: the
+ *    document, and every file stored under it. It is the library's own
+ *    deletion — into the trash, where the deck can be restored for
+ *    `TRASH_RETENTION_DAYS` and is then deleted for good, files and all — and
+ *    the scopes are the ones that final deletion consumes, declared up front
+ *    rather than at the moment the trash is emptied by a sweep no token is
+ *    holding. `delete_asset` already draws that line — the authority that puts
+ *    a file in is the authority that takes it out — and trashing a deck is
+ *    what takes all of them out, thirty days later.
  *
  * `sharing:write` is deliberately *not* among them. That scope exists so that
  * ordinary editing cannot publish a deck to the internet, and none of these
@@ -80,7 +83,11 @@ import { setFolder } from '../../domain/commands'
 import { presentationRevision } from '../../domain/revision'
 import { ok } from '../../domain/result'
 import type { Folder } from '../../domain/types'
-import { createFolder, duplicatePresentation } from '../../persistence/library'
+import {
+  TRASH_RETENTION_DAYS,
+  createFolder,
+  duplicatePresentation,
+} from '../../persistence/library'
 import {
   defineOperation,
   expectedRevisionSchema,
@@ -329,17 +336,17 @@ export interface DeletedPresentation {
    *
    * Notably no `revision`: every other mutation reports the reading it produced
    * so the next call can be written against it, and here there is no next call
-   * and no document left to have a reading. Notably no title, slide count or
-   * sharing state either — this operation does not require `presentations:read`,
-   * and a receipt is a poor place to hand out what the token may not ask for.
+   * — the deck is out of the library, and nothing an agent does addresses the
+   * trash. Notably no title, slide count or sharing state either — this
+   * operation does not require `presentations:read`, and a receipt is a poor
+   * place to hand out what the token may not ask for.
    */
   deleted: true
 }
 
 export const deletePresentationOperation = defineOperation({
   name: 'delete_presentation',
-  summary:
-    'Slett en presentasjon for godt, med slidene, filene og en eventuell delingslenke. Kan ikke angres.',
+  summary: `Slett en presentasjon: den flyttes til søppelkassen, forsvinner fra list_presentations og kan gjenopprettes i biblioteket i ${TRASH_RETENTION_DAYS} dager. Deretter slettes den for godt, med slidene, filene og en eventuell delingslenke. Delingslenken er død så lenge presentasjonen ligger i søppelkassen, og for hver operasjon her – denne inkludert – er en presentasjon i søppelkassen PRESENTATION_NOT_FOUND.`,
   mutates: true,
   // The two authorities the act consumes, both of them. See the note at the top.
   scopes: ['presentations:write', 'assets:write'],
@@ -352,8 +359,8 @@ export const deletePresentationOperation = defineOperation({
   async run(context, input): Promise<AgentResult<DeletedPresentation>> {
     // Loaded first for two reasons, and neither is the document itself: an
     // absent row has to be `PRESENTATION_NOT_FOUND` rather than a silent
-    // success — the stores delete by id and do not mind an id that is not there
-    // — and the reading is what the guarded delete below is written against.
+    // success, and the reading is what the guarded write below is written
+    // against.
     const loaded = await loadPresentation(context, input.presentationId)
     if (!loaded.ok) return loaded
 
@@ -362,15 +369,15 @@ export const deletePresentationOperation = defineOperation({
     if (conflict) return conflict
 
     try {
-      // One call, guarded by the reading this operation just took — the same
-      // two windows every agent write is covered by, and for a stronger reason:
-      // an overwrite can be argued about afterwards and a deletion cannot. What
-      // goes with the row is the store's business, and both of them already take
-      // the document, its asset rows, the bytes behind them and the share
-      // columns down together. Assembling that sequence here would be a second
-      // deletion path, and the failure mode of a second path is half a
-      // presentation left behind.
-      await context.repository.deletePresentation(input.presentationId, {
+      // The library's own deletion, and one call: into the trash, guarded by
+      // the reading this operation just took — the same two windows every agent
+      // write is covered by. Nothing is destroyed here; what happens after
+      // `TRASH_RETENTION_DAYS` is the store's business, and both stores already
+      // take the document, its asset rows, the bytes behind them and the share
+      // columns down together when the trash is emptied. A permanent delete
+      // from here would be a second meaning of "delete" — one the owner could
+      // not undo — beside the one the library has.
+      await context.repository.trashPresentation(input.presentationId, {
         expectedRevision: revision,
       })
     } catch (error) {

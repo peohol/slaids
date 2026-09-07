@@ -9,7 +9,7 @@
 import { migratePresentation } from '../domain/migrations'
 import { presentationRevision } from '../domain/revision'
 import { validateLayoutTemplate } from '../domain/schema'
-import { summarize } from '../domain/presentation'
+import { documentByteSize, summarize } from '../domain/presentation'
 import type {
   AssetRef,
   Folder,
@@ -27,28 +27,66 @@ import {
   type StoredAsset,
 } from './repository'
 
+/** Why a trashed presentation is not found: it is somewhere else, and can come back. */
+export function trashedMessage(id: string): string {
+  return `Presentasjonen «${id}» ligger i søppelkassen. Gjenopprett den fra biblioteket for å åpne den.`
+}
+
 export class DexieSlaidsRepository implements SlaidsRepository {
   constructor(private readonly database: SlaidsDatabase = db) {}
 
   async listPresentations(): Promise<PresentationSummary[]> {
-    const records = await this.database.presentations.orderBy('updatedAt').reverse().toArray()
-    return records.map((record) => {
-      const migrated = migratePresentation(record.data)
-      if (migrated.ok) return summarize(migrated.value)
-      return {
-        id: record.id,
-        title: record.title,
-        folderId: record.folderId,
-        slideCount: 0,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-      }
-    })
+    // Filtered in memory rather than by index: IndexedDB cannot index `null`,
+    // and a record from before the trash existed has no `deletedAt` at all.
+    const records = await this.database.presentations
+      .orderBy('updatedAt')
+      .reverse()
+      .filter((record) => !record.deletedAt)
+      .toArray()
+    return records.map((record) => this.summaryOf(record))
+  }
+
+  async listTrashedPresentations(): Promise<PresentationSummary[]> {
+    const records = await this.database.presentations
+      .filter((record) => Boolean(record.deletedAt))
+      .toArray()
+    return records
+      .map((record) => this.summaryOf(record))
+      // ISO timestamps order as strings. Most recently trashed first, so what
+      // was just deleted by mistake is at the top.
+      .sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''))
+  }
+
+  /**
+   * A record as the library sees it.
+   *
+   * A record whose document no longer migrates still gets a row — with what the
+   * record itself says, and the size of the bytes it holds — so a broken deck is
+   * something the owner can see and delete rather than a gap in the grid.
+   */
+  private summaryOf(record: PresentationRecord): PresentationSummary {
+    const deletedAt = record.deletedAt ?? null
+    const migrated = migratePresentation(record.data)
+    if (migrated.ok) return summarize(migrated.value, deletedAt)
+    return {
+      id: record.id,
+      title: record.title,
+      folderId: record.folderId,
+      slideCount: 0,
+      byteSize: documentByteSize(record.data),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      deletedAt,
+    }
   }
 
   async loadPresentation(id: string): Promise<Presentation> {
     const record = await this.database.presentations.get(id)
     if (!record) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
+    // A trashed deck is not opened, edited or copied; it is restored first.
+    // The refusal is the same kind as an absent row, because to everything
+    // but the trash view that is what it is.
+    if (record.deletedAt) throw new RepositoryNotFoundError(trashedMessage(id))
     const migrated = migratePresentation(record.data)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message)
     return migrated.value
@@ -63,14 +101,18 @@ export class DexieSlaidsRepository implements SlaidsRepository {
       folderId: data.folderId,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
+      deletedAt: null,
       data,
     }
-    if (!guard) {
-      await this.database.presentations.put(record)
-      return
-    }
 
-    // There is no version column here, so the comparison is against the stored
+    // Always inside a transaction, guarded or not, because a `put` replaces the
+    // whole record and one field of it is not the document's to write:
+    // `deletedAt` belongs to the store. A save carries the stored value over,
+    // so a deck that was trashed in another tab stays in the trash when this tab
+    // autosaves it — and a deck that was never trashed stays out of it.
+    //
+    // The guard, when there is one, is compared in the same transaction. There
+    // is no version column here, so the comparison is against the stored
     // document itself — and it has to happen in the same transaction as the
     // write, or it is not a guard at all: two writers can both read, both agree
     // the document is the one they loaded, and the second `put` still wins.
@@ -79,12 +121,46 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     await this.database.transaction('rw', this.database.presentations, async () => {
       const stored = await this.database.presentations.get(data.id)
       // No row means nothing to overwrite: an insert is not a lost update.
-      if (stored && presentationRevision(stored.data) !== guard.expectedRevision) {
+      if (guard && stored && presentationRevision(stored.data) !== guard.expectedRevision) {
         throw new RepositoryConflictError(
           `«${data.title}» er endret et annet sted siden den ble lest. Les den på nytt før du lagrer.`,
         )
       }
-      await this.database.presentations.put(record)
+      await this.database.presentations.put({ ...record, deletedAt: stored?.deletedAt ?? null })
+    })
+  }
+
+  /**
+   * Into the trash: the record stays, and only `deletedAt` changes.
+   *
+   * The guard is compared inside the transaction for the reason
+   * `deletePresentation` gives, and an absent row fails it for the same reason
+   * too. Unguarded, an absent row is a `RepositoryNotFoundError` — see the
+   * interface for why that differs from the permanent delete.
+   */
+  async trashPresentation(id: string, guard?: SaveGuard): Promise<void> {
+    await this.database.transaction('rw', this.database.presentations, async () => {
+      const stored = await this.database.presentations.get(id)
+      if (guard) {
+        if (!stored || presentationRevision(stored.data) !== guard.expectedRevision) {
+          throw new RepositoryConflictError(
+            `«${stored?.title ?? id}» er endret eller slettet et annet sted siden den ble lest. Les den på nytt før du sletter den.`,
+          )
+        }
+      } else if (!stored) {
+        throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}».`)
+      }
+      await this.database.presentations.put({ ...stored, deletedAt: new Date().toISOString() })
+    })
+  }
+
+  async restorePresentation(id: string): Promise<void> {
+    await this.database.transaction('rw', this.database.presentations, async () => {
+      const stored = await this.database.presentations.get(id)
+      if (!stored) {
+        throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${id}» i søppelkassen.`)
+      }
+      if (stored.deletedAt) await this.database.presentations.put({ ...stored, deletedAt: null })
     })
   }
 
@@ -103,7 +179,8 @@ export class DexieSlaidsRepository implements SlaidsRepository {
    * "remove the one I read" — and a row that is gone is not it. Somebody else
    * removed it, and the caller should read again rather than be told its own
    * delete is what happened. An *unguarded* delete is unchanged and still
-   * idempotent, which is what the duplication rollback and the library rely on.
+   * idempotent, which is what the duplication rollback and the purge of the
+   * trash rely on.
    */
   async deletePresentation(id: string, guard?: SaveGuard): Promise<void> {
     await this.database.transaction('rw', this.database.presentations, this.database.assets, async () => {

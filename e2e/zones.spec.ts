@@ -411,7 +411,6 @@ test.describe('zone editing', () => {
     await stage(page)
       .locator(`.slide-zone[data-node-id="${zones[1].id}"] [data-testid="empty-zone-image"]`)
       .click()
-    await stage(page).locator('.image-panel').click()
     await expect(page.getByTestId('image-modal')).toBeVisible()
     await page.getByTestId('image-input').setInputFiles({
       name: 'flate.svg',

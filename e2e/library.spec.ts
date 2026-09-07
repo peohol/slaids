@@ -52,7 +52,7 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('editor')).toBeVisible()
   })
 
-  test('renames, duplicates and deletes', async ({ page }) => {
+  test('renames, duplicates and deletes into the trash', async ({ page }) => {
     await createPresentation(page, 'Original')
     await page.getByTestId('back-to-library').click()
 
@@ -65,10 +65,84 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('presentation-card')).toHaveCount(2)
     await expect(page.getByText('Nytt navn (kopi)')).toBeVisible()
 
+    // Deleting is a move to the trash: the card leaves the library, and the
+    // trash in the sidebar counts it.
+    await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(0\)/)
     await page.getByTestId('delete-presentation').first().click()
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await expect(page.getByTestId('confirm-dialog')).toContainText('søppelkassen')
     await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
+    await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(1\)/)
+  })
+
+  test('restores from the trash, deletes for good, and empties it', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Angret')
+    await page.getByTestId('back-to-library').click()
+    await page.getByTestId('duplicate-presentation').click()
+    await expect(page.getByTestId('presentation-card')).toHaveCount(2)
+
+    // Both into the trash.
+    for (let i = 0; i < 2; i += 1) {
+      await page.getByTestId('delete-presentation').first().click()
+      await page.getByTestId('confirm-accept').click()
+      await expect(page.getByTestId('presentation-card')).toHaveCount(1 - i)
+    }
+
+    await page.getByTestId('trash-view').click()
+    await expect(page.getByTestId('trashed-card')).toHaveCount(2)
+    // Each entry says when it went in and when it goes for good.
+    await expect(page.getByTestId('trash-dates').first()).toContainText(/Slettet .* slettes for godt/)
+    await expect(page.getByTestId('trash-head')).toContainText('30 dager')
+
+    // Back to the library, as it was.
+    await page.getByTestId('trashed-card').filter({ hasText: 'Angret (kopi)' })
+      .getByTestId('restore-presentation')
+      .click()
+    await expect(page.getByTestId('trashed-card')).toHaveCount(1)
+    await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(1\)/)
+    await page.getByRole('button', { name: /^Alle/ }).click()
+    await expect(page.getByTestId('presentation-card')).toHaveCount(1)
+    await expect(page.getByTestId('presentation-card')).toContainText('Angret (kopi)')
+
+    // Deleting from the trash is the permanent one, and it asks again.
+    await page.getByTestId('delete-presentation').click()
+    await page.getByTestId('confirm-accept').click()
+    await page.getByTestId('trash-view').click()
+    await expect(page.getByTestId('trashed-card')).toHaveCount(2)
+    await page.getByTestId('purge-presentation').first().click()
+    await expect(page.getByTestId('confirm-dialog')).toContainText('for godt')
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('trashed-card')).toHaveCount(1)
+
+    // And the button that empties it.
+    await page.getByTestId('empty-trash').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(page.getByTestId('trashed-card')).toHaveCount(0)
+    await expect(page.getByText('Søppelkassen er tom.')).toBeVisible()
+    await expect(page.getByTestId('empty-trash')).toBeDisabled()
+    await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(0\)/)
+
+    // Gone from the store too, not only from the view.
+    await page.reload()
+    await expect(page.getByTestId('presentation-grid')).toBeVisible()
+    await expect(page.getByTestId('presentation-card')).toHaveCount(0)
+    await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(0\)/)
+    expect(guard.errors).toEqual([])
+  })
+
+  test('says how much room each presentation takes', async ({ page }) => {
+    await createPresentation(page, 'Størrelse')
+    await page.getByTestId('back-to-library').click()
+
+    // A new deck is under a kilobyte of document and no files: a number with a
+    // unit, on the line with the slide count and the date.
+    const size = page.getByTestId('presentation-card').getByTestId('presentation-size')
+    await expect(size).toHaveText(/^\d+(\.\d+)? (B|kB)$/)
+    await expect(page.getByTestId('presentation-card').getByTestId('open-presentation')).toContainText(
+      /slides · .* · \d+(\.\d+)? (B|kB)$/,
+    )
   })
 
   test('remembers the open presentation across a reload', async ({ page }) => {

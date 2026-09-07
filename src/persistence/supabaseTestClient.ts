@@ -24,7 +24,12 @@ export interface QueryRecord {
   op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' | 'rpc'
   columns?: string
   values?: unknown
-  filters: { column: string; value: unknown }[]
+  /**
+   * `operator` is absent for the equality filters that make up nearly every
+   * statement, and names the PostgREST operator otherwise — `is`, `not.is` —
+   * so a test can tell "deleted_at is null" from "deleted_at = null".
+   */
+  filters: { column: string; value: unknown; operator?: string }[]
   single: 'none' | 'maybe' | 'one'
 }
 
@@ -88,6 +93,17 @@ class FakeQuery implements PromiseLike<QueryOutcome> {
 
   in(column: string, value: unknown): this {
     this.record.filters.push({ column, value })
+    return this
+  }
+
+  /** `is null` / `is not null`, recorded as the filters they are. */
+  is(column: string, value: unknown): this {
+    this.record.filters.push({ column, value, operator: 'is' })
+    return this
+  }
+
+  not(column: string, operator: string, value: unknown): this {
+    this.record.filters.push({ column, value, operator: `not.${operator}` })
     return this
   }
 

@@ -190,7 +190,15 @@ export async function importSlaidsArchive(
     }
   }
 
-  const existing = new Set((await repository.listPresentations()).map((summary) => summary.id))
+  // Both listings: an id in the trash is as taken as one in the library. An
+  // import that reused it would write over the trashed row — and, because a
+  // save carries the stored `deletedAt` over, land the imported deck in the
+  // trash instead of in the library it was imported into.
+  const [library, trash] = await Promise.all([
+    repository.listPresentations(),
+    repository.listTrashedPresentations(),
+  ])
+  const existing = new Set([...library, ...trash].map((summary) => summary.id))
   // The archive carries no folders, so a `folderId` in a document points at
   // this library's folders or at nothing.
   const existingFolders = new Set((await repository.listFolders()).map((folder) => folder.id))

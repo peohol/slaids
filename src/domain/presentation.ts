@@ -210,14 +210,50 @@ export function duplicatePresentationDocument(
   return { presentation: remapAssetIds(copy, assetIds), assetIds }
 }
 
-export function summarize(presentation: Presentation): PresentationSummary {
+/** The UTF-8 length of the JSON a value is stored as. */
+export function documentByteSize(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+/**
+ * How much room a presentation takes in the store.
+ *
+ * The document itself, plus the bytes of every file it lists. The files are
+ * counted from the document's own asset list rather than by asking the store,
+ * for two reasons that are really one: `AssetRef.byteSize` is the size of the
+ * bytes that were actually stored (see `domain/assetIngress.ts`), and a listing
+ * that had to open every file to say how big a deck is would download the
+ * library to describe it. Both stores report the same number this way — Dexie
+ * by computing it as it lists, Supabase by storing it in a column on every
+ * save — so the library shows one figure whichever of them is live.
+ */
+export function presentationByteSize(presentation: Presentation): number {
+  return (
+    documentByteSize(presentation) +
+    presentation.assets.reduce((sum, asset) => sum + asset.byteSize, 0)
+  )
+}
+
+/**
+ * The library's view of a document.
+ *
+ * `deletedAt` is not in the document — see `PresentationSummary` — so the store
+ * that knows it hands it in; a summary built from the document alone is of a
+ * presentation in the library.
+ */
+export function summarize(
+  presentation: Presentation,
+  deletedAt: string | null = null,
+): PresentationSummary {
   return {
     id: presentation.id,
     title: presentation.title,
     folderId: presentation.folderId,
     slideCount: presentation.slides.length,
+    byteSize: presentationByteSize(presentation),
     createdAt: presentation.createdAt,
     updatedAt: presentation.updatedAt,
+    deletedAt,
   }
 }
 

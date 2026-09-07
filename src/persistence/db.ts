@@ -14,6 +14,14 @@ export interface PresentationRecord {
   folderId: string | null
   createdAt: string
   updatedAt: string
+  /**
+   * When the presentation was moved to the trash. Absent on a record written
+   * before the trash existed, and absent means the same as `null`: in the
+   * library. Kept beside `data` rather than inside it on purpose — see
+   * `PresentationSummary.deletedAt` — and never indexed: IndexedDB cannot index
+   * `null`, and the library filters on it in memory instead.
+   */
+  deletedAt?: string | null
   data: Presentation
 }
 

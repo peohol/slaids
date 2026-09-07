@@ -1,9 +1,18 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlaidsDatabase } from './db'
 import { DexieSlaidsRepository } from './dexieRepository'
-import { RepositoryConflictError, RepositoryError, type SlaidsRepository } from './repository'
+import {
+  RepositoryConflictError,
+  RepositoryError,
+  RepositoryNotFoundError,
+  type SlaidsRepository,
+} from './repository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from './backup'
-import { createPresentation } from '../domain/presentation'
+import {
+  createPresentation,
+  documentByteSize,
+  presentationByteSize,
+} from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
@@ -98,6 +107,7 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
   const invisibleTemplates = new Set(quirks.invisibleTemplateIds ?? [])
   return {
     listPresentations: () => inner.listPresentations(),
+    listTrashedPresentations: () => inner.listTrashedPresentations(),
     loadPresentation: (id) => inner.loadPresentation(id),
     savePresentation: async (presentation) => {
       if (invisible.has(presentation.id)) {
@@ -112,6 +122,8 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
       await inner.savePresentation(presentation)
     },
     deletePresentation: (id) => inner.deletePresentation(id),
+    trashPresentation: (id, guard) => inner.trashPresentation(id, guard),
+    restorePresentation: (id) => inner.restorePresentation(id),
     listFolders: () => inner.listFolders(),
     saveFolder: (folder) => inner.saveFolder(folder),
     deleteFolder: (id) => inner.deleteFolder(id),
@@ -799,5 +811,181 @@ describe('.slaids backup', () => {
 
   it('generates unique asset ids', () => {
     expect(newAssetId()).not.toBe(newAssetId())
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The trash, and what a presentation costs
+ * ------------------------------------------------------------------ */
+
+describe('DexieSlaidsRepository – søppelkassen', () => {
+  it('flytter til søppelkassen uten å røre dokumentet eller filene', async () => {
+    const repository = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await repository.savePresentation(presentation)
+    await repository.putAsset(presentation.id, assetRef, svgFixture('a'))
+
+    await repository.trashPresentation(presentation.id)
+
+    expect(await repository.listPresentations()).toEqual([])
+    const [trashed] = await repository.listTrashedPresentations()
+    expect(trashed.id).toBe(presentation.id)
+    expect(Date.parse(trashed.deletedAt ?? '')).not.toBeNaN()
+    // Nothing was destroyed: the file is there, and a trashed deck still owns
+    // it, so the sweep leaves it alone.
+    expect(await repository.getAsset(assetRef.id)).not.toBeNull()
+    expect(await repository.deleteOrphanAssets()).toBe(0)
+    // And the document comes back exactly as it was.
+    await repository.restorePresentation(presentation.id)
+    expect(await repository.loadPresentation(presentation.id)).toEqual(presentation)
+  })
+
+  it('lar ikke en lagring fra en annen fane hente den ut av søppelkassen', async () => {
+    // The editor saves the document it holds, and `deletedAt` is not in it. A
+    // save must therefore carry the stored value over — otherwise a deck open
+    // in another tab would climb back out of the trash on its next autosave.
+    const repository = freshRepository()
+    const presentation = samplePresentation()
+    await repository.savePresentation(presentation)
+    await repository.trashPresentation(presentation.id)
+    const [before] = await repository.listTrashedPresentations()
+
+    await repository.savePresentation({ ...presentation, title: 'Autolagret etterpå' })
+
+    expect(await repository.listPresentations()).toEqual([])
+    const [after] = await repository.listTrashedPresentations()
+    expect(after.title).toBe('Autolagret etterpå')
+    expect(after.deletedAt).toBe(before.deletedAt)
+  })
+
+  it('åpner ikke en presentasjon som ligger i søppelkassen, før den er gjenopprettet', async () => {
+    // To everything but the trash view a trashed deck is gone: the editor does
+    // not open it from a remembered id, an agent does not read or edit it, and
+    // a copy cannot be made of it. Restoring it is what brings all of that back.
+    const repository = freshRepository()
+    const presentation = samplePresentation()
+    await repository.savePresentation(presentation)
+    await repository.trashPresentation(presentation.id)
+
+    await expect(repository.loadPresentation(presentation.id)).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+    await expect(repository.loadPresentation(presentation.id)).rejects.toThrow(/søppelkassen/)
+
+    await repository.restorePresentation(presentation.id)
+    expect(await repository.loadPresentation(presentation.id)).toEqual(presentation)
+  })
+
+  it('importerer et arkiv med en id som ligger i søppelkassen som kopi, og lar søppelkassen være', async () => {
+    // An id in the trash is as taken as one in the library. Writing over it
+    // would land the import in the trash, since a save keeps `deletedAt`.
+    const repository = freshRepository()
+    const presentation = samplePresentation()
+    await repository.savePresentation(presentation)
+    const archive = await exportSlaidsArchive(repository, { presentationIds: [presentation.id] })
+    await repository.trashPresentation(presentation.id)
+
+    const report = await importSlaidsArchive(repository, archive)
+
+    expect(report.errors).toEqual([])
+    expect(report.importedPresentations).toHaveLength(1)
+    expect(report.importedPresentations[0]).not.toBe(presentation.id)
+    const [imported] = await repository.listPresentations()
+    expect(imported.title).toBe(`${presentation.title} (importert)`)
+    expect(imported.deletedAt).toBeNull()
+    expect((await repository.listTrashedPresentations()).map((summary) => summary.id)).toEqual([
+      presentation.id,
+    ])
+  })
+
+  it('gjenoppretter til biblioteket, i mappen den lå i', async () => {
+    const repository = freshRepository()
+    await repository.saveFolder({ id: 'fl_1', name: 'Mappe', createdAt: new Date().toISOString() })
+    const presentation = { ...samplePresentation(), folderId: 'fl_1' }
+    await repository.savePresentation(presentation)
+    await repository.trashPresentation(presentation.id)
+
+    await repository.restorePresentation(presentation.id)
+
+    const [summary] = await repository.listPresentations()
+    expect(summary.id).toBe(presentation.id)
+    expect(summary.folderId).toBe('fl_1')
+    expect(summary.deletedAt).toBeNull()
+    expect(await repository.listTrashedPresentations()).toEqual([])
+    // Restoring what is already in the library changes nothing.
+    await repository.restorePresentation(presentation.id)
+    expect(await repository.listPresentations()).toHaveLength(1)
+  })
+
+  it('sier fra om en rad som ikke finnes, og vakter kastingen mot lesingen', async () => {
+    const repository = freshRepository()
+    await expect(repository.trashPresentation('borte')).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+    await expect(repository.restorePresentation('borte')).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+
+    const presentation = samplePresentation()
+    await repository.savePresentation(presentation)
+    const stale = presentationRevision(presentation)
+    const edited = { ...presentation, title: 'Endret' }
+    await repository.savePresentation(edited)
+
+    // The reading moved on: the same refusal a guarded delete gives, and the
+    // deck stays where it is.
+    await expect(
+      repository.trashPresentation(presentation.id, { expectedRevision: stale }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+    expect(await repository.listPresentations()).toHaveLength(1)
+    // A row that is not there fails a guard too — it is not the one that was read.
+    await expect(
+      repository.trashPresentation('borte', { expectedRevision: stale }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    await repository.trashPresentation(presentation.id, {
+      expectedRevision: presentationRevision(edited),
+    })
+    expect(await repository.listTrashedPresentations()).toHaveLength(1)
+  })
+
+  it('lister søppelkassen med den sist kastede først', async () => {
+    const repository = freshRepository()
+    const first = { ...samplePresentation(), title: 'Først kastet' }
+    const second = { ...samplePresentation(), title: 'Sist kastet' }
+    await repository.savePresentation(first)
+    await repository.savePresentation(second)
+
+    // Only the clock is faked: IndexedDB schedules its work on real timers.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-09-01T10:00:00.000Z'))
+      await repository.trashPresentation(first.id)
+      vi.setSystemTime(new Date('2026-09-05T10:00:00.000Z'))
+      await repository.trashPresentation(second.id)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const trashed = await repository.listTrashedPresentations()
+    expect(trashed.map((summary) => summary.title)).toEqual(['Sist kastet', 'Først kastet'])
+    expect(trashed.map((summary) => summary.deletedAt)).toEqual([
+      '2026-09-05T10:00:00.000Z',
+      '2026-09-01T10:00:00.000Z',
+    ])
+  })
+
+  it('sier hvor mye plass en presentasjon tar: dokumentet pluss filene det lister', async () => {
+    const repository = freshRepository()
+    const presentation = presentationWithAsset(samplePresentation())
+    await repository.savePresentation(presentation)
+
+    const [summary] = await repository.listPresentations()
+
+    expect(summary.byteSize).toBe(documentByteSize(presentation) + assetRef.byteSize)
+    expect(summary.byteSize).toBe(presentationByteSize(presentation))
+    // Bytes, not characters: the title's three of «åæø» weigh two bytes each.
+    const accented = { ...samplePresentation(), title: 'Blåbærsyltetøy' }
+    expect(documentByteSize(accented)).toBe(JSON.stringify(accented).length + 3)
   })
 })

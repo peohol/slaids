@@ -36,7 +36,19 @@ export interface SaveGuard {
 }
 
 export interface SlaidsRepository {
+  /**
+   * The library: every presentation that is not in the trash, most recently
+   * edited first. What the trash holds is `listTrashedPresentations`, and the
+   * two never overlap — a caller that wants "everything" asks both, and a
+   * caller that forgets the trash exists gets the library, which is the safe
+   * mistake.
+   */
   listPresentations(): Promise<PresentationSummary[]>
+  /**
+   * The trash: every presentation that was moved there and not yet purged, most
+   * recently trashed first, each with its `deletedAt` set.
+   */
+  listTrashedPresentations(): Promise<PresentationSummary[]>
   loadPresentation(id: string): Promise<Presentation>
   /**
    * Store the document. With a `guard`, refuse — `RepositoryConflictError` —
@@ -54,7 +66,9 @@ export interface SlaidsRepository {
    * One call rather than a sequence a caller assembles, because the parts have
    * to go in an order that never leaves a document pointing at files that are
    * gone, and a second caller writing that sequence out again is a second
-   * chance to get it wrong. There is no undo: what this removes is removed.
+   * chance to get it wrong. There is no undo: what this removes is removed —
+   * which is why the library never calls it directly. A deletion from the
+   * library is `trashPresentation`, and this is what empties the trash.
    *
    * With a `guard`, refuse — `RepositoryConflictError` — if the stored copy is no
    * longer the revision the guard names. The same precondition
@@ -66,10 +80,43 @@ export interface SlaidsRepository {
    * insert, and an insert is not a lost update; a guarded *delete* names a
    * document — remove the one I read — and a row somebody else already removed
    * is not it. Without a guard the delete is unconditional and idempotent: an id
-   * that is not there is not an error, which is what a rollback and the library's
-   * own delete rely on.
+   * that is not there is not an error, which is what a rollback and the purge of
+   * the trash rely on.
    */
   deletePresentation(id: string, guard?: SaveGuard): Promise<void>
+  /**
+   * Move the presentation to the trash.
+   *
+   * Nothing is destroyed: the document, its files and its share columns all
+   * stay exactly where they are, and only `deletedAt` is written — which is
+   * why a deck open in another tab keeps autosaving without either resurrecting
+   * itself or losing anything. What changes is which listing it appears in,
+   * and that it is now on the clock: `persistence/library.ts` purges the trash
+   * after `TRASH_RETENTION_DAYS` with `deletePresentation`, which is the one
+   * and only way out of the trash that is not `restorePresentation`.
+   *
+   * `deletedAt` is set to now, also for a row that is already in the trash —
+   * trashing twice restarts the clock rather than being refused, because the
+   * two stores cannot both express "set only if unset" in one statement and
+   * one rule is worth more than the distinction.
+   *
+   * With a `guard`, the same precondition `deletePresentation` takes, for the
+   * same reason: a caller that names a reading is asking to trash *that*
+   * document, and a row that has moved on or is gone is not it —
+   * `RepositoryConflictError`. Without a guard, a row that is not there is a
+   * `RepositoryNotFoundError`: unlike a permanent delete, which the duplication
+   * rollback needs to be idempotent, nothing relies on trashing an absent row
+   * quietly succeeding, and the library would rather say so.
+   */
+  trashPresentation(id: string, guard?: SaveGuard): Promise<void>
+  /**
+   * Take the presentation back out of the trash, into the library where it
+   * was — same folder, same document, same files, same share state. A row that
+   * is not there is a `RepositoryNotFoundError`: the trash was purged in the
+   * meantime, and the caller must be told rather than shown an empty library.
+   * A row that was never in the trash is left as it is.
+   */
+  restorePresentation(id: string): Promise<void>
 
   listFolders(): Promise<Folder[]>
   /**

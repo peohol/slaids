@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createPresentation } from '../domain/presentation'
+import { createPresentation, presentationByteSize } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../domain/metrics'
 import { newAssetId } from '../domain/ids'
 import type { AssetRef, Presentation } from '../domain/types'
-import { RepositoryConflictError, RepositoryError } from './repository'
+import { RepositoryConflictError, RepositoryError, RepositoryNotFoundError } from './repository'
 import {
   ASSETS_BUCKET,
   ASSETS_TABLE,
@@ -56,18 +56,22 @@ describe('SupabaseSlaidsRepository – lesing', () => {
             title: 'Første',
             folder_id: 'f1',
             slide_count: 4,
+            byte_size: 2048,
             version: 3,
             created_at: '2026-08-01 09:00:00+00',
             updated_at: '2026-08-30 11:30:00+00',
+            deleted_at: null,
           },
           {
             id: 'p2',
             title: 'Andre',
             folder_id: null,
             slide_count: null,
+            byte_size: null,
             version: null,
             created_at: null,
             updated_at: null,
+            deleted_at: null,
           },
         ],
       }),
@@ -81,20 +85,59 @@ describe('SupabaseSlaidsRepository – lesing', () => {
         title: 'Første',
         folderId: 'f1',
         slideCount: 4,
+        byteSize: 2048,
         createdAt: '2026-08-01T09:00:00.000Z',
         updatedAt: '2026-08-30T11:30:00.000Z',
+        deletedAt: null,
       },
       {
         id: 'p2',
         title: 'Andre',
         folderId: null,
         slideCount: 0,
+        byteSize: 0,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
+        deletedAt: null,
       },
     ])
     // The whole point of the metadata columns: no `document` in the projection.
     expect(fake.queries[0]?.columns).not.toContain('document')
+    // And the library is what is not in the trash.
+    expect(fake.queries[0]?.filters).toContainEqual({ column: 'deleted_at', value: null, operator: 'is' })
+  })
+
+  it('leser søppelkassen som det motsatte utvalget, med kastetidspunktet på hver rad', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({
+        data: [
+          {
+            id: 'p1',
+            title: 'Kastet',
+            folder_id: 'f1',
+            slide_count: 3,
+            byte_size: 4096,
+            version: 2,
+            created_at: '2026-08-01 09:00:00+00',
+            updated_at: '2026-08-30 11:30:00+00',
+            deleted_at: '2026-09-01 10:00:00+00',
+          },
+        ],
+      }),
+    })
+
+    const [summary] = await repository.listTrashedPresentations()
+
+    expect(summary.deletedAt).toBe('2026-09-01T10:00:00.000Z')
+    expect(summary.byteSize).toBe(4096)
+    // The folder is kept, so a restore puts the deck back where it was.
+    expect(summary.folderId).toBe('f1')
+    expect(fake.queries[0]?.columns).not.toContain('document')
+    expect(fake.queries[0]?.filters).toContainEqual({
+      column: 'deleted_at',
+      value: null,
+      operator: 'not.is',
+    })
   })
 
   it('kjører remote dokumenter gjennom migrering og validering', async () => {
@@ -143,6 +186,26 @@ describe('SupabaseSlaidsRepository – lesing', () => {
   it('sier tydelig fra når raden ikke finnes', async () => {
     const { repository } = repositoryFor({ resolve: () => ({ data: null }) })
     await expect(repository.loadPresentation('borte')).rejects.toThrow(/Fant ikke/)
+  })
+
+  it('åpner ikke en rad som ligger i søppelkassen', async () => {
+    const presentation = createPresentation({ title: 'Kastet' })
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({
+        data: {
+          document: presentation,
+          version: 3,
+          is_shared: false,
+          deleted_at: '2026-09-01 10:00:00+00',
+        },
+      }),
+    })
+
+    await expect(repository.loadPresentation(presentation.id)).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+    // Asked for in the same read, so the refusal costs no second round trip.
+    expect(fake.queries[0]?.columns).toContain('deleted_at')
   })
 
   it('gjør en Postgrest-feil om til en RepositoryError', async () => {
@@ -802,11 +865,14 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
   type Row = Record<string, unknown>
 
   function matches(row: Row, filters: QueryRecord['filters']): boolean {
-    return filters.every((filter) =>
-      Array.isArray(filter.value)
+    return filters.every((filter) => {
+      // `is null` is true of a column that was never set, as it is in Postgres.
+      if (filter.operator === 'is') return (row[filter.column] ?? null) === filter.value
+      if (filter.operator === 'not.is') return (row[filter.column] ?? null) !== filter.value
+      return Array.isArray(filter.value)
         ? filter.value.includes(row[filter.column])
-        : row[filter.column] === filter.value,
-    )
+        : row[filter.column] === filter.value
+    })
   }
 
   function numberish(value: unknown): number {
@@ -1246,3 +1312,101 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
 function sampleAssetWithId(id: string): AssetRef {
   return { ...sampleAsset(), id }
 }
+
+/**
+ * The trash, from the repository's side.
+ *
+ * What is pinned here is the *statement*: that trashing writes one column and
+ * nothing else, that a save never writes that column, and that the guard on a
+ * trashing is the same version comparison a deletion makes. What the database
+ * does with `deleted_at` afterwards — the touch trigger leaving `version`
+ * alone, the Edge Function refusing the row — is checked against the SQL and
+ * the function's own module, not modelled here.
+ */
+describe('SupabaseSlaidsRepository – søppelkassen', () => {
+  it('skriver byte_size fra dokumentet på hver lagring, og aldri deleted_at', async () => {
+    const presentation = createPresentation({ title: 'Størrelse' })
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: { version: 1 } }) })
+
+    await repository.savePresentation(presentation)
+
+    const values = (fake.queries.at(-1) as QueryRecord).values as Record<string, unknown>
+    expect(values.byte_size).toBe(presentationByteSize(presentation))
+    // A save that carried `deleted_at` would pull a deck trashed in another
+    // tab back out of the trash on the next autosave.
+    expect(values).not.toHaveProperty('deleted_at')
+  })
+
+  it('flytter til søppelkassen ved å skrive deleted_at, og ingenting annet', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [{ id: 'p1' }] }) })
+
+    await repository.trashPresentation('p1')
+
+    const update = fake.queries.at(-1) as QueryRecord
+    expect(update.table).toBe(PRESENTATIONS_TABLE)
+    expect(update.op).toBe('update')
+    expect(Object.keys(update.values as object)).toEqual(['deleted_at'])
+    expect(Date.parse((update.values as { deleted_at: string }).deleted_at)).not.toBeNaN()
+    expect(filterValue(update, 'id')).toBe('p1')
+    // Unguarded: no version in the statement.
+    expect(update.filters.some((filter) => filter.column === 'version')).toBe(false)
+  })
+
+  it('sier fra når raden som skulle i søppelkassen ikke finnes', async () => {
+    const { repository } = repositoryFor({ resolve: () => ({ data: [] }) })
+    await expect(repository.trashPresentation('borte')).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+  })
+
+  it('vakter en kasting mot lesingen den ble bedt om, som en sletting', async () => {
+    const presentation = createPresentation({ title: 'Lest' })
+    let remoteVersion = 4
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.op === 'select') {
+          return { data: { document: presentation, version: remoteVersion, is_shared: false } }
+        }
+        if (record.op !== 'update') return { data: [] }
+        return filterValue(record, 'version') === remoteVersion
+          ? { data: [{ id: presentation.id }] }
+          : { data: [] }
+      },
+    })
+
+    const revision = presentationRevision(await repository.loadPresentation(presentation.id))
+
+    // A reading this session never took cannot be trashed against.
+    await expect(
+      repository.trashPresentation(presentation.id, { expectedRevision: 'ukjent' }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // The row moved on elsewhere: the statement matches nothing, and that is a
+    // conflict rather than a silent success.
+    remoteVersion = 5
+    await expect(
+      repository.trashPresentation(presentation.id, { expectedRevision: revision }),
+    ).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    remoteVersion = 4
+    await repository.trashPresentation(presentation.id, { expectedRevision: revision })
+    expect(filterValue(fake.queries.at(-1) as QueryRecord, 'version')).toBe(4)
+  })
+
+  it('gjenoppretter ved å nulle deleted_at, og sier fra om raden er borte', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => ({ data: filterValue(record, 'id') === 'p1' ? [{ id: 'p1' }] : [] }),
+    })
+
+    await repository.restorePresentation('p1')
+
+    const update = fake.queries.at(-1) as QueryRecord
+    expect(update.op).toBe('update')
+    expect(update.values).toEqual({ deleted_at: null })
+    expect(filterValue(update, 'id')).toBe('p1')
+
+    await expect(repository.restorePresentation('borte')).rejects.toBeInstanceOf(
+      RepositoryNotFoundError,
+    )
+  })
+})

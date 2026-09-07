@@ -97,6 +97,29 @@
   color: #cfe0ff;
 }
 
+/* The trash sits under the folders, apart from them: it is not a place a deck
+   is filed, it is where a deck goes on its way out. */
+.library__folders-divider {
+  height: 1px;
+  margin: 8px 6px;
+  background: var(--chrome-border);
+}
+
+/* A line above the trashed cards: what the trash does, and the one button that
+   empties it. Full width, so the grid starts on the row below. */
+.library__trash-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0 6px;
+}
+
+.library__trash-head .hint {
+  margin: 0;
+}
+
 .library__grid {
   padding: 20px 26px;
   overflow: auto;
@@ -151,6 +174,24 @@
 
 .presentation-card__open:hover .presentation-card__name {
   color: var(--chrome-accent);
+}
+
+/* The same face as `__open`, for a card that is not opened: a trashed deck is
+   brought back first, so its face is not a button and does not pretend to be. */
+.presentation-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 16px 16px 12px;
+}
+
+.presentation-card--trashed .presentation-card__name {
+  color: var(--chrome-text-dim);
+}
+
+.presentation-card__purge {
+  margin-left: auto;
 }
 
 .presentation-card__name {

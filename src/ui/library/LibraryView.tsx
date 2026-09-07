@@ -1,5 +1,13 @@
 /**
  * Presentation library: the app's home screen.
+ *
+ * Three views of the same store, chosen in the sidebar: everything, one folder,
+ * or the trash. The first two are the library — what `listPresentations`
+ * returns, filtered by folder — and the third is what was deleted from it and
+ * can still come back. A deletion here is a move to the trash; what empties the
+ * trash is the sweep that runs when the library opens, or the button that
+ * empties it by hand, and both go through the one permanent delete the
+ * repository has.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -9,6 +17,12 @@ import { domFitCheckers } from '../../state/measure'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
 import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
+import {
+  TRASH_RETENTION_DAYS,
+  emptyTrash,
+  purgeExpiredTrash,
+  trashExpiry,
+} from '../../persistence/library'
 import { notify } from '../../state/toast'
 import { useSessionStore } from '../../state/session'
 import {
@@ -26,6 +40,9 @@ import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AgentTokensModal } from './AgentTokensModal'
 
+/** Which of the store's listings the grid is showing. */
+type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['kB', 'MB', 'GB', 'TB']
@@ -38,21 +55,28 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
 }
 
-function formatDate(iso: string): string {
-  const date = new Date(iso)
+function formatDate(value: string | Date, style: 'minute' | 'day' = 'minute'): string {
+  const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
-  return new Intl.DateTimeFormat('nb-NO', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return new Intl.DateTimeFormat('nb-NO', {
+    dateStyle: 'medium',
+    ...(style === 'minute' ? { timeStyle: 'short' } : {}),
+  }).format(date)
 }
 
 export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [summaries, setSummaries] = useState<PresentationSummary[]>([])
+  const [trashed, setTrashed] = useState<PresentationSummary[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
-  const [activeFolder, setActiveFolder] = useState<string | null>(null)
+  const [scope, setScope] = useState<LibraryScope>({ kind: 'all' })
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<PresentationSummary | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleting, setDeleting] = useState<PresentationSummary | null>(null)
+  /** A trashed presentation about to be deleted for good. */
+  const [purging, setPurging] = useState<PresentationSummary | null>(null)
+  const [emptyingTrash, setEmptyingTrash] = useState(false)
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null)
   const [storage, setStorage] = useState<StorageEstimateInfo | null>(null)
   const [persisted, setPersisted] = useState(false)
@@ -67,23 +91,39 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [reloadToken, setReloadToken] = useState(0)
   const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
 
+  const activeFolder = scope.kind === 'folder' ? scope.id : null
+
   useEffect(() => {
     let cancelled = false
-    Promise.all([repository.listPresentations(), repository.listFolders()])
-      .then(([list, folderList]) => {
-        if (cancelled) return
-        setSummaries(list)
-        setFolders(folderList)
-        setLoadError(null)
-        setLoading(false)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        // In Supabase mode there is nowhere else to read from: say so rather
-        // than showing an empty library that looks like lost work.
-        setLoadError(error instanceof Error ? error.message : 'Kunne ikke hente biblioteket.')
-        setLoading(false)
-      })
+    const load = async (): Promise<void> => {
+      // The automatic emptying, before the listing, so what is shown is what
+      // remains. Best effort, like the orphan sweep below: a purge the store
+      // refused leaves the entry in the trash for the next visit, or for the
+      // button, and must not stand between the user and their library.
+      try {
+        await purgeExpiredTrash(repository)
+      } catch {
+        // Still in the trash, still on the clock.
+      }
+      const [list, folderList, trashList] = await Promise.all([
+        repository.listPresentations(),
+        repository.listFolders(),
+        repository.listTrashedPresentations(),
+      ])
+      if (cancelled) return
+      setSummaries(list)
+      setFolders(folderList)
+      setTrashed(trashList)
+      setLoadError(null)
+      setLoading(false)
+    }
+    load().catch((error: unknown) => {
+      if (cancelled) return
+      // In Supabase mode there is nowhere else to read from: say so rather
+      // than showing an empty library that looks like lost work.
+      setLoadError(error instanceof Error ? error.message : 'Kunne ikke hente biblioteket.')
+      setLoading(false)
+    })
     return () => {
       cancelled = true
     }
@@ -149,12 +189,49 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const handleDelete = async (): Promise<void> => {
     if (!deleting) return
     try {
-      await repository.deletePresentation(deleting.id)
-      notify.info('Presentasjonen ble slettet.')
+      await repository.trashPresentation(deleting.id)
+      notify.info(`«${deleting.title}» ble flyttet til søppelkassen.`)
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Kunne ikke slette presentasjonen.')
     }
     setDeleting(null)
+    refresh()
+  }
+
+  const handleRestore = async (summary: PresentationSummary): Promise<void> => {
+    try {
+      await repository.restorePresentation(summary.id)
+      notify.success(`«${summary.title}» ble gjenopprettet.`)
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke gjenopprette presentasjonen.')
+    }
+    refresh()
+  }
+
+  const handlePurge = async (): Promise<void> => {
+    if (!purging) return
+    try {
+      await repository.deletePresentation(purging.id)
+      notify.info(`«${purging.title}» ble slettet for godt.`)
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke slette presentasjonen.')
+    }
+    setPurging(null)
+    refresh()
+  }
+
+  const handleEmptyTrash = async (): Promise<void> => {
+    try {
+      const purged = await emptyTrash(repository)
+      notify.info(
+        purged === 1
+          ? 'Søppelkassen ble tømt: én presentasjon ble slettet for godt.'
+          : `Søppelkassen ble tømt: ${purged} presentasjoner ble slettet for godt.`,
+      )
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke tømme søppelkassen.')
+    }
+    setEmptyingTrash(false)
     refresh()
   }
 
@@ -209,9 +286,13 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
     refresh()
   }
 
-  const visible = summaries.filter((summary) =>
-    activeFolder === null ? true : summary.folderId === activeFolder,
-  )
+  const inTrash = scope.kind === 'trash'
+  const visible = inTrash
+    ? trashed
+    : summaries.filter((summary) => activeFolder === null || summary.folderId === activeFolder)
+
+  const folderClass = (active: boolean): string =>
+    active ? 'folder-item folder-item--active' : 'folder-item'
 
   return (
     <div className="library">
@@ -289,8 +370,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           </div>
           <button
             type="button"
-            className={activeFolder === null ? 'folder-item folder-item--active' : 'folder-item'}
-            onClick={() => setActiveFolder(null)}
+            className={folderClass(scope.kind === 'all')}
+            onClick={() => setScope({ kind: 'all' })}
           >
             <Icon name="folder" size={15} /> Alle ({summaries.length})
           </button>
@@ -298,8 +379,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
             <div key={folder.id} className="folder-row">
               <button
                 type="button"
-                className={activeFolder === folder.id ? 'folder-item folder-item--active' : 'folder-item'}
-                onClick={() => setActiveFolder(folder.id)}
+                className={folderClass(activeFolder === folder.id)}
+                onClick={() => setScope({ kind: 'folder', id: folder.id })}
                 data-testid="folder-item"
                 data-folder-name={folder.name}
               >
@@ -316,6 +397,15 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
               </button>
             </div>
           ))}
+          <div className="library__folders-divider" role="presentation" />
+          <button
+            type="button"
+            className={folderClass(inTrash)}
+            onClick={() => setScope({ kind: 'trash' })}
+            data-testid="trash-view"
+          >
+            <Icon name="trash" size={15} /> Søppelkasse ({trashed.length})
+          </button>
         </aside>
 
         <main className="library__grid" data-testid="presentation-grid">
@@ -333,103 +423,173 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
               </button>
             </div>
           )}
-          {!loading && !loadError && visible.length === 0 && (
-            <div className="library__empty">
-              <p>Ingen presentasjoner her ennå.</p>
-              <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
-                <Icon name="plus" /> Lag den første
+          {!loading && !loadError && inTrash && (
+            <div className="library__trash-head" data-testid="trash-head">
+              <p className="hint">
+                Presentasjoner i søppelkassen slettes for godt etter {TRASH_RETENTION_DAYS} dager.
+                Fram til da kan de gjenopprettes.
+              </p>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={trashed.length === 0}
+                onClick={() => setEmptyingTrash(true)}
+                data-testid="empty-trash"
+              >
+                <Icon name="trash" size={15} /> Tøm søppelkassen
               </button>
             </div>
           )}
-          {visible.map((summary) => (
-            <article key={summary.id} className="presentation-card" data-testid="presentation-card">
-              <button
-                type="button"
-                className="presentation-card__open"
-                onClick={() => onOpen(summary.id)}
-                data-testid="open-presentation"
-              >
-                <span className="presentation-card__name">{summary.title}</span>
-                <span className="presentation-card__meta">
-                  {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
-                  {formatDate(summary.updatedAt)}
-                </span>
-              </button>
-              <div className="presentation-card__tools">
-                <Tooltip label="Gi nytt navn">
+          {!loading && !loadError && visible.length === 0 && (
+            <div className="library__empty">
+              {inTrash ? (
+                <p>Søppelkassen er tom.</p>
+              ) : (
+                <>
+                  <p>Ingen presentasjoner her ennå.</p>
+                  <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
+                    <Icon name="plus" /> Lag den første
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {inTrash
+            ? visible.map((summary) => (
+                <article
+                  key={summary.id}
+                  className="presentation-card presentation-card--trashed"
+                  data-testid="trashed-card"
+                >
+                  {/* Not a button: a trashed deck is not opened, it is brought
+                      back first. What it costs stays on the card, because the
+                      trash is where one goes looking for what to let go of. */}
+                  <div className="presentation-card__body">
+                    <span className="presentation-card__name">{summary.title}</span>
+                    <span className="presentation-card__meta">
+                      {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
+                      <span data-testid="presentation-size">{formatBytes(summary.byteSize)}</span>
+                    </span>
+                    {summary.deletedAt && (
+                      <span className="presentation-card__meta" data-testid="trash-dates">
+                        Slettet {formatDate(summary.deletedAt)} · slettes for godt{' '}
+                        {formatDate(trashExpiry(summary.deletedAt), 'day')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="presentation-card__tools">
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => void handleRestore(summary)}
+                      data-testid="restore-presentation"
+                    >
+                      <Icon name="undo" size={15} /> Gjenopprett
+                    </button>
+                    <Tooltip label="Slett for godt">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm presentation-card__purge"
+                        onClick={() => setPurging(summary)}
+                        aria-label={`Slett ${summary.title} for godt`}
+                        data-testid="purge-presentation"
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </article>
+              ))
+            : visible.map((summary) => (
+                <article key={summary.id} className="presentation-card" data-testid="presentation-card">
                   <button
                     type="button"
-                    className="btn btn--ghost btn--icon btn--sm"
-                    onClick={() => {
-                      setRenaming(summary)
-                      setRenameValue(summary.title)
-                    }}
-                    aria-label={`Gi ${summary.title} nytt navn`}
-                    data-testid="rename-presentation"
+                    className="presentation-card__open"
+                    onClick={() => onOpen(summary.id)}
+                    data-testid="open-presentation"
                   >
-                    <Icon name="edit" size={15} />
+                    <span className="presentation-card__name">{summary.title}</span>
+                    <span className="presentation-card__meta">
+                      {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
+                      {formatDate(summary.updatedAt)} ·{' '}
+                      <span data-testid="presentation-size">{formatBytes(summary.byteSize)}</span>
+                    </span>
                   </button>
-                </Tooltip>
-                <Tooltip label="Dupliser">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--icon btn--sm"
-                    aria-label={`Dupliser ${summary.title}`}
-                    data-testid="duplicate-presentation"
-                    onClick={() => void handleDuplicate(summary.id)}
-                  >
-                    <Icon name="copy" size={15} />
-                  </button>
-                </Tooltip>
-                <Tooltip label="Last ned sikkerhetskopi">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--icon btn--sm"
-                    onClick={() => void handleExport(summary)}
-                    aria-label={`Last ned sikkerhetskopi av ${summary.title}`}
-                    data-testid="export-presentation"
-                  >
-                    <Icon name="download" size={15} />
-                  </button>
-                </Tooltip>
-                <Tooltip label="Slett">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--icon btn--sm"
-                    onClick={() => setDeleting(summary)}
-                    aria-label={`Slett ${summary.title}`}
-                    data-testid="delete-presentation"
-                  >
-                    <Icon name="trash" size={15} />
-                  </button>
-                </Tooltip>
-                {folders.length > 0 && (
-                  <select
-                    className="select select--inline"
-                    value={summary.folderId ?? ''}
-                    aria-label={`Mappe for ${summary.title}`}
-                    data-testid="folder-select"
-                    onChange={(event) => {
-                      void movePresentationToFolder(summary.id, event.target.value || null)
-                        .catch((error: unknown) => {
-                          notify.error(
-                            error instanceof Error ? error.message : 'Kunne ikke flytte presentasjonen.',
-                          )
-                        })
-                        .finally(() => refresh())
-                    }}
-                  >
-                    <option value="">Ingen mappe</option>
-                    {folders.map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </article>
-          ))}
+                  <div className="presentation-card__tools">
+                    <Tooltip label="Gi nytt navn">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        onClick={() => {
+                          setRenaming(summary)
+                          setRenameValue(summary.title)
+                        }}
+                        aria-label={`Gi ${summary.title} nytt navn`}
+                        data-testid="rename-presentation"
+                      >
+                        <Icon name="edit" size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Dupliser">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        aria-label={`Dupliser ${summary.title}`}
+                        data-testid="duplicate-presentation"
+                        onClick={() => void handleDuplicate(summary.id)}
+                      >
+                        <Icon name="copy" size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Last ned sikkerhetskopi">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        onClick={() => void handleExport(summary)}
+                        aria-label={`Last ned sikkerhetskopi av ${summary.title}`}
+                        data-testid="export-presentation"
+                      >
+                        <Icon name="download" size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Flytt til søppelkassen">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        onClick={() => setDeleting(summary)}
+                        aria-label={`Slett ${summary.title}`}
+                        data-testid="delete-presentation"
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
+                    </Tooltip>
+                    {folders.length > 0 && (
+                      <select
+                        className="select select--inline"
+                        value={summary.folderId ?? ''}
+                        aria-label={`Mappe for ${summary.title}`}
+                        data-testid="folder-select"
+                        onChange={(event) => {
+                          void movePresentationToFolder(summary.id, event.target.value || null)
+                            .catch((error: unknown) => {
+                              notify.error(
+                                error instanceof Error ? error.message : 'Kunne ikke flytte presentasjonen.',
+                              )
+                            })
+                            .finally(() => refresh())
+                        }}
+                      >
+                        <option value="">Ingen mappe</option>
+                        {folders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </article>
+              ))}
         </main>
       </div>
 
@@ -517,10 +677,32 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
 
       <ConfirmDialog
         open={deleting !== null}
-        title="Slette presentasjonen?"
-        message={`«${deleting?.title ?? ''}» og alle tilhørende filer slettes permanent. Dette kan ikke angres.`}
+        title="Flytte presentasjonen til søppelkassen?"
+        message={`«${deleting?.title ?? ''}» flyttes til søppelkassen. Der kan den gjenopprettes i ${TRASH_RETENTION_DAYS} dager, før den og alle tilhørende filer slettes for godt.`}
         onConfirm={() => void handleDelete()}
         onCancel={() => setDeleting(null)}
+      />
+
+      <ConfirmDialog
+        open={purging !== null}
+        title="Slette presentasjonen for godt?"
+        message={`«${purging?.title ?? ''}» og alle tilhørende filer slettes permanent. Dette kan ikke angres.`}
+        confirmLabel="Slett for godt"
+        onConfirm={() => void handlePurge()}
+        onCancel={() => setPurging(null)}
+      />
+
+      <ConfirmDialog
+        open={emptyingTrash}
+        title="Tømme søppelkassen?"
+        message={
+          trashed.length === 1
+            ? 'Presentasjonen i søppelkassen og alle tilhørende filer slettes permanent. Dette kan ikke angres.'
+            : `Alle ${trashed.length} presentasjonene i søppelkassen og alle tilhørende filer slettes permanent. Dette kan ikke angres.`
+        }
+        confirmLabel="Tøm søppelkassen"
+        onConfirm={() => void handleEmptyTrash()}
+        onCancel={() => setEmptyingTrash(false)}
       />
 
       <ConfirmDialog
@@ -536,7 +718,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
             })
             .finally(() => {
               setDeletingFolder(null)
-              setActiveFolder(null)
+              setScope({ kind: 'all' })
               refresh()
             })
         }}
