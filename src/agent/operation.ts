@@ -33,6 +33,27 @@ export const presentationIdSchema = z
   .min(1)
   .describe('Id-en til presentasjonen operasjonen gjelder.')
 
+/**
+ * A whole number that may also arrive as the digits a query string carries.
+ *
+ * The raw-binary transport puts its fields in the query string, because the
+ * body is the file (see `server/agent/body.ts`), and a query string has only
+ * strings in it. The transport deliberately coerces nothing — it does not know
+ * which operation asked for which field, and a transport that guessed types
+ * would be a second, looser grammar beside the schemas.
+ *
+ * So the *field* says it, once, where the field is declared: a number, or the
+ * digits of one. The published contract is still a number — that is what a
+ * JSON or MCP caller sends, and what comes out either way.
+ */
+export const wholeNumberSchema = z.union([
+  z.number().int(),
+  z
+    .string()
+    .regex(/^\d+$/, 'Må være et heltall.')
+    .transform((digits) => Number(digits)),
+])
+
 export const slideIdSchema = z.string().min(1).describe('Id-en til sliden.')
 
 export const nodeIdSchema = z

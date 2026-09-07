@@ -594,6 +594,15 @@ opplastingsdialogen bruker (streng UTF-8, BOM hoppet over, UTF-16 avvist ved
 navn). Nøyaktig én av de to per kall: en forespørsel som bar filen to ganger,
 har sagt to forskjellige ting. `REQUEST_TOO_LARGE` navngir veien som virker.
 
+Når kroppen er filen, ligger de andre feltene i query-strengen — som tekst.
+Transporten gjetter ikke typer på noens vegne; den vet ikke hvilken operasjon
+som spurte etter hvilket felt, og en transport som gjettet ville vært en andre,
+løsere grammatikk ved siden av skjemaene. Feltet sier det derfor selv, ett sted:
+`index` tar et heltall eller sifrene i ett (`wholeNumberSchema`), så en fil som
+*må* sendes som rå kropp fortsatt kan settes inn der den skal. Den publiserte
+kontrakten er fremdeles et tall — det er hva en JSON- eller MCP-kaller sender,
+og hva som kommer ut uansett vei.
+
 Dokumentet lagres som én rad i Supabase, og budsjettet holder hele dokumentet
 godt under det som er praktisk å autosave og publisere som snapshot.
 
@@ -657,10 +666,15 @@ Tre deler, i denne rekkefølgen, foran filen:
    gstatic-allowlisten og den samme cachen som den hodeløse
    previewrendereren bruker, slik at de to ikke kan bli uenige om hvilke vekter
    en familie har. Flaten ber om dem når *forsiden* monteres, ikke når noen
-   trykker play, så de normalt er der lenge før. En familie som ikke kan hentes,
-   utelates: variabelen navngir hele stakken, så appen faller tilbake nøyaktig
-   som dekket gjør. En lokal font (Calibri, Segoe UI) hentes ikke — den er
-   maskinens eller ingen, som ellers i Slaids.
+   trykker play, så de normalt er der lenge før. Og skulle noen rekke å trykke
+   først, venter aktiveringen på svaret i stedet for å starte: rammen kan ikke
+   hente en font selv, så en kjøring som begynte uten dem, beholder feil skrift
+   så lenge den varer. Ventingen har to tak — henterens egen frist, og et kort
+   tak på selve trykket — så et nett som ikke svarer, forsinker ingenting mer
+   enn et øyeblikk. En familie som ikke kan hentes, utelates: variabelen
+   navngir hele stakken, så appen faller tilbake nøyaktig som dekket gjør. En
+   lokal font (Calibri, Segoe UI) hentes ikke — den er maskinens eller ingen,
+   som ellers i Slaids.
 2. **Variablene.** `:root`-erklæringer med de effektive fargene for *denne*
    sliden — den styrende seksjonens — og dekkets fontroller, typeskala og mål.
    Verdiene er dekkets egne tall fra `themeMetrics` og `constants.ts`, så en
@@ -820,8 +834,9 @@ igjen som peker på en vert, ingenting hentet for en systemstakk, tom CSS når e
 font ikke kan hentes, rekkefølgen fonter → variabler → basisark),
 `src/domain/commands/interactive.test.ts`
 (innsetting og forsideregelen, navn, atomisk utskifting som gir samme objekt ved
-avvisning, budsjett med og uten egen slide, duplisering/flytting/sletting,
-sonekommandoer), skjema og migrering, delingssnapshot, invariantsjekken,
+avvisning, budsjett med og uten egen slide, duplisering som ikke kan sprenge
+budsjettet, et dekk over budsjettet som fortsatt kan redigeres ned,
+flytting/sletting, sonekommandoer), skjema og migrering, delingssnapshot, invariantsjekken,
 Dexie og `.slaids`-rundtur byte for byte, store-oppførsel,
 `src/ui/interactive/sandboxDocument.test.ts` (policyen som data, rekkefølgen,
 escapingen, én ramme og ett skript uansett fil), `src/agent/interactive.test.ts`
@@ -832,7 +847,8 @@ som `content` i stedet for som JSON-streng), `src/render/document.test.tsx` (pre
 eller filnavn; flaten monterer og avmonterer rammen, holder låsen, gir fokus
 tilbake; appen får seksjonens farger og dekkets fontroller; en omfarget seksjon
 slår gjennom ved neste kjøring uten å røre den lagrede filen, og bygger ikke
-dokumentet på nytt under en app som kjører) og
+dokumentet på nytt under en app som kjører; et trykk som kommer før fontsvaret,
+venter og får de inlinede `@font-face`-reglene i den *første* kjøringen) og
 `src/ui/present/interactivePlayer.test.tsx` (spilleren uten `onExit` – den delte
 visningen – eier tastene mens appen kjører).
 
@@ -840,10 +856,12 @@ Skjemagrensen og importen har sine egne: `src/domain/schema.test.ts` avviser et
 navn, et filnavn eller en kilde kommandoene ville avvist, og et dekk over
 budsjettet uansett hvordan det ble skrevet; `src/persistence/persistence.test.ts`
 gjør det samme mot en håndredigert `.slaids`-fil, og sjekker at ingenting ble
-lagret. Transporten har sin: `src/server/agent/handler.test.ts` sender
+lagret. Transporten har sine: `src/server/agent/handler.test.ts` sender
 escaping-tung HTML nær grensen som JSON (avvist med `REQUEST_TOO_LARGE`, og
 feilen navngir veien som virker) og den samme filen som rå kropp (går gjennom,
-byte for byte).
+byte for byte), og setter en fil sendt som rå kropp inn på en oppgitt `index`
+fra query-strengen — mens en posisjon som ikke er et tall avvises i stedet for
+å gjettes.
 
 E2E, Chromium: `e2e/interactive.spec.ts` (dialogen og avvisningene, forsiden
 og miniatyren uten kjøring, presentasjon med aktivering, rammen som fyller
@@ -852,8 +870,9 @@ med samme side og fokus, ny kjøring med ny tilstand, ingen timer etter
 avslutning, scenen med låste snarveier, nytt navn, utskifting, angre/gjør om,
 reload, duplisering og sletting; og temaet: appen arver seksjonens farger,
 dekkets to fontroller og basisstilarket mens appens egen CSS fortsatt vinner,
-fontene ligger i dokumentet slik at rammen ikke ber om noe som helst, og en ny
-seksjonsfarge slår gjennom neste gang uten at filen endres) og `e2e/interactive-security.spec.ts`
+fontene ligger i dokumentet slik at rammen ikke ber om noe som helst, en treg
+fontlast får play-knappen til å vente i stedet for å starte i reservefonten, og
+en ny seksjonsfarge slår gjennom neste gang uten at filen endres) og `e2e/interactive-security.spec.ts`
 (`e2e/apps/escape-app.html` forsøker alt over, med og uten brukeraktivering;
 spec-en måler utenfra: ingen forespørsel når nettverkslaget, det som
 rapporteres er nektet av policyen i rendereren, ingen popups, nedlastinger,

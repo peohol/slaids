@@ -75,7 +75,13 @@ import {
   transportFileContentSchema,
   type AgentFileContent,
 } from '../binary'
-import { defineOperation, expectedRevisionSchema, presentationIdSchema, slideIdSchema } from '../operation'
+import {
+  defineOperation,
+  expectedRevisionSchema,
+  presentationIdSchema,
+  slideIdSchema,
+  wholeNumberSchema,
+} from '../operation'
 import { applySteps, mutatePresentation } from '../presentation'
 import { agentOk, type AgentResult } from '../types'
 import { type InteractiveSlideSummary } from './deck'
@@ -177,12 +183,12 @@ function addInteractiveInput(content: z.ZodType<AgentFileContent>) {
     .strictObject({
       presentationId: presentationIdSchema,
       expectedRevision: expectedRevisionSchema,
-      index: z
-        .number()
-        .int()
-        .min(0)
+      index: wholeNumberSchema
+        .refine((index) => index >= 0, { message: 'Posisjonen kan ikke være negativ.' })
         .optional()
-        .describe('Posisjonen den skal settes inn på. Utelatt legger den sist.'),
+        .describe(
+          'Posisjonen den skal settes inn på. Utelatt legger den sist. Kan sendes som tall, eller som sifrene i query-strengen når filen er kroppen.',
+        ),
       name: nameSchema
         .optional()
         .describe('Navnet forsiden viser. Utelatt bruker filnavnet uten filendelsen.'),

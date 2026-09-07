@@ -22,6 +22,7 @@ import { deckPages, deckProgress, deckSectionColors } from '../../domain/pages'
 import { createInteractiveSlide, createPresentation } from '../../domain/presentation'
 import { sectionAt } from '../../domain/testDecks'
 import type { InteractiveSlide, Presentation } from '../../domain/types'
+import { resetInlinedFontCache } from '../../fonts/inlineFaces'
 import { isInteractiveRuntimeActive, useInteractiveRuntime } from '../../state/interactiveRuntime'
 import { InteractiveSlideSurface } from '../interactive/InteractiveSlideSurface'
 import { EXIT_LABEL } from '../interactive/InteractiveRuntime'
@@ -47,11 +48,15 @@ import { SlideRenderProvider } from './SlideRenderContext'
  * code is written to survive: the app is drawn in the fallback stack.
  */
 beforeEach(() => {
+  // Per-family and per-instance, so a face fetched by one test would otherwise
+  // still be in hand in the next. Cold, the way a fresh page is.
+  resetInlinedFontCache()
   vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ingen nettverk i test'))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  resetInlinedFontCache()
 })
 
 const BACKGROUND = '#101828'
@@ -162,7 +167,22 @@ function surface(presentation: Presentation): React.ReactNode {
   )
 }
 
-function mount(presentation: Presentation): HTMLElement {
+/**
+ * Let whatever the surface asked for settle.
+ *
+ * A turn of the event loop inside `act`, which is longer than any promise
+ * chain: the font request above is refused, but refusal is still asynchronous,
+ * and an assertion made before it lands would be an assertion about a cover
+ * nobody has finished drawing.
+ */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/** The surface on screen, with the faces still on their way. */
+function render(presentation: Presentation): HTMLElement {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -171,8 +191,19 @@ function mount(presentation: Presentation): HTMLElement {
   return container
 }
 
-function rerender(presentation: Presentation): void {
+/**
+ * The ordinary case: a cover that has been on screen long enough to have its
+ * type in hand, which is every cover a person has had time to press.
+ */
+async function mount(presentation: Presentation): Promise<HTMLElement> {
+  const host = render(presentation)
+  await settle()
+  return host
+}
+
+async function rerender(presentation: Presentation): Promise<void> {
   act(() => root!.render(surface(presentation)))
+  await settle()
 }
 
 function click(host: HTMLElement, testId: string): HTMLButtonElement {
@@ -186,9 +217,28 @@ function frameOf(host: HTMLElement): HTMLIFrameElement | null {
   return host.querySelector<HTMLIFrameElement>('[data-testid="interactive-frame"]')
 }
 
+/**
+ * Google Fonts, in miniature: a stylesheet that names a file, and the file.
+ *
+ * Shaped like the real answer rather than mocked away, so the test exercises
+ * the actual inliner — including its rule that a face may only come from
+ * `fonts.gstatic.com`.
+ */
+function fontFile(url: string): Response {
+  const body = url.startsWith('https://fonts.googleapis.com')
+    ? {
+        text: () =>
+          Promise.resolve(
+            "@font-face{font-family:'Quicksand';src:url(https://fonts.gstatic.com/s/q.woff2) format('woff2');}",
+          ),
+      }
+    : { arrayBuffer: () => Promise.resolve(new Uint8Array([0x77, 0x4f, 0x46, 0x32]).buffer) }
+  return { ok: true, status: 200, ...body } as unknown as Response
+}
+
 describe('flaten som kan starte appen', () => {
-  it('tegner forsiden med en ekte knapp, og ingen ramme før den trykkes', () => {
-    const host = mount(deck())
+  it('tegner forsiden med en ekte knapp, og ingen ramme før den trykkes', async () => {
+    const host = await mount(deck())
     const button = host.querySelector('[data-testid="activate-interactive"]')
     expect(button?.tagName).toBe('BUTTON')
     // An icon-only control still has to say what it does.
@@ -199,9 +249,9 @@ describe('flaten som kan starte appen', () => {
     expect(isInteractiveRuntimeActive()).toBe(false)
   })
 
-  it('monterer rammen med sandkassen, holder låsen, og tar den ned igjen ved avslutning', () => {
+  it('monterer rammen med sandkassen, holder låsen, og tar den ned igjen ved avslutning', async () => {
     const presentation = deck()
-    const host = mount(presentation)
+    const host = await mount(presentation)
     const activate = click(host, 'activate-interactive')
 
     const frame = frameOf(host)
@@ -243,8 +293,8 @@ describe('flaten som kan starte appen', () => {
     expect(document.activeElement).toBe(activate)
   })
 
-  it('starter en ny ramme for hver aktivering', () => {
-    const host = mount(deck())
+  it('starter en ny ramme for hver aktivering', async () => {
+    const host = await mount(deck())
     click(host, 'activate-interactive')
     const first = frameOf(host)
     click(host, 'exit-interactive')
@@ -256,8 +306,8 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('er idempotent mens appen kjører', () => {
-    const host = mount(deck())
+  it('er idempotent mens appen kjører', async () => {
+    const host = await mount(deck())
     click(host, 'activate-interactive')
     const frame = frameOf(host)
     // A second activation of a running app — a stray Enter on the button
@@ -270,9 +320,9 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('avslutter av seg selv når filen bak sliden byttes ut', () => {
+  it('avslutter av seg selv når filen bak sliden byttes ut', async () => {
     const before = deck()
-    const host = mount(before)
+    const host = await mount(before)
     click(host, 'activate-interactive')
     expect(isInteractiveRuntimeActive()).toBe(true)
 
@@ -281,7 +331,7 @@ describe('flaten som kan starte appen', () => {
       ...before,
       slides: [before.slides[0], { ...appSlide(before), html: '<p>ny</p>' }],
     }
-    rerender(replaced)
+    await rerender(replaced)
     expect(frameOf(host)).toBeNull()
     expect(isInteractiveRuntimeActive()).toBe(false)
     // And it can be started again, with the new source.
@@ -290,9 +340,9 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('gir appen dekkets design, fra seksjonen sliden ligger i', () => {
+  it('gir appen dekkets design, fra seksjonen sliden ligger i', async () => {
     const presentation = deck()
-    const host = mount(presentation)
+    const host = await mount(presentation)
     click(host, 'activate-interactive')
     const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
 
@@ -307,9 +357,41 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('slår gjennom en temaendring ved neste kjøring, uten å røre den lagrede filen', () => {
+  it('venter på dekkets skrift når play trykkes før den er inne', async () => {
+    // The faces are asked for the moment the cover appears, so by the time a
+    // person has moved the mouse they are here. This press is the exception —
+    // and it is the one case that matters, because the frame cannot fetch a
+    // font itself: a run that starts without them keeps the wrong type for as
+    // long as it lasts. So the press waits; it does not start early.
+    let deliver = () => {}
+    const held = new Promise<void>((resolve) => {
+      deliver = () => resolve()
+    })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      await held
+      return fontFile(String(input))
+    })
+
+    const host = render(deck())
+    click(host, 'activate-interactive')
+    // Still nothing: waiting is the whole point.
+    expect(frameOf(host)).toBeNull()
+
+    deliver()
+    await settle()
+
+    const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
+    // The first run — not a later one — carries the faces, with the files in
+    // them, because nothing inside may go and get them.
+    expect(srcdoc).toContain('@font-face')
+    expect(srcdoc).toContain('data:font/woff2;base64,')
+    expect(srcdoc).not.toContain('fonts.gstatic.com')
+    click(host, 'exit-interactive')
+  })
+
+  it('slår gjennom en temaendring ved neste kjøring, uten å røre den lagrede filen', async () => {
     const before = deck()
-    const host = mount(before)
+    const host = await mount(before)
     click(host, 'activate-interactive')
     expect(frameOf(host)!.getAttribute('srcdoc')).toContain(escapeHtmlAttribute(ACCENT))
     click(host, 'exit-interactive')
@@ -321,7 +403,7 @@ describe('flaten som kan starte appen', () => {
       slides: [{ ...sectionAt(before, 0), accentColor: '#7d3cff' }, before.slides[1]],
     }
     expect(appSlide(recoloured)).toEqual(appSlide(before))
-    rerender(recoloured)
+    await rerender(recoloured)
 
     click(host, 'activate-interactive')
     const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
@@ -333,16 +415,16 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('bygger ikke dokumentet på nytt under en app som kjører', () => {
+  it('bygger ikke dokumentet på nytt under en app som kjører', async () => {
     // A theme change while the app runs must not restart it: the design is
     // captured with the run and picked up by the next one.
     const before = deck()
-    const host = mount(before)
+    const host = await mount(before)
     click(host, 'activate-interactive')
     const running = frameOf(host)
     const srcdoc = running!.getAttribute('srcdoc')
 
-    rerender({
+    await rerender({
       ...before,
       slides: [{ ...sectionAt(before, 0), accentColor: '#7d3cff' }, before.slides[1]],
     })
@@ -352,8 +434,8 @@ describe('flaten som kan starte appen', () => {
     click(host, 'exit-interactive')
   })
 
-  it('slipper låsen når flaten forsvinner mens appen kjører', () => {
-    const host = mount(deck())
+  it('slipper låsen når flaten forsvinner mens appen kjører', async () => {
+    const host = await mount(deck())
     click(host, 'activate-interactive')
     expect(isInteractiveRuntimeActive()).toBe(true)
     act(() => root!.unmount())

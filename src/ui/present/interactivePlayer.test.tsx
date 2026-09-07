@@ -19,6 +19,7 @@ import { createInteractiveSlide, createPresentation } from '../../domain/present
 import { buildSharedSnapshot } from '../../domain/sharing'
 import { sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
+import { resetInlinedFontCache } from '../../fonts/inlineFaces'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { INTERACTIVE_SANDBOX_FLAGS } from '../interactive/sandboxDocument'
 import { PresentationPlayer } from './PresentationPlayer'
@@ -35,11 +36,13 @@ const APP = '<!doctype html><html><body><p>Teller</p></body></html>'
  * code is written to survive: the app is drawn in the fallback stack.
  */
 beforeEach(() => {
+  resetInlinedFontCache()
   vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ingen nettverk i test'))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  resetInlinedFontCache()
 })
 
 function deck(): Presentation {
@@ -77,7 +80,26 @@ afterEach(() => {
   expect(isInteractiveRuntimeActive()).toBe(false)
 })
 
-function mount(onExit: ((slideId: string) => void) | null): HTMLElement {
+/**
+ * A turn of the event loop inside `act`, which is longer than any promise
+ * chain: the font request is refused above, but refusal is still asynchronous.
+ */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/**
+ * A page that has finished arriving.
+ *
+ * A cover asks for the theme's faces as soon as it is drawn, so that a press
+ * on play does not have to wait for them. A turn of the event loop inside
+ * `act` is that whole wait here — the request above is refused, but refusal is
+ * still asynchronous, and the press below is a press by somebody who has had
+ * time to aim.
+ */
+async function mount(onExit: ((slideId: string) => void) | null): Promise<HTMLElement> {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -85,7 +107,19 @@ function mount(onExit: ((slideId: string) => void) | null): HTMLElement {
   // The shared view's deck is a snapshot, not the private document.
   const shared = buildSharedSnapshot(deck())
   act(() => root!.render(<PresentationPlayer deck={shared} shareUrl={null} onExit={onExit} />))
-  return container
+  await settle()
+  return container!
+}
+
+/**
+ * Turn to the interactive page and let its cover finish arriving.
+ *
+ * The cover asks for the theme's faces when it is drawn — here, when the deck
+ * is turned to it — so that a press on play does not have to wait for them.
+ */
+async function toInteractivePage(): Promise<void> {
+  press('ArrowRight')
+  await settle()
 }
 
 function pageOf(host: HTMLElement): number {
@@ -105,10 +139,10 @@ function click(host: HTMLElement, testId: string): void {
 }
 
 describe('en interaktiv slide i spilleren, uten vei ut (den delte visningen)', () => {
-  it('kan startes fra forsidens knapp, og eier tastaturet og klikkene mens den kjører', () => {
-    const host = mount(null)
+  it('kan startes fra forsidens knapp, og eier tastaturet og klikkene mens den kjører', async () => {
+    const host = await mount(null)
     expect(pageOf(host)).toBe(1)
-    press('ArrowRight')
+    await toInteractivePage()
     expect(pageOf(host)).toBe(2)
 
     // On the player the cover's button is real, and nothing runs before it.
@@ -140,9 +174,9 @@ describe('en interaktiv slide i spilleren, uten vei ut (den delte visningen)', (
     expect(pageOf(host)).toBe(3)
   })
 
-  it('kan startes på nytt etter avslutning, som en ny kjøring', () => {
-    const host = mount(null)
-    press('ArrowRight')
+  it('kan startes på nytt etter avslutning, som en ny kjøring', async () => {
+    const host = await mount(null)
+    await toInteractivePage()
     click(host, 'activate-interactive')
     const first = host.querySelector('[data-testid="interactive-frame"]')
     click(host, 'exit-interactive')
@@ -155,10 +189,10 @@ describe('en interaktiv slide i spilleren, uten vei ut (den delte visningen)', (
 })
 
 describe('en interaktiv slide i spilleren, med vei ut (presentasjonsmodus)', () => {
-  it('lar ikke Escape avslutte presentasjonen mens appen kjører', () => {
+  it('lar ikke Escape avslutte presentasjonen mens appen kjører', async () => {
     const exits: string[] = []
-    const host = mount((slideId) => exits.push(slideId))
-    press('ArrowRight')
+    const host = await mount((slideId) => exits.push(slideId))
+    await toInteractivePage()
     click(host, 'activate-interactive')
 
     press('Escape')

@@ -31,6 +31,16 @@ import {
 import { InteractiveRuntime } from './InteractiveRuntime'
 
 /**
+ * The longest a press on «Aktiver miniapp» waits for the theme's faces.
+ *
+ * Short, because it is only ever reached when somebody pressed play in the
+ * moment between the cover appearing and the fetch finishing. Past it the app
+ * starts in the fallback stack, which is what a deck set in a local font gets
+ * anyway.
+ */
+const FONT_WAIT_MS = 1500
+
+/**
  * One activation: which run it is, and *what* was running.
  *
  * The slide and the source are remembered with the token so that "is this
@@ -74,15 +84,19 @@ export function InteractiveSlideSurface({
   const colors = useSectionColorsFor(slide.id)
   const [session, setSession] = useState<Session | null>(null)
   /**
-   * The theme's faces, as bytes.
+   * The theme's faces, as bytes: the request, and its answer once it has one.
    *
    * Asked for when a cover that *could* be started appears rather than when
    * one is, so the fetch — normally a hit in the browser's own cache, since
    * the page loaded the same family — is long finished before anybody presses
-   * play. Empty until then, and empty forever if it fails: see
-   * `interactiveFontCss`.
+   * play. But «normally» is not a rule, and a run that started a moment too
+   * early would be drawn in the fallback face while the deck around it is not:
+   * a race, not a failure, and the one thing the whole font path exists to
+   * prevent. So the promise is kept as well as its answer, and activation
+   * waits for it — see `activate`.
    */
-  const [fontCss, setFontCss] = useState('')
+  const fontRequest = useRef<Promise<string> | null>(null)
+  const [fontCss, setFontCss] = useState<string | null>(null)
   const sessions = useRef(0)
   const hostRef = useRef<HTMLDivElement>(null)
   const restoreFocus = useRef(false)
@@ -94,7 +108,9 @@ export function InteractiveSlideSurface({
   const bodyFont = theme.bodyFontFamily
   useEffect(() => {
     let cancelled = false
-    void interactiveFontCss([headingFont, bodyFont]).then((css) => {
+    const request = interactiveFontCss([headingFont, bodyFont])
+    fontRequest.current = request
+    void request.then((css) => {
       if (!cancelled) setFontCss(css)
     })
     return () => {
@@ -102,23 +118,52 @@ export function InteractiveSlideSurface({
     }
   }, [headingFont, bodyFont])
 
+  const start = useCallback(
+    (faces: string) => {
+      setSession((current) => {
+        if (isLive(current, slide)) return current
+        sessions.current += 1
+        return {
+          token: sessions.current,
+          slideId: slide.id,
+          html: slide.html,
+          styleCss: interactiveDocumentStyle({
+            theme,
+            colors,
+            contract: slide.styleContract,
+            fontCss: faces,
+          }),
+        }
+      })
+    },
+    [slide, theme, colors],
+  )
+
+  /**
+   * Start the app, in the deck's real type.
+   *
+   * Immediately when the faces are in hand, which is the ordinary case — they
+   * were asked for when this cover appeared. When they are not, the press
+   * waits for the request rather than starting a run that would be drawn in
+   * the fallback face: the frame cannot fetch a font itself, so a run that
+   * began without them keeps the wrong type for as long as it lasts.
+   *
+   * The wait is bounded twice over — the request has its own deadline, and
+   * this will not hold a press longer than `FONT_WAIT_MS` whatever the
+   * network is doing. A real failure still starts the app; it is the *race*
+   * this closes, not the failure, which the fallback stack already handles.
+   */
   const activate = useCallback(() => {
-    setSession((current) => {
-      if (isLive(current, slide)) return current
-      sessions.current += 1
-      return {
-        token: sessions.current,
-        slideId: slide.id,
-        html: slide.html,
-        styleCss: interactiveDocumentStyle({
-          theme,
-          colors,
-          contract: slide.styleContract,
-          fontCss,
-        }),
-      }
-    })
-  }, [slide, theme, colors, fontCss])
+    if (fontCss !== null) {
+      start(fontCss)
+      return
+    }
+    const pending = fontRequest.current ?? Promise.resolve('')
+    void Promise.race([
+      pending,
+      new Promise<string>((resolve) => setTimeout(() => resolve(''), FONT_WAIT_MS)),
+    ]).then(start)
+  }, [fontCss, start])
 
   const exit = useCallback(() => {
     restoreFocus.current = true

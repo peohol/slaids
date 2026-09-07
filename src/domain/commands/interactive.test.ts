@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from '../constants'
 import { interactiveHtmlBytesIn } from '../interactive'
-import { createPresentation } from '../presentation'
+import { createInteractiveSlide, createPresentation } from '../presentation'
 import { titleDoc } from '../richdoc'
 import { htmlOfBytes, interactiveAt } from '../testDecks'
 import type { Presentation } from '../types'
@@ -277,6 +277,37 @@ describe('de vanlige slide-kommandoene', () => {
     const copy = interactiveAt(after, 3)
     expect(copy.id).not.toBe(original.id)
     expect(copy).toMatchObject({ name: original.name, fileName: original.fileName, html: original.html })
+  })
+
+  it('kan ikke duplisere seg forbi budsjettet', () => {
+    // The hole this closes: duplication does not go through
+    // `addInteractiveSlide`, so a rule the *command* remembered would not have
+    // covered it — and a deck that duplicated its way over the budget would be
+    // a deck that saves and then refuses to open again.
+    const presentation = filledToBudget()
+    const last = interactiveAt(presentation, presentation.slides.length - 1)
+    expect(refused(duplicateSlide(presentation, last.id))).toBe('INTERACTIVE_BUDGET_EXCEEDED')
+
+    // The rule is about miniapp source, not about slides: an ordinary slide
+    // still duplicates in a deck that is full of apps.
+    expect(duplicateSlide(presentation, presentation.slides[1].id).ok).toBe(true)
+  })
+
+  it('lar et dekk som allerede er over budsjettet redigeres ned igjen', () => {
+    // Only reachable through a bug or a hand-written file, and then the rule
+    // must be «do not make it worse» rather than «no edits»: a deck nobody can
+    // shrink is a deck whose owner can only delete it.
+    const presentation = filledToBudget()
+    const extra = createInteractiveSlide({
+      name: 'For mye',
+      fileName: 'for-mye.html',
+      html: htmlOfBytes(1024),
+    })
+    const over: Presentation = { ...presentation, slides: [...presentation.slides, extra] }
+
+    expect(refused(duplicateSlide(over, extra.id))).toBe('INTERACTIVE_BUDGET_EXCEEDED')
+    expect(deleteSlide(over, extra.id).ok).toBe(true)
+    expect(moveSlide(over, extra.id, 1).ok).toBe(true)
   })
 
   it('flytter en interaktiv slide som enhver annen, men aldri foran forsiden', () => {

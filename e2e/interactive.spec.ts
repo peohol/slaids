@@ -423,6 +423,40 @@ test.describe('temaet i miniappen', () => {
     await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
   })
 
+  test('en treg fontlast får play-knappen til å vente, ikke til å starte i feil font', async ({
+    page,
+  }) => {
+    // The race the font path exists to prevent: the cover appears, the fetch
+    // starts, and somebody presses play before it lands. The frame cannot go
+    // and get a font itself, so a run that began without the faces keeps the
+    // wrong type for as long as it lasts.
+    await page.route('https://fonts.googleapis.com/**', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/css',
+        body: "@font-face{font-family:'Quicksand';font-style:normal;font-weight:400;src:url(https://fonts.gstatic.com/s/quicksand/v1/face.ttf) format('truetype');}",
+      })
+    })
+    await page.route('https://fonts.gstatic.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'font/ttf', body: Buffer.from([0, 1, 0, 0]) }),
+    )
+
+    await createPresentation(page, 'Treg font')
+    await addCounterSlide(page)
+
+    // Straight from the dialog to play, with no pause for the fetch.
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    await expect(page.getByTestId('interactive-frame')).toBeVisible()
+
+    // The very first run has the faces in it, not a document that will never
+    // get them.
+    const srcdoc = await page.getByTestId('interactive-frame').getAttribute('srcdoc')
+    expect(srcdoc).toContain('@font-face')
+    expect(srcdoc).toContain('url(data:font/ttf;base64,')
+    await page.getByRole('button', { name: 'Avslutt miniapp' }).click()
+  })
+
   test('en ny seksjonsfarge slår gjennom neste gang, uten å røre den lagrede filen', async ({
     page,
   }) => {

@@ -654,6 +654,54 @@ describe('binær opplasting', () => {
       expect(slide).toMatchObject({ kind: 'interactive', html })
     })
 
+    it('kan settes inn på en oppgitt posisjon, med tallet i query-strengen', async () => {
+      // The raw body is the file, so every other field rides in the query
+      // string — as text. A whole number sent that way is still a whole
+      // number: the field says so, and the transport keeps its promise not to
+      // guess types on anybody's behalf.
+      const api = harness()
+      const { id } = await newPresentation(api)
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}` +
+            `&fileName=teller.html&index=1`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html' },
+            body: new TextEncoder().encode('<p>teller</p>') as unknown as BodyInit,
+          },
+        ),
+      )
+      const body = (await response.json()) as Record<string, unknown>
+      expect(response.status).toBe(200)
+      expect(dataOf(body)).toMatchObject({ index: 1, kind: 'interactive' })
+
+      const stored = await api.context.repository.loadPresentation(id)
+      expect(stored.slides.map((slide) => slide.kind)).toEqual(['section', 'interactive', 'content'])
+    })
+
+    it('avviser en posisjon som ikke er et tall, i stedet for å gjette', async () => {
+      const api = harness()
+      const { id } = await newPresentation(api)
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}` +
+            `&fileName=teller.html&index=sist`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html' },
+            body: new TextEncoder().encode('<p>teller</p>') as unknown as BodyInit,
+          },
+        ),
+      )
+      expect(response.status).toBe(400)
+      expect(errorOf((await response.json()) as Record<string, unknown>).code).toBe('INVALID_INPUT')
+    })
+
     it('avviser en fil som ikke er gyldig UTF-8, gjennom den samme døren som opplastingsdialogen', async () => {
       const api = harness()
       const { id } = await newPresentation(api)

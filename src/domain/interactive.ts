@@ -304,6 +304,30 @@ export function interactiveBudgetRefusal(
   )
 }
 
+/**
+ * Whether a rebuilt deck may be committed, as far as the budget is concerned.
+ *
+ * The question a slide *list* asks, rather than the one a single new file asks
+ * — see `interactiveBudgetRefusal` for that. It is not «is this within the
+ * budget» but «is this within the budget, or at least no worse than what is
+ * already stored»: a document that got over the line some other way must still
+ * be editable down to size, and a rule that refused every edit to it would
+ * leave its owner with nothing to do but delete the deck.
+ */
+export function interactiveBudgetRegression(
+  before: InteractiveDeck,
+  after: InteractiveDeck,
+): Refusal | null {
+  const held = interactiveHtmlBytesIn(before)
+  const wanted = interactiveHtmlBytesIn(after)
+  if (wanted <= MAX_INTERACTIVE_HTML_TOTAL_BYTES || wanted <= held) return null
+  return err(
+    'INTERACTIVE_BUDGET_EXCEEDED',
+    `Presentasjonen kan holde ${formatByteSize(MAX_INTERACTIVE_HTML_TOTAL_BYTES)} miniapp-kilde til sammen. Denne endringen ville gjort den ${formatByteSize(wanted)}.`,
+    { byteSize: wanted, heldByteSize: held, maxTotalByteSize: MAX_INTERACTIVE_HTML_TOTAL_BYTES },
+  )
+}
+
 /** `1,5 MB`-style sizes for dialogs and messages. Binary units, like the limits. */
 export function formatByteSize(bytes: number): string {
   const mib = 1024 * 1024
