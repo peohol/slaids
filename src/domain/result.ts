@@ -22,6 +22,10 @@ export type DomainErrorCode =
   | 'CANNOT_DELETE_LAST_SLIDE'
   | 'NOT_A_CONTENT_SLIDE'
   | 'NOT_A_SECTION_SLIDE'
+  | 'NOT_AN_INTERACTIVE_SLIDE'
+  | 'INVALID_INTERACTIVE_FILE'
+  | 'INTERACTIVE_HTML_TOO_LARGE'
+  | 'INTERACTIVE_BUDGET_EXCEEDED'
   | 'FIRST_SLIDE_MUST_BE_SECTION'
   | 'REFERENCE_NOT_FOUND'
   | 'REFERENCE_INVALID'
@@ -46,15 +50,33 @@ export interface DomainError {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: DomainError }
 
+/**
+ * A refusal on its own.
+ *
+ * The return type of a check that answers «what is wrong with this?» rather
+ * than «what is this?»: `null` when nothing is, and otherwise a value that is
+ * still a `Result` and can be returned straight out of a command. Naming the
+ * half is what lets the caller read `refusal.error` without narrowing a union
+ * whose other branch it has already ruled out.
+ */
+export type Refusal = Extract<Result<never>, { ok: false }>
+
 export function ok<T>(value: T): Result<T> {
   return { ok: true, value }
 }
 
-export function err<T = never>(
+/**
+ * A refusal, typed as one.
+ *
+ * The narrow half rather than `Result<T>`: a refusal is assignable to every
+ * `Result`, so a command still returns it directly, and a caller that holds one
+ * can read `error` without narrowing away a success branch that cannot exist.
+ */
+export function err(
   code: DomainErrorCode,
   message: string,
   details?: Record<string, unknown>,
-): Result<T> {
+): Refusal {
   return { ok: false, error: details ? { code, message, details } : { code, message } }
 }
 
@@ -74,8 +96,12 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   SLIDE_NOT_FOUND: 'Fant ikke sliden.',
   SLIDE_INDEX_OUT_OF_RANGE: 'Ugyldig slideposisjon.',
   CANNOT_DELETE_LAST_SLIDE: 'Presentasjonen må ha minst én slide.',
-  NOT_A_CONTENT_SLIDE: 'Seksjonsslides har ingen soner.',
+  NOT_A_CONTENT_SLIDE: 'Sliden har ingen soner.',
   NOT_A_SECTION_SLIDE: 'Sliden er ikke en seksjon.',
+  NOT_AN_INTERACTIVE_SLIDE: 'Sliden er ikke en interaktiv slide.',
+  INVALID_INTERACTIVE_FILE: 'Filen kan ikke brukes som miniapp.',
+  INTERACTIVE_HTML_TOO_LARGE: 'HTML-filen er for stor.',
+  INTERACTIVE_BUDGET_EXCEEDED: 'Presentasjonen har ikke plass til flere miniapper.',
   FIRST_SLIDE_MUST_BE_SECTION: 'Første slide må være en seksjon.',
   REFERENCE_NOT_FOUND: 'Fant ikke referansen.',
   REFERENCE_INVALID: 'Referansen må ha minst tittel, forfatter eller lenke.',

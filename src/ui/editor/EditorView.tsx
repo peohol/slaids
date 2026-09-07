@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/core'
 import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import {
+  addInteractiveSlide,
   addSection,
   addSlide,
   canAcceptContent,
@@ -56,6 +57,7 @@ import {
 } from '../../domain/layout'
 import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
+import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
@@ -65,6 +67,7 @@ import { domFitCheckers, overflowingCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
+import type { InteractiveSource } from '../../domain/interactive'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -73,12 +76,15 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { SectionInspector } from './SectionInspector'
 import { SectionStage } from './SectionStage'
+import { InteractiveInspector } from './InteractiveInspector'
+import { InteractiveStage } from './InteractiveStage'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
+import { NewInteractiveModal } from './NewInteractiveModal'
 import { NewSectionModal } from './NewSectionModal'
 import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
@@ -157,6 +163,7 @@ export function EditorView({
   const [splitOpen, setSplitOpen] = useState(false)
   const [newSlideOpen, setNewSlideOpen] = useState(false)
   const [newSectionOpen, setNewSectionOpen] = useState(false)
+  const [newInteractiveOpen, setNewInteractiveOpen] = useState(false)
   const [referencesOpen, setReferencesOpen] = useState(false)
   /** Reference to scroll to and highlight when the list is opened from a pill. */
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
@@ -352,16 +359,18 @@ export function EditorView({
     [presentation, currentSlideId],
   )
   /*
-   * The two kinds, named once.
+   * The three kinds, named once.
    *
    * Everything about zones — the selection, the overlay, the zone tools, the
-   * clipboard, the sandbox drop targets — is about a slide that has them, and
-   * everything about pills and section colours is about one that does not.
-   * Deriving both here means the rest of the view says which it means instead
-   * of re-testing `slide.kind` at every use.
+   * clipboard, the sandbox drop targets — is about a slide that has them,
+   * everything about pills and section colours is about a section, and a
+   * miniapp's name and file are an interactive slide's. Deriving all three
+   * here means the rest of the view says which it means instead of re-testing
+   * `slide.kind` at every use.
    */
   const contentSlide = slide?.kind === 'content' ? slide : null
   const section = slide?.kind === 'section' ? slide : null
+  const interactive = slide?.kind === 'interactive' ? slide : null
   /** The accent in force here — for chrome drawn outside the slide's own box. */
   const currentAccent =
     presentation && currentSlideId
@@ -606,6 +615,40 @@ export function EditorView({
     [currentSlideId, run],
   )
 
+  /**
+   * Insert an interactive slide after the current slide and move to it.
+   *
+   * The file has already passed the door in the dialog; the command checks it
+   * again — the same rules, it is cheap — and the deck-wide budget, and a
+   * refusal leaves the dialog open with the reason on screen. A slide is
+   * created only when the command says yes, so a cancelled or refused dialog
+   * never leaves an empty one behind.
+   */
+  const insertInteractive = useCallback(
+    (source: InteractiveSource, name: string) => {
+      const current = useEditorStore.getState().presentation
+      if (!current) return false
+      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
+      const insertAt = index >= 0 ? index + 1 : current.slides.length
+      const created = run('add-interactive', (presentationState) =>
+        addInteractiveSlide(presentationState, {
+          index: insertAt,
+          name,
+          fileName: source.fileName,
+          html: source.html,
+        }),
+      )
+      if (!created) return false
+      const next = useEditorStore.getState().presentation?.slides[insertAt]
+      if (next) {
+        setDerivedView(null)
+        useEditorStore.getState().selectSlide(next.id)
+      }
+      return true
+    },
+    [currentSlideId, run],
+  )
+
   const createSlideFromTemplate = useCallback(
     (template: LayoutTemplate) => {
       insertSlide(template.hasTitle, cloneSubtreeWithNewIds(template.root))
@@ -620,6 +663,10 @@ export function EditorView({
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (presenting) return
+      // A running miniapp owns the keyboard: no paging, no zone walking, no
+      // undo, no F5 — and no `preventDefault`, so a key on Slaids' own exit
+      // button is still a press on that button.
+      if (isInteractiveRuntimeActive()) return
       const target = event.target as HTMLElement | null
       const typing =
         target?.isContentEditable ||
@@ -787,6 +834,8 @@ export function EditorView({
     let lastStepAt = 0
     const onWheel = (event: WheelEvent): void => {
       if (presenting) return
+      // Over a running miniapp the wheel is the app's, whatever it is over.
+      if (isInteractiveRuntimeActive()) return
       const target = event.target instanceof Element ? event.target : null
       if (!target?.closest('[data-testid="stage-viewport"]')) return
       event.preventDefault()
@@ -1068,6 +1117,7 @@ export function EditorView({
               onRequestDelete={setDeletingSlide}
               onRequestNewSlide={() => setNewSlideOpen(true)}
               onRequestNewSection={() => setNewSectionOpen(true)}
+              onRequestNewInteractive={() => setNewInteractiveOpen(true)}
             />
             {viewedDerivedPage ? (
               <ReadOnlySlideStage
@@ -1076,6 +1126,13 @@ export function EditorView({
               />
             ) : section ? (
               <SectionStage section={section} />
+            ) : interactive ? (
+              // Keyed by the slide, so moving between two interactive slides
+              // replaces the surface — and closes whatever was running on it.
+              // The stage and the inspector are siblings in one list, so the
+              // two keys must differ: React keys siblings by key alone, and
+              // two children under one key leave one of them never removed.
+              <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} />
             ) : contentSlide ? (
               <EditorStage
                 slide={contentSlide}
@@ -1103,6 +1160,8 @@ export function EditorView({
               </aside>
             ) : section ? (
               <SectionInspector section={section} />
+            ) : interactive ? (
+              <InteractiveInspector key={`inspector:${interactive.id}`} slide={interactive} />
             ) : contentSlide ? (
               <Inspector
                 // Remounting per selection drops any half-finished panel
@@ -1175,6 +1234,12 @@ export function EditorView({
           if (created) setNewSectionOpen(false)
           return created
         }}
+      />
+
+      <NewInteractiveModal
+        open={newInteractiveOpen}
+        onOpenChange={setNewInteractiveOpen}
+        onCreate={insertInteractive}
       />
 
       <ReferenceModal

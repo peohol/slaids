@@ -566,6 +566,37 @@ const migrate12to13: MigrationFn = (data) => {
   }
 }
 
+/**
+ * Interactive slides become a slide kind.
+ *
+ * Nothing in a stored deck changes shape: a v13 document holds sections and
+ * content slides, and both are exactly what they were. What the version
+ * carries is the *vocabulary* — from here a deck may contain
+ * `kind: 'interactive'`, and a Slaids that only knows v13 refuses such a
+ * document by version, with the message that says so, rather than by tripping
+ * over a slide kind it has never heard of halfway through validation.
+ */
+const migrate13to14: MigrationFn = (data) => ({ ...data, schemaVersion: 14 })
+
+/**
+ * v14 → v15: an interactive slide says which design contract it was written
+ * against.
+ *
+ * Every slide that exists was written against the first one, so that is what
+ * they get. The field exists so the *next* change to what an unstyled miniapp
+ * looks like can leave these alone: a slide keeps the contract it names, and
+ * nothing about the stored file changes. See `INTERACTIVE_STYLE_CONTRACTS`.
+ */
+const migrate14to15: MigrationFn = (data) => ({
+  ...data,
+  slides: asArray(data.slides).map((slide) => {
+    const row = (slide ?? {}) as Raw
+    if (row.kind !== 'interactive') return slide
+    return { ...row, styleContract: row.styleContract ?? 1 }
+  }),
+  schemaVersion: 15,
+})
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -581,6 +612,8 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   10: migrate10to11,
   11: migrate11to12,
   12: migrate12to13,
+  13: migrate13to14,
+  14: migrate14to15,
 }
 
 /**

@@ -30,7 +30,7 @@ import {
   setSlideHasTitle,
   setSlideTitle,
 } from '../../domain/commands'
-import { findSlide } from '../../domain/presentation'
+import { findContentSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { Presentation } from '../../domain/types'
 import {
@@ -52,7 +52,7 @@ export interface SlidePlacement {
   slideCount: number
 }
 
-function placement(presentation: Presentation, slideId: string): SlidePlacement {
+export function placement(presentation: Presentation, slideId: string): SlidePlacement {
   return {
     presentationId: presentation.id,
     slideId,
@@ -68,7 +68,7 @@ function placement(presentation: Presentation, slideId: string): SlidePlacement 
  * command owns where a slide lands, and a wrapper that re-derives it would be a
  * second, silently drifting copy of that rule.
  */
-function addedSlideId(before: Presentation, after: Presentation): string | null {
+export function addedSlideId(before: Presentation, after: Presentation): string | null {
   const known = new Set(before.slides.map((slide) => slide.id))
   return after.slides.find((slide) => !known.has(slide.id))?.id ?? null
 }
@@ -218,7 +218,9 @@ export const setSlideTitleOperation = defineOperation({
 
       // Alignment is carried over unless the caller says otherwise: an agent
       // asked to change the words has not asked to un-centre the line.
-      const slide = findSlide(presentation, input.slideId)
+      // Only a content slide has a title zone to read the alignment off; the
+      // command below answers for any other kind with its own refusal.
+      const slide = findContentSlide(presentation, input.slideId)
       const align = input.align ?? docToTitleAlign(slide?.title)
 
       // The title zone is one line at a fixed height: too long is refused, never

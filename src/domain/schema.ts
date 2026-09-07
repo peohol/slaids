@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from './metrics'
 import {
+  INTERACTIVE_STYLE_CONTRACTS,
   MAX_SPLIT_CHILDREN,
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
@@ -16,9 +17,10 @@ import {
 } from './constants'
 import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
+import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactive'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 15
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -162,9 +164,35 @@ export const sectionSlideSchema = z.object({
   backgroundColor: hexColor,
 })
 
+/**
+ * An interactive slide.
+ *
+ * Strings and nothing else: no layout tree, no title zone, no colours of its
+ * own — it is drawn in the governing section's. `html` is a bounded field for
+ * exactly this kind, never an extension of the rich-text model.
+ *
+ * The shape is here; what the strings may *contain* is
+ * `storedInteractiveRefusal` in `domain/interactive.ts`, asked by
+ * `validatePresentation` below in the same breath as the layout-tree
+ * invariants. Both halves are checked on every load, and neither is restated:
+ * a stored slide meets exactly what a command demands because it is asked the
+ * command's own question.
+ */
+export const interactiveSlideSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal('interactive'),
+  name: z.string(),
+  fileName: z.string(),
+  html: z.string(),
+  /* Read from the list rather than written out, so adding a version is one
+     edit in `constants.ts` and not two that can disagree. */
+  styleContract: z.literal([...INTERACTIVE_STYLE_CONTRACTS]),
+})
+
 export const slideSchema = z.discriminatedUnion('kind', [
   contentSlideSchema,
   sectionSlideSchema,
+  interactiveSlideSchema,
 ])
 
 export const themeSchema = z.object({
@@ -294,11 +322,25 @@ export function validatePresentation(input: unknown): SchemaResult<Presentation>
 
   const issues: ValidationIssue[] = []
   parsed.data.slides.forEach((slide, index) => {
+    if (slide.kind === 'interactive') {
+      const refusal = storedInteractiveRefusal(slide)
+      if (refusal) issues.push({ path: `slides.${index}`, message: refusal.error.message })
+      return
+    }
     if (slide.kind !== 'content') return
     for (const violation of validateTree(slide.root)) {
       issues.push({ path: `slides.${index}.root.${violation.nodeId}`, message: violation.message })
     }
   })
+  /*
+   * The deck-wide budget, which no single slide can be measured against: every
+   * miniapp can be inside the per-file limit while the document as a whole is
+   * larger than the transports that have to carry it. A `.slaids` archive is
+   * the door this closes — it is written by hand as easily as by Slaids, and it
+   * reaches the repository without passing a command.
+   */
+  const overBudget = interactiveBudgetRefusal({ slides: parsed.data.slides }, 0)
+  if (overBudget) issues.push({ path: 'slides', message: overBudget.error.message })
   if (issues.length > 0) return { ok: false, issues }
   // The refinement above is what makes this cast a statement of fact rather
   // than a hope: a `slides` array that reached here opens with a section.

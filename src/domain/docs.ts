@@ -108,6 +108,8 @@ export function mapPresentationDocs(
       changed = true
       return { ...slide, title, root }
     },
+    // A miniapp's source is a file, not a document: no transform reaches it.
+    interactive: (slide) => slide,
   })
 
   const sandbox = presentation.sandbox.map((item) => {
@@ -191,6 +193,7 @@ export function remapAssetIds(
     // Only zones hold files, so only content slides can name one.
     section: (slide) => slide,
     content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, remapContent) }),
+    interactive: (slide) => slide,
   })
   const sandbox = presentation.sandbox.map((item) => ({
     ...item,
@@ -233,6 +236,7 @@ export function dropAssetIds(
     slides: mapDeckSlides(presentation.slides, {
       section: (slide) => slide,
       content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, drop) }),
+      interactive: (slide) => slide,
     }),
     sandbox: presentation.sandbox.map((item) => ({ ...item, content: drop(item.content) })),
     assets: presentation.assets.filter((asset) => !ids.has(asset.id)),

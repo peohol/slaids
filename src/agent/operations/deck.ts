@@ -23,8 +23,9 @@ import {
   hasCardTitle,
   imagePanelOf,
 } from '../../domain/content'
-import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
+import { DEFAULT_VERTICAL_ALIGN, type InteractiveStyleContract } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
+import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import { findSlide } from '../../domain/presentation'
@@ -96,7 +97,7 @@ export const listPresentations = defineOperation({
  * and a tree of zones, a section has a heading it always has and the two
  * colours it hands to the slides after it.
  */
-export type SlideSummary = ContentSlideSummary | SectionSlideSummary
+export type SlideSummary = ContentSlideSummary | SectionSlideSummary | InteractiveSlideSummary
 
 export interface ContentSlideSummary {
   slideId: string
@@ -119,6 +120,34 @@ export interface SectionSlideSummary {
   accentColor: string
   /** The page colour from here to the next section. */
   backgroundColor: string
+}
+
+/**
+ * An interactive slide, as a listing describes it.
+ *
+ * The name, the file's name and how big the file is — and never the source.
+ * A listing is read by every caller that holds `presentations:read`, and a
+ * megabyte of somebody's HTML in every `get_presentation` would make the
+ * overview unreadable long before it became a data question; the source is
+ * what `set_interactive_slide` takes in, not what a summary hands out.
+ */
+export interface InteractiveSlideSummary {
+  slideId: string
+  index: number
+  kind: 'interactive'
+  /** What the cover shows. */
+  name: string
+  fileName: string
+  /** The size of the stored source, in bytes of UTF-8. */
+  htmlByteSize: number
+  /**
+   * The design contract the file was written against.
+   *
+   * Here because it decides what the app inherits — which CSS variables it is
+   * given and what an unstyled element looks like. See
+   * `get_interactive_contract`.
+   */
+  styleContract: InteractiveStyleContract
 }
 
 export interface PresentationView {
@@ -146,23 +175,35 @@ export interface PresentationView {
 }
 
 function summarizeSlide(slide: Slide, index: number): SlideSummary {
-  if (slide.kind === 'section') {
-    return {
-      slideId: slide.id,
-      index,
-      kind: 'section',
-      title: docToPlainText(slide.title).trim(),
-      subtitle: docToPlainText(slide.subtitle).trim(),
-      accentColor: slide.accentColor,
-      backgroundColor: slide.backgroundColor,
-    }
-  }
-  return {
-    slideId: slide.id,
-    index,
-    kind: 'content',
-    hasTitle: slide.title !== null,
-    title: docToPlainText(slide.title),
+  switch (slide.kind) {
+    case 'section':
+      return {
+        slideId: slide.id,
+        index,
+        kind: 'section',
+        title: docToPlainText(slide.title).trim(),
+        subtitle: docToPlainText(slide.subtitle).trim(),
+        accentColor: slide.accentColor,
+        backgroundColor: slide.backgroundColor,
+      }
+    case 'interactive':
+      return {
+        slideId: slide.id,
+        index,
+        kind: 'interactive',
+        name: slide.name,
+        fileName: slide.fileName,
+        htmlByteSize: interactiveByteSize(slide),
+        styleContract: slide.styleContract,
+      }
+    case 'content':
+      return {
+        slideId: slide.id,
+        index,
+        kind: 'content',
+        hasTitle: slide.title !== null,
+        title: docToPlainText(slide.title),
+      }
   }
 }
 
@@ -350,7 +391,10 @@ export interface ZoneInspection {
  * them as "sometimes absent" would invite a caller to ask a section for its
  * layout and get `undefined` instead of an answer.
  */
-export type SlideInspection = ContentSlideInspection | SectionSlideInspection
+export type SlideInspection =
+  | ContentSlideInspection
+  | SectionSlideInspection
+  | InteractiveSlideInspection
 
 export interface ContentSlideInspection extends ContentSlideSummary {
   presentationId: string
@@ -368,6 +412,19 @@ export interface SectionSlideInspection extends SectionSlideSummary {
   /** Both lines as spans, for symmetry with a content slide's title. */
   titleSpans: TextSpan[]
   subtitleSpans: TextSpan[]
+}
+
+/**
+ * An interactive slide, inspected.
+ *
+ * Nothing beyond the summary: there are no zones to report and no text to
+ * read back, and the source stays out for the reason it stays out of the
+ * listing. What an agent learns here is enough to rename the slide, replace
+ * its file, move it, or leave it alone.
+ */
+export interface InteractiveSlideInspection extends InteractiveSlideSummary {
+  presentationId: string
+  revision: string
 }
 
 /**
@@ -483,6 +540,9 @@ export const inspectSlide = defineOperation({
         titleSpans: docToTitleSpans(slide.title),
         subtitleSpans: docToTitleSpans(slide.subtitle),
       })
+    }
+    if (summary.kind === 'interactive') {
+      return agentOk({ ...summary, presentationId: presentation.id, revision })
     }
     if (slide.kind !== 'content' || summary.kind !== 'content') {
       return agentErr('SLIDE_NOT_FOUND', 'Fant ikke sliden.', {

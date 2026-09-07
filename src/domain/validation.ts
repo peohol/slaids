@@ -23,7 +23,8 @@
 
 import { contentAssetIds, contentDocs } from './content'
 import { sectionOverflow, fitContextFor, slideOverflow } from './commands/fitGuard'
-import { FIT_TOLERANCE } from './constants'
+import { FIT_TOLERANCE, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
+import { interactiveHtmlBytesIn, storedInteractiveRefusal } from './interactive'
 import { collectLeaves, validateTree } from './layout'
 import { geometryForTheme } from './metrics'
 import { TITLE_NODE_ID, validateSlideGeometry } from './geometry'
@@ -53,6 +54,10 @@ export type InvariantCode =
   | 'TITLE_DOES_NOT_FIT'
   | 'ASSET_NOT_FOUND'
   | 'REFERENCE_NOT_FOUND'
+  /** The deck holds more miniapp source than the budget allows. */
+  | 'INTERACTIVE_BUDGET_EXCEEDED'
+  /** A stored interactive slide holds a file the commands would have refused. */
+  | 'INTERACTIVE_SOURCE_INVALID'
 
 /**
  * One problem, addressed the way a caller would act on it.
@@ -131,6 +136,26 @@ export function findSlideIssues(
   options: StructuralOptions = {},
 ): InvariantIssue[] {
   if (slide.kind === 'section') return findSectionIssues(presentation, slide, options)
+  /*
+   * An interactive slide has no zones, no text of the deck's and no files, so
+   * nothing below applies to it. What it does have is a file, and the one
+   * question worth asking about it is the one the commands ask on the way in —
+   * asked here of what a document already holds, so `validate_presentation`
+   * reports a slide a hand-written archive smuggled past them. The deck-wide
+   * budget is the presentation's, asked in `findPresentationIssues`.
+   */
+  if (slide.kind === 'interactive') {
+    const refusal = storedInteractiveRefusal(slide)
+    return refusal
+      ? [
+          {
+            code: 'INTERACTIVE_SOURCE_INVALID',
+            message: refusal.error.message,
+            details: { slideId: slide.id, fileName: slide.fileName },
+          },
+        ]
+      : []
+  }
 
   const issues: InvariantIssue[] = []
   const slideId = slide.id
@@ -286,6 +311,17 @@ export function findPresentationIssues(
 
   for (const slide of presentation.slides) {
     issues.push(...findSlideIssues(presentation, slide, options))
+  }
+
+  // Deck-wide by nature: every slide can be within its own limit while the deck
+  // as a whole is over the budget every transport is sized for.
+  const interactiveBytes = interactiveHtmlBytesIn(presentation)
+  if (interactiveBytes > MAX_INTERACTIVE_HTML_TOTAL_BYTES) {
+    issues.push({
+      code: 'INTERACTIVE_BUDGET_EXCEEDED',
+      message: 'Presentasjonen holder mer miniapp-kilde enn budsjettet tillater.',
+      details: { byteSize: interactiveBytes, maxTotalByteSize: MAX_INTERACTIVE_HTML_TOTAL_BYTES },
+    })
   }
 
   const knownAssets = new Set(presentation.assets.map((asset) => asset.id))

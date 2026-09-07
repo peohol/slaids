@@ -6,14 +6,18 @@ import {
   validatePresentation,
 } from './schema'
 import { detectSchemaVersion, migratePresentation } from './migrations'
-import { createPresentation } from './presentation'
+import { createInteractiveSlide, createPresentation } from './presentation'
 import { createTitledCard, createUntitledCard } from './content'
 import { docToPlainText, paragraphDoc, titleDoc } from './richdoc'
-import { DEFAULT_PILL_COLOR } from './constants'
+import {
+  DEFAULT_PILL_COLOR,
+  MAX_INTERACTIVE_HTML_BYTES,
+  MAX_INTERACTIVE_HTML_TOTAL_BYTES,
+} from './constants'
 import { FONT_SCALE_RANGE, NEUTRAL_SCALE, SPACING_RANGE } from './metrics'
 import { createLeaf, createSplit } from './layout'
 import type { Presentation, RichDoc } from './types'
-import { contentAt, sectionAt } from './testDecks'
+import { contentAt, htmlOfBytes, interactiveAt, sectionAt } from './testDecks'
 
 function sample(): Presentation {
   const presentation = createPresentation({ title: 'Prøve' })
@@ -765,5 +769,139 @@ describe('zone ratios in stored data', () => {
     const root = result.value?.root
     if (!root || root.kind !== 'split') throw new Error('expected a split')
     expect(root.weights).toEqual([2, 3])
+  })
+})
+
+describe('en interaktiv slide i lagret form', () => {
+  const APP =
+    '<!doctype html><html><body><p>Blåbær 🙂</p><script>let n = 0; // </script</script></body></html>'
+
+  function withApp(): Presentation {
+    const presentation = sample()
+    return {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        createInteractiveSlide({ name: 'Teller', fileName: 'teller.html', html: APP }),
+      ],
+    }
+  }
+
+  function withSource(html: string): Record<string, unknown> {
+    const presentation = withApp()
+    return {
+      ...presentation,
+      slides: [...presentation.slides.slice(0, 2), { ...interactiveAt(presentation, 2), html }],
+    }
+  }
+
+  it('valideres som den er, og leses tilbake byte for byte', () => {
+    const presentation = withApp()
+    const result = validatePresentation(JSON.parse(JSON.stringify(presentation)))
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.value) throw new Error('Dokumentet ble avvist.')
+    expect(interactiveAt(result.value, 2)).toEqual(interactiveAt(presentation, 2))
+  })
+
+  it('avvises med en ukjent slide-type', () => {
+    const presentation = withApp()
+    const broken = {
+      ...presentation,
+      slides: [...presentation.slides.slice(0, 2), { ...interactiveAt(presentation, 2), kind: 'widget' }],
+    }
+    expect(validatePresentation(broken).ok).toBe(false)
+  })
+
+  it('avvises med en tom eller for stor kilde, og godtas på grensen', () => {
+    expect(validatePresentation(withSource('')).ok).toBe(false)
+    expect(validatePresentation(withSource(htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES + 1))).ok).toBe(false)
+    expect(validatePresentation(withSource(htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES))).ok).toBe(true)
+  })
+
+  it('måler grensen i byte av UTF-8, ikke i tegn', () => {
+    const html = htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES + 3, 'æ')
+    expect(html.length).toBeLessThan(MAX_INTERACTIVE_HTML_BYTES)
+    expect(validatePresentation(withSource(html)).ok).toBe(false)
+  })
+
+  it('kan ikke stå først: forsiden er en seksjon også i lagret form', () => {
+    const presentation = withApp()
+    const broken = {
+      ...presentation,
+      slides: [interactiveAt(presentation, 2), ...presentation.slides.slice(0, 2)],
+    }
+    expect(validatePresentation(broken).ok).toBe(false)
+  })
+
+  /*
+   * The rule this closes: a stored or imported document may not hold an
+   * interactive slide the typed commands would have refused. A `.slaids`
+   * archive is written by hand as easily as by Slaids, and it reaches the
+   * repository without passing a command — so the load gate has to ask the
+   * command's own question. See `storedInteractiveRefusal`.
+   */
+  it('avviser et navn, et filnavn eller en kilde kommandoene ville avvist', () => {
+    const presentation = withApp()
+    const bad = (fields: Record<string, unknown>): Record<string, unknown> => ({
+      ...presentation,
+      slides: [...presentation.slides.slice(0, 2), { ...interactiveAt(presentation, 2), ...fields }],
+    })
+
+    expect(validatePresentation(bad({ name: '   ' })).ok).toBe(false)
+    expect(validatePresentation(bad({ name: 'x'.repeat(201) })).ok).toBe(false)
+    expect(validatePresentation(bad({ fileName: 'teller.txt' })).ok).toBe(false)
+    expect(validatePresentation(bad({ fileName: '  ' })).ok).toBe(false)
+    expect(validatePresentation(bad({ html: '<p>x</p>\u0000' })).ok).toBe(false)
+    expect(validatePresentation(bad({ html: 'bare tekst uten elementer' })).ok).toBe(false)
+
+    // And the ones a command would have accepted still open.
+    expect(validatePresentation(bad({ name: 'Et helt vanlig navn' })).ok).toBe(true)
+    expect(validatePresentation(bad({ fileName: 'QUIZ.HTML' })).ok).toBe(true)
+  })
+
+  it('avviser et dekk som holder mer miniapp-kilde enn budsjettet, uansett hvordan det ble skrevet', () => {
+    // Every file inside the per-file limit, the deck as a whole outside the
+    // budget: exactly the document a hand-written archive can hold and no
+    // command can produce.
+    const presentation = sample()
+    const count = Math.floor(MAX_INTERACTIVE_HTML_TOTAL_BYTES / MAX_INTERACTIVE_HTML_BYTES) + 1
+    const overBudget = {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        ...Array.from({ length: count }, (_, index) =>
+          createInteractiveSlide({
+            name: `App ${index}`,
+            fileName: `app-${index}.html`,
+            html: htmlOfBytes(MAX_INTERACTIVE_HTML_BYTES),
+          }),
+        ),
+      ],
+    }
+    const result = validatePresentation(overBudget)
+    expect(result.ok).toBe(false)
+    expect(result.issues.some((issue) => /budsjett|plass/i.test(issue.message))).toBe(true)
+
+    // One file fewer is the same deck within the budget, and it opens.
+    expect(
+      validatePresentation({ ...overBudget, slides: overBudget.slides.slice(0, -1) }).ok,
+    ).toBe(true)
+  })
+
+  it('åpner et dokument fra før typen fantes, uendret, som gjeldende versjon', () => {
+    const stored = { ...sample(), schemaVersion: 13 }
+    const result = migratePresentation(JSON.parse(JSON.stringify(stored)))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(result.value.slides).toEqual(stored.slides)
+  })
+
+  it('bærer en interaktiv slide gjennom migreringskjeden uten å røre kilden', () => {
+    const presentation = withApp()
+    const result = migratePresentation(JSON.parse(JSON.stringify(presentation)))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(interactiveAt(result.value, 2).html).toBe(APP)
   })
 })

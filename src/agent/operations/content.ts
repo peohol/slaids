@@ -55,7 +55,7 @@ import {
   slideIdSchema,
   subfieldIdSchema,
 } from '../operation'
-import { applySteps, mutatePresentation, structuralOptions } from '../presentation'
+import { applySteps, mutatePresentation, structuralOptions, type Mutation } from '../presentation'
 import {
   alignSchema,
   blocksToDoc,
@@ -81,7 +81,7 @@ function findZone(
     // Told apart, because the caller's next move is: an unknown id is a mistake
     // about which deck this is, a section is a mistake about which page.
     return findSlide(presentation, slideId)
-      ? err('NOT_A_CONTENT_SLIDE', 'Seksjonsslides har ingen soner.')
+      ? err('NOT_A_CONTENT_SLIDE', 'Sliden har ingen soner.')
       : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
   }
   const leaf = findLeaf(slide.root, nodeId)
@@ -116,6 +116,17 @@ function textBodyOf(content: ZoneContent): Result<CardBody> {
  * set_zone_text
  * ------------------------------------------------------------------ */
 
+/**
+ * Where the text ended up: the field it was written to, or `null` when the zone
+ * was empty and a container was made for it.
+ */
+interface ZoneTextView {
+  presentationId: string
+  slideId: string
+  nodeId: string
+  subfieldId: string | null
+}
+
 export const setZoneText = defineOperation({
   name: 'set_zone_text',
   summary:
@@ -132,8 +143,8 @@ export const setZoneText = defineOperation({
       .describe('Hvilket tekstfelt i sonen. Utelatt betyr det første, som er det vanlige.'),
     blocks: textBlocksSchema,
   }),
-  run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string; nodeId: string; subfieldId: string | null }>> {
-    return mutatePresentation(context, input, (presentation) => {
+  run(context, input): Promise<AgentResult<ZoneTextView>> {
+    return mutatePresentation(context, input, (presentation): Result<Mutation<ZoneTextView>> => {
       const unknown = unknownReferenceIds(presentation, citedIdsInBlocks(input.blocks))
       if (unknown.length > 0) {
         return err('REFERENCE_NOT_FOUND', 'Teksten siterer referanser som ikke finnes.', {
@@ -448,8 +459,8 @@ export const setVerticalAlignment = defineOperation({
       .describe('Tekstfeltet som justeres. Utelatt betyr det første, eller filen hvis sonen viser en.'),
     align: z.enum(['top', 'middle', 'bottom']),
   }),
-  run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string; nodeId: string; subfieldId: string | null }>> {
-    return mutatePresentation(context, input, (presentation) => {
+  run(context, input): Promise<AgentResult<ZoneTextView>> {
+    return mutatePresentation(context, input, (presentation): Result<Mutation<ZoneTextView>> => {
       const zone = findZone(presentation, input.slideId, input.nodeId)
       if (!zone.ok) return zone
       if (!zone.value.content) return err('TARGET_EMPTY', 'Sonen har ikke innhold.')

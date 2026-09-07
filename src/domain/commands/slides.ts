@@ -14,7 +14,9 @@ import {
   contentSlide,
   createLeaf,
   geometryFor,
+  insertionIndex,
   subtreeFitsHelper,
+  withSlides,
 } from './internal'
 import { withQuantizedRatios } from '../layout'
 import {
@@ -28,7 +30,7 @@ import { FIT_TOLERANCE } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
 import {
-  asDeckSlides,
+  createInteractiveSlide,
   createPresentation,
   createSection,
   createSlide,
@@ -41,25 +43,6 @@ import type { CreatePresentationInput } from '../presentation'
 import { titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { LayoutNode, Presentation, PresentationTheme, Slide, TitleDoc } from '../types'
-
-/**
- * Commit a rebuilt slide list.
- *
- * The one door between a plain array and the deck, so the rule that a deck
- * opens with a section is decided in one place rather than remembered by every
- * command that inserts, removes or reorders. `asDeckSlides` is what says yes;
- * this only turns its `null` into the refusal a caller can act on.
- */
-function withSlides(presentation: Presentation, slides: readonly Slide[]): Result<Presentation> {
-  const deckSlides = asDeckSlides(slides)
-  if (!deckSlides) {
-    return err(
-      'FIRST_SLIDE_MUST_BE_SECTION',
-      'Første slide må være en seksjon, så presentasjonen alltid har en forside.',
-    )
-  }
-  return ok(touch({ ...presentation, slides: deckSlides }))
-}
 
 export interface AddSlideInput extends StructuralOptions {
   /** Insert position; defaults to the end of the deck. */
@@ -74,10 +57,9 @@ export function addSlide(
   presentation: Presentation,
   input: AddSlideInput = {},
 ): Result<Presentation> {
-  const index = input.index ?? presentation.slides.length
-  if (index < 0 || index > presentation.slides.length) {
-    return err('SLIDE_INDEX_OUT_OF_RANGE', 'Ugyldig posisjon for ny slide.')
-  }
+  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny slide.')
+  if (!at.ok) return at
+  const index = at.value
   const hasTitle = input.hasTitle ?? true
   const slide = createSlide({
     hasTitle,
@@ -172,28 +154,43 @@ export function canDeleteSlide(presentation: Presentation, slideId: string): boo
 export function duplicateSlide(presentation: Presentation, slideId: string): Result<Presentation> {
   const index = slideIndexOf(presentation, slideId)
   if (index < 0) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
-  const source = presentation.slides[index]
-  const duplicated: Slide =
-    source.kind === 'section'
-      ? {
-          ...createSection({
-            accentColor: source.accentColor,
-            backgroundColor: source.backgroundColor,
-          }),
-          title: structuredClone(source.title),
-          subtitle: structuredClone(source.subtitle),
-        }
-      : {
-          ...createSlide({
-            hasTitle: source.title !== null,
-            root: cloneSubtreeWithNewIds(source.root),
-          }),
-          title: source.title ? (structuredClone(source.title) as TitleDoc) : null,
-        }
+  const duplicated = copyOf(presentation.slides[index])
   const slides = [...presentation.slides]
   slides.splice(index + 1, 0, duplicated)
   // A copy always lands after its original, so the first slide is untouched.
   return withSlides(presentation, slides)
+}
+
+/**
+ * A slide copied, whichever kind it is, with every identity inside it renewed.
+ *
+ * Every kind is named: a fourth kind of slide would be a compile error here,
+ * not a copy that silently came out as some other kind.
+ */
+function copyOf(source: Slide): Slide {
+  switch (source.kind) {
+    case 'section':
+      return {
+        ...createSection({
+          accentColor: source.accentColor,
+          backgroundColor: source.backgroundColor,
+        }),
+        title: structuredClone(source.title),
+        subtitle: structuredClone(source.subtitle),
+      }
+    case 'content':
+      return {
+        ...createSlide({
+          hasTitle: source.title !== null,
+          root: cloneSubtreeWithNewIds(source.root),
+        }),
+        title: source.title ? (structuredClone(source.title) as TitleDoc) : null,
+      }
+    case 'interactive':
+      // The source is copied as it stands — it is a file, and a copy of a file
+      // is the same bytes. Only the identity is new.
+      return createInteractiveSlide(source)
+  }
 }
 
 /**
@@ -224,10 +221,9 @@ export function addSection(
   presentation: Presentation,
   input: AddSectionInput = {},
 ): Result<Presentation> {
-  const index = input.index ?? presentation.slides.length
-  if (index < 0 || index > presentation.slides.length) {
-    return err('SLIDE_INDEX_OUT_OF_RANGE', 'Ugyldig posisjon for ny seksjon.')
-  }
+  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny seksjon.')
+  if (!at.ok) return at
+  const index = at.value
   const inherited = index === 0
     ? presentation.slides[0]
     : sectionGoverning(presentation, presentation.slides[index - 1].id)

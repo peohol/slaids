@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useEditorStore } from './store'
 import { useToasts } from './toast'
-import { createPresentation } from '../domain/presentation'
+import { createInteractiveSlide, createPresentation } from '../domain/presentation'
 import { createLeaf, createSplit, findNode } from '../domain/layout'
 import { createUntitledCard } from '../domain/content'
-import { addSlide, deleteLayoutNode, splitLeaf } from '../domain/commands'
+import { addSlide, deleteLayoutNode, setInteractiveSlideHtml, splitLeaf } from '../domain/commands'
 import { err, ok } from '../domain/result'
 import type { Presentation } from '../domain/types'
-import { contentAt, sectionAt } from '../domain/testDecks'
+import { contentAt, interactiveAt, sectionAt } from '../domain/testDecks'
 
 /** A deck of two: the front section every deck opens with, and one split slide. */
 function seed(): Presentation {
@@ -322,5 +322,60 @@ describe('toasts', () => {
     for (let i = 0; i < 10; i += 1) useToasts.getState().push('info', `Melding ${i}`)
     expect(useToasts.getState().toasts).toHaveLength(4)
     expect(useToasts.getState().toasts[3].message).toBe('Melding 9')
+  })
+})
+
+describe('an interactive slide', () => {
+  function seedWithApp(): Presentation {
+    const presentation = seed()
+    return {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        createInteractiveSlide({ name: 'Teller', fileName: 'teller.html', html: '<p>x</p>' }),
+      ],
+    }
+  }
+
+  it('has no zone to select and refuses zone mode, like a section', () => {
+    const presentation = seedWithApp()
+    const store = useEditorStore.getState()
+    store.setPresentation(presentation)
+    store.selectSlide(presentation.slides[2].id)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[2].id)
+    expect(useEditorStore.getState().selectedNodeId).toBeNull()
+
+    useEditorStore.getState().setMode('zone')
+    expect(useEditorStore.getState().mode).toBe('content')
+
+    useEditorStore.getState().selectSlide(presentation.slides[1].id)
+    expect(useEditorStore.getState().selectedNodeId).toBe(contentAt(presentation, 1).root.id)
+  })
+
+  it('is walked with the arrow keys like any other page', () => {
+    const presentation = seedWithApp()
+    useEditorStore.getState().setPresentation(presentation)
+    useEditorStore.getState().stepPage(1)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[2].id)
+    useEditorStore.getState().stepPage(1)
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[2].id)
+  })
+
+  it('replaces its file as an ordinary, undoable edit', () => {
+    const presentation = seedWithApp()
+    useEditorStore.getState().setPresentation(presentation)
+    const slideId = presentation.slides[2].id
+    const ok = useEditorStore.getState().run('interactive-replace', (current) =>
+      setInteractiveSlideHtml(current, slideId, { fileName: 'quiz.html', html: '<p>ny</p>' }),
+    )
+    expect(ok).toBe(true)
+    expect(interactiveAt(useEditorStore.getState().presentation!, 2).html).toBe('<p>ny</p>')
+    useEditorStore.getState().undo()
+    expect(interactiveAt(useEditorStore.getState().presentation!, 2)).toMatchObject({
+      fileName: 'teller.html',
+      html: '<p>x</p>',
+    })
+    useEditorStore.getState().redo()
+    expect(interactiveAt(useEditorStore.getState().presentation!, 2).fileName).toBe('quiz.html')
   })
 })

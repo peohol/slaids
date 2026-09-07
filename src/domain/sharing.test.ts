@@ -3,7 +3,7 @@ import { createUntitledCard } from './content'
 import { newAssetId, newSandboxId } from './ids'
 import { createLeaf } from './layout'
 import { SPACING_RANGE } from './metrics'
-import { createPresentation } from './presentation'
+import { createInteractiveSlide, createPresentation } from './presentation'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
 import {
   SHARED_SNAPSHOT_FORMAT,
@@ -13,7 +13,7 @@ import {
 } from './sharing'
 import { docToPlainText, imageNode } from './richdoc'
 import type { AssetRef, Presentation, Reference, RichDoc } from './types'
-import { contentAt, sectionAt } from './testDecks'
+import { contentAt, interactiveAt, sectionAt } from './testDecks'
 
 function citing(ids: string[]): RichDoc {
   return {
@@ -247,5 +247,37 @@ describe('deling er ikke en del av dokumentet', () => {
     expect(keys).not.toContain('isShared')
     expect(keys).not.toContain('shareToken')
     expect(keys).not.toContain('sharedDocument')
+  })
+})
+
+describe('en interaktiv slide i et delt snapshot', () => {
+  const APP = '<!doctype html><html><body><p>Blåbær 🙂</p><script>let n = 0</script></body></html>'
+
+  function withApp(): Presentation {
+    const presentation = fullPresentation()
+    return {
+      ...presentation,
+      slides: [
+        ...presentation.slides,
+        createInteractiveSlide({ name: 'Teller', fileName: 'teller.html', html: APP }),
+      ],
+    }
+  }
+
+  it('publiseres med kilden: den som åpner lenken får filen', () => {
+    const snapshot = buildSharedSnapshot(withApp())
+    expect(snapshot.slides).toHaveLength(3)
+    expect(snapshot.slides[2].kind).toBe('interactive')
+    // Stated on purpose: sharing an interactive slide is sharing its HTML
+    // source, and the upload dialog says so.
+    expect(JSON.stringify(snapshot)).toContain('let n = 0')
+  })
+
+  it('leses tilbake byte for byte', () => {
+    const presentation = withApp()
+    const parsed = parseSharedSnapshot(JSON.parse(JSON.stringify(buildSharedSnapshot(presentation))))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.value.slides[2]).toEqual(interactiveAt(presentation, 2))
   })
 })

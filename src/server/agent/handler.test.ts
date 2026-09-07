@@ -581,6 +581,153 @@ describe('binær opplasting', () => {
     expect(errorOf(refused.body).code).toBe('REQUEST_TOO_LARGE')
   })
 
+  /**
+   * The escaping gap, measured.
+   *
+   * A miniapp's source travels as a JSON string when it is sent as `html`, and
+   * JSON escapes what it carries: a quote and a newline become two bytes each.
+   * A file that is comfortably inside the per-file limit can therefore be over
+   * the *request* limit, which is the platform's as much as Slaids'. The
+   * promise Slaids makes about the limit is kept by the other shape — the body
+   * *is* the file — and these two cases are the two halves of that sentence.
+   */
+  describe('en miniappfil på grensen', () => {
+    /** Escaping-heavy but perfectly ordinary HTML: attributes and newlines. */
+    function escapingHeavyApp(byteSize: number): string {
+      const line = '<p class="a" data-x="y">tekst</p>\n'
+      const app = `<!doctype html>\n${line.repeat(Math.ceil(byteSize / line.length))}`
+      return app.slice(0, byteSize)
+    }
+
+    it('avvises som JSON når escapingen presser kroppen over grensen, og sier hva som virker', async () => {
+      const api = harness()
+      api.deps.maxRequestBytes = 64 * 1024
+      const { id } = await newPresentation(api)
+      // Inside the per-file limit by construction, and inside the request limit
+      // as bytes — but not once every quote and newline has been doubled.
+      const html = escapingHeavyApp(60 * 1024)
+      expect(new TextEncoder().encode(html).byteLength).toBeLessThan(api.deps.maxRequestBytes)
+      expect(JSON.stringify({ html }).length).toBeGreaterThan(api.deps.maxRequestBytes)
+
+      const refused = await call(api, 'add_interactive_slide', {
+        presentationId: id,
+        fileName: 'teller.html',
+        html,
+      })
+      expect(refused.status).toBe(413)
+      expect(errorOf(refused.body).code).toBe('REQUEST_TOO_LARGE')
+      // Not a dead end: the error names the shape that carries the file.
+      expect(errorOf(refused.body).message).toContain('binær')
+    })
+
+    it('går gjennom som rå kropp, byte for byte, med feltene i query-strengen', async () => {
+      const api = harness()
+      api.deps.maxRequestBytes = 64 * 1024
+      const { id } = await newPresentation(api)
+      const html = escapingHeavyApp(60 * 1024)
+      const bytes = new TextEncoder().encode(html)
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}` +
+            `&fileName=teller.html&name=${encodeURIComponent('Teller')}`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html; charset=utf-8' },
+            body: bytes as unknown as BodyInit,
+          },
+        ),
+      )
+      const body = (await response.json()) as Record<string, unknown>
+      expect(response.status).toBe(200)
+      expect(dataOf(body)).toMatchObject({
+        kind: 'interactive',
+        name: 'Teller',
+        fileName: 'teller.html',
+        htmlByteSize: bytes.byteLength,
+      })
+
+      // And what was stored is the file, not a re-encoding of it.
+      const stored = await api.context.repository.loadPresentation(id)
+      const slide = stored.slides.find((entry) => entry.kind === 'interactive')
+      expect(slide).toMatchObject({ kind: 'interactive', html })
+    })
+
+    it('kan settes inn på en oppgitt posisjon, med tallet i query-strengen', async () => {
+      // The raw body is the file, so every other field rides in the query
+      // string — as text. A whole number sent that way is still a whole
+      // number: the field says so, and the transport keeps its promise not to
+      // guess types on anybody's behalf.
+      const api = harness()
+      const { id } = await newPresentation(api)
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}` +
+            `&fileName=teller.html&index=1`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html' },
+            body: new TextEncoder().encode('<p>teller</p>') as unknown as BodyInit,
+          },
+        ),
+      )
+      const body = (await response.json()) as Record<string, unknown>
+      expect(response.status).toBe(200)
+      expect(dataOf(body)).toMatchObject({ index: 1, kind: 'interactive' })
+
+      const stored = await api.context.repository.loadPresentation(id)
+      expect(stored.slides.map((slide) => slide.kind)).toEqual(['section', 'interactive', 'content'])
+    })
+
+    it('avviser en posisjon som ikke er et tall, i stedet for å gjette', async () => {
+      const api = harness()
+      const { id } = await newPresentation(api)
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}` +
+            `&fileName=teller.html&index=sist`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html' },
+            body: new TextEncoder().encode('<p>teller</p>') as unknown as BodyInit,
+          },
+        ),
+      )
+      expect(response.status).toBe(400)
+      expect(errorOf((await response.json()) as Record<string, unknown>).code).toBe('INVALID_INPUT')
+    })
+
+    it('avviser en fil som ikke er gyldig UTF-8, gjennom den samme døren som opplastingsdialogen', async () => {
+      const api = harness()
+      const { id } = await newPresentation(api)
+      // Latin-1 «ø» is a lone 0xf8: not a UTF-8 lead byte, and not something to
+      // store with the accents replaced.
+      const latin1 = new Uint8Array([0x3c, 0x70, 0x3e, 0xf8, 0x3c, 0x2f, 0x70, 0x3e])
+
+      const response = await handleAgentRequest(
+        api.deps,
+        new Request(
+          `${url('/operations/add_interactive_slide')}?presentationId=${id}&fileName=teller.html`,
+          {
+            method: 'POST',
+            headers: { ...authorized(), 'Content-Type': 'text/html' },
+            body: latin1 as unknown as BodyInit,
+          },
+        ),
+      )
+      const body = (await response.json()) as Record<string, unknown>
+      expect(response.status).toBe(400)
+      expect(errorOf(body).code).toBe('INVALID_INTERACTIVE_FILE')
+      expect(errorOf(body).message).toContain('UTF-8')
+      expect((await api.context.repository.loadPresentation(id)).slides).toHaveLength(2)
+    })
+  })
+
   it('avviser mer enn én fil i samme forespørsel', async () => {
     const api = harness()
     const { id } = await newPresentation(api)

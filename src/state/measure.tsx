@@ -25,7 +25,7 @@ import {
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
-import { sectionOverflow, fitContextFor, slideOverflow, type StructuralOptions } from '../domain/commands'
+import { fitContextFor, pageOverflow, type StructuralOptions } from '../domain/commands'
 import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
@@ -228,11 +228,8 @@ export function overflowingCount(presentation: Presentation): number {
   const context = fitContextFor(presentation)
   let count = 0
   for (const slide of presentation.slides) {
-    const overflows =
-      slide.kind === 'section'
-        ? sectionOverflow(slide, context, domFitCheckers)
-        : slideOverflow(slide, context, domFitCheckers)
-    for (const overflow of overflows.values()) {
+    // Which kind is measured how is `pageOverflow`'s decision, not this file's.
+    for (const overflow of pageOverflow(slide, context, domFitCheckers).values()) {
       if (overflow > FIT_TOLERANCE) count += 1
     }
   }

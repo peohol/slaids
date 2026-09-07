@@ -14,6 +14,7 @@ import { assetOperations } from './operations/assets'
 import { contentOperations } from './operations/content'
 import { sectionOperations } from './operations/sections'
 import { deckOperations } from './operations/deck'
+import { interactiveOperations } from './operations/interactive'
 import { layoutOperations } from './operations/layout'
 import { libraryOperations } from './operations/library'
 import { previewOperations } from './operations/preview'
@@ -47,6 +48,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...themeOperations,
   ...sectionOperations,
   ...slideOperations,
+  ...interactiveOperations,
   ...layoutOperations,
   ...contentOperations,
   ...sandboxOperations,

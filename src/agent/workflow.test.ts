@@ -23,7 +23,12 @@ import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation, Rect, ZoneContent } from '../domain/types'
 import type { ZoneChange, ZoneContentCopy, ZoneContentMove } from './operations/layout'
 import type { SectionView } from './operations/sections'
-import type { ContentSlideInspection, PresentationView, ZoneInspection } from './operations/deck'
+import type {
+  ContentSlideInspection,
+  PresentationView,
+  SlideSummary,
+  ZoneInspection,
+} from './operations/deck'
 import type { Mutated } from './presentation'
 import type { SubfieldLayout } from './operations/content'
 import type { PrunedReferences } from './operations/references'
@@ -39,6 +44,11 @@ import { contentAt, sectionAt } from '../domain/testDecks'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
+
+/** The line a listed slide leads with: a heading, or a miniapp's name. */
+function listedTitle(summary: SlideSummary): string {
+  return summary.kind === 'interactive' ? summary.name : summary.title
+}
 
 function freshContext(): AgentContext {
   counter += 1
@@ -984,7 +994,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     expect(failure.code).toBe('CONTENT_DOES_NOT_FIT')
     // The slide that suffers is not the slide that changed.
     expect(failure.details).toMatchObject({ slideId: last.slideId, nodeId: lastNode })
-    expect((await stored(context, deck.presentationId)).slides[1].title).not.toBeNull()
+    expect(contentAt(await stored(context, deck.presentationId), 1).title).not.toBeNull()
 
     // And the repair is the ordinary one: shorten the slide that no longer has
     // room, then the title can go. The numbering really does move — which is
@@ -1003,7 +1013,7 @@ describe('citations kan ikke omgå fit-guarden', () => {
     })
 
     const after = await stored(context, deck.presentationId)
-    expect(after.slides[1].title).toBeNull()
+    expect(contentAt(after, 1).title).toBeNull()
     expect(citationNumber(before, references[0])).toBe(1)
     expect(citationNumber(after, references[0])).toBe(10)
   })
@@ -1610,7 +1620,7 @@ describe('samtidighet', () => {
     const view = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(['Første', 'Andre']).toContain(view.slides[1].title)
+    expect(['Første', 'Andre']).toContain(listedTitle(view.slides[1]))
   })
 
   it('avviser en stale asset-registrering før noe er lagret', async () => {
@@ -1860,7 +1870,7 @@ describe('validering', () => {
         image: { assetId: 'a_finnes_ikke', focus: { x: 0.5, y: 0.5 }, caption: null },
       },
     }
-    broken.slides[1].title = {
+    contentAt(broken, 1).title = {
       type: 'doc',
       content: [
         { type: 'paragraph', content: [{ type: 'citation', attrs: { referenceIds: ['r_borte'] } }] },
@@ -1969,7 +1979,7 @@ describe('seksjoner', () => {
     const reread = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
     })
-    expect(reread.slides[0].title).toBe('Andre kvartal')
+    expect(listedTitle(reread.slides[0])).toBe('Andre kvartal')
   })
 
   it('lagrer ingen av linjene når den andre ikke får plass', async () => {
@@ -2063,7 +2073,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
     })
     expect(removed.hasTitle).toBe(false)
-    expect((await stored(context, deck.presentationId)).slides[1].title).toBeNull()
+    expect(contentAt(await stored(context, deck.presentationId), 1).title).toBeNull()
 
     // And back: the zone returns empty, which is what `set_slide_title` writes into.
     await ok(context, 'set_slide_has_title', {
@@ -2117,7 +2127,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
     })
     expect(refused.code).toBe('INVALID_ARGUMENT')
-    expect((await stored(context, deck.presentationId)).slides[1].title).not.toBeNull()
+    expect(contentAt(await stored(context, deck.presentationId), 1).title).not.toBeNull()
 
     // `force` is the confirmation the editor asks a person for.
     await ok(context, 'set_slide_has_title', {
@@ -2126,7 +2136,7 @@ describe('tittelsonen på en slide', () => {
       hasTitle: false,
       force: true,
     })
-    expect((await stored(context, deck.presentationId)).slides[1].title).toBeNull()
+    expect(contentAt(await stored(context, deck.presentationId), 1).title).toBeNull()
   })
 
   it('sier fra når sonen allerede er slik den bes om å bli', async () => {
@@ -2155,7 +2165,7 @@ describe('navnet presentasjonen har i biblioteket', () => {
     })
     expect(after.title).toBe('Nytt navn')
     // The two started out the same and are two decisions from then on.
-    expect(after.slides[0].title).toBe('Agentdekk')
+    expect(listedTitle(after.slides[0])).toBe('Agentdekk')
     expect((await context.repository.listPresentations())[0].title).toBe('Nytt navn')
   })
 

@@ -442,3 +442,36 @@ describe('fontene', () => {
     expect(document.html).not.toContain('fonts.googleapis.com')
   })
 })
+
+describe('en interaktiv slide', () => {
+  const APP =
+    '<!doctype html><html><body><p class="miniapp-hemmelig">Teller</p><script>let n = 0</script></body></html>'
+
+  async function deckWithApp(context: AgentContext) {
+    const deck = await newAgentDeck(context)
+    const view = await agentOperation<{ slideId: string }>(context, 'add_interactive_slide', {
+      presentationId: deck.presentationId,
+      fileName: 'teller.html',
+      html: APP,
+    })
+    return { slideId: view.slideId, presentation: await storedPresentation(context, deck.presentationId) }
+  }
+
+  it('rendres som forsiden: navnet og merkingen, og aldri appen', async () => {
+    const context = testAgentContext()
+    const { slideId, presentation } = await deckWithApp(context)
+    const document = render(presentation, slideId)
+
+    expect(document.html).toContain('data-testid="interactive-page"')
+    expect(document.html).toContain(`data-slide-id="${slideId}"`)
+    expect(document.html).toContain('teller')
+    expect(document.html).toContain('data-testid="activate-interactive-inert"')
+    // Nothing that could run, and nothing of the file: the preview is a
+    // picture of the cover, on a server that never executes an upload.
+    expect(document.html).not.toContain('<iframe')
+    expect(document.html).not.toContain('<script')
+    expect(document.html).not.toContain('<button')
+    expect(document.html).not.toContain('miniapp-hemmelig')
+    expect(document.html).not.toContain('let n = 0')
+  })
+})

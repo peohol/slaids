@@ -264,6 +264,35 @@ export const DEFAULT_BACKGROUND_COLOR = '#667788'
 export const MAX_ASSET_BYTES = 25 * 1024 * 1024
 
 /**
+ * The largest miniapp an interactive slide may carry, in bytes of UTF-8.
+ *
+ * Bytes and not characters: a file full of three-byte glyphs is three times
+ * the size its `string.length` suggests, and what every transport moves is the
+ * encoded form. The source is stored *inside* the presentation document rather
+ * than beside it as an asset, so it rides along with every save, every share
+ * snapshot and every agent call that carries the deck — which is why the number
+ * is small next to `MAX_ASSET_BYTES`, and why there is a second, deck-wide
+ * bound below it.
+ *
+ * Both are checked in one place, `domain/interactive.ts`, for every door a
+ * file can come through: the upload dialog, a replacement, and the agent
+ * operations.
+ */
+export const MAX_INTERACTIVE_HTML_BYTES = 2 * 1024 * 1024
+
+/**
+ * How much miniapp source one presentation may hold in total.
+ *
+ * The document is serialised whole on every autosave, published whole as the
+ * share snapshot, and read whole by every agent operation — so a deck full of
+ * two-megabyte apps would be a deck that saves, shares and loads slowly long
+ * before any single file broke a rule. Three maximum-size apps is the budget:
+ * generous for a deck, and still well inside what the row, the share endpoint
+ * and the browser handle comfortably.
+ */
+export const MAX_INTERACTIVE_HTML_TOTAL_BYTES = 3 * MAX_INTERACTIVE_HTML_BYTES
+
+/**
  * The progress indicator.
  *
  * Every page but the front page carries one, and it is not optional: a deck that
@@ -304,3 +333,31 @@ export const PROGRESS_TRANSITION_MS = 600
  */
 export const MIN_ZONE_RATIO = 1
 export const MAX_ZONE_RATIO = 10
+
+/**
+ * Which version of Slaids' design contract a miniapp was written against.
+ *
+ * A miniapp is drawn *inside* a presentation, so Slaids gives it the deck's
+ * colours, type and spacing as CSS custom properties and a base stylesheet
+ * built from them — see `ui/interactive/styleContract.ts` and
+ * `docs/INTERACTIVE_MINIAPPS.md`. That is a published surface: an app written
+ * against it has real CSS depending on what those variables are called and on
+ * what an unstyled `<button>` looks like.
+ *
+ * So it is versioned, and the version is stored on the slide rather than
+ * assumed. When the default CSS has to change in a way an existing app would
+ * notice, the change is a *new* version: v1's sheet stays exactly as it is and
+ * keeps being served to every slide that says `1`, and only a deliberate
+ * upgrade moves a slide to the new one. Nothing about a stored app changes
+ * under it, which is the whole point — the file is the author's, and Slaids
+ * does not rewrite it.
+ *
+ * Adding a version is therefore: a number in this list, a stylesheet under it
+ * in the contract registry, and a migration only if the *stored* shape changes.
+ */
+export const INTERACTIVE_STYLE_CONTRACTS = [1] as const
+
+export type InteractiveStyleContract = (typeof INTERACTIVE_STYLE_CONTRACTS)[number]
+
+/** What a slide made today is written against. */
+export const CURRENT_INTERACTIVE_STYLE_CONTRACT: InteractiveStyleContract = 1

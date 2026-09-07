@@ -59,7 +59,11 @@ const referenceIdSchema = z.string().min(1).describe('Id-en til referansen.')
 /** How many citations across the deck point at this reference. */
 function citationCount(presentation: Presentation, referenceId: string): number {
   const docs = [
-    ...presentation.slides.flatMap((slide) => (slide.title ? [slide.title] : [])),
+    // Only a content slide's title zone can cite: a section's heading cannot
+    // by schema, and an interactive slide has no document of its own at all.
+    ...presentation.slides.flatMap((slide) =>
+      slide.kind === 'content' && slide.title ? [slide.title] : [],
+    ),
     ...allContent(presentation).flatMap(contentDocs),
   ]
   return docs.reduce(

@@ -6,18 +6,83 @@ export { subtreeFitsInRect as subtreeFitsHelper } from '../geometry'
 import { computeSlideGeometry } from '../geometry'
 import type { GeometryOptions } from '../geometry'
 import { geometryForTheme } from '../metrics'
-import { findSlide } from '../presentation'
-import { err, ok, type Result } from '../result'
-import type { ContentSlide, NodeId, Presentation, Rect } from '../types'
+import { interactiveBudgetRegression, interactiveSlidesIn } from '../interactive'
+import { asDeckSlides, findSlide, touch } from '../presentation'
+import { err, ok, type Refusal, type Result } from '../result'
+import type { ContentSlide, NodeId, Presentation, Rect, Slide } from '../types'
+
+/**
+ * Commit a rebuilt slide list.
+ *
+ * The one door between a plain array and the deck, so the rule that a deck
+ * opens with a section is decided in one place rather than remembered by every
+ * command that inserts, removes or reorders — whichever kind of slide it is
+ * inserting. `asDeckSlides` is what says yes; this only turns its `null` into
+ * the refusal a caller can act on.
+ */
+export function withSlides(presentation: Presentation, slides: readonly Slide[]): Result<Presentation> {
+  const deckSlides = asDeckSlides(slides)
+  if (!deckSlides) {
+    return err(
+      'FIRST_SLIDE_MUST_BE_SECTION',
+      'Første slide må være en seksjon, så presentasjonen alltid har en forside.',
+    )
+  }
+  const overBudget = budgetRefusal(presentation, slides)
+  if (overBudget) return overBudget
+  return ok(touch({ ...presentation, slides: deckSlides }))
+}
+
+/**
+ * The deck-wide miniapp budget, asked of every change to the slide list.
+ *
+ * Here rather than in each command, because it is a property of the *list*:
+ * adding a slide is not the only way to hold more miniapp source than the
+ * budget allows — duplicating one is too, and so would be any way of building
+ * a slide list that is invented later. A command that had to remember this
+ * rule is a command that can forget it, and forgetting it means writing a
+ * document that `validatePresentation` then refuses to open again.
+ *
+ * Two things keep it cheap and keep it from trapping anybody:
+ *
+ *  - When the interactive slides are the very same objects as before, nothing
+ *    about the source can have changed, and the bytes are not counted at all.
+ *    That is every ordinary edit, every move and every delete of a slide that
+ *    holds no app.
+ *  - A list that is over the budget is refused only when it is *worse* than
+ *    what is already stored. A document that got over the line some other way
+ *    can still be edited down; the rule is «do not make it worse», which is
+ *    the only version of it that cannot leave somebody stuck.
+ */
+function budgetRefusal(presentation: Presentation, slides: readonly Slide[]): Refusal | null {
+  const before = interactiveSlidesIn(presentation)
+  const after = interactiveSlidesIn({ slides })
+  if (before.length === after.length && before.every((slide, index) => slide === after[index])) {
+    return null
+  }
+  return interactiveBudgetRegression(presentation, { slides })
+}
+
+/** The insert position a caller asked for, or the refusal for one off the deck. */
+export function insertionIndex(
+  presentation: Presentation,
+  index: number | undefined,
+  message: string,
+): Result<number> {
+  const at = index ?? presentation.slides.length
+  if (at < 0 || at > presentation.slides.length) return err('SLIDE_INDEX_OUT_OF_RANGE', message)
+  return ok(at)
+}
 
 /**
  * The slide a zone command is about.
  *
- * Every command that names a zone starts here, so "a section has no zones" is
- * answered once, in the same words, rather than by each command discovering it
- * when `slide.root` turns out not to exist. The two refusals are different
- * because the caller's next move is: an unknown id is a mistake about which
- * deck this is, a section is a mistake about which page.
+ * Every command that names a zone starts here, so "this kind of slide has no
+ * zones" — a section, an interactive slide — is answered once, in the same
+ * words, rather than by each command discovering it when `slide.root` turns
+ * out not to exist. The two refusals are different because the caller's next
+ * move is: an unknown id is a mistake about which deck this is, a page without
+ * zones is a mistake about which page.
  */
 export function contentSlide(
   presentation: Presentation,
@@ -26,7 +91,7 @@ export function contentSlide(
   const slide = findSlide(presentation, slideId)
   if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden.', { slideId })
   if (slide.kind !== 'content') {
-    return err('NOT_A_CONTENT_SLIDE', 'Seksjonsslides har ingen soner å redigere.', { slideId })
+    return err('NOT_A_CONTENT_SLIDE', 'Sliden har ingen soner å redigere.', { slideId })
   }
   return ok(slide)
 }

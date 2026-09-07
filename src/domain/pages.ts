@@ -39,11 +39,16 @@ export interface DeckPageOptions {
   shareUrl?: string | null
 }
 
+/** One authored slide as the page it is, for a renderer handed a slide alone. */
+export function authoredPage(slide: Slide): DeckPage {
+  return { kind: 'authored-slide', id: slide.id, slide }
+}
+
 /** Everything a viewer pages through, in order. */
 export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): DeckPage[] {
   const pages: DeckPage[] = []
   for (const slide of deck.slides) {
-    pages.push({ kind: 'authored-slide', id: slide.id, slide })
+    pages.push(authoredPage(slide))
   }
   for (const slide of buildReferenceSlides(deck)) {
     pages.push({ kind: 'reference-slide', id: slide.id, slide })

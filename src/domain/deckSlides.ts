@@ -14,7 +14,7 @@
  * `presentation.ts` and the traversals in `docs.ts` can reach it.
  */
 
-import type { ContentSlide, DeckSlides, SectionSlide, Slide } from './types'
+import type { ContentSlide, DeckSlides, InteractiveSlide, SectionSlide, Slide } from './types'
 
 /** The deck's slides, if the first of them is a section. */
 export function asDeckSlides(slides: readonly Slide[]): DeckSlides | null {
@@ -25,22 +25,38 @@ export function asDeckSlides(slides: readonly Slide[]): DeckSlides | null {
 /**
  * Rebuild every slide, keeping each one's kind.
  *
- * Two mappers rather than one, because there are two shapes and no shared
- * "slide" shape to map: what a transformation does to a section's two lines is
- * not what it does to a content slide's title and zone tree.
+ * One mapper per kind rather than one for all, because there are three shapes
+ * and no shared "slide" shape to map: what a transformation does to a
+ * section's two lines is not what it does to a content slide's title and zone
+ * tree, and an interactive slide has neither — its one field is a source file
+ * that no document transform may touch. Every kind is named, so a caller that
+ * forgets one is told by the compiler rather than by a slide that quietly
+ * passed through the wrong branch.
  */
 export function mapDeckSlides(
   slides: DeckSlides,
   map: {
     section: (slide: SectionSlide) => SectionSlide
     content: (slide: ContentSlide) => ContentSlide
+    interactive: (slide: InteractiveSlide) => InteractiveSlide
   },
 ): DeckSlides {
   const [first, ...rest] = slides
-  return [
-    map.section(first),
-    ...rest.map((slide) => (slide.kind === 'section' ? map.section(slide) : map.content(slide))),
-  ]
+  return [map.section(first), ...rest.map((slide) => mapSlide(slide, map))]
+}
+
+function mapSlide(
+  slide: Slide,
+  map: Parameters<typeof mapDeckSlides>[1],
+): Slide {
+  switch (slide.kind) {
+    case 'section':
+      return map.section(slide)
+    case 'content':
+      return map.content(slide)
+    case 'interactive':
+      return map.interactive(slide)
+  }
 }
 
 /** Narrowing helpers, so a caller states which kind of slide it means. */
@@ -50,4 +66,8 @@ export function isSectionSlide(slide: Slide): slide is SectionSlide {
 
 export function isContentSlide(slide: Slide): slide is ContentSlide {
   return slide.kind === 'content'
+}
+
+export function isInteractiveSlide(slide: Slide): slide is InteractiveSlide {
+  return slide.kind === 'interactive'
 }

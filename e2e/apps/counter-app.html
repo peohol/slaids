@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Teller</title>
+<!--
+  A small self-contained miniapp for the Playwright flow spec.
+
+  Everything observable about its lifecycle is on purpose: the counter and the
+  text field show that the app works and that its state is fresh per run, the
+  «Siste tast» line shows which keys reach the app rather than Slaids, the
+  timer shows that a closed app stops, and the own stylesheet shows that the
+  app is drawn in its own design rather than Slaids'.
+
+  It reports the same events to the top window with postMessage. Slaids does
+  not listen; the spec does, to measure that nothing runs before activation and
+  nothing keeps running after exit.
+-->
+<style>
+  /*
+   * Layout is the app's; colour and type are the deck's. Nothing here names a
+   * colour or a font — that is what makes this app follow the section it sits
+   * in and the theme the deck is set in, with nothing stored about either.
+   */
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--slaids-gap);
+  }
+  .row { display: flex; gap: var(--slaids-gap); align-items: center; }
+  /* One thing of its own, so a test can tell the app's CSS from Slaids'. */
+  #styled-by-app { letter-spacing: 4px; }
+</style>
+</head>
+<body>
+  <h1 id="title">Teller</h1>
+  <p id="styled-by-app">Appens egen CSS</p>
+  <div class="row">
+    <button id="count" type="button">Trykk: <span id="value">0</span></button>
+    <input id="text" type="text" placeholder="Skriv her" autocomplete="off">
+  </div>
+  <p>Siste tast: <span id="key">ingen</span></p>
+  <p>Tikk: <span id="ticks">0</span></p>
+  <p>Startet: <span id="started"></span></p>
+  <p>Font: <span id="font"></span></p>
+  <p>Bakgrunn: <span id="background"></span></p>
+  <p>Aksent: <span id="accent"></span></p>
+  <p>Knappefarge: <span id="button-background"></span></p>
+  <script>
+    (function () {
+      var n = 0
+      var ticks = 0
+      var started = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
+      document.getElementById('started').textContent = started
+      var styles = getComputedStyle(document.body)
+      document.getElementById('font').textContent = styles.fontFamily
+      // What Slaids handed the app, read back the way the app itself reads it.
+      document.getElementById('background').textContent = styles.getPropertyValue('--slaids-background').trim()
+      document.getElementById('accent').textContent = styles.getPropertyValue('--slaids-accent').trim()
+      // And what Slaids' base stylesheet did with it, with no CSS from the app.
+      document.getElementById('button-background').textContent =
+        getComputedStyle(document.getElementById('count')).backgroundColor
+
+      function report(type, detail) {
+        try {
+          top.postMessage({ source: 'slaids-e2e-counter', type: type, detail: detail, run: started }, '*')
+        } catch (error) {
+          // No parent to reach: still a working app.
+        }
+      }
+
+      document.getElementById('count').addEventListener('click', function () {
+        n += 1
+        document.getElementById('value').textContent = String(n)
+        report('count', n)
+      })
+      window.addEventListener('keydown', function (event) {
+        document.getElementById('key').textContent = event.key === ' ' ? 'Space' : event.key
+        report('key', event.key)
+      })
+      setInterval(function () {
+        ticks += 1
+        document.getElementById('ticks').textContent = String(ticks)
+        report('tick', ticks)
+      }, 200)
+      setTimeout(function () {
+        report('late', 1)
+      }, 1500)
+      report('ready', 0)
+    })()
+  </script>
+</body>
+</html>

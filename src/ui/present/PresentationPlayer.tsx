@@ -20,13 +20,22 @@
  * progress indicator says; leaving is Escape, and only where there is somewhere
  * to leave to — the shared view passes no `onExit`, so the key does nothing
  * there.
+ *
+ * An interactive slide is the one page that can do more than be looked at.
+ * Its cover is drawn like any page; what the player adds is the surface that
+ * may start the app — and, while one runs, a lock every handler here checks
+ * first. Keys, clicks and swipes belong to the app then, including Escape:
+ * the way out of a running app is its own exit button, never a key the app
+ * might have been using.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { deckPages, deckProgress, deckSectionColors } from '../../domain/pages'
+import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../../domain/pages'
 import { computeReferenceNumbering } from '../../domain/references'
 import type { DeckSource } from '../../domain/types'
+import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
+import { InteractiveSlideSurface } from '../interactive/InteractiveSlideSurface'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { DeckPageView } from '../slide/DeckPageView'
 import { useFitScale } from '../slide/useFitScale'
@@ -34,6 +43,24 @@ import { ensureWebFonts } from '../fonts'
 
 /** Shorter than this is a tap, not a swipe. */
 const SWIPE_THRESHOLD_PX = 48
+
+/**
+ * One page, and the one kind of page that may do more than be drawn.
+ *
+ * Keyed by the page, so turning to another slide unmounts the surface — and
+ * with it any app that was running, which is the only way a page turn can
+ * happen while one runs: not from here, but from the deck changing underneath.
+ */
+function PlayerPage({ page, scale }: { page: DeckPage; scale: number }) {
+  if (page.kind === 'authored-slide' && page.slide.kind === 'interactive') {
+    return (
+      <InteractiveSlideSurface key={page.id} slide={page.slide} scale={scale}>
+        <DeckPageView page={page} />
+      </InteractiveSlideSurface>
+    )
+  }
+  return <DeckPageView page={page} />
+}
 
 export interface PresentationPlayerProps {
   deck: DeckSource
@@ -87,6 +114,10 @@ export function PresentationPlayer({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      // A running miniapp owns the keyboard. Not prevented either: a key that
+      // reaches here while the app runs is one pressed on Slaids' own exit
+      // button, and Space or Enter there has to stay a press on that button.
+      if (isInteractiveRuntimeActive()) return
       switch (event.key) {
         case 'ArrowRight':
         case 'PageDown':
@@ -131,18 +162,21 @@ export function PresentationPlayer({
       data-page-count={pages.length}
       ref={hostRef}
       onClick={(event) => {
+        if (isInteractiveRuntimeActive()) return
         // Links and buttons inside a page (reference URLs, rich-text links)
         // must not also advance the deck.
         if ((event.target as Element).closest('a, button, [role="button"]')) return
         go(1)
       }}
       onTouchStart={(event) => {
+        if (isInteractiveRuntimeActive()) return
         const touch = event.touches[0]
         touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null
       }}
       onTouchEnd={(event) => {
         const start = touchStart.current
         touchStart.current = null
+        if (isInteractiveRuntimeActive()) return
         const touch = event.changedTouches[0]
         if (!start || !touch) return
         const dx = touch.clientX - start.x
@@ -173,7 +207,7 @@ export function PresentationPlayer({
               transformOrigin: 'top left',
             }}
           >
-            {page && <DeckPageView page={page} />}
+            {page && <PlayerPage page={page} scale={scale} />}
           </div>
         </div>
       </SlideRenderProvider>
