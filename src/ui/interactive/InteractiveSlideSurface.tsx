@@ -63,6 +63,36 @@ interface Session {
   styleCss: string
 }
 
+/**
+ * The theme's faces, and the pair of font roles they belong to.
+ *
+ * The key is not bookkeeping. A deck's font can be changed while one of its
+ * covers is on screen, and for as long as the new family takes to arrive, the
+ * faces in hand are the *previous* theme's. Answering a press with them would
+ * build a document whose variables name one family and whose `@font-face`
+ * rules carry another — and the sandbox cannot fetch the difference, so the
+ * app would fall back while the slide beside it did not. Keyed, they are
+ * simply not an answer to the question being asked.
+ */
+interface Faces {
+  key: string
+  css: string
+}
+
+/** The same, for a request that has not answered yet. */
+interface FaceRequest {
+  key: string
+  pending: Promise<string>
+}
+
+/**
+ * The two font roles as one value. A newline separates them because no font
+ * stack contains one.
+ */
+function fontKeyOf(headingFont: string, bodyFont: string): string {
+  return `${headingFont}\n${bodyFont}`
+}
+
 function isLive(session: Session | null, slide: InteractiveSlide): session is Session {
   return session !== null && session.slideId === slide.id && session.html === slide.html
 }
@@ -92,11 +122,11 @@ export function InteractiveSlideSurface({
    * play. But «normally» is not a rule, and a run that started a moment too
    * early would be drawn in the fallback face while the deck around it is not:
    * a race, not a failure, and the one thing the whole font path exists to
-   * prevent. So the promise is kept as well as its answer, and activation
-   * waits for it — see `activate`.
+   * prevent. So both are kept *with the pair they belong to*, and activation
+   * waits for the pair the deck is set in now — see `activate`.
    */
-  const fontRequest = useRef<Promise<string> | null>(null)
-  const [fontCss, setFontCss] = useState<string | null>(null)
+  const fontRequest = useRef<FaceRequest | null>(null)
+  const [faces, setFaces] = useState<Faces | null>(null)
   const sessions = useRef(0)
   const hostRef = useRef<HTMLDivElement>(null)
   const restoreFocus = useRef(false)
@@ -106,17 +136,37 @@ export function InteractiveSlideSurface({
 
   const headingFont = theme.headingFontFamily
   const bodyFont = theme.bodyFontFamily
-  useEffect(() => {
-    let cancelled = false
-    const request = interactiveFontCss([headingFont, bodyFont])
-    fontRequest.current = request
-    void request.then((css) => {
-      if (!cancelled) setFontCss(css)
+  const fontKey = fontKeyOf(headingFont, bodyFont)
+
+  /**
+   * The request for the pair the deck is set in *now*, made once.
+   *
+   * Both the effect below and a press go through here, and both get the same
+   * promise, because it is remembered with its key. That is what closes the
+   * window between a theme change and the effect that reacts to it: in it,
+   * the remembered request is the previous theme's, its key says so, and a
+   * press asks for the right one instead of waiting on the wrong one.
+   *
+   * Asking twice for the same family costs nothing — `inlineFaces.ts` caches
+   * per family, so the second caller awaits the first one's fetch.
+   */
+  const requestFaces = useCallback((): Promise<string> => {
+    const held = fontRequest.current
+    if (held?.key === fontKey) return held.pending
+    const pending = interactiveFontCss([headingFont, bodyFont])
+    fontRequest.current = { key: fontKey, pending }
+    void pending.then((css) => {
+      // A slower answer for a pair the deck has since left is not an answer.
+      if (fontRequest.current?.key === fontKey) setFaces({ key: fontKey, css })
     })
-    return () => {
-      cancelled = true
-    }
-  }, [headingFont, bodyFont])
+    return pending
+  }, [fontKey, headingFont, bodyFont])
+
+  // When a cover that could be started appears, and again whenever the deck's
+  // type changes under it.
+  useEffect(() => {
+    void requestFaces()
+  }, [requestFaces])
 
   const start = useCallback(
     (faces: string) => {
@@ -142,11 +192,19 @@ export function InteractiveSlideSurface({
   /**
    * Start the app, in the deck's real type.
    *
-   * Immediately when the faces are in hand, which is the ordinary case — they
-   * were asked for when this cover appeared. When they are not, the press
-   * waits for the request rather than starting a run that would be drawn in
-   * the fallback face: the frame cannot fetch a font itself, so a run that
-   * began without them keeps the wrong type for as long as it lasts.
+   * Immediately when the faces for *this* pair of roles are in hand, which is
+   * the ordinary case — they were asked for when this cover appeared. Faces
+   * for a pair the deck has left do not count, and are the reason the answer
+   * is keyed at all: after somebody changes the deck's font, the previous
+   * theme's faces are still in hand for as long as the new ones take to
+   * arrive, and starting on them would build a document whose variables name
+   * one family and whose `@font-face` rules carry another — with a frame that
+   * cannot go and fetch the difference.
+   *
+   * Otherwise the press waits for the request rather than starting a run that
+   * would be drawn in the fallback face: the frame cannot fetch a font itself,
+   * so a run that began without them keeps the wrong type for as long as it
+   * lasts.
    *
    * The wait is bounded twice over — the request has its own deadline, and
    * this will not hold a press longer than `FONT_WAIT_MS` whatever the
@@ -154,16 +212,15 @@ export function InteractiveSlideSurface({
    * this closes, not the failure, which the fallback stack already handles.
    */
   const activate = useCallback(() => {
-    if (fontCss !== null) {
-      start(fontCss)
+    if (faces?.key === fontKey) {
+      start(faces.css)
       return
     }
-    const pending = fontRequest.current ?? Promise.resolve('')
     void Promise.race([
-      pending,
+      requestFaces(),
       new Promise<string>((resolve) => setTimeout(() => resolve(''), FONT_WAIT_MS)),
     ]).then(start)
-  }, [fontCss, start])
+  }, [faces, fontKey, requestFaces, start])
 
   const exit = useCallback(() => {
     restoreFocus.current = true

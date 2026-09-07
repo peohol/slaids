@@ -18,6 +18,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bestTextColor } from '../../domain/color'
+import { fontStackFor } from '../../domain/fonts'
 import { deckPages, deckProgress, deckSectionColors } from '../../domain/pages'
 import { createInteractiveSlide, createPresentation } from '../../domain/presentation'
 import { sectionAt } from '../../domain/testDecks'
@@ -58,6 +59,11 @@ afterEach(() => {
   vi.restoreAllMocks()
   resetInlinedFontCache()
 })
+
+/** A web font the default theme uses for neither role, so a switch is visible. */
+const NEXT_STACK = fontStackFor('open-sans')
+/** The same family as `googleFontsHref` spells it in a request. */
+const NEXT_FAMILY = 'Open+Sans'
 
 const BACKGROUND = '#101828'
 const ACCENT = '#bfccd9'
@@ -225,15 +231,25 @@ function frameOf(host: HTMLElement): HTMLIFrameElement | null {
  * `fonts.gstatic.com`.
  */
 function fontFile(url: string): Response {
-  const body = url.startsWith('https://fonts.googleapis.com')
+  const family = new URL(url).searchParams.get('family')?.split(':')[0]
+  const body = family
     ? {
         text: () =>
           Promise.resolve(
-            "@font-face{font-family:'Quicksand';src:url(https://fonts.gstatic.com/s/q.woff2) format('woff2');}",
+            `@font-face{font-family:'${family}';src:url(https://fonts.gstatic.com/s/${encodeURIComponent(family)}.woff2) format('woff2');}`,
           ),
       }
     : { arrayBuffer: () => Promise.resolve(new Uint8Array([0x77, 0x4f, 0x46, 0x32]).buffer) }
   return { ok: true, status: 200, ...body } as unknown as Response
+}
+
+/** A promise a test opens when it wants to, and what it does to a fetch. */
+function gate(): { held: Promise<void>; open: () => void } {
+  let open = () => {}
+  const held = new Promise<void>((resolve) => {
+    open = () => resolve()
+  })
+  return { held, open }
 }
 
 describe('flaten som kan starte appen', () => {
@@ -363,12 +379,9 @@ describe('flaten som kan starte appen', () => {
     // and it is the one case that matters, because the frame cannot fetch a
     // font itself: a run that starts without them keeps the wrong type for as
     // long as it lasts. So the press waits; it does not start early.
-    let deliver = () => {}
-    const held = new Promise<void>((resolve) => {
-      deliver = () => resolve()
-    })
+    const faces = gate()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      await held
+      await faces.held
       return fontFile(String(input))
     })
 
@@ -377,7 +390,7 @@ describe('flaten som kan starte appen', () => {
     // Still nothing: waiting is the whole point.
     expect(frameOf(host)).toBeNull()
 
-    deliver()
+    faces.open()
     await settle()
 
     const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
@@ -386,6 +399,45 @@ describe('flaten som kan starte appen', () => {
     expect(srcdoc).toContain('@font-face')
     expect(srcdoc).toContain('data:font/woff2;base64,')
     expect(srcdoc).not.toContain('fonts.gstatic.com')
+    click(host, 'exit-interactive')
+  })
+
+  it('starter aldri i forrige temas skrift etter et fontbytte', async () => {
+    // The faces in hand a moment after somebody changes the deck's font are
+    // the *previous* theme's. Starting on them would build a document whose
+    // variables name one family and whose @font-face rules carry another —
+    // and the frame cannot fetch the difference, so the app would fall back
+    // while the slide beside it did not. The press has to wait for the new
+    // pair, not be answered with the old one.
+    const second = gate()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes(NEXT_FAMILY)) await second.held
+      return fontFile(url)
+    })
+
+    // The deck as it was: its faces are asked for, and they arrive.
+    const before = deck()
+    const host = await mount(before)
+
+    // Somebody changes the deck's font. The new family is still on its way.
+    const switched: Presentation = {
+      ...before,
+      theme: { ...before.theme, headingFontFamily: NEXT_STACK, bodyFontFamily: NEXT_STACK },
+    }
+    await rerender(switched)
+
+    click(host, 'activate-interactive')
+    expect(frameOf(host)).toBeNull()
+
+    second.open()
+    await settle()
+
+    const srcdoc = frameOf(host)!.getAttribute('srcdoc')!
+    // The first run is in the deck's *current* type, with nothing of the old.
+    expect(srcdoc).toContain(escapeHtmlAttribute(`@font-face{font-family:'${NEXT_FAMILY.replace('+', ' ')}'`))
+    expect(srcdoc).not.toContain('Quicksand')
+    expect(srcdoc).not.toContain('Atkinson')
     click(host, 'exit-interactive')
   })
 

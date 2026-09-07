@@ -669,9 +669,13 @@ Tre deler, i denne rekkefølgen, foran filen:
    trykker play, så de normalt er der lenge før. Og skulle noen rekke å trykke
    først, venter aktiveringen på svaret i stedet for å starte: rammen kan ikke
    hente en font selv, så en kjøring som begynte uten dem, beholder feil skrift
-   så lenge den varer. Ventingen har to tak — henterens egen frist, og et kort
-   tak på selve trykket — så et nett som ikke svarer, forsinker ingenting mer
-   enn et øyeblikk. En familie som ikke kan hentes, utelates: variabelen
+   så lenge den varer. Både forespørselen og svaret er nøklet til fontparet de
+   hører til, slik at et fontbytte i dekket ikke kan besvares med forrige temas
+   ansikter — et dokument der variablene navngir én familie og
+   `@font-face`-reglene bærer en annen, ville falt tilbake uten å kunne hente
+   forskjellen. Ventingen har to tak — henterens egen frist, og et kort tak på
+   selve trykket — så et nett som ikke svarer, forsinker ingenting mer enn et
+   øyeblikk. En familie som ikke kan hentes, utelates: variabelen
    navngir hele stakken, så appen faller tilbake nøyaktig som dekket gjør. En
    lokal font (Calibri, Segoe UI) hentes ikke — den er maskinens eller ingen,
    som ellers i Slaids.
@@ -848,7 +852,9 @@ eller filnavn; flaten monterer og avmonterer rammen, holder låsen, gir fokus
 tilbake; appen får seksjonens farger og dekkets fontroller; en omfarget seksjon
 slår gjennom ved neste kjøring uten å røre den lagrede filen, og bygger ikke
 dokumentet på nytt under en app som kjører; et trykk som kommer før fontsvaret,
-venter og får de inlinede `@font-face`-reglene i den *første* kjøringen) og
+venter og får de inlinede `@font-face`-reglene i den *første* kjøringen, og et
+trykk rett etter et fontbytte venter på den nye familien i stedet for å bli
+besvart med den forrige) og
 `src/ui/present/interactivePlayer.test.tsx` (spilleren uten `onExit` – den delte
 visningen – eier tastene mens appen kjører).
 
