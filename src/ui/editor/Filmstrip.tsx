@@ -262,7 +262,7 @@ export function Filmstrip({
           onClick={onRequestNewSlide}
           data-testid="add-slide"
         >
-          <Icon name="plus" /> Ny slide
+          <Icon name="plus" /> Slide
         </button>
         <button
           type="button"
@@ -270,7 +270,7 @@ export function Filmstrip({
           onClick={onRequestNewSection}
           data-testid="add-section"
         >
-          <Icon name="plus" /> Ny seksjon
+          <Icon name="plus" /> Seksjon
         </button>
       </div>
     </aside>
