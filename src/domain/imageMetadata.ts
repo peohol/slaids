@@ -27,7 +27,13 @@
  */
 
 import { ascii, be16, be32, le32, startsWith, PNG_SIGNATURE } from './imageBytes'
-import { EXIF_ORIENTATION_TAG, crc32, readExifOrientation, readTiffOrientation } from './imageFile'
+import {
+  EXIF_ORIENTATION_TAG,
+  crc32,
+  readBlockOrientation,
+  readExifOrientation,
+  type BlockOrientation,
+} from './imageFile'
 
 /** What the bytes say about how a file may be handled. */
 export interface RasterFacts {
@@ -207,27 +213,17 @@ function orientationTiff(orientation: number): number[] {
  * file that carries one and the picture comes out lying on its side. So it is
  * read out before the block goes, and written back as the single tag it is.
  *
- * `prefixed` records how this file wrote the block. A JPEG's marker is required
- * and a PNG's or WebP's is not, but files exist that carry one anyway, having
- * copied a JPEG's segment whole. Answering in the shape the file used means no
- * decoder that could read the original can misread what replaces it.
+ * The block's own shape is carried over with it — see `BlockOrientation` — so
+ * no decoder that could read the original can misread what replaces it.
  */
-interface TurningOrientation {
-  value: number
-  prefixed: boolean
-}
-
-function turningOrientation(bytes: Uint8Array, start: number, end: number): TurningOrientation | null {
-  const prefixed = ascii(bytes, start, EXIF_MARKER.length) === 'Exif\u0000\u0000'
-  const value = prefixed
-    ? readExifOrientation(bytes, start, end)
-    : readTiffOrientation(bytes, start, end)
+function turningOrientation(bytes: Uint8Array, start: number, end: number): BlockOrientation | null {
+  const found = readBlockOrientation(bytes, start, end)
   // 1 is «as stored»: nothing to preserve, and nothing to lose by dropping it.
-  return value !== null && value !== 1 ? { value, prefixed } : null
+  return found && found.value !== 1 ? found : null
 }
 
 /** The smallest block that still says which way is up, shaped as the file shaped its own. */
-function orientationOnly(found: TurningOrientation): number[] {
+function orientationOnly(found: BlockOrientation): number[] {
   const tiff = orientationTiff(found.value)
   return found.prefixed ? [...EXIF_MARKER, ...tiff] : tiff
 }

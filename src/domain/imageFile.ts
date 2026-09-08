@@ -37,9 +37,12 @@ export interface RasterImage {
   mimeType: string
   /**
    * Intrinsic size, always read from the bitstream and always > 0 — and always
-   * the size the picture is *drawn* at: a JPEG that carries an EXIF orientation
+   * the size the picture is *drawn* at: a file that carries an EXIF orientation
    * turning it a quarter turn is reported transposed, because that is what
-   * every renderer shows. See `readExifOrientation`.
+   * every renderer shows. That holds for every container that can carry the
+   * tag — JPEG's `APP1`, PNG's `eXIf` and WebP's `EXIF` — so the size recorded
+   * on an `AssetRef` means the same thing whichever door the file came through,
+   * the browser's decoder or this one. See `readBlockOrientation`.
    */
   width: number
   height: number
@@ -118,6 +121,7 @@ function validatePng(bytes: Uint8Array): Result<Size> {
 
   let offset = PNG_SIGNATURE.length
   let size: Size | null = null
+  let orientation: number | null = null
   let dataChunks = 0
   let ended = false
 
@@ -138,6 +142,12 @@ function validatePng(bytes: Uint8Array): Result<Size> {
       size = { width: be32(bytes, offset + 8), height: be32(bytes, offset + 12) }
     }
     if (type === 'IDAT') dataChunks += 1
+    // `eXIf` holds the same block a JPEG's APP1 does, and asks the same thing
+    // of a renderer. It may come before or after IHDR, so the turn is applied
+    // once at the end rather than to whichever was read first.
+    if (type === 'eXIf') {
+      orientation = readBlockOrientation(bytes, offset + 8, end)?.value ?? orientation
+    }
     if (type === 'IEND') {
       ended = true
       offset = end + 4
@@ -151,7 +161,7 @@ function validatePng(bytes: Uint8Array): Result<Size> {
   if (dataChunks === 0) return broken('bildedata (IDAT) mangler')
   if (!ended) return broken('IEND mangler')
   if (offset !== bytes.length) return broken('det ligger data etter IEND')
-  return ok(size)
+  return ok(turned(size, orientation))
 }
 
 let crcTable: Uint32Array | null = null
@@ -300,9 +310,38 @@ export function readTiffOrientation(bytes: Uint8Array, tiff: number, end: number
 
 export const EXIF_ORIENTATION_TAG = 0x0112
 
+/** An orientation an Exif block asks for, and how that block was written. */
+export interface BlockOrientation {
+  value: number
+  /**
+   * The block carried JPEG's `Exif\0\0` marker. PNG and WebP do not require
+   * it, but files that copied a JPEG's segment whole have one — and something
+   * rewriting the block wants to answer in the shape it found.
+   */
+  prefixed: boolean
+}
+
+/** The orientation an Exif block asks for, whether or not it carries the marker. */
+export function readBlockOrientation(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): BlockOrientation | null {
+  const prefixed = ascii(bytes, start, 6) === 'Exif\u0000\u0000'
+  const value = prefixed
+    ? readExifOrientation(bytes, start, end)
+    : readTiffOrientation(bytes, start, end)
+  return value === null ? null : { value, prefixed }
+}
+
 /** 5 through 8 turn the picture a quarter turn, so it is drawn transposed. */
 function transposes(orientation: number | null): boolean {
   return orientation !== null && orientation >= 5 && orientation <= 8
+}
+
+/** The size as it is drawn: transposed when the tag turns the picture. */
+function turned(size: Size, orientation: number | null): Size {
+  return transposes(orientation) ? { width: size.height, height: size.width } : size
 }
 
 function validateJpeg(bytes: Uint8Array): Result<Size> {
@@ -323,9 +362,7 @@ function validateJpeg(bytes: Uint8Array): Result<Size> {
     if (marker === 0xd9) {
       if (!size) return broken('bildets størrelse mangler')
       if (!scanned) return broken('bildedataene mangler')
-      return ok(
-        transposes(orientation) ? { width: size.height, height: size.width } : size,
-      )
+      return ok(turned(size, orientation))
     }
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue
 
@@ -380,6 +417,7 @@ function validateWebp(bytes: Uint8Array): Result<Size> {
 
   let offset = 12
   let size: Size | null = null
+  let orientation: number | null = null
   // `VP8X` declares the canvas and carries no pixels: a file with nothing but
   // that chunk is a header claiming a size, which is the one thing this module
   // does not accept on faith. `ANMF` counts, since an animation's frames hold
@@ -406,6 +444,9 @@ function validateWebp(bytes: Uint8Array): Result<Size> {
       size ??= { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
     } else if (fourcc === 'ANMF') {
       picture = true
+    } else if (fourcc === 'EXIF') {
+      // The metadata chunk follows the picture, so the turn waits for the end.
+      orientation = readBlockOrientation(bytes, data, data + length)?.value ?? orientation
     }
 
     offset = data + length + (length & 1)
@@ -413,5 +454,5 @@ function validateWebp(bytes: Uint8Array): Result<Size> {
 
   if (offset !== bytes.length) return broken('en chunk går utenfor filen')
   if (!size || !picture) return broken('bildedataene mangler')
-  return ok(size)
+  return ok(turned(size, orientation))
 }

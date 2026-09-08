@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { readRasterImage } from './imageFile'
-import { IMAGE_HEIGHT, IMAGE_WIDTH, jpegWithExifOrientation, realImages } from './testImages'
+import {
+  EXIF_MARKER,
+  IMAGE_HEIGHT,
+  IMAGE_WIDTH,
+  exifTiffBlock,
+  jpegWithExifOrientation,
+  pngChunk,
+  pngWith,
+  pngWithExifOrientation,
+  realImages,
+  webpChunk,
+  webpWith,
+  webpWithExifOrientation,
+} from './testImages'
 
 const formats = Object.entries(realImages) as [keyof typeof realImages, () => Uint8Array][]
 
@@ -164,6 +177,46 @@ describe('readRasterImage – EXIF-orientering', () => {
 
   it('leser begge byterekkefølgene EXIF tillater', () => {
     expect(accepted(jpegWithExifOrientation(6, false))).toMatchObject({
+      width: IMAGE_HEIGHT,
+      height: IMAGE_WIDTH,
+    })
+  })
+
+  it('rapporterer den tegnede størrelsen for PNG og WEBP også', () => {
+    // The tag means the same thing in every container that can carry it, so the
+    // size on an `AssetRef` means the same thing whichever door the file came
+    // through — the browser's decoder, which turns the picture, or this one.
+    for (const orientation of [5, 6, 7, 8]) {
+      expect(accepted(pngWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_HEIGHT,
+        height: IMAGE_WIDTH,
+      })
+      expect(accepted(webpWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_HEIGHT,
+        height: IMAGE_WIDTH,
+      })
+    }
+    for (const orientation of [1, 2, 3, 4]) {
+      expect(accepted(pngWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_WIDTH,
+        height: IMAGE_HEIGHT,
+      })
+      expect(accepted(webpWithExifOrientation(orientation))).toMatchObject({
+        width: IMAGE_WIDTH,
+        height: IMAGE_HEIGHT,
+      })
+    }
+  })
+
+  it('leser blokken i begge formene en PNG eller WEBP kan skrive den', () => {
+    // Neither format asks for JPEG's marker, but files that copied a segment
+    // whole carry one. Both are read.
+    const marked = [...EXIF_MARKER, ...exifTiffBlock(6)]
+    expect(accepted(pngWith(pngChunk('eXIf', marked)))).toMatchObject({
+      width: IMAGE_HEIGHT,
+      height: IMAGE_WIDTH,
+    })
+    expect(accepted(webpWith(webpChunk('EXIF', marked), 0x08))).toMatchObject({
       width: IMAGE_HEIGHT,
       height: IMAGE_WIDTH,
     })

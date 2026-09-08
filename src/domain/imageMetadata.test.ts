@@ -215,10 +215,11 @@ describe('a PNG', () => {
     expect(pngChunkTypes(stripped)).not.toContain('tEXt')
     expect(contains(stripped, 'GPS-hemmelighet')).toBe(false)
     expect(contains(stripped, 'Somebody')).toBe(false)
-    // Still a picture, and still the same one.
+    // Still a picture, and still drawn the same way round: orientation 6 turns
+    // it a quarter turn, so the size it is *shown* at stays transposed.
     const read = readRasterImage(stripped)
     expect(read.ok).toBe(true)
-    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_HEIGHT, height: IMAGE_WIDTH })
   })
 
   it('answers in the shape the file used, so no decoder that read the original misreads it', () => {
@@ -287,9 +288,11 @@ describe('a WEBP', () => {
     expect(stripped[20] & 0x08).toBe(0x08)
     expect(contains(stripped, 'GPS-hemmelighet')).toBe(false)
     expect(le32(stripped, 4)).toBe(stripped.length - 8)
+    // Orientation 8 turns it a quarter turn the other way; the size it is shown
+    // at is transposed before and after, which is what «unchanged» means here.
     const read = readRasterImage(stripped)
     expect(read.ok).toBe(true)
-    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_HEIGHT, height: IMAGE_WIDTH })
   })
 
   it('answers in the shape the file used', () => {

@@ -2025,7 +2025,11 @@ orienteringen skrives tilbake som én tag, siden den bestemmer hva som er opp.
 Det gjelder alle tre containerne som kan bære et EXIF-blokk – JPEGs `APP1`,
 PNGs `eXIf` og WebPs `EXIF` – for den tapsfrie veien er per definisjon visuelt
 invariant: alt annet i blokken beskriver bildet, mens orienteringen er en
-instruksjon en renderer følger. Den nye taggen skrives i den formen filen selv
+instruksjon en renderer følger. Av samme grunn måler `readRasterImage` den
+*tegnede* størrelsen i alle tre containerne, ikke bare i JPEG: en `AssetRef` skal
+bety det samme uansett hvilken dør filen kom inn gjennom – nettleserens dekoder,
+som snur bildet, eller bitstrømsmålingen – og et innlinjebilde tar formen sin
+fra referansen. Den nye taggen skrives i den formen filen selv
 brukte (med eller uten `Exif\0\0`-markøren), så ingen dekoder som kunne lese
 originalen kan lese erstatningen feil.
 

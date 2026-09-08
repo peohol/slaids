@@ -11,13 +11,20 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hashBytes } from '../domain/assetHash'
-import { readTiffOrientation } from '../domain/imageFile'
+import { readRasterImage } from '../domain/imageFile'
 import { containerWithDoc, createImage, imagePanelOf } from '../domain/content'
 import { createLeaf, createSplit } from '../domain/layout'
 import { createPresentation } from '../domain/presentation'
-import { imageNode } from '../domain/richdoc'
+import { IMAGE_NODE, imageNode } from '../domain/richdoc'
 import { contentAt, sectionAt } from '../domain/testDecks'
-import { jpegWithExifOrientation, realImages, webpWithExifOrientation } from '../domain/testImages'
+import {
+  jpegWithExifOrientation,
+  pngChunk,
+  pngWith,
+  pngWithExifOrientation,
+  realImages,
+  webpWithExifOrientation,
+} from '../domain/testImages'
 import type { AssetRef, LayoutNode, Presentation, ZoneContent } from '../domain/types'
 import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import { SlaidsDatabase } from '../persistence/db'
@@ -167,16 +174,24 @@ function panelAssetIds(presentation: Presentation): (string | null)[] {
   )
 }
 
-/** The orientation a written WEBP's `EXIF` chunk still asks for. */
-function exifOrientationOf(bytes: Uint8Array): number | null {
-  let offset = 12
-  while (offset + 8 <= bytes.length) {
-    const length = (bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16)) >>> 0
-    const fourcc = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
-    if (fourcc === 'EXIF') return readTiffOrientation(bytes, offset + 8, offset + 8 + length)
-    offset += 8 + length + (length & 1)
+/** The attributes of the first inline image in the deck, wherever it sits. */
+function inlineImageAttrs(presentation: Presentation): Record<string, unknown> | null {
+  let found: Record<string, unknown> | null = null
+  const walk = (value: unknown): void => {
+    if (found || !value || typeof value !== 'object') return
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item)
+      return
+    }
+    const node = value as Record<string, unknown>
+    if (node.type === IMAGE_NODE && node.attrs && typeof node.attrs === 'object') {
+      found = node.attrs as Record<string, unknown>
+      return
+    }
+    for (const item of Object.values(node)) walk(item)
   }
-  return null
+  walk(presentation.slides)
+  return found
 }
 
 function optimizedOf(analysis: ImageAnalysis, assetId: string) {
@@ -297,32 +312,49 @@ describe('analysing', () => {
   })
 
   it('never turns a picture when it only strips its metadata', async () => {
-    const repository = freshRepository()
-    // A lossy WEBP whose pixels need no change never reaches the canvas, so the
-    // metadata pass is the whole operation — and it must not change what the
-    // viewer sees. An orientation dropped here would show the photograph on its
-    // side, which is exactly what optimising must never do.
+    // The container holds a 3 × 2 picture that the tag turns a quarter turn, so
+    // it is *shown* 2 × 3 — which is what the reference records, because that is
+    // what the browser's decoder said when the file was uploaded. The metadata
+    // pass must hand back a reference that still says 2 × 3: an inline image
+    // takes its shape from the reference, and a portrait photograph that
+    // suddenly claimed landscape would be laid out in the wrong box.
     const secret = [...'GPS-hemmelighet'].map((character) => character.charCodeAt(0))
-    const photo = webpWithExifOrientation(6, secret)
-    const inline = containerWithDoc({
-      type: 'doc',
-      content: [{ type: 'paragraph', content: [imageNode('a_webp', { widthPercent: 50, aspect: 2 / 3 })] }],
-    })
-    const deck = deckWith(createLeaf(inline), [
-      ref('a_webp', photo, { mimeType: 'image/webp', name: 'ferie.webp', width: 2, height: 3 }),
-    ])
-    await seed(repository, deck, { a_webp: photo })
-    const processor = fakeProcessor()
+    const cases = [
+      // A lossy WEBP whose pixels need no change never reaches the canvas.
+      { id: 'a_webp', mimeType: 'image/webp', name: 'ferie.webp', bytes: webpWithExifOrientation(6, secret) },
+      // A PNG is offered to the canvas, but the redraw comes back bigger, so
+      // the metadata pass is what is left — the same fallback.
+      { id: 'a_png', mimeType: 'image/png', name: 'skjerm.png', bytes: pngWithExifOrientation(8, secret) },
+    ]
 
-    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor })
-    const outcome = optimizedOf(analysis, 'a_webp')
-    expect(processor.jobs).toEqual([])
-    expect(outcome.operations).toEqual(['metadata'])
+    for (const file of cases) {
+      const repository = freshRepository()
+      const inline = containerWithDoc({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [imageNode(file.id, { widthPercent: 50, aspect: 2 / 3 })] }],
+      })
+      const deck = deckWith(createLeaf(inline), [
+        ref(file.id, file.bytes, { mimeType: file.mimeType, name: file.name, width: 2, height: 3 }),
+      ])
+      await seed(repository, deck, { [file.id]: file.bytes })
+      // Nothing the canvas returns is ever smaller than the original here.
+      const processor = fakeProcessor(() => pngWith(pngChunk('prVt', new Array(4000).fill(0))))
 
-    const written = new Uint8Array(await outcome.blob.arrayBuffer())
-    expect(exifOrientationOf(written)).toBe(6)
-    // Everything else in the block is gone all the same.
-    expect(outcome.after).toBeLessThan(outcome.before)
+      const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor })
+      const outcome = optimizedOf(analysis, file.id)
+      expect(outcome.operations).toEqual(['metadata'])
+      // The size the picture is shown at, unchanged.
+      expect(outcome.ref).toMatchObject({ width: 2, height: 3 })
+      expect(outcome.after).toBeLessThan(outcome.before)
+
+      const written = new Uint8Array(await outcome.blob.arrayBuffer())
+      expect(readRasterImage(written)).toMatchObject({ ok: true, value: { width: 2, height: 3 } })
+
+      // And through the document: the inline image keeps its shape.
+      const editor = editorFor(repository, deck)
+      await applyImageOptimization(analysis, editor.deps)
+      expect(inlineImageAttrs(await repository.loadPresentation(deck.id))).toMatchObject({ aspect: 2 / 3 })
+    }
   })
 
   it('names a file it could not process and carries on with the rest', async () => {
