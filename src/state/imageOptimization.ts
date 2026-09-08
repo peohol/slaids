@@ -46,6 +46,7 @@ import {
 } from '../domain/imageOptimization'
 import { presentationRevision } from '../domain/revision'
 import type { AssetRef, Presentation } from '../domain/types'
+import { bytesEqual } from '../persistence/assetDedupe'
 import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import type { SlaidsRepository, StoredAsset } from '../persistence/repository'
 import { forgetCachedAsset, primeAssetCache } from './assets'
@@ -268,9 +269,16 @@ export async function analyzeImages(
  *
  * Only a file that *could* be a copy is read: a copy is exactly as long as its
  * original and served under the same type, so a file alone in its size-and-type
- * class is nobody's twin and costs no download. Among the candidates, a hash
- * already on the reference is trusted when the stored size still matches it;
- * anything else is computed from the bytes.
+ * class is nobody's twin and costs no download.
+ *
+ * Among the candidates, identity is decided by the stored bytes and nothing
+ * else. The hash on a reference is not consulted: the reference lives in the
+ * document and the bytes in the store, and a blob replaced under an unchanged
+ * reference would otherwise merge two different pictures into one and delete
+ * the other — see `persistence/assetDedupe.ts`. Every candidate is hashed from
+ * what the store actually holds, a pair is recorded as copies only when their
+ * bytes compare equal, and the hash written back to the reference is the one
+ * just computed, which also repairs a stale one.
  */
 async function hashAssets(
   presentation: Presentation,
@@ -283,7 +291,7 @@ async function hashAssets(
     classSizes.set(classOf(ref), (classSizes.get(classOf(ref)) ?? 0) + 1)
   }
 
-  const firstByHash = new Map<string, string>()
+  const firstByHash = new Map<string, { id: string; bytes: Uint8Array }>()
   const replacements = new Map<string, string>()
   const assets: AssetRef[] = []
   for (const [index, ref] of presentation.assets.entries()) {
@@ -299,15 +307,11 @@ async function hashAssets(
       assets.push(ref)
       continue
     }
-    const hash =
-      ref.contentHash && asset.blob.size === ref.byteSize
-        ? ref.contentHash
-        : await hashBytes(await blobToBytes(asset.blob))
-    // Identity is the bytes, and only the bytes: a PNG and an SVG cannot hash
-    // the same, and two files that do are one file.
+    const bytes = await blobToBytes(asset.blob)
+    const hash = await hashBytes(bytes)
     const kept = firstByHash.get(hash)
-    if (kept) replacements.set(ref.id, kept)
-    else firstByHash.set(hash, ref.id)
+    if (kept && bytesEqual(kept.bytes, bytes)) replacements.set(ref.id, kept.id)
+    else if (!kept) firstByHash.set(hash, { id: ref.id, bytes })
     assets.push(ref.contentHash === hash ? ref : { ...ref, contentHash: hash })
   }
   return { presentation: { ...presentation, assets }, replacements }

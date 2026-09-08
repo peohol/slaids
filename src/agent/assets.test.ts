@@ -7,18 +7,19 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { hashBytes } from '../domain/assetHash'
 import { MAX_ASSET_BYTES } from '../domain/constants'
 import { setZoneContent, splitLeaf, unusedAssets, usedAssetIds } from '../domain/commands'
 import { createPresentation } from '../domain/presentation'
 import { createUntitledCard } from '../domain/content'
 import { imageNode } from '../domain/richdoc'
 import { presentationRevision } from '../domain/revision'
-import { blobToBytes } from '../persistence/blob'
+import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
 import { RepositoryError } from '../persistence/repository'
 import { realImageBase64, realImages, IMAGE_HEIGHT, IMAGE_WIDTH } from '../domain/testImages'
-import type { Presentation, RichDoc, ZoneContent } from '../domain/types'
+import type { AssetRef, Presentation, RichDoc, ZoneContent } from '../domain/types'
 import { createSvgAsset, deleteAsset, listAssets, setZoneAsset, uploadAsset } from './operations/assets'
 import { getPresentation, inspectSlide } from './operations/deck'
 import { runOperation } from './registry'
@@ -276,6 +277,42 @@ describe('upload_asset, den samme filen to ganger', () => {
     expect((await context.repository.listAssets(presentation.id)).map((asset) => asset.id)).toEqual([
       first.assetId,
     ])
+  })
+
+  it('tar ikke en notert hash som bevis: de lagrede bytene avgjør', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+    const png = pngBytes()
+    const other = png.slice()
+    other[other.length - 5] ^= 0xff
+    // The document vouches for `png` on every count it can check — size, type,
+    // hash — while the store holds `other` under that id.
+    const stale: AssetRef = {
+      id: 'a_stale',
+      name: 'ferie.png',
+      mimeType: 'image/png',
+      byteSize: png.byteLength,
+      width: IMAGE_WIDTH,
+      height: IMAGE_HEIGHT,
+      isVector: false,
+      contentHash: await hashBytes(png),
+    }
+    await context.repository.savePresentation({ ...presentation, assets: [stale] })
+    await context.repository.putAsset(presentation.id, stale, bytesToBlob(other, 'image/png'))
+
+    const uploaded = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'ferie.png',
+        content: { encoding: 'bytes', data: png },
+      }),
+    )
+    expect(uploaded.deduplicated).toBe(false)
+    expect(uploaded.assetId).not.toBe(stale.id)
+
+    const stored = await context.repository.loadPresentation(presentation.id)
+    expect(stored.assets.map((asset) => asset.id).sort()).toEqual([stale.id, uploaded.assetId].sort())
+    expect(await blobToBytes((await context.repository.getAsset(uploaded.assetId))!.blob)).toEqual(png)
   })
 })
 

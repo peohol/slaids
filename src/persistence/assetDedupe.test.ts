@@ -2,8 +2,9 @@
  * Finding the file a presentation already has.
  *
  * Against a real Dexie store, because half of what is under test is *what is
- * read*: a candidate with a recorded hash costs no read at all, one without is
- * read once, and a file that differs in size or type is never read.
+ * read*: a match is only ever answered on the stored bytes, a candidate whose
+ * recorded hash differs costs no read, and a file that differs in size or type
+ * is never read.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -89,7 +90,7 @@ describe('findIdenticalAsset', () => {
     expect(getAsset).not.toHaveBeenCalled()
   })
 
-  it('trusts a recorded hash instead of reading the file', async () => {
+  it('reads the bytes behind a matching hash before answering, and skips a differing hash without a read', async () => {
     const repository = freshRepository()
     const png = realImages.png()
     const hash = await hashBytes(png)
@@ -98,12 +99,30 @@ describe('findIdenticalAsset', () => {
 
     const found = await findIdenticalAsset(repository, presentation, { bytes: png, mimeType: 'image/png', hash })
     expect(found?.ref.id).toBe('a_png')
-    expect(getAsset).not.toHaveBeenCalled()
+    // The hash agreed, and the file was read all the same: the answer rests on
+    // the bytes, never on the reference's account of them.
+    expect(getAsset.mock.calls.map(([id]) => id)).toEqual(['a_png'])
 
-    // A recorded hash that differs settles it too, without a read.
+    // A recorded hash that differs settles it without a read — the one thing a
+    // recorded hash may decide, because the mistake it can make is a stored copy.
+    getAsset.mockClear()
     const differs = { ...presentation, assets: [ref('a_png', png, { contentHash: 'f'.repeat(64) })] }
     expect(await findIdenticalAsset(repository, differs, { bytes: png, mimeType: 'image/png' })).toBeNull()
     expect(getAsset).not.toHaveBeenCalled()
+  })
+
+  it('never takes a stale hash as proof: right size, right recorded hash, other stored bytes is no match', async () => {
+    const repository = freshRepository()
+    const png = realImages.png()
+    const other = png.slice()
+    other[other.length - 5] ^= 0xff
+    // The reference vouches for `png` on every count the document can check;
+    // the store holds `other`. Only the bytes can tell, so only the bytes decide.
+    const presentation = await deckWith(repository, [
+      { ref: ref('a_stale', png, { contentHash: await hashBytes(png) }), bytes: other },
+    ])
+
+    expect(await findIdenticalAsset(repository, presentation, { bytes: png, mimeType: 'image/png' })).toBeNull()
   })
 
   it('skips a candidate whose bytes cannot be read rather than guessing', async () => {

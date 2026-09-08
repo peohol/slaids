@@ -7,10 +7,15 @@
  * the `AssetRef` as `contentHash` once it has been computed so it need not be
  * computed again.
  *
- * The hash is advisory, never load-bearing: a reference without one is simply a
- * file nobody has hashed yet, and every consumer hashes on demand. Which is why
- * it can be optional in the schema, why an import may drop it, and why nothing
- * breaks when a document written before the field existed is opened.
+ * The hash is advisory, never load-bearing. A reference without one is simply a
+ * file nobody has hashed yet, and a reference *with* one is never taken as proof
+ * that the stored bytes are those bytes: the reference lives in the document
+ * and the bytes in the store, and nothing ties them together hard enough for
+ * one to vouch for the other. So deduplication (`persistence/assetDedupe.ts`)
+ * uses a recorded hash only to rule candidates *out*, and decides identity on
+ * the stored bytes themselves. Which is why the field can be optional in the
+ * schema, why an import may drop it, why a stale one is harmless, and why
+ * nothing breaks when a document written before the field existed is opened.
  *
  * WebCrypto, because it is the one digest all three runtimes share — the
  * browser, the worker and the Node process behind the agent API — and because a

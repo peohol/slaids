@@ -305,6 +305,55 @@ describe('analysing', () => {
     expect(analysis.summary.merged).toBe(1)
     expect(analysis.summary.after).toBeLessThan(analysis.summary.before)
   })
+
+  it('never merges on a stale hash: same size and recorded hash, other stored bytes, stay two files', async () => {
+    const repository = freshRepository()
+    const bytes = bigFile(7)
+    const other = bigFile(8)
+    const staleHash = await hashBytes(bytes)
+    // Both references vouch for `bytes`, on every count the document can check;
+    // the store holds `other` behind the second.
+    const deck = deckWith(
+      createSplit('x', [1, 1], [createLeaf(createImage('a_first')), createLeaf(createImage('a_second'))]),
+      [ref('a_first', bytes, { contentHash: staleHash }), ref('a_second', other, { contentHash: staleHash })],
+    )
+    await seed(repository, deck, { a_first: bytes, a_second: other })
+
+    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor: fakeProcessor() })
+    expect(analysis.duplicates).toEqual([])
+    expect(analysis.summary.merged).toBe(0)
+    expect(panelAssetIds(analysis.presentation)).toEqual(['a_first', 'a_second'])
+    // The record is corrected from the bytes, never the bytes judged by the record.
+    expect(Object.fromEntries(analysis.presentation.assets.map((asset) => [asset.id, asset.contentHash]))).toEqual({
+      a_first: staleHash,
+      a_second: await hashBytes(other),
+    })
+
+    // Applied, each frame still shows a file of its own: nothing was merged away
+    // and deleted on the document's word.
+    const report = await applyImageOptimization(analysis, editorFor(repository, deck).deps)
+    expect(report.failed).toEqual([])
+    const shown = panelAssetIds(await repository.loadPresentation(deck.id))
+    expect(shown).toEqual([expect.any(String), expect.any(String)])
+    expect(shown[0]).not.toBe(shown[1])
+    expect((await repository.listAssets(deck.id)).map((asset) => asset.id).sort()).toEqual([...shown].sort())
+  })
+
+  it('merges on the stored bytes even when the recorded hashes disagree', async () => {
+    const repository = freshRepository()
+    const bytes = bigFile(7)
+    const deck = deckWith(
+      createSplit('x', [1, 1], [createLeaf(createImage('a_first')), createLeaf(createImage('a_copy'))]),
+      [ref('a_first', bytes, { contentHash: '0'.repeat(64) }), ref('a_copy', bytes, { contentHash: 'f'.repeat(64) })],
+    )
+    await seed(repository, deck, { a_first: bytes, a_copy: bytes })
+
+    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor: fakeProcessor() })
+    expect(analysis.duplicates.map((duplicate) => [duplicate.ref.id, duplicate.keptId])).toEqual([
+      ['a_copy', 'a_first'],
+    ])
+    expect(analysis.presentation.assets.map((asset) => asset.contentHash)).toEqual([await hashBytes(bytes)])
+  })
 })
 
 /* ------------------------------------------------------------------ *

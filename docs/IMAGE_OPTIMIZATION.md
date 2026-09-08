@@ -15,7 +15,7 @@ Hver rasterfil vurderes ut fra hvor den faktisk vises i dekket:
 | **Nedskalering** | Filen har flere piksler enn den største visningen trenger ved 2 piksler per logisk piksel (`OPTIMIZATION_PIXEL_DENSITY`), med minst 10 % margin | Filen skaleres ned i trinn (halvering) til målstørrelsen. Aldri opp. |
 | **Komprimering** | Fotografier, og piksler som allerede har vært gjennom en tapsgivende kodek | WebP (kvalitet 0,85) der nettleseren kan skrive det, ellers JPEG (0,88). Grafikk, tekst og skjermbilder forblir tapsfrie (PNG eller tapsfri WebP), og transparens beholdes alltid. |
 | **Metadata** | Alltid når filen skrives på nytt; tapsfritt for JPEG/PNG/WebP som ellers ikke endres | EXIF, GPS, miniatyrbilder, XMP og kommentarer fjernes. Fargeprofil og orientering beholdes, fordi de påvirker hvordan bildet ser ut. |
-| **Deduplisering** | To filer har identiske bytes (SHA-256) | Kopiene slås sammen til én fil. Skjer også ved opplasting: den samme filen lastet opp to ganger lagres én gang. |
+| **Deduplisering** | To filer har identiske bytes (SHA-256 av de lagrede bytene, verifisert byte for byte) | Kopiene slås sammen til én fil. Skjer også ved opplasting: den samme filen lastet opp to ganger lagres én gang. En hash notert på referansen er aldri bevis alene; den brukes bare til å utelukke kandidater. |
 
 SVG forblir SVG og rasteriseres aldri. Animerte GIF/APNG/WebP røres ikke, fordi
 et redraw bare ville beholdt første bilde. Et resultat som ikke er mindre enn

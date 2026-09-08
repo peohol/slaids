@@ -2025,7 +2025,12 @@ orienteringen skrives tilbake som én tag, siden den bestemmer hva som er opp.
 
 **Deduplisering** er innholdsbasert: SHA-256 av de lagrede bytene, notert som
 valgfri `AssetRef.contentHash` (uten skjemaversjonsbump – en referanse uten hash
-er en fil ingen har hashet ennå). Begge dørene inn i assetlageret
+er en fil ingen har hashet ennå). Den noterte hashen er aldri bevis: referansen
+ligger i dokumentet og bytene i lageret, og ingenting binder dem hardt nok
+sammen til at den ene kan gå god for den andre. Derfor brukes en notert hash bare
+til å *utelukke* kandidater, mens et treff alltid avgjøres på de faktisk lagrede
+bytene – sammenlignet byte for byte før en fil gjenbrukes eller to filer slås
+sammen. Begge dørene inn i assetlageret
 (`state/assetUpload.ts`, `agent/assetStore.ts`) spør
 `persistence/assetDedupe.ts` før de skriver og gjenbruker filen de finner;
 `upload_asset` svarer da med `deduplicated: true`. «Optimaliser bilder» slår

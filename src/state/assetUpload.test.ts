@@ -8,14 +8,16 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { hashBytes } from '../domain/assetHash'
 import { createPresentation } from '../domain/presentation'
 import { realImages, IMAGE_HEIGHT, IMAGE_WIDTH } from '../domain/testImages'
 import { SVG_NAMESPACE } from '../domain/svg'
+import { bytesToBlob } from '../persistence/blob'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { SlaidsDatabase } from '../persistence/db'
 import { setRepositoryOverride } from '../persistence/activeRepository'
 import { storeAsset } from '../agent/assetStore'
-import type { Presentation } from '../domain/types'
+import type { AssetRef, Presentation } from '../domain/types'
 import { describeSanitizing, storeUploadedFile } from './assetUpload'
 
 let counter = 0
@@ -293,7 +295,8 @@ describe('den samme filen to ganger', () => {
     const first = await storeUploadedFile(presentation, picked(png, 'ferie.png', 'image/png'))
     if (!first.ok) throw new Error(first.error.message)
     expect(first.value.reused).toBe(false)
-    // The file's identity is recorded, so the next comparison costs no read.
+    // The file's identity is recorded, so a later file of the same size that
+    // hashes differently costs no read.
     expect(first.value.ref.contentHash).toMatch(/^[0-9a-f]{64}$/)
 
     const withFile = { ...presentation, assets: [first.value.ref] }
@@ -313,5 +316,37 @@ describe('den samme filen to ganger', () => {
     if (!third.ok) throw new Error(third.error.message)
     expect(third.value.reused).toBe(false)
     expect(third.value.ref.id).not.toBe(first.value.ref.id)
+  })
+
+  it('tar ikke en notert hash som bevis: de lagrede bytene avgjør', async () => {
+    const repository = freshRepository()
+    const presentation = await seed(repository)
+    const png = realImages.png()
+    const other = png.slice()
+    other[other.length - 5] ^= 0xff
+    // A reference that says «this is the PNG» on every count the document can
+    // check — size, type, hash — over a stored file that is not.
+    const stale: AssetRef = {
+      id: 'a_stale',
+      name: 'ferie.png',
+      mimeType: 'image/png',
+      byteSize: png.byteLength,
+      width: IMAGE_WIDTH,
+      height: IMAGE_HEIGHT,
+      isVector: false,
+      contentHash: await hashBytes(png),
+    }
+    await repository.putAsset(presentation.id, stale, bytesToBlob(other, 'image/png'))
+
+    const uploaded = await storeUploadedFile(
+      { ...presentation, assets: [stale] },
+      picked(png, 'ferie.png', 'image/png'),
+    )
+    if (!uploaded.ok) throw new Error(uploaded.error.message)
+    expect(uploaded.value.reused).toBe(false)
+    expect(uploaded.value.ref.id).not.toBe(stale.id)
+    expect((await repository.listAssets(presentation.id)).map((asset) => asset.id).sort()).toEqual(
+      [stale.id, uploaded.value.ref.id].sort(),
+    )
   })
 })
