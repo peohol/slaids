@@ -41,8 +41,13 @@ Rekkefølgen ved skriving er den som gjør operasjonen trygg:
 3. først når lagringen har lyktes, slettes filene ingenting peker på lenger.
 
 Feiler ett bilde, feiler bare det bildet. Feiler lagringen, beholdes både de
-gamle og de nye filene. Operasjonen kan ikke angres med Ctrl+Z, og dialogen
-sier det; angrehistorikken nullstilles.
+gamle og de nye filene — og de gamle ryddes bort av seg selv når autolagringen
+kommer gjennom, ikke bare hvis det første forsøket lyktes. Slettingen sjekker
+alltid mot den lagrede presentasjonen først, så en fil dokumentet fortsatt viser
+blir aldri rørt. Forlater du editoren mens lagringen henger, står originalene
+igjen — som er nøyaktig det den lagrede presentasjonen fortsatt peker på.
+Operasjonen kan ikke angres med Ctrl+Z, og dialogen sier det; angrehistorikken
+nullstilles.
 
 ## Manuell ende-til-ende-test
 
@@ -108,7 +113,9 @@ responsiv mens analysen kjører (arbeidet skjer i en worker).
   erstatning og sammenslåing.
 - `src/state/imageOptimization.test.ts` — orkestrering mot et ekte
   Dexie-lager: rekkefølge på skriving, feilisolasjon, dedupe, fork, stale
-  analyse.
+  analyse, og opprydding etter en lagring som først feilet.
+- `src/state/autosave.test.ts` — arbeid som er satt til å kjøre etter neste
+  skriving som lykkes.
 - `src/persistence/assetDedupe.test.ts`, `src/state/assetUpload.test.ts`,
   `src/agent/assets.test.ts` — deduplisering ved begge dørene.
 - `e2e/image-optimization.spec.ts` — hele flyten i Chromium med ekte piksler.

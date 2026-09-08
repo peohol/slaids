@@ -27,6 +27,7 @@ import {
   analyzeImages,
   applyImageOptimization,
   hasChanges,
+  reclaimReplacedAssets,
   type ImageAnalysis,
   type RasterProcessor,
 } from './imageOptimization'
@@ -111,20 +112,43 @@ async function seed(
   }
 }
 
-/** Apply against a fake editor: the commit is remembered, the save succeeds unless told otherwise. */
+/**
+ * Apply against a fake editor: the commit is remembered, the save succeeds
+ * unless told otherwise, and `afterSave` behaves the way autosave's does —
+ * queued work runs on the next write that lands, and is dropped if none ever
+ * does. `saveWorks` lets a test end the outage and let the retry through.
+ */
 function editorFor(repository: SlaidsRepository, presentation: Presentation, saveResult = true) {
   let current: Presentation = presentation
+  let works = saveResult
+  const queued: (() => Promise<void>)[] = []
+
+  const save = async (): Promise<boolean> => {
+    if (!works) return false
+    await repository.savePresentation(current)
+    const tasks = queued.splice(0)
+    for (const task of tasks) await task()
+    return true
+  }
+
   return {
     current: () => current,
+    /** The store is well again; the next write lands, as autosave's retry would. */
+    saveWorks: (value: boolean) => {
+      works = value
+    },
+    /** What autosave does on a later change or flush. */
+    retrySave: save,
+    pending: () => queued.length,
     deps: {
       repository,
       current: () => current,
       commit: (next: Presentation) => {
         current = next
       },
-      save: async () => {
-        if (saveResult) await repository.savePresentation(current)
-        return saveResult
+      save,
+      onceSaved: (task: () => Promise<void>) => {
+        queued.push(task)
       },
     },
   }
@@ -448,6 +472,71 @@ describe('applying', () => {
     expect(await repository.getAsset(newId)).not.toBeNull()
   })
 
+  it('deletes the replaced file when a later save lands, not only when the first one does', async () => {
+    const repository = freshRepository()
+    const original = bigFile(1)
+    const deck = deckWith(createLeaf(createImage('a_big')), [ref('a_big', original)])
+    await seed(repository, deck, { a_big: original })
+    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor: fakeProcessor() })
+    const newId = optimizedOf(analysis, 'a_big').ref.id
+    const editor = editorFor(repository, deck, false)
+
+    const report = await applyImageOptimization(analysis, editor.deps)
+    expect(report.saved).toBe(false)
+    // Not abandoned — waiting for the write that carries the rewrite.
+    expect(report.deferred).toEqual(['a_big'])
+    expect(await repository.getAsset('a_big')).not.toBeNull()
+
+    // The trouble passes and autosave's retry gets through, exactly as it would
+    // on the user's next keystroke.
+    editor.saveWorks(true)
+    expect(await editor.retrySave()).toBe(true)
+
+    expect(panelAssetIds(await repository.loadPresentation(deck.id))).toEqual([newId])
+    // The file the rewrite replaced does not outlive it.
+    expect(await repository.getAsset('a_big')).toBeNull()
+    expect(await repository.getAsset(newId)).not.toBeNull()
+    expect((await repository.listAssets(deck.id)).map((asset) => asset.id)).toEqual([newId])
+    expect(editor.pending()).toBe(0)
+  })
+
+  it('leaves the replaced file alone when the stored document still shows it', async () => {
+    const repository = freshRepository()
+    const original = bigFile(1)
+    const deck = deckWith(createLeaf(createImage('a_big')), [ref('a_big', original)])
+    await seed(repository, deck, { a_big: original })
+    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor: fakeProcessor() })
+    const editor = editorFor(repository, deck, false)
+    await applyImageOptimization(analysis, editor.deps)
+
+    // The editor was left with the write still pending, so the store never got
+    // the rewrite. Running the deferred work anyway must not touch a file the
+    // stored document is still showing.
+    await reclaimReplacedAssets(repository, deck.id, ['a_big'])
+
+    expect(panelAssetIds(await repository.loadPresentation(deck.id))).toEqual(['a_big'])
+    expect(await repository.getAsset('a_big')).not.toBeNull()
+  })
+
+  it('keeps the files it cannot account for when the document cannot be read', async () => {
+    const repository = freshRepository()
+    const original = bigFile(1)
+    const deck = deckWith(createLeaf(createImage('a_big')), [ref('a_big', original)])
+    await seed(repository, deck, { a_big: original })
+    const unreadable: SlaidsRepository = Object.create(repository, {
+      loadPresentation: {
+        value: async () => {
+          throw new Error('Ingen kontakt med lagringen.')
+        },
+      },
+    })
+
+    // Not knowing what the document says is a reason to keep a file, never to
+    // delete one.
+    expect(await reclaimReplacedAssets(unreadable, deck.id, ['a_big'])).toEqual(['a_big'])
+    expect(await repository.getAsset('a_big')).not.toBeNull()
+  })
+
   it('forks a shared file for one panel and leaves the original in place for the other', async () => {
     const repository = freshRepository()
     const original = bigFile(1)
@@ -544,7 +633,7 @@ describe('applying', () => {
       commit,
       save: async () => true,
     })
-    expect(report).toEqual({ replaced: 0, failed: [], saved: false, orphaned: [], savedBytes: 0 })
+    expect(report).toEqual({ replaced: 0, failed: [], saved: false, orphaned: [], deferred: [], savedBytes: 0 })
     expect(commit).not.toHaveBeenCalled()
   })
 })

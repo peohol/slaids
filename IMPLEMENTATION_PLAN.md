@@ -2048,7 +2048,21 @@ skriver i den rekkefølgen som er trygg å stoppe i: nye filer under nye id-er
 først, så dokumentet (`replaceAssetUses`, som også registrerer den nye
 referansen og fjerner den gamle når ingenting viser den lenger), så lagring, og
 først *etter* lagringen slettes filene ingenting peker på. Ett bilde som feiler
-feiler alene. Resultatet valideres ved den samme døren som all annen lagring
+feiler alene.
+
+En lagring som feiler er en utsettelse, ikke en slutt: autosave fortsetter å
+prøve, og slettingen følger den skrivingen som til slutt går gjennom
+(`AutosaveController.afterSave`, brukt via `onceSaved`). Uten det ville et
+øyeblikks nettverkstrøbbel etterlatt de erstattede filene for godt – dokumentet
+blir lagret et sekund senere uten å nevne dem, og verken en ny
+optimaliseringsrunde eller `deleteOrphanAssets` (som bare rydder filer hvis
+presentasjon er borte) finner dem igjen. Slettingen leser alltid den *lagrede*
+presentasjonen først (`reclaimReplacedAssets`) og lar en fil den fortsatt viser
+være i fred, så den er trygg å kjøre når som helst – også når editoren ble
+forlatt med skrivingen hengende, og lageret altså fortsatt har det gamle
+dokumentet.
+
+Resultatet valideres ved den samme døren som all annen lagring
 (`acceptAsset` med `raster: 'bitstream'`), så størrelsen kommer fra bitstrømmen.
 Operasjonen ligger utenfor angrehistorikken (`replaceDocument` i storen), fordi
 et angre-steg som peker på slettede filer ville vært en slide med et hull;

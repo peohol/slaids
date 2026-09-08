@@ -1284,8 +1284,11 @@ export function EditorView({
           }}
           // The rewritten document is a save point of its own: the files it
           // stopped pointing at are only deleted once it is stored — and with
-          // no controller to store it, they are not deleted at all.
+          // no controller to store it, they are not deleted at all. A save that
+          // fails is only a delay, so the deletion is handed to whichever write
+          // finally lands.
           save={() => autosaveRef.current?.flush() ?? Promise.resolve(false)}
+          onceSaved={(task) => autosaveRef.current?.afterSave(task)}
         />
       )}
 

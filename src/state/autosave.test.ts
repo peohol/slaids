@@ -161,6 +161,78 @@ describe('autosave', () => {
     expect(await controller.flush()).toBe(true)
     controller.stop()
   })
+
+  it('runs work registered for after the save on the write that finally lands', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    await controller.flush()
+
+    const done: string[] = []
+    fake.setFailure('Supabase svarer ikke')
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+    controller.afterSave(async () => {
+      done.push('cleanup')
+    })
+
+    // The write that the work belongs to has not landed, so neither has it.
+    expect(await controller.flush()).toBe(false)
+    expect(done).toEqual([])
+
+    fake.setFailure(null)
+    expect(await controller.flush()).toBe(true)
+    expect(done).toEqual(['cleanup'])
+
+    // Once only: it belongs to that write, not to every write after it.
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'C'))
+    await controller.flush()
+    expect(done).toEqual(['cleanup'])
+    controller.stop()
+  })
+
+  it('drops work registered for after a save that never happens', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    await controller.flush()
+
+    const done: string[] = []
+    fake.setFailure('Supabase svarer ikke')
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+    controller.afterSave(async () => {
+      done.push('cleanup')
+    })
+    expect(await controller.flush()).toBe(false)
+
+    // Leaving with the write still pending: the stored document is the old one,
+    // and work that assumed the new one must not run.
+    controller.stop()
+    fake.setFailure(null)
+    await controller.flush()
+    expect(done).toEqual([])
+  })
+
+  it('lets the write stand when the work registered after it throws', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 1)
+    useEditorStore.getState().setPresentation(createPresentation({ title: 'A' }))
+    await controller.flush()
+
+    const done: string[] = []
+    useEditorStore.getState().run('rename', (current) => setPresentationTitle(current, 'B'))
+    controller.afterSave(async () => {
+      throw new Error('Filen ville ikke slettes.')
+    })
+    controller.afterSave(async () => {
+      done.push('andre')
+    })
+
+    expect(await controller.flush()).toBe(true)
+    // The write landed and says so; the rest of the queue ran anyway.
+    expect(useEditorStore.getState().saveStatus).toBe('saved')
+    expect(done).toEqual(['andre'])
+    controller.stop()
+  })
 })
 
 describe('å forlate editoren', () => {

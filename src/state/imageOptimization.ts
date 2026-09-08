@@ -20,6 +20,12 @@
  *     failure after it leaves at worst a file nothing references, never a
  *     reference to a file that is gone.
  *
+ * A save that fails is a delay, not an ending: autosave keeps retrying it, and
+ * the deletion goes with whichever attempt lands (`onceSaved`). Otherwise a
+ * moment's trouble with the network would strand the replaced files for good —
+ * the stored document would name the new files a second later, and nothing
+ * would ever come back for the old ones.
+ *
  * One file failing — a decoder that refuses it, a store that will not take the
  * result — fails that file alone. Every other file in the run is still
  * optimised, and the failure is reported by name.
@@ -505,6 +511,21 @@ export interface ApplyDependencies {
   commit: (presentation: Presentation) => void
   /** Store the committed document. Resolves `true` once it is stored. */
   save: () => Promise<boolean>
+  /**
+   * Register work to run once *some* write has landed — see
+   * `AutosaveController.afterSave`.
+   *
+   * The save right after the rewrite can fail while autosave keeps retrying it,
+   * and the files the rewrite replaced must go when that retry succeeds. Left
+   * to the one save attempt, they would stay in the store for good: the
+   * document no longer names them, so no later optimisation run finds them, and
+   * `deleteOrphanAssets` only reclaims files whose whole presentation is gone.
+   *
+   * Optional: without it a failed save simply keeps both sets of files, which
+   * is safe but leaks. The task verifies the stored document itself, so it is
+   * harmless whenever it runs — or never runs.
+   */
+  onceSaved?: (task: () => Promise<void>) => void
   onProgress?: (progress: ProgressReport) => void
 }
 
@@ -517,6 +538,11 @@ export interface ApplyReport {
   saved: boolean
   /** Old files that could not be deleted after the save. Orphans, never holes. */
   orphaned: string[]
+  /**
+   * Old files still waiting for the rewritten document to reach the store.
+   * They are deleted by `onceSaved` when it does, and kept when it never does.
+   */
+  deferred: string[]
   /** Bytes gone from the store, counting only what actually happened. */
   savedBytes: number
 }
@@ -546,7 +572,7 @@ export async function applyImageOptimization(
     throw new StaleAnalysisError()
   }
 
-  const report: ApplyReport = { replaced: 0, failed: [], saved: false, orphaned: [], savedBytes: 0 }
+  const report: ApplyReport = { replaced: 0, failed: [], saved: false, orphaned: [], deferred: [], savedBytes: 0 }
   const presentationId = analysis.source.id
 
   // 1. Store every new file, under a new id. Nothing references them yet, so a
@@ -608,16 +634,69 @@ export async function applyImageOptimization(
   deps.commit(next)
   progress({ phase: 'saving', done: 0, total: 1 })
   report.saved = await deps.save()
-  if (!report.saved) return report
+
+  if (!report.saved) {
+    // Not stored *yet*. Autosave keeps retrying the write for as long as the
+    // editor is mounted, so the files this rewrite replaced are not abandoned —
+    // they go with whichever attempt lands. If none ever does, the stored
+    // document is still the old one and they are still exactly what it needs.
+    report.deferred = toDelete
+    deps.onceSaved?.(async () => {
+      await reclaimReplacedAssets(repository, presentationId, toDelete)
+    })
+    return report
+  }
 
   // 4. Only now are the old files unreferenced by anything stored anywhere.
-  for (const [index, id] of toDelete.entries()) {
-    progress({ phase: 'cleaning', done: index, total: toDelete.length })
-    forgetCachedAsset(id)
-    if (!(await discard(repository, id))) report.orphaned.push(id)
-  }
+  progress({ phase: 'cleaning', done: 0, total: toDelete.length })
+  report.orphaned = await reclaimReplacedAssets(repository, presentationId, toDelete, (done) =>
+    progress({ phase: 'cleaning', done, total: toDelete.length }),
+  )
   report.savedBytes = savedBytes
   return report
+}
+
+/**
+ * Delete the files the *stored* document has stopped pointing at, and only
+ * those. Answers with the ids whose bytes are still there.
+ *
+ * The check is the point. This runs at two different moments — right after the
+ * rewrite is saved, and again from `onceSaved` when that save had to be
+ * retried — and by the second one the world may have moved: the editor may have
+ * been left with the write still pending, in which case the stored document is
+ * the *old* one and these files are precisely what it shows. So the stored
+ * document is read and asked, every time, and a file it still names is left
+ * alone. That makes the call safe to make whenever, and twice.
+ *
+ * A document that cannot be read leaves everything as it is: not knowing is a
+ * reason to keep a file, never to delete one.
+ */
+export async function reclaimReplacedAssets(
+  repository: SlaidsRepository,
+  presentationId: string,
+  ids: readonly string[],
+  onProgress?: (done: number) => void,
+): Promise<string[]> {
+  if (ids.length === 0) return []
+  let referenced: Set<string>
+  try {
+    const stored = await repository.loadPresentation(presentationId)
+    referenced = new Set(stored.assets.map((asset) => asset.id))
+  } catch {
+    return [...ids]
+  }
+
+  const kept: string[] = []
+  for (const [index, id] of ids.entries()) {
+    onProgress?.(index)
+    if (referenced.has(id)) {
+      kept.push(id)
+      continue
+    }
+    forgetCachedAsset(id)
+    if (!(await discard(repository, id))) kept.push(id)
+  }
+  return kept
 }
 
 /** Remove a file's bytes, best effort. `true` when they are gone. */

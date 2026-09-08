@@ -23,6 +23,23 @@ export interface AutosaveController {
    * still pending — the caller decides what to do about it.
    */
   flush: () => Promise<boolean>
+  /**
+   * Run `task` once a write has actually landed.
+   *
+   * Some work is only correct after the *stored* document is the new one:
+   * deleting the files an optimised document stopped pointing at, above all.
+   * The save that follows such a change can fail, and autosave then keeps
+   * retrying it for as long as the editor is mounted — so the work belongs to
+   * whichever write finally lands, not to the first attempt. Without this, a
+   * moment's trouble with the network would leave those files behind for good:
+   * the document that replaced them gets stored a second later, and nothing
+   * ever comes back for them.
+   *
+   * Dropped when the controller stops with the write still pending. The stored
+   * document is then still the old one, which still points at those files, and
+   * doing the work would be exactly wrong.
+   */
+  afterSave: (task: () => Promise<void>) => void
 }
 
 /**
@@ -52,6 +69,25 @@ export function startAutosave(
   let timer: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let lastWriteFailed = false
+  let afterSaveTasks: (() => Promise<void>)[] = []
+
+  /**
+   * Best effort, and deliberately so: the write has landed, the stored document
+   * is correct, and nothing a task does can make it wrong. One that throws is
+   * the store's own trouble to report.
+   */
+  const runAfterSaveTasks = async (): Promise<void> => {
+    if (afterSaveTasks.length === 0) return
+    const tasks = afterSaveTasks
+    afterSaveTasks = []
+    for (const task of tasks) {
+      try {
+        await task()
+      } catch {
+        // Nothing to do here; see above.
+      }
+    }
+  }
 
   const pump = (): Promise<void> => {
     if (pumping) return pumping
@@ -78,6 +114,9 @@ export function startAutosave(
           pending = null
           useEditorStore.getState().setSaveStatus('saved', new Date().toISOString())
         }
+        // After the status, so the editor says «lagret» the moment it is true
+        // rather than when the follow-up work happens to finish.
+        await runAfterSaveTasks()
       }
     })().finally(() => {
       pumping = null
@@ -126,11 +165,15 @@ export function startAutosave(
   return {
     stop: () => {
       stopped = true
+      afterSaveTasks = []
       unsubscribe()
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', onHide)
       window.removeEventListener('pagehide', onPageHide)
     },
     flush,
+    afterSave: (task) => {
+      if (!stopped) afterSaveTasks.push(task)
+    },
   }
 }

@@ -45,11 +45,14 @@ export function ImageOptimizeModal({
   scope,
   onOpenChange,
   save,
+  onceSaved,
 }: {
   scope: OptimizationScope
   onOpenChange: (open: boolean) => void
   /** Store the committed document. Resolves `true` once it is stored. */
   save: () => Promise<boolean>
+  /** Run this once a write lands, for a save that had to be retried. */
+  onceSaved?: (task: () => Promise<void>) => void
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'analyzing', progress: null })
 
@@ -97,6 +100,7 @@ export function ImageOptimizeModal({
         current: () => useEditorStore.getState().presentation,
         commit: (next) => useEditorStore.getState().replaceDocument(next),
         save,
+        onceSaved,
         onProgress: (progress) =>
           setPhase((current) => (current.kind === 'applying' ? { kind: 'applying', progress } : current)),
       })
@@ -371,7 +375,8 @@ function Outcome({ analysis, report }: { analysis: ImageAnalysis; report: ApplyR
       </p>
       {!report.saved && report.replaced > 0 && (
         <p className="optimize-warning" data-testid="optimize-unsaved">
-          Presentasjonen er endret, men ikke lagret ennå. De gamle filene beholdes til lagringen lykkes.
+          Presentasjonen er endret, men ikke lagret ennå. De gamle filene beholdes så lenge, og ryddes
+          bort av seg selv så snart lagringen lykkes.
         </p>
       )}
       {report.failed.length > 0 && (
