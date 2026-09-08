@@ -68,8 +68,13 @@ function assetFileName(ref: AssetRef): string {
  * that was measured the day it was first stored.
  */
 function acceptedRef(ref: AssetRef, file: AcceptedAsset): AssetRef {
+  // A raster file is stored byte for byte, so the hash the archive recorded
+  // still describes it. An SVG is re-serialised by the sanitiser and may come
+  // out as different bytes, so its hash is dropped and computed again on demand.
+  const { contentHash, ...rest } = ref
   return {
-    ...ref,
+    ...rest,
+    ...(contentHash && !file.isVector ? { contentHash } : {}),
     mimeType: file.mimeType,
     isVector: file.isVector,
     byteSize: file.bytes.byteLength,

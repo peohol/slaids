@@ -261,7 +261,7 @@ function isFrameMarker(marker: number): boolean {
  * Every step is bounds-checked against the segment: what is being parsed here
  * is whatever the file happened to contain.
  */
-function readExifOrientation(bytes: Uint8Array, start: number, end: number): number | null {
+export function readExifOrientation(bytes: Uint8Array, start: number, end: number): number | null {
   if (ascii(bytes, start, 6) !== 'Exif\u0000\u0000') return null
   const tiff = start + 6
   if (tiff + 8 > end) return null
@@ -287,7 +287,7 @@ function readExifOrientation(bytes: Uint8Array, start: number, end: number): num
   return null
 }
 
-const EXIF_ORIENTATION_TAG = 0x0112
+export const EXIF_ORIENTATION_TAG = 0x0112
 
 /** 5 through 8 turn the picture a quarter turn, so it is drawn transposed. */
 function transposes(orientation: number | null): boolean {

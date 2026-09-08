@@ -34,6 +34,8 @@ export interface AssetRecord {
   width: number
   height: number
   isVector: boolean
+  /** See `AssetRef.contentHash`. Absent on a row written before it existed. */
+  contentHash?: string
   blob: Blob
 }
 

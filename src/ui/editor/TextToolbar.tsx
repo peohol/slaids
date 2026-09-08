@@ -73,7 +73,14 @@ function renderMarkButtons(buttons: MarkButton[]) {
   ))
 }
 
-export function TextToolbar({ onInsertReference }: { onInsertReference: () => void }) {
+export function TextToolbar({
+  onInsertReference,
+  onOptimizeImage,
+}: {
+  onInsertReference: () => void
+  /** Shrink the file behind the selected inline picture; see `ImageOptimizeModal`. */
+  onOptimizeImage: (assetId: string) => void
+}) {
   const editor = useActiveEditor((state) => state.editor)
   const version = useActiveEditor((state) => state.version)
   const bump = useActiveEditor((state) => state.bump)
@@ -358,6 +365,18 @@ export function TextToolbar({ onInsertReference }: { onInsertReference: () => vo
               {percent}%
             </button>
           ))}
+          <button
+            type="button"
+            className="btn btn--sm"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const assetId: unknown = editor.getAttributes('slaidsImage').assetId
+              if (typeof assetId === 'string' && assetId) onOptimizeImage(assetId)
+            }}
+            data-testid="optimize-inline-image"
+          >
+            <Icon name="optimize" size={14} /> Optimaliser …
+          </button>
         </div>
       )}
 

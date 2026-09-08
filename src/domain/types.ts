@@ -373,6 +373,13 @@ export interface AssetRef {
   width: number
   height: number
   isVector: boolean
+  /**
+   * SHA-256 of the stored bytes, as hex, once somebody has computed it — see
+   * `domain/assetHash.ts`. Absent on a file nobody has hashed yet, which every
+   * reader treats as "hash it now", so a document from before the field existed
+   * is exactly as good as one written today.
+   */
+  contentHash?: string
 }
 
 /**

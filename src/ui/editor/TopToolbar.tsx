@@ -35,6 +35,8 @@ export interface TopToolbarProps {
   onToggleSandbox: () => void
   onPresent: () => void
   onOpenTheme: () => void
+  /** Analyse and shrink every picture in the deck; see `ImageOptimizeModal`. */
+  onOptimizeImages: () => void
   /** Publish or revoke the secret link. The toggle itself owns the state. */
   onToggleShare: () => void
   sandboxCount: number
@@ -204,6 +206,17 @@ export function TopToolbar(props: TopToolbarProps) {
         <Tooltip label="Tema: bakgrunn, fonter, luft og skriftstørrelse">
           <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenTheme} data-testid="open-theme" aria-label="Tema">
             <Icon name="palette" size={15} />
+          </button>
+        </Tooltip>
+        <Tooltip label="Optimaliser bilder: mindre filer uten synlig kvalitetstap">
+          <button
+            type="button"
+            className="btn btn--sm btn--icon"
+            onClick={props.onOptimizeImages}
+            data-testid="optimize-images"
+            aria-label="Optimaliser bilder"
+          >
+            <Icon name="optimize" size={15} />
           </button>
         </Tooltip>
       </div>

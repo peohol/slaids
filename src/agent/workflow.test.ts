@@ -4444,10 +4444,12 @@ describe('rydding', () => {
     })
     await ok(context, 'set_zone_asset', { ...target, assetId: first.assetId })
 
+    // A different picture: the same bytes would be the same file, deduplicated
+    // at the door, and there would be nothing old to clean up.
     const second = await ok<StoredAssetResult>(context, 'create_svg_asset', {
       presentationId: deck.presentationId,
       name: 'ny',
-      svgMarkup: SQUARE,
+      svgMarkup: SQUARE.replace('#0af', '#fa0'),
     })
     // Replaced outright, so the old picture is not parked in the sandbox: it is
     // shown nowhere, which is exactly when it becomes deletable.

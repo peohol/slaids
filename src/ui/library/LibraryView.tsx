@@ -34,6 +34,7 @@ import {
 } from '../../state/libraryActions'
 import type { Folder, PresentationSummary } from '../../domain/types'
 import { Icon } from '../components/Icon'
+import { formatBytes } from '../format'
 import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
@@ -42,18 +43,6 @@ import { AgentTokensModal } from './AgentTokensModal'
 
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['kB', 'MB', 'GB', 'TB']
-  let value = bytes / 1024
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
-}
 
 function formatDate(value: string | Date, style: 'minute' | 'day' = 'minute'): string {
   const date = value instanceof Date ? value : new Date(value)

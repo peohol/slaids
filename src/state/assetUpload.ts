@@ -21,17 +21,25 @@
  */
 
 import { acceptAsset } from '../domain/assetIngress'
+import { hashBytes } from '../domain/assetHash'
 import { MAX_ASSET_BYTES } from '../domain/constants'
 import { newAssetId } from '../domain/ids'
 import { err, ok, type Result } from '../domain/result'
 import type { SvgSanitizeReport } from '../domain/svg'
-import type { AssetRef } from '../domain/types'
+import type { AssetRef, Presentation } from '../domain/types'
+import { findIdenticalAsset } from '../persistence/assetDedupe'
 import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import { repository } from '../persistence/activeRepository'
 import { readImageSize } from './assets'
 
 export interface UploadedAsset {
   ref: AssetRef
+  /**
+   * The presentation already held these exact bytes, so nothing was written
+   * and `ref` is the file it already had. The dialog mentions it; the picture
+   * is placed exactly as a new one would be.
+   */
+  reused: boolean
   /**
    * What the SVG sanitiser dropped, when anything was. The dialog says so: a
    * figure that comes back without its `<style>` block is never a silent
@@ -49,7 +57,7 @@ export interface UploadedAsset {
  * decoder, never out of a caller's parameter.
  */
 export async function storeUploadedFile(
-  presentationId: string,
+  presentation: Presentation,
   file: File,
 ): Promise<Result<UploadedAsset>> {
   // Before reading it: a file over the limit is refused without pulling it into
@@ -75,6 +83,12 @@ export async function storeUploadedFile(
     return err('INVALID_IMAGE', 'Bildefilen kunne ikke leses, så størrelsen er ukjent.')
   }
 
+  // The same bytes already in this presentation are the same file, whatever
+  // it was called this time: nothing is written, and the file it has is used.
+  const hash = await hashBytes(bytes)
+  const identical = await findIdenticalAsset(repository, presentation, { bytes, mimeType, hash })
+  if (identical) return ok({ ref: identical.ref, reused: true, ...(report ? { report } : {}) })
+
   const ref: AssetRef = {
     id: newAssetId(),
     name: file.name,
@@ -83,9 +97,10 @@ export async function storeUploadedFile(
     width: measured.width,
     height: measured.height,
     isVector,
+    contentHash: hash,
   }
-  await repository.putAsset(presentationId, ref, blob)
-  return ok(report ? { ref, report } : { ref })
+  await repository.putAsset(presentation.id, ref, blob)
+  return ok({ ref, reused: false, ...(report ? { report } : {}) })
 }
 
 /** What the sanitiser dropped, as one sentence, or `null` when it dropped nothing. */

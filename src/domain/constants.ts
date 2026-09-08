@@ -264,6 +264,20 @@ export const DEFAULT_BACKGROUND_COLOR = '#667788'
 export const MAX_ASSET_BYTES = 25 * 1024 * 1024
 
 /**
+ * How many file pixels the optimiser keeps per logical pixel a picture is shown
+ * at.
+ *
+ * The slide is `SLIDE_WIDTH × SLIDE_HEIGHT` logical pixels and is drawn scaled
+ * to whatever screen shows it, so a picture's *required* size is its displayed
+ * size in that space times this factor: two pixels per logical pixel is what a
+ * high-DPI screen draws, and leaves room for a moderate later enlargement of
+ * the frame. Below it a picture on such a screen would be visibly soft; far
+ * above it the extra pixels are never drawn by anything. See
+ * `domain/imageOptimization.ts`.
+ */
+export const OPTIMIZATION_PIXEL_DENSITY = 2
+
+/**
  * The largest miniapp an interactive slide may carry, in bytes of UTF-8.
  *
  * Bytes and not characters: a file full of three-byte glyphs is three times

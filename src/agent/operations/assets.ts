@@ -77,7 +77,7 @@ const uploadAssetTransportInput = z.strictObject({
 export const uploadAsset = defineOperation({
   name: 'upload_asset',
   summary:
-    'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv.',
+    'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv. En fil med nøyaktig samme bytes som en presentasjonen alt har, lagres ikke igjen: svaret peker på den eksisterende filen, med deduplicated: true.',
   mutates: true,
   scopes: ['assets:write'],
   input: uploadAssetInput,
@@ -115,7 +115,8 @@ const createSvgAssetInput = z.strictObject({
 
 export const createSvgAsset = defineOperation({
   name: 'create_svg_asset',
-  summary: 'Lag en vektorfil direkte fra SVG-markup og få tilbake en assetId.',
+  summary:
+    'Lag en vektorfil direkte fra SVG-markup og få tilbake en assetId. Markup som saneres til nøyaktig samme fil som en presentasjonen alt har, gjenbruker den (deduplicated: true).',
   mutates: true,
   scopes: ['assets:write'],
   input: createSvgAssetInput,

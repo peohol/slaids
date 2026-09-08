@@ -246,6 +246,9 @@ export const assetRefSchema = z.object({
   width: z.number().finite().nonnegative(),
   height: z.number().finite().nonnegative(),
   isVector: z.boolean(),
+  /* Optional, and no schema version bump: a reference without it is a file
+     nobody has hashed yet, not an older kind of document. See `assetHash.ts`. */
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 })
 
 export const presentationSchema = z.object({

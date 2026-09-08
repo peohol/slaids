@@ -57,6 +57,7 @@ export type IconName =
   | 'align-middle-v'
   | 'align-bottom-v'
   | 'interactive'
+  | 'optimize'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -113,6 +114,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />,
   /* A window with a prompt in it: a page that runs. */
   interactive: <path d="M4 5h16v14H4zM4 9h16M8 12.5l2 2-2 2M12.5 16.5H16" />,
+  optimize: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M10 10L5 5M14 10l5-5M10 14l-5 5M14 14l5 5" />,
   'align-left': <path d="M4 6h16M4 12h10M4 18h13" />,
   'align-center': <path d="M4 6h16M7 12h10M6 18h12" />,
   'align-right': <path d="M4 6h16M10 12h10M7 18h13" />,

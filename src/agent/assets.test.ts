@@ -243,6 +243,42 @@ describe('upload_asset', () => {
  * create_svg_asset
  * ------------------------------------------------------------------ */
 
+describe('upload_asset, den samme filen to ganger', () => {
+  it('svarer med filen presentasjonen alt har, og lagrer ingen kopi', async () => {
+    const context = freshContext()
+    const presentation = await seed(context)
+
+    const first = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'ferie.png',
+        content: { encoding: 'bytes', data: pngBytes() },
+      }),
+    )
+    expect(first.deduplicated).toBe(false)
+    expect(first.ref.contentHash).toMatch(/^[0-9a-f]{64}$/)
+
+    // Another name, the same bytes: the same file, and nothing written.
+    const second = expectOk(
+      await uploadAsset.run(context, {
+        presentationId: presentation.id,
+        name: 'ferie (kopi).png',
+        content: { encoding: 'bytes', data: pngBytes() },
+      }),
+    )
+    expect(second.deduplicated).toBe(true)
+    expect(second.assetId).toBe(first.assetId)
+    expect(second.ref).toEqual(first.ref)
+    expect(second.revision).toBe(first.revision)
+
+    const stored = await context.repository.loadPresentation(presentation.id)
+    expect(stored.assets.map((asset) => asset.id)).toEqual([first.assetId])
+    expect((await context.repository.listAssets(presentation.id)).map((asset) => asset.id)).toEqual([
+      first.assetId,
+    ])
+  })
+})
+
 describe('create_svg_asset', () => {
   it('lager et vektorasset direkte fra markup', async () => {
     const context = freshContext()

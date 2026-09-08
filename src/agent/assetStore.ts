@@ -17,9 +17,11 @@
  */
 
 import { acceptAsset } from '../domain/assetIngress'
+import { hashBytes } from '../domain/assetHash'
 import { registerAsset } from '../domain/commands'
 import { newAssetId } from '../domain/ids'
 import { presentationRevision } from '../domain/revision'
+import { findIdenticalAsset } from '../persistence/assetDedupe'
 import { bytesToBlob } from '../persistence/blob'
 import type { SvgSanitizeReport } from '../domain/svg'
 import type { AssetRef, Presentation } from '../domain/types'
@@ -53,6 +55,12 @@ export interface StoredAssetResult {
   ref: AssetRef
   /** The presentation's revision after the file was registered. */
   revision: string
+  /**
+   * The presentation already held these exact bytes, so `assetId` names the
+   * file it had and nothing was written — a second copy of one picture is one
+   * picture. The revision is then the one that was read.
+   */
+  deduplicated: boolean
   /** Present when the file was SVG: what the sanitiser dropped, if anything. */
   sanitized?: SvgSanitizeReport
 }
@@ -86,6 +94,24 @@ export async function storeAsset(
   const conflict = revisionConflict(loaded.value, input.expectedRevision, loadedRevision)
   if (conflict) return conflict
 
+  // Identical bytes already in the deck are the file the agent is asking for,
+  // under whatever name it gave this time. Answered before anything is written.
+  const hash = await hashBytes(bytes)
+  const identical = await findIdenticalAsset(context.repository, loaded.value, {
+    bytes,
+    mimeType,
+    hash,
+  })
+  if (identical) {
+    return agentOk({
+      assetId: identical.ref.id,
+      ref: identical.ref,
+      revision: loadedRevision,
+      deduplicated: true,
+      ...(sanitized ? { sanitized } : {}),
+    })
+  }
+
   const ref: AssetRef = {
     id: newAssetId(),
     name,
@@ -94,6 +120,7 @@ export async function storeAsset(
     width: size.width,
     height: size.height,
     isVector,
+    contentHash: hash,
   }
   // The revision reported is the one of the document that is actually stored,
   // which in the ambiguous case below is the copy read back from the store
@@ -103,6 +130,7 @@ export async function storeAsset(
       assetId: ref.id,
       ref,
       revision: presentationRevision(stored),
+      deduplicated: false,
       ...(sanitized ? { sanitized } : {}),
     })
 

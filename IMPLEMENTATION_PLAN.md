@@ -1978,6 +1978,78 @@ et bilde kan komme fra, og hvordan SVG-markup fra en agent valideres og saneres
 før den blir et asset, står i §44 – «Rasterbilder», «SVG som førsteklasses
 agentformat» og «SVG-sikkerhet».
 
+### Bildeoptimalisering
+
+En lagret fil er ofte langt større enn det sliden noen gang viser av den. Slaids
+kan derfor gjøre bildefilene mindre – én fil fra inspektøren, eller alle filene
+fra «Optimaliser bilder» i verktøylinjen – uten at noe på slidene ser annerledes
+ut. Planleggingen er ren domenelogikk (`src/domain/imageOptimization.ts`), og
+den bygger på nøyaktig samme geometri som tegner bildet: sonerektangelet fra
+`geometry.ts`, minus tittelpanelet på et kort med tittel og bilde, og
+`cover`-regnestykket i `src/domain/imageGeometry.ts` – den ene implementasjonen
+editorens dra-utsnitt og optimalisereren deler.
+
+**Hva som vises avgjør hva som beholdes.** For hver fil finnes alle stedene den
+vises (`assetOccurrences`): bildepaneler med ramme og utsnitt, innlinjebilder
+med sin andel av kolonnen, og sandkassen, som regnes som en hel slide fordi
+ingen vet hvor innholdet lander. Nødvendig størrelse er den største visningen
+ganger `OPTIMIZATION_PIXEL_DENSITY` (2 filpiksler per logisk piksel, for
+høy-DPI-skjermer og moderat senere forstørring). En fil skaleres aldri opp, og
+en nedskalering må fjerne minst 10 % av hver side (`MIN_DOWNSCALE_RATIO`) for å
+være verdt en omkoding.
+
+**Permanent beskjæring** gjelder bare en fil som vises i nøyaktig én
+bilderamme, og bare når rammen skjuler minst `MIN_CROP_SHARE` av pikslene.
+Kilden er `visibleSourceRect` – pikslene `object-fit: cover` faktisk setter på
+skjermen – og målet får rammens proporsjoner (høyden avledes av bredden via
+rammen, ikke rundes for seg), så filen *er* rammens form etterpå, `cover` har
+ingenting å skjule, og utsnittet sentreres uten synlig hopp. En delt fil
+beskjæres for ingen av stedene: det ett vindu skjuler kan et annet vise. Ber
+brukeren om beskjæring av én forekomst av en delt fil, er det en **fork**: det
+panelet får en egen fil, de andre beholder originalen.
+
+**Format og komprimering** avgjøres av pikslene, ikke av filendelsen
+(`encodingChoices`): transparens beholdes alltid; et fotografi – eller piksler
+som alt har vært gjennom en tapsgivende kodek – går i WebP (kvalitet
+`WEBP_QUALITY`) der nettleseren kan skrive det og JPEG ellers; grafikk, tekst og
+skjermbilder forblir tapsfrie (PNG eller tapsfri WebP, den minste vinner).
+Foto/grafikk leses av et utvalg piksler (`isPhotographic`), med terskler som
+heller mot grafikk når det er tvil. En tapsgivende kilde omkodes bare når
+pikslene uansett endres. SVG forblir SVG; animerte filer røres ikke. Et resultat
+som ikke er mindre forkastes, og en ren omkoding må spare `MIN_RECODE_SAVING_RATIO`.
+
+**Metadata** (EXIF, GPS, miniatyrbilder, XMP, kommentarer) forsvinner ved
+redraw, og fjernes tapsfritt for JPEG/PNG/WebP som ikke trenger redraw
+(`src/domain/imageMetadata.ts`). Fargeprofil og Adobe-fargetag beholdes;
+orienteringen skrives tilbake som én tag, siden den bestemmer hva som er opp.
+
+**Deduplisering** er innholdsbasert: SHA-256 av de lagrede bytene, notert som
+valgfri `AssetRef.contentHash` (uten skjemaversjonsbump – en referanse uten hash
+er en fil ingen har hashet ennå). Begge dørene inn i assetlageret
+(`state/assetUpload.ts`, `agent/assetStore.ts`) spør
+`persistence/assetDedupe.ts` før de skriver og gjenbruker filen de finner;
+`upload_asset` svarer da med `deduplicated: true`. «Optimaliser bilder» slår
+sammen eksisterende kopier (`mergeDuplicateAssets`) *før* planleggingen, så en
+sammenslått fil ses med alle sine steder. Bare innenfor én presentasjon: filer
+eies av presentasjonen og slettes med den.
+
+**Livssyklus og atomisitet.** Pikselarbeidet skjer i nettleseren, i en Web
+Worker (`src/state/imageWorker.ts`, `imagePipeline.ts`) med `createImageBitmap`
+og `OffscreenCanvas`; nettleseren har dekodere for alle formatene Slaids lagrer,
+og ingen byte forlater maskinen. Analysen (`analyzeImages`) produserer de
+faktiske resultatbytene i minnet og skriver ingenting; dialogen viser derfor
+eksakte størrelser, ikke estimater. Anvendelsen (`applyImageOptimization`)
+skriver i den rekkefølgen som er trygg å stoppe i: nye filer under nye id-er
+først, så dokumentet (`replaceAssetUses`, som også registrerer den nye
+referansen og fjerner den gamle når ingenting viser den lenger), så lagring, og
+først *etter* lagringen slettes filene ingenting peker på. Ett bilde som feiler
+feiler alene. Resultatet valideres ved den samme døren som all annen lagring
+(`acceptAsset` med `raster: 'bitstream'`), så størrelsen kommer fra bitstrømmen.
+Operasjonen ligger utenfor angrehistorikken (`replaceDocument` i storen), fordi
+et angre-steg som peker på slettede filer ville vært en slide med et hull;
+dialogen sier det før noe skjer, sammen med advarselen om at bortbeskårne
+piksler er borte for godt.
+
 ---
 
 ## 27\. Intern clipboard
@@ -3220,6 +3292,11 @@ set_image_caption(zoneId, position, spans, color)
 ```
 
 Assetopplasting og plassering er separate operasjoner. Et opplastet asset skal derfor kunne gjenbrukes og inspiseres før det plasseres.
+
+En fil med nøyaktig samme bytes som en presentasjonen alt har, lagres ikke igjen:
+`upload_asset` og `create_svg_asset` svarer med den eksisterende filens `assetId`
+og `deduplicated: true` (se §26, «Bildeoptimalisering»). Identiteten er bytene,
+aldri navnet.
 
 `set_zone_asset` plasserer bildet som §13.4 beskriver det: det fyller sonen helt
 og beskjæres. Utsnittet er derfor en redigering i seg selv, og den ene en agent
