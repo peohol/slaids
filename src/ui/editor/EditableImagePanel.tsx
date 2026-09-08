@@ -11,8 +11,10 @@
  *  - a click through to the upload dialog while there is no file yet.
  *
  * The geometry is the browser's own: `object-fit: cover` decides the scale, and
- * `coverGeometry` re-derives exactly that arithmetic so the ghost lines up with
- * the visible crop to the pixel. It needs the file's natural size, which is
+ * `domain/imageGeometry.ts` re-derives exactly that arithmetic so the ghost
+ * lines up with the visible crop to the pixel — the same arithmetic the
+ * optimiser uses to decide which pixels are on screen. It needs the file's
+ * natural size, which is
  * read off a hidden probe `<img>` rather than from `AssetRef` — the visible
  * picture is `object-fit: cover`, so its own box says nothing about the file's
  * proportions.
@@ -28,43 +30,11 @@ import {
 } from 'react'
 import { IMAGE_FOCUS_SNAP_PX } from '../../domain/constants'
 import { setImageFocus } from '../../domain/commands'
+import { coverGeometry, isCropped, type CoverGeometry } from '../../domain/imageGeometry'
 import { useEditorStore } from '../../state/store'
 import { useAssetUrl } from '../../state/assetSource'
 import type { ImageCaption, ImagePanel } from '../../domain/types'
 import { ImagePanelView } from '../slide/ImagePanelView'
-
-/** How the file is laid out behind the frame, in the frame's own pixels. */
-export interface SectionGeometry {
-  /** Rendered size of the whole file once scaled to cover the frame. */
-  width: number
-  height: number
-  /** How much of it is hidden, per axis. Zero on the axis that fits exactly. */
-  overflowX: number
-  overflowY: number
-}
-
-export function coverGeometry(
-  frame: { width: number; height: number },
-  natural: { width: number; height: number },
-): SectionGeometry | null {
-  if (natural.width <= 0 || natural.height <= 0 || frame.width <= 0 || frame.height <= 0) {
-    return null
-  }
-  const scale = Math.max(frame.width / natural.width, frame.height / natural.height)
-  const width = natural.width * scale
-  const height = natural.height * scale
-  return {
-    width,
-    height,
-    overflowX: Math.max(0, width - frame.width),
-    overflowY: Math.max(0, height - frame.height),
-  }
-}
-
-/** Half a pixel of hidden picture is rounding, not a crop worth dragging. */
-export function isCropped(geometry: SectionGeometry | null): boolean {
-  return Boolean(geometry && (geometry.overflowX > 0.5 || geometry.overflowY > 0.5))
-}
 
 /**
  * Where a drag lands, in focus coordinates.
@@ -79,7 +49,7 @@ export function isCropped(geometry: SectionGeometry | null): boolean {
 export function focusAfterDrag(
   start: { x: number; y: number },
   moved: { x: number; y: number },
-  geometry: SectionGeometry,
+  geometry: CoverGeometry,
 ): { x: number; y: number } {
   const axis = (from: number, delta: number, overflow: number): number => {
     if (overflow <= 0) return 0.5

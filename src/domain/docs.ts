@@ -159,26 +159,71 @@ export function remapContentAssetIds(
 }
 
 function makeAssetDocRemapper(map: ReadonlyMap<string, string>): DocTransform {
+  return makeAssetNodeRewriter((node, assetId) => {
+    const next = map.get(assetId)
+    return next ? { ...node, attrs: { ...node.attrs, assetId: next } } : node
+  })
+}
+
+/**
+ * A transform that hands every node naming a file to `rewrite`, with the id it
+ * names, and keeps whatever comes back. Returning the node itself means «leave
+ * it», and a document nothing in it changed is returned as the same object —
+ * the structure-preserving contract every transform in this module keeps.
+ *
+ * The one walk over a document's file references, shared by the remap import
+ * and paste do and by the optimiser's replacement, which also has to update the
+ * proportions a picture node stores about the file it points at.
+ */
+export function makeAssetNodeRewriter(
+  rewrite: (node: RichNode, assetId: string) => RichNode,
+): DocTransform {
   return (doc: RichDoc): RichDoc => {
     let changed = false
     const walk = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
       if (!nodes) return undefined
       return nodes.map((node) => {
         const assetId = node.attrs?.assetId
-        const next = typeof assetId === 'string' ? map.get(assetId) : undefined
+        const rewritten = typeof assetId === 'string' ? rewrite(node, assetId) : node
         const content = walk(node.content)
-        if (!next && content === node.content) return node
+        if (rewritten === node && content === node.content) return node
         changed = true
-        return {
-          ...node,
-          ...(next ? { attrs: { ...node.attrs, assetId: next } } : {}),
-          ...(content ? { content } : {}),
-        }
+        return { ...rewritten, ...(content ? { content } : {}) }
       })
     }
     const content = walk(doc.content)
     return changed && content ? { ...doc, content } : doc
   }
+}
+
+/**
+ * Every zone content in the presentation — on the slides and in the sandbox —
+ * put through `transform`. Structure-preserving: content the transform hands
+ * back unchanged stays the same object, and so does a presentation in which
+ * nothing changed.
+ */
+export function mapPresentationContent(
+  presentation: Presentation,
+  transform: (content: ZoneContent) => ZoneContent,
+): Presentation {
+  let changed = false
+  const slides = mapDeckSlides(presentation.slides, {
+    section: (slide) => slide,
+    content: (slide) => {
+      const root = mapTreeContent(slide.root, transform)
+      if (root === slide.root) return slide
+      changed = true
+      return { ...slide, root }
+    },
+    interactive: (slide) => slide,
+  })
+  const sandbox = presentation.sandbox.map((item) => {
+    const content = transform(item.content)
+    if (content === item.content) return item
+    changed = true
+    return { ...item, content }
+  })
+  return changed ? { ...presentation, slides, sandbox } : presentation
 }
 
 /** Rewrite asset ids everywhere they are referenced. Used by import and paste. */
@@ -309,5 +354,11 @@ function mapTreeContent(
     const content = transform(node.content)
     return content === node.content ? node : { ...node, content }
   }
-  return { ...node, children: node.children.map((child) => mapTreeContent(child, transform)) }
+  let changed = false
+  const children = node.children.map((child) => {
+    const next = mapTreeContent(child, transform)
+    if (next !== child) changed = true
+    return next
+  })
+  return changed ? { ...node, children } : node
 }

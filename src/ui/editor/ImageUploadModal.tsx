@@ -103,7 +103,7 @@ export function ImageUploadModal({
        * picture in a zone, because the rejection happens before the first write
        * rather than being undone after it.
        */
-      const stored = await storeUploadedFile(presentation.id, file)
+      const stored = await storeUploadedFile(presentation, file)
       if (!stored.ok) {
         notify.error(describeError(stored.error))
         return
@@ -111,6 +111,9 @@ export function ImageUploadModal({
       const { ref } = stored.value
       const dropped = describeSanitizing(stored.value.report)
       if (dropped) notify.warning(dropped)
+      if (stored.value.reused) {
+        notify.info('Presentasjonen hadde allerede denne filen, så den ble brukt igjen.')
+      }
       run('asset-register', (current) => registerAsset(current, ref))
 
       if (effective === 'inline' && target) {

@@ -1978,6 +1978,107 @@ et bilde kan komme fra, og hvordan SVG-markup fra en agent valideres og saneres
 før den blir et asset, står i §44 – «Rasterbilder», «SVG som førsteklasses
 agentformat» og «SVG-sikkerhet».
 
+### Bildeoptimalisering
+
+En lagret fil er ofte langt større enn det sliden noen gang viser av den. Slaids
+kan derfor gjøre bildefilene mindre – én fil fra inspektøren, eller alle filene
+fra «Optimaliser bilder» i verktøylinjen – uten at noe på slidene ser annerledes
+ut. Planleggingen er ren domenelogikk (`src/domain/imageOptimization.ts`), og
+den bygger på nøyaktig samme geometri som tegner bildet: sonerektangelet fra
+`geometry.ts`, minus tittelpanelet på et kort med tittel og bilde, og
+`cover`-regnestykket i `src/domain/imageGeometry.ts` – den ene implementasjonen
+editorens dra-utsnitt og optimalisereren deler.
+
+**Hva som vises avgjør hva som beholdes.** For hver fil finnes alle stedene den
+vises (`assetOccurrences`): bildepaneler med ramme og utsnitt, innlinjebilder
+med sin andel av kolonnen, og sandkassen, som regnes som en hel slide fordi
+ingen vet hvor innholdet lander. Nødvendig størrelse er den største visningen
+ganger `OPTIMIZATION_PIXEL_DENSITY` (2 filpiksler per logisk piksel, for
+høy-DPI-skjermer og moderat senere forstørring). En fil skaleres aldri opp, og
+en nedskalering må fjerne minst 10 % av hver side (`MIN_DOWNSCALE_RATIO`) for å
+være verdt en omkoding.
+
+**Permanent beskjæring** gjelder bare en fil som vises i nøyaktig én
+bilderamme, og bare når rammen skjuler minst `MIN_CROP_SHARE` av pikslene.
+Kilden er `visibleSourceRect` – pikslene `object-fit: cover` faktisk setter på
+skjermen – og målet får rammens proporsjoner (høyden avledes av bredden via
+rammen, ikke rundes for seg), så filen *er* rammens form etterpå, `cover` har
+ingenting å skjule, og utsnittet sentreres uten synlig hopp. En delt fil
+beskjæres for ingen av stedene: det ett vindu skjuler kan et annet vise. Ber
+brukeren om beskjæring av én forekomst av en delt fil, er det en **fork**: det
+panelet får en egen fil, de andre beholder originalen.
+
+**Format og komprimering** avgjøres av pikslene, ikke av filendelsen
+(`encodingChoices`): transparens beholdes alltid; et fotografi – eller piksler
+som alt har vært gjennom en tapsgivende kodek – går i WebP (kvalitet
+`WEBP_QUALITY`) der nettleseren kan skrive det og JPEG ellers; grafikk, tekst og
+skjermbilder forblir tapsfrie (PNG eller tapsfri WebP, den minste vinner).
+Foto/grafikk leses av et utvalg piksler (`isPhotographic`), med terskler som
+heller mot grafikk når det er tvil. En tapsgivende kilde omkodes bare når
+pikslene uansett endres. SVG forblir SVG; animerte filer røres ikke. Et resultat
+som ikke er mindre forkastes, og en ren omkoding må spare `MIN_RECODE_SAVING_RATIO`.
+
+**Metadata** (EXIF, GPS, miniatyrbilder, XMP, kommentarer) forsvinner ved
+redraw, og fjernes tapsfritt for JPEG/PNG/WebP som ikke trenger redraw
+(`src/domain/imageMetadata.ts`). Fargeprofil og Adobe-fargetag beholdes;
+orienteringen skrives tilbake som én tag, siden den bestemmer hva som er opp.
+Det gjelder alle tre containerne som kan bære et EXIF-blokk – JPEGs `APP1`,
+PNGs `eXIf` og WebPs `EXIF` – for den tapsfrie veien er per definisjon visuelt
+invariant: alt annet i blokken beskriver bildet, mens orienteringen er en
+instruksjon en renderer følger. Av samme grunn måler `readRasterImage` den
+*tegnede* størrelsen i alle tre containerne, ikke bare i JPEG: en `AssetRef` skal
+bety det samme uansett hvilken dør filen kom inn gjennom – nettleserens dekoder,
+som snur bildet, eller bitstrømsmålingen – og et innlinjebilde tar formen sin
+fra referansen. Den nye taggen skrives i den formen filen selv
+brukte (med eller uten `Exif\0\0`-markøren), så ingen dekoder som kunne lese
+originalen kan lese erstatningen feil.
+
+**Deduplisering** er innholdsbasert: SHA-256 av de lagrede bytene, notert som
+valgfri `AssetRef.contentHash` (uten skjemaversjonsbump – en referanse uten hash
+er en fil ingen har hashet ennå). Den noterte hashen er aldri bevis: referansen
+ligger i dokumentet og bytene i lageret, og ingenting binder dem hardt nok
+sammen til at den ene kan gå god for den andre. Derfor brukes en notert hash bare
+til å *utelukke* kandidater, mens et treff alltid avgjøres på de faktisk lagrede
+bytene – sammenlignet byte for byte før en fil gjenbrukes eller to filer slås
+sammen. Begge dørene inn i assetlageret
+(`state/assetUpload.ts`, `agent/assetStore.ts`) spør
+`persistence/assetDedupe.ts` før de skriver og gjenbruker filen de finner;
+`upload_asset` svarer da med `deduplicated: true`. «Optimaliser bilder» slår
+sammen eksisterende kopier (`mergeDuplicateAssets`) *før* planleggingen, så en
+sammenslått fil ses med alle sine steder. Bare innenfor én presentasjon: filer
+eies av presentasjonen og slettes med den.
+
+**Livssyklus og atomisitet.** Pikselarbeidet skjer i nettleseren, i en Web
+Worker (`src/state/imageWorker.ts`, `imagePipeline.ts`) med `createImageBitmap`
+og `OffscreenCanvas`; nettleseren har dekodere for alle formatene Slaids lagrer,
+og ingen byte forlater maskinen. Analysen (`analyzeImages`) produserer de
+faktiske resultatbytene i minnet og skriver ingenting; dialogen viser derfor
+eksakte størrelser, ikke estimater. Anvendelsen (`applyImageOptimization`)
+skriver i den rekkefølgen som er trygg å stoppe i: nye filer under nye id-er
+først, så dokumentet (`replaceAssetUses`, som også registrerer den nye
+referansen og fjerner den gamle når ingenting viser den lenger), så lagring, og
+først *etter* lagringen slettes filene ingenting peker på. Ett bilde som feiler
+feiler alene.
+
+En lagring som feiler er en utsettelse, ikke en slutt: autosave fortsetter å
+prøve, og slettingen følger den skrivingen som til slutt går gjennom
+(`AutosaveController.afterSave`, brukt via `onceSaved`). Uten det ville et
+øyeblikks nettverkstrøbbel etterlatt de erstattede filene for godt – dokumentet
+blir lagret et sekund senere uten å nevne dem, og verken en ny
+optimaliseringsrunde eller `deleteOrphanAssets` (som bare rydder filer hvis
+presentasjon er borte) finner dem igjen. Slettingen leser alltid den *lagrede*
+presentasjonen først (`reclaimReplacedAssets`) og lar en fil den fortsatt viser
+være i fred, så den er trygg å kjøre når som helst – også når editoren ble
+forlatt med skrivingen hengende, og lageret altså fortsatt har det gamle
+dokumentet.
+
+Resultatet valideres ved den samme døren som all annen lagring
+(`acceptAsset` med `raster: 'bitstream'`), så størrelsen kommer fra bitstrømmen.
+Operasjonen ligger utenfor angrehistorikken (`replaceDocument` i storen), fordi
+et angre-steg som peker på slettede filer ville vært en slide med et hull;
+dialogen sier det før noe skjer, sammen med advarselen om at bortbeskårne
+piksler er borte for godt.
+
 ---
 
 ## 27\. Intern clipboard
@@ -3221,6 +3322,11 @@ set_image_caption(zoneId, position, spans, color)
 
 Assetopplasting og plassering er separate operasjoner. Et opplastet asset skal derfor kunne gjenbrukes og inspiseres før det plasseres.
 
+En fil med nøyaktig samme bytes som en presentasjonen alt har, lagres ikke igjen:
+`upload_asset` og `create_svg_asset` svarer med den eksisterende filens `assetId`
+og `deduplicated: true` (se §26, «Bildeoptimalisering»). Identiteten er bytene,
+aldri navnet.
+
 `set_zone_asset` plasserer bildet som §13.4 beskriver det: det fyller sonen helt
 og beskjæres. Utsnittet er derfor en redigering i seg selv, og den ene en agent
 ikke kan gjøre ved å velge en annen fil — derav `set_image_focus`. En sone som
@@ -4219,8 +4325,18 @@ og begge implementasjonene måtte gjøre noe for å holde den:
 
 Begge veier er den samme atomiske betingede skrivingen i basen – `.eq('version',
 …)` i UPDATE-en, eller sammenligningen inne i IndexedDB-transaksjonen – aldri en
-ubevoktet les-så-skriv. Editorens autosave skriver fortsatt ubetinget: den eier
-dokumentet den redigerer.
+ubevoktet les-så-skriv.
+
+Editorens autosave sender ingen `SaveGuard`, men skriver likevel ikke ubetinget:
+den er låst mot det *dette lageret sist så* – `knownVersions` i Supabase,
+`knownRevisions` i Dexie – og hver av dens egne skrivinger flytter betingelsen
+framover. Én fane lagrer derfor så ofte den vil, mens en fane som sitter på en
+eldre kopi blir avvist og må lese på nytt. Det er ikke bare tekst som står på
+spill: en nyere lagret versjon kan ha *slettet* filer den eldre kopien fortsatt
+peker på (bildeoptimalisering erstatter filer og fjerner det ingenting viser),
+og en stale skriving ville dermed etterlatt et lagret dokument som navngir filer
+som er borte. Betingelsen er lagerets egen nettopp derfor: den kan ikke være
+avhengig av at hver kaller husker å be om den.
 
 #### Fit-feil er handlingsbare
 

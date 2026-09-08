@@ -86,6 +86,17 @@ interface EditorStore {
     label: string,
     command: (presentation: Presentation) => Result<StructuralOutcome>,
   ) => boolean
+  /**
+   * Put a document in place that cannot be stepped back from.
+   *
+   * The optimiser rewrites the deck to point at files it has just stored, and
+   * once the rewritten deck is saved the files it stopped pointing at are
+   * deleted. An undo entry for that would restore a document pointing at bytes
+   * that are gone — a slide with a hole in it, reached by Ctrl+Z. So the change
+   * is committed *outside* the history: the document is replaced, the history
+   * is cleared, and the dialog that asked for it says so beforehand.
+   */
+  replaceDocument: (presentation: Presentation) => void
 
   undo: () => void
   redo: () => void
@@ -190,6 +201,21 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       )
     }
     return true
+  },
+
+  replaceDocument: (presentation) => {
+    const state = get()
+    if (!state.presentation || state.presentation.id !== presentation.id) return
+    set({
+      presentation,
+      past: [],
+      future: [],
+      lastLabel: null,
+      lastChangeAt: 0,
+      coalesceStartedAt: 0,
+      saveStatus: 'dirty',
+      ...reconcileSelection(presentation, state),
+    })
   },
 
   undo: () => {

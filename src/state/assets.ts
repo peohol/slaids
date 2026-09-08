@@ -31,6 +31,22 @@ export function clearAssetCache(): void {
 }
 
 /**
+ * Put a file this browser has just stored straight into the cache.
+ *
+ * The optimiser writes a file and then points the document at it; the first
+ * render after that would otherwise go back to the store for bytes that were in
+ * memory a moment ago — a download, in Supabase mode, of what was just uploaded.
+ */
+export function primeAssetCache(id: string, stored: { ref: AssetRef; blob: Blob }): void {
+  blobCache.set(id, Promise.resolve(stored))
+}
+
+/** Drop one file from the cache, once its bytes are gone from the store. */
+export function forgetCachedAsset(id: string): void {
+  blobCache.delete(id)
+}
+
+/**
  * Intrinsic size of an image file, used when registering an asset.
  *
  * The bitstream says it for every raster format Slaids validates, and that is

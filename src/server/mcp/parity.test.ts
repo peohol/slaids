@@ -1064,9 +1064,17 @@ describe('hele flaten er nåbar begge veier', () => {
 describe('opprydding er de samme operasjonene begge veier', () => {
   const SQUARE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
 
-  /** One stored, unplaced file, made the way an agent makes one. */
+  /**
+   * One stored, unplaced file, made the way an agent makes one.
+   *
+   * Coloured by name, because identical bytes are one file: a second upload of
+   * the very same markup would hand back the first file's id, and these tests
+   * need two files.
+   */
   async function file(harnessed: Harness, presentationId: string, name: string): Promise<string> {
-    const created = await rest(harnessed, 'create_svg_asset', { presentationId, name, svgMarkup: SQUARE })
+    const tone = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 0x1000
+    const svgMarkup = SQUARE.replace('#0af', `#${tone.toString(16).padStart(3, '0')}`)
+    const created = await rest(harnessed, 'create_svg_asset', { presentationId, name, svgMarkup })
     if (created.status !== 200) throw new Error(`Kunne ikke lage filen: ${created.body.error?.code}`)
     return (created.body.data as { assetId: string }).assetId
   }

@@ -30,6 +30,7 @@ import { useEditorStore } from '../../state/store'
 import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { Icon } from '../components/Icon'
+import { formatBytes, formatPixels } from '../format'
 import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
 import type { ZoneAction } from './ZoneOverlay'
 
@@ -37,13 +38,17 @@ export function Inspector({
   slide,
   actions,
   onAddContent,
+  onOptimizeImage,
 }: {
   slide: ContentSlide
   actions: ZoneAction[]
   onAddContent: (nodeId: string, kind: ZoneContentKind) => void
+  /** Shrink the file behind this zone's picture; see `ImageOptimizeModal`. */
+  onOptimizeImage: (nodeId: string) => void
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
+  const assets = useEditorStore((state) => state.presentation?.assets)
   // The colours a swatch offers as "the default" are the governing section's:
   // a heading with no colour of its own is painted with that one.
   const pillColor = useEditorStore((state) =>
@@ -56,6 +61,7 @@ export function Inspector({
   const content = leaf?.content ?? null
   const body = content ? bodyOf(content) : null
   const panel = content ? imagePanelOf(content) : null
+  const file = panel?.assetId ? (assets?.find((asset) => asset.id === panel.assetId) ?? null) : null
   const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
@@ -312,6 +318,31 @@ export function Inspector({
               />
             </>
           )}
+        </section>
+      )}
+
+      {/*
+        The file behind the picture, and the way to make it smaller. Only once a
+        file is there: an empty panel has nothing to optimise.
+      */}
+      {panel?.assetId && (
+        <section className="inspector__section" data-testid="image-file-panel">
+          <h2 className="inspector__heading">Bildefil</h2>
+          {file && (
+            <p className="hint" data-testid="image-file-info">
+              {file.name} · {formatPixels(file.width, file.height)} · {formatBytes(file.byteSize)}
+            </p>
+          )}
+          <div className="inspector__actions">
+            <button
+              type="button"
+              className="btn btn--sm"
+              data-testid="optimize-image"
+              onClick={() => onOptimizeImage(selectedNodeId)}
+            >
+              <Icon name="optimize" size={14} /> Optimaliser bildet …
+            </button>
+          </div>
         </section>
       )}
 

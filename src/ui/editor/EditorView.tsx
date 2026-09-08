@@ -68,6 +68,7 @@ import { ensureWebFonts, webFontsReady } from '../fonts'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
 import { materializeClipboardContent } from '../../state/pasteAssets'
 import type { InteractiveSource } from '../../domain/interactive'
+import type { OptimizationScope } from '../../domain/imageOptimization'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -82,6 +83,7 @@ import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
+import { ImageOptimizeModal } from './ImageOptimizeModal'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
 import { NewInteractiveModal } from './NewInteractiveModal'
@@ -176,6 +178,8 @@ export function EditorView({
    * where the picture goes, so the dialog does not offer the text field.
    */
   const [imageOpen, setImageOpen] = useState<false | 'ask' | 'zone'>(false)
+  /** The picture optimiser, and which files it is about. `null` while closed. */
+  const [optimizeScope, setOptimizeScope] = useState<OptimizationScope | null>(null)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
   const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
   const [renameOpen, setRenameOpen] = useState(false)
@@ -1100,10 +1104,14 @@ export function EditorView({
             onToggleSandbox={() => setSandboxOpen((open) => !open)}
             onPresent={() => setPresenting(true)}
             onOpenTheme={() => setThemeOpen(true)}
+            onOptimizeImages={() => setOptimizeScope({ kind: 'all' })}
             onToggleShare={toggleShare}
           />
 
-          <TextToolbar onInsertReference={() => setReferencesOpen(true)} />
+          <TextToolbar
+            onInsertReference={() => setReferencesOpen(true)}
+            onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
+          />
 
           <div className="editor__body">
             <Filmstrip
@@ -1170,6 +1178,9 @@ export function EditorView({
                 slide={contentSlide}
                 actions={zoneActions}
                 onAddContent={addContentTo}
+                onOptimizeImage={(nodeId) =>
+                  setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
+                }
               />
             ) : null}
           </div>
@@ -1263,6 +1274,21 @@ export function EditorView({
           onOpenChange={(open) => setImageOpen(open ? imageOpen : false)}
           zoneNodeId={selectedNode?.kind === 'leaf' ? selectedNodeId : null}
           fillZone={imageOpen === 'zone'}
+        />
+      )}
+      {optimizeScope && (
+        <ImageOptimizeModal
+          scope={optimizeScope}
+          onOpenChange={(open) => {
+            if (!open) setOptimizeScope(null)
+          }}
+          // The rewritten document is a save point of its own: the files it
+          // stopped pointing at are only deleted once it is stored — and with
+          // no controller to store it, they are not deleted at all. A save that
+          // fails is only a delay, so the deletion is handed to whichever write
+          // finally lands.
+          save={() => autosaveRef.current?.flush() ?? Promise.resolve(false)}
+          onceSaved={(task) => autosaveRef.current?.afterSave(task)}
         />
       )}
 

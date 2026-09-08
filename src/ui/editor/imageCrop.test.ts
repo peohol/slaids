@@ -10,7 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { IMAGE_FOCUS_SNAP_PX } from '../../domain/constants'
-import { coverGeometry, focusAfterDrag, isCropped } from './EditableImagePanel'
+import { coverGeometry, isCropped } from '../../domain/imageGeometry'
+import { focusAfterDrag } from './EditableImagePanel'
 
 const frame = { width: 400, height: 300 }
 
@@ -41,7 +42,7 @@ describe('coverGeometry', () => {
 })
 
 describe('focusAfterDrag', () => {
-  const geometry = { width: 800, height: 300, overflowX: 400, overflowY: 0 }
+  const geometry = { scale: 1, width: 800, height: 300, overflowX: 400, overflowY: 0 }
   const centre = { x: 0.5, y: 0.5 }
 
   it('moves the file with the pointer', () => {

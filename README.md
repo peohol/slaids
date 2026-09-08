@@ -132,6 +132,10 @@ layoutet er nestet.
 - rik tekst via Tiptap: avsnitt, overskrift (pilledesign), fet/kursiv/understreket,
   punktlister, nummererte lister, sitat, kode, lenker og tabeller med rad-/kolonnekontroller
 - bilder og SVG som filer i lagringen (Supabase Storage eller IndexedDB), med breddevalg i prosent
+- bildeoptimalisering: permanent beskjæring til det synlige utsnittet,
+  nedskalering til det sliden trenger, komprimering, fjerning av metadata og
+  deduplisering – for ett bilde eller hele presentasjonen, uten synlig
+  kvalitetstap (se `docs/IMAGE_OPTIMIZATION.md`)
 - hver fil som lastes opp valideres før den lagres, og det gjelder uansett hvor
   den kom fra: et rasterbilde må være en hel, lesbar fil, og en SVG tolkes og
   saneres av Slaids' egen parser – skript, `onclick`, `javascript:`-lenker og

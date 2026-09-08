@@ -51,6 +51,16 @@ export class DexieSlaidsRepository implements SlaidsRepository {
    * really is new again, which the duplication rollback relies on.
    */
   private readonly knownIds = new Set<string>()
+  /**
+   * The revision this repository last saw stored, per presentation.
+   *
+   * IndexedDB has no version column, so this is the currency the Supabase
+   * repository has in `knownVersions`: what *this* reader believes is in the
+   * store. An unguarded save is compared against it, which is what makes the
+   * editor's continuous re-saving a read-modify-write rather than a blind
+   * overwrite — see `savePresentation`.
+   */
+  private readonly knownRevisions = new Map<string, string>()
 
   constructor(private readonly database: SlaidsDatabase = db) {}
 
@@ -111,6 +121,9 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     const migrated = migratePresentation(record.data)
     if (!migrated.ok) throw new RepositoryError(migrated.error.message)
     this.knownIds.add(id)
+    // The revision of what is *stored*, which is what a later save compares
+    // against — not of the migrated document, which may differ from it.
+    this.knownRevisions.set(id, presentationRevision(record.data))
     return migrated.value
   }
 
@@ -155,13 +168,20 @@ export class DexieSlaidsRepository implements SlaidsRepository {
           `«${data.title}» er slettet for godt et annet sted (en annen fane eller enhet). Lagring nå ville gjenopprettet en slettet presentasjon.`,
         )
       }
-      if (guard && stored && presentationRevision(stored.data) !== guard.expectedRevision) {
+      // Guarded: against the revision the caller read. Unguarded: against the
+      // revision this repository last saw, which is the same compare-and-swap
+      // the Supabase repository does with its `knownVersions`. A save that has
+      // neither is a row this reader never read, and there is nothing to
+      // compare it against.
+      const expected = guard?.expectedRevision ?? this.knownRevisions.get(data.id)
+      if (expected !== undefined && stored && presentationRevision(stored.data) !== expected) {
         throw new RepositoryConflictError(
           `«${data.title}» er endret et annet sted siden den ble lest. Les den på nytt før du lagrer.`,
         )
       }
       await this.database.presentations.put({ ...record, deletedAt: stored?.deletedAt ?? null })
       this.knownIds.add(data.id)
+      this.knownRevisions.set(data.id, presentationRevision(record.data))
     })
   }
 
@@ -231,6 +251,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     // Deleting through this repository is a local decision, so this is the one
     // place the row may be forgotten: a later save of the same id really is new.
     this.knownIds.delete(id)
+    this.knownRevisions.delete(id)
   }
 
   /**
@@ -253,6 +274,7 @@ export class DexieSlaidsRepository implements SlaidsRepository {
         if (!stored || (stored.deletedAt ?? null) !== deletedAt) return false
         await this.removeRows(id)
         this.knownIds.delete(id)
+        this.knownRevisions.delete(id)
         return true
       },
     )

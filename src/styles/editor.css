@@ -1703,3 +1703,87 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* ----------------------------------------------------------------- *
+ * Optimising pictures
+ *
+ * The dialog states sizes before anything is written, so the numbers are set
+ * apart from the sentences around them, and the one warning that matters —
+ * pixels cut away for good — is a box rather than a line of dim text.
+ * ----------------------------------------------------------------- */
+
+.optimize-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  align-items: baseline;
+  margin: 0;
+  font-size: 14px;
+}
+
+.optimize-summary dt {
+  color: var(--chrome-text-dim);
+  font-size: 12px;
+}
+
+.optimize-summary dd {
+  margin: 0;
+}
+
+.optimize-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.optimize-failed {
+  color: var(--chrome-danger);
+}
+
+.optimize-file {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.optimize-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--chrome-warning);
+  background: rgba(224, 160, 58, 0.14);
+  font-size: 13px;
+}
+
+.optimize-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.optimize-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--chrome-border);
+  overflow: hidden;
+}
+
+.optimize-meter__fill {
+  height: 100%;
+  background: var(--chrome-accent);
+  transition: width 0.2s ease;
+}
+
+.optimize-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.optimize-outcome p {
+  margin: 0;
+}
