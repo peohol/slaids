@@ -3,503 +3,211 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Slaids miniapp-systemtest</title>
+<title>Miniapp-test</title>
 <style>
-  * { box-sizing: border-box; }
+/* Authoring layout, not a replacement for Slaids' versioned base CSS. */
+html, body { width: 100%; height: 100%; margin: 0; }
+body { padding: 0; overflow: hidden; }
+#miniapp, #miniapp * { box-sizing: border-box; }
+#miniapp {
+  height: 100%; min-height: 0; min-width: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--slaids-gap); padding: var(--slaids-gap);
+  color: var(--slaids-text); background: var(--slaids-background);
+  font-family: var(--slaids-body-font); font-size: var(--slaids-font-size);
+  line-height: var(--slaids-line-height);
+}
+#miniapp :where(h1, h2, h3, p, figure, ul, ol, li, label, output) { margin: 0; }
+#miniapp [hidden] { display: none !important; }
+#miniapp :where(h1, h2) { font-family: var(--slaids-heading-font); }
+#miniapp button { min-height: 48px; }
+#miniapp :where(button, input, output, p) { min-width: 0; overflow-wrap: anywhere; }
+#miniapp input:not([type="checkbox"]):not([type="radio"]) { width: 100%; }
+.app-header { display: grid; gap: var(--slaids-block-spacing); }
+.app-title { padding-right: 400px; min-height: 100px; }
+.app-nav { display: flex; gap: var(--slaids-block-spacing); flex-wrap: wrap; }
+#miniapp .secondary {
+  background: var(--slaids-surface); color: var(--slaids-text);
+  border: 1px solid var(--slaids-border); box-shadow: none;
+}
+#miniapp .app-nav button[aria-pressed="true"] {
+  background: var(--slaids-accent); color: var(--slaids-accent-text);
+  border-color: var(--slaids-accent);
+}
+/* The only scrolling owner. Padding keeps focus outlines inside its clip. */
+.app-content {
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+  padding: 6px;
+}
+.view-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--slaids-gap); align-items: stretch; }
+.panel {
+  min-width: 0; padding: var(--slaids-padding); border: 1px solid var(--slaids-border);
+  border-radius: var(--slaids-radius); background: var(--slaids-surface);
+  display: grid; gap: var(--slaids-gap); align-content: start;
+}
+.stack { display: grid; gap: var(--slaids-block-spacing); min-width: 0; }
+.muted { color: var(--slaids-muted); }
+.small { font-size: var(--slaids-font-size-small); }
 
-  html,
-  body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-  }
-
-  body {
-    overflow: hidden;
-    background: var(--slaids-background);
-    color: var(--slaids-text);
-    font-family: var(--slaids-body-font);
-  }
-
-  main {
-    height: 100%;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    gap: var(--slaids-gap);
-  }
-
-  header {
-    max-width: 1120px;
-  }
-
-  header p,
-  footer,
-  .hint {
-    color: var(--slaids-muted);
-  }
-
-  .grid {
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: var(--slaids-gap);
-  }
-
-  .panel {
-    min-width: 0;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--slaids-block-spacing);
-    padding: var(--slaids-padding);
-    border: 1px solid var(--slaids-border);
-    border-radius: var(--slaids-radius);
-    background: var(--slaids-surface);
-    box-shadow: var(--slaids-shadow);
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    gap: var(--slaids-block-spacing);
-    flex-wrap: wrap;
-  }
-
-  .counter {
-    min-width: 170px;
-    text-align: center;
-    font-family: var(--slaids-heading-font);
-    font-size: var(--slaids-font-size-title);
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .meter {
-    display: grid;
-    grid-template-columns: auto minmax(260px, 1fr) auto;
-    align-items: center;
-    gap: var(--slaids-block-spacing);
-  }
-
-  .meter output {
-    min-width: 4ch;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .drag-area {
-    position: relative;
-    height: 118px;
-    border: 1px solid var(--slaids-border);
-    border-radius: var(--slaids-radius);
-    background: var(--slaids-background);
-    touch-action: pan-y;
-    overflow: hidden;
-  }
-
-  .drag-line {
-    position: absolute;
-    left: var(--slaids-padding);
-    right: var(--slaids-padding);
-    top: 50%;
-    height: 2px;
-    transform: translateY(-50%);
-    background: var(--slaids-border);
-  }
-
-  .drag-knob {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 70px;
-    height: 70px;
-    transform: translate(-50%, -50%);
-    border: 0;
-    border-radius: 50%;
-    background: var(--slaids-accent);
-    color: var(--slaids-accent-text);
-    font: 700 var(--slaids-font-size-heading) / 1 var(--slaids-heading-font);
-    cursor: grab;
-    user-select: none;
-  }
-
-  .drag-knob:active { cursor: grabbing; }
-
-  .fields {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
-    gap: var(--slaids-block-spacing);
-  }
-
-  .field {
-    display: grid;
-    gap: calc(var(--slaids-block-spacing) * 0.45);
-  }
-
-  .keyboard-pad {
-    min-height: 96px;
-    padding: calc(var(--slaids-padding) * 0.75);
-    border: 2px solid var(--slaids-border);
-    border-left: 7px solid var(--slaids-accent);
-    border-radius: calc(var(--slaids-radius) * 0.7);
-    background: var(--slaids-background);
-    cursor: default;
-  }
-
-  .keyboard-pad:focus {
-    outline: 4px solid var(--slaids-accent);
-    outline-offset: 3px;
-  }
-
-  .checks {
-    display: grid;
-    gap: calc(var(--slaids-block-spacing) * 0.55);
-  }
-
-  .check {
-    display: grid;
-    grid-template-columns: 2.5ch minmax(0, 1fr);
-    gap: var(--slaids-block-spacing);
-    align-items: start;
-    padding: calc(var(--slaids-padding) * 0.65);
-    border: 1px solid var(--slaids-border);
-    border-radius: calc(var(--slaids-radius) * 0.7);
-    background: var(--slaids-background);
-  }
-
-  .check-symbol {
-    font-family: var(--slaids-heading-font);
-    font-size: var(--slaids-font-size-heading);
-    line-height: 1;
-  }
-
-  .check strong { font-family: var(--slaids-heading-font); }
-  .check small { color: var(--slaids-muted); }
-
-  .status {
-    display: flex;
-    align-items: center;
-    gap: var(--slaids-block-spacing);
-    flex-wrap: wrap;
-  }
-
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45em;
-    padding: 0.35em 0.65em;
-    border: 1px solid var(--slaids-border);
-    border-radius: 999px;
-    background: var(--slaids-surface);
-  }
-
-  .accent-dot {
-    width: 0.85em;
-    height: 0.85em;
-    border-radius: 50%;
-    background: var(--slaids-accent);
-  }
-
-  @media (max-width: 1050px) {
-    body { overflow: auto; }
-    .grid { grid-template-columns: 1fr; }
-    .fields { grid-template-columns: 1fr; }
-  }
+.counter-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--slaids-block-spacing); }
+.counter { text-align: center; font-family: var(--slaids-heading-font); font-size: var(--slaids-font-size-title); font-variant-numeric: tabular-nums; line-height: var(--slaids-heading-line-height); }
+.keyboard-pad { border: 1px dashed var(--slaids-border); border-radius: var(--slaids-radius); padding: var(--slaids-padding); }
+.level-label { display: flex; justify-content: space-between; gap: var(--slaids-block-spacing); }
+#miniapp input[type="range"] { min-height: 48px; cursor: pointer; }
+.scroll-list { display: grid; gap: var(--slaids-gap); list-style: none; padding: 0; }
+#miniapp .scroll-item { padding: var(--slaids-padding); border-bottom: 1px solid var(--slaids-border); }
+.sample { padding: var(--slaids-padding); border-radius: var(--slaids-radius); background: var(--slaids-accent); color: var(--slaids-accent-text); }
+.field-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--slaids-block-spacing); }
+.font-value { overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>Slaids miniapp-systemtest</h1>
-    <p>
-      Tester tema, lokal tilstand, tastatur, skjema, peker/touch og sentrale sandbox-grenser.
-      Avslutt og aktiver igjen til slutt: telleren skal da være 0 og alle kontroller tilbake på startverdiene.
-    </p>
+<main id="miniapp">
+  <header class="app-header">
+    <h1 class="app-title">Miniapp-test</h1>
+    <nav class="app-nav" aria-label="Velg test">
+      <button class="secondary" type="button" data-view="interaction" aria-pressed="true" aria-controls="interaction">Teller</button>
+      <button class="secondary" type="button" data-view="controls" aria-pressed="false" aria-controls="controls">Kontroller</button>
+      <button class="secondary" type="button" data-view="scrolling" aria-pressed="false" aria-controls="scrolling">Rulling</button>
+      <button class="secondary" type="button" data-view="theme" aria-pressed="false" aria-controls="theme">Tema</button>
+    </nav>
   </header>
-
-  <div class="grid">
-    <section class="panel" aria-labelledby="interaction-heading">
-      <h2 id="interaction-heading">Interaksjon</h2>
-
-      <div class="row">
-        <button id="minus" type="button" aria-label="Trekk én fra telleren">−</button>
-        <output id="counter" class="counter" aria-live="polite">0</output>
-        <button id="plus" type="button" aria-label="Legg én til telleren">+</button>
-        <button id="reset" type="button">Nullstill</button>
-      </div>
-
-      <div class="meter">
-        <label for="level">Nivå</label>
-        <input id="level" type="range" min="0" max="100" step="1" value="50">
-        <output id="levelValue" for="level">50</output>
-      </div>
-
-      <div>
-        <p><strong>Dra sirkelen</strong> med mus/touch, eller bruk knappene.</p>
-        <div id="dragArea" class="drag-area" aria-label="Dra-test">
-          <div class="drag-line" aria-hidden="true"></div>
-          <button id="dragKnob" class="drag-knob" type="button" aria-label="Flyttbar sirkel">50</button>
+  <div id="content" class="app-content" role="region" aria-label="Testinnhold" tabindex="0">
+    <div id="interaction" class="view-grid" data-screen>
+      <section class="panel" aria-labelledby="counter-heading">
+        <div class="stack">
+          <h2 id="counter-heading">Teller</h2>
+          <div class="counter-row">
+            <button type="button" id="minus" aria-label="Trekk fra én">−</button>
+            <output id="counter" class="counter" aria-label="Tellerverdi" aria-live="polite">0</output>
+            <button type="button" id="plus" aria-label="Legg til én">+</button>
+          </div>
         </div>
-        <div class="row">
-          <button id="moveLeft" type="button">← Flytt</button>
-          <button id="moveRight" type="button">Flytt →</button>
-          <output id="dragValue" aria-live="polite">Posisjon 50 %</output>
+      </section>
+      <section id="keyboard" class="panel keyboard-pad" tabindex="0" role="group" aria-label="Tastaturtest">
+        <div class="stack">
+          <h2>Tastatur</h2>
+          <p class="small">Klikk i dette kortet. Bruk piltaster eller mellomrom.</p>
+          <output id="key-status" class="muted small" aria-live="polite">Ingen tast mottatt.</output>
         </div>
+      </section>
+    </div>
+    <div id="controls" class="view-grid" data-screen hidden>
+      <section class="panel" aria-labelledby="level-title">
+        <div class="stack">
+          <label class="level-label" for="level"><span id="level-title">Nivå</span><output id="level-value" for="level">50 %</output></label>
+          <input id="level" type="range" min="0" max="100" step="1" value="50">
+          <p class="muted small">Dra med mus eller berøring. Bruk piltaster når feltet har fokus.</p>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="note-title">
+        <div class="stack">
+          <label for="note" id="note-title">Tekstfelt</label>
+          <div class="field-actions">
+          <input id="note" type="text" maxlength="120" placeholder="Skriv her" autocomplete="off">
+          <button class="secondary" type="button" id="reset">Nullstill alt</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section id="scrolling" class="panel" data-screen hidden aria-labelledby="scroll-heading">
+      <div class="stack">
+        <h2 id="scroll-heading">Rull helt ned</h2>
+        <p>Bruk musehjul, berøring eller Tab til innholdsfeltet og Page Down.</p>
+        <p class="muted small">Bare dette innholdsfeltet skal rulle. Tittelen og testvalgene skal stå stille.</p>
       </div>
-
-      <div class="fields">
-        <label class="field" for="name">
-          <span>Tekstfelt</span>
-          <input id="name" type="text" value="Skriv her" autocomplete="off">
-        </label>
-        <label class="field" for="mode">
-          <span>Velg kontroll</span>
-          <select id="mode">
-            <option value="normal">Normal</option>
-            <option value="fokus">Fokus</option>
-            <option value="presentasjon">Presentasjon</option>
-          </select>
-        </label>
-      </div>
-
-      <div id="keyboardPad" class="keyboard-pad" tabindex="0" role="group" aria-label="Tastaturtest">
-        <strong>Tastaturtest – klikk her først.</strong><br>
-        Bruk ←/→ for teller, mellomrom for +1 og Escape. Status vises her, og Slaids skal ikke navigere mens miniappen er aktiv.
-      </div>
+      <ol class="scroll-list" id="scroll-list"></ol>
+      <button type="button" id="scroll-end">Bekreft at bunnen er nådd</button>
+      <output id="scroll-status" aria-live="polite">Bunnen er ikke bekreftet.</output>
     </section>
-
-    <section class="panel" aria-labelledby="sandbox-heading">
-      <h2 id="sandbox-heading">Sandbox-diagnostikk</h2>
-      <p class="hint">
-        Alle fem skal ende med «Blokkert som forventet». Et «TILLATT» betyr at testappen har funnet en mulig sandbox-regresjon.
-      </p>
-
-      <button id="runChecks" type="button">Kjør sikkerhetssjekk</button>
-
-      <div class="checks" aria-live="polite">
-        <div class="check" data-check="network">
-          <span class="check-symbol">·</span>
-          <div><strong>Nettverk</strong><br><small>Ikke kjørt</small></div>
+    <div id="theme" class="view-grid" data-screen hidden>
+      <section class="panel" aria-labelledby="theme-heading">
+        <div class="stack">
+          <h2 id="theme-heading">Presentasjonens design</h2>
+          <p>Overskrifter, brødtekst og mellomrom bruker dekkets egne designverdier.</p>
         </div>
-        <div class="check" data-check="storage">
-          <span class="check-symbol">·</span>
-          <div><strong>Lagring</strong><br><small>Ikke kjørt</small></div>
+        <div class="sample">Seksjonens aksentfarge</div>
+        <p class="muted small">Endre tema i Slaids. Avslutt og aktiver miniappen på nytt for å se endringen.</p>
+      </section>
+      <section class="panel" aria-labelledby="theme-status-heading">
+        <div class="stack">
+          <h2 id="theme-status-heading">Mottatte verdier</h2>
+          <output id="theme-status"></output>
         </div>
-        <div class="check" data-check="popup">
-          <span class="check-symbol">·</span>
-          <div><strong>Popup</strong><br><small>Ikke kjørt</small></div>
+        <div class="stack small font-value">
+          <p>Overskrift: <span id="heading-font"></span></p>
+          <p>Brødtekst: <span id="body-font"></span></p>
         </div>
-        <div class="check" data-check="eval">
-          <span class="check-symbol">·</span>
-          <div><strong>new Function</strong><br><small>Ikke kjørt</small></div>
-        </div>
-        <div class="check" data-check="parent">
-          <span class="check-symbol">·</span>
-          <div><strong>Tilgang til Slaids</strong><br><small>Ikke kjørt</small></div>
-        </div>
-      </div>
-
-      <div class="status">
-        <span class="status-pill"><span class="accent-dot" aria-hidden="true"></span>Tema arvet</span>
-        <span class="status-pill">Starttilstand: teller 0</span>
-      </div>
-    </section>
+        <p class="muted small">Dette bekrefter CSS-verdier, ikke at alle fonter faktisk er lastet eller at hele sikkerhetsisolasjonen er testet.</p>
+      </section>
+    </div>
   </div>
-
-  <footer>
-    «Avslutt miniapp» skal fortsatt være tilgjengelig øverst til høyre over denne appen.
-  </footer>
 </main>
-
 <script>
 (() => {
-  const counter = document.getElementById('counter')
-  const level = document.getElementById('level')
-  const levelValue = document.getElementById('levelValue')
-  const dragArea = document.getElementById('dragArea')
-  const dragKnob = document.getElementById('dragKnob')
-  const dragValue = document.getElementById('dragValue')
-  const keyboardPad = document.getElementById('keyboardPad')
-  const runChecks = document.getElementById('runChecks')
-
-  let count = 0
-  let dragPercent = 50
-
-  function setCount(next) {
-    count = Math.max(-99, Math.min(999, next))
-    counter.value = String(count)
-    counter.textContent = String(count)
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const content = byId('content');
+  const counter = byId('counter');
+  const level = byId('level');
+  let count = 0;
+  function setCount(value) {
+    count = Math.max(-999, Math.min(999, value));
+    counter.value = String(count);
   }
-
-  function setDragPercent(next) {
-    dragPercent = Math.max(0, Math.min(100, next))
-    dragKnob.style.left = `${dragPercent}%`
-    dragKnob.textContent = String(Math.round(dragPercent))
-    dragValue.value = `Posisjon ${Math.round(dragPercent)} %`
-    dragValue.textContent = `Posisjon ${Math.round(dragPercent)} %`
-  }
-
-  function resetState() {
-    setCount(0)
-    level.value = '50'
-    levelValue.value = '50'
-    levelValue.textContent = '50'
-    setDragPercent(50)
-    document.getElementById('name').value = 'Skriv her'
-    document.getElementById('mode').value = 'normal'
-    keyboardPad.innerHTML = '<strong>Tastaturtest – klikk her først.</strong><br>Tilstand nullstilt. Bruk ←/→, mellomrom eller Escape.'
-  }
-
-  document.getElementById('minus').addEventListener('click', () => setCount(count - 1))
-  document.getElementById('plus').addEventListener('click', () => setCount(count + 1))
-  document.getElementById('reset').addEventListener('click', resetState)
-
-  level.addEventListener('input', () => {
-    levelValue.value = level.value
-    levelValue.textContent = level.value
-  })
-
-  document.getElementById('moveLeft').addEventListener('click', () => setDragPercent(dragPercent - 5))
-  document.getElementById('moveRight').addEventListener('click', () => setDragPercent(dragPercent + 5))
-
-  function setDragFromClientX(clientX) {
-    const rect = dragArea.getBoundingClientRect()
-    if (rect.width <= 0) return
-    setDragPercent(((clientX - rect.left) / rect.width) * 100)
-  }
-
-  dragKnob.addEventListener('pointerdown', event => {
-    dragKnob.setPointerCapture(event.pointerId)
-    setDragFromClientX(event.clientX)
-  })
-
-  dragKnob.addEventListener('pointermove', event => {
-    if (dragKnob.hasPointerCapture(event.pointerId)) {
-      setDragFromClientX(event.clientX)
+  function updateLevel() { byId('level-value').value = level.value + ' %'; }
+  byId('minus').addEventListener('click', () => setCount(count - 1));
+  byId('plus').addEventListener('click', () => setCount(count + 1));
+  level.addEventListener('input', updateLevel);
+  byId('reset').addEventListener('click', () => {
+    setCount(0); level.value = '50'; updateLevel(); byId('note').value = '';
+    byId('key-status').value = 'Ingen tast mottatt.';
+  });
+  // Shortcuts belong only to the labelled test area, never to native controls.
+  byId('keyboard').addEventListener('keydown', event => {
+    if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+    const deltas = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, ' ': 1 };
+    if (Object.hasOwn(deltas, event.key)) {
+      event.preventDefault(); setCount(count + deltas[event.key]);
+      byId('key-status').value = (event.key === ' ' ? 'Mellomrom' : event.key) + ' mottatt.';
     }
-  })
-
-  dragKnob.addEventListener('keydown', event => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      setDragPercent(dragPercent - 2)
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      setDragPercent(dragPercent + 2)
-    }
-  })
-
-  keyboardPad.addEventListener('keydown', event => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      setCount(count - 1)
-      keyboardPad.innerHTML = '<strong>← mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      setCount(count + 1)
-      keyboardPad.innerHTML = '<strong>→ mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
-    } else if (event.key === ' ') {
-      event.preventDefault()
-      setCount(count + 1)
-      keyboardPad.innerHTML = '<strong>Mellomrom mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      keyboardPad.innerHTML = '<strong>Escape mottatt av miniappen.</strong><br>Miniappen skal fortsatt være aktiv.'
-    }
-  })
-
-  function renderCheck(name, blocked, detail) {
-    const row = document.querySelector(`[data-check="${name}"]`)
-    const symbol = row.querySelector('.check-symbol')
-    const small = row.querySelector('small')
-    symbol.textContent = blocked ? '✓' : '!'
-    small.textContent = `${blocked ? 'Blokkert som forventet' : 'TILLATT – mulig regresjon'}${detail ? ` · ${detail}` : ''}`
-  }
-
-  async function checkNetwork() {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 1500)
-    try {
-      await fetch('https://example.com/', {
-        mode: 'no-cors',
-        cache: 'no-store',
-        signal: controller.signal,
-      })
-      return [false, 'fetch fullførte']
-    } catch (error) {
-      return [true, error instanceof Error ? error.name : 'avvist']
-    } finally {
-      clearTimeout(timeout)
-    }
-  }
-
-  function checkStorage() {
-    try {
-      localStorage.setItem('__slaids_probe__', '1')
-      localStorage.removeItem('__slaids_probe__')
-      return [false, 'localStorage kunne skrives']
-    } catch (error) {
-      return [true, error instanceof Error ? error.name : 'avvist']
-    }
-  }
-
-  function checkPopup() {
-    try {
-      const popup = window.open('about:blank', '_blank')
-      if (popup) {
-        popup.close()
-        return [false, 'window.open returnerte et vindu']
-      }
-      return [true, 'window.open ble nektet']
-    } catch (error) {
-      return [true, error instanceof Error ? error.name : 'avvist']
-    }
-  }
-
-  function checkDynamicCode() {
-    try {
-      const dynamic = new Function('return 2 + 2')
-      dynamic()
-      return [false, 'new Function kjørte']
-    } catch (error) {
-      return [true, error instanceof Error ? error.name : 'avvist']
-    }
-  }
-
-  function checkParent() {
-    try {
-      void window.parent.document.body
-      return [false, 'parent.document var lesbar']
-    } catch (error) {
-      return [true, error instanceof Error ? error.name : 'avvist']
-    }
-  }
-
-  runChecks.addEventListener('click', async () => {
-    runChecks.disabled = true
-    runChecks.textContent = 'Kjører…'
-
-    const [network, storage, popup, dynamicCode, parent] = await Promise.all([
-      checkNetwork(),
-      Promise.resolve(checkStorage()),
-      Promise.resolve(checkPopup()),
-      Promise.resolve(checkDynamicCode()),
-      Promise.resolve(checkParent()),
-    ])
-
-    renderCheck('network', network[0], network[1])
-    renderCheck('storage', storage[0], storage[1])
-    renderCheck('popup', popup[0], popup[1])
-    renderCheck('eval', dynamicCode[0], dynamicCode[1])
-    renderCheck('parent', parent[0], parent[1])
-
-    runChecks.disabled = false
-    runChecks.textContent = 'Kjør sikkerhetssjekk igjen'
-  })
-
-  setCount(0)
-  setDragPercent(50)
-})()
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') byId('key-status').value = 'Escape mottatt. Appen er fortsatt aktiv.';
+  });
+  document.querySelectorAll('[data-view]').forEach(button => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.view;
+      document.querySelectorAll('[data-screen]').forEach(screen => { screen.hidden = screen.id !== id; });
+      document.querySelectorAll('[data-view]').forEach(control => { control.setAttribute('aria-pressed', String(control === button)); });
+      content.scrollTop = 0;
+    });
+  });
+  const descriptions = [
+    'Tittel og testvalg blir stående mens denne listen beveger seg.',
+    'Kortene har samme innvendige luft og samme avstand til hverandre.',
+    'Ingen tekst ligger oppå teksten i neste rad.',
+    'Det finnes bare én loddrett rulleflate i miniappen.',
+    'Rulling skal ikke føre til at Slaids bytter slide.',
+    'Fokusmarkeringen skal fortsatt være synlig ved tastaturnavigasjon.',
+    'Store skrifter skal gi mer høyde, ikke skjult innhold.',
+    'Neste knapp ligger ved bunnen. Den skal kunne nås med Tab.'
+  ];
+  descriptions.forEach((text, index) => {
+    const item = document.createElement('li'); item.className = 'scroll-item stack';
+    const title = document.createElement('h3'); title.textContent = 'Kontroll ' + (index + 1);
+    const description = document.createElement('p'); description.textContent = text;
+    item.append(title, description); byId('scroll-list').append(item);
+  });
+  byId('scroll-end').addEventListener('click', () => { byId('scroll-status').value = 'Bunnen er nådd.'; });
+  const theme = getComputedStyle(document.documentElement);
+  const required = ['--slaids-background', '--slaids-text', '--slaids-accent', '--slaids-heading-font', '--slaids-body-font', '--slaids-gap'];
+  const missing = required.filter(name => !theme.getPropertyValue(name).trim());
+  byId('theme-status').value = missing.length ? 'Designverdier mangler. Test inne i Slaids.' : 'De kontrollerte designverdiene er mottatt.';
+  byId('heading-font').textContent = theme.getPropertyValue('--slaids-heading-font').trim() || 'Ikke mottatt';
+  byId('body-font').textContent = theme.getPropertyValue('--slaids-body-font').trim() || 'Ikke mottatt';
+})();
 </script>
 </body>
 </html>

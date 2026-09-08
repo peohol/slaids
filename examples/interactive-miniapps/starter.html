@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Enkel teller</title>
+<style>
+/* Authoring layout, not a replacement for Slaids' versioned base CSS. */
+html, body { width: 100%; height: 100%; margin: 0; }
+body { padding: 0; overflow: hidden; }
+#miniapp, #miniapp * { box-sizing: border-box; }
+#miniapp {
+  height: 100%; min-height: 0; min-width: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--slaids-gap); padding: var(--slaids-gap);
+  color: var(--slaids-text); background: var(--slaids-background);
+  font-family: var(--slaids-body-font); font-size: var(--slaids-font-size);
+  line-height: var(--slaids-line-height);
+}
+#miniapp :where(h1, h2, h3, p, figure, ul, ol, li, label, output) { margin: 0; }
+#miniapp [hidden] { display: none !important; }
+#miniapp :where(h1, h2) { font-family: var(--slaids-heading-font); }
+#miniapp button { min-height: 48px; }
+#miniapp :where(button, input, output, p) { min-width: 0; overflow-wrap: anywhere; }
+#miniapp input:not([type="checkbox"]):not([type="radio"]) { width: 100%; }
+.app-header { display: grid; gap: var(--slaids-block-spacing); }
+.app-title { padding-right: 400px; min-height: 100px; }
+#miniapp .secondary {
+  background: var(--slaids-surface); color: var(--slaids-text);
+  border: 1px solid var(--slaids-border); box-shadow: none;
+}
+/* The only scrolling owner. Padding keeps focus outlines inside its clip. */
+.app-content {
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+  padding: 6px;
+}
+.panel {
+  min-width: 0; padding: var(--slaids-padding); border: 1px solid var(--slaids-border);
+  border-radius: var(--slaids-radius); background: var(--slaids-surface);
+  display: grid; gap: var(--slaids-gap); align-content: start;
+}
+.stack { display: grid; gap: var(--slaids-block-spacing); min-width: 0; }
+
+.counter-panel { max-width: 100%; }
+.result { font-family: var(--slaids-heading-font); font-size: var(--slaids-font-size-title); font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--slaids-block-spacing); }
+</style>
+</head>
+<body>
+<main id="miniapp">
+  <header class="app-header"><h1 class="app-title">Enkel teller</h1></header>
+  <div class="app-content" role="region" aria-label="Innhold" tabindex="0">
+    <section class="panel counter-panel" aria-labelledby="task">
+      <div class="stack">
+        <p id="task">Trykk for å telle. Ny aktivering starter på null.</p>
+      </div>
+      <output id="result" class="result" aria-label="Tellerverdi" aria-live="polite">0</output>
+      <div class="actions">
+        <button type="button" id="add">Legg til én</button>
+        <button type="button" id="clear" class="secondary">Nullstill</button>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+(() => {
+  let count = 0;
+  const result = document.getElementById('result');
+  document.getElementById('add').addEventListener('click', () => { count = Math.min(999, count + 1); result.value = String(count); });
+  document.getElementById('clear').addEventListener('click', () => { count = 0; result.value = '0'; });
+})();
+</script>
+</body>
+</html>
