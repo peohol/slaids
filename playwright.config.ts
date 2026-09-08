@@ -8,7 +8,7 @@ import { defineConfig, devices } from '@playwright/test'
 const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
 
 /** The specs that reach into a miniapp's frame; see the project below. */
-const INTERACTIVE_SPECS = /interactive(-security)?\.spec\.ts$/
+const INTERACTIVE_SPECS = /interactive(-security|-authoring)?\.spec\.ts$/
 
 export default defineConfig({
   testDir: './e2e',

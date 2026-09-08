@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Miniapp-test</title>
+<style>
+/* Authoring layout, not a replacement for Slaids' versioned base CSS. */
+html, body { width: 100%; height: 100%; margin: 0; }
+body { padding: 0; overflow: hidden; }
+#miniapp, #miniapp * { box-sizing: border-box; }
+#miniapp {
+  height: 100%; min-height: 0; min-width: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--slaids-gap); padding: var(--slaids-gap);
+  color: var(--slaids-text); background: var(--slaids-background);
+  font-family: var(--slaids-body-font); font-size: var(--slaids-font-size);
+  line-height: var(--slaids-line-height);
+}
+#miniapp :where(h1, h2, h3, p, figure, ul, ol, li, label, output) { margin: 0; }
+#miniapp [hidden] { display: none !important; }
+#miniapp :where(h1, h2) { font-family: var(--slaids-heading-font); }
+#miniapp button { min-height: 48px; }
+#miniapp :where(button, input, output, p) { min-width: 0; overflow-wrap: anywhere; }
+#miniapp input:not([type="checkbox"]):not([type="radio"]) { width: 100%; }
+.app-header { display: grid; gap: var(--slaids-block-spacing); }
+.app-title { padding-right: 400px; min-height: 100px; }
+.app-nav { display: flex; gap: var(--slaids-block-spacing); flex-wrap: wrap; }
+#miniapp .secondary {
+  background: var(--slaids-surface); color: var(--slaids-text);
+  border: 1px solid var(--slaids-border); box-shadow: none;
+}
+#miniapp .app-nav button[aria-pressed="true"] {
+  background: var(--slaids-accent); color: var(--slaids-accent-text);
+  border-color: var(--slaids-accent);
+}
+/* The only scrolling owner. Padding keeps focus outlines inside its clip. */
+.app-content {
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+  padding: 6px;
+}
+.view-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--slaids-gap); align-items: stretch; }
+.panel {
+  min-width: 0; padding: var(--slaids-padding); border: 1px solid var(--slaids-border);
+  border-radius: var(--slaids-radius); background: var(--slaids-surface);
+  display: grid; gap: var(--slaids-gap); align-content: start;
+}
+.stack { display: grid; gap: var(--slaids-block-spacing); min-width: 0; }
+.muted { color: var(--slaids-muted); }
+.small { font-size: var(--slaids-font-size-small); }
+
+.counter-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--slaids-block-spacing); }
+.counter { text-align: center; font-family: var(--slaids-heading-font); font-size: var(--slaids-font-size-title); font-variant-numeric: tabular-nums; line-height: var(--slaids-heading-line-height); }
+.keyboard-pad { border: 1px dashed var(--slaids-border); border-radius: var(--slaids-radius); padding: var(--slaids-padding); }
+.level-label { display: flex; justify-content: space-between; gap: var(--slaids-block-spacing); }
+#miniapp input[type="range"] { min-height: 48px; cursor: pointer; }
+.scroll-list { display: grid; gap: var(--slaids-gap); list-style: none; padding: 0; }
+#miniapp .scroll-item { padding: var(--slaids-padding); border-bottom: 1px solid var(--slaids-border); }
+.sample { padding: var(--slaids-padding); border-radius: var(--slaids-radius); background: var(--slaids-accent); color: var(--slaids-accent-text); }
+.field-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--slaids-block-spacing); }
+.font-value { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main id="miniapp">
+  <header class="app-header">
+    <h1 class="app-title">Miniapp-test</h1>
+    <nav class="app-nav" aria-label="Velg test">
+      <button class="secondary" type="button" data-view="interaction" aria-pressed="true" aria-controls="interaction">Teller</button>
+      <button class="secondary" type="button" data-view="controls" aria-pressed="false" aria-controls="controls">Kontroller</button>
+      <button class="secondary" type="button" data-view="scrolling" aria-pressed="false" aria-controls="scrolling">Rulling</button>
+      <button class="secondary" type="button" data-view="theme" aria-pressed="false" aria-controls="theme">Tema</button>
+    </nav>
+  </header>
+  <div id="content" class="app-content" role="region" aria-label="Testinnhold" tabindex="0">
+    <div id="interaction" class="view-grid" data-screen>
+      <section class="panel" aria-labelledby="counter-heading">
+        <div class="stack">
+          <h2 id="counter-heading">Teller</h2>
+          <div class="counter-row">
+            <button type="button" id="minus" aria-label="Trekk fra én">−</button>
+            <output id="counter" class="counter" aria-label="Tellerverdi" aria-live="polite">0</output>
+            <button type="button" id="plus" aria-label="Legg til én">+</button>
+          </div>
+        </div>
+      </section>
+      <section id="keyboard" class="panel keyboard-pad" tabindex="0" role="group" aria-label="Tastaturtest">
+        <div class="stack">
+          <h2>Tastatur</h2>
+          <p class="small">Klikk i dette kortet. Bruk piltaster eller mellomrom.</p>
+          <output id="key-status" class="muted small" aria-live="polite">Ingen tast mottatt.</output>
+        </div>
+      </section>
+    </div>
+    <div id="controls" class="view-grid" data-screen hidden>
+      <section class="panel" aria-labelledby="level-title">
+        <div class="stack">
+          <label class="level-label" for="level"><span id="level-title">Nivå</span><output id="level-value" for="level">50 %</output></label>
+          <input id="level" type="range" min="0" max="100" step="1" value="50">
+          <p class="muted small">Dra med mus eller berøring. Bruk piltaster når feltet har fokus.</p>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="note-title">
+        <div class="stack">
+          <label for="note" id="note-title">Tekstfelt</label>
+          <div class="field-actions">
+          <input id="note" type="text" maxlength="120" placeholder="Skriv her" autocomplete="off">
+          <button class="secondary" type="button" id="reset">Nullstill alt</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section id="scrolling" class="panel" data-screen hidden aria-labelledby="scroll-heading">
+      <div class="stack">
+        <h2 id="scroll-heading">Rull helt ned</h2>
+        <p>Bruk musehjul, berøring eller Tab til innholdsfeltet og Page Down.</p>
+        <p class="muted small">Bare dette innholdsfeltet skal rulle. Tittelen og testvalgene skal stå stille.</p>
+      </div>
+      <ol class="scroll-list" id="scroll-list"></ol>
+      <button type="button" id="scroll-end">Bekreft at bunnen er nådd</button>
+      <output id="scroll-status" aria-live="polite">Bunnen er ikke bekreftet.</output>
+    </section>
+    <div id="theme" class="view-grid" data-screen hidden>
+      <section class="panel" aria-labelledby="theme-heading">
+        <div class="stack">
+          <h2 id="theme-heading">Presentasjonens design</h2>
+          <p>Overskrifter, brødtekst og mellomrom bruker dekkets egne designverdier.</p>
+        </div>
+        <div class="sample">Seksjonens aksentfarge</div>
+        <p class="muted small">Endre tema i Slaids. Avslutt og aktiver miniappen på nytt for å se endringen.</p>
+      </section>
+      <section class="panel" aria-labelledby="theme-status-heading">
+        <div class="stack">
+          <h2 id="theme-status-heading">Mottatte verdier</h2>
+          <output id="theme-status"></output>
+        </div>
+        <div class="stack small font-value">
+          <p>Overskrift: <span id="heading-font"></span></p>
+          <p>Brødtekst: <span id="body-font"></span></p>
+        </div>
+        <p class="muted small">Dette bekrefter CSS-verdier, ikke at alle fonter faktisk er lastet eller at hele sikkerhetsisolasjonen er testet.</p>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const content = byId('content');
+  const counter = byId('counter');
+  const level = byId('level');
+  let count = 0;
+  function setCount(value) {
+    count = Math.max(-999, Math.min(999, value));
+    counter.value = String(count);
+  }
+  function updateLevel() { byId('level-value').value = level.value + ' %'; }
+  byId('minus').addEventListener('click', () => setCount(count - 1));
+  byId('plus').addEventListener('click', () => setCount(count + 1));
+  level.addEventListener('input', updateLevel);
+  byId('reset').addEventListener('click', () => {
+    setCount(0); level.value = '50'; updateLevel(); byId('note').value = '';
+    byId('key-status').value = 'Ingen tast mottatt.';
+  });
+  // Shortcuts belong only to the labelled test area, never to native controls.
+  byId('keyboard').addEventListener('keydown', event => {
+    if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+    const deltas = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, ' ': 1 };
+    if (Object.hasOwn(deltas, event.key)) {
+      event.preventDefault(); setCount(count + deltas[event.key]);
+      byId('key-status').value = (event.key === ' ' ? 'Mellomrom' : event.key) + ' mottatt.';
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') byId('key-status').value = 'Escape mottatt. Appen er fortsatt aktiv.';
+  });
+  document.querySelectorAll('[data-view]').forEach(button => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.view;
+      document.querySelectorAll('[data-screen]').forEach(screen => { screen.hidden = screen.id !== id; });
+      document.querySelectorAll('[data-view]').forEach(control => { control.setAttribute('aria-pressed', String(control === button)); });
+      content.scrollTop = 0;
+    });
+  });
+  const descriptions = [
+    'Tittel og testvalg blir stående mens denne listen beveger seg.',
+    'Kortene har samme innvendige luft og samme avstand til hverandre.',
+    'Ingen tekst ligger oppå teksten i neste rad.',
+    'Det finnes bare én loddrett rulleflate i miniappen.',
+    'Rulling skal ikke føre til at Slaids bytter slide.',
+    'Fokusmarkeringen skal fortsatt være synlig ved tastaturnavigasjon.',
+    'Store skrifter skal gi mer høyde, ikke skjult innhold.',
+    'Neste knapp ligger ved bunnen. Den skal kunne nås med Tab.'
+  ];
+  descriptions.forEach((text, index) => {
+    const item = document.createElement('li'); item.className = 'scroll-item stack';
+    const title = document.createElement('h3'); title.textContent = 'Kontroll ' + (index + 1);
+    const description = document.createElement('p'); description.textContent = text;
+    item.append(title, description); byId('scroll-list').append(item);
+  });
+  byId('scroll-end').addEventListener('click', () => { byId('scroll-status').value = 'Bunnen er nådd.'; });
+  const theme = getComputedStyle(document.documentElement);
+  const required = ['--slaids-background', '--slaids-text', '--slaids-accent', '--slaids-heading-font', '--slaids-body-font', '--slaids-gap'];
+  const missing = required.filter(name => !theme.getPropertyValue(name).trim());
+  byId('theme-status').value = missing.length ? 'Designverdier mangler. Test inne i Slaids.' : 'De kontrollerte designverdiene er mottatt.';
+  byId('heading-font').textContent = theme.getPropertyValue('--slaids-heading-font').trim() || 'Ikke mottatt';
+  byId('body-font').textContent = theme.getPropertyValue('--slaids-body-font').trim() || 'Ikke mottatt';
+})();
+</script>
+</body>
+</html>
