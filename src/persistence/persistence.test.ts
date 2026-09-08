@@ -30,11 +30,15 @@ import { contentAt, htmlOfBytes, interactiveAt, sectionAt } from '../domain/test
 let counter = 0
 const databases: SlaidsDatabase[] = []
 
-function freshRepository(): DexieSlaidsRepository {
+function freshDatabase(): SlaidsDatabase {
   counter += 1
   const database = new SlaidsDatabase(`slaids-test-${counter}`)
   databases.push(database)
-  return new DexieSlaidsRepository(database)
+  return database
+}
+
+function freshRepository(): DexieSlaidsRepository {
+  return new DexieSlaidsRepository(freshDatabase())
 }
 
 afterEach(async () => {
@@ -182,6 +186,49 @@ function presentationWithAsset(base: Presentation): Presentation {
 }
 
 describe('DexieSlaidsRepository', () => {
+  it('refuses a save from a reader whose copy is older than what is stored', async () => {
+    // Two repositories over one database: two tabs, or two devices. Neither
+    // owns the deck more than the other, and IndexedDB has no version column,
+    // so each reader remembers what it last saw — the same compare-and-swap
+    // the Supabase repository does with its version.
+    const database = freshDatabase()
+    const first = new DexieSlaidsRepository(database)
+    const second = new DexieSlaidsRepository(database)
+    const presentation = createPresentation({ title: 'Delt' })
+    await first.savePresentation(presentation)
+
+    const readByFirst = await first.loadPresentation(presentation.id)
+    const readBySecond = await second.loadPresentation(presentation.id)
+
+    // One editor saving over and over is what autosave does; every write moves
+    // that reader's own precondition along, so it never fights itself.
+    await first.savePresentation({ ...readByFirst, title: 'Første' })
+    await first.savePresentation({ ...readByFirst, title: 'Andre' })
+    expect((await first.loadPresentation(presentation.id)).title).toBe('Andre')
+
+    // The other reader is holding a copy from before that, and writing it back
+    // would undo the work — and, after an image optimisation, put files that
+    // have been deleted back into the stored document.
+    await expect(second.savePresentation({ ...readBySecond, title: 'Utdatert' })).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    expect((await first.loadPresentation(presentation.id)).title).toBe('Andre')
+
+    // Reading again is all it takes.
+    const reread = await second.loadPresentation(presentation.id)
+    await second.savePresentation({ ...reread, title: 'Etter ny lesing' })
+    expect((await first.loadPresentation(presentation.id)).title).toBe('Etter ny lesing')
+  })
+
+  it('still stores a presentation this reader has never seen', async () => {
+    // Nothing to compare against is not a conflict: an import or a copy writes
+    // a deck this repository never read, and that is an insert.
+    const repository = freshRepository()
+    const presentation = createPresentation({ title: 'Importert' })
+    await repository.savePresentation(presentation)
+    expect((await repository.loadPresentation(presentation.id)).title).toBe('Importert')
+  })
+
   it('saves and loads a presentation unchanged', async () => {
     const repository = freshRepository()
     const presentation = samplePresentation()

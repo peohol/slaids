@@ -22,7 +22,7 @@ import type { AssetRef, LayoutNode, Presentation, ZoneContent } from '../domain/
 import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
-import type { SlaidsRepository } from '../persistence/repository'
+import { RepositoryConflictError, type SlaidsRepository } from '../persistence/repository'
 import {
   StaleAnalysisError,
   analyzeImages,
@@ -37,11 +37,15 @@ import type { RasterJob, RasterResult } from './imagePipeline'
 let counter = 0
 const databases: SlaidsDatabase[] = []
 
-function freshRepository(): DexieSlaidsRepository {
+function freshDatabase(): SlaidsDatabase {
   counter += 1
   const database = new SlaidsDatabase(`slaids-optimize-${counter}`)
   databases.push(database)
-  return new DexieSlaidsRepository(database)
+  return database
+}
+
+function freshRepository(): DexieSlaidsRepository {
+  return new DexieSlaidsRepository(freshDatabase())
 }
 
 afterEach(async () => {
@@ -558,6 +562,58 @@ describe('applying', () => {
 
     expect(panelAssetIds(await repository.loadPresentation(deck.id))).toEqual(['a_big'])
     expect(await repository.getAsset('a_big')).not.toBeNull()
+  })
+
+  it('never lets a second tab write a deleted file back into the stored document', async () => {
+    // Two tabs, one database — two repositories, as two tabs really are.
+    const database = freshDatabase()
+    const tabA = new DexieSlaidsRepository(database)
+    const tabB = new DexieSlaidsRepository(database)
+
+    const original = bigFile(1)
+    const deck = deckWith(createLeaf(createImage('a_big')), [ref('a_big', original)])
+    await seed(tabA, deck, { a_big: original })
+    // Both tabs have the deck open, both showing the same file.
+    const openedByA = await tabA.loadPresentation(deck.id)
+    const openedByB = await tabB.loadPresentation(deck.id)
+
+    const analysis = await analyzeImages(
+      openedByA,
+      { kind: 'all' },
+      { repository: tabA, processor: fakeProcessor() },
+    )
+    const newId = optimizedOf(analysis, 'a_big').ref.id
+
+    // B tries to autosave its copy in the window between A storing the new
+    // document and A deleting the file that document no longer shows — the one
+    // moment where a check made a step earlier could have gone stale.
+    let inTheWindow: Promise<string> | null = null
+    const report = await applyImageOptimization(analysis, {
+      ...editorFor(tabA, openedByA).deps,
+      onProgress: (progress) => {
+        if (progress.phase !== 'cleaning' || inTheWindow) return
+        inTheWindow = tabB.savePresentation(openedByB).then(
+          () => 'lagret',
+          (error: unknown) => (error instanceof RepositoryConflictError ? 'avvist' : 'feilet'),
+        )
+      },
+    })
+    expect(report.saved).toBe(true)
+    expect(await inTheWindow!).toBe('avvist')
+
+    // And afterwards, when the file is already gone.
+    await expect(tabB.savePresentation(openedByB)).rejects.toBeInstanceOf(RepositoryConflictError)
+
+    // Whatever the order, the stored document never names a file that is gone.
+    const stored = await tabA.loadPresentation(deck.id)
+    expect(panelAssetIds(stored)).toEqual([newId])
+    expect(await tabA.getAsset('a_big')).toBeNull()
+    for (const asset of stored.assets) expect(await tabA.getAsset(asset.id)).not.toBeNull()
+
+    // B is told to read again, and once it has, it can save like anyone else.
+    const reopened = await tabB.loadPresentation(deck.id)
+    await tabB.savePresentation({ ...reopened, title: 'Etterpå' })
+    expect((await tabA.loadPresentation(deck.id)).title).toBe('Etterpå')
   })
 
   it('keeps the files it cannot account for when the document cannot be read', async () => {

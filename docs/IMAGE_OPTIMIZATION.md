@@ -40,6 +40,11 @@ Rekkefølgen ved skriving er den som gjør operasjonen trygg:
 2. dokumentet skrives om og lagres;
 3. først når lagringen har lyktes, slettes filene ingenting peker på lenger.
 
+Har du samme presentasjon åpen i to faner, kan den andre fanen ikke skrive sin
+gamle kopi tilbake etterpå: lageret avviser en lagring fra en leser som sitter
+på noe eldre enn det som står der, og fanen må laste på nytt. Uten det kunne den
+gamle kopien satt de slettede filene inn i dokumentet igjen.
+
 Feiler ett bilde, feiler bare det bildet. Feiler lagringen, beholdes både de
 gamle og de nye filene — og de gamle ryddes bort av seg selv når autolagringen
 kommer gjennom, ikke bare hvis det første forsøket lyktes. Slettingen sjekker
@@ -116,6 +121,8 @@ responsiv mens analysen kjører (arbeidet skjer i en worker).
   analyse, og opprydding etter en lagring som først feilet.
 - `src/state/autosave.test.ts` — arbeid som er satt til å kjøre etter neste
   skriving som lykkes.
+- `src/persistence/persistence.test.ts` — at en lagring fra en leser med en
+  eldre kopi avvises, mens én editors gjentatte lagringer går som før.
 - `src/persistence/assetDedupe.test.ts`, `src/state/assetUpload.test.ts`,
   `src/agent/assets.test.ts` — deduplisering ved begge dørene.
 - `e2e/image-optimization.spec.ts` — hele flyten i Chromium med ekte piksler.

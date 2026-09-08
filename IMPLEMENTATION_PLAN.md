@@ -4321,8 +4321,18 @@ og begge implementasjonene måtte gjøre noe for å holde den:
 
 Begge veier er den samme atomiske betingede skrivingen i basen – `.eq('version',
 …)` i UPDATE-en, eller sammenligningen inne i IndexedDB-transaksjonen – aldri en
-ubevoktet les-så-skriv. Editorens autosave skriver fortsatt ubetinget: den eier
-dokumentet den redigerer.
+ubevoktet les-så-skriv.
+
+Editorens autosave sender ingen `SaveGuard`, men skriver likevel ikke ubetinget:
+den er låst mot det *dette lageret sist så* – `knownVersions` i Supabase,
+`knownRevisions` i Dexie – og hver av dens egne skrivinger flytter betingelsen
+framover. Én fane lagrer derfor så ofte den vil, mens en fane som sitter på en
+eldre kopi blir avvist og må lese på nytt. Det er ikke bare tekst som står på
+spill: en nyere lagret versjon kan ha *slettet* filer den eldre kopien fortsatt
+peker på (bildeoptimalisering erstatter filer og fjerner det ingenting viser),
+og en stale skriving ville dermed etterlatt et lagret dokument som navngir filer
+som er borte. Betingelsen er lagerets egen nettopp derfor: den kan ikke være
+avhengig av at hver kaller husker å be om den.
 
 #### Fit-feil er handlingsbare
 

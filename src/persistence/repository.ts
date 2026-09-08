@@ -54,8 +54,21 @@ export interface SlaidsRepository {
    * Store the document. With a `guard`, refuse — `RepositoryConflictError` —
    * if the stored copy has moved on since the revision the guard names.
    *
-   * Without one the write is unconditional, which is what the editor's autosave
-   * wants: it owns the document it is editing and re-saves it continuously.
+   * Without one the write is still conditional, on a weaker and automatic
+   * precondition: that nothing has been stored since *this* repository last
+   * read or wrote this presentation. That is what the editor's autosave wants —
+   * it re-saves the document it owns continuously, and each of its own writes
+   * moves the precondition along, so a tab saves as often as it likes. What it
+   * cannot do is overwrite somebody else: a second tab holding a copy from
+   * before, or an editor whose deck was changed under it, is told to read again
+   * rather than allowed to write its stale copy back.
+   *
+   * That refusal is not only about losing the other writer's text. A document
+   * stored earlier may have *deleted* files the older copy still points at —
+   * image optimisation replaces files and removes what nothing shows any more —
+   * and writing the older copy back would leave the store holding a document
+   * that names files that are gone. Which is why the precondition is the
+   * store's own, not something a caller has to remember to ask for.
    *
    * One thing neither form of the write ever does is bring a deleted row back.
    * "Nothing known about this id" means "new", and a new presentation is
