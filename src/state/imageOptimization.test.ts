@@ -11,12 +11,13 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hashBytes } from '../domain/assetHash'
+import { readTiffOrientation } from '../domain/imageFile'
 import { containerWithDoc, createImage, imagePanelOf } from '../domain/content'
 import { createLeaf, createSplit } from '../domain/layout'
 import { createPresentation } from '../domain/presentation'
 import { imageNode } from '../domain/richdoc'
 import { contentAt, sectionAt } from '../domain/testDecks'
-import { jpegWithExifOrientation, realImages } from '../domain/testImages'
+import { jpegWithExifOrientation, realImages, webpWithExifOrientation } from '../domain/testImages'
 import type { AssetRef, LayoutNode, Presentation, ZoneContent } from '../domain/types'
 import { blobToBytes, bytesToBlob } from '../persistence/blob'
 import { SlaidsDatabase } from '../persistence/db'
@@ -162,6 +163,18 @@ function panelAssetIds(presentation: Presentation): (string | null)[] {
   )
 }
 
+/** The orientation a written WEBP's `EXIF` chunk still asks for. */
+function exifOrientationOf(bytes: Uint8Array): number | null {
+  let offset = 12
+  while (offset + 8 <= bytes.length) {
+    const length = (bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16)) >>> 0
+    const fourcc = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
+    if (fourcc === 'EXIF') return readTiffOrientation(bytes, offset + 8, offset + 8 + length)
+    offset += 8 + length + (length & 1)
+  }
+  return null
+}
+
 function optimizedOf(analysis: ImageAnalysis, assetId: string) {
   const item = analysis.items.find((entry) => entry.plan.ref.id === assetId)
   if (!item || item.outcome.kind !== 'optimized') throw new Error(`${assetId} ble ikke optimalisert`)
@@ -276,6 +289,35 @@ describe('analysing', () => {
     expect(processor.jobs).toEqual([])
     expect(outcome.operations).toEqual(['metadata'])
     expect(outcome.ref).toMatchObject({ mimeType: 'image/jpeg', name: 'ferie.jpg', width: 2, height: 3 })
+    expect(outcome.after).toBeLessThan(outcome.before)
+  })
+
+  it('never turns a picture when it only strips its metadata', async () => {
+    const repository = freshRepository()
+    // A lossy WEBP whose pixels need no change never reaches the canvas, so the
+    // metadata pass is the whole operation — and it must not change what the
+    // viewer sees. An orientation dropped here would show the photograph on its
+    // side, which is exactly what optimising must never do.
+    const secret = [...'GPS-hemmelighet'].map((character) => character.charCodeAt(0))
+    const photo = webpWithExifOrientation(6, secret)
+    const inline = containerWithDoc({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [imageNode('a_webp', { widthPercent: 50, aspect: 2 / 3 })] }],
+    })
+    const deck = deckWith(createLeaf(inline), [
+      ref('a_webp', photo, { mimeType: 'image/webp', name: 'ferie.webp', width: 2, height: 3 }),
+    ])
+    await seed(repository, deck, { a_webp: photo })
+    const processor = fakeProcessor()
+
+    const analysis = await analyzeImages(deck, { kind: 'all' }, { repository, processor })
+    const outcome = optimizedOf(analysis, 'a_webp')
+    expect(processor.jobs).toEqual([])
+    expect(outcome.operations).toEqual(['metadata'])
+
+    const written = new Uint8Array(await outcome.blob.arrayBuffer())
+    expect(exifOrientationOf(written)).toBe(6)
+    // Everything else in the block is gone all the same.
     expect(outcome.after).toBeLessThan(outcome.before)
   })
 

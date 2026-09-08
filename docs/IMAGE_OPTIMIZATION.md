@@ -14,7 +14,7 @@ Hver rasterfil vurderes ut fra hvor den faktisk vises i dekket:
 | **Permanent beskjæring** | Filen vises i nøyaktig én bilderamme, og rammen skjuler minst 1 % av pikslene | Pikslene utenfor rammen fjernes. Filen får rammens proporsjoner, og utsnittet sentreres, så bildet står nøyaktig der det sto. |
 | **Nedskalering** | Filen har flere piksler enn den største visningen trenger ved 2 piksler per logisk piksel (`OPTIMIZATION_PIXEL_DENSITY`), med minst 10 % margin | Filen skaleres ned i trinn (halvering) til målstørrelsen. Aldri opp. |
 | **Komprimering** | Fotografier, og piksler som allerede har vært gjennom en tapsgivende kodek | WebP (kvalitet 0,85) der nettleseren kan skrive det, ellers JPEG (0,88). Grafikk, tekst og skjermbilder forblir tapsfrie (PNG eller tapsfri WebP), og transparens beholdes alltid. |
-| **Metadata** | Alltid når filen skrives på nytt; tapsfritt for JPEG/PNG/WebP som ellers ikke endres | EXIF, GPS, miniatyrbilder, XMP og kommentarer fjernes. Fargeprofil og orientering beholdes, fordi de påvirker hvordan bildet ser ut. |
+| **Metadata** | Alltid når filen skrives på nytt; tapsfritt for JPEG/PNG/WebP som ellers ikke endres | EXIF, GPS, miniatyrbilder, XMP og kommentarer fjernes. Fargeprofil og orientering beholdes, fordi de påvirker hvordan bildet ser ut. Orienteringen skrives tilbake som den ene taggen den er, i alle tre containerne som kan bære et EXIF-blokk: JPEGs `APP1`, PNGs `eXIf` og WebPs `EXIF`. Optimalisering snur aldri et bilde. |
 | **Deduplisering** | To filer har identiske bytes (SHA-256 av de lagrede bytene, verifisert byte for byte) | Kopiene slås sammen til én fil. Skjer også ved opplasting: den samme filen lastet opp to ganger lagres én gang. En hash notert på referansen er aldri bevis alene; den brukes bare til å utelukke kandidater. |
 
 SVG forblir SVG og rasteriseres aldri. Animerte GIF/APNG/WebP røres ikke, fordi
@@ -108,7 +108,7 @@ responsiv mens analysen kjører (arbeidet skjer i en worker).
 - `src/domain/imageOptimization.test.ts` — geometri, målstørrelse, beskjæring,
   planlegging (delt/fork), formatvalg, terskler.
 - `src/domain/imageMetadata.test.ts` — tapsfri fjerning av metadata,
-  orientering, animasjonsdeteksjon.
+  orientering for JPEG/PNG/WebP, animasjonsdeteksjon.
 - `src/domain/commands/assetReplacement.test.ts` — dokumentkommandoene for
   erstatning og sammenslåing.
 - `src/state/imageOptimization.test.ts` — orkestrering mot et ekte

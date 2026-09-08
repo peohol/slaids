@@ -156,7 +156,8 @@ function validatePng(bytes: Uint8Array): Result<Size> {
 
 let crcTable: Uint32Array | null = null
 
-function crc32(data: Uint8Array): number {
+/** The checksum every PNG chunk carries, over its type and its data. */
+export function crc32(data: Uint8Array): number {
   if (!crcTable) {
     crcTable = new Uint32Array(256)
     for (let i = 0; i < 256; i += 1) {
@@ -263,7 +264,17 @@ function isFrameMarker(marker: number): boolean {
  */
 export function readExifOrientation(bytes: Uint8Array, start: number, end: number): number | null {
   if (ascii(bytes, start, 6) !== 'Exif\u0000\u0000') return null
-  const tiff = start + 6
+  return readTiffOrientation(bytes, start + 6, end)
+}
+
+/**
+ * The same question, asked of a bare TIFF block.
+ *
+ * JPEG wraps the block in an APP1 segment behind an `Exif\0\0` marker, but
+ * PNG's `eXIf` chunk and WebP's `EXIF` chunk hold the block itself, with no
+ * marker in front of it. Same bytes, same walk, one parser.
+ */
+export function readTiffOrientation(bytes: Uint8Array, tiff: number, end: number): number | null {
   if (tiff + 8 > end) return null
 
   const order = ascii(bytes, tiff, 2)

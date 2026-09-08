@@ -2022,6 +2022,12 @@ som ikke er mindre forkastes, og en ren omkoding må spare `MIN_RECODE_SAVING_RA
 redraw, og fjernes tapsfritt for JPEG/PNG/WebP som ikke trenger redraw
 (`src/domain/imageMetadata.ts`). Fargeprofil og Adobe-fargetag beholdes;
 orienteringen skrives tilbake som én tag, siden den bestemmer hva som er opp.
+Det gjelder alle tre containerne som kan bære et EXIF-blokk – JPEGs `APP1`,
+PNGs `eXIf` og WebPs `EXIF` – for den tapsfrie veien er per definisjon visuelt
+invariant: alt annet i blokken beskriver bildet, mens orienteringen er en
+instruksjon en renderer følger. Den nye taggen skrives i den formen filen selv
+brukte (med eller uten `Exif\0\0`-markøren), så ingen dekoder som kunne lese
+originalen kan lese erstatningen feil.
 
 **Deduplisering** er innholdsbasert: SHA-256 av de lagrede bytene, notert som
 valgfri `AssetRef.contentHash` (uten skjemaversjonsbump – en referanse uten hash

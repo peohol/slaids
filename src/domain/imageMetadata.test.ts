@@ -8,9 +8,20 @@
 
 import { describe, expect, it } from 'vitest'
 import { ascii, be32, le32 } from './imageBytes'
-import { readExifOrientation, readRasterImage } from './imageFile'
+import { readExifOrientation, readRasterImage, readTiffOrientation } from './imageFile'
 import { orientationSegment, rasterFacts, stripRasterMetadata } from './imageMetadata'
-import { IMAGE_HEIGHT, IMAGE_WIDTH, jpegWithExifOrientation, realImages } from './testImages'
+import {
+  EXIF_MARKER,
+  IMAGE_HEIGHT,
+  IMAGE_WIDTH,
+  exifTiffBlock,
+  jpegWithExifOrientation,
+  pngChunk,
+  pngWith,
+  realImages,
+  webpChunk,
+  webpWith,
+} from './testImages'
 
 function concat(...parts: (Uint8Array | number[])[]): Uint8Array {
   const arrays = parts.map((part) => (part instanceof Uint8Array ? part : new Uint8Array(part)))
@@ -126,37 +137,35 @@ describe('a JPEG', () => {
  * PNG
  * ------------------------------------------------------------------ */
 
-let crcTable: Uint32Array | null = null
-function crc32(data: Uint8Array): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256)
-    for (let i = 0; i < 256; i += 1) {
-      let value = i
-      for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
-      crcTable[i] = value >>> 0
-    }
+/** Bytes nobody draws, standing in for the camera, the place and the thumbnail. */
+const DESCRIPTIVE = [...'GPS-hemmelighet'].map((character) => character.charCodeAt(0))
+
+/** The orientation an Exif block asks for, whichever way the file wrote it. */
+function orientationOf(block: Uint8Array): number | null {
+  return ascii(block, 0, 6) === 'Exif\u0000\u0000'
+    ? readExifOrientation(block, 0, block.length)
+    : readTiffOrientation(block, 0, block.length)
+}
+
+/** The data of the first chunk of this type, or `null` when there is none. */
+function pngChunkData(bytes: Uint8Array, type: string): Uint8Array | null {
+  let offset = 8
+  while (offset + 12 <= bytes.length) {
+    const length = be32(bytes, offset)
+    if (ascii(bytes, offset + 4, 4) === type) return bytes.subarray(offset + 8, offset + 8 + length)
+    offset += 12 + length
   }
-  let crc = 0xffffffff
-  for (const byte of data) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8)
-  return (crc ^ 0xffffffff) >>> 0
+  return null
 }
 
-function pngChunk(type: string, data: number[]): Uint8Array {
-  const body = new Uint8Array([...asciiBytes(type), ...data])
-  const crc = crc32(body)
-  const length = data.length
-  return concat(
-    [length >>> 24, (length >>> 16) & 0xff, (length >>> 8) & 0xff, length & 0xff],
-    body,
-    [crc >>> 24, (crc >>> 16) & 0xff, (crc >>> 8) & 0xff, crc & 0xff],
-  )
-}
-
-/** The PNG fixture with these chunks spliced in after IHDR. */
-function pngWith(...chunks: Uint8Array[]): Uint8Array {
-  const source = realImages.png()
-  const afterIhdr = 8 + 12 + 13
-  return concat(source.subarray(0, afterIhdr), ...chunks, source.subarray(afterIhdr))
+function webpChunkData(bytes: Uint8Array, fourcc: string): Uint8Array | null {
+  let offset = 12
+  while (offset + 8 <= bytes.length) {
+    const length = le32(bytes, offset + 4)
+    if (ascii(bytes, offset, 4) === fourcc) return bytes.subarray(offset + 8, offset + 8 + length)
+    offset += 8 + length + (length & 1)
+  }
+  return null
 }
 
 function pngChunkTypes(bytes: Uint8Array): string[] {
@@ -192,6 +201,45 @@ describe('a PNG', () => {
     expect(stripRasterMetadata(realImages.png(), 'image/png')).toBeNull()
   })
 
+  it('keeps which way is up, and drops everything else in the Exif block', () => {
+    // An orientation that turns the picture a quarter turn, and a block that
+    // also carries what nobody draws.
+    const tagged = pngWith(
+      pngChunk('tEXt', asciiBytes('Author\0Somebody')),
+      pngChunk('eXIf', [...exifTiffBlock(6), ...DESCRIPTIVE]),
+    )
+    const stripped = stripRasterMetadata(tagged, 'image/png')!
+
+    // Dropping it would show the photograph on its side.
+    expect(orientationOf(pngChunkData(stripped, 'eXIf')!)).toBe(6)
+    expect(pngChunkTypes(stripped)).not.toContain('tEXt')
+    expect(contains(stripped, 'GPS-hemmelighet')).toBe(false)
+    expect(contains(stripped, 'Somebody')).toBe(false)
+    // Still a picture, and still the same one.
+    const read = readRasterImage(stripped)
+    expect(read.ok).toBe(true)
+    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+  })
+
+  it('answers in the shape the file used, so no decoder that read the original misreads it', () => {
+    // PNG does not ask for the marker, but a file that copied a JPEG's segment
+    // whole has one. What replaces it is written the same way.
+    const tagged = pngWith(
+      pngChunk('eXIf', [...EXIF_MARKER, ...exifTiffBlock(8), ...DESCRIPTIVE]),
+    )
+    const data = pngChunkData(stripRasterMetadata(tagged, 'image/png')!, 'eXIf')!
+    expect(ascii(data, 0, 6)).toBe('Exif\u0000\u0000')
+    expect(orientationOf(data)).toBe(8)
+  })
+
+  it('drops an Exif block that only says «as stored»', () => {
+    // Orientation 1 changes nothing on screen, so nothing is worth keeping.
+    const tagged = pngWith(pngChunk('eXIf', [...exifTiffBlock(1), ...DESCRIPTIVE]))
+    const stripped = stripRasterMetadata(tagged, 'image/png')!
+    expect(pngChunkTypes(stripped)).not.toContain('eXIf')
+    expect(pngChunkTypes(stripped)).toEqual(pngChunkTypes(realImages.png()))
+  })
+
   it('is animated when it has an animation control chunk', () => {
     expect(rasterFacts(realImages.png(), 'image/png')).toEqual({ animated: false, lossy: false })
     const apng = pngWith(pngChunk('acTL', [0, 0, 0, 2, 0, 0, 0, 0]))
@@ -202,34 +250,6 @@ describe('a PNG', () => {
 /* ------------------------------------------------------------------ *
  * WEBP
  * ------------------------------------------------------------------ */
-
-/** A RIFF chunk, padded to an even length as the container requires. */
-function webpChunk(fourcc: string, data: number[]): Uint8Array {
-  const length = data.length
-  return concat(
-    asciiBytes(fourcc),
-    [length & 0xff, (length >>> 8) & 0xff, (length >>> 16) & 0xff, (length >>> 24) & 0xff],
-    data,
-    length & 1 ? [0] : [],
-  )
-}
-
-/** The lossy fixture with `chunk` spliced in before the picture, and the RIFF size fixed. */
-function webpWith(chunk: Uint8Array, flag = 0): Uint8Array {
-  const source = realImages.webp()
-  // VP8X (12 + 8 + 10 bytes) then ICCP; find where the picture chunk starts.
-  let offset = 12
-  while (ascii(source, offset, 4) !== 'VP8 ') offset += 8 + le32(source, offset + 4) + (le32(source, offset + 4) & 1)
-  const out = concat(source.subarray(0, offset), chunk, source.subarray(offset))
-  const size = out.length - 8
-  out[4] = size & 0xff
-  out[5] = (size >>> 8) & 0xff
-  out[6] = (size >>> 16) & 0xff
-  out[7] = (size >>> 24) & 0xff
-  // The VP8X flags byte announces the extra chunk.
-  out[20] |= flag
-  return out
-}
 
 function webpChunkTypes(bytes: Uint8Array): string[] {
   const types: string[] = []
@@ -255,6 +275,38 @@ describe('a WEBP', () => {
     const read = readRasterImage(stripped)
     expect(read.ok).toBe(true)
     if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+  })
+
+  it('keeps which way is up, and the flag that announces it', () => {
+    const tagged = webpWith(webpChunk('EXIF', [...exifTiffBlock(8), ...DESCRIPTIVE]), 0x08)
+    expect(readRasterImage(tagged).ok).toBe(true)
+
+    const stripped = stripRasterMetadata(tagged, 'image/webp')!
+    expect(orientationOf(webpChunkData(stripped, 'EXIF')!)).toBe(8)
+    // A header that cleared the flag would hide the chunk that is still there.
+    expect(stripped[20] & 0x08).toBe(0x08)
+    expect(contains(stripped, 'GPS-hemmelighet')).toBe(false)
+    expect(le32(stripped, 4)).toBe(stripped.length - 8)
+    const read = readRasterImage(stripped)
+    expect(read.ok).toBe(true)
+    if (read.ok) expect(read.value).toMatchObject({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT })
+  })
+
+  it('answers in the shape the file used', () => {
+    const tagged = webpWith(
+      webpChunk('EXIF', [...EXIF_MARKER, ...exifTiffBlock(3), ...DESCRIPTIVE]),
+      0x08,
+    )
+    const data = webpChunkData(stripRasterMetadata(tagged, 'image/webp')!, 'EXIF')!
+    expect(ascii(data, 0, 6)).toBe('Exif\u0000\u0000')
+    expect(orientationOf(data)).toBe(3)
+  })
+
+  it('drops an Exif chunk that only says «as stored»', () => {
+    const tagged = webpWith(webpChunk('EXIF', [...exifTiffBlock(1), ...DESCRIPTIVE]), 0x08)
+    const stripped = stripRasterMetadata(tagged, 'image/webp')!
+    expect(webpChunkTypes(stripped)).toEqual(['VP8X', 'ICCP', 'VP8 '])
+    expect(stripped[20] & 0x08).toBe(0)
   })
 
   it('is left alone when it carries no metadata', () => {

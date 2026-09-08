@@ -16,7 +16,9 @@
  *    What is kept is exactly what changes how the picture looks: a colour
  *    profile, Adobe's colour-transform tag — and the orientation, rewritten as
  *    the one tag it is, because a phone photograph is stored sideways and the
- *    tag is what turns it upright.
+ *    tag is what turns it upright. That holds for all three containers that can
+ *    carry an Exif block: JPEG's APP1 segment, PNG's `eXIf` chunk and WebP's
+ *    `EXIF` chunk. Optimising a picture never turns it.
  *
  * Every walk here is bounds-checked against the file, and a file the walk
  * cannot follow is answered with "leave it alone" rather than with a guess:
@@ -25,7 +27,7 @@
  */
 
 import { ascii, be16, be32, le32, startsWith, PNG_SIGNATURE } from './imageBytes'
-import { EXIF_ORIENTATION_TAG, readExifOrientation } from './imageFile'
+import { EXIF_ORIENTATION_TAG, crc32, readExifOrientation, readTiffOrientation } from './imageFile'
 
 /** What the bytes say about how a file may be handled. */
 export interface RasterFacts {
@@ -172,7 +174,17 @@ function stripJpeg(bytes: Uint8Array): Uint8Array | null {
  * and sits in the first two bytes of the four-byte value field.
  */
 export function orientationSegment(orientation: number): Uint8Array {
-  const tiff = [
+  const payload = [...EXIF_MARKER, ...orientationTiff(orientation)]
+  const length = payload.length + 2
+  return new Uint8Array([0xff, JPEG_APP1, length >> 8, length & 0xff, ...payload])
+}
+
+/** `Exif\0\0`, the marker a JPEG puts in front of the block. */
+const EXIF_MARKER = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00]
+
+/** One TIFF header, one IFD, one entry — the orientation. Big-endian, as "MM" says. */
+function orientationTiff(orientation: number): number[] {
+  return [
     0x4d, 0x4d, // "MM"
     0x00, 0x2a,
     0x00, 0x00, 0x00, 0x08, // IFD0 follows the header
@@ -183,9 +195,41 @@ export function orientationSegment(orientation: number): Uint8Array {
     0x00, orientation & 0xff, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, // no next IFD
   ]
-  const payload = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00, ...tiff] // "Exif\0\0"
-  const length = payload.length + 2
-  return new Uint8Array([0xff, JPEG_APP1, length >> 8, length & 0xff, ...payload])
+}
+
+/**
+ * The one thing an Exif block says about how the picture *looks*, when it says
+ * anything: which way is up.
+ *
+ * Everything else in there describes the photograph — the camera, the place,
+ * the moment, a thumbnail of it — and dropping it changes nothing on screen.
+ * The orientation is an instruction, and a renderer follows it: drop it from a
+ * file that carries one and the picture comes out lying on its side. So it is
+ * read out before the block goes, and written back as the single tag it is.
+ *
+ * `prefixed` records how this file wrote the block. A JPEG's marker is required
+ * and a PNG's or WebP's is not, but files exist that carry one anyway, having
+ * copied a JPEG's segment whole. Answering in the shape the file used means no
+ * decoder that could read the original can misread what replaces it.
+ */
+interface TurningOrientation {
+  value: number
+  prefixed: boolean
+}
+
+function turningOrientation(bytes: Uint8Array, start: number, end: number): TurningOrientation | null {
+  const prefixed = ascii(bytes, start, EXIF_MARKER.length) === 'Exif\u0000\u0000'
+  const value = prefixed
+    ? readExifOrientation(bytes, start, end)
+    : readTiffOrientation(bytes, start, end)
+  // 1 is «as stored»: nothing to preserve, and nothing to lose by dropping it.
+  return value !== null && value !== 1 ? { value, prefixed } : null
+}
+
+/** The smallest block that still says which way is up, shaped as the file shaped its own. */
+function orientationOnly(found: TurningOrientation): number[] {
+  const tiff = orientationTiff(found.value)
+  return found.prefixed ? [...EXIF_MARKER, ...tiff] : tiff
 }
 
 /* ------------------------------------------------------------------ *
@@ -198,6 +242,18 @@ export function orientationSegment(orientation: number): Uint8Array {
  * animation control, the pixels — is kept as it is.
  */
 const PNG_METADATA_CHUNKS = new Set(['tEXt', 'zTXt', 'iTXt', 'tIME', 'eXIf'])
+
+/** A chunk, with the checksum PNG requires over its type and data. */
+function pngChunk(type: string, data: readonly number[]): Uint8Array {
+  const body = new Uint8Array([...type].map((character) => character.charCodeAt(0)).concat(data))
+  const crc = crc32(body)
+  const length = data.length
+  return new Uint8Array([
+    length >>> 24, (length >>> 16) & 0xff, (length >>> 8) & 0xff, length & 0xff,
+    ...body,
+    crc >>> 24, (crc >>> 16) & 0xff, (crc >>> 8) & 0xff, crc & 0xff,
+  ])
+}
 
 interface PngChunk {
   type: string
@@ -227,12 +283,22 @@ function pngHasChunk(bytes: Uint8Array, type: string): boolean {
 function stripPng(bytes: Uint8Array): Uint8Array | null {
   const chunks = pngChunks(bytes)
   if (!chunks || !chunks.some((chunk) => PNG_METADATA_CHUNKS.has(chunk.type))) return null
-  const kept = chunks
-    .filter((chunk) => !PNG_METADATA_CHUNKS.has(chunk.type))
-    .map((chunk) => bytes.subarray(chunk.start, chunk.end))
-  // Each chunk carries its own CRC over its own bytes, so copying chunks whole
-  // needs no recomputation. Whatever trailed the IEND is not part of the file
-  // and is not copied.
+
+  const kept: Uint8Array[] = []
+  for (const chunk of chunks) {
+    if (!PNG_METADATA_CHUNKS.has(chunk.type)) {
+      // Each chunk carries its own CRC over its own bytes, so copying one whole
+      // needs no recomputation.
+      kept.push(bytes.subarray(chunk.start, chunk.end))
+      continue
+    }
+    // The eight bytes before the data are the length and the type; the four
+    // after it are the checksum.
+    const turning =
+      chunk.type === 'eXIf' ? turningOrientation(bytes, chunk.start + 8, chunk.end - 4) : null
+    if (turning) kept.push(pngChunk('eXIf', orientationOnly(turning)))
+  }
+  // Whatever trailed the IEND is not part of the file and is not copied.
   return concat([bytes.subarray(0, PNG_SIGNATURE.length), ...kept])
 }
 
@@ -265,18 +331,39 @@ function webpChunks(bytes: Uint8Array): WebpChunk[] {
 const WEBP_FLAG_EXIF = 0x08
 const WEBP_FLAG_XMP = 0x04
 
+/** A RIFF chunk, padded to an even length as the container requires. */
+function webpChunk(fourcc: string, data: readonly number[]): Uint8Array {
+  const length = data.length
+  return new Uint8Array([
+    ...[...fourcc].map((character) => character.charCodeAt(0)),
+    length & 0xff, (length >>> 8) & 0xff, (length >>> 16) & 0xff, (length >>> 24) & 0xff,
+    ...data,
+    ...(length & 1 ? [0] : []),
+  ])
+}
+
 function stripWebp(bytes: Uint8Array): Uint8Array | null {
   const chunks = webpChunks(bytes)
   const metadata = (chunk: WebpChunk): boolean => chunk.fourcc === 'EXIF' || chunk.fourcc === 'XMP '
   if (!chunks.some(metadata)) return null
 
+  // The eight bytes before an EXIF chunk's data are its fourcc and its length.
+  const exif = chunks.find((chunk) => chunk.fourcc === 'EXIF')
+  const turning = exif ? turningOrientation(bytes, exif.start + 8, exif.end) : null
+  const replacement = turning ? webpChunk('EXIF', orientationOnly(turning)) : null
+
   const parts: Uint8Array[] = []
   for (const chunk of chunks) {
-    if (metadata(chunk)) continue
+    if (metadata(chunk)) {
+      if (chunk.fourcc === 'EXIF' && replacement) parts.push(replacement)
+      continue
+    }
     const copy = bytes.slice(chunk.start, chunk.end)
     // The extended header announces the chunks that follow it; a flag left set
-    // for a chunk that is gone is a header that lies.
-    if (chunk.fourcc === 'VP8X' && copy.length >= 9) copy[8] &= ~(WEBP_FLAG_EXIF | WEBP_FLAG_XMP)
+    // for a chunk that is gone is a header that lies — and one cleared for a
+    // chunk that is still there is a header that hides it.
+    const dropped = WEBP_FLAG_XMP | (replacement ? 0 : WEBP_FLAG_EXIF)
+    if (chunk.fourcc === 'VP8X' && copy.length >= 9) copy[8] &= ~dropped
     parts.push(copy)
   }
   const body = concat(parts)
