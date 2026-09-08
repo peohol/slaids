@@ -29,11 +29,12 @@
   }
 
   header {
-    max-width: 1160px;
+    max-width: 1120px;
   }
 
   header p,
-  footer {
+  footer,
+  .hint {
     color: var(--slaids-muted);
   }
 
@@ -64,11 +65,6 @@
     flex-wrap: wrap;
   }
 
-  .grow {
-    flex: 1 1 360px;
-    min-width: 0;
-  }
-
   .counter {
     min-width: 170px;
     text-align: center;
@@ -93,7 +89,7 @@
 
   .drag-area {
     position: relative;
-    height: 128px;
+    height: 118px;
     border: 1px solid var(--slaids-border);
     border-radius: var(--slaids-radius);
     background: var(--slaids-background);
@@ -115,8 +111,8 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 72px;
-    height: 72px;
+    width: 70px;
+    height: 70px;
     transform: translate(-50%, -50%);
     border: 0;
     border-radius: 50%;
@@ -127,16 +123,7 @@
     user-select: none;
   }
 
-  .drag-knob:active {
-    cursor: grabbing;
-  }
-
-  .keyboard-log {
-    min-height: 2.2em;
-    padding: calc(var(--slaids-padding) * 0.65);
-    border-left: 6px solid var(--slaids-accent);
-    background: var(--slaids-background);
-  }
+  .drag-knob:active { cursor: grabbing; }
 
   .fields {
     display: grid;
@@ -149,6 +136,21 @@
     gap: calc(var(--slaids-block-spacing) * 0.45);
   }
 
+  .keyboard-pad {
+    min-height: 96px;
+    padding: calc(var(--slaids-padding) * 0.75);
+    border: 2px solid var(--slaids-border);
+    border-left: 7px solid var(--slaids-accent);
+    border-radius: calc(var(--slaids-radius) * 0.7);
+    background: var(--slaids-background);
+    cursor: default;
+  }
+
+  .keyboard-pad:focus {
+    outline: 4px solid var(--slaids-accent);
+    outline-offset: 3px;
+  }
+
   .checks {
     display: grid;
     gap: calc(var(--slaids-block-spacing) * 0.55);
@@ -159,7 +161,7 @@
     grid-template-columns: 2.5ch minmax(0, 1fr);
     gap: var(--slaids-block-spacing);
     align-items: start;
-    padding: calc(var(--slaids-padding) * 0.7);
+    padding: calc(var(--slaids-padding) * 0.65);
     border: 1px solid var(--slaids-border);
     border-radius: calc(var(--slaids-radius) * 0.7);
     background: var(--slaids-background);
@@ -171,14 +173,8 @@
     line-height: 1;
   }
 
-  .check strong {
-    font-family: var(--slaids-heading-font);
-  }
-
-  .check small,
-  .hint {
-    color: var(--slaids-muted);
-  }
+  .check strong { font-family: var(--slaids-heading-font); }
+  .check small { color: var(--slaids-muted); }
 
   .status {
     display: flex;
@@ -216,8 +212,8 @@
   <header>
     <h1>Slaids miniapp-systemtest</h1>
     <p>
-      Denne appen tester tema, lokal tilstand, tastatur, skjema, peker/touch og de viktigste sandbox-grensene.
-      Avslutt og aktiver igjen for å kontrollere at all tilstand starter på nytt.
+      Tester tema, lokal tilstand, tastatur, skjema, peker/touch og sentrale sandbox-grenser.
+      Avslutt og aktiver igjen til slutt: telleren skal da være 0 og alle kontroller tilbake på startverdiene.
     </p>
   </header>
 
@@ -239,7 +235,7 @@
       </div>
 
       <div>
-        <p><strong>Dra sirkelen</strong> eller bruk knappene under.</p>
+        <p><strong>Dra sirkelen</strong> med mus/touch, eller bruk knappene.</p>
         <div id="dragArea" class="drag-area" aria-label="Dra-test">
           <div class="drag-line" aria-hidden="true"></div>
           <button id="dragKnob" class="drag-knob" type="button" aria-label="Flyttbar sirkel">50</button>
@@ -266,20 +262,21 @@
         </label>
       </div>
 
-      <div id="keyboardLog" class="keyboard-log" aria-live="polite">
-        Tastaturtest: bruk ←/→ for teller, mellomrom for +1 og Escape for å bekrefte at tasten blir i miniappen.
+      <div id="keyboardPad" class="keyboard-pad" tabindex="0" role="group" aria-label="Tastaturtest">
+        <strong>Tastaturtest – klikk her først.</strong><br>
+        Bruk ←/→ for teller, mellomrom for +1 og Escape. Status vises her, og Slaids skal ikke navigere mens miniappen er aktiv.
       </div>
     </section>
 
     <section class="panel" aria-labelledby="sandbox-heading">
       <h2 id="sandbox-heading">Sandbox-diagnostikk</h2>
       <p class="hint">
-        Hver test skal ende med «blokkert». Hvis noe rapporteres som tillatt, har sandboxen en regresjon.
+        Alle fem skal ende med «Blokkert som forventet». Et «TILLATT» betyr at testappen har funnet en mulig sandbox-regresjon.
       </p>
 
       <button id="runChecks" type="button">Kjør sikkerhetssjekk</button>
 
-      <div id="checks" class="checks" aria-live="polite">
+      <div class="checks" aria-live="polite">
         <div class="check" data-check="network">
           <span class="check-symbol">·</span>
           <div><strong>Nettverk</strong><br><small>Ikke kjørt</small></div>
@@ -294,7 +291,7 @@
         </div>
         <div class="check" data-check="eval">
           <span class="check-symbol">·</span>
-          <div><strong>eval/new Function</strong><br><small>Ikke kjørt</small></div>
+          <div><strong>new Function</strong><br><small>Ikke kjørt</small></div>
         </div>
         <div class="check" data-check="parent">
           <span class="check-symbol">·</span>
@@ -304,13 +301,13 @@
 
       <div class="status">
         <span class="status-pill"><span class="accent-dot" aria-hidden="true"></span>Tema arvet</span>
-        <span class="status-pill">Kjøring startet med teller = 0</span>
+        <span class="status-pill">Starttilstand: teller 0</span>
       </div>
     </section>
   </div>
 
   <footer>
-    Forventet: Slaids skal ikke bytte slide mens miniappen er aktiv, og «Avslutt miniapp» skal fortsatt ligge over appen øverst til høyre.
+    «Avslutt miniapp» skal fortsatt være tilgjengelig øverst til høyre over denne appen.
   </footer>
 </main>
 
@@ -322,7 +319,7 @@
   const dragArea = document.getElementById('dragArea')
   const dragKnob = document.getElementById('dragKnob')
   const dragValue = document.getElementById('dragValue')
-  const keyboardLog = document.getElementById('keyboardLog')
+  const keyboardPad = document.getElementById('keyboardPad')
   const runChecks = document.getElementById('runChecks')
 
   let count = 0
@@ -350,7 +347,7 @@
     setDragPercent(50)
     document.getElementById('name').value = 'Skriv her'
     document.getElementById('mode').value = 'normal'
-    keyboardLog.textContent = 'Tilstand nullstilt. Tastaturtesten er klar.'
+    keyboardPad.innerHTML = '<strong>Tastaturtest – klikk her først.</strong><br>Tilstand nullstilt. Bruk ←/→, mellomrom eller Escape.'
   }
 
   document.getElementById('minus').addEventListener('click', () => setCount(count - 1))
@@ -392,26 +389,22 @@
     }
   })
 
-  document.addEventListener('keydown', event => {
-    const target = event.target
-    const editable = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
-    if (editable) return
-
+  keyboardPad.addEventListener('keydown', event => {
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
       setCount(count - 1)
-      keyboardLog.textContent = '← mottatt av miniappen. Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
+      keyboardPad.innerHTML = '<strong>← mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
     } else if (event.key === 'ArrowRight') {
       event.preventDefault()
       setCount(count + 1)
-      keyboardLog.textContent = '→ mottatt av miniappen. Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
+      keyboardPad.innerHTML = '<strong>→ mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
     } else if (event.key === ' ') {
       event.preventDefault()
       setCount(count + 1)
-      keyboardLog.textContent = 'Mellomrom mottatt av miniappen. Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
+      keyboardPad.innerHTML = '<strong>Mellomrom mottatt av miniappen.</strong><br>Hvis Slaids ikke byttet slide, er tastaturlåsen riktig.'
     } else if (event.key === 'Escape') {
       event.preventDefault()
-      keyboardLog.textContent = 'Escape mottatt av miniappen. Miniappen skal fortsatt være aktiv.'
+      keyboardPad.innerHTML = '<strong>Escape mottatt av miniappen.</strong><br>Miniappen skal fortsatt være aktiv.'
     }
   })
 
@@ -424,11 +417,19 @@
   }
 
   async function checkNetwork() {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 1500)
     try {
-      await fetch('https://example.com/', { mode: 'no-cors', cache: 'no-store' })
+      await fetch('https://example.com/', {
+        mode: 'no-cors',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
       return [false, 'fetch fullførte']
     } catch (error) {
       return [true, error instanceof Error ? error.name : 'avvist']
+    } finally {
+      clearTimeout(timeout)
     }
   }
 
@@ -455,7 +456,7 @@
     }
   }
 
-  function checkEval() {
+  function checkDynamicCode() {
     try {
       const dynamic = new Function('return 2 + 2')
       dynamic()
@@ -482,7 +483,7 @@
       checkNetwork(),
       Promise.resolve(checkStorage()),
       Promise.resolve(checkPopup()),
-      Promise.resolve(checkEval()),
+      Promise.resolve(checkDynamicCode()),
       Promise.resolve(checkParent()),
     ])
 
