@@ -2,7 +2,7 @@
  * Supabase session state.
  *
  * Slaids has no user system of its own: accounts, passwords and tokens all
- * belong to Supabase Auth, which Slaids shares with Huskis. This store only
+ * belong to Supabase Auth, in Slaids' own Supabase project. This store only
  * reflects what the SDK reports and makes it available to React.
  *
  * The SDK keeps the session itself, which is what survives a reload; nothing
@@ -178,10 +178,10 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
 
     signOut: async () => {
-      // `local` scope, always. Slaids shares its Auth project with Huskis, and
-      // the default (`global`) revokes every refresh token the user has — which
-      // would sign them out of Huskis, on every device, because they closed
-      // Slaids.
+      // `local` scope, always. The default (`global`) revokes every refresh
+      // token the user has, which would sign them out on every other device
+      // because they closed Slaids in this tab. Signing out here means this
+      // browser, and nothing else.
       let error: AuthError | null
       try {
         ;({ error } = await getSupabaseClient().auth.signOut({ scope: 'local' }))

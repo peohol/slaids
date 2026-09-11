@@ -230,12 +230,28 @@ VITE_SUPABASE_URL=https://<prosjekt>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<publishable/anon key>
 ```
 
+Prosjektet trenger i tillegg fire innstillinger i Supabase-dashbordet. De
+gjelder hele prosjektet og settes én gang:
+
+| Innstilling | Sted i dashbordet | Verdi |
+| --- | --- | --- |
+| Site URL | Authentication → URL Configuration | `https://www.slaids.no` |
+| Redirect URLs | Authentication → URL Configuration | `https://www.slaids.no/**` |
+| OAuth 2.1 Server + Dynamic Client Registration | Authentication → OAuth Server | på |
+| Authorization Path | Authentication → OAuth Server | `/oauth/consent` |
+
+**JWT Signing Keys skal stå urørt.** Prosjektet signerer med sin egen ES256-nøkkel
+og publiserer nøkkelsettet på `…/auth/v1/.well-known/jwks.json`; det er den
+verifiseringen av OAuth-tokens bruker, og en symmetrisk algoritme nekter den å
+bruke. En nøkkel fra et annet prosjekt skal aldri settes inn her.
+
 Slaids har ikke et flerbrukersystem: bare én bestemt Supabase Auth-bruker er
 tillatt. Innloggingsskjermen ber derfor bare om passord, og både app-gaten og RLS-
-policyene avviser alle andre Auth-brukere. Supabase-prosjektet er delt
-infrastruktur, men dette gir ingen konto- eller produktkobling til andre apper
-som bruker samme prosjekt. Utlogging bruker `scope: 'local'`, slik at den bare
-avslutter Slaids-sesjonen i denne nettleseren.
+policyene avviser alle andre Auth-brukere. Supabase-prosjektet deles med
+mdeditz, som ikke bruker Supabase Auth i det hele tatt, så det finnes ingen
+konto- eller produktkobling til noen annen app. Utlogging bruker
+`scope: 'local'`, slik at den bare avslutter Slaids-sesjonen i denne
+nettleseren.
 
 Skjemaet ligger i `supabase/migrations/`:
 
@@ -259,12 +275,11 @@ finnes.
 
 ### Deploye Slaids-migrasjoner
 
-**Ikke bruk `supabase db push` herfra.** Supabase-prosjektet er delt
-infrastruktur – Slaids, Huskis og mdeditz bor i det samme prosjektet, fra tre
-uavhengige repoer – mens Supabases egen migrasjonshistorikk,
-`supabase_migrations.schema_migrations`, er **prosjektglobal**. Den inneholder
-alle appenes migrasjoner, blant annet `20260806132939_mdeditz_store`, som ikke
-finnes i dette repoet.
+**Ikke bruk `supabase db push` herfra.** Slaids og mdeditz bor i det samme
+Supabase-prosjektet, fra to uavhengige repoer, mens Supabases egen
+migrasjonshistorikk, `supabase_migrations.schema_migrations`, er
+**prosjektglobal**. Den inneholder begge appenes migrasjoner, blant annet
+`20260806120000_mdeditz_store`, som ikke finnes i dette repoet.
 
 `db push` leser den tabellen som om den var historikken til repoet du står i, så
 herfra stopper den:
@@ -273,7 +288,7 @@ herfra stopper den:
 Remote migration versions not found in local migrations directory.
 ```
 
-og foreslår `supabase migration repair --status reverted 20260806132939` eller
+og foreslår `supabase migration repair --status reverted 20260806120000` eller
 `supabase db pull`. **Følg ingen av dem.** Den første skriver om *mdeditz'*
 historikk; den andre drar en annen apps skjema inn i Slaids. Det finnes ingen
 flagg som avgrenser `db push` til én app (`--include-all` gjelder motsatt vei –
@@ -320,7 +335,8 @@ supabase functions deploy slaids-share --project-ref <prosjekt-ref>
 ```
 
 **Aldri med `--prune`.** Det flagget sletter Edge Functions som finnes i
-prosjektet men ikke lokalt – altså Huskis' og mdeditz' funksjoner.
+prosjektet men ikke lokalt. `slaids-share` er den eneste funksjonen Slaids eier,
+og `--prune` er et flagg som bare kan gjøre skade her.
 
 Rekkefølgen mellom de to er ikke likegyldig når begge har endret seg: kjør
 migrasjonene **før** funksjonen deployes. `slaids-share` filtrerer på kolonnen
@@ -1361,10 +1377,8 @@ bruker, ingen ny konto og ingen ny passordbase.
    gang – uten pålogging, siden discovery er offentlig.
 2. Første gang du ber ChatGPT gjøre noe med presentasjonene dine, sier den at
    Slaids krever pålogging.
-3. Du blir sendt til Slaids' egen samtykkeside (via `huskis.no`, som bare
-   sender deg videre – se «Samtykkesiden ligger på en delt adresse» under),
-   logger inn slik du pleier, og godkjenner at ChatGPT får jobbe med dekkene
-   dine.
+3. Du blir sendt til Slaids' egen samtykkeside på `www.slaids.no`, logger inn
+   slik du pleier, og godkjenner at ChatGPT får jobbe med dekkene dine.
 4. ChatGPT får et tidsbegrenset token og fornyer det selv. Du gjør ingenting mer.
 5. ChatGPT ser bare **dine** presentasjoner – de samme du ser i biblioteket.
 
@@ -1414,9 +1428,10 @@ agenttoken: `authorizeOperation` vet ikke hvilken familie kalleren kom fra.
 #### Hva som må slås på
 
 OAuth er **av** i en installasjon som ikke har fått en eierliste. Det er med
-vilje: Supabase-prosjektet deles med Huskis og mdeditz, agent-API-et holder en
-nøkkel som går forbi row level security, og «hvilken som helst bruker av
-prosjektet» ville vært en videre dør enn nettleseren har.
+vilje: agent-API-et holder en nøkkel som går forbi row level security, og
+«hvilken som helst bruker av prosjektet» ville vært en videre dør enn
+nettleseren har – prosjektet står åpent for registrering, og eierlisten er den
+samme låsen som RLS-policyene bruker.
 
 Fire ting må være på plass, og ingen av dem skjer av seg selv. Fram til de er
 det, oppfører API-et seg nøyaktig som før: agenttokens virker, discovery er
@@ -1425,8 +1440,8 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
 1. **Migrasjonen.** `20260905190000_slaids_agent_oauth_audit.sql` gir
    auditloggen kolonnene et OAuth-kall skrives i. Se «Deploye
    Slaids-migrasjoner».
-2. **Autorisasjonsserveren**, i Supabase-dashbordet for det prosjektet Slaids
-   allerede bruker, under Authentication → OAuth Server:
+2. **Autorisasjonsserveren**, i Supabase-dashbordet for Slaids' eget prosjekt,
+   under Authentication → OAuth Server:
    - slå på **OAuth 2.1 Server**. Er den av, svarer autorisasjonsserverens
      metadata `feature_disabled`, og ingen klient kommer forbi pålogging;
    - slå på **Dynamic Client Registration**. ChatGPT registrerer seg selv som
@@ -1435,9 +1450,11 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    - la **JWT Signing Keys** være. Prosjektet signerer allerede med ES256 og
      publiserer nøkkelsettet på `…/auth/v1/.well-known/jwks.json`; det er den
      verifiseringen bruker, og en symmetrisk algoritme nekter den å bruke.
-3. **Veien fram til samtykkesiden**, som ikke går gjennom Slaids' eget domene og
-   ikke ordnes i dette repoet. Se «Samtykkesiden ligger på en delt adresse»
-   under – og les den før du rører noe i Authentication → URL Configuration.
+3. **Site URL**, under Authentication → URL Configuration, satt til
+   `https://www.slaids.no`. Supabase bygger adressen til samtykkesiden av
+   **Site URL + Authorization Path**, så de to sammen er det som gjør
+   `https://www.slaids.no/oauth/consent` til autorisasjonsendepunktet. Se
+   «Samtykkesiden ligger på Slaids' eget domene» under.
 4. **Servervariablene i Vercel** (Settings → Environment Variables, for
    Production), uten `VITE_`-prefiks. `SLAIDS_AGENT_OAUTH_OWNERS` med
    Supabase-bruker-ID-en som skal få koble seg på – den samme eieren
@@ -1450,7 +1467,7 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    Variabler leses ved oppstart, så deployen må kjøres på nytt etterpå –
    Deployments → ⋯ → Redeploy, eller en ny merge til `main`.
 
-#### Samtykkesiden ligger på en delt adresse
+#### Samtykkesiden ligger på Slaids' eget domene
 
 Supabase bygger adressen til samtykkesiden av **Site URL + Authorization Path**,
 ikke av en full adresse man kan skrive inn: «The authorization path is combined
@@ -1458,50 +1475,24 @@ with your Site URL … to create the full authorization endpoint URL.» Det finn
 nøyaktig én Site URL per prosjekt, og den bestemmer hvilket domene som får være
 autorisasjonsflate for hele prosjektet.
 
-Prosjektet deles med Huskis og mdeditz, og Huskis dokumenterer
-`https://huskis.no` som Site URL og bruker den som fallback for Supabase Auth i
-flyter som ikke sender `redirectTo` selv. Å sette Site URL til Slaids er derfor
-ikke et isolert dashboardsteg: det bryter en invariant en annen app har skrevet
-ned, og en fremtidig Huskis-flyt som glemmer `redirectTo` ville landet i Slaids.
-mdeditz bruker ikke Supabase Auth, og er upåvirket uansett.
+Slaids' prosjekt har `https://www.slaids.no` som Site URL og `/oauth/consent`
+som Authorization Path, og autorisasjonsendepunktet blir dermed
+`https://www.slaids.no/oauth/consent`. mdeditz deler prosjektet, men bruker ikke
+Supabase Auth i det hele tatt, så det finnes ingen annen app som har noe å tape
+på at Site URL peker på Slaids.
 
-**Slaids flytter derfor ikke Site URL.** I stedet skal
-`https://huskis.no/oauth/consent` svare med en omdirigering til
-`https://www.slaids.no/oauth/consent` som beholder `authorization_id`-parameteren
-– den er hele forespørselen, og en omdirigering som mister den sender brukeren
-til en samtykkeside uten noe å samtykke til. Omdirigeringen hører hjemme i
-Huskis-repoet; Authorization Path blir stående på `/oauth/consent`.
+Det var ikke alltid sånn. Da Slaids lå i det samme Supabase-prosjektet som
+Huskis, var Site URL `https://huskis.no` – Huskis bruker den som fallback i
+Auth-flyter som ikke sender `redirectTo` selv – og samtykkesiden måtte nås via
+en `redirects`-regel i Huskis' `vercel.json` som sendte `/oauth/consent` videre
+til `www.slaids.no` med `authorization_id` i behold. Slaids har sitt eget
+prosjekt nå, så omveien er borte: regelen i Huskis gjør ingenting for Slaids
+lenger og kan fjernes når Huskis-repoet ryddes.
 
-Retningen er valgt fordi den feiler høyt og lokalt: ryker omdirigeringen, slutter
-Slaids' OAuth-samtykke å virke og ingenting annet endrer seg. Den andre
-retningen – å flytte Site URL – feiler stille, i en annen app, en gang i
-fremtiden.
-
-Konkret er det én `redirects`-regel i Huskis' `vercel.json`, og ingenting annet
-i Huskis endres:
-
-```json
-{
-  "redirects": [
-    {
-      "source": "/oauth/consent",
-      "has": [
-        { "type": "query", "key": "authorization_id", "value": "(?<authorization_id>.*)" }
-      ],
-      "destination": "https://www.slaids.no/oauth/consent?authorization_id=:authorization_id",
-      "permanent": false
-    }
-  ]
-}
-```
-
-`has` fanger `authorization_id` fra spørrestrengen og setter den inn i målet,
-eksplisitt, så forespørselen kommer fram uansett hva plattformen gjør med
-spørrestrenger på egen hånd. Redirects avgjøres før rewrites, så Huskis' egen
-SPA-rewrite ser aldri adressen. På Slaids-siden ligger `/oauth/consent` bak
-`AuthGate`: eieren logger inn som vanlig – med passord, uten omdirigering, så
-forespørselen overlever påloggingen – og ser deretter samtykkeskjermen for den
-samme `authorization_id`-en.
+På Slaids-siden ligger `/oauth/consent` bak `AuthGate`: eieren logger inn som
+vanlig – med passord, uten omdirigering, så forespørselen overlever
+påloggingen – og ser deretter samtykkeskjermen for den samme
+`authorization_id`-en.
 
 #### Slik verifiserer du at det virker, i rekkefølge
 

@@ -92,7 +92,7 @@ Anbefalt første stack:
 | Drag-and-drop     | dnd-kit                   | Kontrollerbar DnD, sensors og DragOverlay                     |
 | Persistens (produksjon) | Supabase (Postgres + Storage) | Data følger Slaids' ene tillatte bruker; RLS avviser alle andre Auth-brukere |
 | Persistens (lokal/test) | IndexedDB via Dexie | Bedre enn localStorage for strukturert data og Blobs          |
-| Auth              | Supabase Auth             | Én fast personlig Slaids-bruker; ingen konto- eller produktkobling til Huskis |
+| Auth              | Supabase Auth             | Én fast personlig Slaids-bruker i Slaids' eget Supabase-prosjekt |
 | Unit tests        | Vitest                    | Domenelogikk og geometri                                      |
 | E2E/browser       | Playwright                | Reelle arbeidsflyter, browser-geometri og screenshots         |
 
@@ -2617,10 +2617,10 @@ SlaidsRepository
    └─ Supabase   (produksjon – konfigurert og innlogget)
 ```
 
-Slaids er en **énbruker-app**. Supabase-prosjektet er delt infrastruktur, men det
-gir ingen konto- eller produktkobling til Huskis eller andre apper som bruker
-samme prosjekt. Bare den faste Supabase Auth-brukeren definert av
-`SLAIDS_OWNER_ID` kan bruke Slaids i produksjon; e-postadressen er bare
+Slaids er en **énbruker-app**. Supabase-prosjektet deles med mdeditz, som ikke
+bruker Supabase Auth i det hele tatt, så det finnes ingen konto- eller
+produktkobling til noen annen app. Bare den faste Supabase Auth-brukeren definert
+av `SLAIDS_OWNER_ID` kan bruke Slaids i produksjon; e-postadressen er bare
 påloggingsidentifikatoren for denne brukeren, ikke selve autorisasjonsregelen.
 
 Krav som gjelder:
@@ -2692,21 +2692,21 @@ SQL-en for skjemaet ligger i `supabase/migrations/`, slik at en tom Supabase kan
 gjenskape dagens skjema fra bunnen. En anvendt migrasjon skrives aldri om:
 endringer kommer som en ny fil.
 
-Prosjektet er delt infrastruktur, og det avgjør hvordan migrasjoner deployes.
+Prosjektet deles med mdeditz, og det avgjør hvordan migrasjoner deployes.
 Supabases egen historikk, `supabase_migrations.schema_migrations`, er
-**prosjektglobal**: den inneholder Huskis' og mdeditz' migrasjoner også, og de
-bor i andre repoer. `supabase db push` leser den som om den var historikken til
-repoet den kjøres fra, og stopper derfor herfra med «Remote migration versions
-not found in local migrations directory» – med to forslag som begge er feil for
-dette oppsettet: `migration repair` skriver om en annen apps historikk, og
-`db pull` drar en annen apps skjema inn i Slaids. Ingen flagg avgrenser
-`db push` til én app.
+**prosjektglobal**: den inneholder mdeditz' migrasjon også, og den bor i et annet
+repo. `supabase db push` leser den som om den var historikken til repoet den
+kjøres fra, og stopper derfor herfra med «Remote migration versions not found in
+local migrations directory» – med to forslag som begge er feil for dette
+oppsettet: `migration repair` skriver om en annen apps historikk, og `db pull`
+drar en annen apps skjema inn i Slaids. Ingen flagg avgrenser `db push` til én
+app.
 
 Slaids fører derfor sin egen historikk, i sin egen tabell,
 `public.slaids_migrations`, og `scripts/deploy-migrations.sh` er hele
 mekanismen: hver ukjørte migrasjon, i filnavnrekkefølge, hver i én transaksjon
-sammen med sin egen historikkrad. Den delte tabellen leses aldri og skrives
-aldri, og en migrasjon som nevner den avvises før noe kjøres.
+sammen med sin egen historikkrad. Den prosjektglobale tabellen leses aldri og
+skrives aldri, og en migrasjon som nevner den avvises før noe kjøres.
 
 `--dry-run` er read-only i streng forstand: den sender ingen setning som endrer
 noe. Historikktabellen bootstrappes først når kjøringen faktisk skal mutere,

@@ -1,9 +1,10 @@
 # Supabase CLI configuration for Slaids.
 #
-# Deliberately minimal. The Supabase project is shared with Huskis and mdeditz,
-# so this file configures the one Slaids Edge Function and nothing else — a
-# fuller config could push another app's settings back to a project it does not
-# own. Do not add auth, database or storage sections here.
+# Deliberately minimal: it configures the one Slaids Edge Function and nothing
+# else. Auth, database and storage are managed in the Supabase dashboard and by
+# `scripts/deploy-migrations.sh`, and a fuller config here would let a stray
+# `supabase` command push local defaults over them. Do not add auth, database or
+# storage sections.
 
 project_id = "slaids"
 
