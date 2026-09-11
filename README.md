@@ -288,7 +288,7 @@ herfra stopper den:
 Remote migration versions not found in local migrations directory.
 ```
 
-og foreslår `supabase migration repair --status reverted 20260806132939` eller
+og foreslår `supabase migration repair --status reverted 20260806120000` eller
 `supabase db pull`. **Følg ingen av dem.** Den første skriver om *mdeditz'*
 historikk; den andre drar en annen apps skjema inn i Slaids. Det finnes ingen
 flagg som avgrenser `db push` til én app (`--include-all` gjelder motsatt vei –
