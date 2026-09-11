@@ -29,6 +29,17 @@ export type BodyResult = { ok: true; input: unknown } | { ok: false; error: ApiE
 /** The largest body the API will read at all. See `config.ts` for why. */
 export interface BodyLimits {
   maxRequestBytes: number
+  /**
+   * Which transport is asking, so a refusal can say something it can act on.
+   *
+   * The only thing this changes is the sentence in `REQUEST_TOO_LARGE`, and it
+   * exists because the obvious advice — "send the file as a raw body with the
+   * fields in the query string" — is a REST shape that an MCP client cannot
+   * produce at all. One JSON-RPC message per POST is the whole transport, so
+   * telling an MCP caller to use a different request shape is telling it to do
+   * something impossible, which is worse than saying nothing.
+   */
+  transport?: 'rest' | 'mcp'
 }
 
 const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json$/i
@@ -52,7 +63,7 @@ export async function readBody(request: Request, limits: BodyLimits): Promise<
 > {
   const declared = Number(request.headers.get('content-length') ?? '')
   if (Number.isFinite(declared) && declared > limits.maxRequestBytes) {
-    return { ok: false, error: tooLarge(declared, limits.maxRequestBytes) }
+    return { ok: false, error: tooLarge(declared, limits) }
   }
 
   let bytes: Uint8Array
@@ -66,7 +77,7 @@ export async function readBody(request: Request, limits: BodyLimits): Promise<
   }
 
   if (bytes.byteLength > limits.maxRequestBytes) {
-    return { ok: false, error: tooLarge(bytes.byteLength, limits.maxRequestBytes) }
+    return { ok: false, error: tooLarge(bytes.byteLength, limits) }
   }
   return { ok: true, bytes }
 }
@@ -74,17 +85,66 @@ export async function readBody(request: Request, limits: BodyLimits): Promise<
 /**
  * Too big — and, because it usually is, what to do about it.
  *
- * A file sent as a JSON string is escaped on the way, so a body can be half
- * again the size of the file in it; sent as the body itself it is not. The
- * limit is the platform's as much as Slaids' (see `config.ts`), so the way
- * past it is the other shape rather than a larger number.
+ * The limit is the platform's as much as Slaids' (see `config.ts`), so the way
+ * past it is never "raise the number". What it *is* depends on which transport
+ * asked, and the two answers are genuinely different rather than two phrasings:
+ *
+ *  - **REST** has a second request shape. A file sent as a JSON string is
+ *    escaped on the way, so the body can be half again the size of the file in
+ *    it; sent as the body itself it is not. So the advice is that shape.
+ *  - **MCP** does not. One JSON-RPC message per POST, base64 inside it, and no
+ *    other way to carry bytes — so the only thing a client can do is send a
+ *    smaller file, and saying that is the whole of the honest answer. The
+ *    numbers it needs to do the arithmetic are in `details`.
  */
-function tooLarge(byteSize: number, limit: number): ApiError {
+function tooLarge(byteSize: number, limits: BodyLimits): ApiError {
+  const limit = limits.maxRequestBytes
+  const advice =
+    limits.transport === 'mcp'
+      ? 'Over MCP bæres en fil som base64 inne i meldingen, og base64 er en tredjedel større enn filen — det finnes ingen annen meldingsform å bytte til. Send en mindre fil: skaler ned bildet, eller last det opp over REST som ren binær kropp.'
+      : 'Send filen som ren binær kropp med feltene i query-strengen; da escapes den ikke.'
   return {
     code: 'REQUEST_TOO_LARGE',
-    message: `Forespørselen er større enn grensen på ${limit} byte. Send filen som ren binær kropp med feltene i query-strengen; da escapes den ikke.`,
-    details: { byteSize, maxRequestBytes: limit },
+    message: `Forespørselen er større enn grensen på ${limit} byte. ${advice}`,
+    details: {
+      byteSize,
+      maxRequestBytes: limit,
+      // What a caller can actually act on. See `largestBase64File`.
+      ...(limits.transport === 'mcp'
+        ? { maxBase64FileBytes: largestBase64File(limit) }
+        : {}),
+    },
   }
+}
+
+/**
+ * Room for everything a JSON-RPC message carries besides the file.
+ *
+ * The envelope, the method, the tool name, the operation's own fields and every
+ * quote and brace around them. Generous rather than measured: it is a few
+ * kilobytes against a limit of megabytes, and the cost of being wrong in the
+ * other direction is a client that retries at exactly the size it was told and
+ * gets the same `413` back.
+ */
+const MCP_MESSAGE_OVERHEAD_BYTES = 4096
+
+/**
+ * The largest file that still fits in one MCP message, as base64.
+ *
+ * Two corrections on the naive `limit * 3 / 4`, and both of them are the
+ * difference between a number a client can retry with and one that fails again:
+ *
+ *  - the **envelope** has to fit too. A file whose base64 is exactly the limit
+ *    leaves nothing for the message around it.
+ *  - the answer is rounded down to a **whole three-byte block**, so the
+ *    encoding is exactly four characters per three bytes with no padding. A
+ *    size that is not a multiple of three encodes to a string rounded *up* to
+ *    the next four characters, which is how a bound this close can be exceeded
+ *    by the very file it described.
+ */
+export function largestBase64File(maxRequestBytes: number): number {
+  const room = Math.max(0, maxRequestBytes - MCP_MESSAGE_OVERHEAD_BYTES)
+  return Math.floor(room / 4) * 3
 }
 
 /**

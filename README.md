@@ -1085,6 +1085,24 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: image/png' \
      "https://<domenet>/api/agent/v1/operations/upload_asset?presentationId=p_abc&name=figur.png"
 ```
 
+Over JSON – og dermed over MCP, som ikke har noen annen meldingsform – er
+`content` **et objekt, ikke en streng**:
+
+```json
+{ "presentationId": "p_abc", "name": "figur.png",
+  "content": { "encoding": "base64", "data": "iVBORw0KGgo…" } }
+```
+
+`{"encoding":"text","data":"<svg …>"}` er den andre halvdelen, for tekstformater.
+En data-URL er også gyldig som `data`.
+
+Grensen er `SLAIDS_AGENT_MAX_REQUEST_BYTES`, 4 MB som standard, og den gjelder
+hele forespørselen. Base64 er en tredjedel større enn filen, så en MCP-klient
+kommer opp i taket ved rundt 3 MB fil – og over MCP finnes det ingen annen
+meldingsform å bytte til, så svaret sier det rett ut og oppgir den største
+filstørrelsen som fortsatt får plass. Over REST er veien videre de to formene
+over, der ingenting escapes.
+
 ### Agenttokens
 
 Tokens lages i biblioteket, under **Agenttokens**. Et token er
@@ -1205,6 +1223,17 @@ IndexedDB å falle tilbake på.
 Tabellene `slaids_agent_tokens` og `slaids_agent_audit` kommer med migrasjonen
 `20260902190000_slaids_agent_api.sql`, og kolonnene for OAuth-kall med
 `20260905190000_slaids_agent_oauth_audit.sql`. Se «Deploye Slaids-migrasjoner».
+
+**`SLAIDS_SUPABASE_URL` og `VITE_SUPABASE_URL` må peke på det samme
+prosjektet.** Agent-API-et leser sin variabel ved oppstart, nettleseren får sin
+inn i bundelen under byggingen, og de er to verdier som må stemme overens. Gjør
+de ikke det, feiler ingenting: editoren viser eierens dekk fra det ene
+prosjektet, mens agenten oppretter, leser og validerer i det andre – hvert
+kall går gjennom, `list_presentations` er bare tomt, og auditraden havner i
+den samme feil databasen, så selv loggen er enig med seg selv. Derfor nekter
+oppstarten nå, med begge prosjektreferansene i meldingen. Det er verdt å ha
+etter en prosjektflytting, som er akkurat når den gamle verdien fortsatt
+ligger igjen i et dashbord.
 
 ### Ruting av agent-API-et
 
@@ -1467,6 +1496,13 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    Variabler leses ved oppstart, så deployen må kjøres på nytt etterpå –
    Deployments → ⋯ → Redeploy, eller en ny merge til `main`.
 
+   ID-en finnes i Supabase under Authentication → Users, og skal være den
+   samme som `SLAIDS_OWNER_ID`. Er de ulike, er det ikke eierlisten som er
+   feil: `AuthGate` slipper bare den ene uuid-en inn i arbeidsflaten, og RLS
+   er festet til den samme, så da er editoren allerede stengt for eieren og
+   konstanten er det som skal rettes. Én uuid, tre steder som må være enige –
+   kontrollér den der før du limer den inn i Vercel.
+
 #### Samtykkesiden ligger på Slaids' eget domene
 
 Supabase bygger adressen til samtykkesiden av **Site URL + Authorization Path**,
@@ -1499,7 +1535,7 @@ påloggingen – og ser deretter samtykkeskjermen for den samme
 1. **Uten legitimasjon**, fra hvor som helst:
 
    ```bash
-   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no --expect-oauth
    ```
 
    – eller «MCP smoke test» under Actions, som kjører det samme. Se etter:
@@ -1510,11 +1546,19 @@ påloggingen – og ser deretter samtykkeskjermen for den samme
    ok    autorisasjonsserveren finnes og er slått på — https://<ref>.supabase.co/auth/v1, PKCE S256
    ok    dynamisk klientregistrering er på — på (en tom registrering avvises med 400, …)
    ok    401-utfordringen peker på metadataen — peker på dokumentet
-   ok    verktøyene sier at de krever OAuth — 51 verktøy, alle med oauth2
+   ok    verktøyene sier at de krever OAuth — 54 verktøy, alle med oauth2
    ```
 
    Den ser forskjell på «OAuth 2.1 Server er ikke slått på i Supabase»,
    «Dynamic Client Registration er av» og «installasjonen har ingen eierliste».
+
+   **`--expect-oauth` gjør det siste til en rød kjøring i stedet for en
+   hoppet-over linje**, og det er verdt å ha på for produksjon: en
+   installasjon uten eierliste svarer glad på hele oppdagelsen – håndtrykket
+   går, verktøylisten kommer – og stopper først når et verktøy faktisk skal
+   brukes. En grønn kjøring som hoppet over OAuth ville sagt at ingenting er
+   galt. I workflowen er `expect_oauth` på som standard; slå den av for en
+   installasjon som med vilje bare tar agenttokens.
 2. **Hele flyten, som en ekte klient**, fra din egen maskin og uten ChatGPT:
 
    ```bash
@@ -1551,6 +1595,32 @@ påloggingen – og ser deretter samtykkeskjermen for den samme
 
 En godkjent app trekkes tilbake fra Supabase (Authentication → brukeren →
 OAuth grants), og et token slutter å virke innen en time uansett.
+
+#### Hele reisen, testet
+
+`src/server/mcp/journey.test.ts` går den veien en ekstern agent faktisk går, og
+gjør det over den transporten en fremmed bruker: en ekte socket, den offisielle
+MCP-klienten, et ekte ES256-token verifisert mot et publisert nøkkelsett, og
+previewet tegnet av en ekte Chromium over appens egne stilark. Den oppretter en
+presentasjon, leser den tilbake, setter tema, legger til slides og seksjoner,
+deler soner og endrer forholdstall, skriver tekst med en citation som peker på
+en ekte referanse, laster opp en PNG som base64 og setter den i en sone, flytter
+innhold mellom to slides, inspiserer, validerer slide og dekk, rendrer, leser
+*alt* tilbake over en **ny tilkobling** – og sletter dekket til slutt, og
+sjekker at det er borte.
+
+Ved siden av den ligger feilene en agent møter: ukjente id-er på tre nivåer,
+ukjent verktøynavn, input som ikke passer skjemaet, manglende scope, utdatert
+`expectedRevision`, fil som ikke finnes, innhold som ikke får plass, en annen
+eiers presentasjon, og et OAuth-token som er forfalsket, utløpt eller
+fraværende. Og en sveip som kaller **hvert eneste verktøy** gjennom den ekte
+transporten, så en operasjon som legges til senere ikke kan virke i testene
+uten å virke gjennom transporten.
+
+Det eneste som ikke er produksjon der, er hvor radene havner: et Dexie-lager i
+stedet for Supabase, bygget per eier nøyaktig som `agentContextFor` bygger ett
+per principal. Supabase-siden av det er `supabaseRepository.test.ts`, og
+selve installasjonen er `scripts/mcp-smoke.mjs` over.
 
 ### Katalogen er den samme katalogen
 

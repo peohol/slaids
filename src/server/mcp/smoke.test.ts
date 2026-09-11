@@ -93,6 +93,20 @@ describe('scripts/mcp-smoke.mjs', () => {
     expect(code).toBe(0)
   }, 30_000)
 
+  it('blir rød når kjøringen krevde OAuth og installasjonen ikke har noen', async () => {
+    // The failure this turns from a skipped line into a red run: production is
+    // supposed to take a ChatGPT connector, OAuth is the whole of what such a
+    // client can authenticate with, and an installation without it answers
+    // every discovery check happily right up to the point where a tool is
+    // called. Green-by-skipping there would be the script agreeing that
+    // nothing is wrong.
+    const { code, out } = await smoke(['--expect-oauth'])
+
+    expect(out).toContain('SLAIDS_AGENT_OAUTH_OWNERS')
+    expect(out).toContain('FEIL')
+    expect(code).toBe(1)
+  }, 30_000)
+
   it('lekker ikke tokenet til utskriften', async () => {
     const { out } = await smoke(['--token', TOKEN])
     expect(out).not.toContain(TOKEN)

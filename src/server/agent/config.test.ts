@@ -68,6 +68,74 @@ describe('readAgentApiConfig', () => {
     ).toBe('refused')
   })
 
+  it('nekter å starte mot et annet Supabase-prosjekt enn editoren bruker', () => {
+    // The failure this stops is the quiet one: nothing errors, the agent writes
+    // decks into a database nobody looks in, and `list_presentations` answers
+    // with an empty library that is indistinguishable from a real one.
+    const state = readAgentApiConfig({
+      ...CONFIGURED,
+      VITE_SUPABASE_URL: 'https://gammelt.supabase.co',
+    })
+    expect(state.kind).toBe('refused')
+    const problem = state.kind === 'refused' ? state.problem : ''
+    expect(problem).toContain('project')
+    expect(problem).toContain('gammelt')
+  })
+
+  it('godtar det samme prosjektet skrevet på to måter', () => {
+    // A trailing slash is not another project, and neither is a different case
+    // in the hostname. The reference is what identifies a project.
+    expect(
+      readAgentApiConfig({
+        ...CONFIGURED,
+        VITE_SUPABASE_URL: 'https://PROJECT.supabase.co/',
+      }).kind,
+    ).toBe('configured')
+  })
+
+  it('nekter ikke et eget domene foran det samme prosjektet', () => {
+    // A custom domain carries no project reference, so there is nothing to
+    // compare it against. Refusing here would take the whole API down over a
+    // deployment that is correct — «vet ikke» er ikke «forskjellig».
+    expect(
+      readAgentApiConfig({
+        ...CONFIGURED,
+        VITE_SUPABASE_URL: 'https://db.slaids.example',
+      }).kind,
+    ).toBe('configured')
+
+    expect(
+      readAgentApiConfig({
+        SLAIDS_SUPABASE_URL: 'https://db.slaids.example',
+        SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
+        VITE_SUPABASE_URL: 'https://project.supabase.co',
+      }).kind,
+    ).toBe('configured')
+  })
+
+  it('sier ingenting om to verter den ikke kan lese en prosjektreferanse av', () => {
+    // A local stack, a proxy, two spellings of the same thing. None of them
+    // names a project, so none of them can prove a mismatch.
+    expect(
+      readAgentApiConfig({
+        SLAIDS_SUPABASE_URL: 'http://127.0.0.1:54321',
+        SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
+        VITE_SUPABASE_URL: 'http://localhost:54321',
+      }).kind,
+    ).toBe('configured')
+  })
+
+  it('har ingenting å sammenligne når Vite-variabelen selv er kilden', () => {
+    // Then there is one value, not two, and a check would be comparing it with
+    // itself — the shape that always passes and proves nothing.
+    expect(
+      readAgentApiConfig({
+        VITE_SUPABASE_URL: 'https://project.supabase.co',
+        SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
+      }).kind,
+    ).toBe('configured')
+  })
+
   it('klemmer den konfigurerte størrelsesgrensen inn i noe fornuftig', () => {
     const at = (raw: string) =>
       readAgentApiConfig({ ...CONFIGURED, SLAIDS_AGENT_MAX_REQUEST_BYTES: raw })

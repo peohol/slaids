@@ -670,6 +670,75 @@ describe('transporten', () => {
     expect(response.status).toBe(413)
   })
 
+  /**
+   * The number a refused upload is told to retry with, checked by retrying with it.
+   *
+   * A bound that cannot be met is worse than no bound: a client does the
+   * arithmetic it was handed, scales the picture to exactly that many bytes,
+   * sends it, and meets the same `413`. So the assertion is not about the
+   * formula — it is a real `upload_asset` message, built the way a client
+   * builds one, at exactly the advertised size.
+   */
+  describe('grensen for en fil over MCP', () => {
+    /** The refusal's own advice, as a caller reads it out of `details`. */
+    async function advisedFileBytes(harnessed: ReturnType<typeof harness>): Promise<number> {
+      const refused = await mcpRaw(
+        harnessed,
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { fyll: 'x'.repeat(1_000_000) } }),
+      )
+      expect(refused.status).toBe(413)
+      const body = (await refused.json()) as {
+        error: { code: string; message: string; details: { maxBase64FileBytes: number } }
+      }
+      expect(body.error.code).toBe('REQUEST_TOO_LARGE')
+      // The REST advice — another request shape — is not something an MCP
+      // client can act on, so it must not be what it is told.
+      expect(body.error.message).not.toContain('query-strengen')
+      return body.error.details.maxBase64FileBytes
+    }
+
+    it('oppgir en størrelse som faktisk får plass i en ekte opplastingsmelding', async () => {
+      const harnessed = harness()
+      harnessed.deps.maxRequestBytes = 64 * 1024
+      const { presentationId } = await newPresentation(harnessed)
+
+      const advised = await advisedFileBytes(harnessed)
+      expect(advised).toBeGreaterThan(0)
+
+      const message = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: `${AGENT_TOOL_PREFIX}upload_asset`,
+          arguments: {
+            presentationId,
+            name: 'på-grensen.png',
+            content: {
+              encoding: 'base64',
+              data: Buffer.from(new Uint8Array(advised)).toString('base64'),
+            },
+          },
+        },
+      })
+      // The whole message, envelope and all, is inside the limit.
+      expect(new TextEncoder().encode(message).byteLength).toBeLessThanOrEqual(
+        harnessed.deps.maxRequestBytes,
+      )
+
+      // And the endpoint agrees: whatever the operation then says about the
+      // bytes, the request was not too large.
+      const response = await mcpRaw(harnessed, message)
+      expect(response.status).not.toBe(413)
+    })
+
+    it('oppgir ingenting når grensen ikke har rom for en fil i det hele tatt', async () => {
+      const harnessed = harness()
+      harnessed.deps.maxRequestBytes = 1024
+      expect(await advisedFileBytes(harnessed)).toBe(0)
+    })
+  })
+
   it('slipper preflight gjennom med MCP-ens egne headere', async () => {
     const response = await handleAgentRequest(
       harness().deps,
