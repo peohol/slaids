@@ -3,19 +3,19 @@
 # Apply Slaids' database migrations to a Supabase project.
 #
 # Why this exists instead of `supabase db push`
-# ---------------------------------------------
-# The Supabase project is shared infrastructure: Slaids, Huskis and mdeditz all
-# live in it, from three independent repositories. But Supabase's own migration
-# ledger, `supabase_migrations.schema_migrations`, is *project-global*. It holds
-# every app's migrations, including ones this repo has never seen — e.g.
-# `20260806132939_mdeditz_store`.
+# ---------------------------------------------------------------------------
+# Slaids and mdeditz now share one Supabase project of their own; Huskis has
+# its own, and nothing here reaches it. But Supabase's migration ledger,
+# `supabase_migrations.schema_migrations`, is still *project-global*, and this
+# project still holds two independent repositories' migrations — mdeditz ships
+# `20260806120000_mdeditz_store`, which this repo has never seen.
 #
 # `supabase db push` treats that ledger as the complete history of the repo it
 # is run from, so from here it fails outright:
 #
 #     Remote migration versions not found in local migrations directory.
 #     Try repairing the migration history table:
-#       supabase migration repair --status reverted 20260806132939
+#       supabase migration repair --status reverted 20260806120000
 #     And update local migrations to match remote database:
 #       supabase db pull
 #
@@ -34,8 +34,8 @@
 #     transaction together with its ledger row — so a failure leaves neither a
 #     half-applied migration nor a lie about what is applied.
 #
-# The other apps are unaffected because nothing here is global: their ledger is
-# untouched, and Slaids migrations only ever create `slaids_`-prefixed objects.
+# mdeditz is unaffected because nothing here is global: its ledger is untouched,
+# and Slaids migrations only ever create `slaids_`-prefixed objects.
 #
 # Usage
 # -----

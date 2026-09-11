@@ -221,7 +221,7 @@ describe('konfigurasjonsfeil', () => {
 })
 
 describe('utlogging', () => {
-  it('logger bare ut av Slaids, ikke av Huskis på andre enheter', async () => {
+  it('logger bare ut i denne nettleseren, ikke på andre enheter', async () => {
     configure()
     setSupabaseClient(fakeClient({ session: { user: USER } }))
     await useSessionStore.getState().start()

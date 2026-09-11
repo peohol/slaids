@@ -62,7 +62,7 @@ npm run e2e
 
 ## Operasjonelle sikkerhetsgrenser
 
-- Supabase-prosjektet deles med andre apper. **Kjør aldri `supabase db push`, `migration repair` eller `db pull` for å deploye Slaids-migrasjoner.** Bruk `scripts/deploy-migrations.sh`.
+- Supabase-prosjektet deles med mdeditz, som har sine egne migrasjoner i den prosjektglobale historikken. **Kjør aldri `supabase db push`, `migration repair` eller `db pull` for å deploye Slaids-migrasjoner.** Bruk `scripts/deploy-migrations.sh`, som fører Slaids' egen historikk i `public.slaids_migrations`.
 - Deploy aldri Supabase-funksjoner med `--prune`. Slaids eier bare sine egne `slaids_`-objekter og sin egen Edge Function.
 - Agent-API-hemmeligheter er servervariabler uten `VITE_`-prefiks.
 - Ikke legg flere `.ts`-entrypoints under `api/` uten å verifisere Vercel-rutingen og deployment-testene.

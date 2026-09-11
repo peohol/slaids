@@ -53,12 +53,13 @@
  *     issuer and the same audience — has none, so it cannot be replayed here.
  *     Without this check, every signed-in tab would be an MCP credential.
  *  6. **`exp` has not passed**, with no leeway. Expired is expired.
- *  7. **`sub` is an owner this deployment lets in.** The Supabase project is
- *     shared with Huskis and mdeditz, and the API holds a key that bypasses row
- *     level security — so "any user of the project" would be a much wider door
- *     than the browser has, where `restrict_slaids_to_owner` pins the tables to
- *     one uuid. The allowlist is the same pin, written where the server can
- *     read it.
+ *  7. **`sub` is an owner this deployment lets in.** The API holds a key that
+ *     bypasses row level security, so "any user of the project" would be a much
+ *     wider door than the browser has, where `restrict_slaids_to_owner` pins the
+ *     tables to one uuid. The allowlist is the same pin, written where the
+ *     server can read it — and it stays required rather than defaulted, because
+ *     a default of "everyone who can sign up" is exactly the door that pin
+ *     exists to close.
  *
  * Every one of those failures answers the same 401 with the same sentence. The
  * difference between them lives in the owner's log, exactly as it does for an
@@ -92,13 +93,12 @@ import type { AgentPrincipal, AuthOutcome } from './tokens'
  * whole family on.
  *
  * Required rather than defaulted, and the reason is in the migration that
- * created the tables: the Supabase project is shared, the agent API holds a
- * secret key that bypasses row level security, and the browser is pinned to a
- * single owner uuid. Defaulting to "every user of the project" would open a
- * door the browser does not have — quietly, on merge, without anyone choosing
- * it. Unset means OAuth is simply not offered: no metadata document, no
- * challenge pointing at an authorization server, and the endpoint behaves
- * exactly as it did before.
+ * created the tables: the agent API holds a secret key that bypasses row level
+ * security, and the browser is pinned to a single owner uuid. Defaulting to
+ * "every user of the project" would open a door the browser does not have —
+ * quietly, on merge, without anyone choosing it. Unset means OAuth is simply
+ * not offered: no metadata document, no challenge pointing at an authorization
+ * server, and the endpoint behaves exactly as it did before.
  */
 export const OAUTH_OWNERS_VAR = 'SLAIDS_AGENT_OAUTH_OWNERS'
 
