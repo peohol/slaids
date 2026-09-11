@@ -109,13 +109,42 @@ function tooLarge(byteSize: number, limits: BodyLimits): ApiError {
     details: {
       byteSize,
       maxRequestBytes: limit,
-      // What a caller can actually act on: the largest file that still fits
-      // once base64 has grown it. Four base64 characters per three bytes.
+      // What a caller can actually act on. See `largestBase64File`.
       ...(limits.transport === 'mcp'
-        ? { maxBase64FileBytes: Math.floor((limit * 3) / 4) }
+        ? { maxBase64FileBytes: largestBase64File(limit) }
         : {}),
     },
   }
+}
+
+/**
+ * Room for everything a JSON-RPC message carries besides the file.
+ *
+ * The envelope, the method, the tool name, the operation's own fields and every
+ * quote and brace around them. Generous rather than measured: it is a few
+ * kilobytes against a limit of megabytes, and the cost of being wrong in the
+ * other direction is a client that retries at exactly the size it was told and
+ * gets the same `413` back.
+ */
+const MCP_MESSAGE_OVERHEAD_BYTES = 4096
+
+/**
+ * The largest file that still fits in one MCP message, as base64.
+ *
+ * Two corrections on the naive `limit * 3 / 4`, and both of them are the
+ * difference between a number a client can retry with and one that fails again:
+ *
+ *  - the **envelope** has to fit too. A file whose base64 is exactly the limit
+ *    leaves nothing for the message around it.
+ *  - the answer is rounded down to a **whole three-byte block**, so the
+ *    encoding is exactly four characters per three bytes with no padding. A
+ *    size that is not a multiple of three encodes to a string rounded *up* to
+ *    the next four characters, which is how a bound this close can be exceeded
+ *    by the very file it described.
+ */
+export function largestBase64File(maxRequestBytes: number): number {
+  const room = Math.max(0, maxRequestBytes - MCP_MESSAGE_OVERHEAD_BYTES)
+  return Math.floor(room / 4) * 3
 }
 
 /**

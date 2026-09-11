@@ -172,20 +172,33 @@ function refuse(env: Env, secret: string, url: { name: string; value: string }):
  * tell "you have no decks" from "you are looking at the wrong database". The
  * audit rows land in B as well, so even the log agrees with itself.
  *
- * Compared by **project reference** — the host's first label — rather than by
- * the whole string, because `https://ref.supabase.co` and
- * `https://ref.supabase.co/` are the same project and a custom domain in front
- * of one is not something this check is entitled to have an opinion about. A
- * URL that is not a Supabase hostname at all is compared as its whole origin,
- * which is the strictest reading available for it.
+ * Compared by **project reference** — the first label of `<ref>.supabase.co`,
+ * which is what identifies a project in the dashboard, in the issuer and in the
+ * key set address. A trailing slash and a capitalised hostname are the same
+ * project, and comparing whole strings would call them different.
+ *
+ * And it only refuses when it can *prove* a mismatch: both sides have to name a
+ * project reference, and the two have to differ. A custom domain in front of a
+ * project — `db.example.no` for `https://ref.supabase.co` — carries no
+ * reference at all, so a deployment where the browser uses one and the server
+ * uses the canonical URL is the same project written two ways, and refusing it
+ * would take the whole API down over a configuration that is correct. "Cannot
+ * tell" is not "different", and a refusal is too heavy a hammer to swing on a
+ * guess. What is left is exactly the failure this was written for: two
+ * `<ref>.supabase.co` URLs naming two projects, which is what a project move
+ * leaves behind.
  */
 function refuseWrongProject(env: Env, chosen: { name: string; value: string }): string | null {
   const browser = env[BROWSER_SUPABASE_URL_VAR]?.trim()
   if (!browser || chosen.name === BROWSER_SUPABASE_URL_VAR) return null
-  if (projectRef(browser) === projectRef(chosen.value)) return null
+
+  const here = projectRef(chosen.value)
+  const there = projectRef(browser)
+  if (here === null || there === null || here === there) return null
+
   return (
     `${chosen.name} og ${BROWSER_SUPABASE_URL_VAR} peker på hvert sitt Supabase-prosjekt ` +
-    `(${projectRef(chosen.value)} og ${projectRef(browser)}). Agent-API-et ville da lest og skrevet ` +
+    `(${here} og ${there}). Agent-API-et ville da lest og skrevet ` +
     'i en annen database enn editoren, uten at noe av det feilet: en agent ville opprettet ' +
     'presentasjoner ingen ser i biblioteket, og sett et tomt bibliotek der eieren har dekkene sine. ' +
     'Sett begge til prosjektet Slaids faktisk bruker, og deploy på nytt.'
@@ -193,26 +206,21 @@ function refuseWrongProject(env: Env, chosen: { name: string; value: string }): 
 }
 
 /**
- * Which Supabase project a URL names.
+ * Which Supabase project a URL names, or `null` when it does not name one.
  *
- * The reference is the first label of `<ref>.supabase.co`, which is what
- * identifies a project everywhere else — in the dashboard, in the issuer, in
- * the key set address. Anything that is not a Supabase hostname has no
- * reference, so its whole origin stands in for one: unknown hosts are compared
- * strictly rather than assumed equal.
+ * `null` for anything that is not a `<ref>.supabase.<tld>` hostname: a custom
+ * domain, a local stack, a proxy. None of those says which project is behind
+ * it, and guessing from the origin would turn two correct spellings of one
+ * project into a refusal. See `refuseWrongProject`.
  */
-function projectRef(url: string): string {
+function projectRef(url: string): string | null {
   let host: string
-  let origin: string
   try {
-    const parsed = new URL(url)
-    host = parsed.hostname.toLowerCase()
-    origin = parsed.origin.toLowerCase()
+    host = new URL(url).hostname.toLowerCase()
   } catch {
-    return url.trim().toLowerCase().replace(/\/+$/, '')
+    return null
   }
-  const supabase = /^([^.]+)\.supabase\.(?:co|in|red)$/.exec(host)
-  return supabase ? supabase[1] : origin
+  return /^([^.]+)\.supabase\.(?:co|in|red)$/.exec(host)?.[1] ?? null
 }
 
 /** A configured limit, clamped to something a request could plausibly need. */

@@ -93,18 +93,34 @@ describe('readAgentApiConfig', () => {
     ).toBe('configured')
   })
 
-  it('sammenligner ukjente verter strengt, i stedet for å anta at de er like', () => {
-    const differing = readAgentApiConfig({
-      SLAIDS_SUPABASE_URL: 'https://db.internt.example',
-      SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
-      VITE_SUPABASE_URL: 'https://annet.internt.example',
-    })
-    expect(differing.kind).toBe('refused')
+  it('nekter ikke et eget domene foran det samme prosjektet', () => {
+    // A custom domain carries no project reference, so there is nothing to
+    // compare it against. Refusing here would take the whole API down over a
+    // deployment that is correct — «vet ikke» er ikke «forskjellig».
     expect(
       readAgentApiConfig({
-        SLAIDS_SUPABASE_URL: 'https://db.internt.example',
+        ...CONFIGURED,
+        VITE_SUPABASE_URL: 'https://db.slaids.example',
+      }).kind,
+    ).toBe('configured')
+
+    expect(
+      readAgentApiConfig({
+        SLAIDS_SUPABASE_URL: 'https://db.slaids.example',
         SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
-        VITE_SUPABASE_URL: 'https://db.internt.example',
+        VITE_SUPABASE_URL: 'https://project.supabase.co',
+      }).kind,
+    ).toBe('configured')
+  })
+
+  it('sier ingenting om to verter den ikke kan lese en prosjektreferanse av', () => {
+    // A local stack, a proxy, two spellings of the same thing. None of them
+    // names a project, so none of them can prove a mismatch.
+    expect(
+      readAgentApiConfig({
+        SLAIDS_SUPABASE_URL: 'http://127.0.0.1:54321',
+        SLAIDS_SUPABASE_SECRET_KEY: 'sb_secret_abc123',
+        VITE_SUPABASE_URL: 'http://localhost:54321',
       }).kind,
     ).toBe('configured')
   })
