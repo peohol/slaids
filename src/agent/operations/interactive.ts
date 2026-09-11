@@ -70,6 +70,7 @@ import {
 import { defaultTheme, findInteractiveSlide } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
 import {
+  FILE_CONTENT_SHAPE,
   fileContentSchema,
   readFileContent,
   transportFileContentSchema,
@@ -118,7 +119,7 @@ const htmlSchema = z
 const CONTENT_DESCRIPTION =
   `${FILE_DESCRIPTION} Som fil i stedet for som JSON-streng: base64 eller tekst over JSON, ` +
   'og rå bytes over REST, der kroppen er filen og feltene ligger i query-strengen. ' +
-  'Ingenting escapes, så dette er veien som faktisk bærer en fil på grensen.'
+  `Ingenting escapes, så dette er veien som faktisk bærer en fil på grensen. ${FILE_CONTENT_SHAPE}`
 
 const contentSchema: z.ZodType<AgentFileContent> = fileContentSchema.describe(
   `${CONTENT_DESCRIPTION} In-process kan en kaller også sende bytes eller en Blob.`,

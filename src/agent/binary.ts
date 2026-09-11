@@ -27,6 +27,21 @@ export type AgentFileContent =
  * definition that advertises `Blob` is advertising something no caller on the
  * other side of a wire can send.
  */
+/**
+ * The field's shape, spelled out for whoever reads the description.
+ *
+ * A tagged object is not what "base64, or a data URL" sounds like, and the
+ * mistake it invites is the one an agent makes first: `content: "iVBORw0…"`,
+ * which is a plain string where the schema wants `{ encoding, data }`. The
+ * JSON Schema says so correctly, but a model reads the sentence too — and the
+ * sentence used to describe the *payload* while the schema described the
+ * *envelope*. So the envelope is named here, once, and both operations that
+ * take a file say it.
+ */
+export const FILE_CONTENT_SHAPE =
+  'Feltet er et objekt, ikke en streng: {"encoding":"base64","data":"iVBORw0KGgo…"} for binære filer, ' +
+  'eller {"encoding":"text","data":"<svg …>"} for tekst. En data-URL er også gyldig som «data».'
+
 export const transportFileContentSchema = z.union([
   z.object({
     encoding: z.literal('base64'),

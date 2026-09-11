@@ -77,6 +77,11 @@ on:
         type: boolean
         required: false
         default: false
+      expect_oauth:
+        description: 'Krev at installasjonen faktisk tilbyr OAuth. På for produksjon, som skal kunne ta en ChatGPT-tilkobling; av for en installasjon som med vilje bare tar agenttokens.'
+        type: boolean
+        required: false
+        default: true
       expect_tools:
         description: 'Forventet antall verktøy. 0 = ikke sjekk antallet.'
         required: false
@@ -137,6 +142,7 @@ jobs:
           EXPECT_TOOLS: ${{ inputs.expect_tools }}
           RUN_AUTHENTICATED: ${{ inputs.authenticated }}
           RUN_OAUTH: ${{ inputs.oauth }}
+          EXPECT_OAUTH: ${{ inputs.expect_oauth }}
           # From the secret store and nowhere else — see the note at the top.
           # GitHub masks a secret in the log by itself; nothing can unmask an
           # input it has already recorded with the run.
@@ -155,4 +161,5 @@ jobs:
             exit 1
           fi
           if [ -n "$SMOKE_COOKIE" ]; then set -- --header "Cookie: $SMOKE_COOKIE"; fi
+          if [ "$EXPECT_OAUTH" = "true" ]; then set -- "$@" --expect-oauth; fi
           node scripts/mcp-smoke.mjs --expect-tools "$EXPECT_TOOLS" "$@"

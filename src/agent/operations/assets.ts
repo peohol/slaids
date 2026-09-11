@@ -29,7 +29,12 @@ import { findLeaf } from '../../domain/layout'
 import { findContentSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { AssetRef } from '../../domain/types'
-import { fileContentSchema, readFileContent, transportFileContentSchema } from '../binary'
+import {
+  FILE_CONTENT_SHAPE,
+  fileContentSchema,
+  readFileContent,
+  transportFileContentSchema,
+} from '../binary'
 import { deleteAssetFile, storeAsset, type StoredAssetResult } from '../assetStore'
 import {
   assetIdSchema,
@@ -49,7 +54,7 @@ import { agentOk, fromDomainError, type AgentResult } from '../types'
  * ------------------------------------------------------------------ */
 
 const CONTENT_DESCRIPTION =
-  'Selve filen. Base64 (eller en data-URL) for et JSON-transport; ren tekst for SVG.'
+  `Selve filen. Base64 (eller en data-URL) for et JSON-transport; ren tekst for SVG. ${FILE_CONTENT_SHAPE}`
 
 const uploadAssetInput = z.strictObject({
   presentationId: presentationIdSchema,

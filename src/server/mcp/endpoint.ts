@@ -311,7 +311,12 @@ export async function handleMcpRequest(
     })
   }
 
-  const body = await readBody(request, { maxRequestBytes: deps.maxRequestBytes })
+  const body = await readBody(request, {
+    maxRequestBytes: deps.maxRequestBytes,
+    // So a body that is too large is refused with advice this transport can
+    // act on. There is no second request shape here to send somebody to.
+    transport: 'mcp',
+  })
   if (!body.ok) return refuse(body.error)
 
   let parsed: unknown

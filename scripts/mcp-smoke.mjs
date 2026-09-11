@@ -17,6 +17,7 @@
  * Usage:
  *
  *   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
+ *   node scripts/mcp-smoke.mjs --base-url https://www.slaids.no --expect-oauth
  *   SLAIDS_TOKEN=slaids_at_… node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
  *   SLAIDS_OAUTH_TOKEN=eyJ… node scripts/mcp-smoke.mjs --base-url https://www.slaids.no
  *   node scripts/mcp-smoke.mjs --base-url https://… --header 'Cookie: _vercel_jwt=…'
@@ -79,6 +80,18 @@ const token = flag('token') ?? process.env.SLAIDS_TOKEN ?? null
 /** Environment only. See the note at the top: there is no flag for this one. */
 const oauthToken = process.env.SLAIDS_OAUTH_TOKEN ?? null
 const expectTools = Number(flag('expect-tools') ?? '0')
+/**
+ * Whether this run requires the installation to offer OAuth.
+ *
+ * Off by default, because an installation that deliberately takes only agent
+ * tokens is a legitimate installation and this script has to be able to say so.
+ * On for anything that is supposed to take a ChatGPT connector — see the
+ * refusal in «protected resource metadata».
+ */
+const expectOAuth = ARGS.includes('--expect-oauth')
+
+/** The variable that turns OAuth on, named where the refusal can point at it. */
+const OAUTH_OWNERS_VAR = 'SLAIDS_AGENT_OAUTH_OWNERS'
 
 /** Headers for the layer in front of the deployment. Never `Authorization`. */
 const extraHeaders = {}
@@ -399,6 +412,20 @@ async function metadataAt(url) {
 await check('protected resource metadata', async () => {
   const document = await metadataAt(RESOURCE_METADATA_URL)
   if (!document) {
+    // Green-by-skipping is the wrong answer for an installation that is meant
+    // to take a ChatGPT connector: OAuth being off is *the* thing that stops
+    // one, and it stops it silently — discovery works, the tool list arrives,
+    // and every attempt to use a tool ends at a 401 pointing nowhere. So a run
+    // can say it expected OAuth, and then this is a failure rather than a line
+    // somebody skims past.
+    expect(
+      !expectOAuth,
+      `${RESOURCE_METADATA_URL} svarer ikke med et metadatadokument, så installasjonen tilbyr\n` +
+        'ingen OAuth-autorisasjonsserver. En ChatGPT-tilkobling kommer ikke forbi pålogging uten.\n' +
+        `Sett servervariabelen ${OAUTH_OWNERS_VAR} i Vercel (Production) til Supabase-bruker-ID-en\n` +
+        'som skal slippe inn, og kjør deployen på nytt. Kjør uten --expect-oauth for en\n' +
+        'installasjon som med vilje bare tar agenttokens.',
+    )
     return 'ingen OAuth i denne installasjonen – resten av OAuth-sjekkene hopper over'
   }
   expect(typeof document.resource === 'string', 'dokumentet har ingen «resource»')

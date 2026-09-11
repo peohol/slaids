@@ -26,6 +26,15 @@ import { MAX_ASSET_BYTES } from '../../domain/constants'
 import { readOAuthConfig, type OAuthResourceConfig } from './oauth'
 
 export const SUPABASE_URL_VARS = ['SLAIDS_SUPABASE_URL', 'SUPABASE_URL', 'VITE_SUPABASE_URL'] as const
+
+/**
+ * The variable the *browser* bundle is built from.
+ *
+ * Named here as well as in `src/supabase/config.ts`, and for a reason that is
+ * this layer's own: it is the value the agent API has to agree with. See
+ * `refuseWrongProject`.
+ */
+export const BROWSER_SUPABASE_URL_VAR = 'VITE_SUPABASE_URL'
 export const SUPABASE_SECRET_VARS = ['SLAIDS_SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const
 export const MAX_REQUEST_BYTES_VAR = 'SLAIDS_AGENT_MAX_REQUEST_BYTES'
 
@@ -104,7 +113,7 @@ export function readAgentApiConfig(env: Env): AgentApiConfigState {
     }
   }
 
-  const refusal = refuse(env, secret.value)
+  const refusal = refuse(env, secret.value, url)
   if (refusal) return { kind: 'refused', problem: refusal }
 
   return {
@@ -127,7 +136,9 @@ export function readAgentApiConfig(env: Env): AgentApiConfigState {
  * a secret that is already in the browser bundle. Failing loudly at the first
  * request is the only way either gets noticed.
  */
-function refuse(env: Env, secret: string): string | null {
+function refuse(env: Env, secret: string, url: { name: string; value: string }): string | null {
+  const wrongProject = refuseWrongProject(env, url)
+  if (wrongProject) return wrongProject
   if (secret.startsWith('sb_publishable_')) {
     return `${SUPABASE_SECRET_VARS[0]} er satt til en publishable-nøkkel. Agent-API-et trenger prosjektets secret key (eller service_role-nøkkelen), og den skal bare finnes i servermiljøet.`
   }
@@ -141,6 +152,67 @@ function refuse(env: Env, secret: string): string | null {
     return `Hemmeligheten ligger også i ${exposed}. Alt som heter VITE_* bygges inn i nettleserbundelen, så nøkkelen er allerede offentlig – roter den i Supabase og sett den bare som en servervariabel.`
   }
   return null
+}
+
+/**
+ * The agent API and the editor have to be the same database.
+ *
+ * They are configured separately — the browser reads `VITE_SUPABASE_URL` at
+ * build time, this layer reads a server variable at startup — and nothing has
+ * ever made them agree. Two values that must match, set in two places, is a way
+ * for them to stop matching, and Slaids has just done the thing that makes it
+ * likely: it moved to a Supabase project of its own, so both variables changed
+ * at once and the old value is still lying around in a dashboard.
+ *
+ * What that failure looks like from outside is the reason it is worth a
+ * refusal rather than a warning. Nothing errors. The editor signs in and shows
+ * the owner's decks from project A; an agent authenticates, creates a
+ * presentation and reads it back happily — out of project B. Every call
+ * succeeds, `list_presentations` is simply empty, and an agent has no way to
+ * tell "you have no decks" from "you are looking at the wrong database". The
+ * audit rows land in B as well, so even the log agrees with itself.
+ *
+ * Compared by **project reference** — the host's first label — rather than by
+ * the whole string, because `https://ref.supabase.co` and
+ * `https://ref.supabase.co/` are the same project and a custom domain in front
+ * of one is not something this check is entitled to have an opinion about. A
+ * URL that is not a Supabase hostname at all is compared as its whole origin,
+ * which is the strictest reading available for it.
+ */
+function refuseWrongProject(env: Env, chosen: { name: string; value: string }): string | null {
+  const browser = env[BROWSER_SUPABASE_URL_VAR]?.trim()
+  if (!browser || chosen.name === BROWSER_SUPABASE_URL_VAR) return null
+  if (projectRef(browser) === projectRef(chosen.value)) return null
+  return (
+    `${chosen.name} og ${BROWSER_SUPABASE_URL_VAR} peker på hvert sitt Supabase-prosjekt ` +
+    `(${projectRef(chosen.value)} og ${projectRef(browser)}). Agent-API-et ville da lest og skrevet ` +
+    'i en annen database enn editoren, uten at noe av det feilet: en agent ville opprettet ' +
+    'presentasjoner ingen ser i biblioteket, og sett et tomt bibliotek der eieren har dekkene sine. ' +
+    'Sett begge til prosjektet Slaids faktisk bruker, og deploy på nytt.'
+  )
+}
+
+/**
+ * Which Supabase project a URL names.
+ *
+ * The reference is the first label of `<ref>.supabase.co`, which is what
+ * identifies a project everywhere else — in the dashboard, in the issuer, in
+ * the key set address. Anything that is not a Supabase hostname has no
+ * reference, so its whole origin stands in for one: unknown hosts are compared
+ * strictly rather than assumed equal.
+ */
+function projectRef(url: string): string {
+  let host: string
+  let origin: string
+  try {
+    const parsed = new URL(url)
+    host = parsed.hostname.toLowerCase()
+    origin = parsed.origin.toLowerCase()
+  } catch {
+    return url.trim().toLowerCase().replace(/\/+$/, '')
+  }
+  const supabase = /^([^.]+)\.supabase\.(?:co|in|red)$/.exec(host)
+  return supabase ? supabase[1] : origin
 }
 
 /** A configured limit, clamped to something a request could plausibly need. */

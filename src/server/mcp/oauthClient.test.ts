@@ -651,6 +651,15 @@ describe('scripts/mcp-smoke.mjs, med en autorisasjonsserver bak installasjonen',
     expect(authorizationServer.registrations.every((entry) => entry.clientName !== '')).toBe(true)
   }, 30_000)
 
+  it('går grønt med --expect-oauth når installasjonen faktisk tilbyr OAuth', async () => {
+    // The other half of the flag: it has to be silent about an installation
+    // that is configured, or it would be a flag nobody could leave on.
+    const finished = await smoke(['--expect-oauth'])
+
+    expect(finished.out).not.toContain('FEIL')
+    expect(finished.code).toBe(0)
+  }, 30_000)
+
   it('blir rød når registreringen er slått av', async () => {
     authorizationServer.dynamicRegistration = false
     const finished = await smoke([])
