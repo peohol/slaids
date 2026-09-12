@@ -1,8 +1,16 @@
 /**
- * Editor shell.
+ * The editor.
  *
- * Owns loading, autosave, keyboard shortcuts, drag-and-drop routing and every
- * dialog. All state changes go through domain commands via the store.
+ * Owns loading, autosave, keyboard shortcuts, drag-and-drop routing, the
+ * discrete «choose a target zone» placements, and every dialog. All state
+ * changes go through domain commands via the store.
+ *
+ * It also builds the three big surfaces — the strip, the stage, the inspector —
+ * and hands them to a *shell*, which decides only where they go. There are two
+ * shells, and exactly one of them is mounted: the roomy three-column layout,
+ * and the compact one for a window too small to hold it. See
+ * `shell/editorShell.ts` for why that is one at a time rather than two trees
+ * with one hidden.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -24,6 +32,7 @@ import {
   deleteLayoutNode,
   deleteSlide,
   moveSlide,
+  moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
   registerAsset,
@@ -97,10 +106,21 @@ import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
 import { TextToolbar } from './TextToolbar'
 import { ThemeModal } from './ThemeModal'
-import { TopToolbar } from './TopToolbar'
 import { PresentView } from '../present/PresentView'
 import { DRAG_ACTIVATION, SurfacePointerSensor } from './dragActivation'
 import type { ZoneAction } from './ZoneOverlay'
+import { useWorkspace } from '../workspace/WorkspaceContext'
+import { CompactEditorShell } from './shell/CompactEditorShell'
+import { DesktopEditorShell } from './shell/DesktopEditorShell'
+import type { EditorShellProps } from './shell/editorShell'
+import { FocusedTextEditor } from './compact/FocusedTextEditor'
+import {
+  PLACEMENT_PROMPT,
+  placementTargets,
+  type Placement,
+  type PlacementSource,
+} from './placement'
+import { textTargetsForSlide, type TextTargetEntry } from './textTarget'
 
 /**
  * Where the pointer is beats where the boxes overlap.
@@ -199,6 +219,25 @@ export function EditorView({
   const [dropTargets, setDropTargets] = useState<ReadonlySet<string>>(() => new Set())
   const autosaveRef = useRef<ReturnType<typeof startAutosave> | null>(null)
   const [leaving, setLeaving] = useState(false)
+  /**
+   * Content waiting for a zone to be pressed, or `null`.
+   *
+   * The discrete half of every content drag — see `placement.ts`. It is UI
+   * state and nothing else: what finally happens is the same domain command a
+   * drop runs.
+   */
+  const [placement, setPlacement] = useState<Placement | null>(null)
+  /** The field open on the focused writing surface, on a compact workspace. */
+  const [focusedText, setFocusedText] = useState<TextTargetEntry | null>(null)
+  /** Whether the stage is showing the selected zone rather than the whole slide. */
+  const [zoomed, setZoomed] = useState(false)
+
+  /*
+   * How much room there is and how precisely it can be pointed at. Two facts
+   * about the browser window; neither is ever written to the document.
+   */
+  const workspace = useWorkspace()
+  const compact = workspace.compact
 
   /* -------------------------------------------------------------- *
    * Loading and autosave
@@ -465,10 +504,17 @@ export function EditorView({
         }),
       )
       useEditorStore.getState().selectNode(nodeId)
-      setMode('content')
+      /*
+       * On a roomy workspace, filling a zone is an invitation to type in it,
+       * so the editor goes where the caret will be. On a compact one the stage
+       * is never typed on — the text is opened on its own surface — and the
+       * zone panel the content was added from is still the panel on screen, so
+       * dropping out of zone mode would take the outlines away from under it.
+       */
+      if (!compact) setMode('content')
       if (placed && imagePanelOf(content)) setImageOpen('zone')
     },
-    [contentSlide, runStructural, setMode],
+    [compact, contentSlide, runStructural, setMode],
   )
 
   const applyContentKind = useCallback(
@@ -930,6 +976,96 @@ export function EditorView({
   }
 
   /* -------------------------------------------------------------- *
+   * Placing content without dragging it
+   * -------------------------------------------------------------- */
+
+  /**
+   * Start looking for a target zone.
+   *
+   * The legal targets are worked out here, in an event handler, for the reason
+   * `handleDragStart` works them out there: deciding needs an offscreen render
+   * per candidate, and React only allows a synchronous one outside a render
+   * pass. Nothing is committed yet — this is the question, not the answer.
+   */
+  const beginPlacement = useCallback((next: PlacementSource) => {
+    const current = useEditorStore.getState().presentation
+    const slideId = useEditorStore.getState().currentContentSlide()?.id
+    if (!current || !slideId) return
+    const started: Placement = { ...next, slideId }
+    const targets = placementTargets(current, slideId, started)
+    if (targets.size === 0) {
+      notify.warning('Ingen soner på denne sliden har plass til innholdet.')
+      return
+    }
+    setPlacement(started)
+    setDropTargets(targets)
+  }, [])
+
+  const cancelPlacement = useCallback(() => {
+    setPlacement(null)
+    setDropTargets(new Set())
+  }, [])
+
+  /** The target was pressed. Same commands a drop would have run. */
+  const commitPlacement = useCallback(
+    (nodeId: string) => {
+      const slide = useEditorStore.getState().currentContentSlide()
+      if (!placement || !slide || placement.slideId !== slide.id) return
+      if (placement.kind === 'sandbox') {
+        runStructural('place-sandbox-item', (current) =>
+          placeSandboxItem(current, {
+            itemId: placement.itemId,
+            slideId: slide.id,
+            nodeId,
+            ...domFitCheckers,
+          }),
+        )
+      } else {
+        runStructural('move-zone-content', (current) =>
+          moveZoneContent(current, {
+            slideId: slide.id,
+            fromNodeId: placement.nodeId,
+            toNodeId: nodeId,
+            ...domFitCheckers,
+          }),
+        )
+      }
+      useEditorStore.getState().selectNode(nodeId)
+      cancelPlacement()
+    },
+    [cancelPlacement, placement, runStructural],
+  )
+
+  /*
+   * A placement belongs to the slide its targets were measured on. Paging away
+   * therefore does not cancel it — it simply is no longer the current one, and
+   * the prompt and the highlighted zones go with the page, without an effect
+   * having to notice and reset anything.
+   */
+  const activePlacement = placement?.slideId === currentSlideId ? placement : null
+
+  /* -------------------------------------------------------------- *
+   * Focused text editing
+   * -------------------------------------------------------------- */
+
+  /**
+   * Open the first field of a zone on the readable writing surface.
+   *
+   * A compact workspace's answer to "I want to change this text": the zone is
+   * selected by a press on the slide, and this is the way in from there. The
+   * list of fields is derived from the layout tree, so a zone with two
+   * subfields offers the first and the text panel offers the rest.
+   */
+  const editTextInNode = useCallback((nodeId: string) => {
+    const slide = useEditorStore.getState().currentSlide()
+    if (!slide) return
+    const entry = textTargetsForSlide(slide).find(
+      (candidate) => 'nodeId' in candidate.target && candidate.target.nodeId === nodeId,
+    )
+    if (entry) setFocusedText(entry)
+  }, [])
+
+  /* -------------------------------------------------------------- *
    * Zone actions
    * -------------------------------------------------------------- */
 
@@ -940,6 +1076,28 @@ export function EditorView({
     const isRoot = contentSlide.root.id === selectedNodeId
 
     return [
+      ...(compact && hasContent
+        ? [
+            {
+              id: 'edit-text',
+              label: 'Rediger tekst',
+              icon: 'text',
+              onSelect: () => editTextInNode(selectedNodeId),
+              testId: 'zone-action-edit-text',
+            } satisfies ZoneAction,
+          ]
+        : []),
+      {
+        id: 'move',
+        label: 'Flytt innholdet til en annen sone',
+        icon: 'target',
+        disabled: !hasContent,
+        onSelect: () => {
+          const content = selectedLeaf?.content
+          if (content) beginPlacement({ kind: 'zone', nodeId: selectedNodeId, content })
+        },
+        testId: 'zone-action-move',
+      },
       {
         id: 'content',
         label: 'Velg innholdstype',
@@ -997,7 +1155,17 @@ export function EditorView({
         onSelect: () => setImageOpen('ask'),
       },
     ]
-  }, [applyContentKind, contentSlide, runStructural, selectedLeaf, selectedNode, selectedNodeId])
+  }, [
+    applyContentKind,
+    beginPlacement,
+    compact,
+    contentSlide,
+    editTextInNode,
+    runStructural,
+    selectedLeaf,
+    selectedNode,
+    selectedNodeId,
+  ])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -1042,6 +1210,189 @@ export function EditorView({
     ? presentation.sandbox.find((item) => item.id === dragItemId) ?? null
     : null
 
+  /* -------------------------------------------------------------- *
+   * The shell
+   *
+   * The three big surfaces are built once, here, and handed to whichever shell
+   * is mounted. Exactly one of them is — see `shell/editorShell.ts` — so there
+   * is one Tiptap tree, one set of drop targets and one thing being measured,
+   * whatever size the window is.
+   * -------------------------------------------------------------- */
+
+  /**
+   * Zooming into a zone is worth offering only when it would show more than
+   * the whole slide already does: the root fills the stage, so focusing it is
+   * the view it is already in.
+   */
+  const canZoom =
+    compact && contentSlide !== null && selectedRect != null && selectedNodeId !== contentSlide.root.id
+  const focusRect = canZoom && zoomed ? (selectedRect ?? null) : null
+
+  const stageNode = viewedDerivedPage ? (
+    <ReadOnlySlideStage page={viewedDerivedPage} note={derivedPageNote(viewedDerivedPage)} />
+  ) : section ? (
+    <SectionStage section={section} editable={!compact} />
+  ) : interactive ? (
+    // Keyed by the slide, so moving between two interactive slides replaces
+    // the surface — and closes whatever was running on it. The stage and the
+    // inspector are siblings in one list, so the two keys must differ: React
+    // keys siblings by key alone, and two children under one key leave one of
+    // them never removed.
+    <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} />
+  ) : contentSlide ? (
+    <EditorStage
+      slide={contentSlide}
+      actions={zoneActions}
+      onAddContent={addContentTo}
+      onPickImage={(nodeId) => {
+        useEditorStore.getState().selectNode(nodeId)
+        setImageOpen('zone')
+      }}
+      dropTargets={dropTargets}
+      selectOnTap={compact}
+      editableText={!compact}
+      chrome={!compact}
+      focusRect={focusRect}
+      onPlace={activePlacement ? commitPlacement : null}
+    />
+  ) : null
+
+  const inspectorNode = viewedDerivedPage ? (
+    <aside className="inspector" data-testid="inspector">
+      <section className="inspector__section">
+        <h2 className="inspector__heading">
+          {viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
+        </h2>
+        <p className="hint">
+          {viewedDerivedPage.kind === 'qr'
+            ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
+            : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
+        </p>
+      </section>
+    </aside>
+  ) : section ? (
+    <SectionInspector section={section} />
+  ) : interactive ? (
+    <InteractiveInspector key={`inspector:${interactive.id}`} slide={interactive} />
+  ) : contentSlide ? (
+    <Inspector
+      // Remounting per selection drops any half-finished panel state, so a
+      // dialog can never apply to the wrong zone.
+      key={selectedNodeId ?? 'none'}
+      slide={contentSlide}
+      actions={zoneActions}
+      onAddContent={addContentTo}
+      onOptimizeImage={(nodeId) =>
+        setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
+      }
+    />
+  ) : null
+
+  const shellProps: EditorShellProps = {
+    slide,
+    fontState,
+    panels: { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen },
+    toolbar: {
+      title: presentation.title,
+      hasTitleZone: contentSlide?.title != null,
+      canToggleTitle: viewedDerivedPage === null && contentSlide !== null,
+      selectionIsLeaf:
+        viewedDerivedPage === null && contentSlide !== null && selectedNode?.kind === 'leaf',
+      selectionHasContent: Boolean(selectedLeaf?.content),
+      canEditZones: viewedDerivedPage === null && contentSlide !== null,
+      sandboxCount: presentation.sandbox.length,
+      onBack: () => void handleBack(),
+      backPending: leaving,
+      onRename: () => {
+        setRenameValue(presentation.title)
+        setRenameOpen(true)
+      },
+      onToggleTitle: () => {
+        if (contentSlide?.title != null) {
+          if (!isDocEmpty(contentSlide.title)) {
+            setRemovingTitle(true)
+            return
+          }
+          removeTitle()
+          return
+        }
+        restoreTitle()
+      },
+      onSetContentKind: applyContentKind,
+      onOpenReferences: () => setReferencesOpen(true),
+      onOpenTemplates: () => setTemplatesOpen(true),
+      onOpenImage: () => setImageOpen('ask'),
+      onToggleIdeas: () => setIdeasOpen((open) => !open),
+      onToggleSandbox: () => setSandboxOpen((open) => !open),
+      onPresent: () => setPresenting(true),
+      onOpenTheme: () => setThemeOpen(true),
+      onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
+      onToggleShare: toggleShare,
+    },
+    // A compact workspace edits text on the focused surface, which carries its
+    // own formatting bar. A second one over the stage would act on a field
+    // nobody can see.
+    textToolbar: compact ? null : (
+      <TextToolbar
+        onInsertReference={() => setReferencesOpen(true)}
+        onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
+      />
+    ),
+    filmstrip: (
+      <Filmstrip
+        presentation={presentation}
+        derived={derived}
+        viewingDerivedId={viewedDerivedPage?.id ?? null}
+        onSelectDerived={(pageId) =>
+          setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
+        }
+        onSelectAuthored={() => setDerivedView(null)}
+        onRequestDelete={setDeletingSlide}
+        onRequestNewSlide={() => setNewSlideOpen(true)}
+        onRequestNewSection={() => setNewSectionOpen(true)}
+        onRequestNewInteractive={() => setNewInteractiveOpen(true)}
+      />
+    ),
+    stage: stageNode,
+    inspector: inspectorNode,
+    statusBar: (
+      <StatusBar presentation={presentation} onShowShortcuts={() => setShortcutsOpen(true)} />
+    ),
+    ideas: <IdeasWindow open={ideasOpen} onClose={() => setIdeasOpen(false)} />,
+    sandbox: (
+      <SandboxWindow
+        open={sandboxOpen}
+        onClose={() => setSandboxOpen(false)}
+        onPlace={(item) => {
+          // The sheet is the whole screen on a phone; the zone to press is
+          // underneath it.
+          setSandboxOpen(false)
+          beginPlacement({ kind: 'sandbox', itemId: item.id, content: item.content })
+        }}
+      />
+    ),
+    placementBar: activePlacement ? (
+      <div className="placement-bar" data-testid="placement-bar" role="status">
+        <span>{PLACEMENT_PROMPT}</span>
+        <button
+          type="button"
+          className="btn btn--sm"
+          onClick={cancelPlacement}
+          data-testid="placement-cancel"
+        >
+          Avbryt
+        </button>
+      </div>
+    ) : null,
+    onEditText: setFocusedText,
+    zoomed: Boolean(focusRect),
+    onToggleZoom: () => setZoomed((on) => !on),
+    canZoom,
+    onShowShortcuts: () => setShortcutsOpen(true),
+  }
+
+  const Shell = compact ? CompactEditorShell : DesktopEditorShell
+
   return (
     <SlideRenderProvider
       value={{
@@ -1068,125 +1419,7 @@ export function EditorView({
           setDropTargets(new Set())
         }}
       >
-        <div className="editor" data-testid="editor" data-fonts={fontState}>
-          <TopToolbar
-            title={presentation.title}
-            hasTitleZone={contentSlide?.title != null}
-            canToggleTitle={viewedDerivedPage === null && contentSlide !== null}
-            selectionIsLeaf={
-              viewedDerivedPage === null && contentSlide !== null && selectedNode?.kind === 'leaf'
-            }
-            selectionHasContent={Boolean(selectedLeaf?.content)}
-            canEditZones={viewedDerivedPage === null && contentSlide !== null}
-            sandboxCount={presentation.sandbox.length}
-            onBack={() => void handleBack()}
-            backPending={leaving}
-            onRename={() => {
-              setRenameValue(presentation.title)
-              setRenameOpen(true)
-            }}
-            onToggleTitle={() => {
-              if (contentSlide?.title != null) {
-                if (!isDocEmpty(contentSlide.title)) {
-                  setRemovingTitle(true)
-                  return
-                }
-                removeTitle()
-                return
-              }
-              restoreTitle()
-            }}
-            onSetContentKind={applyContentKind}
-            onOpenReferences={() => setReferencesOpen(true)}
-            onOpenTemplates={() => setTemplatesOpen(true)}
-            onOpenImage={() => setImageOpen('ask')}
-            onToggleIdeas={() => setIdeasOpen((open) => !open)}
-            onToggleSandbox={() => setSandboxOpen((open) => !open)}
-            onPresent={() => setPresenting(true)}
-            onOpenTheme={() => setThemeOpen(true)}
-            onOptimizeImages={() => setOptimizeScope({ kind: 'all' })}
-            onToggleShare={toggleShare}
-          />
-
-          <TextToolbar
-            onInsertReference={() => setReferencesOpen(true)}
-            onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
-          />
-
-          <div className="editor__body">
-            <Filmstrip
-              presentation={presentation}
-              derived={derived}
-              viewingDerivedId={viewedDerivedPage?.id ?? null}
-              onSelectDerived={(pageId) =>
-                setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
-              }
-              onSelectAuthored={() => setDerivedView(null)}
-              onRequestDelete={setDeletingSlide}
-              onRequestNewSlide={() => setNewSlideOpen(true)}
-              onRequestNewSection={() => setNewSectionOpen(true)}
-              onRequestNewInteractive={() => setNewInteractiveOpen(true)}
-            />
-            {viewedDerivedPage ? (
-              <ReadOnlySlideStage
-                page={viewedDerivedPage}
-                note={derivedPageNote(viewedDerivedPage)}
-              />
-            ) : section ? (
-              <SectionStage section={section} />
-            ) : interactive ? (
-              // Keyed by the slide, so moving between two interactive slides
-              // replaces the surface — and closes whatever was running on it.
-              // The stage and the inspector are siblings in one list, so the
-              // two keys must differ: React keys siblings by key alone, and
-              // two children under one key leave one of them never removed.
-              <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} />
-            ) : contentSlide ? (
-              <EditorStage
-                slide={contentSlide}
-                actions={zoneActions}
-                onAddContent={addContentTo}
-                onPickImage={(nodeId) => {
-                  useEditorStore.getState().selectNode(nodeId)
-                  setImageOpen('zone')
-                }}
-                dropTargets={dropTargets}
-              />
-            ) : null}
-            {viewedDerivedPage ? (
-              <aside className="inspector" data-testid="inspector">
-                <section className="inspector__section">
-                  <h2 className="inspector__heading">
-                    {viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
-                  </h2>
-                  <p className="hint">
-                    {viewedDerivedPage.kind === 'qr'
-                      ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
-                      : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
-                  </p>
-                </section>
-              </aside>
-            ) : section ? (
-              <SectionInspector section={section} />
-            ) : interactive ? (
-              <InteractiveInspector key={`inspector:${interactive.id}`} slide={interactive} />
-            ) : contentSlide ? (
-              <Inspector
-                // Remounting per selection drops any half-finished panel
-                // state, so a dialog can never apply to the wrong zone.
-                key={selectedNodeId ?? 'none'}
-                slide={contentSlide}
-                actions={zoneActions}
-                onAddContent={addContentTo}
-                onOptimizeImage={(nodeId) =>
-                  setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
-                }
-              />
-            ) : null}
-          </div>
-
-          <StatusBar presentation={presentation} onShowShortcuts={() => setShortcutsOpen(true)} />
-        </div>
+        <Shell {...shellProps} />
 
         <DragOverlay dropAnimation={null}>
           {draggedItem && (
@@ -1208,10 +1441,17 @@ export function EditorView({
             </div>
           )}
         </DragOverlay>
-
-        <IdeasWindow open={ideasOpen} onClose={() => setIdeasOpen(false)} />
-        <SandboxWindow open={sandboxOpen} onClose={() => setSandboxOpen(false)} />
       </DndContext>
+
+      {focusedText && (
+        <FocusedTextEditor
+          target={focusedText.target}
+          label={focusedText.label}
+          onClose={() => setFocusedText(null)}
+          onInsertReference={() => setReferencesOpen(true)}
+          onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
+        />
+      )}
 
       {splitOpen && selectedRect && (
         <SplitModal

@@ -100,6 +100,47 @@ test.describe('slides and content', () => {
     expect((await order()).sort()).toEqual([...before].sort())
   })
 
+  /*
+   * The same reorder, said as a command rather than as a gesture.
+   *
+   * It is not a mobile control that happens to be visible here: a drag is a
+   * shortcut, and the strip has to be usable without one on any surface. The
+   * command it ends in is the same `moveSlide` the drag commits, fit-validated
+   * the same way — so this is also the desktop's guarantee that the road a
+   * phone takes leads to the same deck.
+   */
+  test('reorders slides from the strip without dragging anything', async ({ page }) => {
+    await createPresentation(page, 'Flytt uten dra')
+    for (let i = 0; i < 2; i += 1) {
+      await page.getByTestId('add-slide').click()
+      await page.getByTestId('new-slide-without-title').click()
+    }
+    const order = async (): Promise<string[]> =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="filmstrip-item"]')].map(
+          (item) => (item as HTMLElement).dataset.slideId as string,
+        ),
+      )
+    const before = await order()
+
+    await page.getByTestId('filmstrip-item').nth(3).getByTestId('move-slide-up').click()
+    await expect
+      .poll(order)
+      .toEqual([before[0], before[1], before[3], before[2]])
+
+    await page.getByTestId('filmstrip-item').nth(2).getByTestId('move-slide-down').click()
+    await expect.poll(order).toEqual(before)
+
+    // The front page is a section, and the deck has to keep opening with one:
+    // moving it up is not offered at all rather than refused afterwards.
+    await expect(
+      page.getByTestId('filmstrip-item').first().getByTestId('move-slide-up'),
+    ).toBeDisabled()
+    await expect(
+      page.getByTestId('filmstrip-item').last().getByTestId('move-slide-down'),
+    ).toBeDisabled()
+  })
+
   test('switches between slides from the filmstrip', async ({ page }) => {
     await createPresentation(page, 'Navigasjon')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()

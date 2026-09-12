@@ -37,7 +37,57 @@
   --zone-outline: rgba(255, 255, 255, 0.55);
   --zone-outline-selected: #4f8ef7;
 
+  /*
+   * How much of the page is on screen. Written by the workspace provider from
+   * `visualViewport`; the fallback is what a browser without it gets, which is
+   * simply "all of it".
+   */
+  --slaids-visible-height: 100dvh;
+
+  /* Notch, home indicator, rounded corners — zero everywhere else. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /*
+   * The smallest thing a finger can be asked to hit. Applied where a control
+   * would otherwise be sized for a mouse; the desktop keeps its compact rows.
+   */
+  --touch-target: 44px;
+
   color-scheme: dark;
+}
+
+/*
+ * A coarse pointer is a finger, and a finger needs room. Applied by input
+ * capability rather than by width, so a large tablet running the roomy layout
+ * still gets targets it can hit — and a narrow desktop window does not grow
+ * buttons it has no use for.
+ */
+:root[data-coarse='true'] .touch-target,
+:root[data-coarse='true'] .btn--icon {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+}
+
+:root[data-coarse='true'] .btn {
+  min-height: var(--touch-target);
+}
+
+:root[data-coarse='true'] .btn--sm {
+  min-height: 38px;
+}
+
+/* A reduced-motion setting is a request, not a preference to weigh up. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * {
@@ -59,6 +109,13 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  /*
+   * The browser's own pinch-zoom is left alone — it is the reader's last
+   * resort on any page and Slaids has no business taking it away. What is
+   * blocked is the double-tap zoom that would otherwise turn every second
+   * press on a control into a magnification.
+   */
+  touch-action: manipulation;
 }
 
 button {
@@ -251,9 +308,15 @@ textarea {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(720px, calc(100vw - 64px));
-  max-height: calc(100vh - 80px);
-  overflow: auto;
+  /* The width a dialog asked for, never wider than the screen it landed on. */
+  width: min(var(--dialog-width, 720px), calc(100vw - 64px));
+  /*
+   * Two ceilings, and the dialog obeys both: the window, and the part of it
+   * that is not behind an on-screen keyboard. The second is what keeps the
+   * footer's buttons reachable while somebody is typing in the body.
+   */
+  max-height: min(calc(100vh - 80px), calc(var(--slaids-visible-height) - 24px));
+  overflow: hidden;
   background: var(--chrome-bg-raised);
   border: 1px solid var(--chrome-border-strong);
   border-radius: var(--radius-lg);
@@ -261,6 +324,22 @@ textarea {
   z-index: 51;
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * On a compact workspace a dialog takes what there is. The header and the
+ * footer are pinned and the body scrolls, so the title and the button that
+ * finishes the job are on screen at any height.
+ */
+:root[data-compact='true'] .dialog {
+  width: min(var(--dialog-width, 720px), calc(100vw - 16px));
+  max-height: min(calc(100vh - 24px), calc(var(--slaids-visible-height) - 12px));
+  padding-bottom: var(--safe-bottom);
+}
+
+.dialog__header,
+.dialog__footer {
+  flex: 0 0 auto;
 }
 
 .dialog__header {
@@ -284,6 +363,32 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+:root[data-compact='true'] .dialog__header {
+  padding: 14px 16px 8px;
+}
+
+:root[data-compact='true'] .dialog__body {
+  padding: 10px 16px;
+}
+
+/*
+ * The buttons that finish the job wrap instead of overflowing, and the
+ * confirming one stays last so the order never changes under a thumb.
+ */
+:root[data-compact='true'] .dialog__footer {
+  padding: 12px 16px 14px;
+  flex-wrap: wrap;
+}
+
+:root[data-compact='true'] .dialog__footer .btn {
+  flex: 1 1 auto;
+  justify-content: center;
 }
 
 .dialog__footer {
@@ -320,12 +425,20 @@ textarea {
 .toasts {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  /* Above the compact tab bar and above the home indicator. */
+  bottom: calc(18px + var(--safe-bottom));
   display: flex;
   flex-direction: column;
   gap: 8px;
   z-index: 80;
   max-width: 420px;
+}
+
+:root[data-compact='true'] .toasts {
+  left: calc(10px + var(--safe-left));
+  right: calc(10px + var(--safe-right));
+  bottom: calc(var(--compact-bar-height, 60px) + 10px + var(--safe-bottom));
+  max-width: none;
 }
 
 .toast {

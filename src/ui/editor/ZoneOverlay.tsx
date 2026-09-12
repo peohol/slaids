@@ -13,12 +13,12 @@
 import { Fragment } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { collectNodes, findNode } from '../../domain/layout'
-import { breadcrumbLabels } from '../../domain/layout'
 import type { ContentSlide, LayoutNode, NodeId, Rect } from '../../domain/types'
 import type { SlideGeometry } from '../../domain/geometry'
 import { absoluteStyle } from '../slide/SlideView'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { ZoneBreadcrumb } from './ZoneBreadcrumb'
 
 export interface ZoneActionMenuItem {
   id: string
@@ -49,6 +49,15 @@ export interface ZoneOverlayProps {
   /** Ratio handles are only shown when a split is selected or hovered. */
   onHandleDown: (splitId: NodeId, boundaryIndex: number, event: React.PointerEvent) => void
   handleGap: number
+  /**
+   * Whether the breadcrumb and the action buttons are drawn on the slide.
+   *
+   * They are undone by the stage's scale so they stay a comfortable size —
+   * which is exactly what makes them wrong on a compact workspace, where a
+   * screen-sized toolbar would cover most of a thumbnail-sized slide. There
+   * they live in the zone panel instead, and the slide keeps its outlines.
+   */
+  chrome?: boolean
 }
 
 function isDescendant(root: LayoutNode, ancestorId: NodeId, nodeId: NodeId): boolean {
@@ -67,22 +76,10 @@ export function ZoneOverlay({
   onBreadcrumb,
   onHandleDown,
   handleGap,
+  chrome = true,
 }: ZoneOverlayProps) {
   const nodes = collectNodes(slide.root)
   const selectedRect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
-
-  const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
-  const breadcrumbIds: NodeId[] = []
-  if (selectedNodeId) {
-    let current: NodeId | null = selectedNodeId
-    while (current) {
-      breadcrumbIds.unshift(current)
-      const parent = nodes.find(
-        (node) => node.kind === 'split' && node.children.some((child) => child.id === current),
-      )
-      current = parent ? parent.id : null
-    }
-  }
 
   return (
     <div className="zone-overlay" data-testid="zone-overlay">
@@ -143,7 +140,7 @@ export function ZoneOverlay({
         )
       })}
 
-      {selectedRect && (
+      {chrome && selectedRect && selectedNodeId && (
         <div
           className="zone-actions-anchor"
           style={{
@@ -165,20 +162,7 @@ export function ZoneOverlay({
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <div className="zone-breadcrumb" data-testid="zone-breadcrumb">
-              {breadcrumb.map((label, index) => (
-                <Fragment key={breadcrumbIds[index] ?? index}>
-                  {index > 0 && <span className="zone-breadcrumb__sep">›</span>}
-                  <button
-                    type="button"
-                    className="zone-breadcrumb__item"
-                    onClick={() => breadcrumbIds[index] && onBreadcrumb(breadcrumbIds[index])}
-                  >
-                    {label}
-                  </button>
-                </Fragment>
-              ))}
-            </div>
+            <ZoneBreadcrumb root={slide.root} nodeId={selectedNodeId} onSelect={onBreadcrumb} />
             <div className="zone-actions__buttons">
               {actions.map((action) =>
                 action.menu ? (

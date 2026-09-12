@@ -390,3 +390,129 @@
 .tokens__error {
   color: var(--chrome-danger);
 }
+
+/* ----------------------------------------------------------------- *
+ * The library on a small screen
+ *
+ * Pure layout, so it is pure CSS: the same cards, the same actions, the same
+ * markup — stacked instead of columned, and with nothing that only a hover can
+ * reach. The desktop layout is untouched wherever there is room for it.
+ * ----------------------------------------------------------------- */
+
+:root[data-compact='true'] .library {
+  height: var(--slaids-visible-height);
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+:root[data-compact='true'] .library__header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px 16px 12px;
+}
+
+:root[data-compact='true'] .library__subtitle {
+  font-size: 13px;
+}
+
+:root[data-compact='true'] .library__actions {
+  flex-wrap: wrap;
+}
+
+:root[data-compact='true'] .library__actions .btn {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+/*
+ * The folder rail becomes a row above the grid: on a phone a sidebar is either
+ * too narrow to read or too wide to leave room for the thing it filters.
+ */
+:root[data-compact='true'] .library__body {
+  display: flex;
+  flex-direction: column;
+}
+
+:root[data-compact='true'] .library__folders {
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-right: none;
+  border-bottom: 1px solid var(--chrome-border);
+  padding: 8px 12px;
+}
+
+:root[data-compact='true'] .library__folders-head {
+  padding: 0 4px 0 0;
+}
+
+:root[data-compact='true'] .library__folders .folder-item,
+:root[data-compact='true'] .library__folders > .folder-item {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: var(--touch-target);
+}
+
+:root[data-compact='true'] .folder-row {
+  flex: 0 0 auto;
+}
+
+:root[data-compact='true'] .library__folders-divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  flex: 0 0 auto;
+}
+
+/*
+ * One column when one column is all that fits — `min()` rather than a bare
+ * 280px, because a track wider than the screen is what makes a page scroll
+ * sideways.
+ */
+:root[data-compact='true'] .library__grid {
+  padding: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+}
+
+:root[data-compact='true'] .library__trash-head {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+:root[data-compact='true'] .presentation-card__tools {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+:root[data-compact='true'] .presentation-card__open,
+:root[data-compact='true'] .presentation-card__body {
+  padding: 14px 14px 10px;
+}
+
+:root[data-compact='true'] .select--inline {
+  min-height: 38px;
+  margin-left: 0;
+  width: 100%;
+}
+
+:root[data-compact='true'] .library__footer {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 14px calc(8px + var(--safe-bottom));
+}
+
+/* The fonts preview pair stacks rather than squeezing two columns into one. */
+:root[data-compact='true'] .new-presentation__fonts {
+  grid-template-columns: 1fr;
+}
+
+:root[data-compact='true'] .auth__actions {
+  grid-template-columns: 1fr;
+}

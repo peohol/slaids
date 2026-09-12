@@ -1,7 +1,16 @@
-/** Radix Dialog wrapper with the app's chrome styling. */
+/**
+ * Radix Dialog wrapper with the app's chrome styling.
+ *
+ * `width` is a *wish*, not a size. It is published as a custom property and the
+ * stylesheet clamps it to what is actually on screen, so a dialog that asks for
+ * 720 px gets 720 px on a desktop and the width of a phone on a phone —
+ * without every dialog having to know that phones exist. The header and the
+ * footer stay put and the body scrolls, so the title and the buttons that
+ * finish the job are reachable however short the viewport gets.
+ */
 
 import * as Dialog from '@radix-ui/react-dialog'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 export interface ModalProps {
   open: boolean
@@ -30,7 +39,7 @@ export function Modal({
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content
           className="dialog"
-          style={width ? { width } : undefined}
+          style={width ? ({ '--dialog-width': `${width}px` } as CSSProperties) : undefined}
           data-testid={testId}
           aria-describedby={description ? undefined : ''}
         >

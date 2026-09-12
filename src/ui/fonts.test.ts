@@ -59,7 +59,9 @@ describe('ensureWebFonts', () => {
     expect(webFontsReady([INTER])).toBe(false)
 
     const link = linkFor('Inter')
-    expect(link.href).toContain('family=Noto+Sans+Symbols+2')
+    // Named from the constant rather than spelled out: the fallback family has
+    // been changed once already, and a literal here went stale without saying so.
+    expect(link.href).toContain(`family=${SYMBOL_FALLBACK_WEB_FONT.replace(/ /g, '+')}`)
     link.dispatchEvent(new Event('load'))
     const outcome = await promise
     expect(outcome).toEqual({ ready: ['Inter'], failed: [] })

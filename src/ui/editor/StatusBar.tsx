@@ -23,6 +23,31 @@ const SAVE_LABELS: Record<string, string> = {
   error: 'Lagring feilet',
 }
 
+/**
+ * Whether the work is safe, in one element.
+ *
+ * Lifted out of the status bar because a compact workspace has no status bar
+ * and still has to say this — and because it is the one thing the tests wait
+ * for before they reload. Two of them would be two answers.
+ */
+export function SaveIndicator({ short = false }: { short?: boolean }) {
+  const saveStatus = useEditorStore((state) => state.saveStatus)
+  const label = SAVE_LABELS[saveStatus] ?? saveStatus
+  return (
+    <span data-testid="save-status" data-state={saveStatus} title={label}>
+      {short ? SHORT_SAVE_LABELS[saveStatus] ?? label : label}
+    </span>
+  )
+}
+
+/** The same four states where there is only room for a word. */
+const SHORT_SAVE_LABELS: Record<string, string> = {
+  saved: 'Lagret',
+  saving: 'Lagrer …',
+  dirty: 'Ulagret',
+  error: 'Feil',
+}
+
 export function StatusBar({
   presentation,
   onShowShortcuts,
@@ -30,7 +55,6 @@ export function StatusBar({
   presentation: Presentation
   onShowShortcuts: () => void
 }) {
-  const saveStatus = useEditorStore((state) => state.saveStatus)
   const mode = useEditorStore((state) => state.mode)
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
@@ -43,9 +67,7 @@ export function StatusBar({
 
   return (
     <footer className="statusbar" data-testid="statusbar">
-      <span data-testid="save-status" data-state={saveStatus}>
-        {SAVE_LABELS[saveStatus] ?? saveStatus}
-      </span>
+      <SaveIndicator />
       <span className="statusbar__sep">·</span>
       <span>
         {`${pageLabel(slide?.kind, index)} ${index + 1} av ${presentation.slides.length}`}

@@ -1787,3 +1787,598 @@
 .optimize-outcome p {
   margin: 0;
 }
+
+/* ----------------------------------------------------------------- *
+ * Non-drag structural controls
+ *
+ * The discrete twins of the ratio drag and the sandbox drag. They are not a
+ * mobile feature hidden behind a breakpoint: a mouse can use them too, and on
+ * a touch screen they are the only road there is.
+ * ----------------------------------------------------------------- */
+
+.zone-size {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zone-size__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.zone-size__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zone-size__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--chrome-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-size__label.is-current {
+  color: var(--chrome-text);
+  font-weight: 600;
+}
+
+.zone-size__value {
+  width: 56px;
+  height: 28px;
+  text-align: center;
+  padding: 0 4px;
+}
+
+/*
+ * The prompt that stands while content is waiting for a zone. Over the work
+ * rather than in it: it belongs to a gesture in progress, not to the layout,
+ * and it has to be visible whichever shell is mounted.
+ */
+.placement-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + var(--safe-bottom));
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--chrome-accent);
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+}
+
+:root[data-compact='true'] .placement-bar {
+  bottom: calc(var(--compact-bar-height) + 12px + var(--safe-bottom));
+}
+
+.sandbox-item__place {
+  margin-right: auto;
+}
+
+/* ----------------------------------------------------------------- *
+ * The compact workspace
+ *
+ * One screen, one big surface at a time. Landscape floats the panel over the
+ * right-hand side of the stage; portrait stacks it underneath. Same markup
+ * either way — rotating a phone moves boxes and remounts nothing.
+ * ----------------------------------------------------------------- */
+
+:root {
+  --compact-bar-height: 56px;
+  /* How much of a portrait screen the slide preview takes before the panel. */
+  --compact-preview-share: 34vh;
+  /* The side panel's width in landscape, and therefore what the stage gives up. */
+  --compact-panel-width: min(340px, 44%);
+}
+
+.editor--compact {
+  /*
+   * The visible viewport, not the layout viewport: an on-screen keyboard
+   * shrinks the first and leaves the second alone, and a bottom bar sized to
+   * the second would sit behind the keyboard exactly when it is needed most.
+   */
+  height: var(--slaids-visible-height);
+  padding-top: var(--safe-top);
+}
+
+.compact-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  background: var(--chrome-bg-raised);
+  padding-left: calc(6px + var(--safe-left));
+  padding-right: calc(6px + var(--safe-right));
+}
+
+.compact-bar--top {
+  min-height: 52px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+.compact-bar__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.compact-bar__name {
+  font-size: 15px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-bar__title [data-testid='save-status'] {
+  font-size: 11px;
+  color: var(--chrome-text-dim);
+}
+
+.compact-bar--tabs {
+  min-height: var(--compact-bar-height);
+  border-top: 1px solid var(--chrome-border);
+  padding-bottom: var(--safe-bottom);
+  justify-content: space-around;
+}
+
+.compact-tab {
+  position: relative;
+  flex: 1;
+  min-height: var(--touch-target);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-dim);
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.compact-tab--active {
+  color: #cfe0ff;
+  background: var(--chrome-accent-soft);
+}
+
+.compact-tab__badge {
+  position: absolute;
+  top: 2px;
+  right: 22%;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--chrome-accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 17px;
+}
+
+/* The body is a row in landscape and a column in portrait — nothing else. */
+.compact-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+}
+
+.compact-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.compact-stage .stage-viewport {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Zooming into a zone is a view transform; the slide itself is unchanged. */
+.stage-scaler[data-focused] {
+  overflow: hidden;
+}
+
+.compact-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+}
+
+.compact-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--chrome-bg-inset);
+}
+
+.compact-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--chrome-border);
+  flex: 0 0 auto;
+}
+
+.compact-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.compact-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * The strip and the inspector are the desktop's own components, so their
+ * desktop widths and borders have to give way here — nothing else about them
+ * changes, and neither of them knows it is on a phone.
+ */
+.compact-panel__body > .filmstrip,
+.compact-panel__body > .inspector {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+}
+
+/* Portrait: preview on top, work underneath. */
+:root[data-orientation='portrait'] .compact-body {
+  flex-direction: column;
+}
+
+:root[data-orientation='portrait'] .compact-stage {
+  flex: 0 0 var(--compact-preview-share);
+}
+
+/* With no panel open, the slide is the screen. That is the "focus" control. */
+:root[data-orientation='portrait'] .editor--compact[data-panel='none'] .compact-stage {
+  flex: 1;
+}
+
+:root[data-orientation='portrait'] .compact-panel {
+  flex: 1;
+  border-top: 1px solid var(--chrome-border);
+}
+
+/*
+ * Landscape: the slide keeps the whole stage and the panel floats over the
+ * right of it. Anything else would leave the slide a strip between two panels,
+ * which is the arrangement this shell exists to avoid.
+ */
+:root[data-orientation='landscape'] .compact-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--compact-panel-width);
+  border-left: 1px solid var(--chrome-border-strong);
+  box-shadow: -12px 0 28px rgba(0, 0, 0, 0.4);
+  z-index: 4;
+  padding-right: var(--safe-right);
+}
+
+/*
+ * The panel floats over the stage, so the stage stands back from it: a slide
+ * half underneath a panel is worse than a slightly smaller slide, and the
+ * stage scales to whatever room it is left with.
+ */
+:root[data-orientation='landscape'] .editor--compact:not([data-panel='none']) .compact-stage {
+  padding-right: var(--compact-panel-width);
+}
+
+/* A phone on its side has little height to spare; the bars give some back. */
+:root[data-orientation='landscape'][data-compact='true'] .compact-bar--top {
+  min-height: 46px;
+}
+
+:root[data-orientation='landscape'][data-compact='true'] .compact-bar--tabs {
+  min-height: 50px;
+}
+
+/* The list of text on the page: the portrait workspace's main surface. */
+.compact-content {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compact-content__item {
+  width: 100%;
+  min-height: var(--touch-target);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'where icon' 'preview icon';
+  align-items: center;
+  gap: 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-raised);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compact-content__item svg {
+  grid-area: icon;
+  color: var(--chrome-text-dim);
+}
+
+.compact-content__where {
+  grid-area: where;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--chrome-text-dim);
+}
+
+.compact-content__preview {
+  grid-area: preview;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px;
+}
+
+.compact-tools__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compact-tools__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compact-tools__item {
+  width: 100%;
+  min-height: var(--touch-target);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-raised);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compact-tools__item:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* ----------------------------------------------------------------- *
+ * The focused writing surface
+ *
+ * Big enough to read; never the thing the text is measured against — see
+ * `FocusedTextEditor`.
+ * ----------------------------------------------------------------- */
+
+.text-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  /* Only as tall as what is on screen, so the keyboard covers nothing. */
+  height: var(--slaids-visible-height);
+  z-index: 52;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome-bg);
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.text-sheet__head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'title done' 'note done';
+  align-items: center;
+  gap: 0 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+.text-sheet__title {
+  grid-area: title;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.text-sheet__head .hint {
+  grid-area: note;
+}
+
+.text-sheet__head .btn {
+  grid-area: done;
+}
+
+.text-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+/*
+ * Readable type, and nothing else overridden.
+ *
+ * The document is the same ProseMirror document the slide holds, so every
+ * structural style it carries still applies; what changes here is the size it
+ * is drawn at, which is a property of this surface and of nothing that gets
+ * stored.
+ */
+.text-sheet__field .tiptap {
+  min-height: 40vh;
+  font-size: 17px;
+  line-height: 1.55;
+  outline: none;
+}
+
+.text-sheet__tools {
+  flex: 0 0 auto;
+  padding-bottom: var(--safe-bottom);
+}
+
+.text-sheet__tools .text-toolbar {
+  height: auto;
+  min-height: 46px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 6px 10px;
+  border-bottom: none;
+  border-top: 1px solid var(--chrome-border);
+}
+
+/* ----------------------------------------------------------------- *
+ * Floating windows as sheets
+ * ----------------------------------------------------------------- */
+
+.floating-window[data-compact] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  width: auto;
+  /* Above the tab bar's height so the tabs stay reachable behind it. */
+  height: min(78%, calc(var(--slaids-visible-height) - 56px));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding-bottom: var(--safe-bottom);
+  z-index: 45;
+}
+
+.floating-window[data-compact] .floating-window__bar {
+  cursor: default;
+  min-height: var(--touch-target);
+}
+
+/* ----------------------------------------------------------------- *
+ * Presentation controls for a screen with no keyboard
+ * ----------------------------------------------------------------- */
+
+.present-controls {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14px + var(--safe-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--chrome-border-strong);
+  background: rgba(18, 21, 26, 0.88);
+  backdrop-filter: blur(6px);
+  /*
+   * Out of the way, but never gone: hidden means transparent and inert, and
+   * one press anywhere on the slide brings it back.
+   */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.present-controls[data-visible] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.present-controls__btn {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chrome-text);
+  cursor: pointer;
+}
+
+.present-controls__btn:disabled {
+  opacity: 0.35;
+}
+
+.present-controls__btn--exit {
+  background: var(--chrome-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.present-controls__count {
+  min-width: 56px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--chrome-text-dim);
+}
+
+/*
+ * An interactive slide's note under the stage is desktop advice about a panel
+ * that is not beside the stage here. The exit button it describes is drawn at
+ * screen size by the runtime itself and needs nothing from this file.
+ */
+:root[data-compact='true'] .stage-note {
+  display: none;
+}
