@@ -211,25 +211,17 @@ export function advanceRatioFor(stack: string | undefined): number {
 }
 
 /**
- * Google Fonts families that must be loaded for the given stacks.
+ * The authored Google Fonts families named by these stacks.
  * Nothing is fetched unless the presentation actually uses a web font.
- *
- * A guaranteed stack also depends on the symbol fallback above. It is added
- * once after the authored families so both the editor and the headless preview
- * wait for the same complete stack, while a local/system stack still causes no
- * network request at all.
+ * Supplemental faces are attached by `webFontFaces` so callers never need a
+ * second truth for what completes one of these families.
  */
 export function webFontsFor(stacks: string[]): string[] {
   const families = new Set<string>()
-  let needsSymbolFallback = false
   for (const stack of stacks) {
     const font = findFontByStack(stack)
-    if (font?.webFont) {
-      families.add(font.webFont)
-      needsSymbolFallback = true
-    }
+    if (font?.webFont) families.add(font.webFont)
   }
-  if (needsSymbolFallback) families.add(SYMBOL_FALLBACK_WEB_FONT)
   return [...families]
 }
 
@@ -267,22 +259,47 @@ export function localFontsFor(stacks: readonly string[]): string[] {
  */
 export const FONT_WEIGHTS: readonly number[] = [400, 600, 700]
 
-/** Weights that actually exist for a web family. */
+export interface WebFontFaceRequest {
+  family: string
+  weights: readonly number[]
+}
+
+/**
+ * Every face that completes one authored web font.
+ *
+ * The symbol fallback is a dependency of guaranteed font stacks, not a second
+ * font choice. Keeping the expansion here lets the editor, miniapp inliner and
+ * Chromium readiness check agree without exposing an extra family in the theme.
+ */
+export function webFontFaces(family: string): WebFontFaceRequest[] {
+  if (family === SYMBOL_FALLBACK_WEB_FONT) {
+    return [{ family, weights: SYMBOL_FALLBACK_WEIGHTS }]
+  }
+  return [
+    { family, weights: FONT_WEIGHTS },
+    { family: SYMBOL_FALLBACK_WEB_FONT, weights: SYMBOL_FALLBACK_WEIGHTS },
+  ]
+}
+
+/** Weights that actually exist for one family. */
 export function webFontWeights(family: string): readonly number[] {
   return family === SYMBOL_FALLBACK_WEB_FONT ? SYMBOL_FALLBACK_WEIGHTS : FONT_WEIGHTS
 }
 
 /**
- * Where a web font's faces come from.
+ * Where a web font's complete stack comes from.
  *
- * The `webFont` field above is already documented as a Google Fonts family
- * name, so the URL that fetches it belongs beside it: the browser's loader and
- * the headless preview both need the same stylesheet, and two spellings of the
- * same query would mean the preview could render faces the editor never
- * measured.
+ * The authored family and its symbol fallback are requested in one Google Fonts
+ * stylesheet. That matters for the direct browser path and for the shared
+ * inliner: both receive the same fallback face, while the theme still names only
+ * the font the author chose.
  */
 export function googleFontsHref(family: string): string {
-  const weights = webFontWeights(family)
-  const query = `family=${encodeURIComponent(family).replace(/%20/g, '+')}:wght@${weights.join(';')}`
-  return `https://fonts.googleapis.com/css2?${query}&display=swap`
+  const queries = webFontFaces(family).map(({ family: face, weights }) => {
+    const encoded = encodeURIComponent(face).replace(/%20/g, '+')
+    return weights.length === 1 && weights[0] === 400
+      ? `family=${encoded}`
+      : `family=${encoded}:wght@${weights.join(';')}`
+  })
+  return `https://fonts.googleapis.com/css2?${queries.join('&')}&display=swap`
 }
