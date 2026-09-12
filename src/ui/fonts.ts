@@ -15,12 +15,12 @@
  * inheriting a false "loaded" flag.
  *
  * Only families a presentation actually uses are requested: a deck set in the
- * system stack asks for nothing. A guaranteed web-font stack asks for its
- * authored family plus the controlled symbol fallback declared in
+ * system stack asks for nothing. A guaranteed web-font stylesheet carries both
+ * the authored family and the controlled symbol fallback declared in
  * `domain/fonts.ts`.
  */
 
-import { googleFontsHref, webFontsFor, webFontWeights } from '../domain/fonts'
+import { googleFontsHref, webFontFaces, webFontsFor } from '../domain/fonts'
 
 /**
  * How long to wait for a family before calling it unavailable.
@@ -37,7 +37,7 @@ export interface FontLoadOutcome {
   failed: string[]
 }
 
-/** Families whose faces are confirmed usable, keyed by family name. */
+/** Families whose complete face set is confirmed usable, keyed by authored family. */
 const usable = new Set<string>()
 /** In-flight (or settled-successful) loads, so concurrent callers share one request. */
 const pending = new Map<string, Promise<boolean>>()
@@ -86,9 +86,11 @@ async function loadFamily(family: string): Promise<boolean> {
   // to verify; the stylesheet is as far as this environment goes.
   if (!fonts) return true
 
-  const weights = webFontWeights(family)
-  await Promise.all(weights.map((weight) => fonts.load(`${weight} 16px "${family}"`)))
-  return weights.every((weight) => fonts.check(`${weight} 16px "${family}"`))
+  const specs = webFontFaces(family).flatMap(({ family: face, weights }) =>
+    weights.map((weight) => `${weight} 16px "${face}"`),
+  )
+  await Promise.all(specs.map((spec) => fonts.load(spec)))
+  return specs.every((spec) => fonts.check(spec))
 }
 
 function withTimeout(work: Promise<boolean>, ms: number): Promise<boolean> {
