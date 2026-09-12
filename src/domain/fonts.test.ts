@@ -9,22 +9,28 @@ import {
 } from './fonts'
 
 const LEGACY_QUICKSAND = "'Quicksand', 'Segoe UI', system-ui, sans-serif"
+const SYMBOLS_2_QUICKSAND =
+  "'Quicksand', 'Noto Sans Symbols 2', 'Segoe UI', system-ui, sans-serif"
 
 describe('guaranteed web-font stacks', () => {
-  it('adds a controlled symbol fallback without forgetting stored legacy stacks', () => {
+  it('uses the basic-Arrows symbol face and keeps both older stored stacks compatible', () => {
     const canonical = fontStackFor('quicksand')
 
-    expect(canonical).toContain(`'${SYMBOL_FALLBACK_WEB_FONT}'`)
-    expect(findFontByStack(LEGACY_QUICKSAND)?.id).toBe('quicksand')
-    expect(renderFontStack(LEGACY_QUICKSAND)).toBe(canonical)
-    expect(webFontsFor([LEGACY_QUICKSAND])).toEqual(['Quicksand'])
+    expect(SYMBOL_FALLBACK_WEB_FONT).toBe('Noto Sans Symbols')
+    expect(canonical).toContain("'Noto Sans Symbols'")
+    for (const legacy of [LEGACY_QUICKSAND, SYMBOLS_2_QUICKSAND]) {
+      expect(findFontByStack(legacy)?.id).toBe('quicksand')
+      expect(renderFontStack(legacy)).toBe(canonical)
+      expect(webFontsFor([legacy])).toEqual(['Quicksand'])
+    }
   })
 
   it('requests the authored family and the symbol fallback from one stylesheet', () => {
     const href = googleFontsHref('Quicksand')
 
     expect(href).toContain('family=Quicksand:wght@400;600;700')
-    expect(href).toContain('family=Noto+Sans+Symbols+2')
+    expect(href).toContain('family=Noto+Sans+Symbols')
+    expect(href).not.toContain('family=Noto+Sans+Symbols+2')
   })
 
   it('does not turn a local/system stack into a network font', () => {
