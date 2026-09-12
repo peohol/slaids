@@ -149,6 +149,24 @@ export type CatalogueFont = FontOption & { id: FontId }
 
 export const FONT_OPTIONS: readonly CatalogueFont[] = CATALOGUE
 
+/**
+ * Stacks written before the guaranteed symbol fallback was added.
+ *
+ * Font stacks are persisted presentation data, so changing the catalogue cannot
+ * make an existing deck suddenly look like an unknown/local font. These aliases
+ * are recognition only: new choices store the canonical stack above, while an
+ * old deck is understood and rendered as the same font with the new fallback.
+ */
+const LEGACY_WEB_STACKS: Partial<Record<FontId, string>> = {
+  quicksand: "'Quicksand', 'Segoe UI', system-ui, sans-serif",
+  atkinson: "'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif",
+  'open-sans': "'Open Sans', 'Segoe UI', system-ui, sans-serif",
+  inter: "'Inter', 'Segoe UI', system-ui, sans-serif",
+  'source-sans': "'Source Sans 3', 'Segoe UI', sans-serif",
+  merriweather: "'Merriweather', Georgia, serif",
+  'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif",
+}
+
 export function findFontById(id: string): CatalogueFont | undefined {
   return FONT_OPTIONS.find((font) => font.id === id)
 }
@@ -201,7 +219,15 @@ export const DEFAULT_HEADING_FONT = fontStackFor('quicksand')
 export const DEFAULT_BODY_FONT = fontStackFor('atkinson')
 
 export function findFontByStack(stack: string): CatalogueFont | undefined {
-  return FONT_OPTIONS.find((font) => font.stack === stack)
+  return (
+    FONT_OPTIONS.find((font) => font.stack === stack) ??
+    FONT_OPTIONS.find((font) => LEGACY_WEB_STACKS[font.id] === stack)
+  )
+}
+
+/** Canonical rendering stack, including guaranteed fallbacks for legacy decks. */
+export function renderFontStack(stack: string): string {
+  return findFontByStack(stack)?.stack ?? stack
 }
 
 /** Average glyph advance for a font stack, for the headless fit estimator. */
