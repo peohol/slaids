@@ -110,13 +110,13 @@ export async function inlineFontFaces(
 }
 
 /**
- * One family's `@font-face` rules, with the files in them.
+ * One authored family's complete `@font-face` rules, with the files in them.
  *
- * `googleFontsHref` asks for every weight in `FONT_WEIGHTS` — the ones the slide
- * renderer can ask for — so a heading pill's 700 is downloaded even on a slide
- * that has no bold text. That is the same reason `src/ui/fonts.ts` loads them
- * explicitly in the browser: a face that is missing when the picture is taken is
- * a picture of the wrong type.
+ * `googleFontsHref` asks for every authored weight the slide renderer can use
+ * and for the regular-only symbol fallback that completes the guaranteed stack.
+ * That is the same reason `src/ui/fonts.ts` loads the faces explicitly in the
+ * browser: a face that is missing when the picture is taken is a picture of the
+ * wrong type.
  */
 async function inlineFamily(
   family: string,

@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { FONT_WEIGHTS } from '../domain/fonts'
+import { FONT_WEIGHTS, SYMBOL_FALLBACK_WEB_FONT } from '../domain/fonts'
 import { defaultTheme } from '../domain/presentation'
 import {
   NO_PREVIEW_FONTS,
@@ -72,7 +72,7 @@ describe('hvilke familier som hentes', () => {
 })
 
 describe('innbaking', () => {
-  it('erstatter hver fontfil med en data-URL, og ber om alle vektene', async () => {
+  it('erstatter hver fontfil med en data-URL, og ber om alle vektene og symbolfallbacken', async () => {
     const { fetchImpl, calls } = fakeFetch()
     const fonts = await googleFontLoader({ fetch: fetchImpl })(['Quicksand'])
 
@@ -87,6 +87,9 @@ describe('innbaking', () => {
     // The weights the slide renderer can ask for, all of them: a heading pill's
     // 700 has to be there even on a slide with no bold text.
     for (const weight of FONT_WEIGHTS) expect(stylesheet).toContain(String(weight))
+    expect(stylesheet).toContain(
+      `family=${encodeURIComponent(SYMBOL_FALLBACK_WEB_FONT).replace(/%20/g, '+')}`,
+    )
   })
 
   it('henter hver familie én gang per instans', async () => {

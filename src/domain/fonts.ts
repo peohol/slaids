@@ -49,6 +49,22 @@ export interface FontOption {
 export const DEFAULT_ADVANCE_RATIO = 0.5
 
 /**
+ * Symbols are a separate guaranteed face, not something left to the machine.
+ *
+ * Google Fonts' Latin subsets are deliberately small and many display fonts do
+ * not contain arrows and other presentation symbols at all. A desktop browser
+ * often hides that through an installed system fallback; the serverless
+ * Chromium used for previews cannot make the same promise. Noto Sans Symbols 2
+ * is therefore the final authored fallback for every guaranteed web font. It
+ * is only used for glyphs the chosen font does not have, so ordinary text keeps
+ * the selected typeface and its metrics.
+ */
+export const SYMBOL_FALLBACK_WEB_FONT = 'Noto Sans Symbols 2'
+
+/** The symbol face is regular-only; the browser synthesizes styling if needed. */
+export const SYMBOL_FALLBACK_WEIGHTS: readonly number[] = [400]
+
+/**
  * The catalogue, and the only place a font is named.
  *
  * `as const` is load-bearing rather than decorative: it is what turns the ids
@@ -61,21 +77,22 @@ const CATALOGUE = [
   {
     id: 'quicksand',
     label: 'Quicksand',
-    stack: "'Quicksand', 'Segoe UI', system-ui, sans-serif",
+    stack: "'Quicksand', 'Noto Sans Symbols 2', 'Segoe UI', system-ui, sans-serif",
     webFont: 'Quicksand',
     advance: 0.52,
   },
   {
     id: 'atkinson',
     label: 'Atkinson Hyperlegible Next',
-    stack: "'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif",
+    stack:
+      "'Atkinson Hyperlegible Next', 'Noto Sans Symbols 2', 'Segoe UI', system-ui, sans-serif",
     webFont: 'Atkinson Hyperlegible Next',
     advance: 0.52,
   },
   {
     id: 'open-sans',
     label: 'Open Sans',
-    stack: "'Open Sans', 'Segoe UI', system-ui, sans-serif",
+    stack: "'Open Sans', 'Noto Sans Symbols 2', 'Segoe UI', system-ui, sans-serif",
     webFont: 'Open Sans',
     advance: 0.51,
   },
@@ -89,7 +106,7 @@ const CATALOGUE = [
   {
     id: 'inter',
     label: 'Inter',
-    stack: "'Inter', 'Segoe UI', system-ui, sans-serif",
+    stack: "'Inter', 'Noto Sans Symbols 2', 'Segoe UI', system-ui, sans-serif",
     webFont: 'Inter',
     advance: 0.52,
   },
@@ -104,21 +121,21 @@ const CATALOGUE = [
   {
     id: 'source-sans',
     label: 'Source Sans 3',
-    stack: "'Source Sans 3', 'Segoe UI', sans-serif",
+    stack: "'Source Sans 3', 'Noto Sans Symbols 2', 'Segoe UI', sans-serif",
     webFont: 'Source Sans 3',
     advance: 0.48,
   },
   {
     id: 'merriweather',
     label: 'Merriweather',
-    stack: "'Merriweather', Georgia, serif",
+    stack: "'Merriweather', 'Noto Sans Symbols 2', Georgia, serif",
     webFont: 'Merriweather',
     advance: 0.56,
   },
   {
     id: 'space-grotesk',
     label: 'Space Grotesk',
-    stack: "'Space Grotesk', 'Segoe UI', sans-serif",
+    stack: "'Space Grotesk', 'Noto Sans Symbols 2', 'Segoe UI', sans-serif",
     webFont: 'Space Grotesk',
     advance: 0.53,
   },
@@ -131,6 +148,24 @@ export type FontId = (typeof CATALOGUE)[number]['id']
 export type CatalogueFont = FontOption & { id: FontId }
 
 export const FONT_OPTIONS: readonly CatalogueFont[] = CATALOGUE
+
+/**
+ * Stacks written before the guaranteed symbol fallback was added.
+ *
+ * Font stacks are persisted presentation data, so changing the catalogue cannot
+ * make an existing deck suddenly look like an unknown/local font. These aliases
+ * are recognition only: new choices store the canonical stack above, while an
+ * old deck is understood and rendered as the same font with the new fallback.
+ */
+const LEGACY_WEB_STACKS: Partial<Record<FontId, string>> = {
+  quicksand: "'Quicksand', 'Segoe UI', system-ui, sans-serif",
+  atkinson: "'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif",
+  'open-sans': "'Open Sans', 'Segoe UI', system-ui, sans-serif",
+  inter: "'Inter', 'Segoe UI', system-ui, sans-serif",
+  'source-sans': "'Source Sans 3', 'Segoe UI', sans-serif",
+  merriweather: "'Merriweather', Georgia, serif",
+  'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif",
+}
 
 export function findFontById(id: string): CatalogueFont | undefined {
   return FONT_OPTIONS.find((font) => font.id === id)
@@ -184,7 +219,15 @@ export const DEFAULT_HEADING_FONT = fontStackFor('quicksand')
 export const DEFAULT_BODY_FONT = fontStackFor('atkinson')
 
 export function findFontByStack(stack: string): CatalogueFont | undefined {
-  return FONT_OPTIONS.find((font) => font.stack === stack)
+  return (
+    FONT_OPTIONS.find((font) => font.stack === stack) ??
+    FONT_OPTIONS.find((font) => LEGACY_WEB_STACKS[font.id] === stack)
+  )
+}
+
+/** Canonical rendering stack, including guaranteed fallbacks for legacy decks. */
+export function renderFontStack(stack: string): string {
+  return findFontByStack(stack)?.stack ?? stack
 }
 
 /** Average glyph advance for a font stack, for the headless fit estimator. */
@@ -194,8 +237,10 @@ export function advanceRatioFor(stack: string | undefined): number {
 }
 
 /**
- * Google Fonts families that must be loaded for the given stacks.
+ * The authored Google Fonts families named by these stacks.
  * Nothing is fetched unless the presentation actually uses a web font.
+ * Supplemental faces are attached by `webFontFaces` so callers never need a
+ * second truth for what completes one of these families.
  */
 export function webFontsFor(stacks: string[]): string[] {
   const families = new Set<string>()
@@ -240,16 +285,47 @@ export function localFontsFor(stacks: readonly string[]): string[] {
  */
 export const FONT_WEIGHTS: readonly number[] = [400, 600, 700]
 
+export interface WebFontFaceRequest {
+  family: string
+  weights: readonly number[]
+}
+
 /**
- * Where a web font's faces come from.
+ * Every face that completes one authored web font.
  *
- * The `webFont` field above is already documented as a Google Fonts family
- * name, so the URL that fetches it belongs beside it: the browser's loader and
- * the headless preview both need the same stylesheet, and two spellings of the
- * same query would mean the preview could render faces the editor never
- * measured.
+ * The symbol fallback is a dependency of guaranteed font stacks, not a second
+ * font choice. Keeping the expansion here lets the editor, miniapp inliner and
+ * Chromium readiness check agree without exposing an extra family in the theme.
+ */
+export function webFontFaces(family: string): WebFontFaceRequest[] {
+  if (family === SYMBOL_FALLBACK_WEB_FONT) {
+    return [{ family, weights: SYMBOL_FALLBACK_WEIGHTS }]
+  }
+  return [
+    { family, weights: FONT_WEIGHTS },
+    { family: SYMBOL_FALLBACK_WEB_FONT, weights: SYMBOL_FALLBACK_WEIGHTS },
+  ]
+}
+
+/** Weights that actually exist for one family. */
+export function webFontWeights(family: string): readonly number[] {
+  return family === SYMBOL_FALLBACK_WEB_FONT ? SYMBOL_FALLBACK_WEIGHTS : FONT_WEIGHTS
+}
+
+/**
+ * Where a web font's complete stack comes from.
+ *
+ * The authored family and its symbol fallback are requested in one Google Fonts
+ * stylesheet. That matters for the direct browser path and for the shared
+ * inliner: both receive the same fallback face, while the theme still names only
+ * the font the author chose.
  */
 export function googleFontsHref(family: string): string {
-  const query = `family=${encodeURIComponent(family).replace(/%20/g, '+')}:wght@${FONT_WEIGHTS.join(';')}`
-  return `https://fonts.googleapis.com/css2?${query}&display=swap`
+  const queries = webFontFaces(family).map(({ family: face, weights }) => {
+    const encoded = encodeURIComponent(face).replace(/%20/g, '+')
+    return weights.length === 1 && weights[0] === 400
+      ? `family=${encoded}`
+      : `family=${encoded}:wght@${weights.join(';')}`
+  })
+  return `https://fonts.googleapis.com/css2?${queries.join('&')}&display=swap`
 }

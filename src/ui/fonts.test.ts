@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FONT_OPTIONS } from '../domain/fonts'
+import { FONT_OPTIONS, SYMBOL_FALLBACK_WEB_FONT } from '../domain/fonts'
 import { ensureWebFonts, resetWebFontsForTest, webFontsReady } from './fonts'
 
 const SYSTEM = FONT_OPTIONS.find((font) => font.id === 'system')?.stack ?? ''
@@ -52,17 +52,20 @@ describe('ensureWebFonts', () => {
     expect(document.querySelectorAll('link[data-slaids-font]')).toHaveLength(0)
   })
 
-  it('resolves only once the faces are downloaded, not when the request starts', async () => {
+  it('resolves only once the complete guaranteed stack is downloaded', async () => {
     const { loaded } = stubFontFaceSet()
     const promise = ensureWebFonts([INTER])
     // The request is out, but nothing is usable yet.
     expect(webFontsReady([INTER])).toBe(false)
 
-    linkFor('Inter').dispatchEvent(new Event('load'))
+    const link = linkFor('Inter')
+    expect(link.href).toContain('family=Noto+Sans+Symbols+2')
+    link.dispatchEvent(new Event('load'))
     const outcome = await promise
     expect(outcome).toEqual({ ready: ['Inter'], failed: [] })
-    // Every weight the renderer can ask for was waited for.
-    expect(loaded).toHaveLength(3)
+    // Three authored weights plus the regular-only symbol fallback.
+    expect(loaded).toHaveLength(4)
+    expect(loaded).toContain(`400 16px "${SYMBOL_FALLBACK_WEB_FONT}"`)
     expect(webFontsReady([INTER])).toBe(true)
   })
 

@@ -35,7 +35,7 @@ import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import serverlessChromium from '@sparticuz/chromium'
-import { FONT_WEIGHTS } from '../domain/fonts'
+import { SYMBOL_FALLBACK_WEB_FONT, webFontWeights } from '../domain/fonts'
 import type { RasterImage, RasterRequest, SlideRasterizer } from './rasterize'
 import { pngPixelSize } from './rasterize'
 
@@ -178,7 +178,9 @@ export function chromiumRasterizer(options: ChromiumRasterizerOptions = {}): Sli
  * `document.fonts.load` is asked for each weight explicitly, exactly as
  * `src/ui/fonts.ts` does in the browser, because `fonts.ready` only settles the
  * loads the page happened to trigger — a slide with no bold text never requests
- * weight 700, and a check for it would then be false forever.
+ * weight 700, and a check for it would then be false forever. Every authored
+ * web-font stylesheet also carries `Noto Sans Symbols 2`; that face is checked
+ * here too, but only at its real regular weight.
  *
  * The readiness answer is two questions, not one, and the second is the one
  * that is easy to miss. `document.fonts.check()` answers "is every face that
@@ -196,11 +198,14 @@ export function chromiumRasterizer(options: ChromiumRasterizerOptions = {}): Sli
  */
 async function waitForFonts(page: Page, families: string[], timeoutMs: number): Promise<boolean> {
   if (families.length === 0) return true
+  const names = [...new Set([...families, SYMBOL_FALLBACK_WEB_FONT])]
+  const wanted = names.flatMap((name) =>
+    webFontWeights(name).map((weight) => ({ name, spec: `${weight} 16px "${name}"` })),
+  )
   return page.evaluate(
-    async (names: string[], weights: number[], deadline: number) => {
-      const wanted = names.flatMap((name) => weights.map((weight) => `${weight} 16px "${name}"`))
+    async (faces: Array<{ name: string; spec: string }>, deadline: number) => {
       const loads = Promise.all(
-        wanted.map((font) => document.fonts.load(font).catch(() => undefined)),
+        faces.map(({ spec }) => document.fonts.load(spec).catch(() => undefined)),
       ).then(() => document.fonts.ready)
       await Promise.race([loads, new Promise((resolve) => setTimeout(resolve, deadline))])
 
@@ -210,11 +215,11 @@ async function waitForFonts(page: Page, families: string[], timeoutMs: number): 
         [...document.fonts].map((face) => face.family.replace(/^["']|["']$/g, '')),
       )
       return (
-        names.every((name) => declared.has(name)) && wanted.every((font) => document.fonts.check(font))
+        faces.every(({ name }) => declared.has(name)) &&
+        faces.every(({ spec }) => document.fonts.check(spec))
       )
     },
-    families,
-    [...FONT_WEIGHTS],
+    wanted,
     timeoutMs,
   )
 }
