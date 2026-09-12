@@ -27,7 +27,6 @@ import {
   addInteractiveSlide,
   addSection,
   addSlide,
-  canAcceptContent,
   clearLayoutNode,
   deleteLayoutNode,
   deleteSlide,
@@ -57,13 +56,7 @@ import {
 } from '../../domain/pages'
 import { sectionGoverning } from '../../domain/presentation'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import {
-  cloneSubtreeWithNewIds,
-  collectLeaves,
-  countContent,
-  findLeaf,
-  findNode,
-} from '../../domain/layout'
+import { cloneSubtreeWithNewIds, countContent, findLeaf, findNode } from '../../domain/layout'
 import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
@@ -918,29 +911,21 @@ export function EditorView({
     if (data?.kind !== 'sandbox-item') return
     setDragItemId(String(data.itemId))
 
-    // Decide valid drop targets here, in an event handler, where the offscreen
-    // fit measurement is allowed to render synchronously.
+    // Where a drop may land is the same question a press asks, so it has the
+    // same answer — `placementTargets`. Decided here, in an event handler,
+    // where the offscreen fit measurement is allowed to render synchronously.
     const current = useEditorStore.getState().presentation
     const activeSlide = useEditorStore.getState().currentContentSlide()
-    const item = current?.sandbox.find((entry) => entry.id === String(data.itemId))
-    if (!current || !activeSlide || !item) {
+    if (!current || !activeSlide) {
       setDropTargets(new Set())
       return
     }
-    const targets = new Set<string>()
-    for (const leaf of collectLeaves(activeSlide.root)) {
-      if (
-        canAcceptContent(current, {
-          slideId: activeSlide.id,
-          nodeId: leaf.id,
-          content: item.content,
-          ...domFitCheckers,
-        })
-      ) {
-        targets.add(leaf.id)
-      }
-    }
-    setDropTargets(targets)
+    setDropTargets(
+      placementTargets(current, activeSlide.id, {
+        kind: 'sandbox',
+        itemId: String(data.itemId),
+      }),
+    )
   }
 
   const handleDragEnd = (event: DragEndEvent): void => {
@@ -1092,10 +1077,7 @@ export function EditorView({
         label: 'Flytt innholdet til en annen sone',
         icon: 'target',
         disabled: !hasContent,
-        onSelect: () => {
-          const content = selectedLeaf?.content
-          if (content) beginPlacement({ kind: 'zone', nodeId: selectedNodeId, content })
-        },
+        onSelect: () => beginPlacement({ kind: 'zone', nodeId: selectedNodeId }),
         testId: 'zone-action-move',
       },
       {
@@ -1367,7 +1349,7 @@ export function EditorView({
           // The sheet is the whole screen on a phone; the zone to press is
           // underneath it.
           setSandboxOpen(false)
-          beginPlacement({ kind: 'sandbox', itemId: item.id, content: item.content })
+          beginPlacement({ kind: 'sandbox', itemId: item.id })
         }}
       />
     ),
