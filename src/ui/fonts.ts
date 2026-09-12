@@ -15,11 +15,12 @@
  * inheriting a false "loaded" flag.
  *
  * Only families a presentation actually uses are requested: a deck set in the
- * system stack asks for nothing, and one set in Quicksand asks for Quicksand
- * and nothing else.
+ * system stack asks for nothing. A guaranteed web-font stack asks for its
+ * authored family plus the controlled symbol fallback declared in
+ * `domain/fonts.ts`.
  */
 
-import { FONT_WEIGHTS, googleFontsHref, webFontsFor } from '../domain/fonts'
+import { googleFontsHref, webFontsFor, webFontWeights } from '../domain/fonts'
 
 /**
  * How long to wait for a family before calling it unavailable.
@@ -85,8 +86,9 @@ async function loadFamily(family: string): Promise<boolean> {
   // to verify; the stylesheet is as far as this environment goes.
   if (!fonts) return true
 
-  await Promise.all(FONT_WEIGHTS.map((weight) => fonts.load(`${weight} 16px "${family}"`)))
-  return FONT_WEIGHTS.every((weight) => fonts.check(`${weight} 16px "${family}"`))
+  const weights = webFontWeights(family)
+  await Promise.all(weights.map((weight) => fonts.load(`${weight} 16px "${family}"`)))
+  return weights.every((weight) => fonts.check(`${weight} 16px "${family}"`))
 }
 
 function withTimeout(work: Promise<boolean>, ms: number): Promise<boolean> {
