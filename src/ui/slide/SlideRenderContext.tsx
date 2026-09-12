@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from 'react'
 import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from '../../domain/constants'
+import { renderFontStack } from '../../domain/fonts'
 import type { DeckProgress, DeckSectionColors, SectionColors } from '../../domain/pages'
 import type { ReferenceNumbering } from '../../domain/references'
 import type { PresentationTheme } from '../../domain/types'
@@ -78,7 +79,16 @@ export function SlideRenderProvider({
   value: SlideRenderValue
   children: React.ReactNode
 }) {
-  return <SlideRenderContext.Provider value={value}>{children}</SlideRenderContext.Provider>
+  const headingFontFamily = renderFontStack(value.theme.headingFontFamily)
+  const bodyFontFamily = renderFontStack(value.theme.bodyFontFamily)
+  const renderedValue =
+    headingFontFamily === value.theme.headingFontFamily && bodyFontFamily === value.theme.bodyFontFamily
+      ? value
+      : {
+          ...value,
+          theme: { ...value.theme, headingFontFamily, bodyFontFamily },
+        }
+  return <SlideRenderContext.Provider value={renderedValue}>{children}</SlideRenderContext.Provider>
 }
 
 export function useSlideRender(): SlideRenderValue {
