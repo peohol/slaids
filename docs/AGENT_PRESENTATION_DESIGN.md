@@ -113,7 +113,22 @@ Negativt rom er et legitimt innholdsgrep, ikke «ubrukte rester» av layouten. D
 - forskyve tyngdepunktet i komposisjonen;
 - lage en rytmisk pause mellom tette slides.
 
-**Nåværende implementasjon:** negativt rom representeres foreløpig av et tomt blad og er underlagt dagens generelle minstemål. En eksplisitt innholdstype og innholdsspesifikke minstemål er planlagt i issue #60. Agenten skal ikke sende en ikke-eksisterende innholdstype før den er implementert.
+**Slik brukes den:** `set_zone_card` med `kind: "negative-space"` gjør en sone
+til bevisst luft. Den tegner ingenting, har verken tekst, farge eller subfelter,
+og har ingen minstestørrelse — den kan være så smal komposisjonen vil. Den kan
+bare settes på en sone som er tom; har sonen innhold, bruk `clear_zone` først,
+slik at innholdet havner i sandkassen i stedet for å forsvinne.
+
+**Tom sone er ikke det samme som negativt rom.** En tom sone er et hull som
+ennå ikke er fylt (`empty: true` i `inspect_slide`); negativt rom er en
+beslutning (`contentKind: "negative-space"`). Skriv beslutningen inn i dekket
+i stedet for å la den se ut som noe du glemte.
+
+**Rekkefølgen som virker:** del sonen først, og gjør så sliveren til negativt
+rom. Tomme soner har ingen minstestørrelse, så en split i luft er lovlig ved
+ethvert forholdstall — men et kort eller en tekstsone som skal *bli* smal, blir
+avvist. `inspect_slide` oppgir `availableContentKinds` per sone, så du kan lese
+hva som faktisk får plass i stedet for å prøve deg fram.
 
 ## 4. Sone eller subfelt?
 
