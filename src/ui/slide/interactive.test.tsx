@@ -296,7 +296,6 @@ describe('flaten som kan starte appen', () => {
     expect(useInteractiveRuntime.getState().session?.slideId).toBe(appSlide(presentation).id)
 
     const exit = host.querySelector<HTMLButtonElement>('[data-testid="exit-interactive"]')
-    expect(exit?.textContent).toBe(EXIT_LABEL)
     // Slaids' own element, outside the frame.
     expect(frame!.contains(exit)).toBe(false)
 
@@ -307,6 +306,37 @@ describe('flaten som kan starte appen', () => {
     // The cover is exactly as it was, and focus is back on its button.
     expect(host.querySelector('[data-testid="interactive-page"]')).not.toBeNull()
     expect(document.activeElement).toBe(activate)
+  })
+
+  it('avslutter med en liten ×, som beholder navnet sitt og tastaturet', async () => {
+    const host = await mount(deck())
+    click(host, 'activate-interactive')
+    const exit = host.querySelector<HTMLButtonElement>('[data-testid="exit-interactive"]')!
+
+    // Nothing is written on the app's surface: the old text button is gone and
+    // what is left is a glyph. The name is the same name it always had, which
+    // is the one thing an icon-only control may not lose.
+    expect(exit.textContent?.trim()).toBe('')
+    expect(exit.getAttribute('aria-label')).toBe(EXIT_LABEL)
+    expect(exit.innerHTML).not.toContain(EXIT_LABEL)
+
+    // A real button, so Enter and Space reach it without a handler of our own —
+    // the lock stands the navigation handlers down without `preventDefault`
+    // precisely so that they still do. A real press is in the Playwright spec;
+    // what is checked here is that there is nothing in the way of one.
+    expect(exit.tagName).toBe('BUTTON')
+    expect(exit.type).toBe('button')
+
+    // The target is the button and the drawn glyph is inside it, which is what
+    // lets the two be different sizes. The sizes themselves are the
+    // stylesheet's — and measured in the Playwright spec, where there is one.
+    const glyph = exit.querySelector('[data-testid="exit-interactive-glyph"]')
+    expect(glyph).not.toBeNull()
+    expect(glyph!.querySelector('svg')).not.toBeNull()
+    expect(exit.children).toHaveLength(1)
+
+    click(host, 'exit-interactive')
+    expect(frameOf(host)).toBeNull()
   })
 
   it('starter en ny ramme for hver aktivering', async () => {

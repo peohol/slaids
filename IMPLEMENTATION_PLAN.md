@@ -737,6 +737,15 @@ Escape avslutter ikke presentasjonen mens appen kjører; «Avslutt miniapp» er
 den ene veien ut, og den ligger utenfor rammen, over den, tegnet i skjermstørrelse
 uansett slidens skalering.
 
+Kontrollen er liten å se på og ikke liten å treffe, og det er to forskjellige
+mål med vilje. Det synlige er en diskret «×» i øvre høyre hjørne – det eneste
+som dekker appen – mens treffflaten rundt den er usynlig og større, og større
+igjen på en coarse flate, der tallet er det felles `--touch-target`. Det
+tilgjengelige navnet er fortsatt «Avslutt miniapp»; hover, tastaturfokus og
+trykk gjør den utvetydig, og trykk fordi en finger ikke kan hovre;
+safe-area-insets holder den innenfor skjermen. Hvilken peker som er i bruk
+avgjøres ett sted (§ 44.5.2) – miniappsystemet har ingen egen deteksjon.
+
 ### Isolasjonsgrensen
 
 Opplastet HTML er aldri Slaids' egen markup. Den lastes som data inn i en ramme
@@ -5516,10 +5525,11 @@ kontrollene i stedet. Lenker, valgbar tekst og en kjørende miniapp tolkes aldri
 som navigasjon.
 
 Miniappkontrakten er uendret på 1600 × 900. Det som gjelder her er bare at en
-interaktiv slide kan aktiveres og avsluttes med trykk, at avslutt-knappen er en
-fingerstor treffflate tegnet i skjermpiksler uansett skala, og at en kjørende
-app eier pointer, touch, wheel og tastatur inne på sin egen flate – låsen i
-`state/interactiveRuntime.ts` er fortsatt det ene stedet det avgjøres.
+interaktiv slide kan aktiveres og avsluttes med trykk, at avsluttkontrollen er
+en fingerstor treffflate rundt en liten synlig «×» tegnet i skjermpiksler
+uansett skala (§ 8.7), og at en kjørende app eier pointer, touch, wheel og
+tastatur inne på sin egen flate – låsen i `state/interactiveRuntime.ts` er
+fortsatt det ene stedet det avgjøres.
 
 ### 44.5.8 Tilgjengelighet
 

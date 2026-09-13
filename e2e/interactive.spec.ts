@@ -255,11 +255,19 @@ test.describe('presentasjon', () => {
     expect(await presentedPage(page)).toEqual({ index: 4, count: 4 })
     await expect(frame).toBeVisible()
 
-    // The exit button: Slaids' own, top right, outside the frame, usable.
+    // The exit control: Slaids' own, top right, outside the frame, usable — and
+    // a small × rather than a labelled button, so what it takes from the app is
+    // the glyph inside it and not the target around it.
     const exit = view.getByRole('button', { name: 'Avslutt miniapp' })
     await expect(exit).toBeVisible()
+    expect((await exit.textContent())?.trim()).toBe('')
     const exitBox = (await exit.boundingBox())!
-    expect(exitBox.width).toBeGreaterThanOrEqual(44)
+    const glyphBox = (await view.getByTestId('exit-interactive-glyph').boundingBox())!
+    expect(glyphBox.width).toBeLessThanOrEqual(28)
+    expect(glyphBox.height).toBeLessThanOrEqual(28)
+    expect(exitBox.width).toBeGreaterThan(glyphBox.width)
+    expect(exitBox.height).toBeGreaterThan(glyphBox.height)
+    expect(exitBox.width).toBeGreaterThanOrEqual(32)
     expect(exitBox.height).toBeGreaterThanOrEqual(32)
     expect(exitBox.x + exitBox.width).toBeLessThanOrEqual(slideBox.x + slideBox.width + 1)
     expect(exitBox.x).toBeGreaterThan(slideBox.x + slideBox.width * 0.7)
@@ -606,5 +614,116 @@ test.describe('editoren', () => {
     // What was running is not the slide's file any more, so it is gone.
     await expect(page.locator('iframe')).toHaveCount(0)
     await expect(stage(page).getByRole('button', { name: 'Aktiver miniapp' })).toBeVisible()
+  })
+})
+
+/**
+ * Slaids' way out of a running app, as a control rather than as a lifecycle.
+ *
+ * What it *does* is measured above, on both surfaces and from the app's side of
+ * the frame. What is measured here is what it costs the app to have it there:
+ * a glyph small enough to be ignored and faint enough to be forgotten, with a
+ * target around it that is neither — and the states that make the difference
+ * between the two visible to somebody aiming at it.
+ */
+test.describe('avsluttkontrollen', () => {
+  test('er nesten usynlig i hvile, tydelig når den treffes, og avsluttes med tastatur og trykk', async ({
+    page,
+  }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Avslutt')
+    await addCounterSlide(page)
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    await expect(app(page).locator('#title')).toHaveText('Teller')
+
+    const exit = page.getByTestId('exit-interactive')
+    const glyph = page.getByTestId('exit-interactive-glyph')
+    const opacity = async (): Promise<number> =>
+      Number(await glyph.evaluate((node) => getComputedStyle(node).opacity))
+
+    // Drawn, and barely drawn: the app behind it is the thing on screen.
+    expect(await opacity()).toBeGreaterThan(0)
+    expect(await opacity()).toBeLessThan(0.7)
+
+    // A pointer on it, and there is no doubt what it is…
+    await exit.hover()
+    await expect.poll(opacity).toBe(1)
+    // …for as long as the pointer is there, and no longer.
+    await page.mouse.move(2, 2)
+    await expect.poll(opacity).toBeLessThan(0.7)
+
+    /*
+     * The keyboard reaches it from inside the running app: Tab leaves a frame
+     * the way it leaves anything else, and the control is the next thing after
+     * the frame. How many presses that takes is the app's business — it has
+     * fields of its own — so this asks for the one thing that matters, which is
+     * that the control is reachable at all.
+     */
+    for (let i = 0; i < 10; i += 1) {
+      if (await exit.evaluate((node) => node === document.activeElement)) break
+      await page.keyboard.press('Tab')
+    }
+    await expect(exit).toBeFocused()
+    // Where the keyboard is, said twice: at full strength, and ringed.
+    await expect.poll(opacity).toBe(1)
+    expect(await glyph.evaluate((node) => getComputedStyle(node).outlineWidth)).toBe('3px')
+
+    // Enter is still the way out, as it was when the control carried a label.
+    await page.keyboard.press('Enter')
+    await expect(page.locator('iframe')).toHaveCount(0)
+    await expect(stage(page).getByRole('button', { name: 'Aktiver miniapp' })).toBeFocused()
+
+    /*
+     * And a press answers before the app goes away — the one state a finger can
+     * actually reach, since hovering is not something a finger does.
+     */
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    await expect(page.getByTestId('interactive-frame')).toBeVisible()
+    const transform = (): Promise<string> =>
+      glyph.evaluate((node) => getComputedStyle(node).transform)
+    expect(await transform()).toBe('none')
+    const box = (await exit.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await expect.poll(transform).not.toBe('none')
+    await page.mouse.up()
+    await expect(page.locator('iframe')).toHaveCount(0)
+    expect(relevant(guard.errors)).toEqual([])
+  })
+
+  test('scenen og spilleren bruker den samme kontrollen', async ({ page }) => {
+    await createPresentation(page, 'Samme vei ut')
+    await addCounterSlide(page)
+
+    /** The control as it is on this surface: the element, and its size on screen. */
+    async function control(scope: Page | Locator): Promise<{ markup: string; size: string }> {
+      const exit = scope.getByTestId('exit-interactive')
+      const box = (await exit.boundingBox())!
+      return {
+        markup: await exit.evaluate((node) => node.outerHTML),
+        size: `${Math.round(box.width)}×${Math.round(box.height)}`,
+      }
+    }
+
+    await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
+    const onStage = await control(stage(page))
+    await page.getByTestId('exit-interactive').click()
+
+    await page.getByTestId('present').click()
+    await page.keyboard.press('End')
+    const view = page.getByTestId('present-view')
+    await view.getByRole('button', { name: 'Aktiver miniapp' }).click()
+    const inPlayer = await control(view)
+    await view.getByTestId('exit-interactive').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('editor')).toBeVisible()
+
+    /*
+     * One control, not two that resemble each other: the same markup, and the
+     * same size on screen although the editor draws the slide at a fraction of
+     * the size the player does. That second half is the scale rule — the chrome
+     * undoes the slide's scaling — measured where it is easiest to break.
+     */
+    expect(inPlayer).toEqual(onStage)
   })
 })

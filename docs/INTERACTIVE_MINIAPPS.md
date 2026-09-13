@@ -75,11 +75,13 @@ flaten uniformt. En liten fysisk skjerm gir derfor ikke automatisk en mindre
 CSS-viewport inne i appen. `@media (max-width: 1050px)` er ikke en løsning på
 plassmangel i en Slaids-slide. Ikke legg inn en ny skalering av hele appen.
 
-Slaids tegner «Avslutt miniapp» oppå øvre høyre hjørne. Startmalen reserverer
-konservativt de øverste 100 logiske pikslene og 400 piksler til høyre for
-overskriftens innhold. Dette er malens sikkerhetsmargin, ikke en ny målangivelse
-for Slaids-knappen. Kontroller den faktiske knappen i editor og spiller; ingen
-kontroll, tekst eller fokusmarkering skal havne under den.
+Slaids tegner «Avslutt miniapp» oppå øvre høyre hjørne, som en liten og diskret
+«×» med en større usynlig treffflate rundt seg – litt større på berøringsflater.
+Startmalen reserverer konservativt de øverste 100 logiske pikslene og 400 piksler
+til høyre for overskriftens innhold. Dette er malens sikkerhetsmargin, ikke en
+målangivelse for Slaids-kontrollen; den faktiske kontrollen er klart mindre.
+Kontroller den i editor og spiller; ingen kontroll, tekst eller fokusmarkering
+skal havne under den.
 
 ### Avstander skal ha én eier
 

@@ -21,6 +21,7 @@ import { sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
 import { resetInlinedFontCache } from '../../fonts/inlineFaces'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
+import { EXIT_LABEL } from '../interactive/InteractiveRuntime'
 import { INTERACTIVE_SANDBOX_FLAGS } from '../interactive/sandboxDocument'
 import { PresentationPlayer } from './PresentationPlayer'
 
@@ -172,6 +173,30 @@ describe('en interaktiv slide i spilleren, uten vei ut (den delte visningen)', (
     expect(document.activeElement?.getAttribute('data-testid')).toBe('activate-interactive')
     press('ArrowRight')
     expect(pageOf(host)).toBe(3)
+  })
+
+  /*
+   * The exit control is the editor's, because there is only one of it: the
+   * player mounts the same `InteractiveSlideSurface`, which mounts the same
+   * runtime. So this says what the player draws, and `ui/slide/interactive`
+   * says the same of the stage; that the two are one element, down to the
+   * markup, is measured across both surfaces in `e2e/interactive.spec.ts`.
+   */
+  it('avsluttes med den samme lille ×-en som på scenen', async () => {
+    const host = await mount(null)
+    await toInteractivePage()
+    click(host, 'activate-interactive')
+
+    const exit = host.querySelector<HTMLButtonElement>('[data-testid="exit-interactive"]')!
+    expect(exit.tagName).toBe('BUTTON')
+    expect(exit.textContent?.trim()).toBe('')
+    expect(exit.getAttribute('aria-label')).toBe(EXIT_LABEL)
+    expect(
+      exit.querySelector('[data-testid="exit-interactive-glyph"] svg'),
+    ).not.toBeNull()
+
+    click(host, 'exit-interactive')
+    expect(host.querySelector('[data-testid="interactive-frame"]')).toBeNull()
   })
 
   it('kan startes på nytt etter avslutning, som en ny kjøring', async () => {
