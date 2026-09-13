@@ -38,7 +38,10 @@ import {
   testAgentContext,
   type TestDeckContext,
 } from '../agent/testDeck'
-import { estimateDocHeight } from '../domain/fit'
+import { CARD_TITLE_PART, estimateDocHeight, estimateFit } from '../domain/fit'
+import { fitContextFor } from '../domain/commands'
+import { hasCardTitle } from '../domain/content'
+import { titleDoc } from '../domain/richdoc'
 import { computeSlideGeometry } from '../domain/geometry'
 import { collectLeaves } from '../domain/layout'
 import { geometryForTheme } from '../domain/metrics'
@@ -153,6 +156,72 @@ async function compare(
  */
 const TOLERANCE = 40
 
+/**
+ * A title's overflow, within a fifth of itself.
+ *
+ * The estimator counts characters at the typeface's average advance and the
+ * browser lays out the actual letters, so the longer the line the further the
+ * two drift — in proportion, because every extra character adds its own small
+ * difference. What they must agree on is that the line is clipped and roughly
+ * by how much, not on the pixel.
+ */
+const TITLE_TOLERANCE_RATIO = 0.2
+
+/**
+ * The estimate and the browser's own measurement of a card's header.
+ *
+ * A header fails sideways rather than downwards, so this reads `scrollWidth`
+ * where `compare` reads `scrollHeight`, and it reads the one box the renderer
+ * marks as the card's title — `data-fit-part` — rather than the worst of every
+ * clipping box on the page.
+ */
+async function compareCardTitle(
+  context: TestDeckContext,
+  deck: { presentationId: string; slideId: string },
+  title: string,
+): Promise<{ estimated: number; measured: number }> {
+  const presentation = await storedPresentation(context, deck.presentationId)
+  const slide = findContentSlide(presentation, deck.slideId)
+  if (!slide) throw new Error('Fant ikke sliden.')
+  const leaf = collectLeaves(slide.root)[0]
+  const content = leaf.content
+  if (!content || !hasCardTitle(content)) throw new Error('Sonen har ingen korttittel.')
+  // Written straight into the stored document, for the same reason `compare`
+  // does it: the gate is what is being checked, so it cannot also be what
+  // decides which documents get checked.
+  const titled = { ...content, title: titleDoc(title) }
+  const rect = computeSlideGeometry(slide, geometryForTheme(presentation.theme)).rects.get(leaf.id)
+  if (!rect) throw new Error('Sonen har ingen geometri.')
+  ;(leaf as { content: typeof titled }).content = titled
+
+  const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
+  if (!page) throw new Error('Fant ikke siden.')
+  const assets = await loadPreviewAssets(page, context.repository)
+  const html = previewDocument({ presentation, page, assets: assets.source }).html
+
+  const resolved = await resolveExecutable(process.env as Record<string, string | undefined>)
+  const browser = await puppeteer.launch({
+    executablePath: resolved.executablePath,
+    args: resolved.args,
+    headless: true,
+  })
+  try {
+    const tab = await browser.newPage()
+    await tab.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 })
+    await tab.setContent(html, { waitUntil: 'load' })
+    const measured = await tab.evaluate((part: string) => {
+      const box = document.querySelector(`[data-fit-part="${part}"]`) as HTMLElement | null
+      return box ? box.scrollWidth - box.clientWidth : -1
+    }, CARD_TITLE_PART)
+    return {
+      estimated: estimateFit(titled, rect, fitContextFor(presentation)).parts[CARD_TITLE_PART] ?? 0,
+      measured,
+    }
+  } finally {
+    await browser.close()
+  }
+}
+
 describe('den hodeløse fit-målingen mot en ekte nettleser', () => {
   it(
     'er enig om en portrettfigur, som fyller feltet uten å flyte over',
@@ -240,6 +309,45 @@ describe('den hodeløse fit-målingen mot en ekte nettleser', () => {
       })
       expect(result.measured).toBe(0)
       expect(result.estimated).toBe(0)
+    },
+    BROWSER_TIMEOUT_MS,
+  )
+
+  it(
+    'er enig om en korttittel som er for bred for kortheaderen',
+    async () => {
+      /*
+       * The header was the blind spot, and it was blind in the browser rather
+       * than in the estimator.
+       *
+       * `.card-header` clips and carries `data-fit-scroll`, so it looks
+       * measured — but the title inside it used to sit in a box of its own that
+       * *also* clipped, and a clipping box keeps its overflow to itself: the
+       * header reported `scrollWidth === clientWidth` however far the words ran
+       * past it. On top of that the line was centred in a full-width paragraph,
+       * which puts half the overflow out through the left edge, where the
+       * scrollable overflow region does not reach. Both are fixed in
+       * `slide.css`; this is the test that says so in a real browser.
+       */
+      const context = testAgentContext()
+      const deck = await newAgentDeck(context)
+      await agentOperation(context, 'set_zone_card', {
+        presentationId: deck.presentationId,
+        slideId: deck.slideId,
+        nodeId: deck.rootNodeId,
+        kind: 'titled-card',
+      })
+
+      const long = 'En korttittel som er alt for lang for headeren sin. '.repeat(6)
+      const result = await compareCardTitle(context, deck, long)
+      expect(result.measured).toBeGreaterThan(0)
+      expect(Math.abs(result.estimated - result.measured)).toBeLessThanOrEqual(
+        result.measured * TITLE_TOLERANCE_RATIO,
+      )
+
+      const short = await compareCardTitle(context, deck, 'Kort')
+      expect(short.measured).toBe(0)
+      expect(short.estimated).toBe(0)
     },
     BROWSER_TIMEOUT_MS,
   )
