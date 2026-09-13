@@ -5,7 +5,13 @@
  * thumbnail can never misrepresent the slide.
  */
 
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { useRef } from 'react'
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { canDeleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
@@ -16,21 +22,73 @@ import type { Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView } from '../slide/SlideView'
+import { useContainerBox, type ContainerBox } from '../slide/useFitScale'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
+/**
+ * The desktop strip's thumbnail, and the narrowest one anywhere.
+ *
+ * It is a column beside the stage there, so its width is a constant: the strip
+ * has exactly as much room as `--filmstrip-width` gives it, whatever the deck.
+ */
 const THUMB_WIDTH = 168
-const THUMB_SCALE = THUMB_WIDTH / SLIDE_WIDTH
-const THUMB_HEIGHT = SLIDE_HEIGHT * THUMB_SCALE
 
-/** A page drawn at thumbnail size. Every strip entry uses this one box. */
-function Thumb({ children }: { children: React.ReactNode }) {
+/** The space between entries. Set from here so the arithmetic below owns it. */
+const STRIP_GAP = 10
+
+/**
+ * How much of the overview a single thumbnail may fill before the list starts
+ * using columns instead.
+ *
+ * Not a taste: a page that fills the whole overview hides the fact that there
+ * is anything under it, and the one thing a slide overview has to show is that
+ * the deck goes on.
+ */
+const MAX_THUMB_SHARE = 0.6
+
+export interface StripLayout {
+  columns: number
+  /** How wide each thumbnail is drawn, in CSS pixels. */
+  width: number
+}
+
+/**
+ * The overview's shape, from the room it actually has.
+ *
+ * Upright, a phone's panel is narrower than one thumbnail's comfortable height
+ * allows, so the answer is one column of full-width pages. On its side the same
+ * panel is wide and short, and the same rule answers with four smaller ones.
+ * Nothing here is a breakpoint or a device: it is the box, divided until a page
+ * fits in it twice over.
+ */
+export function stripLayout(box: ContainerBox): StripLayout {
+  // Nothing measured yet: the desktop's own column, which is also the answer
+  // for every surface until the observer reports one.
+  if (box.width <= 0 || box.height <= 0) return { columns: 1, width: THUMB_WIDTH }
+  const widest = box.height * MAX_THUMB_SHARE * (SLIDE_WIDTH / SLIDE_HEIGHT)
+  const perColumn = (columns: number): number => (box.width - STRIP_GAP * (columns - 1)) / columns
+  // Divide until a page is short enough to leave the next row showing — but
+  // never into columns narrower than the strip draws one.
+  let columns = 1
+  while (perColumn(columns) > widest && perColumn(columns + 1) >= THUMB_WIDTH) columns += 1
+  return { columns, width: perColumn(columns) }
+}
+
+/**
+ * A page drawn at thumbnail size. Every strip entry uses this one box.
+ *
+ * The page inside is the full 1600 × 900 one, scaled — never a smaller variant
+ * of it — so a thumbnail can no more misrepresent a slide in the overview than
+ * it can in the strip.
+ */
+function Thumb({ width, children }: { width: number; children: React.ReactNode }) {
   return (
     <div
       style={{
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
-        transform: `scale(${THUMB_SCALE})`,
+        transform: `scale(${width / SLIDE_WIDTH})`,
         transformOrigin: 'top left',
         pointerEvents: 'none',
       }}
@@ -72,6 +130,7 @@ function SlideThumb({
   slide,
   index,
   active,
+  width,
   onSelect,
   onDuplicate,
   onDelete,
@@ -83,6 +142,9 @@ function SlideThumb({
   slide: Slide
   index: number
   active: boolean
+  /** How wide the thumbnail is drawn — a column on the desktop, the overview's
+      own arithmetic on a phone. See `stripLayout`. */
+  width: number
   onSelect: () => void
   onDuplicate: () => void
   onDelete: () => void
@@ -124,15 +186,18 @@ function SlideThumb({
       <button
         type="button"
         className="filmstrip__thumb"
-        style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
+        style={{ width, height: (width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
         onClick={onSelect}
         data-testid="filmstrip-thumb"
         data-drag-activation="hold"
         aria-label={label}
+        // Semantic rather than merely outlined: which page the editor is on has
+        // to be readable by something that cannot see the accent border.
+        aria-current={active ? 'true' : undefined}
         {...attributes}
         {...listeners}
       >
-        <Thumb>
+        <Thumb width={width}>
           {slide.kind === 'content' ? (
             <SlideView slide={slide}>
               {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
@@ -210,6 +275,7 @@ export function Filmstrip({
   onRequestNewSlide,
   onRequestNewSection,
   onRequestNewInteractive,
+  overview = false,
 }: {
   presentation: Presentation
   /**
@@ -226,7 +292,25 @@ export function Filmstrip({
   onRequestNewSlide: () => void
   onRequestNewSection: () => void
   onRequestNewInteractive: () => void
+  /**
+   * Whether this is the compact workspace's full-screen slide overview rather
+   * than the desktop's side column.
+   *
+   * The only thing it changes is how big a page is drawn: same component, same
+   * entries, same commands, same reorder controls. A column beside a stage has
+   * a fixed width to work with; an overview has the screen.
+   */
+  overview?: boolean
 }) {
+  const listRef = useRef<HTMLDivElement>(null)
+  /*
+   * The overview's thumbnails are as big as the room allows, so the room has to
+   * be measured. The same observer the stage uses, on the box the entries are
+   * actually laid out in — there is no second idea anywhere of how wide a
+   * thumbnail is, and therefore nothing that can disagree about it.
+   */
+  const box = useContainerBox(listRef)
+  const layout = overview ? stripLayout(box) : { columns: 1, width: THUMB_WIDTH }
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
   const selectSlide = useEditorStore((state) => state.selectSlide)
   const selectAuthored = (slideId: string): void => {
@@ -259,11 +343,26 @@ export function Filmstrip({
   }
 
   return (
-    <aside className="filmstrip" data-testid="filmstrip">
-      <div className="filmstrip__list">
+    <aside className="filmstrip" data-testid="filmstrip" data-overview={overview ? '' : undefined}>
+      <div
+        className="filmstrip__list"
+        data-testid="filmstrip-list"
+        ref={listRef}
+        style={{
+          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+          gap: STRIP_GAP,
+        }}
+      >
+        {/*
+          The strategy has to match the shape the entries are actually in.
+          `verticalListSortingStrategy` assumes one column and moves the others
+          straight up and down past the dragged one; in the overview's grid
+          that is the wrong animation and the wrong drop target. `rectSorting`
+          makes no such assumption, and the strip is a grid of one column.
+        */}
         <SortableContext
             items={presentation.slides.map((slide) => slide.id)}
-            strategy={verticalListSortingStrategy}
+            strategy={layout.columns > 1 ? rectSortingStrategy : verticalListSortingStrategy}
           >
             {presentation.slides.map((slide, index) => (
               <SlideThumb
@@ -271,6 +370,7 @@ export function Filmstrip({
                 slide={slide}
                 index={index}
                 active={slide.id === currentSlideId && viewingDerivedId === null}
+                width={layout.width}
                 canDelete={canDeleteSlide(presentation, slide.id)}
                 onSelect={() => selectAuthored(slide.id)}
                 onDuplicate={() => duplicate(slide.id, index)}
@@ -302,11 +402,12 @@ export function Filmstrip({
               <button
                 type="button"
                 className="filmstrip__thumb"
-                style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
+                style={{ width: layout.width, height: (layout.width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
                 onClick={() => onSelectDerived(page.id)}
                 aria-label={label}
+                aria-current={page.id === viewingDerivedId ? 'true' : undefined}
               >
-                <Thumb>
+                <Thumb width={layout.width}>
                   <DeckPageView page={page} />
                 </Thumb>
               </button>

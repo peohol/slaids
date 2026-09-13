@@ -158,3 +158,130 @@ export async function isOnScreen(page: Page, testId: string): Promise<boolean> {
     return box.top >= top - 1 && box.bottom <= bottom + 1 && box.width > 0 && box.height > 0
   }, testId)
 }
+
+/**
+ * Where the slide area is on screen, as a box to gesture inside.
+ *
+ * The stage's own element rather than the slide's: a gesture is about the area
+ * the finger is in, and the letterbox around a 16:9 page on a phone is part of
+ * that area.
+ */
+export async function stageArea(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await page.getByTestId('compact-stage').boundingBox()
+  if (!box) throw new Error('Ingen slideflate å ta på')
+  return box
+}
+
+/**
+ * Drag one finger across the slide area.
+ *
+ * Real input, not a synthesised event: `page.mouse` on a run with a mouse and
+ * Chromium's own touch pipeline on a run with a finger, so the gesture goes
+ * through the browser exactly as a user's would — including the `touch-action`
+ * the stylesheet asks for. Which of the two this run uses is read from the app's
+ * own answer about the pointer, never from the project's name.
+ */
+export async function dragAcrossSlide(
+  page: Page,
+  delta: { dx: number; dy: number },
+  from?: { x: number; y: number },
+): Promise<void> {
+  const box = await stageArea(page)
+  const start = from ?? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const steps = [0.25, 0.5, 0.75, 1]
+
+  if (await isCoarse(page)) {
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: start.x, y: start.y, id: 1 }],
+    })
+    for (const step of steps) {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: start.x + delta.dx * step, y: start.y + delta.dy * step, id: 1 }],
+      })
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await session.detach()
+  } else {
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    for (const step of steps) {
+      await page.mouse.move(start.x + delta.dx * step, start.y + delta.dy * step)
+    }
+    await page.mouse.up()
+  }
+  await page.waitForTimeout(150)
+}
+
+/** A swipe to the right — the deck's «next» — across the slide area. */
+export async function swipeSlide(page: Page, direction: 1 | -1): Promise<void> {
+  const box = await stageArea(page)
+  const travel = Math.min(240, box.width * 0.5)
+  await dragAcrossSlide(page, { dx: travel * direction, dy: 0 })
+}
+
+/**
+ * Two fingers spreading apart on the slide area.
+ *
+ * Chromium's own touch pipeline again, so what the app sees is a genuine pair
+ * of pointer events — which is the only way to find out whether the browser
+ * took the gesture for its own page zoom instead.
+ */
+export async function pinchSlide(
+  page: Page,
+  { from, to }: { from: number; to: number },
+  centre?: { x: number; y: number },
+): Promise<void> {
+  const box = await stageArea(page)
+  const at = centre ?? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const session = await page.context().newCDPSession(page)
+  const points = (spread: number) => [
+    { x: at.x - spread / 2, y: at.y, id: 1 },
+    { x: at.x + spread / 2, y: at.y, id: 2 },
+  ]
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: points(from),
+  })
+  for (let step = 1; step <= 6; step += 1) {
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: points(from + ((to - from) * step) / 6),
+    })
+  }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await session.detach()
+  await page.waitForTimeout(150)
+}
+
+/** How far the stage is magnified beyond the view it is based on. */
+export async function stageZoom(page: Page): Promise<number> {
+  return Number(await page.getAttribute('[data-testid="stage-slide"]', 'data-zoom'))
+}
+
+/** Which authored slide the stage is showing. */
+export async function shownSlideId(page: Page): Promise<string> {
+  return (await page.getAttribute('[data-testid="compact-stage"]', 'data-slide-id')) ?? ''
+}
+
+/** The slide coordinate currently drawn at a point on screen. */
+export async function slidePointAt(
+  page: Page,
+  client: { x: number; y: number },
+): Promise<{ x: number; y: number }> {
+  return page.evaluate((point) => {
+    const element = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
+    const rect = element.getBoundingClientRect()
+    const scale = Number(element.dataset.scale)
+    return { x: (point.x - rect.left) / scale, y: (point.y - rect.top) / scale }
+  }, client)
+}
+
+/** Whether the browser is holding a selection of text right now. */
+export async function selectedText(page: Page): Promise<string> {
+  return page.evaluate(() => window.getSelection()?.toString().trim() ?? '')
+}

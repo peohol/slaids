@@ -5566,21 +5566,86 @@ stiller det samme spørsmålet gjennom den samme funksjonen.
 
 Dragging beholdes som rask snarvei der den fungerer.
 
-Det skal være mulig å zoome visningen inn på en valgt sone. Det er en ren
-view-transform i editoren: aldri lagret geometri, aldri synlig for en kommando.
-Nesting som gjør direkte tapping vanskelig løses ved at parent og child kan
-velges fra sonestien.
+**Fire trinn, og editoren er alltid på nøyaktig ett av dem:**
+
+1. **sliden** – ingenting er fokusert, og et trykk velger en sone;
+2. **valgt sone** – sonen er markert på sliden, og handlingene gjelder den;
+3. **fokusert sone** – visningen fyller stagen med den ene sonen;
+4. **tekstredigering** – den fokuserte sonen *er* skriveflaten.
+
+Hvert trinn nås med én kontroll og forlates med én. Trinn 3 og 4 er transient
+editor-state: de eies høyt nok til å overleve rotasjon og skallbytte, og de
+leses alltid derivert mot det som faktisk er på skjermen, aldri synkronisert med
+en effekt. En angring som fjerner sonen, et trykk på en annen sone eller et
+sidebytte faller dermed av seg selv ned til det trinnet som er sant.
+
+**Én view-transform-modell.** Hel slide, fokusert sone og pinch er ikke tre
+transformer, men det samme spørsmålet med tre svar: *hvilket rektangel av sliden
+fyller stagen?* Rektangelet er alltid i det logiske 1600 × 900-rommet og skaleres
+uniformt inn i stagen, så et pekerpunkt konverteres tilbake til samme
+slidekoordinat uansett hvilket av de tre som gjelder. Det finnes ingen parallell
+geometri, og fokusert sone og pinch komponerer: pinchen forstørrer det
+rektangelet fokuseringen valgte.
+
+For pinch gjelder:
+
+- en pinch som starter i slideområdet endrer bare denne view-transformen;
+  toppmeny, paneler og resten av UI-et beholder størrelse og posisjon;
+- forstørrelsen er forankret om pinchens sentrum, så innholdet under fingrene
+  blir liggende;
+- visningen klampes inni basisrektangelet, og en pinch tilbake lander nøyaktig
+  på det igjen;
+- panorering skjer med to fingre under pinchen og med én finger når visningen
+  er forstørret;
+- dette gjelder **alle sidetyper som vises i slideområdet** — en vanlig slide,
+  en seksjon, en miniapps forside og en generert side. De deler én stage-ramme,
+  så det er den samme transformen i alle fire tilfellene og ikke fire av dem;
+  utenfor slideområdet beholder nettleseren sin egen pinch;
+- ingen del av den lagres, ingen kommando ser den, og den **kastes** når
+  trinnet eller sliden den hørte til ikke lenger gjelder. Det samme gjelder
+  trinnet på stigen: en tilstand som bare var skjult ville blitt gyldig igjen
+  neste gang det samme utvalget eller den samme sliden kom tilbake, og satt
+  editoren i en visning ingen ba om.
+
+**Sveip bytter slide.** På slideområdet på en kompakt arbeidsflate:
+
+- sveip mot høyre er neste slide, mot venstre er forrige;
+- én tydelig gest flytter nøyaktig én slide, avgjort når fingeren slippes;
+- små bevegelser er vanlige trykk, og vertikale bevegelser er ikke sveip;
+- gesten gjelder bare slideområdet: en knapp, en lenke, et felt som skrives i og
+  en kjørende miniapp eier sine egne gester, og et sonedrag som allerede er i
+  gang tar pekeren;
+- sveip er av mens visningen er forstørret (da panorerer fingeren) og mens et
+  felt skrives i;
+- sveip bruker **den samme dekknavigasjonen** som piltastene og hjulet — samme
+  funksjon, som også lukker en avledet side på veien. Det finnes ingen egen
+  mobil navigasjonsmodell.
+
+Alle gester er pointer events. Det finnes ikke ett kodeløp for touch og ett for
+mus, og derfor heller ingen user-agent-deteksjon: et smalt desktopvindu oppfører
+seg som en telefon fordi det er den samme koden.
+
+Slideoversikten er navigasjon, ikke et sidepanel: på compact dekker den hele
+høyden under toppmenyen, og miniatyrene er så store som flaten tillater.
+Hvor mange som får plass ved siden av hverandre er regnestykke på boksen, ikke
+et breakpoint. Den bruker de samme entry-ene og de samme kommandoene som
+desktopstripen, inkludert de diskrete flyttekontrollene.
 
 ### 44.5.5 Tekstredigering: flaten er ikke målet
 
-På compact skrives tekst på en egen, lesbar flate med samme
-ProseMirror-dokument og samme formatteringskommandoer.
+På compact skrives tekst enten i den **fokuserte sonen** – som er den primære
+skriveflaten når en tekstførende sone er valgt og fokusert – eller på en egen,
+lesbar flate for felt man når fra tekstlista. Begge bruker samme
+ProseMirror-dokument, samme formatteringskommandoer, samme undo/redo og samme
+`TextTarget`-adressering. Det finnes ingen egen mobil tekstmodell.
 
 **Fit-regelen er uendret.** Om teksten passer avgjøres av den virkelige sonen i
 det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
-gjennom den samme offscreen-måleren kommandoene bruker. Skriveflaten er større
-enn sonen og blir aldri spurt. En endring som ikke får plass rulles tilbake med
-samme melding som på stagen, og kladden som ble godtatt blir stående.
+gjennom den samme offscreen-måleren kommandoene bruker. At den fokuserte sonen
+er tegnet flere ganger så stor endrer ingenting: visningen er en transform, og
+målingen skjer i layout, ikke på skjermen. En endring som ikke får plass rulles
+tilbake med samme melding som på stagen, og kladden som ble godtatt blir
+stående.
 
 ### 44.5.6 Skjermtastatur og synlig viewport
 
@@ -5612,13 +5677,36 @@ navn, aktive tilstander er semantiske og ikke bare visuelle, drawers og dialoger
 bruker de eksisterende Radix-primitivene for fokusfelle og fokusretur, og
 reduced motion respekteres.
 
-### 44.5.9 Testing
+### 44.5.9 Tekstmarkering er en redigeringsaffordans
+
+Et trykk, et langt trykk eller et drag på en sone skal **aldri** starte
+nettleserens tekstmarkering. En markering som oppstår av en slik gest gjør de
+gestene upålitelige etterpå, fordi neste trykk går med til å oppheve den.
+
+Regelen er derfor snudd og uttrykt positivt, ett sted: **den eneste teksten i
+appen som kan markeres, er tekst som kan redigeres.** Et ekte felt – en
+Tiptap-flate, en `input`, et `contenteditable` – har full markering, caret,
+callout og copy/paste, fordi det er der brukeren faktisk har bedt om et caret.
+Presentasjonsmodus er det ene bevisste unntaket: publikum kopierer sitater ut av
+en slide, og spilleren skiller allerede mellom et trykk som etterlot en
+markering og et som ikke gjorde det.
+
+Dette er en UI-invariant, ikke en `preventDefault()` per komponent. En gest som
+må undertrykkes fem steder er en gest som kommer tilbake gjennom det sjette.
+
+### 44.5.10 Testing
 
 Compact-flyten testes som flyt, ikke som media queries. Playwright kjører den
 samme suiten over stående telefon, liggende telefon og et smalt desktopvindu med
 mus – det siste er beviset på at compact avgjøres av vinduet og ikke av en
 user-agent. Desktopsuiten er regresjonsnettet for den romslige flaten og kjører
 uendret.
+
+Gester testes som gester, med nettleserens egen input: mus der kjøringen har
+mus, Chromiums touch-pipeline der den har finger. En test som sendte
+syntetiske events ville bevise at handleren virker, ikke at nettleseren lar den
+få hendelsene – og det siste er halve poenget med `touch-action` inne i
+slideområdet.
 
 `docs/MOBILE_WORKSPACE.md` er implementasjonsdokumentet for dette delsystemet:
 UX-begrunnelser, konkrete flyter og de fysiske røyktestene som ikke kan

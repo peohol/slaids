@@ -61,6 +61,19 @@ export interface ZoneOverlayProps {
    * they live in the zone panel instead, and the slide keeps its outlines.
    */
   chrome?: boolean
+  /**
+   * What the overlay is for.
+   *
+   * `zones` is zone mode: every zone outlined, hover, ratio handles, and the
+   * action toolbar where there is room for it.
+   *
+   * `selection` is a compact workspace's *content* mode, where a press on the
+   * slide selects a zone rather than putting a caret in it. The only thing
+   * there is to show then is which zone that press landed on — outlining the
+   * rest would say the workspace is in zone mode when it is not, and a ratio
+   * handle would offer a drag the mode does not answer.
+   */
+  purpose?: 'zones' | 'selection'
 }
 
 function isDescendant(root: LayoutNode, ancestorId: NodeId, nodeId: NodeId): boolean {
@@ -80,7 +93,9 @@ export function ZoneOverlay({
   onHandleDown,
   handleGap,
   chrome = true,
+  purpose = 'zones',
 }: ZoneOverlayProps) {
+  const selectionOnly = purpose === 'selection'
   const nodes = collectNodes(slide.root)
   const selectedRect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
 
@@ -89,6 +104,7 @@ export function ZoneOverlay({
       {nodes.map((node) => {
         const rect = geometry.rects.get(node.id)
         if (!rect) return null
+        if (selectionOnly && node.id !== selectedNodeId) return null
         const selected = node.id === selectedNodeId
         const hovered = !selected && node.id === hoveredNodeId
         const inSelection =
@@ -113,7 +129,7 @@ export function ZoneOverlay({
 
       {/* Ratio drag handles sit exactly in the gap between siblings. */}
       {nodes.map((node) => {
-        if (node.kind !== 'split') return null
+        if (selectionOnly || node.kind !== 'split') return null
         const parentRect = geometry.rects.get(node.id)
         if (!parentRect) return null
         return (
