@@ -74,4 +74,31 @@ describe('deriveWorkspace', () => {
   it('never reports a negative inset when the visible area is the larger number', () => {
     expect(deriveWorkspace(metrics({ height: 800, visibleHeight: 900 })).keyboardInset).toBe(0)
   })
+
+  /*
+   * The rule that keeps the editor still while somebody types.
+   *
+   * A keyboard covers part of the page without making the window smaller, so
+   * it must not be able to decide which shell is mounted — a shell that swapped
+   * for it would unmount the very field the caret is in. Which is why `compact`
+   * reads the layout viewport and the keyboard is the difference between the
+   * two heights.
+   */
+  it('lets a keyboard change nothing about which shell applies', () => {
+    const roomy = metrics({ width: 1180, height: 820, visibleHeight: 820, coarse: true })
+    const typing = { ...roomy, visibleHeight: 460 }
+
+    expect(deriveWorkspace(roomy).compact).toBe(false)
+    expect(deriveWorkspace(typing).compact).toBe(false)
+    expect(deriveWorkspace(typing).orientation).toBe(deriveWorkspace(roomy).orientation)
+    // Noticed, though: that is what the bottom bars size themselves against.
+    expect(deriveWorkspace(typing).keyboardOpen).toBe(true)
+  })
+
+  it('does the same on a surface that is already compact', () => {
+    const phone = metrics({ width: 412, height: 892, visibleHeight: 892, coarse: true })
+    const typing = { ...phone, visibleHeight: 420 }
+    expect(deriveWorkspace(phone).compact).toBe(true)
+    expect(deriveWorkspace(typing).compact).toBe(true)
+  })
 })

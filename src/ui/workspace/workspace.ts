@@ -74,6 +74,16 @@ export interface Workspace extends WorkspaceMetrics {
  */
 export const KEYBOARD_INSET_THRESHOLD = 120
 
+/**
+ * The two facts, derived.
+ *
+ * `compact` is read from the **layout** viewport and never from the visible
+ * one. That is what keeps the editor shell still while somebody types: an
+ * on-screen keyboard covers part of the page without making the window
+ * smaller, and a shell that swapped for it would unmount the field under the
+ * caret. The keyboard is noticed all the same — as the difference between the
+ * two heights, which is the only thing it actually is.
+ */
 export function deriveWorkspace(metrics: WorkspaceMetrics): Workspace {
   const inset = Math.max(0, Math.round(metrics.height - metrics.visibleHeight))
   const keyboardOpen = inset >= KEYBOARD_INSET_THRESHOLD

@@ -32,8 +32,17 @@ export interface EditorPanelState {
 }
 
 export interface EditorShellProps {
-  /** The page being edited, whichever kind it is. */
-  slide: Slide
+  /**
+   * The page being edited, whichever kind it is — or `null` when the page on
+   * screen is a derived one.
+   *
+   * A reference slide and the QR page are computed from the deck and are
+   * read-only, so there is nothing on them to edit. `null` rather than the
+   * authored slide behind them, because that slide is not what the stage is
+   * showing: a panel that listed *its* fields would let somebody edit text on
+   * a page they cannot see.
+   */
+  slide: Slide | null
   /** Settled state of the theme's web fonts, published for the fit tests. */
   fontState: string
   /** The whole command surface, shared by both shells' toolbars. */

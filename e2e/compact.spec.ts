@@ -187,10 +187,20 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByTestId('compact-content-item').first().click()
     await expect(page.getByTestId('focused-text-editor')).toBeVisible()
 
+    const shellBefore = await page.getAttribute('[data-testid="editor"]', 'data-shell')
     await openKeyboard(page)
     // «Ferdig» is the way out of the writing surface, so it is the one control
     // that may never end up behind the keyboard.
     expect(await isOnScreen(page, 'focused-text-done')).toBe(true)
+    /*
+     * And the editor underneath is the same editor.
+     *
+     * A keyboard covers part of the page; it does not make the window smaller.
+     * If it were allowed to decide which shell is mounted, opening it would
+     * unmount the very field the caret is in — see `deriveWorkspace`, and the
+     * viewport meta in `index.html` that keeps the layout viewport still.
+     */
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-shell', shellBefore ?? '')
 
     await closeKeyboard(page)
     await page.getByTestId('focused-text-done').click()
@@ -365,6 +375,48 @@ test.describe('kompakt arbeidsflate', () => {
     await exit.click()
     await expect(page.getByTestId('interactive-runtime')).toBeHidden()
     await expect(page.getByTestId('activate-interactive')).toBeVisible()
+  })
+
+  /*
+   * A reference slide is computed from the deck and is read-only. What matters
+   * here is that the panels answer about *it* and not about the authored slide
+   * the view was opened from: a text list that offered that slide's fields
+   * would let somebody edit a page they cannot see.
+   */
+  test('en avledet side tilbyr ingenting å redigere', async ({ page }) => {
+    await createPresentation(page, 'Avledet')
+    await addCardToRootZone(page)
+
+    // Cite something, so the deck grows a reference slide. A body field, not
+    // the title: a citation is body text, and the title's toolbar says so by
+    // not offering the button.
+    await openPanel(page, 'content')
+    await page.locator('[data-testid="compact-content-item"][data-target-kind="body"]').first().click()
+    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
+    await page.keyboard.insertText('Påstand med kilde')
+    await page.getByTestId('insert-reference').click()
+    await expect(page.getByTestId('reference-modal')).toBeVisible()
+    await page.getByTestId('reference-title').fill('En viktig kilde')
+    await page.getByTestId('save-reference').click()
+    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('focused-text-done').click()
+
+    // Go to the generated page from the slide overview.
+    await openPanel(page, 'slides')
+    await expect(page.getByTestId('filmstrip-derived')).toHaveCount(1)
+    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
+
+    // The text panel answers about the page on screen, which has no fields.
+    await openPanel(page, 'content')
+    await expect(page.getByTestId('compact-content-item')).toHaveCount(0)
+    await expect(page.getByTestId('compact-content-empty')).toContainText('lages automatisk')
+
+    // Back to an authored slide, and the fields are there again.
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await openPanel(page, 'content')
+    await expect(page.getByTestId('compact-content-item').first()).toBeVisible()
   })
 
   test('lagrer og henter tilbake etter reload', async ({ page }) => {

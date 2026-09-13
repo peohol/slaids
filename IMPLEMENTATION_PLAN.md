@@ -5456,8 +5456,19 @@ domenekommando**:
 | dra innhold til en annen sone | «Flytt innholdet …» → velg målsone → `moveZoneContent` |
 | dra fra sandkassen | «Plasser» → velg målsone → `placeSandboxItem` |
 
-Lovlige målsoner avgjøres av `canAcceptContent`, som er det samme spørsmålet et
-slipp stiller. Dragging beholdes som rask snarvei der den fungerer.
+Hvilke soner som kan ta imot innholdet avgjøres **ved å tørrkjøre den
+kommandoen som ville gjort jobben** og lese `Result`-en. Alt i domenet er rene
+funksjoner fra presentasjon til `Result`, så det endrer ingenting, og svaret kan
+ikke være uenig med commiten fordi det *er* commiten med resultatet kastet.
+
+Det er ikke pedanteri. En flytting og en kopi er forskjellige overganger: en
+sjekk som legger innholdet i målsonen mens kilden beholder sitt, måler et
+dokument flyttingen aldri produserer — og innhold som bærer en citation er
+nettopp der de to kommer fra hverandre, fordi first-occurrence-rekkefølgen, og
+dermed etikettbredden, avhenger av at kilden faktisk tømmes. Trykk og drag
+stiller det samme spørsmålet gjennom den samme funksjonen.
+
+Dragging beholdes som rask snarvei der den fungerer.
 
 Det skal være mulig å zoome visningen inn på en valgt sone. Det er en ren
 view-transform i editoren: aldri lagret geometri, aldri synlig for en kommando.

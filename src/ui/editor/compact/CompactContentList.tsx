@@ -19,18 +19,21 @@ export function CompactContentList({
   slide,
   onEdit,
 }: {
-  slide: Slide
+  /** `null` on a derived page: it is generated, and there is nothing to edit. */
+  slide: Slide | null
   onEdit: (entry: TextTargetEntry) => void
 }) {
   const selectNode = useEditorStore((state) => state.selectNode)
-  const entries = textTargetsForSlide(slide)
+  const entries = slide ? textTargetsForSlide(slide) : []
 
   if (entries.length === 0) {
     return (
       <p className="hint" data-testid="compact-content-empty">
-        {slide.kind === 'interactive'
-          ? 'Interaktive slides har ingen tekstfelt. Navn og fil endres i panelet under.'
-          : 'Ingen tekstfelt på denne sliden ennå. Legg inn innhold i en sone først.'}
+        {!slide
+          ? 'Denne siden lages automatisk fra presentasjonen og kan ikke redigeres. Velg en vanlig slide for å skrive.'
+          : slide.kind === 'interactive'
+            ? 'Interaktive slides har ingen tekstfelt. Navn og fil endres i panelet under.'
+            : 'Ingen tekstfelt på denne sliden ennå. Legg inn innhold i en sone først.'}
       </p>
     )
   }

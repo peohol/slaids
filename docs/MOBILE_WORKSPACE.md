@@ -185,6 +185,12 @@ Det skal være mulig å «fokusere» en valgt sone:
 
 ### 6.3 Ingen viktig funksjon skal kreve dragging
 
+**Slik ble det:** hvilke soner som tilbys avgjøres ved å tørrkjøre
+`moveZoneContent` eller `placeSandboxItem` og lese `Result`-en — ikke ved
+`canAcceptContent`, som for en *flytting* måler et dokument operasjonen aldri
+produserer (kilden beholder innholdet sitt, så citation-nummereringen blir en
+annen). Se `IMPLEMENTATION_PLAN.md` § 44.5.4.
+
 Eksisterende drag-funksjoner kan beholdes, men mobil skal ha diskrete alternativer:
 
 - split/rediger splitting via eksisterende split-dialog;
@@ -368,7 +374,8 @@ divergere:
 - `textTarget.ts` – å adressere ett tekstfelt, og å måle det mot den virkelige
   sonen;
 - `placement.ts` – «velg innhold, velg sone», delt av sandkassen og av
-  soneflytting;
+  soneflytting; den tørrkjører kommandoen som ville gjort jobben, i stedet for
+  å stille et lignende spørsmål med `canAcceptContent`;
 - `compact/` – topplinje, faner, verktøyliste, tekstliste og skriveflate, som
   bare gir mening der det ikke er plass til desktopens toolbar.
 

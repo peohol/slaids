@@ -1271,7 +1271,10 @@ export function EditorView({
   ) : null
 
   const shellProps: EditorShellProps = {
-    slide,
+    // A derived page is generated and read-only, and it is what the stage is
+    // showing — so it is what the panels answer about, not the authored slide
+    // the view was opened from.
+    slide: viewedDerivedPage ? null : slide,
     fontState,
     panels: { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen },
     toolbar: {
