@@ -10,11 +10,17 @@
  *  - **the lock.** From the moment this mounts to the moment it unmounts, the
  *    navigation lock in `state/interactiveRuntime.ts` is held, and every key,
  *    click, wheel and swipe handler in the player and the editor stands down.
- *  - **the way out.** The «Avslutt miniapp» button is Slaids' own element,
- *    outside the frame, over it, and always reachable: a miniapp cannot cover
- *    it, and no key inside the frame can be relied on to reach Slaids, so
- *    the button is the one exit. It is drawn at screen size whatever the
- *    slide's scale, so it stays a comfortable target.
+ *  - **the way out.** The exit button is Slaids' own element, outside the
+ *    frame, over it, and always reachable: a miniapp cannot cover it, and no
+ *    key inside the frame can be relied on to reach Slaids, so the button is
+ *    the one exit. It is drawn at screen size whatever the slide's scale, so
+ *    it stays a comfortable target — and it is drawn as a small «×» rather
+ *    than as a labelled button, because the app is the thing on screen and
+ *    chrome over it costs the app room. What it *covers* and what it can be
+ *    *hit with* are two different sizes: the glyph is small and the target
+ *    around it is not, and with a coarse pointer the target grows while the
+ *    glyph stays where it is. Both sizes are in the stylesheet, which is also
+ *    where the pointer is known — see `ui/workspace/`.
  *  - **the end.** Unmounting removes the frame element itself — never merely
  *    hides it — which is what stops the app's document and every timer in it.
  *    The next activation is a new frame with a fresh document.
@@ -28,6 +34,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useInteractiveRuntime } from '../../state/interactiveRuntime'
 import type { InteractiveSlide } from '../../domain/types'
+import { Icon } from '../components/Icon'
 import {
   INTERACTIVE_PERMISSIONS_POLICY,
   INTERACTIVE_REFERRER_POLICY,
@@ -104,12 +111,18 @@ export function InteractiveRuntime({
           type="button"
           className="interactive-runtime__exit"
           data-testid="exit-interactive"
+          // A glyph and no text on the surface, so this is the control's only
+          // name — and it is the same name it has always had.
+          aria-label={EXIT_LABEL}
           onClick={(event) => {
             event.stopPropagation()
             onExit()
           }}
         >
-          {EXIT_LABEL}
+          {/* Sized in the stylesheet: the target follows the pointer, the glyph barely. */}
+          <span className="interactive-runtime__exit-glyph" data-testid="exit-interactive-glyph">
+            <Icon name="close" />
+          </span>
         </button>
       </div>
     </div>
