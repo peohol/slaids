@@ -856,10 +856,19 @@ button.interactive-page__activate:focus-visible {
 }
 
 /*
- * The glyph, and the disc behind it. Dark behind white, because what is behind
- * *that* is an app in any colour it likes: a bare × this faint disappears on a
- * light one. The cross fills half the disc — the icon's own viewBox keeps the
- * rest clear — so what the app loses is this disc and nothing more.
+ * The glyph: a cross on a disc, and only one of the two is see-through.
+ *
+ * That is the whole trick, and fading the pair together instead — one
+ * `opacity` over both — is how this control disappears. Such a fade lightens
+ * the disc towards the app *and* dims the cross towards the disc, so on a light
+ * miniapp there is neither a shape nor a mark left to find: measured over
+ * white, a cross faded that way stands at 1.4:1 against its own disc. Here the
+ * disc alone is what the app shows through, and the cross stays opaque white on
+ * top of whatever that leaves — a contrast the app behind cannot take away. On
+ * a light app both halves read; on a dark one the disc is the half that
+ * vanishes and the cross is what is seen. The cross fills half the disc, the
+ * icon's own viewBox keeping the rest clear, so what the app loses is this disc
+ * and nothing more.
  */
 .interactive-runtime__exit-glyph {
   display: grid;
@@ -867,17 +876,16 @@ button.interactive-page__activate:focus-visible {
   width: var(--exit-visual);
   height: var(--exit-visual);
   border-radius: 999px;
-  background: rgba(16, 18, 22, 0.5);
-  opacity: 0.55;
+  background: rgba(16, 18, 22, 0.55);
   transition:
-    opacity 120ms ease,
-    background-color 120ms ease;
+    background-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .interactive-runtime__exit-glyph svg {
   width: 100%;
   height: 100%;
-  /* Heavier than the icon set's default: this one is drawn small and faint. */
+  /* Heavier than the icon set's default: this one is drawn very small. */
   stroke-width: 2.2;
 }
 
@@ -889,8 +897,13 @@ button.interactive-page__activate:focus-visible {
 .interactive-runtime__exit:hover .interactive-runtime__exit-glyph,
 .interactive-runtime__exit:focus-visible .interactive-runtime__exit-glyph,
 .interactive-runtime__exit:active .interactive-runtime__exit-glyph {
-  opacity: 1;
   background: rgba(16, 18, 22, 0.92);
+  /*
+   * A hairline on the disc itself, and not merely a deeper disc: deepening it
+   * is an answer on a light app and no answer at all on a dark one, where the
+   * disc was already the colour it is turning into.
+   */
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9);
 }
 
 /*

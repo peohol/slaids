@@ -638,19 +638,39 @@ test.describe('avsluttkontrollen', () => {
 
     const exit = page.getByTestId('exit-interactive')
     const glyph = page.getByTestId('exit-interactive-glyph')
-    const opacity = async (): Promise<number> =>
-      Number(await glyph.evaluate((node) => getComputedStyle(node).opacity))
+    /** How much of the app the disc keeps out: 0 is a hole, 1 is opaque. */
+    const disc = async (): Promise<number> => {
+      const colour = await glyph.evaluate((node) => getComputedStyle(node).backgroundColor)
+      const parts = /\(([^)]+)\)/.exec(colour)![1].split(',').map(Number)
+      return parts.length > 3 ? parts[3] : 1
+    }
+    const ring = (): Promise<string> => glyph.evaluate((node) => getComputedStyle(node).boxShadow)
 
     // Drawn, and barely drawn: the app behind it is the thing on screen.
-    expect(await opacity()).toBeGreaterThan(0)
-    expect(await opacity()).toBeLessThan(0.7)
+    expect(await disc()).toBeGreaterThan(0)
+    expect(await disc()).toBeLessThan(0.7)
 
-    // A pointer on it, and there is no doubt what it is…
+    /*
+     * And the subtlety is the disc's alone. A fade over the glyph as a whole
+     * would dim the cross towards the disc at the same time as it lightened the
+     * disc towards the app, which leaves nothing to find on a light app — so
+     * the cross is opaque white whatever the disc is doing.
+     */
+    expect(await glyph.evaluate((node) => getComputedStyle(node).opacity)).toBe('1')
+    expect(await glyph.evaluate((node) => getComputedStyle(node).color)).toBe('rgb(255, 255, 255)')
+    expect(await glyph.evaluate((node) => getComputedStyle(node.querySelector('svg')!).stroke)).toBe(
+      'rgb(255, 255, 255)',
+    )
+
+    // A pointer on it, and there is no doubt what it is: a deeper disc, and a
+    // hairline round it that says the same thing on an app of any colour.
+    expect(await ring()).toBe('none')
     await exit.hover()
-    await expect.poll(opacity).toBe(1)
+    await expect.poll(disc).toBeGreaterThanOrEqual(0.85)
+    expect(await ring()).not.toBe('none')
     // …for as long as the pointer is there, and no longer.
     await page.mouse.move(2, 2)
-    await expect.poll(opacity).toBeLessThan(0.7)
+    await expect.poll(disc).toBeLessThan(0.7)
 
     /*
      * The keyboard reaches it from inside the running app: Tab leaves a frame
@@ -664,8 +684,8 @@ test.describe('avsluttkontrollen', () => {
       await page.keyboard.press('Tab')
     }
     await expect(exit).toBeFocused()
-    // Where the keyboard is, said twice: at full strength, and ringed.
-    await expect.poll(opacity).toBe(1)
+    // Where the keyboard is, said twice: the aimed-at disc, and an outline.
+    await expect.poll(disc).toBeGreaterThanOrEqual(0.85)
     expect(await glyph.evaluate((node) => getComputedStyle(node).outlineWidth)).toBe('3px')
 
     // Enter is still the way out, as it was when the control carried a label.
