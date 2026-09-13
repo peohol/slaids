@@ -518,7 +518,7 @@ export function estimateFit(
  * all of them at once, and a result that named none would be a result the
  * regression check reads as "nothing overflows here".
  */
-export function partsOf(content: ZoneContent): string[] {
+function partsOf(content: ZoneContent): string[] {
   switch (content.kind) {
     case 'negative-space':
       return []

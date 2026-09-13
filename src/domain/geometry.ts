@@ -25,7 +25,7 @@ import {
   TITLE_LINE_HEIGHT,
   titleZoneHeightFor,
 } from './constants'
-import { minimumSizeForContent, NO_MINIMUM, rectHolds } from './contentSize'
+import { minimumSizeForContent, rectHolds } from './contentSize'
 import { themeMetrics, type ThemeMetrics } from './metrics'
 import type { Axis, ContentSlide, LayoutNode, LeafNode, NodeId, Rect, Size } from './types'
 
@@ -490,11 +490,11 @@ export function previewSplit(
   for (let i = 0; i < childRects.length; i += 1) {
     const child = existingChildren?.[i]
     // A child the caller did not describe is a new, empty leaf, and an empty
-    // leaf draws nothing that a small rectangle could hide — so a split into
-    // empty zones is legal at any ratio the ladder can express. What may not
-    // fit is content, and content is what `existingChildren` carries.
-    const fits = child ? subtreeFitsInRect(child, childRects[i], o) : rectHolds(NO_MINIMUM, childRects[i])
-    if (!fits) tooSmall.push(i)
+    // leaf draws nothing that a small rectangle could hide — so it constrains
+    // nothing, and a split into empty zones is legal at any ratio the ladder
+    // can express. What may not fit is content, and content is what
+    // `existingChildren` carries.
+    if (child && !subtreeFitsInRect(child, childRects[i], o)) tooSmall.push(i)
   }
   return { childRects, tooSmall, valid: tooSmall.length === 0 }
 }

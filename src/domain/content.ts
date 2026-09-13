@@ -39,11 +39,6 @@ export function createNegativeSpace(): NegativeSpaceContent {
   return { id: newContentId(), kind: 'negative-space' }
 }
 
-/** Content that draws nothing at all. */
-export function isNegativeSpace(content: ZoneContent): content is NegativeSpaceContent {
-  return content.kind === 'negative-space'
-}
-
 export function createSubfield(doc: RichDoc = emptyDoc()): Subfield {
   return { id: newSubfieldId(), doc }
 }

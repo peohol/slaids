@@ -517,6 +517,18 @@ function bodyFrom(content: ZoneContent, carriedTitle: RichDoc | null): CardBody 
     }
   }
 
+  /*
+   * A source with nothing to say becomes an empty field, not a field with no
+   * blocks in it.
+   *
+   * `{ content: [] }` is not the empty document — `emptyDoc()` is, and it holds
+   * one empty paragraph, because that is what a rich-text document with a place
+   * to type in looks like. The two ways to get here with nothing: negative
+   * space, which has no payload at all, and a picture panel with neither a file
+   * nor a caption.
+   */
+  docs = docs.map((doc) => ((doc.content ?? []).length > 0 ? doc : emptyDoc()))
+
   const base = createCardBody(Math.max(1, docs.length), axis)
   return {
     axis,
@@ -667,7 +679,7 @@ export function setContentKind(
  * once. The details carry the two rectangles rather than only the message, so
  * an agent can act on the numbers and a picker can grey a button out.
  */
-export function contentKindRefusalFor(
+function contentKindRefusalFor(
   presentation: Presentation,
   target: ZoneContentTarget,
   kind: ZoneContentKind,

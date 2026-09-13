@@ -32,7 +32,7 @@ import { themeMetrics, type ThemeMetrics } from './metrics'
 import type { Rect, Size, ZoneContent, ZoneContentKind } from './types'
 
 /** No requirement at all: whatever the geometry allows is legal. */
-export const NO_MINIMUM: Size = { width: 0, height: 0 }
+const NO_MINIMUM: Size = { width: 0, height: 0 }
 
 /**
  * One line of body text, as the fit estimator counts it.
