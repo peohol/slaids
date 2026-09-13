@@ -1845,7 +1845,7 @@
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(16px + var(--safe-bottom));
+  bottom: calc(var(--slaids-visible-bottom-gap) + 16px + var(--safe-bottom));
   z-index: 55;
   display: flex;
   align-items: center;
@@ -1860,7 +1860,9 @@
 }
 
 :root[data-compact='true'] .placement-bar {
-  bottom: calc(var(--compact-bar-height) + 12px + var(--safe-bottom));
+  bottom: calc(
+    var(--slaids-visible-bottom-gap) + var(--compact-bar-height) + 12px + var(--safe-bottom)
+  );
 }
 
 .sandbox-item__place {
@@ -2212,8 +2214,8 @@
   position: fixed;
   left: 0;
   right: 0;
-  top: 0;
-  /* Only as tall as what is on screen, so the keyboard covers nothing. */
+  /* Exactly the band that is on screen, so the keyboard covers nothing of it. */
+  top: var(--slaids-visible-top);
   height: var(--slaids-visible-height);
   z-index: 52;
   display: flex;
@@ -2296,7 +2298,12 @@
   left: 0;
   right: 0;
   top: auto;
-  bottom: 0;
+  /*
+   * Along the bottom of what can be seen, not of the window. Ideas has a text
+   * field in its own footer, so a sheet pinned to the layout bottom would put
+   * the field it exists for behind the keyboard it opened.
+   */
+  bottom: var(--slaids-visible-bottom-gap);
   width: auto;
   /* Above the tab bar's height so the tabs stay reachable behind it. */
   height: min(78%, calc(var(--slaids-visible-height) - 56px));
@@ -2318,7 +2325,7 @@
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(14px + var(--safe-bottom));
+  bottom: calc(var(--slaids-visible-bottom-gap) + 14px + var(--safe-bottom));
   z-index: 20;
   display: flex;
   align-items: center;

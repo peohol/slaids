@@ -44,7 +44,17 @@ export interface WorkspaceMetrics {
   /** The layout viewport — what CSS lengths are relative to. */
   width: number
   height: number
-  /** The part of the layout viewport actually on screen, from `visualViewport`. */
+  /**
+   * The band of the layout viewport that is actually on screen, from
+   * `visualViewport`: where it starts, and how tall it is.
+   *
+   * Both are needed, and the offset is the half that is easy to forget. A
+   * `position: fixed` box is laid out against the *layout* viewport whatever
+   * the keyboard is doing — that is precisely why `visualViewport` exists — so
+   * a surface that must stay reachable has to be told where the visible band
+   * is, not merely how tall it is.
+   */
+  visibleTop: number
   visibleHeight: number
   coarse: boolean
 }
@@ -63,6 +73,11 @@ export interface Workspace extends WorkspaceMetrics {
   keyboardInset: number
   /** Whether something is covering the viewport from below right now. */
   keyboardOpen: boolean
+  /**
+   * How far the bottom of the visible band sits above the bottom of the layout
+   * viewport — what a bar pinned to the bottom has to stand off by.
+   */
+  visibleBottomGap: number
 }
 
 /**
@@ -93,6 +108,10 @@ export function deriveWorkspace(metrics: WorkspaceMetrics): Workspace {
     orientation: metrics.width >= metrics.height ? 'landscape' : 'portrait',
     keyboardInset: inset,
     keyboardOpen,
+    visibleBottomGap: Math.max(
+      0,
+      Math.round(metrics.height - metrics.visibleTop - metrics.visibleHeight),
+    ),
   }
 }
 
@@ -106,6 +125,7 @@ export function deriveWorkspace(metrics: WorkspaceMetrics): Workspace {
 export const DESKTOP_WORKSPACE: Workspace = deriveWorkspace({
   width: 1600,
   height: 1000,
+  visibleTop: 0,
   visibleHeight: 1000,
   coarse: false,
 })

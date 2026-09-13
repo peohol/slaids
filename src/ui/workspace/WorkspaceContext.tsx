@@ -38,6 +38,7 @@ function readMetrics(): WorkspaceMetrics {
     height: window.innerHeight,
     // A browser without `visualViewport` simply never reports an inset, which
     // is the honest answer: it has no way to know one.
+    visibleTop: visual ? visual.offsetTop : 0,
     visibleHeight: visual ? visual.height : window.innerHeight,
     coarse: window.matchMedia?.(COARSE_QUERY).matches ?? false,
   }
@@ -52,17 +53,25 @@ function same(a: Workspace, b: Workspace): boolean {
     a.keyboardOpen === b.keyboardOpen &&
     a.width === b.width &&
     a.height === b.height &&
-    a.keyboardInset === b.keyboardInset
+    a.keyboardInset === b.keyboardInset &&
+    a.visibleTop === b.visibleTop &&
+    a.visibleBottomGap === b.visibleBottomGap
   )
 }
 
 /**
  * Publish the workspace to the stylesheets.
  *
- * The attributes are what CSS selects on, and `--slaids-visible-height` is what
- * a compact layout sizes itself by: it is the part of the page that is actually
- * on screen, so a bar pinned to the bottom of it stays above an open keyboard
- * rather than behind it.
+ * The attributes are what CSS selects on. The three lengths describe the band
+ * of the page that is actually on screen — where it starts, how tall it is, and
+ * how far its bottom sits above the bottom of the layout viewport.
+ *
+ * All three are needed because `position: fixed` is laid out against the
+ * *layout* viewport: a keyboard shrinks what can be seen without moving what a
+ * fixed box is anchored to, so a dialog centred on the layout viewport puts its
+ * footer behind the keyboard, and a sheet pinned to `bottom: 0` disappears
+ * under it entirely. Anything that has to stay reachable is anchored to the
+ * band instead.
  */
 function publish(workspace: Workspace): void {
   const root = document.documentElement
@@ -70,7 +79,9 @@ function publish(workspace: Workspace): void {
   root.dataset.coarse = workspace.coarse ? 'true' : 'false'
   root.dataset.orientation = workspace.orientation
   root.dataset.keyboard = workspace.keyboardOpen ? 'open' : 'closed'
+  root.style.setProperty('--slaids-visible-top', `${Math.round(workspace.visibleTop)}px`)
   root.style.setProperty('--slaids-visible-height', `${Math.round(workspace.visibleHeight)}px`)
+  root.style.setProperty('--slaids-visible-bottom-gap', `${workspace.visibleBottomGap}px`)
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {

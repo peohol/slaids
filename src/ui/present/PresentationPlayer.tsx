@@ -60,6 +60,25 @@ const CONTROLS_HIDE_MS = 4000
 const OWNS_ITS_PRESS = 'a, button, [role="button"], .interactive-runtime, .present-controls'
 
 /**
+ * Whether the press that just ended was somebody selecting text inside `host`.
+ *
+ * A slide's text is ordinary selectable text — an audience copies a quotation
+ * out of a deck, and a presenter highlights a line while talking. The mouse-up
+ * that finishes the drag arrives here as a click, and turning the page on it
+ * would take the selection away in the same motion that made it.
+ *
+ * A plain click collapses whatever was selected before the event is dispatched,
+ * so an ordinary press through text still turns the page; only a press that
+ * *leaves something selected* is one that meant to select.
+ */
+function endedASelection(host: HTMLElement | null): boolean {
+  const selection = window.getSelection()
+  if (!host || !selection || selection.isCollapsed || selection.rangeCount === 0) return false
+  if (selection.toString().trim() === '') return false
+  return host.contains(selection.anchorNode)
+}
+
+/**
  * One page, and the one kind of page that may do more than be drawn.
  *
  * Keyed by the page, so turning to another slide unmounts the surface — and
@@ -226,6 +245,8 @@ export function PresentationPlayer({
         // Links and buttons inside a page (reference URLs, rich-text links)
         // must not also advance the deck.
         if ((event.target as Element).closest(OWNS_ITS_PRESS)) return
+        // Text somebody has just highlighted is not a request for the next page.
+        if (endedASelection(hostRef.current)) return
         /*
          * A press on empty space means different things to different hands.
          * With a mouse it is the fastest way through a deck and always has

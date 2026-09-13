@@ -11,6 +11,7 @@ function metrics(overrides: Partial<WorkspaceMetrics> = {}): WorkspaceMetrics {
   return {
     width: 1600,
     height: 1000,
+    visibleTop: 0,
     visibleHeight: 1000,
     coarse: false,
     ...overrides,
@@ -84,6 +85,24 @@ describe('deriveWorkspace', () => {
    * reads the layout viewport and the keyboard is the difference between the
    * two heights.
    */
+  /*
+   * A `position: fixed` box is anchored to the layout viewport whatever the
+   * keyboard is doing, so anything that must stay reachable needs to know where
+   * the visible band *is* — not only how tall it is.
+   */
+  it('says how far the visible band stands off the bottom of the page', () => {
+    const covered = deriveWorkspace(metrics({ height: 892, visibleTop: 0, visibleHeight: 492 }))
+    expect(covered.visibleBottomGap).toBe(400)
+
+    // Scrolled as well as covered: the band has moved down, so less of it is
+    // below than the covered height alone suggests.
+    const scrolled = deriveWorkspace(metrics({ height: 892, visibleTop: 120, visibleHeight: 492 }))
+    expect(scrolled.visibleBottomGap).toBe(280)
+
+    // Nothing covering anything: nothing to stand off by.
+    expect(deriveWorkspace(metrics()).visibleBottomGap).toBe(0)
+  })
+
   it('lets a keyboard change nothing about which shell applies', () => {
     const roomy = metrics({ width: 1180, height: 820, visibleHeight: 820, coarse: true })
     const typing = { ...roomy, visibleHeight: 460 }

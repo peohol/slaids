@@ -189,6 +189,20 @@ export function textTargetsForSlide(slide: Slide): TextTargetEntry[] {
   return entries
 }
 
+/**
+ * Whether this zone holds any text at all.
+ *
+ * Asked before offering «Rediger tekst», because content is not the same thing
+ * as text: a plain picture with no caption fills its zone and has nothing to
+ * type into. Derived from the same walk the list is, so the button and the list
+ * can never disagree about what a zone contains.
+ */
+export function hasTextTargetIn(slide: Slide, nodeId: string): boolean {
+  return textTargetsForSlide(slide).some(
+    (entry) => 'nodeId' in entry.target && entry.target.nodeId === nodeId,
+  )
+}
+
 /** What the field holds now, or `null` when the target no longer addresses one. */
 export function readTextTarget(presentation: Presentation, target: TextTarget): RichDoc | null {
   const slide = findSlide(presentation, target.slideId)

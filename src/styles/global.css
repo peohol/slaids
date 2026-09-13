@@ -38,11 +38,18 @@
   --zone-outline-selected: #4f8ef7;
 
   /*
-   * How much of the page is on screen. Written by the workspace provider from
-   * `visualViewport`; the fallback is what a browser without it gets, which is
-   * simply "all of it".
+   * The band of the page that is actually on screen: where it starts, how tall
+   * it is, and how far its bottom sits above the bottom of the layout viewport.
+   * Written by the workspace provider from `visualViewport`; the fallbacks are
+   * what a browser without it gets, which is simply "all of it".
+   *
+   * A `position: fixed` box is anchored to the *layout* viewport whatever the
+   * keyboard is doing. Anything that has to stay reachable while somebody types
+   * is therefore placed against this band instead of against the viewport.
    */
+  --slaids-visible-top: 0px;
   --slaids-visible-height: 100dvh;
+  --slaids-visible-bottom-gap: 0px;
 
   /* Notch, home indicator, rounded corners — zero everywhere else. */
   --safe-top: env(safe-area-inset-top, 0px);
@@ -305,16 +312,20 @@ textarea {
 
 .dialog {
   position: fixed;
-  top: 50%;
+  /*
+   * Centred on what can be seen, not on the window.
+   *
+   * The two are the same until a keyboard opens. After that, a dialog centred
+   * on the window hangs half of itself — the half with the buttons — behind the
+   * keyboard, because `fixed` is anchored to the layout viewport and the
+   * keyboard does not move it.
+   */
+  top: calc(var(--slaids-visible-top) + var(--slaids-visible-height) / 2);
   left: 50%;
   transform: translate(-50%, -50%);
   /* The width a dialog asked for, never wider than the screen it landed on. */
   width: min(var(--dialog-width, 720px), calc(100vw - 64px));
-  /*
-   * Two ceilings, and the dialog obeys both: the window, and the part of it
-   * that is not behind an on-screen keyboard. The second is what keeps the
-   * footer's buttons reachable while somebody is typing in the body.
-   */
+  /* And no taller than the band it is centred in. */
   max-height: min(calc(100vh - 80px), calc(var(--slaids-visible-height) - 24px));
   overflow: hidden;
   background: var(--chrome-bg-raised);
@@ -425,8 +436,8 @@ textarea {
 .toasts {
   position: fixed;
   right: 18px;
-  /* Above the compact tab bar and above the home indicator. */
-  bottom: calc(18px + var(--safe-bottom));
+  /* Above the home indicator, and above an open keyboard. */
+  bottom: calc(var(--slaids-visible-bottom-gap) + 18px + var(--safe-bottom));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -437,7 +448,9 @@ textarea {
 :root[data-compact='true'] .toasts {
   left: calc(10px + var(--safe-left));
   right: calc(10px + var(--safe-right));
-  bottom: calc(var(--compact-bar-height, 60px) + 10px + var(--safe-bottom));
+  bottom: calc(
+    var(--slaids-visible-bottom-gap) + var(--compact-bar-height, 60px) + 10px + var(--safe-bottom)
+  );
   max-width: none;
 }
 

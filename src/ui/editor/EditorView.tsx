@@ -113,7 +113,7 @@ import {
   type Placement,
   type PlacementSource,
 } from './placement'
-import { textTargetsForSlide, type TextTargetEntry } from './textTarget'
+import { hasTextTargetIn, textTargetsForSlide, type TextTargetEntry } from './textTarget'
 
 /**
  * Where the pointer is beats where the boxes overlap.
@@ -1061,7 +1061,7 @@ export function EditorView({
     const isRoot = contentSlide.root.id === selectedNodeId
 
     return [
-      ...(compact && hasContent
+      ...(compact && hasContent && hasTextTargetIn(contentSlide, selectedNodeId)
         ? [
             {
               id: 'edit-text',

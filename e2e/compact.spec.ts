@@ -16,6 +16,7 @@ import { expect, test, type Page } from './fixtures'
 import {
   backToLibrary,
   createPresentation,
+  dismissImageModal,
   stage,
   toast,
   waitForSaved,
@@ -148,6 +149,28 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 1')
   })
 
+  /*
+   * Content is not the same thing as text. A plain picture fills its zone and
+   * has nothing to type into until it is given a caption, so the action that
+   * opens the writing surface is not offered — a button that does nothing is
+   * worse than no button.
+   */
+  test('en bildesone uten bildetekst tilbyr ingen tekstredigering', async ({ page }) => {
+    await createPresentation(page, 'Bilde uten tekst')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-image').click()
+    await dismissImageModal(page)
+
+    await openPanel(page, 'zone')
+    await expect(page.getByTestId('inspector-action-move')).toBeVisible()
+    await expect(page.getByTestId('inspector-action-edit-text')).toHaveCount(0)
+    await expect(page.getByTestId('compact-tab-content')).toBeVisible()
+
+    // Give it a caption, and the action is there — same walk, same answer.
+    await page.getByTestId('caption-position-bottom').click()
+    await expect(page.getByTestId('inspector-action-edit-text')).toBeVisible()
+  })
+
   test('redigerer tekst på en lesbar flate, og fit måles mot den virkelige sonen', async ({
     page,
   }) => {
@@ -209,6 +232,35 @@ test.describe('kompakt arbeidsflate', () => {
     // And the workspace's own bottom bar, once the sheet is gone.
     await openKeyboard(page)
     expect(await isOnScreen(page, 'compact-tab-bar')).toBe(true)
+    await closeKeyboard(page)
+  })
+
+  /*
+   * A `position: fixed` box is anchored to the layout viewport whatever the
+   * keyboard is doing — that is the whole reason `visualViewport` exists. So a
+   * dialog centred on the window hangs its buttons behind the keyboard, and a
+   * sheet pinned to the window's bottom disappears under it. Both are placed
+   * against the visible band instead.
+   */
+  test('dialoger og verktøyark holder seg over skjermtastaturet', async ({ page }) => {
+    await createPresentation(page, 'Over tastaturet')
+
+    await openPanel(page, 'slides')
+    await page.getByTestId('add-slide').click()
+    await expect(page.locator('[role="dialog"]').first()).toBeVisible()
+    await openKeyboard(page)
+    // The buttons that finish the job, not merely the dialog's top edge.
+    expect(await isOnScreen(page, 'new-slide-with-title')).toBe(true)
+    await closeKeyboard(page)
+    await page.getByTestId('new-slide-with-title').click()
+
+    // Ideas is a sheet with a text field in its own footer: the one surface
+    // where being under the keyboard would hide the thing it exists for.
+    await openPanel(page, 'tools')
+    await page.getByTestId('compact-tool-ideas').click()
+    await expect(page.getByTestId('ideas-window')).toBeVisible()
+    await openKeyboard(page)
+    expect(await isOnScreen(page, 'idea-input')).toBe(true)
     await closeKeyboard(page)
   })
 
