@@ -5430,6 +5430,19 @@ Orientering er et layoutsignal, ikke apptilstand. Rotasjon, og et skjermtastatur
 som åpnes eller lukkes, skal aldri nullstille valgt slide, valgt sone, åpent
 panel, ulagret kladd eller undo/redo-historikk.
 
+Et skjermtastatur kan i tillegg aldri endre *hvilket* skall som gjelder:
+`compact` leses fra layout-viewporten, som tastaturet ikke gjør mindre. Derfor
+remounter ingenting når det åpnes, og markøren blir stående.
+
+Rotasjon som **krysser** compact-terskelen er det ene tilfellet der selve
+oppsettet bygges om — et nettbrett er romslig på langs og kompakt på tvers, og
+de to skallene er to forskjellige arrangementer, ikke to tilstander av ett.
+Listen over gjelder like fullt: ingenting av dokumentet, utvalget, historikken
+eller brukerens valg av arbeidsflate ligger i skallet, nettopp fordi skallet kan
+byttes. Det som ikke overlever en slik kryssing er markørposisjonen i et felt
+som skrives i; rotasjon *innenfor* samme arbeidsflate — altså enhver telefon —
+remounter ingenting og beholder også den.
+
 ### 44.5.3 Ett skall om gangen
 
 `EditorView` eier lasting, autosave, kommandoer, dialoger og de tre store

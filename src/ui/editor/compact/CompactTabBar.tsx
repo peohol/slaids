@@ -9,8 +9,7 @@
 
 import { useEditorStore } from '../../../state/store'
 import { Icon, type IconName } from '../../components/Icon'
-
-export type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
+import type { CompactPanel } from '../shell/editorShell'
 
 const TABS: { id: CompactPanel; label: string; icon: IconName }[] = [
   { id: 'slides', label: 'Slides', icon: 'template' },

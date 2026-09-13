@@ -105,7 +105,7 @@ import type { ZoneAction } from './ZoneOverlay'
 import { useWorkspace } from '../workspace/WorkspaceContext'
 import { CompactEditorShell } from './shell/CompactEditorShell'
 import { DesktopEditorShell } from './shell/DesktopEditorShell'
-import type { EditorShellProps } from './shell/editorShell'
+import type { CompactPanel, EditorShellProps } from './shell/editorShell'
 import { FocusedTextEditor } from './compact/FocusedTextEditor'
 import {
   PLACEMENT_PROMPT,
@@ -228,9 +228,25 @@ export function EditorView({
   /*
    * How much room there is and how precisely it can be pointed at. Two facts
    * about the browser window; neither is ever written to the document.
+   *
+   * Read before the state that depends on it: the panel below decides its very
+   * first value from the shape the session started in.
    */
   const workspace = useWorkspace()
   const compact = workspace.compact
+
+  /**
+   * The compact surface the user last opened.
+   *
+   * Held here rather than in the shell that draws it: rotating a tablet across
+   * the compact threshold swaps which shell is mounted, and a choice the shell
+   * was holding would go with it. The first value is the shape the session
+   * started in — upright, the text below the preview is the work; on its side
+   * the slide is, and nothing opens until it is asked for.
+   */
+  const [compactPanel, setCompactPanel] = useState<CompactPanel | null>(() =>
+    workspace.compact && workspace.orientation === 'portrait' ? 'content' : null,
+  )
 
   /* -------------------------------------------------------------- *
    * Loading and autosave
@@ -1276,7 +1292,14 @@ export function EditorView({
     // the view was opened from.
     slide: viewedDerivedPage ? null : slide,
     fontState,
-    panels: { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen },
+    panels: {
+      ideasOpen,
+      sandboxOpen,
+      setIdeasOpen,
+      setSandboxOpen,
+      compactPanel,
+      setCompactPanel,
+    },
     toolbar: {
       title: presentation.title,
       hasTitleZone: contentSlide?.title != null,

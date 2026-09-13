@@ -83,7 +83,16 @@ Et stort nettbrett kan derfor få desktop-lignende plassering med touch-vennlige
 
 Ikke bygg funksjonaliteten rundt et bestemt telefonmål eller ett magisk breakpoint. Bruk CSS/container queries der layout alene kan løses i CSS, og en liten delt hook/utilitet bare der React faktisk må vite at arbeidsflaten er kompakt.
 
-Orientering er et layoutsignal, ikke apptilstand. Rotasjon skal ikke remounte editoren eller miste:
+Orientering er et layoutsignal, ikke apptilstand.
+
+**Slik ble det:** rotasjon *innenfor* samme arbeidsflate — enhver telefon —
+remounter ingenting. Rotasjon som krysser terskelen (et nettbrett på 1180 × 820
+mot 820 × 1180) bytter skall, og da bygges oppsettet om med vilje. Derfor ligger
+ingen brukervalgt tilstand i skallet: `EditorView` eier både panelvalget og alt
+annet, og `e2e/workspace.spec.ts` går fram og tilbake over terskelen for å holde
+fast på det. Se `IMPLEMENTATION_PLAN.md` § 44.5.2.
+
+Rotasjon skal ikke miste:
 
 - valgt slide;
 - valgt sone;

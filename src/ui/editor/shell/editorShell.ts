@@ -18,17 +18,29 @@ import type { Slide } from '../../../domain/types'
 import type { TopToolbarProps } from '../TopToolbar'
 import type { TextTargetEntry } from '../textTarget'
 
+/** Which of the compact workspace's four surfaces is open, if any. */
+export type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
+
 /**
- * The two tool panels, as state rather than as toggles.
+ * The panels, as state rather than as toggles.
  *
  * A compact workspace shows one large surface at a time, so it has to be able
  * to *close* the other one rather than flip it; the desktop only ever flips.
+ *
+ * All of it is held by `EditorView` rather than by the shell, and that is not
+ * tidiness. Which shell is mounted is a fact about the window, and a window can
+ * change: rotating a tablet across the compact threshold swaps the shell, and
+ * anything the shell was holding would go with it. What the user chose has to
+ * outlive the layout that showed it.
  */
 export interface EditorPanelState {
   ideasOpen: boolean
   sandboxOpen: boolean
   setIdeasOpen: (open: boolean) => void
   setSandboxOpen: (open: boolean) => void
+  /** The compact surface the user last opened. `null` is "just the slide". */
+  compactPanel: CompactPanel | null
+  setCompactPanel: (panel: CompactPanel | null) => void
 }
 
 export interface EditorShellProps {

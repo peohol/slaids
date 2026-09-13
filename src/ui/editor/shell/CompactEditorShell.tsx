@@ -19,14 +19,12 @@
  * which is the whole of the one-at-a-time rule.
  */
 
-import { useState } from 'react'
 import { Icon } from '../../components/Icon'
-import { useWorkspace } from '../../workspace/WorkspaceContext'
 import { CompactContentList } from '../compact/CompactContentList'
-import { CompactTabBar, type CompactPanel } from '../compact/CompactTabBar'
+import { CompactTabBar } from '../compact/CompactTabBar'
 import { CompactTopBar } from '../compact/CompactTopBar'
 import { CompactToolsPanel } from '../compact/CompactToolsPanel'
-import type { EditorShellProps } from './editorShell'
+import type { CompactPanel, EditorShellProps } from './editorShell'
 
 const PANEL_TITLES: Record<CompactPanel, string> = {
   slides: 'Slides',
@@ -36,21 +34,8 @@ const PANEL_TITLES: Record<CompactPanel, string> = {
 }
 
 export function CompactEditorShell(props: EditorShellProps) {
-  const { orientation } = useWorkspace()
-  /*
-   * Where the workspace starts, by shape rather than by preference.
-   *
-   * Upright, the page is a preview and the text below it is the work, so the
-   * text panel is what opens. On its side the slide is the work and the panel
-   * takes room from it, so nothing opens until it is asked for. Rotating does
-   * not revisit this: it is where the session started, not a rule about the
-   * orientation, and having a panel close itself under a turning hand would be
-   * the app changing its mind.
-   */
-  const [chosen, setChosen] = useState<CompactPanel | null>(
-    orientation === 'portrait' ? 'content' : null,
-  )
-  const { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen } = props.panels
+  const { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen, compactPanel, setCompactPanel } =
+    props.panels
 
   /*
    * One big surface at a time, derived rather than synchronised: a tool window
@@ -58,14 +43,14 @@ export function CompactEditorShell(props: EditorShellProps) {
    * tool window is up the panel is simply not showing — and closing the window
    * brings back the panel the user last chose, with nothing to remember it.
    */
-  const panel = ideasOpen || sandboxOpen ? null : chosen
+  const panel = ideasOpen || sandboxOpen ? null : compactPanel
 
   const openPanel = (next: CompactPanel | null): void => {
     if (next !== null) {
       setIdeasOpen(false)
       setSandboxOpen(false)
     }
-    setChosen(next)
+    setCompactPanel(next)
   }
 
   return (
