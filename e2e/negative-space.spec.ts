@@ -6,7 +6,10 @@
  * the one kind that has no minimum — negative space — is what is left, and
  * draws nothing once it is chosen.
  *
- * The third test is the overflow half: a card title that is too wide for its
+ * A zone that holds something is the other side of the same rule: air has no
+ * payload, so it is not offered until the zone is emptied.
+ *
+ * The last test is the overflow half: a card title that is too wide for its
  * header is rolled back where it is typed, which is the case the browser used
  * to report as fitting perfectly.
  */
@@ -81,6 +84,28 @@ test.describe('negativt rom', () => {
       stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] [data-testid="empty-zone"]`),
     ).toHaveCount(0)
 
+    expect(guard.errors).toEqual([])
+  })
+
+  test('will not offer air for a zone that has something to lose', async ({ page }) => {
+    // The other half of «the picker knows what fits»: air has no payload, so a
+    // zone with text in it cannot become one until it is emptied. The picker
+    // says so instead of offering a click that fails.
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Luft med innhold')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+
+    const field = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .subfield .tiptap`)
+    await field.click()
+    await page.keyboard.insertText('Noe som ikke skal forsvinne i stillhet')
+
+    await enterZoneMode(page)
+    await expect(page.getByTestId('inspector-kind-negative-space')).toBeDisabled()
+    // Everything the zone has room for is still on offer, including the kind
+    // it already is — only the one that would throw the text away is not.
+    await expect(page.getByTestId('inspector-kind-titled-card')).toBeEnabled()
+    await expect(page.getByTestId('inspector-kind-untitled-card')).toBeEnabled()
     expect(guard.errors).toEqual([])
   })
 

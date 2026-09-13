@@ -12,16 +12,19 @@
 
 import { describe, expect, it } from 'vitest'
 import { G, MIN_IMAGE_SIZE, MIN_TEXT_WIDTH } from './constants'
-import { createContentOfKind, ZONE_CONTENT_KINDS } from './content'
+import { createContainer, createContentOfKind, ZONE_CONTENT_KINDS } from './content'
 import {
+  availableContentKinds,
   contentKindFitsRect,
   contentKindRefusal,
   minimumSizeForContent,
   minimumSizeForKind,
+  zoneKindRefusal,
 } from './contentSize'
 import { estimateFit } from './fit'
 import { computeSlideGeometry, validateSlideGeometry } from './geometry'
 import { createLeaf, createSplit } from './layout'
+import { paragraphDoc } from './richdoc'
 import { geometryForTheme, themeMetrics, DEFAULT_SPACING, FONT_SCALE_RANGE } from './metrics'
 import { createSlide } from './presentation'
 import type { Rect, ZoneContentKind } from './types'
@@ -166,6 +169,56 @@ describe('minstemålet og fit-målingen er enige', () => {
       const fit = estimateFit(createContentOfKind(kind as ZoneContentKind), rect)
       expect(fit.fits, `${kind} ${JSON.stringify(minimum)}`).toBe(true)
     }
+  })
+})
+
+describe('«kan denne sonen bli type X?» har ett svar', () => {
+  /**
+   * The three readers of this rule — the command, the picker and the agent's
+   * inspection — used to answer parts of it separately, and drifted in both
+   * directions. Both skews are checked here, on the function all three now ask.
+   */
+  const roomy = at(1500, 800)
+
+  it('tilbyr ikke negativt rom i en sone som har noe å miste', () => {
+    const filled = createContainer()
+    const withText = {
+      ...filled,
+      body: {
+        ...filled.body,
+        subfields: [{ ...filled.body.subfields[0], doc: paragraphDoc('noe tekst') }],
+      },
+    }
+    expect(zoneKindRefusal('negative-space', roomy, withText)?.code).toBe('INVALID_CONTENT')
+    expect(availableContentKinds(roomy, withText)).not.toContain('negative-space')
+
+    // Den samme sonen uten tekst har ingenting å miste.
+    expect(availableContentKinds(roomy, filled)).toContain('negative-space')
+  })
+
+  it('tilbyr fortsatt sonens egen type når sonen er for liten for den', () => {
+    // Et importert dokument, eller ett fra før en token flyttet seg. Kallet med
+    // den samme typen er med vilje tillatt — det er slik dokumentet repareres —
+    // så en inspeksjon som utelot den ville sendt en agent bort fra reparasjonen.
+    const cramped = at(60, 40)
+    const card = createContentOfKind('titled-card')
+    expect(contentKindRefusal('titled-card', cramped)).not.toBeNull()
+    expect(zoneKindRefusal('titled-card', cramped, card)).toBeNull()
+    expect(availableContentKinds(cramped, card)).toContain('titled-card')
+    // Alle andre typer som trenger mer plass er fortsatt utelatt.
+    expect(availableContentKinds(cramped, card)).not.toContain('untitled-card')
+  })
+
+  it('stiller bare størrelsesspørsmålet for en tom sone', () => {
+    // Å plassere friskt innhold i en tom sone er nøyaktig størrelsesregelen.
+    for (const kind of ZONE_CONTENT_KINDS) {
+      expect(zoneKindRefusal(kind, roomy, null), kind).toBeNull()
+    }
+    expect(availableContentKinds(at(4, 3), null)).toEqual(['negative-space'])
+  })
+
+  it('spør ikke om størrelse når det ikke finnes en sone å måle mot', () => {
+    expect(availableContentKinds(null, null)).toEqual([...ZONE_CONTENT_KINDS])
   })
 })
 

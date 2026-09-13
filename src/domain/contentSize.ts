@@ -28,6 +28,7 @@
  */
 
 import { BODY_LINE_HEIGHT, GEOMETRY_EPSILON, MIN_IMAGE_SIZE, MIN_TEXT_WIDTH } from './constants'
+import { negativeSpaceRefusal, ZONE_CONTENT_KINDS } from './content'
 import { themeMetrics, type ThemeMetrics } from './metrics'
 import type { Rect, Size, ZoneContent, ZoneContentKind } from './types'
 
@@ -140,4 +141,71 @@ export function contentKindRefusal(
     minimum,
     rect,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Can this zone become that kind?
+ * ------------------------------------------------------------------ */
+
+/**
+ * Why a zone cannot become a kind of content, or `null` when it can.
+ *
+ * The whole question, in one place, because three different callers were
+ * answering parts of it and drifting: the command that converts, the picker
+ * that offers the choice, and the agent's `inspect_slide`, which tells a
+ * caller what it may ask for. A picker that offers what the command refuses is
+ * a button that fails on click; an inspection that does it is an agent sent to
+ * make a call that cannot succeed.
+ *
+ * Three things decide it, in this order:
+ *
+ *  1. **The kind the zone already is** is never refused. It is the state the
+ *     document is in, and the command answers «done» to it — which is what
+ *     keeps a zone that is already too small for what it holds (an import, a
+ *     document from before a token moved) repairable at all.
+ *  2. **Is the rectangle big enough for that kind?** `contentKindRefusal`.
+ *     `rect` is `null` where there is no zone to measure — nothing selected —
+ *     and then this question is simply not asked.
+ *  3. **Would the conversion throw something away?** Only air can, and it
+ *     throws away everything, so a zone with text or a file in it has to be
+ *     emptied first.
+ *
+ * `content` is what the zone holds *today*, and `null` for an empty zone —
+ * which reduces this to the size question, exactly as placing fresh content
+ * into an empty zone should.
+ */
+export interface ZoneKindRefusal {
+  /** The code the command refuses with, so a caller reads one vocabulary. */
+  code: 'ZONE_TOO_SMALL' | 'INVALID_CONTENT'
+  message: string
+  /** Present on `ZONE_TOO_SMALL`: the two rectangles behind the refusal. */
+  minimum?: Size
+  rect?: Rect
+}
+
+export function zoneKindRefusal(
+  kind: ZoneContentKind,
+  rect: Rect | null,
+  content: ZoneContent | null,
+  tokens: ThemeMetrics = themeMetrics(),
+): ZoneKindRefusal | null {
+  if (content?.kind === kind) return null
+
+  const tooSmall = rect ? contentKindRefusal(kind, rect, tokens) : null
+  if (tooSmall) return { code: 'ZONE_TOO_SMALL', ...tooSmall }
+
+  if (kind === 'negative-space') {
+    const wouldLose = negativeSpaceRefusal(content)
+    if (wouldLose) return { code: 'INVALID_CONTENT', message: wouldLose }
+  }
+  return null
+}
+
+/** The kinds this zone could be changed to, in the domain's own order. */
+export function availableContentKinds(
+  rect: Rect | null,
+  content: ZoneContent | null,
+  tokens: ThemeMetrics = themeMetrics(),
+): ZoneContentKind[] {
+  return ZONE_CONTENT_KINDS.filter((kind) => zoneKindRefusal(kind, rect, content, tokens) === null)
 }

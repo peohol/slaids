@@ -802,6 +802,112 @@ describe('negativt rom', () => {
     expect(refused.code).toBe('INVALID_ARGUMENT')
   })
 
+  it('annonserer ikke negativt rom for en sone som har noe å miste', async () => {
+    // `inspect_slide` forteller en agent hva den kan be om. Ville den ha stått
+    // på lista mens `set_zone_card` avviser den, ville agenten blitt sendt på
+    // et kall som ikke kan lykkes.
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const empty = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(
+      empty.zones.find((zone) => zone.nodeId === nodeId)?.availableContentKinds,
+    ).toContain('negative-space')
+
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('Noe som ikke skal forsvinne i stillhet'),
+    })
+
+    const filled = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const zone = filled.zones.find((entry) => entry.nodeId === nodeId)
+    expect(zone?.availableContentKinds).not.toContain('negative-space')
+    // Og inspeksjonen er enig med kommandoen, som er hele poenget.
+    expect(
+      (
+        await fails(context, 'set_zone_card', {
+          presentationId: deck.presentationId,
+          slideId,
+          nodeId,
+          kind: 'negative-space',
+        })
+      ).code,
+    ).toBe('INVALID_CONTENT')
+  })
+
+  it('annonserer fortsatt sonens egen type når sonen er for liten for den', async () => {
+    /*
+     * A cramped geometry, as an imported document or one from before a token
+     * moved would have. The same-kind call is deliberately still accepted — it
+     * is how such a document gets repaired — so an inspection that left the
+     * zone's own kind off the list would point an agent away from the repair.
+     */
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('kort'),
+    })
+
+    // The same stored deck, read and edited in a design space too narrow for
+    // the container that is in it. The document is unchanged; what changed is
+    // the geometry it is being measured in, which is the shape a token move or
+    // an import leaves behind.
+    const cramped: AgentContext = { ...context, geometry: { slideWidth: 250, slideHeight: 400 } }
+
+    const inspected = await ok<ContentSlideInspection>(cramped, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const zone = inspected.zones.find((entry) => entry.nodeId === nodeId)
+    expect(zone?.contentKind).toBe('container')
+    expect(zone?.availableContentKinds).toContain('container')
+    // Alle andre typer trenger mer plass enn denne sonen har.
+    expect(zone?.availableContentKinds).not.toContain('titled-card')
+
+    // Og kommandoen er enig: den samme typen går gjennom, en annen gjør ikke.
+    await ok(cramped, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'container',
+    })
+    expect(
+      (
+        await fails(cramped, 'set_zone_card', {
+          presentationId: deck.presentationId,
+          slideId,
+          nodeId,
+          kind: 'titled-card',
+        })
+      ).code,
+    ).toBe('ZONE_TOO_SMALL')
+  })
+
   it('gir agenten og editoren nøyaktig samme svar om det samme dokumentet', async () => {
     /*
      * The same prospective document through the two doors.

@@ -545,7 +545,9 @@ test.describe('kompakt arbeidsflate', () => {
     await openPanel(page, 'tools')
     await expect(page.getByTestId('content-kind-titled-card')).toBeDisabled()
     await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
-    await expect(page.getByTestId('content-kind-hint')).toContainText('for liten')
+    // The reason belongs to the choice it is about, not to the panel: there is
+    // no pointer here to hover a tooltip with.
+    await expect(page.getByTestId('content-kind-reason-titled-card')).toContainText('for liten')
 
     // And the zone panel, which is the other door to the same choice.
     await openPanel(page, 'zone')
@@ -554,6 +556,48 @@ test.describe('kompakt arbeidsflate', () => {
 
     await page.getByTestId('inspector-add-negative-space').click()
     await expect(stage(page).locator('[data-content-kind="negative-space"]')).toHaveCount(1)
+  })
+
+  test('forklarer hvert utilgjengelige valg for seg, med sin egen grunn', async ({ page }) => {
+    /*
+     * Two choices, unavailable for two different reasons at once.
+     *
+     * A card and a picture do not need the same room — a card spends a header
+     * and two paddings before a single line of text, a picture spends nothing —
+     * so in one sliver of a zone the two are refused with two different
+     * sentences. One shared line of help would have to pick one of them and be
+     * wrong about the other, and on this surface there is no pointer to hover a
+     * tooltip with: the explanation has to belong to the choice it is about.
+     */
+    await createPresentation(page, 'To grunner')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-action-split').click()
+    await expect(page.getByTestId('split-modal')).toBeVisible()
+    await page.getByTestId('split-axis-y').click()
+    await page.getByTestId('split-count').fill('3')
+    await expect(page.getByTestId('split-weight-2')).toBeVisible()
+    for (const [index, weight] of ['1', '10', '1'].entries()) {
+      await page.getByTestId(`split-weight-${index}`).fill(weight)
+    }
+    await page.getByTestId('split-apply').click()
+    await expect(page.getByTestId('split-modal')).toBeHidden()
+
+    const zones = await zoneRects(page)
+    const sliver = zones.reduce((shortest, zone) => (zone.h < shortest.h ? zone : shortest))
+    await closePanel(page)
+    await pressSlide(page, sliver.x + sliver.w / 2, sliver.y + sliver.h / 2)
+    await openPanel(page, 'tools')
+
+    const cardReason = page.getByTestId('content-kind-reason-titled-card')
+    const pictureReason = page.getByTestId('content-kind-reason-image')
+    await expect(cardReason).toBeVisible()
+    await expect(pictureReason).toBeVisible()
+    // Each says what *that* kind needs, so the two cannot be the same sentence.
+    expect(await cardReason.textContent()).not.toBe(await pictureReason.textContent())
+
+    // And the one choice that is available carries no explanation at all.
+    await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
+    await expect(page.getByTestId('content-kind-reason-negative-space')).toHaveCount(0)
   })
 
   test('lagrer og henter tilbake etter reload', async ({ page }) => {

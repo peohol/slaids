@@ -21,14 +21,14 @@ import {
   hasCardTitle,
   hasImagePanel,
   imagePanelOf,
-  negativeSpaceRefusal,
   withBody,
   withBodyAxis,
   withImagePanel,
   withSubfieldCount,
   withSubfieldDoc,
 } from '../content'
-import { areWeightsValid } from '../geometry'
+import { areWeightsValid, resolveOptions } from '../geometry'
+import { zoneKindRefusal } from '../contentSize'
 import { findLeaf, findNode, replaceNode } from '../layout'
 import {
   CITATION_NODE,
@@ -38,7 +38,7 @@ import {
   isDocEmpty,
   trimTrailingBlankLines,
 } from '../richdoc'
-import { contentSlide, contentTooBigForZone, geometryFor, rectForNode } from './internal'
+import { contentSlide, geometryFor, rectForNode } from './internal'
 import { touch, withSlide } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
@@ -657,26 +657,12 @@ export function setContentKind(
     presentation,
     input,
     (content) => {
-      /*
-       * Asking for the kind that is already there is asking for the document as
-       * it stands, and that is never refused.
-       *
-       * It matters because the size gate below is about *introducing* a kind
-       * into a rectangle. A zone that is already too small for what it holds —
-       * an import, or a document from before a token moved — would otherwise
-       * answer `ZONE_TOO_SMALL` to a call that changes nothing, and the
-       * compound agent operation that sets the kind before shortening a title
-       * could never reach the repair it was sent to make.
-       */
+      const refusal = zoneKindRefusalFor(presentation, input, input.kind, content)
+      if (refusal) return refusal
+      // Asking for the kind that is already there is asking for the document as
+      // it stands: nothing to convert, and `updateZoneContent` reads the
+      // unchanged object as «done».
       if (content.kind === input.kind) return ok(content)
-
-      const tooSmall = contentKindRefusalFor(presentation, input, input.kind)
-      if (tooSmall) return tooSmall
-
-      if (input.kind === 'negative-space') {
-        const refusal = negativeSpaceRefusal(content)
-        if (refusal) return err('INVALID_CONTENT', refusal)
-      }
       return ok(convertContentKind(content, input.kind))
     },
     'Innholdet får ikke plass i denne innholdstypen.',
@@ -684,25 +670,33 @@ export function setContentKind(
 }
 
 /**
- * The refusal a content kind earns in the zone it is being put into, if any.
+ * «Can this zone become that kind?», as a command's refusal.
  *
- * One helper behind every door that places or converts content, so «this kind
- * cannot be drawn that small» is decided by `domain/contentSize.ts` and phrased
- * once. The details carry the two rectangles rather than only the message, so
- * an agent can act on the numbers and a picker can grey a button out.
+ * The question itself is `zoneKindRefusal` in `domain/contentSize.ts` — the one
+ * the content picker greys its buttons by and the one `inspect_slide` lists
+ * the available kinds by — so the three cannot answer differently. This only
+ * resolves the zone's rectangle and dresses the answer as a typed refusal, with
+ * the numbers in `details` for a caller that wants to act on them.
  */
-function contentKindRefusalFor(
+function zoneKindRefusalFor(
   presentation: Presentation,
   target: ZoneContentTarget,
   kind: ZoneContentKind,
+  content: ZoneContent,
 ): Refusal | null {
   const found = contentSlide(presentation, target.slideId)
   if (!found.ok) return found
   const geometry = geometryFor(presentation, target.geometry)
   const rect = rectForNode(found.value, target.nodeId, geometry)
   if (!rect) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
-  return contentTooBigForZone(kind, rect, geometry, {
+
+  const refusal = zoneKindRefusal(kind, rect, content, resolveOptions(geometry).metrics)
+  if (!refusal) return null
+  return err(refusal.code, refusal.message, {
     slideId: target.slideId,
     nodeId: target.nodeId,
+    contentKind: kind,
+    ...(refusal.rect ? { rect: refusal.rect } : {}),
+    ...(refusal.minimum ? { minimum: refusal.minimum } : {}),
   })
 }
