@@ -798,8 +798,22 @@ button.interactive-page__activate:focus-visible {
 
 /*
  * Slaids' way out, over the frame, top right. The chrome undoes the slide's
- * scale (an inline transform from the runtime), so the button is the same size
+ * scale (an inline transform from the runtime), so the control is the same size
  * on screen at every zoom; its own sizes below are therefore screen pixels.
+ *
+ * Two of those sizes, and they are deliberately different numbers:
+ *
+ *  - `--exit-visual` is the only thing drawn, so it is the only thing that
+ *    covers the app. A miniapp is what the room is looking at, and chrome over
+ *    it is room the app does not get; a small, half-transparent glyph is as
+ *    little as a control can cost and still be found.
+ *  - `--exit-target` is what a pointer has to hit, and nothing of it is drawn.
+ *    The room a finger needs is therefore added *around* the glyph, where it
+ *    costs the app nothing, instead of inside it.
+ *
+ * Which pointer is in use is not asked here — `ui/workspace/` asks the browser
+ * once and publishes the answer on the root element, so this file and the React
+ * tree key off the very same decision.
  */
 .interactive-runtime__chrome {
   position: absolute;
@@ -809,27 +823,110 @@ button.interactive-page__activate:focus-visible {
 }
 
 .interactive-runtime__exit {
+  --exit-target: 36px;
+  --exit-visual: 22px;
   pointer-events: auto;
-  margin: 14px;
-  height: 44px;
-  padding: 0 20px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 999px;
-  background: rgba(16, 18, 22, 0.92);
+  /*
+   * Clear of the corner, and clear of whatever the device keeps there. The
+   * insets are zero on every screen without a notch or a rounded corner, and
+   * where they are not, they only ever move the control further inside the
+   * slide — never out of the viewport.
+   */
+  margin: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) 0 0;
+  display: grid;
+  place-items: center;
+  width: var(--exit-target);
+  height: var(--exit-target);
+  padding: 0;
+  border: 0;
+  background: none;
   color: #fff;
-  font: 600 15px/1 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  letter-spacing: 0.01em;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   cursor: pointer;
+  /* Our own feedback below, instead of a grey square the size of the target. */
+  -webkit-tap-highlight-color: transparent;
 }
 
-.interactive-runtime__exit:hover {
-  background: rgba(40, 44, 52, 0.96);
+/*
+ * A finger needs a bigger target than a mouse — and the glyph grows by barely
+ * anything, because the reason it is small has nothing to do with the pointer.
+ */
+:root[data-coarse='true'] .interactive-runtime__exit {
+  --exit-target: var(--touch-target);
+  --exit-visual: 26px;
 }
 
+/*
+ * The glyph: a cross on a disc, and only one of the two is see-through.
+ *
+ * That is the whole trick, and fading the pair together instead — one
+ * `opacity` over both — is how this control disappears. Such a fade lightens
+ * the disc towards the app *and* dims the cross towards the disc, so on a light
+ * miniapp there is neither a shape nor a mark left to find: measured over
+ * white, a cross faded that way stands at 1.4:1 against its own disc. Here the
+ * disc alone is what the app shows through, and the cross stays opaque white on
+ * top of whatever that leaves — a contrast the app behind cannot take away. On
+ * a light app both halves read; on a dark one the disc is the half that
+ * vanishes and the cross is what is seen. The cross fills half the disc, the
+ * icon's own viewBox keeping the rest clear, so what the app loses is this disc
+ * and nothing more.
+ */
+.interactive-runtime__exit-glyph {
+  display: grid;
+  place-items: center;
+  width: var(--exit-visual);
+  height: var(--exit-visual);
+  border-radius: 999px;
+  background: rgba(16, 18, 22, 0.55);
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.interactive-runtime__exit-glyph svg {
+  width: 100%;
+  height: 100%;
+  /* Heavier than the icon set's default: this one is drawn very small. */
+  stroke-width: 2.2;
+}
+
+/*
+ * Unmistakable the moment it is aimed at: a pointer over it, the keyboard on
+ * it, or a finger on it. The last is not a nicety — a finger never hovers, so
+ * without it a touch would have no feedback at all until the app vanished.
+ */
+.interactive-runtime__exit:hover .interactive-runtime__exit-glyph,
+.interactive-runtime__exit:focus-visible .interactive-runtime__exit-glyph,
+.interactive-runtime__exit:active .interactive-runtime__exit-glyph {
+  background: rgba(16, 18, 22, 0.92);
+  /*
+   * A hairline on the disc itself, and not merely a deeper disc: deepening it
+   * is an answer on a light app and no answer at all on a dark one, where the
+   * disc was already the colour it is turning into.
+   */
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9);
+}
+
+/*
+ * A press gives something back on its own, without waiting for the app to
+ * disappear — and it is the one state that is not also reachable by hovering,
+ * which is what makes it worth anything to a finger.
+ */
+.interactive-runtime__exit:active .interactive-runtime__exit-glyph {
+  transform: scale(0.9);
+}
+
+/*
+ * The focus ring goes round the glyph rather than round the target, so that it
+ * is the same small shape everything else about this control is. The target's
+ * own ring is turned off because this one replaces it.
+ */
 .interactive-runtime__exit:focus-visible {
+  outline: none;
+}
+
+.interactive-runtime__exit:focus-visible .interactive-runtime__exit-glyph {
   outline: 3px solid #fff;
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 /* ----------------------------------------------------------------- *

@@ -418,14 +418,54 @@ test.describe('kompakt arbeidsflate', () => {
     // The cover's button is a real target, and pressing it starts the app.
     await page.getByTestId('activate-interactive').click()
     await expect(page.getByTestId('interactive-runtime')).toBeVisible()
+    const coarse = await isCoarse(page)
 
-    // While it runs the app owns its own surface, and Slaids' way out is a
-    // comfortable target drawn at screen size whatever the slide's scale.
+    // While it runs the app owns its own surface, this finger included: the
+    // chrome above sits over one corner and takes nothing else.
+    const inner = page.frameLocator('[data-testid="interactive-frame"]').frameLocator('#app')
+    await expect(inner.locator('#title')).toHaveText('Teller')
+    if (coarse) await inner.locator('#count').tap()
+    else await inner.locator('#count').click()
+    await expect(inner.locator('#value')).toHaveText('1')
+    await inner.locator('#text').fill('hei')
+    await expect(inner.locator('#text')).toHaveValue('hei')
+
+    /*
+     * Slaids' way out is two sizes at once, which is the whole point of it: the
+     * glyph is small, because it is drawn on top of somebody's app, and the
+     * target around it is a finger's, because it has to be hit without aiming.
+     * Both are screen pixels whatever the slide's scale.
+     */
     const exit = page.getByTestId('exit-interactive')
-    const box = await exit.boundingBox()
-    expect(box!.height).toBeGreaterThanOrEqual(40)
-    await exit.click()
+    const box = (await exit.boundingBox())!
+    const glyphBox = (await page.getByTestId('exit-interactive-glyph').boundingBox())!
+    expect(glyphBox.width).toBeLessThanOrEqual(28)
+    expect(box.width).toBeGreaterThan(glyphBox.width)
+    expect(box.height).toBeGreaterThan(glyphBox.height)
+    if (coarse) {
+      // The shared token, not a number of this control's own.
+      expect(box.width).toBeGreaterThanOrEqual(44)
+      expect(box.height).toBeGreaterThanOrEqual(44)
+    } else {
+      expect(box.width).toBeGreaterThanOrEqual(32)
+      expect(box.height).toBeGreaterThanOrEqual(32)
+    }
+
+    // And all of it is somewhere a thumb can actually go: inside the part of
+    // the page that is on screen, and inside the slide's own top right corner,
+    // whichever way the phone is held.
+    expect(await isOnScreen(page, 'exit-interactive')).toBe(true)
+    const slideBox = (await stage(page).boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(slideBox.x + slideBox.width + 1)
+    expect(box.x).toBeGreaterThan(slideBox.x + slideBox.width * 0.6)
+    expect(box.y).toBeGreaterThanOrEqual(slideBox.y - 1)
+    expect(box.y).toBeLessThan(slideBox.y + slideBox.height * 0.3)
+
+    // A tap — never a hover, which a finger cannot do — and the app is gone.
+    if (coarse) await exit.tap()
+    else await exit.click()
     await expect(page.getByTestId('interactive-runtime')).toBeHidden()
+    await expect(page.locator('iframe')).toHaveCount(0)
     await expect(page.getByTestId('activate-interactive')).toBeVisible()
   })
 
