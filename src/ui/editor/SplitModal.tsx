@@ -27,7 +27,7 @@ import { useEditorStore } from '../../state/store'
 import { areWeightsValid, computeLayoutRects, previewSplit } from '../../domain/geometry'
 import { collectNodes, countContent, createLeaf } from '../../domain/layout'
 import { quantizeRatios } from '../../domain/ratios'
-import type { Axis, LayoutNode, Rect } from '../../domain/types'
+import type { Axis, LayoutNode, Rect, ZoneContent } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
 
@@ -54,8 +54,15 @@ export interface SplitModalProps {
   existingChildren?: LayoutNode[]
   existingAxis?: Axis
   existingWeights?: number[]
-  /** True when the leaf being split already holds content. */
-  hasContent?: boolean
+  /**
+   * The content the leaf being split already holds, when it holds any.
+   *
+   * The object and not a flag: it travels into one of the new children, and
+   * what may be drawn in that child is decided by what the content *is*. A
+   * preview that only knew «there is something» would disable «Bruk» for a
+   * ratio the command accepts, or offer one it refuses.
+   */
+  leafContent?: ZoneContent | null
   onApply: (result: SplitModalResult) => void
 }
 
@@ -72,9 +79,10 @@ export function SplitModal({
   existingChildren = [],
   existingAxis,
   existingWeights,
-  hasContent = false,
+  leafContent = null,
   onApply,
 }: SplitModalProps) {
+  const hasContent = leafContent !== null
   const theme = useEditorStore((state) => state.presentation?.theme)
   const gap = themeMetrics(theme).gap
   const defaultAxis: Axis =
@@ -114,18 +122,28 @@ export function SplitModal({
     return [...kept, ...Array.from({ length: added }, () => createLeaf())]
   }, [count, existingChildren])
 
+  /**
+   * The children the split will actually have, as far as the minimum-size rule
+   * is concerned.
+   *
+   * Editing a split keeps its subtrees; splitting a leaf makes empty ones —
+   * except for the one that receives what is in the leaf today. An empty child
+   * draws nothing a narrow rectangle could hide, so it constrains nothing,
+   * which is what makes a sliver of deliberate air reachable in one gesture.
+   */
+  const measuredChildren: (LayoutNode | null)[] = useMemo(() => {
+    if (mode === 'edit') return proposedChildren
+    return Array.from({ length: count }, (_, index) =>
+      leafContent && index === contentTargetIndex ? createLeaf(leafContent) : null,
+    )
+  }, [contentTargetIndex, count, leafContent, mode, proposedChildren])
+
   // The deck's own geometry, not the base tokens: the gap decides where the
   // boundaries land and the theme's type decides how small a card may be, so a
   // preview measured against the defaults would disable «Bruk» on a split the
   // command accepts, or the other way round.
   const preview = weights
-    ? previewSplit(
-        targetRect,
-        axis,
-        weights,
-        geometryForTheme(theme),
-        mode === 'edit' ? proposedChildren : undefined,
-      )
+    ? previewSplit(targetRect, axis, weights, geometryForTheme(theme), measuredChildren)
     : null
 
   const removedChildren = existingChildren.slice(count)

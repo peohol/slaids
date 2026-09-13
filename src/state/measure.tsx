@@ -70,11 +70,27 @@ function ensureHost(): { host: HTMLDivElement; root: Root } {
  */
 export function measureOverflowParts(element: HTMLElement): Record<string, number> {
   const parts: Record<string, number> = {}
-  for (const target of element.querySelectorAll<HTMLElement>('[data-fit-scroll]')) {
+  // The element itself counts when it is one of them. `querySelectorAll` only
+  // looks at descendants, and the slide title's clipping box *is* the host a
+  // caller hands in — measured as descendants only, it reported nothing at all.
+  const self = element.matches('[data-fit-scroll]') ? [element] : []
+  for (const target of [...self, ...element.querySelectorAll<HTMLElement>('[data-fit-scroll]')]) {
     const part = target.dataset.fitPart ?? ''
+    /*
+     * Which way a box can fail is a property of the box.
+     *
+     * A single line of heading type — a slide title, a card's header, a
+     * section's pill — is as tall as the type it is set in, by construction:
+     * the box's height comes from the same token the line does, so it can only
+     * fail sideways. What does stick out of it vertically is the decoration
+     * around a citation's number, which is drawn inside the line and clipped by
+     * design, and which the headless estimator does not measure either. Reading
+     * it as an overflow would roll back every citation ever put in a title.
+     */
+    const axis = target.dataset.fitAxis
     const overflow = Math.max(
-      target.scrollHeight - target.clientHeight,
-      target.scrollWidth - target.clientWidth,
+      axis === 'x' ? 0 : target.scrollHeight - target.clientHeight,
+      axis === 'y' ? 0 : target.scrollWidth - target.clientWidth,
     )
     // Two boxes can legitimately claim the same part — a caption layer redrawn
     // per variant — so the worst of them is the part's overflow.

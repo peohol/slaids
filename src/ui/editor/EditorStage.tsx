@@ -590,6 +590,7 @@ export function EditorStage({
                   textShadow: textShadowFor(colors.background),
                 }}
                 data-fit-scroll=""
+                data-fit-axis="x"
               >
                 {slide.title && mode === 'content' && editableText ? (
                   <RichTextEditor

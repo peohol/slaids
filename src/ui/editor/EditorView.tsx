@@ -1488,7 +1488,7 @@ export function EditorView({
           existingChildren={selectedNode?.kind === 'split' ? selectedNode.children : undefined}
           existingAxis={selectedNode?.kind === 'split' ? selectedNode.axis : undefined}
           existingWeights={selectedNode?.kind === 'split' ? selectedNode.weights : undefined}
-          hasContent={Boolean(selectedLeaf?.content)}
+          leafContent={selectedLeaf?.content ?? null}
           onApply={handleSplitApply}
         />
       )}

@@ -21,6 +21,7 @@ import {
   toast,
   waitForSaved,
   watchForErrors,
+  zoneRects,
 } from './helpers'
 import {
   closeKeyboard,
@@ -469,6 +470,50 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
     await openPanel(page, 'content')
     await expect(page.getByTestId('compact-content-item').first()).toBeVisible()
+  })
+
+  test('innholdsvelgeren følger den samme regelen som på desktop', async ({ page }) => {
+    /*
+     * Same rule, different surface.
+     *
+     * A compact workspace offers the content kinds in its own list rather than
+     * in the zone, and the zone panel offers them again — but «can this kind be
+     * drawn in this zone» is the domain's answer in both places, so a zone too
+     * small for a card is a zone with no card button here either. The reason is
+     * written out rather than hovered for: there is no pointer to hover with.
+     */
+    await createPresentation(page, 'Velger på mobil')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-action-split').click()
+    await expect(page.getByTestId('split-modal')).toBeVisible()
+    await page.getByTestId('split-axis-y').click()
+    await page.getByTestId('split-count').fill('3')
+    await expect(page.getByTestId('split-weight-2')).toBeVisible()
+    for (const [index, weight] of ['1', '10', '1'].entries()) {
+      await page.getByTestId(`split-weight-${index}`).fill(weight)
+    }
+    await page.getByTestId('split-apply').click()
+    await expect(page.getByTestId('split-modal')).toBeHidden()
+
+    // Select the sliver at the top of the slide, by its own rectangle rather
+    // than by a guessed point: it is only a few dozen pixels tall.
+    const zones = await zoneRects(page)
+    const sliver = zones.reduce((shortest, zone) => (zone.h < shortest.h ? zone : shortest))
+    await closePanel(page)
+    await pressSlide(page, sliver.x + sliver.w / 2, sliver.y + sliver.h / 2)
+
+    await openPanel(page, 'tools')
+    await expect(page.getByTestId('content-kind-titled-card')).toBeDisabled()
+    await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
+    await expect(page.getByTestId('content-kind-hint')).toContainText('for liten')
+
+    // And the zone panel, which is the other door to the same choice.
+    await openPanel(page, 'zone')
+    await expect(page.getByTestId('inspector-add-titled-card')).toBeDisabled()
+    await expect(page.getByTestId('inspector-add-negative-space')).toBeEnabled()
+
+    await page.getByTestId('inspector-add-negative-space').click()
+    await expect(stage(page).locator('[data-content-kind="negative-space"]')).toHaveCount(1)
   })
 
   test('lagrer og henter tilbake etter reload', async ({ page }) => {

@@ -112,6 +112,7 @@ export function SectionFrame({
             className={`section-pill section-pill--${line}`}
             data-section-line={line}
             data-fit-scroll=""
+            data-fit-axis="x"
             style={{
               background: accentColor,
               color: bestTextColor(accentColor),

@@ -139,16 +139,33 @@ test.describe('zone editing', () => {
     await expect(page.getByTestId('status-breadcrumb')).toHaveText('Rot')
   })
 
-  test('refuses a split that would make a zone too small', async ({ page }) => {
-    await createPresentation(page, 'For liten')
+  test('allows any ratio while the zone is still empty', async ({ page }) => {
+    // Nothing is drawn in either child yet, so no width is too narrow for
+    // them: this is the gesture a sliver of deliberate air is made with, and
+    // the dialog offers it in one step rather than making it unreachable.
+    await createPresentation(page, 'Luftsone')
     await enterZoneMode(page)
     await page.getByTestId('inspector-action-split').click()
     await page.getByTestId('split-weight-0').fill('1')
     await page.getByTestId('split-weight-1').fill('60')
-    await expect(page.getByTestId('split-invalid')).toBeVisible()
-    await expect(page.getByTestId('split-apply')).toBeDisabled()
+    await expect(page.getByTestId('split-invalid')).toHaveCount(0)
+    await expect(page.getByTestId('split-apply')).toBeEnabled()
 
     await page.getByTestId('split-weight-1').fill('abc')
+    await expect(page.getByTestId('split-apply')).toBeDisabled()
+  })
+
+  test('refuses a split that would leave the content in it too small a zone', async ({ page }) => {
+    await createPresentation(page, 'For liten')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'titled-card')
+
+    await enterZoneMode(page)
+    await page.getByTestId('inspector-action-split').click()
+    await page.getByTestId('split-weight-0').fill('1')
+    await page.getByTestId('split-weight-1').fill('60')
+    // The card travels into the first child, which at this ratio is a sliver.
+    await expect(page.getByTestId('split-invalid')).toBeVisible()
     await expect(page.getByTestId('split-apply')).toBeDisabled()
 
     await page.getByTestId('split-weight-1').fill('2')

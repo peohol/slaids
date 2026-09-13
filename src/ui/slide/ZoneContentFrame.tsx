@@ -262,6 +262,7 @@ export function ZoneContentFrame({
       <div
         className="card-header"
         data-fit-scroll=""
+        data-fit-axis="x"
         data-fit-part={CARD_TITLE_PART}
         style={{
           background: headerColor,
