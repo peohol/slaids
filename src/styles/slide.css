@@ -50,17 +50,6 @@
  * unclipped. That is what lets a card cast an ordinary drop shadow into the gap
  * around it: a shadow is paint, not content, and it changes no geometry.
  */
-/*
- * Deliberate air: a zone that is part of the composition and draws nothing.
- *
- * No background, no border, no placeholder — in the editor as in the
- * presentation. What makes it selectable is the zone outline the editor draws
- * around every zone, not anything this element paints.
- */
-.zone-content--negative-space {
-  background: none;
-}
-
 .zone-content {
   width: 100%;
   height: 100%;
@@ -73,6 +62,17 @@
 
 .zone-content--container {
   min-height: 0;
+}
+
+/*
+ * Deliberate air: a zone that is part of the composition and draws nothing.
+ *
+ * No background, no border, no placeholder — in the editor as in the
+ * presentation. What makes it selectable is the zone outline the editor draws
+ * around every zone, not anything this element paints.
+ */
+.zone-content--negative-space {
+  background: none;
 }
 
 .card-header {
