@@ -23,11 +23,21 @@ export function EditableZoneContent({
   content,
   nodeId,
   slideId,
+  editable = true,
   onPickImage,
 }: {
   content: ZoneContent
   nodeId: string
   slideId: string
+  /**
+   * Whether the fields may be typed into where they are drawn.
+   *
+   * False on a compact workspace, where a field is opened on a readable
+   * surface instead. The same markup is still rendered — it is what the fit
+   * measurement reads, and what the author is looking at — it simply is not a
+   * writing surface at three pixels a line.
+   */
+  editable?: boolean
   /** Opens the upload dialog for a picture panel with no file in it yet. */
   onPickImage: (nodeId: string) => void
 }) {
@@ -45,6 +55,7 @@ export function EditableZoneContent({
         caption={caption}
         nodeId={nodeId}
         slideId={slideId}
+        editable={editable}
         measureOverflow={measureOverflow}
       />
     </CaptionBox>
@@ -60,6 +71,7 @@ export function EditableZoneContent({
             variant="title"
             placeholder="Korttittel"
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
+            editable={editable}
             measureOverflow={measureOverflow}
             overflowMessage="Tittelen får ikke plass i kortet."
             validateDoc={(next) =>
@@ -83,6 +95,7 @@ export function EditableZoneContent({
             variant="body"
             placeholder="Skriv innhold …"
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
+            editable={editable}
             measureOverflow={measureOverflow}
             validateDoc={(next) =>
               docEditRenumberProblem({
@@ -129,11 +142,13 @@ function CaptionEditor({
   caption,
   nodeId,
   slideId,
+  editable,
   measureOverflow,
 }: {
   caption: ImageCaption
   nodeId: string
   slideId: string
+  editable: boolean
   measureOverflow: () => number
 }) {
   const run = useEditorStore((state) => state.run)
@@ -161,7 +176,8 @@ function CaptionEditor({
       doc={caption.doc}
       variant="caption"
       placeholder="Bildetekst"
-      autoFocus={isDocEmpty(caption.doc)}
+      editable={editable}
+      autoFocus={editable && isDocEmpty(caption.doc)}
       className="image-caption__text"
       measureOverflow={measureOverflow}
       overflowMessage="Bildeteksten får ikke plass i bildet."
@@ -211,6 +227,7 @@ function FieldEditor({
   variant,
   placeholder,
   field,
+  editable,
   onChange,
   measureOverflow,
   overflowMessage,
@@ -220,6 +237,7 @@ function FieldEditor({
   variant: 'body' | 'title'
   placeholder?: string
   field: ActiveField
+  editable: boolean
   onChange: (doc: RichDoc) => void
   measureOverflow: () => number
   overflowMessage?: string
@@ -258,6 +276,7 @@ function FieldEditor({
       doc={doc}
       variant={variant}
       placeholder={placeholder}
+      editable={editable}
       onChange={onChange}
       onFocus={handleFocus}
       onEditorReady={handleReady}

@@ -8,7 +8,8 @@
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { canDeleteSlide, duplicateSlide } from '../../domain/commands'
+import { canDeleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
+import { domFitCheckers } from '../../state/measure'
 import { authoredPage, type DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
 import type { Presentation, Slide } from '../../domain/types'
@@ -74,6 +75,9 @@ function SlideThumb({
   onSelect,
   onDuplicate,
   onDelete,
+  onMove,
+  canMoveUp,
+  canMoveDown,
   canDelete,
 }: {
   slide: Slide
@@ -82,6 +86,10 @@ function SlideThumb({
   onSelect: () => void
   onDuplicate: () => void
   onDelete: () => void
+  /** Reorder by a whole position, the way a finger asks for it. */
+  onMove: (delta: number) => void
+  canMoveUp: boolean
+  canMoveDown: boolean
   canDelete: boolean
 }) {
   const label = thumbLabel(slide, index)
@@ -140,6 +148,30 @@ function SlideThumb({
         </Thumb>
       </button>
       <div className="filmstrip__tools">
+        <Tooltip label={`Flytt ${label.toLowerCase()} opp`}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon btn--sm"
+            onClick={() => onMove(-1)}
+            disabled={!canMoveUp}
+            aria-label={`Flytt ${label.toLowerCase()} opp`}
+            data-testid="move-slide-up"
+          >
+            <Icon name="arrow-up" size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip label={`Flytt ${label.toLowerCase()} ned`}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon btn--sm"
+            onClick={() => onMove(1)}
+            disabled={!canMoveDown}
+            aria-label={`Flytt ${label.toLowerCase()} ned`}
+            data-testid="move-slide-down"
+          >
+            <Icon name="arrow-down" size={14} />
+          </button>
+        </Tooltip>
         <Tooltip label={`Dupliser ${label.toLowerCase()}`}>
           <button
             type="button"
@@ -209,6 +241,23 @@ export function Filmstrip({
     if (copy) selectAuthored(copy.id)
   }
 
+  /*
+   * Reordering by a position rather than by a gesture. The same command the
+   * drag commits, fit-validated for the same reason: moving a slide renumbers
+   * citations, which can widen a label on a slide nobody touched.
+   *
+   * The moved slide is selected afterwards, so the strip scrolls to where the
+   * page went instead of leaving the user looking at whatever took its place.
+   */
+  const move = (slideId: string, index: number, delta: number): void => {
+    const target = index + delta
+    if (target < 0 || target >= presentation.slides.length) return
+    if (!run('reorder-slide', (current) => moveSlide(current, slideId, target, domFitCheckers))) {
+      return
+    }
+    selectAuthored(slideId)
+  }
+
   return (
     <aside className="filmstrip" data-testid="filmstrip">
       <div className="filmstrip__list">
@@ -226,6 +275,9 @@ export function Filmstrip({
                 onSelect={() => selectAuthored(slide.id)}
                 onDuplicate={() => duplicate(slide.id, index)}
                 onDelete={() => onRequestDelete(slide)}
+                onMove={(delta) => move(slide.id, index, delta)}
+                canMoveUp={index > 0}
+                canMoveDown={index < presentation.slides.length - 1}
               />
             ))}
         </SortableContext>

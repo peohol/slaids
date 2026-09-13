@@ -12,11 +12,20 @@
  *
  * Window geometry is local UI state (localStorage); the content it shows
  * belongs to the presentation.
+ *
+ * On a compact workspace it is not a window at all. There is no room to put
+ * one anywhere that is not on top of something else, and moving and resizing
+ * it costs more than it gives — so the same component becomes a sheet filling
+ * the working area, with no geometry to place, remember or squeeze. The markup
+ * is deliberately unchanged: what is inside a window is still inside
+ * `.floating-window__body`, which is what its content scrolls and measures
+ * against.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { readPref, writePref, type WindowGeometry } from '../../state/prefs'
+import { useWorkspace } from '../workspace/WorkspaceContext'
 import { Icon } from './Icon'
 
 const MIN_WIDTH = 220
@@ -151,6 +160,7 @@ export function FloatingWindow({
   onPointerDown?: (event: React.PointerEvent) => void
   onKeyDown?: (event: React.KeyboardEvent) => void
 }) {
+  const { compact } = useWorkspace()
   const [box, setBox] = useState<WindowGeometry>(defaults)
   /** What is applied right now, readable from a gesture that starts after the paint. */
   const boxRef = useRef(box)
@@ -179,7 +189,9 @@ export function FloatingWindow({
    * *before* the keyboard shrank it.
    */
   useEffect(() => {
-    if (!open) return
+    // A sheet is placed by the stylesheet; there is no geometry to keep inside
+    // anything, and measuring one would only fight the CSS.
+    if (!open || compact) return
     place()
     let frame = 0
     const refit = (): void => {
@@ -199,7 +211,7 @@ export function FloatingWindow({
       window.visualViewport?.removeEventListener('resize', refit)
       window.visualViewport?.removeEventListener('scroll', refit)
     }
-  }, [open, place])
+  }, [open, compact, place])
 
   /**
    * The user's choice, while moving and stretching. Clipped to the area at once.
@@ -310,13 +322,24 @@ export function FloatingWindow({
     <section
       className={moving ? 'floating-window is-moving' : 'floating-window'}
       data-testid={testId}
+      data-compact={compact ? '' : undefined}
+      /*
+       * A panel beside the work, not a modal over it — deliberately not a
+       * dialog and deliberately not taking Escape. Escape already means
+       * «leave zone editing» in the editor and «close this popover» inside the
+       * window's own colour pickers, and a third meaning would make it mean
+       * none of them reliably. The way out is the close button in the bar,
+       * which is the way out on a phone in any case.
+       */
+      aria-label={title}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
-      style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+      style={compact ? undefined : { left: box.x, top: box.y, width: box.width, height: box.height }}
     >
       <header
         className="floating-window__bar"
         onPointerDown={(event) => {
+          if (compact) return
           if ((event.target as Element).closest('button')) return
           grab(null)(event)
         }}
@@ -343,15 +366,16 @@ export function FloatingWindow({
        * fight over the same press and every point along the rim belongs to
        * exactly one handle.
        */}
-      {SIDES.map((side) => (
-        <span
-          key={side}
-          className="floating-window__handle"
-          data-side={side}
-          onPointerDown={grab(side)}
-          aria-hidden="true"
-        />
-      ))}
+      {!compact &&
+        SIDES.map((side) => (
+          <span
+            key={side}
+            className="floating-window__handle"
+            data-side={side}
+            onPointerDown={grab(side)}
+            aria-hidden="true"
+          />
+        ))}
     </section>
   )
 }

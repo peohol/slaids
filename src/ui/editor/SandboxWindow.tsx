@@ -20,7 +20,14 @@ import { Tooltip } from '../components/Tooltip'
 const PREVIEW_WIDTH = 150
 const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
 
-function SandboxItemCard({ item }: { item: SandboxItem }) {
+function SandboxItemCard({
+  item,
+  onPlace,
+}: {
+  item: SandboxItem
+  /** Ask for a target zone instead of dragging the item onto one. */
+  onPlace: (item: SandboxItem) => void
+}) {
   const run = useEditorStore((state) => state.run)
   // The preview is outside the slide, so the accent has to be handed to it: a
   // parked heading is the same heading it will be on a slide, and the section
@@ -59,6 +66,16 @@ function SandboxItemCard({ item }: { item: SandboxItem }) {
         <span className="sandbox-item__label">{contentLabel(item.content)}</span>
         {item.note && <span className="hint">{item.note}</span>}
         <div className="sandbox-item__tools">
+          <Tooltip label="Velg en sone å plassere innholdet i">
+            <button
+              type="button"
+              className="btn btn--sm sandbox-item__place"
+              data-testid="sandbox-place"
+              onClick={() => onPlace(item)}
+            >
+              <Icon name="target" size={14} /> Plasser
+            </button>
+          </Tooltip>
           <Tooltip label="Dra til en sone">
             <button
               type="button"
@@ -97,7 +114,21 @@ function SandboxItemCard({ item }: { item: SandboxItem }) {
   )
 }
 
-export function SandboxWindow({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SandboxWindow({
+  open,
+  onClose,
+  onPlace,
+}: {
+  open: boolean
+  onClose: () => void
+  /**
+   * Place an item by choosing its target, rather than by dragging it there.
+   *
+   * The drag stays for a mouse; this is the road a finger can actually take,
+   * and both end in `placeSandboxItem` with the same fit validation.
+   */
+  onPlace: (item: SandboxItem) => void
+}) {
   const items = useEditorStore((state) => state.presentation?.sandbox ?? [])
 
   return (
@@ -118,7 +149,7 @@ export function SandboxWindow({ open, onClose }: { open: boolean; onClose: () =>
       ) : (
         <div className="sandbox-list">
           {items.map((item) => (
-            <SandboxItemCard key={item.id} item={item} />
+            <SandboxItemCard key={item.id} item={item} onPlace={onPlace} />
           ))}
         </div>
       )}

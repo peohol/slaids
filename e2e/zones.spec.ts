@@ -250,6 +250,46 @@ test.describe('zone editing', () => {
     expect(zones[4].w).toBeCloseTo(zones[2].w, 1)
   })
 
+  /*
+   * The ratio drag, said as a command.
+   *
+   * A drag on a boundary a few pixels wide is precise with a mouse and
+   * impossible with a finger, so the same change has buttons — and they are
+   * not a second implementation: both roads end in `setSplitWeights`, which
+   * quantises the ratios and refuses a layout that would hide content.
+   */
+  test('changes ratios from the inspector without dragging', async ({ page }) => {
+    await createPresentation(page, 'Forhold uten dra')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+
+    await page.getByTestId('zone-weight-up-0').click()
+    await expect(page.getByTestId('zone-ratios')).toHaveText('2 : 1')
+    const wider = await zoneRects(page)
+    expect(wider[0].w / wider[1].w).toBeCloseTo(2, 1)
+    expectGap(wider[1].x - (wider[0].x + wider[0].w), 'gap after a ratio button')
+
+    // Typed in directly, and quantised by the same rule.
+    await page.getByTestId('zone-weight-1').fill('4')
+    await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 2')
+
+    /*
+     * A selected *child* is resized inside the split it belongs to, so the
+     * controls follow the selection rather than needing the split reselected.
+     *
+     * One step up from 1 : 2 asks for 2 : 2, and what gets stored is 1 : 1 —
+     * the quantiser is the same one the drag goes through, so a button can no
+     * more write an unreduced ratio than a gesture can.
+     */
+    const zones = await zoneRects(page)
+    await clickZone(page, zones[0])
+    await expect(page.getByTestId('zone-size-grow')).toBeVisible()
+    await page.getByTestId('zone-size-grow').click()
+    await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 1')
+    const equal = await zoneRects(page)
+    expect(equal[0].w).toBeCloseTo(equal[1].w, 1)
+  })
+
   test('takes decimal ratios in the dialog and stores whole ones', async ({ page }) => {
     await createPresentation(page, 'Desimaler')
     await enterZoneMode(page)

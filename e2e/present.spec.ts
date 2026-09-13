@@ -117,6 +117,48 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('present-view')).toContainText('Innhold i visning')
   })
 
+  /*
+   * A slide's text is ordinary selectable text — an audience copies a quotation
+   * out of a deck, a presenter highlights a line while talking — and the
+   * mouse-up that finishes such a drag arrives as a click on the page. Turning
+   * the page on it would take the selection away in the same motion that made
+   * it, which is what § 44.5.7 means by «valgbar tekst tolkes aldri som
+   * navigasjon».
+   */
+  test('selecting text with the mouse does not turn the page', async ({ page }) => {
+    await createPresentation(page, 'Markering')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('En setning som kan markeres med musen')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+
+    await page.getByTestId('present').click()
+    await expect(page.getByTestId('present-view')).toBeVisible()
+    const before = await presentedPage(page)
+
+    const text = page.getByTestId('present-view').locator('.subfield .rd-p').first()
+    const box = await text.boundingBox()
+    if (!box) throw new Error('Fant ikke teksten på siden.')
+    // A drag across the line, which is how a selection is made.
+    await page.mouse.move(box.x + 4, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2, { steps: 10 })
+    await page.mouse.up()
+
+    expect(await page.evaluate(() => (window.getSelection()?.toString() ?? '').trim())).not.toBe('')
+    expect(await presentedPage(page)).toEqual(before)
+
+    // And an ordinary click still turns the page: the selection collapses
+    // before the event is dispatched, so nothing was taken away from it.
+    await page.getByTestId('present-view').click({ position: { x: 5, y: 5 } })
+    await expect
+      .poll(async () => (await presentedPage(page)).index)
+      .toBe(before.index + 1)
+  })
+
   test('appends a derived reference slide when a reference is cited', async ({ page }) => {
     await createPresentation(page, 'Referanser')
     const zones = await zoneRects(page)

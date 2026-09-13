@@ -58,7 +58,20 @@ const LINE_TEXT: Record<
   },
 }
 
-export function SectionStage({ section }: { section: SectionSlide }) {
+export function SectionStage({
+  section,
+  editable = true,
+}: {
+  section: SectionSlide
+  /**
+   * Whether the two lines may be typed into where they are drawn.
+   *
+   * False on a compact workspace, for the reason a zone's fields are: a
+   * heading scaled to a phone is not a writing surface. The lines are opened
+   * from the text panel instead, and measured against the pill either way.
+   */
+  editable?: boolean
+}) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
   const scale = useFitScale(viewportRef)
@@ -95,6 +108,7 @@ export function SectionStage({ section }: { section: SectionSlide }) {
               <SectionLineEditor
                 section={section}
                 line={line}
+                editable={editable}
                 measureOverflow={() => {
                   const pill = pillRefs.current[line]
                   return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
@@ -139,11 +153,13 @@ export function SectionStage({ section }: { section: SectionSlide }) {
 function SectionLineEditor({
   section,
   line,
+  editable,
   measureOverflow,
   onChange,
 }: {
   section: SectionSlide
   line: SectionLine
+  editable: boolean
   measureOverflow: () => number
   onChange: (doc: RichDoc) => void
 }) {
@@ -180,6 +196,7 @@ function SectionLineEditor({
       key={`${section.id}:${line}`}
       doc={sectionLineDoc(section, line)}
       variant="cover"
+      editable={editable}
       placeholder={LINE_TEXT[line].placeholder}
       overflowMessage={LINE_TEXT[line].overflow}
       measureOverflow={measureOverflow}

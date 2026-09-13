@@ -2,7 +2,21 @@
 <html lang="no">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=1280" />
+    <!--
+      `interactive-widget` is deliberately left at its default, `resizes-visual`:
+      the on-screen keyboard shrinks the *visual* viewport and leaves the layout
+      viewport alone. Slaids is built on exactly that split. How much room there
+      is — and therefore which editor shell is mounted — is read from the layout
+      viewport, so it stays put while somebody types; how much is on screen is
+      read from `visualViewport`, so a bottom bar stays above the keyboard.
+
+      `resizes-content` would shrink both together, and would break both halves:
+      a keyboard on a tablet could push the layout viewport under the compact
+      threshold and swap the editor shell out from under the caret, and the
+      keyboard itself would become invisible to us, since the inset we measure
+      is the difference between the two heights.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Slaids – presentasjoner med matematisk stram soneinndeling." />
     <link
       rel="icon"

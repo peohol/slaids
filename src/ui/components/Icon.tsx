@@ -2,6 +2,13 @@
 
 export type IconName =
   | 'plus'
+  | 'minus'
+  | 'menu'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'target'
+  | 'expand'
+  | 'collapse'
   | 'sign-out'
   | 'trash'
   | 'copy'
@@ -61,6 +68,14 @@ export type IconName =
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  'arrow-up': <path d="M12 20V5M6 11l6-6 6 6" />,
+  'arrow-down': <path d="M12 4v15M6 13l6 6 6-6" />,
+  /* A place to drop something into: a ring around an aiming point. */
+  target: <path d="M12 4a8 8 0 100 16 8 8 0 000-16zM12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z" />,
+  expand: <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />,
+  collapse: <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />,
   trash: <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
   copy: <path d="M9 9h10v10H9zM5 15V5h10" />,
   'split-x': <path d="M4 4h16v16H4zM12 4v16" />,

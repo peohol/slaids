@@ -10,6 +10,44 @@ const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
 /** The specs that reach into a miniapp's frame; see the project below. */
 const INTERACTIVE_SPECS = /interactive(-security|-authoring)?\.spec\.ts$/
 
+/**
+ * The compact-workspace suite, run once per shape of surface.
+ *
+ * It is kept apart from the desktop suite rather than merged into it because
+ * the two ask different questions of the same app: the desktop specs are the
+ * regression net for the roomy layout, and these are about what happens when
+ * there is no room — and about proving that «no room» is decided by the
+ * window, not by a user agent.
+ */
+const COMPACT_SPECS = /compact\.spec\.ts$/
+
+/**
+ * A miniapp's app runs in a sandboxed frame inside another sandboxed frame.
+ * Chromium puts sandboxed frames in their own process
+ * (IsolateSandboxedIframes), and Playwright then misses the inner frame most of
+ * the time — the app runs, but the runner cannot reach into it. With that one
+ * feature off the frames stay in the page's process and every locator works.
+ * The sandbox and the Content Security Policy the security spec measures are
+ * enforced by the renderer either way; the process boundary is an extra layer
+ * on top of them, not the thing under test.
+ */
+const frameReachableLaunch = {
+  ...(chromiumExecutable ? { executablePath: chromiumExecutable } : {}),
+  args: ['--disable-features=IsolateSandboxedIframes'],
+}
+
+/**
+ * A modern phone, in both orientations.
+ *
+ * Written out rather than taken from `devices[...]`: what the compact layout
+ * reacts to is the size of the window and the kind of pointer, and naming both
+ * here says exactly what is being tested. The device descriptors would also
+ * bring a user agent string along, and a suite that passed because of one
+ * would be proving the opposite of what this feature promises.
+ */
+const PHONE_PORTRAIT = { width: 412, height: 892 }
+const PHONE_LANDSCAPE = { width: 892, height: 412 }
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -27,25 +65,62 @@ export default defineConfig({
     ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: INTERACTIVE_SPECS },
     {
-      // The interactive slide's app runs in a sandboxed frame inside another
-      // sandboxed frame. Chromium puts sandboxed frames in their own process
-      // (IsolateSandboxedIframes), and Playwright then misses the inner frame
-      // most of the time — the app runs, but the runner cannot reach into it.
-      // With that one feature off the frames stay in the page's process and
-      // every locator works. The sandbox and the Content Security Policy the
-      // security spec measures are enforced by the renderer either way; the
-      // process boundary is an extra layer on top of them, not the thing under
-      // test.
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: [INTERACTIVE_SPECS, COMPACT_SPECS],
+    },
+    {
       name: 'chromium-interactive',
       testMatch: INTERACTIVE_SPECS,
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: {
-          ...(chromiumExecutable ? { executablePath: chromiumExecutable } : {}),
-          args: ['--disable-features=IsolateSandboxedIframes'],
-        },
+        launchOptions: frameReachableLaunch,
+      },
+    },
+    /*
+     * A phone held upright: the content-first workspace, where the slide is a
+     * preview and the text is the working surface.
+     */
+    {
+      name: 'phone-portrait',
+      testMatch: COMPACT_SPECS,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: PHONE_PORTRAIT,
+        isMobile: true,
+        hasTouch: true,
+        launchOptions: frameReachableLaunch,
+      },
+    },
+    /* The same phone on its side: the visual editing surface. */
+    {
+      name: 'phone-landscape',
+      testMatch: COMPACT_SPECS,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: PHONE_LANDSCAPE,
+        isMobile: true,
+        hasTouch: true,
+        launchOptions: frameReachableLaunch,
+      },
+    },
+    /*
+     * A narrow desktop window with a mouse and no touch at all.
+     *
+     * The point of this project is the promise that compact is a fact about
+     * the window: if any of it were decided by a user agent or by a touch
+     * capability, this is the run that would fail.
+     */
+    {
+      name: 'compact-mouse',
+      testMatch: COMPACT_SPECS,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 900, height: 760 },
+        isMobile: false,
+        hasTouch: false,
+        launchOptions: frameReachableLaunch,
       },
     },
   ],

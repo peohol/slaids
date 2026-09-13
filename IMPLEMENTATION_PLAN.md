@@ -27,7 +27,6 @@ Kjerneideen er:
 
 Følgende skal ikke forsinke en operativ editor:
 
-- mobilredigering;
 - PowerPoint-eksport;
 - Supabase;
 - innlogging;
@@ -50,6 +49,13 @@ Disse skal kunne legges til senere uten at domenemodellen må skrives om.
 > lenke til en skrivebeskyttet kopi. Det finnes ingen invitasjoner, ingen roller,
 > ingen skrivetilgang for andre enn eieren, og ingen katalog å finne delte
 > presentasjoner i.
+>
+> **Oppdatert:** mobilredigering var et ikke-mål i første fase og er det ikke
+> lenger. Slaids er fortsatt desktop-først, men ikke desktop-eksklusivt: den
+> samme domenemodellen, geometrien og de samme kommandoene betjenes fra en
+> kompakt arbeidsflate når vinduet er for lite til tre permanente kolonner – se
+> § 44.5. Det ble ikke laget en egen mobil presentasjonsmodell, og ingenting av
+> dette rørte dokumentformatet.
 
 ---
 
@@ -1849,7 +1855,10 @@ Editoren skal minst ha:
 - enkel indikator for innholdsmodus vs sonemodus;
 - autosave-status.
 
-UI skal være desktop-/laptop-optimalisert. Ingen tid skal brukes på mobilredigering.
+UI er desktop-først: den romslige trekolonneflaten er standarden, ikke en
+variant av den lille. Den er ikke desktop-eksklusiv – når vinduet er for lite
+til å holde filmstripe, stage og inspector samtidig, mountes et kompakt skall i
+stedet for det romslige. Nøyaktig ett skall er mountet om gangen. Se § 44.5.
 
 ---
 
@@ -1896,6 +1905,12 @@ Krav:
 > tastatur, klikk og sveip – spilleren blar ikke, og Escape avslutter ikke
 > presentasjonen – og «Avslutt miniapp», Slaids' egen knapp utenfor rammen,
 > er den ene veien tilbake til siden.
+>
+> **Oppdatert:** der det ikke finnes noe tastatur finnes det knapper. På en
+> kompakt eller coarse flate tegnes forrige, neste og avslutt som trykkbare
+> kontroller som skjuler seg av seg selv og hentes tilbake med et trykk på
+> sliden; med mus er et klikk på sliden fortsatt «neste». Sveip blar når gesten
+> starter utenfor en lenke, en knapp eller en kjørende miniapp. Se § 44.5.7.
 
 ---
 
@@ -5370,6 +5385,160 @@ vilje og ikke mekanisk:
 - **Layoutmaler og idéer** er bevisst utenfor: den første er en snarvei for et
   menneske som bygger med musen, den andre en notatflate som aldri forlater
   arbeidskopien.
+
+---
+
+## 44.5\. Kompakt arbeidsflate
+
+Slaids er desktop-først og ikke desktop-eksklusivt. Den samme presentasjonen
+skal kunne åpnes, rettes, bygges videre på og vises fram fra en telefon eller
+et smalt vindu, uten at det finnes en «mobilversjon» av noe som helst under
+overflaten.
+
+### 44.5.1 Hva som er felles, og derfor aldri kopieres
+
+Det er én presentasjonsmodell. Compact og desktop deler **domenemodell,
+layouttre, geometri (`domain/geometry.ts`), rendering, fit-regler, typede
+domenekommandoer, autosave, undo/redo, assets og persistens**. En presentasjon
+redigert på telefon skal se identisk ut på desktop.
+
+Følgelig:
+
+- det finnes ingen «mobile slides», mobile temaer eller mobilspesifikke
+  layoutverdier i dokumentet;
+- viewportens størrelse, orientering og eventuell zoom lagres aldri som
+  presentasjonsdata;
+- et skjult eller nedskalert UI brukes aldri som målegrunnlag for fit.
+
+### 44.5.2 To uavhengige egenskaper, aldri user-agent
+
+Hvilket UI som brukes avgjøres av to uavhengige fakta om flaten, aldri av en
+user-agent-streng:
+
+- **compact** – vinduet er for smalt eller for lavt til permanent filmstripe,
+  stage og inspector samtidig;
+- **coarse** – pekeren er en finger, så treffflater må være fingerstore og
+  ingen viktig funksjon kan kreve hover eller presis dragging.
+
+De er ortogonale med vilje: et smalt desktopvindu er compact med mus, og et
+stort nettbrett er romslig med finger. Begge avgjøres ett sted
+(`ui/workspace/`), som også publiserer dem på `<html>` slik at CSS og React
+leser nøyaktig samme beslutning. Et breakpoint skrevet to steder er et
+breakpoint som før eller siden er uenig med seg selv.
+
+Orientering er et layoutsignal, ikke apptilstand. Rotasjon, og et skjermtastatur
+som åpnes eller lukkes, skal aldri nullstille valgt slide, valgt sone, åpent
+panel, ulagret kladd eller undo/redo-historikk.
+
+Et skjermtastatur kan i tillegg aldri endre *hvilket* skall som gjelder:
+`compact` leses fra layout-viewporten, som tastaturet ikke gjør mindre. Derfor
+remounter ingenting når det åpnes, og markøren blir stående.
+
+Rotasjon som **krysser** compact-terskelen er det ene tilfellet der selve
+oppsettet bygges om — et nettbrett er romslig på langs og kompakt på tvers, og
+de to skallene er to forskjellige arrangementer, ikke to tilstander av ett.
+Listen over gjelder like fullt: ingenting av dokumentet, utvalget, historikken
+eller brukerens valg av arbeidsflate ligger i skallet, nettopp fordi skallet kan
+byttes. Det som ikke overlever en slik kryssing er markørposisjonen i et felt
+som skrives i; rotasjon *innenfor* samme arbeidsflate — altså enhver telefon —
+remounter ingenting og beholder også den.
+
+### 44.5.3 Ett skall om gangen
+
+`EditorView` eier lasting, autosave, kommandoer, dialoger og de tre store
+flatene. Plasseringen – og bare plasseringen – ligger i to skall
+(`ui/editor/shell/`). **Nøyaktig ett av dem er mountet.** To komplette
+editortrær der det ene skjules med CSS er forbudt: en skjult Tiptap-instans
+måler innholdet sitt til null, og det er det ene svaret fit-regelen aldri må få.
+
+På compact vises én stor flate om gangen – slides, tekst, sone eller verktøy.
+Å lukke panelet er «fokuser sliden»; det finnes ingen egen kontroll for det.
+
+### 44.5.4 Valg først, og ingen sentral funksjon krever dragging
+
+Et trykk på en sone **velger** den. Det starter ikke flytting, resizing eller
+tekstredigering – på en nedskalert slide er det ikke mulig å sikte på et ord.
+
+Alle dragbaserte operasjoner har en diskret tvilling som ender i **samme
+domenekommando**:
+
+| Gest | Diskret vei |
+| --- | --- |
+| dra sliden i filmstripen | «Flytt opp»/«Flytt ned» → `moveSlide` |
+| dra en sonegrense | større/mindre og eksplisitte forholdstall → `setSplitWeights` |
+| dra innhold til en annen sone | «Flytt innholdet …» → velg målsone → `moveZoneContent` |
+| dra fra sandkassen | «Plasser» → velg målsone → `placeSandboxItem` |
+
+Hvilke soner som kan ta imot innholdet avgjøres **ved å tørrkjøre den
+kommandoen som ville gjort jobben** og lese `Result`-en. Alt i domenet er rene
+funksjoner fra presentasjon til `Result`, så det endrer ingenting, og svaret kan
+ikke være uenig med commiten fordi det *er* commiten med resultatet kastet.
+
+Det er ikke pedanteri. En flytting og en kopi er forskjellige overganger: en
+sjekk som legger innholdet i målsonen mens kilden beholder sitt, måler et
+dokument flyttingen aldri produserer — og innhold som bærer en citation er
+nettopp der de to kommer fra hverandre, fordi first-occurrence-rekkefølgen, og
+dermed etikettbredden, avhenger av at kilden faktisk tømmes. Trykk og drag
+stiller det samme spørsmålet gjennom den samme funksjonen.
+
+Dragging beholdes som rask snarvei der den fungerer.
+
+Det skal være mulig å zoome visningen inn på en valgt sone. Det er en ren
+view-transform i editoren: aldri lagret geometri, aldri synlig for en kommando.
+Nesting som gjør direkte tapping vanskelig løses ved at parent og child kan
+velges fra sonestien.
+
+### 44.5.5 Tekstredigering: flaten er ikke målet
+
+På compact skrives tekst på en egen, lesbar flate med samme
+ProseMirror-dokument og samme formatteringskommandoer.
+
+**Fit-regelen er uendret.** Om teksten passer avgjøres av den virkelige sonen i
+det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
+gjennom den samme offscreen-måleren kommandoene bruker. Skriveflaten er større
+enn sonen og blir aldri spurt. En endring som ikke får plass rulles tilbake med
+samme melding som på stagen, og kladden som ble godtatt blir stående.
+
+### 44.5.6 Skjermtastatur og synlig viewport
+
+Skjermtastatur er en egen layouttilstand, lest fra `window.visualViewport` med
+robust fallback. Kompakte flater måler seg mot den *synlige* høyden, slik at
+primærhandlingen – «Ferdig», bunnlinjen, dialogens knapper – aldri havner bak
+tastaturet. Safe-area-insets respekteres. En endret viewport er aldri en ny
+presentasjonstilstand.
+
+### 44.5.7 Presentasjonsmodus og miniapper
+
+Presentasjonsmodus kan styres og avsluttes uten fysisk tastatur: forrige, neste
+og avslutt er trykkbare kontroller som kan skjule seg og hentes tilbake med et
+trykk. Med mus er et klikk på sliden fortsatt «neste»; med finger viser det
+kontrollene i stedet. Lenker, valgbar tekst og en kjørende miniapp tolkes aldri
+som navigasjon.
+
+Miniappkontrakten er uendret på 1600 × 900. Det som gjelder her er bare at en
+interaktiv slide kan aktiveres og avsluttes med trykk, at avslutt-knappen er en
+fingerstor treffflate tegnet i skjermpiksler uansett skala, og at en kjørende
+app eier pointer, touch, wheel og tastatur inne på sin egen flate – låsen i
+`state/interactiveRuntime.ts` er fortsatt det ene stedet det avgjøres.
+
+### 44.5.8 Tilgjengelighet
+
+Desktopens tastaturbetjening skal ikke svekkes. Ikonknapper har tilgjengelig
+navn, aktive tilstander er semantiske og ikke bare visuelle, drawers og dialoger
+bruker de eksisterende Radix-primitivene for fokusfelle og fokusretur, og
+reduced motion respekteres.
+
+### 44.5.9 Testing
+
+Compact-flyten testes som flyt, ikke som media queries. Playwright kjører den
+samme suiten over stående telefon, liggende telefon og et smalt desktopvindu med
+mus – det siste er beviset på at compact avgjøres av vinduet og ikke av en
+user-agent. Desktopsuiten er regresjonsnettet for den romslige flaten og kjører
+uendret.
+
+`docs/MOBILE_WORKSPACE.md` er implementasjonsdokumentet for dette delsystemet:
+UX-begrunnelser, konkrete flyter og de fysiske røyktestene som ikke kan
+automatiseres. Denne planen er fortsatt den normative.
 
 ---
 

@@ -21,7 +21,7 @@ import {
   imagePanelOf,
 } from '../../domain/content'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import { breadcrumbLabels, findLeaf, findNode } from '../../domain/layout'
+import { findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
@@ -32,6 +32,8 @@ import { ColorSwatchGrid } from '../components/ColorPicker'
 import { Icon } from '../components/Icon'
 import { formatBytes, formatPixels } from '../format'
 import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
+import { ZoneBreadcrumb } from './ZoneBreadcrumb'
+import { ZoneSizeControls, splitContextFor } from './ZoneSizeControls'
 import type { ZoneAction } from './ZoneOverlay'
 
 export function Inspector({
@@ -55,6 +57,7 @@ export function Inspector({
     state.presentation ? sectionGoverning(state.presentation, slide.id).accentColor : DEFAULT_PILL_COLOR,
   )
   const run = useEditorStore((state) => state.run)
+  const selectNode = useEditorStore((state) => state.selectNode)
 
   const node = selectedNodeId ? findNode(slide.root, selectedNodeId) : null
   const leaf = selectedNodeId ? findLeaf(slide.root, selectedNodeId) : null
@@ -64,7 +67,9 @@ export function Inspector({
   const file = panel?.assetId ? (assets?.find((asset) => asset.id === panel.assetId) ?? null) : null
   const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
-  const breadcrumb = selectedNodeId ? breadcrumbLabels(slide.root, selectedNodeId) : []
+  /* Which split the size controls act on: the selected one, or the one the
+     selected zone is a child of. A root leaf belongs to neither and gets none. */
+  const splitContext = splitContextFor(slide, selectedNodeId)
 
   if (!node || !selectedNodeId) {
     return (
@@ -98,9 +103,14 @@ export function Inspector({
     <aside className="inspector" data-testid="inspector">
       <section className="inspector__section">
         <h2 className="inspector__heading">Sone</h2>
-        <div className="inspector__row">
-          <span className="hint">{breadcrumb.join(' › ')}</span>
-        </div>
+        {/* The path is the way up and down the tree — the only reliable one
+            where a nested zone is too small to aim at. */}
+        <ZoneBreadcrumb
+          root={slide.root}
+          nodeId={selectedNodeId}
+          onSelect={selectNode}
+          testId="inspector-breadcrumb"
+        />
         <div className="inspector__row">
           <span className="hint">
             {node.kind === 'split'
@@ -131,19 +141,25 @@ export function Inspector({
         </div>
       </section>
 
-      {node.kind === 'split' && (
+      {splitContext && (
         <section className="inspector__section">
           <h2 className="inspector__heading">Forholdstall</h2>
           {/* Printed as they are stored, because they are whole numbers: a
               zone ratio that needed rounding to be read would be a ratio the
               author could not type back in. */}
           <p className="hint" data-testid="zone-ratios">
-            {node.weights.join(' : ')}
+            {splitContext.split.weights.join(' : ')}
           </p>
+          <ZoneSizeControls
+            slide={slide}
+            split={splitContext.split}
+            childIndex={splitContext.childIndex}
+          />
           <p className="hint">
-            Dra i mellomrommet mellom subsonene for å flytte grensen. Dra inni en subsone på
-            tvers av retningen for å endre størrelsen på den symmetrisk, eller langs retningen
-            for å forskyve den. Layouten låses til nærmeste heltallsforhold når du slipper.
+            Knappene endrer forholdstallene direkte. Med mus kan du også dra i mellomrommet
+            mellom subsonene for å flytte grensen, eller dra inni en subsone på tvers av
+            retningen for å endre størrelsen symmetrisk og langs retningen for å forskyve den.
+            Layouten låses til nærmeste heltallsforhold uansett vei.
           </p>
         </section>
       )}

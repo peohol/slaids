@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Root } from './Root'
+import { WorkspaceProvider } from './ui/workspace/WorkspaceContext'
 import './styles/global.css'
 import './styles/slide.css'
 import './styles/library.css'
@@ -11,6 +12,13 @@ if (!container) throw new Error('Fant ikke #root')
 
 createRoot(container).render(
   <StrictMode>
-    <Root />
+    {/*
+      How much room there is, and how precisely it can be pointed at, above
+      every page: the private workspace and a shared deck both have to work on
+      a phone, and neither of them should have to ask the browser itself.
+    */}
+    <WorkspaceProvider>
+      <Root />
+    </WorkspaceProvider>
   </StrictMode>,
 )

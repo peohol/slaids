@@ -1,8 +1,41 @@
 # Mobil arbeidsflate
 
-> **Status:** Arbeidsplan for mobiltilpasning. `IMPLEMENTATION_PLAN.md` er fortsatt eneste normative produkt- og arkitekturspesifikasjon. Før implementeringen merges skal den normative planen oppdateres slik at mobilredigering ikke lenger står som ikke-mål, og de varige reglene fra dette dokumentet som faktisk er implementert flyttes dit.
+> **Status:** Implementert. Dette er nå **subsystemdokumentasjon** for den
+> kompakte arbeidsflaten: hvor ting ligger, hvorfor betjeningen ble som den ble,
+> og hva som må røyktestes for hånd. De varige reglene er flyttet til
+> `IMPLEMENTATION_PLAN.md` § 44.5, som fortsatt er eneste normative produkt- og
+> arkitekturspesifikasjon. Der de to er uenige, gjelder planen.
 >
-> **Mål:** Gjøre Slaids praktisk brukbar på telefon og smale nettbrett uten å gjøre desktopopplevelsen dårligere eller lage en egen mobilvariant av presentasjonsmodellen.
+> **Mål:** Gjøre Slaids praktisk brukbar på telefon og smale nettbrett uten å
+> gjøre desktopopplevelsen dårligere eller lage en egen mobilvariant av
+> presentasjonsmodellen.
+
+## 0. Hvor koden ligger
+
+| Ansvar | Fil |
+| --- | --- |
+| compact/coarse/orientering/visualViewport, som rene regler | `src/ui/workspace/workspace.ts` |
+| én abonnent på nettleseren; publiserer også `data-*` på `<html>` | `src/ui/workspace/WorkspaceContext.tsx` |
+| hva et skall får utlevert | `src/ui/editor/shell/editorShell.ts` |
+| dagens trekolonneflate | `src/ui/editor/shell/DesktopEditorShell.tsx` |
+| én flate om gangen | `src/ui/editor/shell/CompactEditorShell.tsx` |
+| topplinje, tabs, verktøyliste, tekstliste | `src/ui/editor/compact/` |
+| den lesbare skriveflaten | `src/ui/editor/compact/FocusedTextEditor.tsx` |
+| adressering, lesing, skriving og fit-måling av ett tekstfelt | `src/ui/editor/textTarget.ts` |
+| «velg innhold, velg sone» for sandkasse og soneflytting | `src/ui/editor/placement.ts` |
+| større/mindre og eksplisitte forholdstall | `src/ui/editor/ZoneSizeControls.tsx` |
+| sonestien som parent/child-navigasjon | `src/ui/editor/ZoneBreadcrumb.tsx` |
+| stage-fit og zoom inn på én sone | `src/ui/editor/EditorStage.tsx` (`stageView`) |
+| flytende vindu som ark på liten flate | `src/ui/components/FloatingWindow.tsx` |
+| trykkbare kontroller i presentasjonsmodus | `src/ui/present/PresentationPlayer.tsx` |
+
+To ting er verdt å vite før man endrer noe her:
+
+1. **`FloatingWindow` er det samme vinduet på begge flater.** På compact tegnes
+   det som et ark uten geometri, men markupen er uendret – `IdeasWindow` finner
+   fortsatt `.floating-window__body` for scroll og autoscroll under dra.
+2. **Compact har ingen `TextToolbar` over stagen.** Den finnes bare inne i
+   skriveflaten, fordi det ikke er noe felt å formatere på stagen.
 
 ## 1. Produktretning
 
@@ -50,7 +83,16 @@ Et stort nettbrett kan derfor få desktop-lignende plassering med touch-vennlige
 
 Ikke bygg funksjonaliteten rundt et bestemt telefonmål eller ett magisk breakpoint. Bruk CSS/container queries der layout alene kan løses i CSS, og en liten delt hook/utilitet bare der React faktisk må vite at arbeidsflaten er kompakt.
 
-Orientering er et layoutsignal, ikke apptilstand. Rotasjon skal ikke remounte editoren eller miste:
+Orientering er et layoutsignal, ikke apptilstand.
+
+**Slik ble det:** rotasjon *innenfor* samme arbeidsflate — enhver telefon —
+remounter ingenting. Rotasjon som krysser terskelen (et nettbrett på 1180 × 820
+mot 820 × 1180) bytter skall, og da bygges oppsettet om med vilje. Derfor ligger
+ingen brukervalgt tilstand i skallet: `EditorView` eier både panelvalget og alt
+annet, og `e2e/workspace.spec.ts` går fram og tilbake over terskelen for å holde
+fast på det. Se `IMPLEMENTATION_PLAN.md` § 44.5.2.
+
+Rotasjon skal ikke miste:
 
 - valgt slide;
 - valgt sone;
@@ -94,21 +136,27 @@ Dette gjør stående mobil særlig egnet til tekst, innhold og raske rettelser.
 
 På compact workspace skal filmstripe, inspector, Sandbox, Ideer og andre store verktøy ikke konkurrere om plass samtidig.
 
-Det skal finnes en enkel sentral paneltilstand, for eksempel:
+Det finnes én sentral paneltilstand, i `CompactTabBar`:
 
 ```ts
-type CompactPanel =
-  | 'slides'
-  | 'inspector'
-  | 'sandbox'
-  | 'ideas'
-  | 'more'
-  | null
+type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
 ```
 
-Eksisterende verktøystates kan fortsatt eie sitt eget innhold. Formålet er bare å sørge for at mobilskallet viser én stor arbeidsflate om gangen.
+**Avvik fra den opprinnelige skissen, med vilje.** Sandkassen og Ideer ble
+*ikke* tatt inn i denne listen. De er allerede `FloatingWindow`, og det vinduet
+tegner seg selv som et ark på en kompakt flate – så de eier fortsatt sitt eget
+innhold og sin egen åpen-tilstand, og skallet holder dem fra å konkurrere med
+panelet ved å utlede: mens et verktøyvindu er oppe vises ikke panelet, og å
+åpne panelet lukker vinduet. Ingen effekt synkroniserer de to.
 
-Å åpne ett panel lukker et annet. En modal/dialog står over dette og skal ikke nullstille underliggende utvalg.
+Til gjengjeld ble «content» en egen fane: tekstlista er selve arbeidsflaten på
+en stående telefon, ikke et undervalg i inspector.
+
+Fanen «Soner» *er* sonemodus. Å trykke den setter `mode`, og alle andre faner
+setter den tilbake – ellers ville soneomriss stått på sliden mens tekstpanelet
+var åpent, eller motsatt.
+
+En modal/dialog står over dette og nullstiller ikke underliggende utvalg.
 
 ## 5. Slideoversikt og navigasjon
 
@@ -145,6 +193,12 @@ Det skal være mulig å «fokusere» en valgt sone:
 - dersom nesting gjør direkte tapping vanskelig, skal parent/child kunne velges fra inspector/soneoversikt.
 
 ### 6.3 Ingen viktig funksjon skal kreve dragging
+
+**Slik ble det:** hvilke soner som tilbys avgjøres ved å tørrkjøre
+`moveZoneContent` eller `placeSandboxItem` og lese `Result`-en — ikke ved
+`canAcceptContent`, som for en *flytting* måler et dokument operasjonen aldri
+produserer (kilden beholder innholdet sitt, så citation-nummereringen blir en
+annen). Se `IMPLEMENTATION_PLAN.md` § 44.5.4.
 
 Eksisterende drag-funksjoner kan beholdes, men mobil skal ha diskrete alternativer:
 
@@ -232,6 +286,13 @@ Drag kan fortsatt støttes på større touchflater.
 
 `IdeasWindow` skal på mobil være et panel/fullskjermsverktøy, ikke et fritt flytende vindu som må flyttes rundt.
 
+**Slik ble det:** `FloatingWindow` selv ble responsiv. På en kompakt flate
+tegnes det som et ark langs bunnen, uten flytting, uten resize-håndtak og uten
+lagret geometri – men med uendret markup, slik at `IdeasWindow` fortsatt finner
+`.floating-window__body` for scroll og autoscroll under dra. Det var billigere
+og mindre risikabelt enn å trekke innholdet ut av vinduet, og det ga Sandkassen
+det samme uten en linje ekstra.
+
 ### Modaler
 
 Alle eksisterende dialoger må testes i små høyder og bredder. De skal:
@@ -296,22 +357,41 @@ Anbefalt retning:
 6. Ikke kopier domeneregler inn i adapterne.
 7. Ikke behold to komplette skjulte editortrær samtidig; skjult Tiptap/fit/DnD-DOM kan påvirke måling, fokus og ytelse.
 
-Et mulig mønster er:
+Slik ble det:
 
 ```text
-EditorView
-  ├─ DesktopEditorShell
+EditorView                       eier lasting, autosave, kommandoer, dialoger
+  │                              og bygger de tre store flatene én gang
+  ├─ DesktopEditorShell          plassering, og bare plassering
   │   ├─ TopToolbar / TextToolbar
-  │   ├─ Filmstrip
-  │   ├─ Stage
-  │   └─ Inspector
-  └─ CompactEditorShell
-      ├─ CompactToolbar
-      ├─ Stage/preview
-      └─ én aktiv drawer/panel
+  │   ├─ Filmstrip · Stage · Inspector
+  │   └─ StatusBar
+  └─ CompactEditorShell          plassering, og bare plassering
+      ├─ CompactTopBar
+      ├─ Stage  (+ ett panel: Filmstrip | tekstliste | Inspector | verktøy)
+      └─ CompactTabBar
 ```
 
-Shellene skal motta callbacks/view state fra samme eier; de skal ikke implementere hver sin editorlogikk.
+Begge får nøyaktig det samme, `EditorShellProps`, og **nøyaktig ett av dem er
+mountet**. `Filmstrip`, `Inspector`, `EditorStage`, `SectionStage`,
+`InteractiveStage` og hver eneste modal er de samme komponentene på begge
+flater; det som ble trukket ut er de få stedene hvor betjeningen faktisk måtte
+divergere:
+
+- `ZoneSizeControls` og `ZoneBreadcrumb` – diskrete tvillinger til to
+  dragegester, og begge brukes også på desktop;
+- `textTarget.ts` – å adressere ett tekstfelt, og å måle det mot den virkelige
+  sonen;
+- `placement.ts` – «velg innhold, velg sone», delt av sandkassen og av
+  soneflytting; den tørrkjører kommandoen som ville gjort jobben, i stedet for
+  å stille et lignende spørsmål med `canAcceptContent`;
+- `compact/` – topplinje, faner, verktøyliste, tekstliste og skriveflate, som
+  bare gir mening der det ikke er plass til desktopens toolbar.
+
+Ingen av dem inneholder domeneregler. Der det stod på valget mellom et nytt
+adapterlag og en ekstra prop på en eksisterende komponent, vant proppen:
+`EditorStage` fikk `selectOnTap`, `editableText`, `focusRect`, `onPlace` og
+`chrome` i stedet for en parallell mobil-stage.
 
 ## 15. Tilgjengelighet og tastatur
 
@@ -353,7 +433,43 @@ Minimum automatisert dekning:
 12. reload og verifisere persistens;
 13. desktop: eksisterende filmstrip/inspector/drag/shortcuts/presentasjonsflyter fungerer fortsatt.
 
-Playwright kan ikke fullt ut simulere ekte iOS/Android-tastatur og alle touchdetaljer. Før merge skal det derfor også gjøres en kort manuell smoke-test på minst én fysisk Android-telefon og én WebKit/iPhone-lignende runtime dersom prosjektmiljøet har tilgang til det. Hvis fysisk iPhone ikke er tilgjengelig, dokumenter eksplisitt hva som er testet i WebKit og hva som gjenstår.
+### Hva som faktisk kjører
+
+`playwright.config.ts` har fire prosjekter som dekker dette:
+
+| Prosjekt | Flate | Hva det beviser |
+| --- | --- | --- |
+| `chromium` | 1600 × 1000, mus | desktopregresjon: hele den eksisterende suiten, uendret |
+| `phone-portrait` | 412 × 892, touch | den innholdsorienterte flaten |
+| `phone-landscape` | 892 × 412, touch | den visuelle redigeringsflaten |
+| `compact-mouse` | 900 × 760, mus, `hasTouch: false` | at compact avgjøres av vinduet, ikke av en user-agent |
+
+`e2e/compact.spec.ts` kjøres av de tre siste og dekker flytene over. Tastaturet
+simuleres ved å overstyre `visualViewport.height` og fyre nettleserens egen
+`resize` – nøyaktig det signalet appen faktisk leser.
+
+### Fysiske røyktester som gjenstår
+
+Playwright kan ikke fullt ut simulere et ekte iOS/Android-tastatur eller alle
+touchdetaljer. Før en større mobilendring merges bør følgende gjøres for hånd,
+og er **ikke** dekket av suiten:
+
+1. **Ekte skjermtastatur, Android (Chrome).** Åpne et tekstfelt fra Tekst-panelet,
+   kontroller at «Ferdig» og formatteringslinjen står over tastaturet mens det
+   animeres inn, og at kladden ikke mistes når det lukkes.
+2. **Ekte skjermtastatur, iOS (Safari/WebKit).** Samme, pluss at siden ikke
+   scroller seg selv bort fra feltet, og at `viewport-fit=cover` + safe area gir
+   riktig luft rundt bunnlinjen på en enhet med home-indikator.
+3. **Rotasjon med tastaturet oppe.** Valgt slide, valgt sone og kladd skal
+   overleve.
+4. **Pinch-zoom.** Nettleserens egen zoom skal fortsatt virke; bare dobbelttrykk-
+   zoom er slått av (`touch-action: manipulation`).
+5. **Miniapp med egne gester.** En app som selv bruker drag eller wheel skal ikke
+   bla i dekket, og «Avslutt miniapp» skal være treffbar med tommelen.
+
+WebKit er i skrivende stund ikke installert i prosjektmiljøet, så alt over er
+kjørt i Chromium-baserte runtimes; iOS-spesifikk tastatur- og safe-area-atferd
+gjenstår å bekrefte på en fysisk enhet.
 
 ## 17. Akseptansekriterier
 

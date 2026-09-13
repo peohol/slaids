@@ -13,6 +13,7 @@ import {
   SLIDE_WIDTH,
   TITLE_LINE_HEIGHT,
 } from '../../domain/constants'
+import { fitScale } from '../../domain/geometry'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import {
   TITLE_NODE_ID,
@@ -47,7 +48,7 @@ import type {
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
-import { useFitScale } from '../slide/useFitScale'
+import { useContainerBox, type ContainerBox } from '../slide/useFitScale'
 import { domFitCheckers } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -123,8 +124,68 @@ export interface EditorStageProps {
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
   /** Opens the upload dialog for a picture zone that has no file yet. */
   onPickImage: (nodeId: NodeId) => void
-  /** Zones that can accept the item currently being dragged, decided at drag start. */
+  /**
+   * Zones that can accept what is currently looking for one — the item being
+   * dragged, or the content waiting for a target press. Decided when the
+   * gesture starts, because deciding it needs a measurement.
+   */
   dropTargets: ReadonlySet<NodeId>
+  /**
+   * A press on a zone selects it even in content mode.
+   *
+   * What a finger means by a press is "this one", not "put the caret here":
+   * the type on a slide scaled to a phone is a few pixels tall, so aiming at a
+   * word is not a thing anyone can do. Selection first, then an action.
+   */
+  selectOnTap?: boolean
+  /** Whether text on the stage may be typed into directly. */
+  editableText?: boolean
+  /** A press lands content in a zone rather than selecting it. */
+  onPlace?: ((nodeId: NodeId) => void) | null
+  /**
+   * Show this part of the slide filling the stage instead of the whole slide.
+   *
+   * A view transform and nothing else: the geometry, the document and every
+   * measurement are the whole slide's, exactly as they are when this is unset.
+   * Nothing about it is stored, and no command can see it.
+   */
+  focusRect?: Rect | null
+  /** Whether the breadcrumb and action buttons are drawn on the slide itself. */
+  chrome?: boolean
+}
+
+/** Where the slide sits in the stage: the scale, and the corner it starts at. */
+interface StageView {
+  scale: number
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+}
+
+/**
+ * Fit the whole slide, or fit one rect of it.
+ *
+ * Both are the same uniform scale applied to the same 1600 × 900 design space;
+ * a focused view simply translates the slide so the chosen rect starts at the
+ * stage's corner. No second geometry, and nothing rounded differently — a
+ * pointer converted back through `viewportToSlide` lands on the same zone
+ * either way.
+ */
+export function stageView(box: ContainerBox, focus: Rect | null | undefined): StageView {
+  if (box.width <= 0 || box.height <= 0) return { scale: 0, offsetX: 0, offsetY: 0, width: 0, height: 0 }
+  if (!focus || focus.width <= 0 || focus.height <= 0) {
+    const scale = fitScale(box.width, box.height)
+    return { scale, offsetX: 0, offsetY: 0, width: SLIDE_WIDTH * scale, height: SLIDE_HEIGHT * scale }
+  }
+  const scale = Math.min(box.width / focus.width, box.height / focus.height)
+  return {
+    scale,
+    offsetX: -focus.x * scale,
+    offsetY: -focus.y * scale,
+    width: focus.width * scale,
+    height: focus.height * scale,
+  }
 }
 
 /**
@@ -153,6 +214,11 @@ export function EditorStage({
   onAddContent,
   onPickImage,
   dropTargets,
+  selectOnTap = false,
+  editableText = true,
+  onPlace = null,
+  focusRect = null,
+  chrome = true,
 }: EditorStageProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
@@ -167,7 +233,9 @@ export function EditorStage({
    */
   const draggedRef = useRef(false)
 
-  const scale = useFitScale(viewportRef)
+  const box = useContainerBox(viewportRef)
+  const view = stageView(box, focusRect)
+  const scale = view.scale
   const mode = useEditorStore((state) => state.mode)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const selectNode = useEditorStore((state) => state.selectNode)
@@ -213,7 +281,9 @@ export function EditorStage({
   }
 
   const handleClick = (event: React.MouseEvent): void => {
-    if (mode !== 'zone') return
+    // Content mode on a roomy workspace answers a click where the click landed
+    // — in a text field — so there is nothing to hit-test.
+    if (!onPlace && mode !== 'zone' && !selectOnTap) return
     if (draggedRef.current) {
       draggedRef.current = false
       return
@@ -221,7 +291,15 @@ export function EditorStage({
     const point = toSlidePoint(event.clientX, event.clientY)
     if (!point) return
     const hit = hitTestLayout(displaySlide.root, geometry.rects, point.x, point.y)
-    if (hit) selectNode(hit)
+    if (!hit) return
+    // Content waiting for a zone takes the press: the target was worked out
+    // when the placement started, so a press on anything else does nothing
+    // rather than quietly moving the selection out from under the prompt.
+    if (onPlace) {
+      if (dropTargets.has(hit)) onPlace(hit)
+      return
+    }
+    selectNode(hit)
   }
 
   /**
@@ -288,6 +366,7 @@ export function EditorStage({
    */
   const handlePointerDown = (event: React.PointerEvent): void => {
     draggedRef.current = false
+    if (onPlace) return
     if (mode !== 'zone' || event.button !== 0 || dragRef.current) return
     const point = toSlidePoint(event.clientX, event.clientY)
     if (!point) return
@@ -473,7 +552,8 @@ export function EditorStage({
     >
       <div
         className="stage-scaler"
-        style={{ width: SLIDE_WIDTH * scale, height: SLIDE_HEIGHT * scale }}
+        data-focused={focusRect ? '' : undefined}
+        style={{ width: view.width, height: view.height }}
       >
         <div
           ref={slideRef}
@@ -483,7 +563,7 @@ export function EditorStage({
           style={{
             width: SLIDE_WIDTH,
             height: SLIDE_HEIGHT,
-            transform: `scale(${scale})`,
+            transform: `translate(${view.offsetX}px, ${view.offsetY}px) scale(${scale})`,
             transformOrigin: 'top left',
           }}
         >
@@ -505,7 +585,7 @@ export function EditorStage({
                 }}
                 data-fit-scroll=""
               >
-                {slide.title && mode === 'content' ? (
+                {slide.title && mode === 'content' && editableText ? (
                   <RichTextEditor
                     doc={slide.title}
                     variant="title"
@@ -546,7 +626,15 @@ export function EditorStage({
             renderLeaf={(leaf) => (
               <ZoneDropZone nodeId={leaf.id} acceptable={dropTargets.has(leaf.id)}>
                 {!leaf.content ? (
-                  <EmptyZone nodeId={leaf.id} compact={mode === 'zone'} onAdd={onAddContent} />
+                  /* The picker's buttons are drawn inside the slide, so they
+                     shrink with it: at a phone's scale they are a few pixels
+                     tall and unhittable. There the zone says what it is and
+                     the zone panel offers the content types at full size. */
+                  <EmptyZone
+                    nodeId={leaf.id}
+                    compact={mode === 'zone' || !editableText}
+                    onAdd={onAddContent}
+                  />
                 ) : mode === 'zone' ? (
                   <ZoneContentView content={leaf.content} />
                 ) : (
@@ -554,6 +642,7 @@ export function EditorStage({
                     content={leaf.content}
                     nodeId={leaf.id}
                     slideId={slide.id}
+                    editable={editableText}
                     onPickImage={onPickImage}
                   />
                 )}
@@ -571,6 +660,7 @@ export function EditorStage({
                 onBreadcrumb={selectNode}
                 onHandleDown={beginHandleDrag}
                 handleGap={tokens.gap}
+                chrome={chrome}
               />
             )}
 
