@@ -24,6 +24,9 @@ export interface ZoneActionMenuItem {
   id: string
   label: string
   icon: Parameters<typeof Icon>[0]['name']
+  disabled?: boolean
+  /** Shown instead of the label when the item is disabled, to say why. */
+  reason?: string | null
   onSelect: () => void
 }
 
@@ -188,6 +191,8 @@ export function ZoneOverlay({
                             type="button"
                             className="btn btn--sm"
                             data-testid={`zone-menu-${item.id}`}
+                            disabled={item.disabled}
+                            title={item.reason ?? undefined}
                             onClick={item.onSelect}
                           >
                             <Icon name={item.icon} size={15} /> {item.label}

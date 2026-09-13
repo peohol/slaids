@@ -22,7 +22,13 @@
  */
 
 import { contentAssetIds, contentDocs } from './content'
-import { sectionOverflow, fitContextFor, slideOverflow } from './commands/fitGuard'
+import {
+  fitContextFor,
+  nodeIdOfKey,
+  partOfKey,
+  sectionOverflow,
+  slideOverflow,
+} from './commands/fitGuard'
 import { FIT_TOLERANCE, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
 import { interactiveHtmlBytesIn, storedInteractiveRefusal } from './interactive'
 import { collectLeaves, validateTree } from './layout'
@@ -48,7 +54,7 @@ export type InvariantCode =
   | 'INVALID_STRUCTURE'
   /** A rect escapes its parent or the slide. */
   | 'INVALID_GEOMETRY'
-  /** A zone is smaller than the domain's minimum. */
+  /** A zone is smaller than what the content in it needs to be drawn. */
   | 'ZONE_TOO_SMALL'
   | 'CONTENT_DOES_NOT_FIT'
   | 'TITLE_DOES_NOT_FIT'
@@ -184,7 +190,7 @@ export function findSlideIssues(
         code: violation.kind === 'below-minimum' ? 'ZONE_TOO_SMALL' : 'INVALID_GEOMETRY',
         message:
           violation.kind === 'below-minimum'
-            ? 'Sonen er mindre enn minstemålet.'
+            ? 'Sonen er for liten for innholdet som står i den.'
             : violation.detail,
         slideId,
         nodeId: violation.nodeId,
@@ -194,8 +200,16 @@ export function findSlideIssues(
 
     // Only when a checker was supplied: the domain layer never measures text on
     // its own, and a validation run without one is a structural run.
-    for (const [nodeId, overflow] of slideOverflow(slide, fitContextFor(presentation), options)) {
+    //
+    // One issue per *region* rather than per zone: a card whose header and
+    // whose body are both clipped is two things to repair, and reporting only
+    // the worse of them is how the other one gets fixed and the slide still
+    // does not come out right. `part` names which region, in the same
+    // vocabulary the commands refuse with.
+    for (const [key, overflow] of slideOverflow(slide, fitContextFor(presentation), options)) {
       if (overflow <= FIT_TOLERANCE) continue
+      const nodeId = nodeIdOfKey(key)
+      const part = partOfKey(key)
       const isTitle = nodeId === TITLE_NODE_ID
       issues.push({
         code: isTitle ? 'TITLE_DOES_NOT_FIT' : 'CONTENT_DOES_NOT_FIT',
@@ -204,7 +218,7 @@ export function findSlideIssues(
           : 'Innholdet får ikke plass i sonen.',
         slideId,
         nodeId,
-        details: { overflow },
+        details: { overflow, ...(part ? { part } : {}) },
       })
     }
   }
@@ -237,7 +251,7 @@ function findSectionIssues(
   options: StructuralOptions,
 ): InvariantIssue[] {
   const issues: InvariantIssue[] = []
-  for (const [nodeId, overflow] of sectionOverflow(
+  for (const [key, overflow] of sectionOverflow(
     section,
     fitContextFor(presentation),
     options,
@@ -247,7 +261,7 @@ function findSectionIssues(
       code: 'TITLE_DOES_NOT_FIT',
       message: 'Teksten får ikke plass på seksjonssliden.',
       slideId: section.id,
-      nodeId,
+      nodeId: nodeIdOfKey(key),
       details: { overflow },
     })
   }

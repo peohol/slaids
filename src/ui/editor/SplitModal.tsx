@@ -22,7 +22,7 @@ import {
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
 } from '../../domain/constants'
-import { themeMetrics } from '../../domain/metrics'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { useEditorStore } from '../../state/store'
 import { areWeightsValid, computeLayoutRects, previewSplit } from '../../domain/geometry'
 import { collectNodes, countContent, createLeaf } from '../../domain/layout'
@@ -114,8 +114,18 @@ export function SplitModal({
     return [...kept, ...Array.from({ length: added }, () => createLeaf())]
   }, [count, existingChildren])
 
+  // The deck's own geometry, not the base tokens: the gap decides where the
+  // boundaries land and the theme's type decides how small a card may be, so a
+  // preview measured against the defaults would disable «Bruk» on a split the
+  // command accepts, or the other way round.
   const preview = weights
-    ? previewSplit(targetRect, axis, weights, {}, mode === 'edit' ? proposedChildren : undefined)
+    ? previewSplit(
+        targetRect,
+        axis,
+        weights,
+        geometryForTheme(theme),
+        mode === 'edit' ? proposedChildren : undefined,
+      )
     : null
 
   const removedChildren = existingChildren.slice(count)

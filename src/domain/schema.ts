@@ -85,6 +85,15 @@ export const imagePanelSchema = z.object({
 })
 
 export const zoneContentSchema = z.discriminatedUnion('kind', [
+  /* Deliberate air. An id and a kind and nothing else — «no payload» is what
+     this content *is*, so the shape says so rather than leaving room for one.
+     Adding a member to this union needs no migration: no document that exists
+     changes shape, and a stored empty leaf is still `content: null`, which is
+     the other, older thing and stays it. */
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal('negative-space'),
+  }),
   z.object({
     id: z.string().min(1),
     kind: z.literal('container'),

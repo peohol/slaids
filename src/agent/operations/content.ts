@@ -238,7 +238,7 @@ export const setZoneText = defineOperation({
 export const setZoneCard = defineOperation({
   name: 'set_zone_card',
   summary:
-    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel eller kort med tittel. Tekst som ligger der beholdes.',
+    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, eller negativt rom (bevisst luft som ikke tegner noe). Tekst som ligger der beholdes – bortsett fra ved negativt rom, som ikke har innhold og derfor krever en tom sone.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -247,8 +247,13 @@ export const setZoneCard = defineOperation({
     slideId: slideIdSchema,
     nodeId: nodeIdSchema,
     kind: z
-      .enum(['container', 'untitled-card', 'titled-card'])
-      .describe('`container` er et gjennomsiktig kort; de to andre har bakgrunn.'),
+      .enum(['container', 'untitled-card', 'titled-card', 'negative-space'])
+      .describe(
+        '`container` er et gjennomsiktig kort; `untitled-card` og `titled-card` har bakgrunn. ' +
+          '`negative-space` er bevisst luft: den tegner ingenting, har ingen tekstfelt og ingen ' +
+          'minstestørrelse, så den kan være vilkårlig liten. Den kan bare settes på en sone som ' +
+          'er tom – bruk clear_zone først hvis sonen har innhold.',
+      ),
     title: titleSpansSchema
       .optional()
       .describe('Korttittelen. Bare for titled-card.'),
@@ -277,6 +282,14 @@ export const setZoneCard = defineOperation({
     return mutatePresentation(context, input, (presentation) => {
       if ((input.title || input.titleAlign) && input.kind !== 'titled-card') {
         return err('INVALID_ARGUMENT', 'Bare et kort med tittel kan ha en korttittel.')
+      }
+      // Air has no payload at all, so every field that describes one is a
+      // mistake about what was asked for rather than something to ignore.
+      if (input.kind === 'negative-space' && (input.color !== undefined || input.subfieldCount !== undefined)) {
+        return err(
+          'INVALID_ARGUMENT',
+          'Negativt rom har verken farge eller tekstfelt. Det er bevisst tom flate.',
+        )
       }
       const unknown = input.title
         ? unknownReferenceIds(presentation, citedIdsInSpans(input.title))

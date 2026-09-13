@@ -114,12 +114,13 @@ import {
   computeSectionGeometry,
   computeLayoutRects,
   computeSlideGeometry,
+  minimumSizeFor,
   TITLE_NODE_ID,
   validateSlideGeometry,
 } from '../geometry'
-import { collectContent, collectLeaves } from '../layout'
+import { collectContent, collectLeaves, findNode } from '../layout'
 import { contentDocs } from '../content'
-import { FIT_TOLERANCE, GEOMETRY_EPSILON, MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH } from '../constants'
+import { FIT_TOLERANCE, GEOMETRY_EPSILON } from '../constants'
 import { sectionGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
@@ -196,8 +197,42 @@ function sameCitationLabels(
   return same
 }
 
+/**
+ * One place on a slide that can clip, addressed.
+ *
+ * A zone is not one such place: a card is a header *and* a body, and a picture
+ * is a frame *and* a caption over it. Measuring a zone as a single number is
+ * what let a card title grow out of its header unnoticed — the body was already
+ * overflowing more, so the zone's worst number never moved, and «never worse»
+ * read as «nothing happened». So the unit the fit rule works in is the region,
+ * and the region is a node plus the part of it that clips.
+ *
+ * `part` is empty for a place that *is* the whole node — a slide title, a
+ * section's line — and one of the ids in `domain/fit.ts` otherwise.
+ */
+export type OverflowKey = string
+
+const PART_SEPARATOR = '#'
+
+export function overflowKey(nodeId: NodeId, part = ''): OverflowKey {
+  return part ? `${nodeId}${PART_SEPARATOR}${part}` : nodeId
+}
+
+export function nodeIdOfKey(key: OverflowKey): NodeId {
+  const at = key.indexOf(PART_SEPARATOR)
+  return at < 0 ? key : key.slice(0, at)
+}
+
+export function partOfKey(key: OverflowKey): string {
+  const at = key.indexOf(PART_SEPARATOR)
+  return at < 0 ? '' : key.slice(at + 1)
+}
+
 export interface OverflowEntry {
+  key: OverflowKey
   nodeId: NodeId
+  /** Which part of the node clips, or `''` when the node is the whole place. */
+  part: string
   overflow: number
   previousOverflow: number
 }
@@ -216,15 +251,24 @@ export function subtreeOverflow(
   area: Rect,
   context: FitContext,
   options: StructuralOptions = {},
-): Map<NodeId, number> {
-  const overflow = new Map<NodeId, number>()
+): Map<OverflowKey, number> {
+  const overflow = new Map<OverflowKey, number>()
   if (!options.fits) return overflow
   const rects = computeLayoutRects(node, area, options.geometry?.gap ?? themeMetrics(context.theme).gap)
   for (const leaf of collectLeaves(node)) {
     if (!leaf.content) continue
     const rect = rects.get(leaf.id)
     if (!rect) continue
-    overflow.set(leaf.id, options.fits(leaf.content, rect, context).overflow)
+    const result = options.fits(leaf.content, rect, context)
+    const parts = Object.entries(result.parts ?? {})
+    // A checker that breaks the content down is taken at its word, part by
+    // part; one that does not — there is none in the codebase, but the type
+    // allows it — is recorded as the single place it says it measured.
+    if (parts.length === 0) {
+      overflow.set(overflowKey(leaf.id), result.overflow)
+      continue
+    }
+    for (const [part, value] of parts) overflow.set(overflowKey(leaf.id, part), value)
   }
   return overflow
 }
@@ -234,7 +278,7 @@ export function slideOverflow(
   slide: ContentSlide,
   context: FitContext,
   options: StructuralOptions = {},
-): Map<NodeId, number> {
+): Map<OverflowKey, number> {
   // The prospective theme decides the gap and the title zone, so the rects the
   // fit is judged against are the ones the slide will actually have.
   const geometry = computeSlideGeometry(slide, {
@@ -243,7 +287,10 @@ export function slideOverflow(
   })
   const overflow = subtreeOverflow(slide.root, geometry.mainRect, context, options)
   if (options.fitsTitle && slide.title && geometry.titleRect) {
-    overflow.set(TITLE_NODE_ID, options.fitsTitle(slide.title, geometry.titleRect, context).overflow)
+    overflow.set(
+      overflowKey(TITLE_NODE_ID),
+      options.fitsTitle(slide.title, geometry.titleRect, context).overflow,
+    )
   }
   return overflow
 }
@@ -264,17 +311,17 @@ export function sectionOverflow(
   section: SectionSlide,
   context: FitContext,
   options: StructuralOptions = {},
-): Map<NodeId, number> {
-  const overflow = new Map<NodeId, number>()
+): Map<OverflowKey, number> {
+  const overflow = new Map<OverflowKey, number>()
   if (!options.fitsTitle) return overflow
   const resolved = { ...sectionGeometryForTheme(context.theme), ...options.geometry }
   const geometry = computeSectionGeometry(resolved)
   overflow.set(
-    SECTION_TITLE_NODE_ID,
+    overflowKey(SECTION_TITLE_NODE_ID),
     options.fitsTitle(section.title, geometry.titleRect, context, resolved.titleFontSize).overflow,
   )
   overflow.set(
-    SECTION_SUBTITLE_NODE_ID,
+    overflowKey(SECTION_SUBTITLE_NODE_ID),
     options.fitsTitle(section.subtitle, geometry.subtitleRect, context, resolved.subtitleFontSize)
       .overflow,
   )
@@ -294,7 +341,7 @@ export function pageOverflow(
   slide: Slide,
   context: FitContext,
   options: StructuralOptions = {},
-): Map<NodeId, number> {
+): Map<OverflowKey, number> {
   switch (slide.kind) {
     case 'section':
       return sectionOverflow(slide, context, options)
@@ -311,15 +358,21 @@ export function pageOverflow(
  * can avoid measuring the previous state at all when nothing overflows now.
  */
 export function overflowRegressions(
-  next: ReadonlyMap<NodeId, number>,
-  previousOverflowOf: (nodeId: NodeId) => number,
+  next: ReadonlyMap<OverflowKey, number>,
+  previousOverflowOf: (key: OverflowKey) => number,
 ): OverflowEntry[] {
   const entries: OverflowEntry[] = []
-  for (const [nodeId, overflow] of next) {
+  for (const [key, overflow] of next) {
     if (overflow <= FIT_TOLERANCE) continue
-    const previousOverflow = previousOverflowOf(nodeId)
+    const previousOverflow = previousOverflowOf(key)
     if (overflow > previousOverflow + FIT_TOLERANCE) {
-      entries.push({ nodeId, overflow, previousOverflow })
+      entries.push({
+        key,
+        nodeId: nodeIdOfKey(key),
+        part: partOfKey(key),
+        overflow,
+        previousOverflow,
+      })
     }
   }
   return entries
@@ -367,10 +420,10 @@ export function findFitRegressions(
     }
 
     const next = pageOverflow(slide, afterContext, options)
-    let baseline: Map<NodeId, number> | null = null
-    const entries = overflowRegressions(next, (nodeId) => {
+    let baseline: Map<OverflowKey, number> | null = null
+    const entries = overflowRegressions(next, (key) => {
       baseline ??= pageOverflow(previous, beforeContext, options)
-      return baseline.get(nodeId) ?? 0
+      return baseline.get(key) ?? 0
     })
     for (const entry of entries) regressions.push({ slideId: slide.id, ...entry })
   }
@@ -378,14 +431,19 @@ export function findFitRegressions(
 }
 
 /**
- * A zone that stops satisfying the minimum size because the geometry moved.
+ * A zone that stops satisfying its content's minimum size because the geometry
+ * moved.
  *
- * `findFitRegressions` measures *content*, and an empty zone has none: a bigger
- * gap can push a seven-way split below the minimum zone width without hiding a
- * single character, and the document would then be committed in a state
- * `findSlideIssues` immediately reports as `ZONE_TOO_SMALL`. The theme is what
- * moves those numbers — the gap and the title zone's height — so this is the
- * question a theme change has to ask in addition to the fit one.
+ * `findFitRegressions` measures whether the *text* is all visible, which is not
+ * the same question as whether the thing holding it can be drawn at all: a
+ * titled card spends a header and two paddings whatever it says, so a bigger
+ * gap or a larger type scale can leave a card in a rectangle no card fits in.
+ * The theme is what moves those numbers — the gap, the title zone's height and
+ * the chrome the tokens dictate — so this is the question a theme change has to
+ * ask in addition to the fit one.
+ *
+ * An empty zone and one holding deliberate air have no minimum, so nothing
+ * here fires for them: there is nothing in them a smaller rectangle could hide.
  *
  * It is the same `validateSlideGeometry` the read-only validator runs, against
  * the prospective geometry, so the guard and the validator cannot disagree
@@ -471,16 +529,19 @@ function belowMinimum(slide: ContentSlide, geometry: GeometryOptions): Map<NodeI
   if (violations.length === 0) return undersized
 
   const rects = computeSlideGeometry(slide, geometry).rects
-  const minWidth = geometry.minZoneWidth ?? MIN_ZONE_WIDTH
-  const minHeight = geometry.minZoneHeight ?? MIN_ZONE_HEIGHT
   for (const violation of violations) {
     const rect = rects.get(violation.nodeId)
-    if (!rect) continue
+    const node = findNode(slide.root, violation.nodeId)
+    if (!rect || !node) continue
+    // The same minimum the violation was decided by, asked of the same node —
+    // *how much* short is arithmetic on it, never a second opinion about
+    // whether it is short at all.
+    const minimum = minimumSizeFor(node, geometry)
     undersized.set(violation.nodeId, {
       rect,
       short: {
-        width: Math.max(0, minWidth - rect.width),
-        height: Math.max(0, minHeight - rect.height),
+        width: Math.max(0, minimum.width - rect.width),
+        height: Math.max(0, minimum.height - rect.height),
       },
     })
   }
@@ -507,6 +568,7 @@ export function guardFit(
   return err('CONTENT_DOES_NOT_FIT', message, {
     slideId: worst.slideId,
     nodeId: worst.nodeId,
+    ...(worst.part ? { part: worst.part } : {}),
     overflow: worst.overflow,
     previousOverflow: worst.previousOverflow,
     zones: regressions.length,

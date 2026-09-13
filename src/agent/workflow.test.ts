@@ -498,7 +498,7 @@ describe('layout', () => {
     )
   })
 
-  it('lar ingen omgå minstemålene for en sone', async () => {
+  it('lar ingen omgå minstemålet for innholdet som faktisk står i sonen', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
     const slideId = deck.slides[1].slideId
@@ -517,6 +517,15 @@ describe('layout', () => {
       weights: [1, 1, 1, 1],
     })
 
+    // Tekst i den første kolonnen: da har sonen noe som kan bli borte, og
+    // minstemålet er tekstens.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: split.childNodeIds[0],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Et avsnitt' }] }],
+    })
+
     const refused = await fails(context, 'split_zone', {
       presentationId: deck.presentationId,
       slideId,
@@ -533,6 +542,58 @@ describe('layout', () => {
       slideId,
     })
     expect(after.zones.filter((zone) => zone.kind === 'leaf')).toHaveLength(4)
+  })
+
+  it('deler en tom sone så smalt kalleren vil, og sier hva som får plass etterpå', async () => {
+    // En tom sone tegner ingenting, så ingen bredde er for liten for den. Det
+    // er slik bevisst luft lages: del først, og gjør så sliveren til negativt
+    // rom. `inspect_slide` sier hvilke innholdstyper som faktisk kan brukes.
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const root = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      axis: 'y',
+      weights: [1, 10, 1],
+    })
+
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const sliver = inspected.zones.find((zone) => zone.nodeId === split.childNodeIds[0])
+    expect(sliver?.empty).toBe(true)
+    expect(sliver?.availableContentKinds).toEqual(['negative-space'])
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: split.childNodeIds[0],
+      kind: 'negative-space',
+    })
+
+    const air = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const declared = air.zones.find((zone) => zone.nodeId === split.childNodeIds[0])
+    expect(declared?.empty).toBe(false)
+    expect(declared?.contentKind).toBe('negative-space')
+
+    const report = await ok<{ valid: boolean }>(context, 'validate_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(report.valid).toBe(true)
   })
 
   it('endrer forholdstall og antall subsoner, og tar vare på innhold som fortrenges', async () => {

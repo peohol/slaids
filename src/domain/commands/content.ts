@@ -15,8 +15,10 @@ import {
   createContainer,
   createImage,
   createTitledCard,
+  createNegativeSpace,
   createTitledImageCard,
   createUntitledCard,
+  contentIsEmpty,
   hasCardTitle,
   hasImagePanel,
   imagePanelOf,
@@ -36,9 +38,9 @@ import {
   isDocEmpty,
   trimTrailingBlankLines,
 } from '../richdoc'
-import { contentSlide } from './internal'
+import { contentSlide, contentTooBigForZone, geometryFor, rectForNode } from './internal'
 import { touch, withSlide } from '../presentation'
-import { err, ok, type Result } from '../result'
+import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
 import { hasAsset } from './assets'
 import { guardFit } from './fitGuard'
@@ -452,6 +454,11 @@ export function setCardColor(
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
+  // Air has no payload, so this is the one direction that cannot carry
+  // anything across. `setContentKind` only reaches here once it has
+  // established there is nothing to carry — see the refusal there.
+  if (kind === 'negative-space') return createNegativeSpace()
+
   const title = hasCardTitle(content) ? content.title : null
   const headerColor = hasCardTitle(content) ? content.headerColor : null
   const targetHasTitle = kind === 'titled-card' || kind === 'titled-image-card'
@@ -617,15 +624,61 @@ function titleAsHeading(title: RichDoc): RichNode | null {
  * card spends `CARD_HEADER_HEIGHT + CARD_PADDING * 2` of the zone that a
  * container gives entirely to content. The gate in `updateZoneContent` is what
  * stops a conversion from pushing text out of sight.
+ *
+ * Two things are asked before that, and in this order, because they call for
+ * different repairs:
+ *
+ *  - **Can this kind exist here at all?** A zone can be too small for a titled
+ *    card however short its text is — the header and the padding are drawn
+ *    whatever it says. That is `ZONE_TOO_SMALL`, and the fix is a bigger zone.
+ *  - **Is there anything this conversion would throw away?** Only negative
+ *    space can lose something, and it loses everything: it has no payload by
+ *    definition. Rather than silently deleting a card's text, the command
+ *    refuses and names the gesture that keeps it — «Tøm sone» parks the content
+ *    in the sandbox, and the emptied zone can then be made into air.
  */
 export function setContentKind(
   presentation: Presentation,
   input: { kind: ZoneContentKind } & ZoneContentTarget,
 ): Result<Presentation> {
+  const refusal = contentKindRefusalFor(presentation, input, input.kind)
+  if (refusal) return refusal
   return updateZoneContent(
     presentation,
     input,
-    (content) => ok(convertContentKind(content, input.kind)),
+    (content) => {
+      if (input.kind === 'negative-space' && !contentIsEmpty(content)) {
+        return err(
+          'INVALID_CONTENT',
+          'Negativt rom har ikke noe innhold. Tøm sonen først — innholdet havner i sandkassen.',
+        )
+      }
+      return ok(convertContentKind(content, input.kind))
+    },
     'Innholdet får ikke plass i denne innholdstypen.',
   )
+}
+
+/**
+ * The refusal a content kind earns in the zone it is being put into, if any.
+ *
+ * One helper behind every door that places or converts content, so «this kind
+ * cannot be drawn that small» is decided by `domain/contentSize.ts` and phrased
+ * once. The details carry the two rectangles rather than only the message, so
+ * an agent can act on the numbers and a picker can grey a button out.
+ */
+export function contentKindRefusalFor(
+  presentation: Presentation,
+  target: ZoneContentTarget,
+  kind: ZoneContentKind,
+): Refusal | null {
+  const found = contentSlide(presentation, target.slideId)
+  if (!found.ok) return found
+  const geometry = geometryFor(presentation, target.geometry)
+  const rect = rectForNode(found.value, target.nodeId, geometry)
+  if (!rect) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+  return contentTooBigForZone(kind, rect, geometry, {
+    slideId: target.slideId,
+    nodeId: target.nodeId,
+  })
 }

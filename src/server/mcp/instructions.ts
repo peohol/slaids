@@ -18,7 +18,7 @@
  * Slaids does not have.
  */
 
-import { MIN_ZONE_HEIGHT, MIN_ZONE_WIDTH, SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
+import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { AGENT_API_VERSION } from '../../routing'
 
 /**
@@ -39,7 +39,7 @@ export const MCP_INSTRUCTIONS = `Slaids er en presentasjonseditor med en rigid, 
 Slik henger en presentasjon sammen:
 - Hver slide tegnes i et fast logisk rom på ${SLIDE_WIDTH} × ${SLIDE_HEIGHT}, som skaleres uniformt til skjermen.
 - Layouten er et tre. En sone er enten delt (den har barn, aldri innhold) eller et blad (den har innhold, aldri barn). Du deler en sone i 2–10 barn med vekter langs x eller y.
-- Ingen sone kan bli mindre enn ${MIN_ZONE_WIDTH} × ${MIN_ZONE_HEIGHT}. Det er én fast avstand mellom alt synlig innhold, og den håndteres av Slaids – du regner ikke ut marger selv.
+- Hvor liten en sone kan bli avhenger av hva som står i den. En tom sone og en sone satt til «negative-space» har ingen minstestørrelse – bevisst luft er et lovlig designgrep. Kort, beholdere og bilder har hver sine minstemål, og når du leser en slide får du oppgitt hvilke innholdstyper som faktisk får plass i hver sone. Det er én fast avstand mellom alt synlig innhold, og den håndteres av Slaids – du regner ikke ut marger selv.
 
 Design før geometri:
 - **La innholdets logiske struktur bestemme sonetreet.** Velg aldri først «to kolonner», «tre kort» eller et annet vilkårlig layout og press deretter stoffet inn. Finn først ut om sliden uttrykker ett hovedpoeng med støtte, en sammenligning, en taksonomi, en sekvens, en oversikt med detaljer, et argument med evidens eller et fokus/pausepunkt. Bygg så det enkleste treet som gjør den relasjonen synlig.

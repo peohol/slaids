@@ -4,12 +4,13 @@
 
 import { WHITE } from './color'
 import { newContentId, newSubfieldId } from './ids'
-import { collectCitationIds, collectDocAssetIds, emptyDoc, titleDoc } from './richdoc'
+import { collectCitationIds, collectDocAssetIds, emptyDoc, isDocEmpty, titleDoc } from './richdoc'
 import type {
   Axis,
   CaptionPosition,
   CardBody,
   ContainerContent,
+  NegativeSpaceContent,
   ImageCaption,
   ImageContent,
   ImagePanel,
@@ -27,6 +28,21 @@ export const DEFAULT_CARD_BACKGROUND = WHITE
 
 /** A picture with no crop offset: the frame sits over the middle of the file. */
 export const CENTRED_FOCUS = { x: 0.5, y: 0.5 } as const
+
+/**
+ * Deliberate air.
+ *
+ * An id and a kind, and nothing else — there is no payload to create, and that
+ * is the definition rather than an omission. See `NegativeSpaceContent`.
+ */
+export function createNegativeSpace(): NegativeSpaceContent {
+  return { id: newContentId(), kind: 'negative-space' }
+}
+
+/** Content that draws nothing at all. */
+export function isNegativeSpace(content: ZoneContent): content is NegativeSpaceContent {
+  return content.kind === 'negative-space'
+}
 
 export function createSubfield(doc: RichDoc = emptyDoc()): Subfield {
   return { id: newSubfieldId(), doc }
@@ -162,6 +178,8 @@ export const CAPTION_POSITION_LABELS: Record<CaptionPosition, string> = {
 
 export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
   switch (kind) {
+    case 'negative-space':
+      return createNegativeSpace()
     case 'container':
       return createContainer()
     case 'untitled-card':
@@ -176,12 +194,22 @@ export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
 }
 
 export const CONTENT_KIND_LABELS: Record<ZoneContentKind, string> = {
+  'negative-space': 'Negativt rom',
   container: 'Beholder',
   'untitled-card': 'Kort uten tittel',
   'titled-card': 'Kort med tittel',
   image: 'Bilde',
   'titled-image-card': 'Kort med tittel og bilde',
 }
+
+/**
+ * Every content kind there is.
+ *
+ * Derived from the labels rather than written out again, so a kind added to the
+ * union is offered by the editor, described to an agent and answered for by
+ * `contentSize.ts` without a second list to remember.
+ */
+export const ZONE_CONTENT_KINDS = Object.keys(CONTENT_KIND_LABELS) as ZoneContentKind[]
 
 export function contentLabel(content: ZoneContent): string {
   return CONTENT_KIND_LABELS[content.kind]
@@ -201,17 +229,21 @@ export function hasCardTitle(
 }
 
 /**
- * The subfield body of any content that has one — the text kinds. A picture
- * has no fields, so a caller that wants to write text into one has to convert
- * it first.
+ * The subfield body of any content that has one — the text kinds.
+ *
+ * A picture has no fields and negative space has nothing at all, so a caller
+ * that wants to write text into either has to convert it first. Written as the
+ * positive question ("which kinds have a body") rather than as "not a picture",
+ * because the second reading turns every future kind without a body into a
+ * crash at the first property access.
  */
 export function bodyOf(content: ZoneContent): CardBody | null {
-  return hasImagePanel(content) ? null : content.body
+  return hasCardBody(content) || content.kind === 'container' ? content.body : null
 }
 
 /** The same content with a new body, whichever kind it is. */
 export function withBody<T extends ZoneContent>(content: T, body: CardBody): T {
-  return hasImagePanel(content) ? content : { ...content, body }
+  return bodyOf(content) ? { ...content, body } : content
 }
 
 /* ------------------------------------------------------------------ *
@@ -262,6 +294,19 @@ export function contentDocs(content: ZoneContent): RichDoc[] {
   const panel = imagePanelOf(content)
   if (panel?.caption) docs.push(panel.caption.doc)
   return docs
+}
+
+/**
+ * Whether this content carries nothing anybody would miss.
+ *
+ * Every document it draws is empty and it points at no file. What it is *for*
+ * is the one conversion that cannot keep what it is given: negative space has
+ * no payload by definition, so turning content into it is only lossless when
+ * there was nothing there to lose. See `convertContentKind`.
+ */
+export function contentIsEmpty(content: ZoneContent): boolean {
+  if (imagePanelOf(content)?.assetId) return false
+  return contentDocs(content).every(isDocEmpty)
 }
 
 /** Reference ids used by this content, in document order. */

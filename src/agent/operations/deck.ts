@@ -22,12 +22,14 @@ import {
   contentCitationIds,
   hasCardTitle,
   imagePanelOf,
+  ZONE_CONTENT_KINDS,
 } from '../../domain/content'
 import { DEFAULT_VERTICAL_ALIGN, type InteractiveStyleContract } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
+import { contentKindFitsRect } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme } from '../../domain/metrics'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
@@ -358,9 +360,25 @@ export interface ZoneInspection {
   axis?: 'x' | 'y'
   weights?: number[]
   childNodeIds?: string[]
-  /** Leaf only. */
+  /**
+   * Leaf only: the zone has no content object at all.
+   *
+   * Told apart from `contentKind: 'negative-space'` deliberately. An empty zone
+   * is a hole waiting to be filled; negative space is a decision that this part
+   * of the composition stays blank. Both draw nothing, and neither has a
+   * minimum size, but only one of them is finished.
+   */
   empty?: boolean
   contentKind?: ZoneContentKind
+  /**
+   * Leaf only: which content kinds actually fit this rectangle.
+   *
+   * The same rule the commands refuse by, so a caller can choose from this list
+   * instead of trying kinds until one is accepted. A zone that is very small
+   * answers with `negative-space` alone, which is not a failure — deliberate
+   * air is a legal, and often the intended, use of a small zone.
+   */
+  availableContentKinds?: ZoneContentKind[]
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
@@ -601,8 +619,15 @@ function collectZones(
     return
   }
 
+  // The same rule the commands refuse by, so an agent reading a zone learns
+  // what it may put there rather than discovering it one rejection at a time.
+  const tokens = themeMetrics(fitContext.theme)
+  const availableContentKinds = ZONE_CONTENT_KINDS.filter((kind) =>
+    contentKindFitsRect(kind, rect, tokens),
+  )
+
   if (!node.content) {
-    out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true })
+    out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true, availableContentKinds })
     return
   }
 
@@ -614,6 +639,7 @@ function collectZones(
     kind: 'leaf',
     rect,
     empty: false,
+    availableContentKinds,
     ...inspectContent(content),
     fits: fit.fits,
     overflow: fit.overflow,

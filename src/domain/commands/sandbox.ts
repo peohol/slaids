@@ -10,7 +10,8 @@ import { cloneContentWithNewIds, findLeaf, replaceNode } from '../layout'
 import { touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { fitContextFor, guardFit } from './fitGuard'
-import { contentSlide, geometryFor, rectForNode } from './internal'
+import { contentSlide,
+  contentTooBigForZone, geometryFor, rectForNode } from './internal'
 import { outcome, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Presentation, SandboxItem, ZoneContent } from '../types'
 
@@ -61,8 +62,14 @@ export function placeSandboxItem(
   if (!leaf) return err('NODE_NOT_LEAF', 'Innhold kan bare ligge i en bladsone.')
   if (leaf.content && !input.replace) return err('TARGET_OCCUPIED', 'Sonen har allerede innhold.')
 
-  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
+  const geometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+  const tooSmall = contentTooBigForZone(item.content.kind, area, geometry, {
+    slideId: input.slideId,
+    nodeId: input.nodeId,
+  })
+  if (tooSmall) return tooSmall
 
   const displaced = leaf.content
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: item.content })

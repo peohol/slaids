@@ -18,6 +18,7 @@ import {
   CARD_RADIUS,
   CARD_SHADOW,
 } from '../../domain/constants'
+import { CAPTION_PART } from '../../domain/fit'
 import { themeMetrics } from '../../domain/metrics'
 import type { CaptionPosition, ImageCaption, ImagePanel } from '../../domain/types'
 import { useAssetUrl } from '../../state/assetSource'
@@ -91,6 +92,7 @@ export function CaptionBox({
     <div
       className="image-caption__layer"
       data-fit-scroll=""
+      data-fit-part={CAPTION_PART}
       style={{
         alignItems: CAPTION_ALIGN[caption.position],
         padding: `0 ${tokens.captionSideGap}px`,

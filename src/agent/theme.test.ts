@@ -19,7 +19,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { FONT_OPTIONS, GUARANTEED_FONT_IDS, findFontById, isGuaranteedFont } from '../domain/fonts'
-import { MIN_ZONE_WIDTH } from '../domain/constants'
+import { MIN_TEXT_WIDTH } from '../domain/constants'
 import { computeMainRect, computeSlideGeometry } from '../domain/geometry'
 import {
   DEFAULT_FONT_SCALE,
@@ -455,20 +455,31 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
       presentationId: deck.presentationId,
       spacing: SPACING_RANGE.min,
     })
-    await ok(context, 'split_zone', {
+    const split = await ok<{ childNodeIds: string[] }>(context, 'split_zone', {
       presentationId: deck.presentationId,
       slideId: deck.slideId,
       nodeId: deck.nodeId,
       axis: 'x',
       weights: [1, 1, 1, 1, 1, 1, 1],
     })
+    // Tekst i hver kolonne. Tomme soner har ingen minstestørrelse — de tegner
+    // ingenting — mens en tekstsone har den smaleste av dem, og det er den
+    // luften kan bryte uten at ett eneste tegn blir borte.
+    for (const nodeId of split.childNodeIds) {
+      await ok(context, 'set_zone_card', {
+        presentationId: deck.presentationId,
+        slideId: deck.slideId,
+        nodeId,
+        kind: 'container',
+      })
+    }
     return deck
   }
 
-  it('avvises med ZONE_TOO_SMALL, selv om sonene er tomme', async () => {
-    // The fit guard measures content, and empty zones have none: without a
-    // second question this change would commit a deck that validate_presentation
-    // immediately calls invalid.
+  it('avvises med ZONE_TOO_SMALL, selv om ingenting er skjult', async () => {
+    // The fit guard measures content, and empty containers hide nothing:
+    // without a second question this change would commit a deck that
+    // validate_presentation immediately calls invalid.
     const context = freshContext()
     const deck = await splitWide(context)
 
@@ -494,7 +505,7 @@ describe('en temaendring som ville gjort soner ulovlig små', () => {
       geometryForTheme({ ...document.theme, spacing: SPACING_RANGE.max }),
     ).rects.get(nodeId)
     expect(refused.details?.rect).toEqual(prospective)
-    expect((refused.details?.rect as { width: number }).width).toBeLessThan(MIN_ZONE_WIDTH)
+    expect((refused.details?.rect as { width: number }).width).toBeLessThan(MIN_TEXT_WIDTH)
   })
 
   it('lar presentasjonen forbli gyldig, som validate_presentation ser den', async () => {

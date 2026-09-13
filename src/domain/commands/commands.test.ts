@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../presentation'
 import { createLeaf, createSplit, findLeaf, findNode, findSplit } from '../layout'
-import { bodyOf, containerWithDoc, createTitledCard, createUntitledCard } from '../content'
+import {
+  bodyOf,
+  containerWithDoc,
+  createContainer,
+  createTitledCard,
+  createUntitledCard,
+} from '../content'
 import { estimateFitChecker } from '../fit'
 import { paragraphDoc, titleDoc } from '../richdoc'
 import type { Presentation, SplitNode } from '../types'
@@ -111,8 +117,10 @@ describe('slide commands', () => {
     let presentation = base()
     const slideId = presentation.slides[1].id
     presentation = unwrap(setSlideHasTitle(presentation, slideId, false))
-    // Six stacked rows fit without a title but not with one.
-    const rows = Array.from({ length: 6 }, () => createLeaf())
+    // Eight stacked rows of text fit without a title but not with one. They
+    // hold content on purpose: empty rows have no minimum to fall below, so the
+    // title zone could take room from them without hiding anything.
+    const rows = Array.from({ length: 8 }, () => createLeaf(createContainer()))
     presentation = {
       ...presentation,
       slides: [
@@ -172,13 +180,39 @@ describe('splitLeaf', () => {
     if (!result.ok) expect(result.error.code).toBe('INVALID_WEIGHTS')
   })
 
-  it('rejects a split that would make a child too small', () => {
+  it('allows a lopsided split of an empty zone, however narrow the sliver', () => {
+    // Nothing is drawn in either child yet, so nothing can be hidden. This is
+    // how deliberate air is made: split first, then declare the sliver air.
     const presentation = base()
-    const result = splitLeaf(presentation, {
+    const outcome = unwrap(
+      splitLeaf(presentation, {
+        slideId: presentation.slides[1].id,
+        nodeId: contentAt(presentation, 1).root.id,
+        axis: 'x',
+        weights: [1, 100],
+      }),
+    )
+    const root = contentAt(outcome.presentation, 1).root as SplitNode
+    expect(root.weights).toEqual([1, 10])
+  })
+
+  it('rejects a split that would leave the content in it too small a child', () => {
+    const presentation = base()
+    const slide = contentAt(presentation, 1)
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: createContainer(),
+        fits: estimateFitChecker,
+      }),
+    ).presentation
+    const result = splitLeaf(filled, {
       slideId: presentation.slides[1].id,
-      nodeId: contentAt(presentation, 1).root.id,
+      nodeId: contentAt(filled, 1).root.id,
       axis: 'x',
       weights: [1, 100],
+      contentTargetIndex: 0,
     })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
@@ -348,7 +382,7 @@ describe('updateSplit', () => {
     expect(outcome.presentation.sandbox).toHaveLength(0)
   })
 
-  it('rejects an update that would make a nested subtree too small', () => {
+  it('rejects an update that would make a nested subtree too small for its content', () => {
     const { presentation, slideId, nodeId } = withSplit()
     const root = contentAt(presentation, 1).root as SplitNode
     const nested = unwrap(
@@ -359,7 +393,19 @@ describe('updateSplit', () => {
         weights: [1, 1],
       }),
     ).presentation
-    const result = updateSplit(nested, { slideId, nodeId, weights: [1, 12] })
+    const inner = (contentAt(nested, 1).root as SplitNode).children[0] as SplitNode
+    let filled = nested
+    for (const child of inner.children) {
+      filled = unwrap(
+        setZoneContent(filled, {
+          slideId,
+          nodeId: child.id,
+          content: createContainer(),
+          fits: estimateFitChecker,
+        }),
+      ).presentation
+    }
+    const result = updateSplit(filled, { slideId, nodeId, weights: [1, 12] })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
   })
@@ -1301,19 +1347,27 @@ describe('zone ratios', () => {
   })
 
   it('measures the layout it will store, not the one it was asked for', () => {
-    // A hair too lopsided to be legal as asked — the first zone would fall
-    // under the minimum — but the ratio it is stored as is not.
     const split = splitWith([1, 7.4])
     expect(split.weights).toEqual([1, 7])
   })
 
-  it('still refuses a wish whose nearest whole ratio is too lopsided', () => {
+  it('still refuses a wish whose nearest whole ratio is too lopsided for the content', () => {
     const presentation = base()
-    const result = splitLeaf(presentation, {
+    const slide = contentAt(presentation, 1)
+    const filled = unwrap(
+      setZoneContent(presentation, {
+        slideId: slide.id,
+        nodeId: slide.root.id,
+        content: createContainer(),
+        fits: estimateFitChecker,
+      }),
+    ).presentation
+    const result = splitLeaf(filled, {
       slideId: presentation.slides[1].id,
-      nodeId: contentAt(presentation, 1).root.id,
+      nodeId: contentAt(filled, 1).root.id,
       axis: 'x',
       weights: [1, 40],
+      contentTargetIndex: 0,
     })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')

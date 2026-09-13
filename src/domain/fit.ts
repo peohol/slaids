@@ -45,10 +45,38 @@ import type {
   ZoneContent,
 } from './types'
 
+/**
+ * The places inside one piece of content that can clip, each with how much of
+ * it did not fit.
+ *
+ * Keyed by the part ids below. A zone is not one place — a titled card is a
+ * header *and* a body, a picture is a frame *and* a caption over it — and the
+ * whole point of reporting them separately is that one of them overflowing must
+ * not be able to hide another one starting to. Measuring a zone as a single
+ * worst number is exactly how a card title could grow out of its header while
+ * the body was already overflowing more: the worst number never moved, so
+ * «never worse» read as «nothing happened».
+ */
+export type FitParts = Readonly<Record<string, number>>
+
+/** The header of a titled card, with or without a picture under it. */
+export const CARD_TITLE_PART = 'card-title'
+/** The caption box over a picture. */
+export const CAPTION_PART = 'caption'
+/** One text field inside a card or container. */
+export function subfieldPart(subfieldId: string): string {
+  return `field:${subfieldId}`
+}
+
 export interface FitResult {
   fits: boolean
   /** How many logical pixels of content did not fit (0 when it fits). */
   overflow: number
+  /**
+   * The same measurement broken down per clipping region. Empty means the
+   * content is one region — there is nothing inside it to tell apart.
+   */
+  parts: FitParts
 }
 
 /**
@@ -86,10 +114,37 @@ export type TitleFitChecker = (
 
 const EMPTY_NUMBERING: ReferenceNumbering = new Map()
 
-/** Normalise a raw overflow measurement into a `FitResult`. */
-export function fitResult(overflow: number): FitResult {
-  const rounded = Math.max(0, Math.round(overflow * 100) / 100)
-  return { fits: rounded <= FIT_TOLERANCE, overflow: rounded }
+function roundOverflow(overflow: number): number {
+  return Math.max(0, Math.round(overflow * 100) / 100)
+}
+
+/**
+ * Normalise raw overflow measurements into a `FitResult`.
+ *
+ * The whole is the worst part rather than a number of its own: a zone fits when
+ * every place in it fits, and it is as broken as its most broken place. Passing
+ * the parts is therefore enough — the total cannot disagree with them.
+ */
+export function fitResult(parts: FitParts): FitResult
+export function fitResult(overflow: number): FitResult
+export function fitResult(input: number | FitParts): FitResult {
+  if (typeof input === 'number') {
+    const rounded = roundOverflow(input)
+    return { fits: rounded <= FIT_TOLERANCE, overflow: rounded, parts: {} }
+  }
+  const parts: Record<string, number> = {}
+  let worst = 0
+  for (const [part, overflow] of Object.entries(input)) {
+    const rounded = roundOverflow(overflow)
+    parts[part] = rounded
+    worst = Math.max(worst, rounded)
+  }
+  return { fits: worst <= FIT_TOLERANCE, overflow: worst, parts }
+}
+
+/** What a rect nothing can be drawn in answers, whatever is asked of it. */
+function doesNotFitAtAll(parts: readonly string[]): FitResult {
+  return fitResult(Object.fromEntries(parts.map((part) => [part, Number.MAX_SAFE_INTEGER])))
 }
 
 /**
@@ -319,12 +374,19 @@ export function estimateDocHeight(
   )
 }
 
-function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateContext): number {
+/**
+ * The overflow of each field in a body, keyed by the field it belongs to.
+ *
+ * Per field and not one worst number, for the reason `FitParts` exists: two
+ * columns in one card are two places that clip, and filling the second one must
+ * not be allowed to hide under the first one already being full.
+ */
+function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateContext): FitParts {
   const count = body.subfields.length
   const total = body.weights.reduce((sum, w) => sum + w, 0) || count
   const along = body.axis === 'x' ? area.width : area.height
   const usable = along - context.tokens.subfieldGap * (count - 1)
-  let worst = 0
+  const parts: Record<string, number> = {}
   for (let i = 0; i < count; i += 1) {
     // The fraction first, the length second — the same ordering `splitRect`
     // uses, and for the same reason. `usable * 1e307` is `Infinity` while the
@@ -338,9 +400,10 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
       (sum, node) => sum + estimateNodeHeight(node, width, context, height),
       0,
     )
-    worst = Math.max(worst, width <= 0 ? Number.POSITIVE_INFINITY : needed - height)
+    parts[subfieldPart(body.subfields[i].id)] =
+      width <= 0 ? Number.MAX_SAFE_INTEGER : needed - height
   }
-  return worst
+  return parts
 }
 
 /**
@@ -385,32 +448,41 @@ export function estimateFit(
   rect: Rect,
   context?: Partial<FitContext>,
 ): FitResult {
-  if (rect.width <= 0 || rect.height <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
+  // Air is the one kind with nothing to measure, and it is measured first: a
+  // rect of no size holds it perfectly well, because it draws nothing there.
+  if (content.kind === 'negative-space') return fitResult({})
+  if (rect.width <= 0 || rect.height <= 0) return doesNotFitAtAll(partsOf(content))
   const estimate = estimateContext(context)
 
-  let overflow = 0
   switch (content.kind) {
     case 'image': {
-      overflow = content.image.caption
-        ? estimateCaptionOverflow(content.image.caption, rect, estimate)
-        : 0
-      break
+      return fitResult(
+        content.image.caption
+          ? { [CAPTION_PART]: estimateCaptionOverflow(content.image.caption, rect, estimate) }
+          : {},
+      )
     }
     case 'titled-image-card': {
       const header = estimate.tokens.cardHeaderHeight
       const panel = { ...rect, y: rect.y + header, height: rect.height - header }
-      overflow = Math.max(
-        panel.height <= 0 ? Number.MAX_SAFE_INTEGER : 0,
-        content.image.caption ? estimateCaptionOverflow(content.image.caption, panel, estimate) : 0,
-        estimateHeaderOverflow(content.title, rect, estimate),
-      )
-      break
+      return fitResult({
+        [CARD_TITLE_PART]: estimateHeaderOverflow(content.title, rect, estimate),
+        ...(content.image.caption
+          ? {
+              [CAPTION_PART]: Math.max(
+                // A header taller than the card leaves the picture — and with
+                // it the caption over it — nowhere to be drawn at all.
+                panel.height <= 0 ? Number.MAX_SAFE_INTEGER : 0,
+                estimateCaptionOverflow(content.image.caption, panel, estimate),
+              ),
+            }
+          : {}),
+      })
     }
     case 'container': {
       // A container is a transparent card without the padding: its subfields
       // divide the zone exactly as a card body divides the space inside one.
-      overflow = estimateBodyOverflow(content.body, rect, estimate)
-      break
+      return fitResult(estimateBodyOverflow(content.body, rect, estimate))
     }
     case 'untitled-card': {
       const pad = estimate.tokens.cardPadding
@@ -420,8 +492,7 @@ export function estimateFit(
         width: rect.width - pad * 2,
         height: rect.height - pad * 2,
       }
-      overflow = estimateBodyOverflow(content.body, inner, estimate)
-      break
+      return fitResult(estimateBodyOverflow(content.body, inner, estimate))
     }
     case 'titled-card': {
       const pad = estimate.tokens.cardPadding
@@ -432,14 +503,35 @@ export function estimateFit(
         width: rect.width - pad * 2,
         height: rect.height - header - pad * 2,
       }
-      overflow = Math.max(
-        estimateBodyOverflow(content.body, inner, estimate),
-        estimateHeaderOverflow(content.title, rect, estimate),
-      )
-      break
+      return fitResult({
+        ...estimateBodyOverflow(content.body, inner, estimate),
+        [CARD_TITLE_PART]: estimateHeaderOverflow(content.title, rect, estimate),
+      })
     }
   }
-  return fitResult(overflow)
+}
+
+/**
+ * Every place this content can clip, whether or not it clips today.
+ *
+ * Used where there is no room to measure anything: a rect of no size fails in
+ * all of them at once, and a result that named none would be a result the
+ * regression check reads as "nothing overflows here".
+ */
+export function partsOf(content: ZoneContent): string[] {
+  switch (content.kind) {
+    case 'negative-space':
+      return []
+    case 'image':
+      return content.image.caption ? [CAPTION_PART] : []
+    case 'titled-image-card':
+      return content.image.caption ? [CARD_TITLE_PART, CAPTION_PART] : [CARD_TITLE_PART]
+    case 'container':
+    case 'untitled-card':
+      return content.body.subfields.map((field) => subfieldPart(field.id))
+    case 'titled-card':
+      return [CARD_TITLE_PART, ...content.body.subfields.map((field) => subfieldPart(field.id))]
+  }
 }
 
 /** Pure estimate for a deterministic single line of heading type. */
@@ -449,7 +541,9 @@ export function estimateTitleFit(
   context?: Partial<FitContext>,
   fontSize?: number,
 ): FitResult {
-  if (rect.width <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
+  // One line is one place, so a title reports no parts: the node it belongs to
+  // is the region, and `overflowKey` leaves the part empty for exactly this.
+  if (rect.width <= 0) return fitResult(Number.MAX_SAFE_INTEGER)
   const estimate = estimateContext(context)
   const size = fontSize ?? estimate.tokens.titleFontSize
   const needed = countDocChars(doc, estimate) * size * estimate.metrics.heading

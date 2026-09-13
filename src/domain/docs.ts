@@ -29,6 +29,9 @@ export type DocTransform = (doc: RichDoc) => RichDoc
 
 export function mapContentDocs(content: ZoneContent, transform: DocTransform): ZoneContent {
   switch (content.kind) {
+    // Air draws no text, so there is no document in it to map.
+    case 'negative-space':
+      return content
     case 'container':
     case 'untitled-card': {
       const body = mapBodyDocs(content.body, transform)

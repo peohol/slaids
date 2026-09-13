@@ -6,11 +6,8 @@
  * would have to hide things.
  */
 
-import { CONTENT_KIND_LABELS } from '../../../domain/content'
 import { useSharingStore, useShareUrl } from '../../../state/sharing'
-import type { ZoneContentKind } from '../../../domain/types'
 import { Icon, type IconName } from '../../components/Icon'
-import { CONTENT_KINDS, CONTENT_KIND_ICONS } from '../contentKinds'
 import { ShareToggle } from '../ShareToggle'
 import type { TopToolbarProps } from '../TopToolbar'
 
@@ -73,20 +70,31 @@ export function CompactToolsPanel({
     <div className="compact-tools" data-testid="compact-tools">
       <section className="compact-tools__section">
         <h3 className="inspector__heading">Innholdstype for valgt sone</h3>
+        {/* The same options the desktop toolbar draws, from the same domain
+            rule: a compact workspace is a different surface, never a different
+            answer to «can this content live in this zone». */}
         <div className="inspector__actions">
-          {CONTENT_KINDS.map((kind: ZoneContentKind) => (
+          {toolbar.contentKinds.map((option) => (
             <button
-              key={kind}
+              key={option.kind}
               type="button"
               className="btn btn--sm touch-target"
-              disabled={!toolbar.selectionIsLeaf}
-              data-testid={`content-kind-${kind}`}
-              onClick={() => toolbar.onSetContentKind(kind)}
+              disabled={!toolbar.selectionIsLeaf || option.disabled}
+              title={option.reason ?? undefined}
+              data-testid={`content-kind-${option.kind}`}
+              onClick={() => toolbar.onSetContentKind(option.kind)}
             >
-              <Icon name={CONTENT_KIND_ICONS[kind]} size={15} /> {CONTENT_KIND_LABELS[kind]}
+              <Icon name={option.icon} size={15} /> {option.label}
             </button>
           ))}
         </div>
+        {toolbar.contentKinds.some((option) => option.disabled) && (
+          /* A tooltip is a pointer affordance, and this surface has none — so
+             the reason is written out instead of hovered for. */
+          <p className="hint" data-testid="content-kind-hint">
+            {toolbar.contentKinds.find((option) => option.disabled)?.reason}
+          </p>
+        )}
       </section>
 
       <section className="compact-tools__section">

@@ -4,8 +4,7 @@ import {
   SECTION_PILL_PADDING_Y_EM,
   SECTION_SUBTITLE_FONT_SIZE,
   G,
-  MIN_ZONE_HEIGHT,
-  MIN_ZONE_WIDTH,
+  MIN_TEXT_WIDTH,
   PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_INSET,
@@ -34,6 +33,8 @@ import {
   validateSlideGeometry,
   viewportToSlide,
 } from './geometry'
+import { createContainer, createNegativeSpace } from './content'
+import { minimumSizeForKind } from './contentSize'
 import { createLeaf, createSplit } from './layout'
 import { createSlide } from './presentation'
 import type { LayoutNode, Rect } from './types'
@@ -233,31 +234,50 @@ describe('computeLayoutRects', () => {
 })
 
 describe('minimum size analysis', () => {
-  it('reports the minimum zone size for a leaf', () => {
-    expect(minimumSizeFor(leaf())).toEqual({ width: MIN_ZONE_WIDTH, height: MIN_ZONE_HEIGHT })
+  /** A leaf holding a container: the smallest thing that draws running text. */
+  const textLeaf = (): LayoutNode => createLeaf(createContainer())
+  const textMinimum = minimumSizeForKind('container')
+
+  it('gives a leaf the minimum of the content in it', () => {
+    expect(minimumSizeFor(textLeaf())).toEqual(textMinimum)
+  })
+
+  it('gives an empty leaf and deliberate air no minimum at all', () => {
+    // Neither draws anything, so no rectangle is too small to draw it in. They
+    // are still two different things — one is a hole the editor offers a picker
+    // in, the other is composition — but not two different sizes.
+    expect(minimumSizeFor(leaf())).toEqual({ width: 0, height: 0 })
+    expect(minimumSizeFor(createLeaf(createNegativeSpace()))).toEqual({ width: 0, height: 0 })
+  })
+
+  it('needs room for the gaps even when every child is empty', () => {
+    const root = createSplit('x', [1, 1, 1], [leaf(), leaf(), leaf()])
+    expect(minimumSizeFor(root).width).toBeCloseTo(G * 2, 9)
+    expect(minimumSizeFor(root).height).toBeCloseTo(0, 9)
   })
 
   it('accounts for gaps between children', () => {
-    const root = createSplit('x', [1, 1], [leaf(), leaf()])
-    expect(minimumSizeFor(root).width).toBeCloseTo(MIN_ZONE_WIDTH * 2 + G, 9)
-    expect(minimumSizeFor(root).height).toBeCloseTo(MIN_ZONE_HEIGHT, 9)
+    const root = createSplit('x', [1, 1], [textLeaf(), textLeaf()])
+    expect(minimumSizeFor(root).width).toBeCloseTo(textMinimum.width * 2 + G, 9)
+    expect(minimumSizeFor(root).height).toBeCloseTo(textMinimum.height, 9)
   })
 
   it('lets the most constrained weighted child bind the minimum', () => {
-    const root = createSplit('x', [1, 4], [leaf(), leaf()])
-    // The narrow child needs MIN_ZONE_WIDTH at weight 1 of 5, so usable >= 5 * MIN.
-    expect(minimumSizeFor(root).width).toBeCloseTo(MIN_ZONE_WIDTH * 5 + G, 9)
+    const root = createSplit('x', [1, 4], [textLeaf(), textLeaf()])
+    // The narrow child needs a text zone's width at weight 1 of 5, so the
+    // usable length has to be five times that.
+    expect(minimumSizeFor(root).width).toBeCloseTo(textMinimum.width * 5 + G, 9)
   })
 
   it('accumulates through nesting', () => {
-    const inner = createSplit('y', [1, 1], [leaf(), leaf()])
-    const root = createSplit('x', [1, 1], [inner, leaf()])
-    expect(minimumSizeFor(root).height).toBeCloseTo(MIN_ZONE_HEIGHT * 2 + G, 9)
-    expect(minimumSizeFor(root).width).toBeCloseTo(MIN_ZONE_WIDTH * 2 + G, 9)
+    const inner = createSplit('y', [1, 1], [textLeaf(), textLeaf()])
+    const root = createSplit('x', [1, 1], [inner, textLeaf()])
+    expect(minimumSizeFor(root).height).toBeCloseTo(textMinimum.height * 2 + G, 9)
+    expect(minimumSizeFor(root).width).toBeCloseTo(textMinimum.width * 2 + G, 9)
   })
 
   it('decides whether a subtree fits an area', () => {
-    const root = createSplit('x', [1, 1], [leaf(), leaf()])
+    const root = createSplit('x', [1, 1], [textLeaf(), textLeaf()])
     const min = minimumSizeFor(root)
     expect(subtreeFitsInRect(root, { x: 0, y: 0, ...min })).toBe(true)
     expect(
@@ -273,19 +293,39 @@ describe('previewSplit', () => {
     expect(preview.tooSmall).toEqual([])
   })
 
-  it('flags the children that would be below the minimum', () => {
+  it('allows any ratio when the children are empty', () => {
+    // An empty zone draws nothing a small rectangle could hide, so a lopsided
+    // split into empty zones is a legal composition — deliberate air is made
+    // exactly this way. What may not fit is content, and there is none yet.
     const preview = previewSplit({ x: 0, y: 0, width: 600, height: 400 }, 'x', [1, 20])
+    expect(preview.valid).toBe(true)
+    expect(preview.tooSmall).toEqual([])
+  })
+
+  it('flags the children whose own content would not fit', () => {
+    const area = { x: 0, y: 0, width: 600, height: 400 }
+    const card = createLeaf(createContainer())
+    const preview = previewSplit(area, 'x', [1, 20], {}, [card, null])
     expect(preview.valid).toBe(false)
-    expect(preview.tooSmall).toContain(0)
+    expect(preview.tooSmall).toEqual([0])
+  })
+
+  it('refuses a split with no room for the gaps between its children', () => {
+    // Ten children need nine gaps; below that the children have no length at
+    // all, whatever is or is not in them.
+    const preview = previewSplit({ x: 0, y: 0, width: G * 8, height: 400 }, 'x', Array.from({ length: 10 }, () => 1))
+    expect(preview.valid).toBe(false)
+    expect(preview.tooSmall).toHaveLength(10)
   })
 
   it('validates nested subtrees, not just bare minimums', () => {
-    const nested = createSplit('x', [1, 1], [leaf(), leaf()])
-    // Each child gets (700 - G) / 2 = 338, above the bare 180 minimum but below
-    // the 180 * 2 + G = 384 that the nested split needs.
+    const nested = createSplit('x', [1, 1], [createLeaf(createContainer()), createLeaf(createContainer())])
+    // Each child gets (700 - G) / 2 = 338, above a single text zone's width but
+    // below the two of them plus a gap that the nested split needs.
     const area = { x: 0, y: 0, width: 700, height: 400 }
     const bare = previewSplit(area, 'x', [1, 1])
     const withSubtree = previewSplit(area, 'x', [1, 1], {}, [nested, null])
+    expect(MIN_TEXT_WIDTH * 2 + G).toBeGreaterThan((700 - G) / 2)
     expect(bare.valid).toBe(true)
     expect(withSubtree.valid).toBe(false)
   })
@@ -339,13 +379,37 @@ describe('validateSlideGeometry', () => {
     expect(validateSlideGeometry(slide)).toEqual([])
   })
 
-  it('reports leaves below the minimum size', () => {
+  it('accepts ten empty zones, however narrow they end up', () => {
     const slide = createSlide({
       hasTitle: true,
       root: createSplit('x', Array.from({ length: 10 }, () => 1), Array.from({ length: 10 }, leaf)),
     })
+    expect(validateSlideGeometry(slide)).toEqual([])
+  })
+
+  it('reports leaves too small for the content in them', () => {
+    const slide = createSlide({
+      hasTitle: true,
+      root: createSplit(
+        'x',
+        Array.from({ length: 10 }, () => 1),
+        Array.from({ length: 10 }, () => createLeaf(createContainer())),
+      ),
+    })
     const violations = validateSlideGeometry(slide)
     expect(violations.some((violation) => violation.kind === 'below-minimum')).toBe(true)
+  })
+
+  it('accepts the same ten zones once they are deliberate air', () => {
+    const slide = createSlide({
+      hasTitle: true,
+      root: createSplit(
+        'x',
+        Array.from({ length: 10 }, () => 1),
+        Array.from({ length: 10 }, () => createLeaf(createNegativeSpace())),
+      ),
+    })
+    expect(validateSlideGeometry(slide)).toEqual([])
   })
 })
 

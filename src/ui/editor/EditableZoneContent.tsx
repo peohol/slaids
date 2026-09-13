@@ -8,7 +8,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { setCardTitle, setImageCaption, setSubfieldDoc } from '../../domain/commands'
-import { measureElementOverflow } from '../../state/measure'
+import { measureOverflowParts } from '../../state/measure'
+import { CAPTION_PART, CARD_TITLE_PART, subfieldPart } from '../../domain/fit'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -44,8 +45,20 @@ export function EditableZoneContent({
   const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
 
-  const measureOverflow = useCallback(
-    () => (hostRef.current ? measureElementOverflow(hostRef.current) : 0),
+  /**
+   * How much *this* region of the zone overflows, not the zone as a whole.
+   *
+   * A zone is several places that can clip — a card's header, each field of its
+   * body, the caption over a picture — and an editor that measured all of them
+   * together could not tell «my field got worse» from «the field next to me was
+   * already worse». That is the hole a card title grew through: the body was
+   * over its box, so the zone's worst number never moved while the title ran
+   * out of its header. Each editor asks about its own part, which is the same
+   * unit the domain's fit guard compares. See `FitParts`.
+   */
+  const measurePart = useCallback(
+    (part: string) =>
+      hostRef.current ? (measureOverflowParts(hostRef.current)[part] ?? 0) : 0,
     [],
   )
 
@@ -56,7 +69,7 @@ export function EditableZoneContent({
         nodeId={nodeId}
         slideId={slideId}
         editable={editable}
-        measureOverflow={measureOverflow}
+        measureOverflow={() => measurePart(CAPTION_PART)}
       />
     </CaptionBox>
   )
@@ -72,7 +85,7 @@ export function EditableZoneContent({
             placeholder="Korttittel"
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             editable={editable}
-            measureOverflow={measureOverflow}
+            measureOverflow={() => measurePart(CARD_TITLE_PART)}
             overflowMessage="Tittelen får ikke plass i kortet."
             validateDoc={(next) =>
               docEditRenumberProblem({
@@ -96,7 +109,7 @@ export function EditableZoneContent({
             placeholder="Skriv innhold …"
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             editable={editable}
-            measureOverflow={measureOverflow}
+            measureOverflow={() => measurePart(subfieldPart(field.id))}
             validateDoc={(next) =>
               docEditRenumberProblem({
                 nodeId,

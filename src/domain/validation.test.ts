@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { splitLeaf } from './commands'
+import { createContainer, createNegativeSpace } from './content'
 import { estimateFitChecker, estimateTitleFitChecker } from './fit'
 import { TITLE_NODE_ID } from './geometry'
 import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
@@ -105,7 +106,7 @@ describe('struktur', () => {
     )
   })
 
-  it('finner en sone som er mindre enn minstemålet', () => {
+  it('finner en sone som er mindre enn innholdet i den krever', () => {
     const presentation = deck()
     const slide = contentAt(presentation, 1)
     const tiny: Presentation = {
@@ -122,13 +123,44 @@ describe('struktur', () => {
             children: Array.from({ length: 10 }, (_, i) => ({
               id: `n${i}`,
               kind: 'leaf' as const,
-              content: null,
+              // Text, not emptiness: an empty zone draws nothing a narrow
+              // rectangle could hide, so it has no minimum to fall below.
+              content: createContainer(),
             })),
           },
         },
       ],
     }
     expect(codes(findSlideIssues(tiny, tiny.slides[1], checkers))).toContain('ZONE_TOO_SMALL')
+  })
+
+  it('godtar de samme ti sonene når de er negativt rom', () => {
+    // Bevisst luft har ingen minstestørrelse: den tegner ingenting, så ingen
+    // rektangel er for lite for den. Dette er den samme sliden som over, med
+    // det ene som er endret.
+    const presentation = deck()
+    const slide = contentAt(presentation, 1)
+    const air: Presentation = {
+      ...presentation,
+      slides: [
+        sectionAt(presentation, 0),
+        {
+          ...slide,
+          root: {
+            id: slide.root.id,
+            kind: 'split',
+            axis: 'x',
+            weights: Array.from({ length: 10 }, () => 1),
+            children: Array.from({ length: 10 }, (_, i) => ({
+              id: `n${i}`,
+              kind: 'leaf' as const,
+              content: createNegativeSpace(),
+            })),
+          },
+        },
+      ],
+    }
+    expect(codes(findSlideIssues(air, air.slides[1], checkers))).not.toContain('ZONE_TOO_SMALL')
   })
 
   it('finner den samme slide-id-en to ganger', () => {

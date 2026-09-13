@@ -15,9 +15,11 @@ import { createPresentation } from '../presentation'
 import {
   containerWithDoc,
   createCaption,
+  createContainer,
   createImage,
   createUntitledCard,
 } from '../content'
+import { collectLeaves } from '../layout'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
 import { DEFAULT_SPACING, FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import { findPresentationIssues } from '../validation'
@@ -123,6 +125,15 @@ describe('setTheme og minstemålet for en sone', () => {
    */
   const TIGHTEST = SPACING_RANGE.min
 
+  /**
+   * Seven columns, each holding an empty text container.
+   *
+   * The containers are the point. Empty zones have no minimum — nothing is
+   * drawn in them, so no rectangle is too small for them — and a text zone is
+   * the narrowest thing that *does* have one. Nothing overflows either way, so
+   * the fit guard has nothing to say about any of this: what a wider gap breaks
+   * here is the zone, not the text in it.
+   */
   function splitWide(): Presentation {
     const presentation = createPresentation({
       title: 'Minstemål',
@@ -130,7 +141,7 @@ describe('setTheme og minstemålet for en sone', () => {
       theme: { spacing: TIGHTEST },
     })
     const slide = contentAt(presentation, 1)
-    return unwrap(
+    const split = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
         nodeId: slide.root.id,
@@ -139,14 +150,46 @@ describe('setTheme og minstemålet for en sone', () => {
         ...checkers,
       }),
     ).presentation
+    let filled = split
+    for (const leaf of collectLeaves(contentAt(split, 1).root)) {
+      filled = unwrap(
+        setZoneContent(filled, {
+          slideId: slide.id,
+          nodeId: leaf.id,
+          content: createContainer(),
+          ...checkers,
+        }),
+      ).presentation
+    }
+    return filled
   }
 
-  it('refuses air that would make the zones smaller than the minimum', () => {
-    // The zones are empty, so nothing overflows and the fit guard has nothing to
-    // say. Committed anyway, this is a deck `findSlideIssues` calls invalid.
+  it('refuses air that would make the zones smaller than their content needs', () => {
+    // Nothing overflows — the containers are empty — so the fit guard has
+    // nothing to say. Committed anyway, this is a deck `findSlideIssues` calls
+    // invalid: no container can be drawn that narrow.
     const result = setTheme(splitWide(), { spacing: DEFAULT_SPACING }, checkers)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('lets the same air through once the columns are deliberate space', () => {
+    // The same seven columns at the same width, holding air instead of text:
+    // legal, because nothing in them can be hidden by being narrow. This is the
+    // whole of the new rule in one comparison.
+    const air = splitWide()
+    let emptied = air
+    for (const leaf of collectLeaves(contentAt(air, 1).root)) {
+      emptied = unwrap(
+        setContentKind(emptied, {
+          slideId: contentAt(air, 1).id,
+          nodeId: leaf.id,
+          kind: 'negative-space',
+          ...checkers,
+        }),
+      )
+    }
+    expect(setTheme(emptied, { spacing: DEFAULT_SPACING }, checkers).ok).toBe(true)
   })
 
   it('accepts air the zones still satisfy', () => {
@@ -156,9 +199,9 @@ describe('setTheme og minstemålet for en sone', () => {
   it('refuses a change that makes an already too small zone smaller still', () => {
     // The case a set of node ids cannot see: the same zones are on the list
     // before and after, and every one of them got worse. The «Normal» rung
-    // already leaves the seven zones a hair under the minimum; «Luftig» takes
-    // them further under. Nothing is hidden by it — the zones are empty — so
-    // the fit guard has nothing to say either.
+    // already leaves the seven columns a hair under what a container needs;
+    // «Luftig» takes them further under. Nothing is hidden by it — the
+    // containers are empty — so the fit guard has nothing to say either.
     const tight = splitWide()
     const alreadyBroken: Presentation = {
       ...tight,
