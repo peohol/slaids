@@ -419,6 +419,17 @@ textarea {
   z-index: 60;
 }
 
+/*
+ * The span a tooltip is anchored to when its child is disabled.
+ *
+ * A disabled control fires no pointer events of its own, so something around it
+ * has to listen. It contributes nothing to layout beyond passing the child's
+ * own box through.
+ */
+.tooltip-anchor {
+  display: inline-flex;
+}
+
 .tooltip {
   background: #0c0f13;
   color: var(--chrome-text);

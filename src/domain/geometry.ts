@@ -17,8 +17,6 @@ import {
   SECTION_SUBTITLE_FONT_SIZE,
   GEOMETRY_EPSILON,
   G,
-  MIN_ZONE_HEIGHT,
-  MIN_ZONE_WIDTH,
   PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_INSET,
@@ -27,7 +25,11 @@ import {
   TITLE_LINE_HEIGHT,
   titleZoneHeightFor,
 } from './constants'
-import type { Axis, ContentSlide, LayoutNode, NodeId, Rect } from './types'
+import { minimumSizeForContent, rectHolds } from './contentSize'
+import { themeMetrics, type ThemeMetrics } from './metrics'
+import type { Axis, ContentSlide, LayoutNode, LeafNode, NodeId, Rect, Size } from './types'
+
+export type { Size } from './types'
 
 export const TITLE_NODE_ID = '__title__'
 export const SECTION_TITLE_NODE_ID = '__section_title__'
@@ -40,11 +42,6 @@ export interface SlideGeometry {
   mainRect: Rect
   /** Rect for every node in the layout tree, keyed by node id. */
   rects: Map<NodeId, Rect>
-}
-
-export interface Size {
-  width: number
-  height: number
 }
 
 export interface GeometryOptions {
@@ -61,8 +58,13 @@ export interface GeometryOptions {
    * page that has no indicator (pass `0`), not so a deck can turn it off.
    */
   progressHeight?: number
-  minZoneWidth?: number
-  minZoneHeight?: number
+  /**
+   * The theme's own tokens, because how small a zone may be depends on what is
+   * in it and on the type the deck is set in — see `domain/contentSize.ts`. A
+   * caller that leaves it out is measuring against the default theme, which is
+   * what every caller did while the minimum was one pair of constants.
+   */
+  metrics?: ThemeMetrics
 }
 
 interface ResolvedOptions {
@@ -72,8 +74,7 @@ interface ResolvedOptions {
   inset: number
   titleHeight: number
   progressHeight: number
-  minZoneWidth: number
-  minZoneHeight: number
+  metrics: ThemeMetrics
 }
 
 export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
@@ -84,8 +85,7 @@ export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
     inset: options.inset ?? SLIDE_INSET,
     titleHeight: options.titleHeight ?? titleZoneHeightFor(TITLE_FONT_SIZE),
     progressHeight: options.progressHeight ?? PROGRESS_BAR_HEIGHT,
-    minZoneWidth: options.minZoneWidth ?? MIN_ZONE_WIDTH,
-    minZoneHeight: options.minZoneHeight ?? MIN_ZONE_HEIGHT,
+    metrics: options.metrics ?? themeMetrics(),
   }
 }
 
@@ -368,16 +368,24 @@ export function computeSectionGeometry(options: SectionGeometryOptions = {}): Se
  * ------------------------------------------------------------------ */
 
 /**
- * The smallest rect a subtree can occupy while every leaf inside it still
- * satisfies the minimum zone size.
+ * The smallest rect a subtree can occupy while everything inside it can still
+ * be drawn.
+ *
+ * A leaf answers with what its *content* needs — nothing for an empty leaf or
+ * for deliberate air, a card's chrome plus a line for a card, a picture's floor
+ * for a picture. See `domain/contentSize.ts`; there is no longer one minimum
+ * every zone has to clear.
  *
  * For a split along an axis, the binding constraint is the child that needs the
- * largest share: `usable >= minLength_i * sum(weights) / weights[i]`.
+ * largest share: `usable >= minLength_i * sum(weights) / weights[i]`. A split
+ * with nothing in it still needs room for its own gaps, which is the one floor
+ * that survives: `gap * (n - 1)` is subtracted before anything is distributed,
+ * and below it the children have nowhere to be.
  */
 export function minimumSizeFor(node: LayoutNode, options: GeometryOptions = {}): Size {
   const o = resolveOptions(options)
   if (node.kind === 'leaf') {
-    return { width: o.minZoneWidth, height: o.minZoneHeight }
+    return minimumSizeForContent(node.content, o.metrics)
   }
   const total = sumWeights(node.weights)
   const childSizes = node.children.map((child) => minimumSizeFor(child, o))
@@ -408,11 +416,33 @@ export function minimumSizeFor(node: LayoutNode, options: GeometryOptions = {}):
   return { width, height: usable + o.gap * (count - 1) }
 }
 
-export function rectSatisfiesMinimum(r: Rect, options: GeometryOptions = {}): boolean {
+/** Whether a leaf's own content can be drawn in a rect. */
+export function leafSatisfiesMinimum(
+  leaf: LeafNode,
+  r: Rect,
+  options: GeometryOptions = {},
+): boolean {
+  return rectHolds(minimumSizeForContent(leaf.content, resolveOptions(options).metrics), r)
+}
+
+/**
+ * Whether a split of `count` children has room for the gaps between them.
+ *
+ * The one thing about a split that is true whatever it holds: `n` children
+ * separated by `n - 1` gaps need `gap * (n - 1)` before any of them gets a
+ * single pixel. Below that `splitRect` collapses the gap rather than letting it
+ * go negative, and the children come out with no length at all — a layout that
+ * is not geometrically a layout, however little is in it.
+ */
+export function splitHasRoomForGaps(
+  area: Rect,
+  axis: Axis,
+  count: number,
+  options: GeometryOptions = {},
+): boolean {
   const o = resolveOptions(options)
-  return (
-    r.width >= o.minZoneWidth - GEOMETRY_EPSILON && r.height >= o.minZoneHeight - GEOMETRY_EPSILON
-  )
+  const along = axis === 'x' ? area.width : area.height
+  return along - o.gap * (count - 1) >= -GEOMETRY_EPSILON
 }
 
 /** Whether a subtree can legally be placed into `area`. */
@@ -451,13 +481,20 @@ export function previewSplit(
     return { childRects: [], tooSmall: [], valid: false }
   }
   const childRects = splitRect(area, axis, weights, o.gap)
+  if (!splitHasRoomForGaps(area, axis, weights.length, o)) {
+    // Every child is zero long, so naming one of them would be arbitrary: the
+    // split itself is what does not fit.
+    return { childRects, tooSmall: childRects.map((_, index) => index), valid: false }
+  }
   const tooSmall: number[] = []
   for (let i = 0; i < childRects.length; i += 1) {
     const child = existingChildren?.[i]
-    const fits = child
-      ? subtreeFitsInRect(child, childRects[i], o)
-      : rectSatisfiesMinimum(childRects[i], o)
-    if (!fits) tooSmall.push(i)
+    // A child the caller did not describe is a new, empty leaf, and an empty
+    // leaf draws nothing that a small rectangle could hide — so it constrains
+    // nothing, and a split into empty zones is legal at any ratio the ladder
+    // can express. What may not fit is content, and content is what
+    // `existingChildren` carries.
+    if (child && !subtreeFitsInRect(child, childRects[i], o)) tooSmall.push(i)
   }
   return { childRects, tooSmall, valid: tooSmall.length === 0 }
 }
@@ -562,10 +599,21 @@ export function validateSlideGeometry(
     if (!rectContainsRect(slideRect, area)) {
       violations.push({ nodeId: node.id, kind: 'outside-slide', detail: 'Escapes the slide' })
     }
-    if (node.kind === 'leaf' && !rectSatisfiesMinimum(area, o)) {
-      violations.push({ nodeId: node.id, kind: 'below-minimum', detail: 'Below minimum zone size' })
+    if (node.kind === 'leaf' && !leafSatisfiesMinimum(node, area, o)) {
+      violations.push({
+        nodeId: node.id,
+        kind: 'below-minimum',
+        detail: 'Below the minimum size for the content in it',
+      })
     }
     if (node.kind === 'split') {
+      if (!splitHasRoomForGaps(area, node.axis, node.children.length, o)) {
+        violations.push({
+          nodeId: node.id,
+          kind: 'below-minimum',
+          detail: 'Too small to hold the gaps between its subzones',
+        })
+      }
       for (const child of node.children) visit(child, area)
     }
   }

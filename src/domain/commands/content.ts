@@ -15,6 +15,7 @@ import {
   createContainer,
   createImage,
   createTitledCard,
+  createNegativeSpace,
   createTitledImageCard,
   createUntitledCard,
   hasCardTitle,
@@ -26,7 +27,8 @@ import {
   withSubfieldCount,
   withSubfieldDoc,
 } from '../content'
-import { areWeightsValid } from '../geometry'
+import { areWeightsValid, resolveOptions } from '../geometry'
+import { zoneKindRefusal } from '../contentSize'
 import { findLeaf, findNode, replaceNode } from '../layout'
 import {
   CITATION_NODE,
@@ -36,9 +38,9 @@ import {
   isDocEmpty,
   trimTrailingBlankLines,
 } from '../richdoc'
-import { contentSlide } from './internal'
+import { contentSlide, geometryFor, rectForNode } from './internal'
 import { touch, withSlide } from '../presentation'
-import { err, ok, type Result } from '../result'
+import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
 import { hasAsset } from './assets'
 import { guardFit } from './fitGuard'
@@ -452,6 +454,11 @@ export function setCardColor(
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
+  // Air has no payload, so this is the one direction that cannot carry
+  // anything across. `setContentKind` only reaches here once it has
+  // established there is nothing to carry — see the refusal there.
+  if (kind === 'negative-space') return createNegativeSpace()
+
   const title = hasCardTitle(content) ? content.title : null
   const headerColor = hasCardTitle(content) ? content.headerColor : null
   const targetHasTitle = kind === 'titled-card' || kind === 'titled-image-card'
@@ -509,6 +516,18 @@ function bodyFrom(content: ZoneContent, carriedTitle: RichDoc | null): CardBody 
       docs = [{ type: 'doc', content: [heading, ...(docs[0]?.content ?? [])] }, ...docs.slice(1)]
     }
   }
+
+  /*
+   * A source with nothing to say becomes an empty field, not a field with no
+   * blocks in it.
+   *
+   * `{ content: [] }` is not the empty document — `emptyDoc()` is, and it holds
+   * one empty paragraph, because that is what a rich-text document with a place
+   * to type in looks like. The two ways to get here with nothing: negative
+   * space, which has no payload at all, and a picture panel with neither a file
+   * nor a caption.
+   */
+  docs = docs.map((doc) => ((doc.content ?? []).length > 0 ? doc : emptyDoc()))
 
   const base = createCardBody(Math.max(1, docs.length), axis)
   return {
@@ -617,6 +636,18 @@ function titleAsHeading(title: RichDoc): RichNode | null {
  * card spends `CARD_HEADER_HEIGHT + CARD_PADDING * 2` of the zone that a
  * container gives entirely to content. The gate in `updateZoneContent` is what
  * stops a conversion from pushing text out of sight.
+ *
+ * Two things are asked before that, and in this order, because they call for
+ * different repairs:
+ *
+ *  - **Can this kind exist here at all?** A zone can be too small for a titled
+ *    card however short its text is — the header and the padding are drawn
+ *    whatever it says. That is `ZONE_TOO_SMALL`, and the fix is a bigger zone.
+ *  - **Is there anything this conversion would throw away?** Only negative
+ *    space can lose something, and it loses everything: it has no payload by
+ *    definition. Rather than silently deleting a card's text, the command
+ *    refuses and names the gesture that keeps it — «Tøm sone» parks the content
+ *    in the sandbox, and the emptied zone can then be made into air.
  */
 export function setContentKind(
   presentation: Presentation,
@@ -625,7 +656,47 @@ export function setContentKind(
   return updateZoneContent(
     presentation,
     input,
-    (content) => ok(convertContentKind(content, input.kind)),
+    (content) => {
+      const refusal = zoneKindRefusalFor(presentation, input, input.kind, content)
+      if (refusal) return refusal
+      // Asking for the kind that is already there is asking for the document as
+      // it stands: nothing to convert, and `updateZoneContent` reads the
+      // unchanged object as «done».
+      if (content.kind === input.kind) return ok(content)
+      return ok(convertContentKind(content, input.kind))
+    },
     'Innholdet får ikke plass i denne innholdstypen.',
   )
+}
+
+/**
+ * «Can this zone become that kind?», as a command's refusal.
+ *
+ * The question itself is `zoneKindRefusal` in `domain/contentSize.ts` — the one
+ * the content picker greys its buttons by and the one `inspect_slide` lists
+ * the available kinds by — so the three cannot answer differently. This only
+ * resolves the zone's rectangle and dresses the answer as a typed refusal, with
+ * the numbers in `details` for a caller that wants to act on them.
+ */
+function zoneKindRefusalFor(
+  presentation: Presentation,
+  target: ZoneContentTarget,
+  kind: ZoneContentKind,
+  content: ZoneContent,
+): Refusal | null {
+  const found = contentSlide(presentation, target.slideId)
+  if (!found.ok) return found
+  const geometry = geometryFor(presentation, target.geometry)
+  const rect = rectForNode(found.value, target.nodeId, geometry)
+  if (!rect) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+
+  const refusal = zoneKindRefusal(kind, rect, content, resolveOptions(geometry).metrics)
+  if (!refusal) return null
+  return err(refusal.code, refusal.message, {
+    slideId: target.slideId,
+    nodeId: target.nodeId,
+    contentKind: kind,
+    ...(refusal.rect ? { rect: refusal.rect } : {}),
+    ...(refusal.minimum ? { minimum: refusal.minimum } : {}),
+  })
 }

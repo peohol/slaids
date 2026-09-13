@@ -42,7 +42,8 @@ import {
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
-import { CONTENT_KIND_LABELS, createContentOfKind, imagePanelOf } from '../../domain/content'
+import { createContentOfKind, imagePanelOf } from '../../domain/content'
+import { contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { computeSlideGeometry } from '../../domain/geometry'
@@ -482,6 +483,19 @@ export function EditorView({
       ? computeSlideGeometry(contentSlide, geometryForTheme(presentation.theme))
       : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
+  /**
+   * The content kinds as they stand for the selected zone.
+   *
+   * Built once and handed to every surface that offers them — the toolbar, the
+   * zone menu and the compact tools panel — so «what fits here» is asked of the
+   * domain in one place. The picker drawn *inside* an empty zone asks for its
+   * own zone rather than the selected one, which is the same rule about a
+   * different rectangle.
+   */
+  const selectionKindOptions = useMemo(
+    () => contentKindOptions(selectedRect ?? null, presentation?.theme, selectedLeaf?.content ?? null),
+    [presentation?.theme, selectedLeaf?.content, selectedRect],
+  )
 
   /* -------------------------------------------------------------- *
    * Commands
@@ -1102,12 +1116,13 @@ export function EditorView({
         icon: 'card',
         disabled: !isLeaf,
         onSelect: () => undefined,
-        menu: (Object.keys(CONTENT_KIND_LABELS) as ZoneContentKind[]).map((kind) => ({
-          id: kind,
-          label: CONTENT_KIND_LABELS[kind],
-          icon:
-            kind === 'container' ? 'container' : kind === 'untitled-card' ? 'card' : 'card-titled',
-          onSelect: () => applyContentKind(kind),
+        menu: selectionKindOptions.map((option) => ({
+          id: option.kind,
+          label: option.label,
+          icon: option.icon,
+          disabled: option.disabled,
+          reason: option.reason,
+          onSelect: () => applyContentKind(option.kind),
         })),
       },
       {
@@ -1163,6 +1178,7 @@ export function EditorView({
     selectedLeaf,
     selectedNode,
     selectedNodeId,
+    selectionKindOptions,
   ])
 
   /* -------------------------------------------------------------- *
@@ -1327,6 +1343,7 @@ export function EditorView({
         restoreTitle()
       },
       onSetContentKind: applyContentKind,
+      contentKinds: selectionKindOptions,
       onOpenReferences: () => setReferencesOpen(true),
       onOpenTemplates: () => setTemplatesOpen(true),
       onOpenImage: () => setImageOpen('ask'),
@@ -1471,7 +1488,7 @@ export function EditorView({
           existingChildren={selectedNode?.kind === 'split' ? selectedNode.children : undefined}
           existingAxis={selectedNode?.kind === 'split' ? selectedNode.axis : undefined}
           existingWeights={selectedNode?.kind === 'split' ? selectedNode.weights : undefined}
-          hasContent={Boolean(selectedLeaf?.content)}
+          leafContent={selectedLeaf?.content ?? null}
           onApply={handleSplitApply}
         />
       )}

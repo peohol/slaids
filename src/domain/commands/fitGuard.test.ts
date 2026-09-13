@@ -15,21 +15,32 @@ import { createPresentation } from '../presentation'
 import {
   containerWithDoc,
   createCaption,
+  createContainer,
   createImage,
+  createTitledCard,
+  createTitledImageCard,
   createUntitledCard,
+  negativeSpaceRefusal,
 } from '../content'
+import { CARD_TITLE_PART, estimateFit } from '../fit'
+import { computeSlideGeometry } from '../geometry'
+import { collectLeaves } from '../layout'
+import { fitContextFor, slideOverflow } from './fitGuard'
 import { estimateFitChecker, estimateTitleFitChecker } from '../fit'
-import { DEFAULT_SPACING, FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
+import { DEFAULT_SPACING, FONT_SCALE_RANGE, SPACING_RANGE, geometryForTheme } from '../metrics'
+import { FIT_TOLERANCE } from '../constants'
 import { findPresentationIssues } from '../validation'
 import { FONT_OPTIONS } from '../fonts'
 import { imageNode, paragraphDoc, titleDoc } from '../richdoc'
-import type { CardBody, Presentation, RichDoc, ZoneContent } from '../types'
+import type { CardBody, Presentation, Rect, RichDoc, ZoneContent } from '../types'
 import {
   setBodyAxis,
   setBodyLayout,
   setBodyWeights,
   setCardColor,
+  setCardTitle,
   setContentKind,
+  setImageCaption,
   setSlideTitle,
   setSubfieldCount,
   setSubfieldDoc,
@@ -106,6 +117,23 @@ function deckWith(content: ZoneContent, theme?: Partial<Presentation['theme']>):
   ).presentation
 }
 
+/** The one zone's content. */
+function contentOf(presentation: Presentation): ZoneContent {
+  const content = contentAt(presentation, 1).root
+  if (content.kind !== 'leaf' || !content.content) throw new Error('the zone is empty')
+  return content.content
+}
+
+/** The one zone's rectangle, under the deck's own theme. */
+function rectOf(presentation: Presentation): Rect {
+  const slide = contentAt(presentation, 1)
+  const rect = computeSlideGeometry(slide, geometryForTheme(presentation.theme)).rects.get(
+    slide.root.id,
+  )
+  if (!rect) throw new Error('the zone has no geometry')
+  return rect
+}
+
 function target(presentation: Presentation): { slideId: string; nodeId: string } {
   const slide = contentAt(presentation, 1)
   return { slideId: slide.id, nodeId: slide.root.id }
@@ -123,6 +151,15 @@ describe('setTheme og minstemålet for en sone', () => {
    */
   const TIGHTEST = SPACING_RANGE.min
 
+  /**
+   * Seven columns, each holding an empty text container.
+   *
+   * The containers are the point. Empty zones have no minimum — nothing is
+   * drawn in them, so no rectangle is too small for them — and a text zone is
+   * the narrowest thing that *does* have one. Nothing overflows either way, so
+   * the fit guard has nothing to say about any of this: what a wider gap breaks
+   * here is the zone, not the text in it.
+   */
   function splitWide(): Presentation {
     const presentation = createPresentation({
       title: 'Minstemål',
@@ -130,7 +167,7 @@ describe('setTheme og minstemålet for en sone', () => {
       theme: { spacing: TIGHTEST },
     })
     const slide = contentAt(presentation, 1)
-    return unwrap(
+    const split = unwrap(
       splitLeaf(presentation, {
         slideId: slide.id,
         nodeId: slide.root.id,
@@ -139,14 +176,46 @@ describe('setTheme og minstemålet for en sone', () => {
         ...checkers,
       }),
     ).presentation
+    let filled = split
+    for (const leaf of collectLeaves(contentAt(split, 1).root)) {
+      filled = unwrap(
+        setZoneContent(filled, {
+          slideId: slide.id,
+          nodeId: leaf.id,
+          content: createContainer(),
+          ...checkers,
+        }),
+      ).presentation
+    }
+    return filled
   }
 
-  it('refuses air that would make the zones smaller than the minimum', () => {
-    // The zones are empty, so nothing overflows and the fit guard has nothing to
-    // say. Committed anyway, this is a deck `findSlideIssues` calls invalid.
+  it('refuses air that would make the zones smaller than their content needs', () => {
+    // Nothing overflows — the containers are empty — so the fit guard has
+    // nothing to say. Committed anyway, this is a deck `findSlideIssues` calls
+    // invalid: no container can be drawn that narrow.
     const result = setTheme(splitWide(), { spacing: DEFAULT_SPACING }, checkers)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('lets the same air through once the columns are deliberate space', () => {
+    // The same seven columns at the same width, holding air instead of text:
+    // legal, because nothing in them can be hidden by being narrow. This is the
+    // whole of the new rule in one comparison.
+    const air = splitWide()
+    let emptied = air
+    for (const leaf of collectLeaves(contentAt(air, 1).root)) {
+      emptied = unwrap(
+        setContentKind(emptied, {
+          slideId: contentAt(air, 1).id,
+          nodeId: leaf.id,
+          kind: 'negative-space',
+          ...checkers,
+        }),
+      )
+    }
+    expect(setTheme(emptied, { spacing: DEFAULT_SPACING }, checkers).ok).toBe(true)
   })
 
   it('accepts air the zones still satisfy', () => {
@@ -156,9 +225,9 @@ describe('setTheme og minstemålet for en sone', () => {
   it('refuses a change that makes an already too small zone smaller still', () => {
     // The case a set of node ids cannot see: the same zones are on the list
     // before and after, and every one of them got worse. The «Normal» rung
-    // already leaves the seven zones a hair under the minimum; «Luftig» takes
-    // them further under. Nothing is hidden by it — the zones are empty — so
-    // the fit guard has nothing to say either.
+    // already leaves the seven columns a hair under what a container needs;
+    // «Luftig» takes them further under. Nothing is hidden by it — the
+    // containers are empty — so the fit guard has nothing to say either.
     const tight = splitWide()
     const alreadyBroken: Presentation = {
       ...tight,
@@ -399,6 +468,86 @@ describe('setContentKind', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('lets an already overfull card be converted into one with less chrome', () => {
+    /*
+     * The repair a region-by-region comparison must not block.
+     *
+     * A conversion mints fresh field ids and can turn a caption into a field,
+     * so the regions on the two sides are not the same regions — and a new
+     * region with no baseline of its own must not be read as «this place used
+     * to show everything». What the zone showed before is the honest baseline,
+     * and by it this conversion is an improvement: a container gives the text
+     * back the header and the padding a titled card spends.
+     */
+    const card = createTitledCard('Tittel')
+    const overfull: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc(words(6000)) }],
+      },
+    }
+    const presentation = deckWith(overfull)
+    const before = estimateFit(overfull, rectOf(presentation), fitContextFor(presentation))
+    expect(before.fits).toBe(false)
+
+    const result = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'container',
+      ...checkers,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const after = estimateFit(
+        contentOf(result.value),
+        rectOf(result.value),
+        fitContextFor(result.value),
+      )
+      // Still over the edge, but less so — which is what «repairable» means.
+      expect(after.overflow).toBeGreaterThan(FIT_TOLERANCE)
+      expect(after.overflow).toBeLessThan(before.overflow)
+    }
+  })
+
+  it('answers «done» to the kind the zone already is, however small the zone', () => {
+    // A zone below the minimum for what it holds is exactly the document that
+    // needs repairing, and the compound agent operation sets the kind before it
+    // shortens anything. Refusing the no-op would make the repair unreachable.
+    const presentation = deckWith(containerWithDoc(paragraphDoc('kort')))
+    const cramped = { geometry: { slideWidth: 250, slideHeight: 400 } }
+    expect(
+      setContentKind(presentation, {
+        ...target(presentation),
+        kind: 'container',
+        ...cramped,
+        ...checkers,
+      }).ok,
+    ).toBe(true)
+    // A *different* kind in the same cramped zone is still refused.
+    const other = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'titled-card',
+      ...cramped,
+      ...checkers,
+    })
+    expect(other.ok).toBe(false)
+    if (!other.ok) expect(other.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('refuses to turn content that carries something into deliberate air', () => {
+    const presentation = deckWith(containerWithDoc(paragraphDoc('noe som ikke skal forsvinne')))
+    const refused = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'negative-space',
+      ...checkers,
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('INVALID_CONTENT')
+      expect(refused.error.message).toBe(negativeSpaceRefusal(containerWithDoc(paragraphDoc('x'))))
+    }
+  })
+
   it('refuses turning a captioned picture into text it has no room for', () => {
     // Both halves of the conversion are contained on their own: the picture
     // filling the zone is cropped to it, and the same file inline is capped at
@@ -413,6 +562,134 @@ describe('setContentKind', () => {
     expectRefused(
       setContentKind(presentation, { ...target(presentation), kind: 'container', ...checkers }),
     )
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 3.5. Every text surface, and none of them hiding behind another
+ * ------------------------------------------------------------------ */
+
+describe('hver tekstflate måles for seg', () => {
+  /** A card title long enough that no header could ever hold it. */
+  const LONG_TITLE = words(300)
+
+  it('avviser en korttittel som er for bred for kortheaderen', () => {
+    const presentation = deckWith(createTitledCard('Kort'))
+    expectRefused(
+      setCardTitle(presentation, {
+        ...target(presentation),
+        doc: titleDoc(LONG_TITLE),
+        ...checkers,
+      }),
+    )
+  })
+
+  it('avviser den samme tittelen på et kort med bilde', () => {
+    const presentation = deckWith(createTitledImageCard('asset-1', 'Kort'))
+    expectRefused(
+      setCardTitle(presentation, {
+        ...target(presentation),
+        doc: titleDoc(LONG_TITLE),
+        ...checkers,
+      }),
+    )
+  })
+
+  it('lar ikke en full brødtekst skjule at tittelen begynner å flyte over', () => {
+    /*
+     * The hole a single worst number per zone left open.
+     *
+     * The body is already over its box — a legacy document, an import, a font
+     * that arrived wider — so the zone's worst overflow is the body's. Growing
+     * the title out of its header then changed nothing about that one number,
+     * and «never worse» read as «nothing happened». Measured per region, the
+     * header is its own place and the header got worse.
+     */
+    const card = createTitledCard('Kort')
+    const overfull: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc(words(6000)) }],
+      },
+    }
+    const presentation = deckWith(overfull)
+    // Long enough not to fit the header, and deliberately *shorter* in overflow
+    // than the body already is — so the zone's worst number is unchanged and
+    // only a per-region comparison can see that anything happened. Asserted
+    // rather than assumed: a title that grew past the body would make this
+    // test pass for the wrong reason.
+    const hiddenTitle = titleDoc(words(140))
+    const before = slideOverflow(contentAt(presentation, 1), fitContextFor(presentation), checkers)
+    const bodyOverflow = [...before.values()].reduce((worst, value) => Math.max(worst, value), 0)
+    const after = estimateFit(
+      { ...overfull, title: hiddenTitle },
+      rectOf(presentation),
+      fitContextFor(presentation),
+    )
+    expect(after.parts[CARD_TITLE_PART]).toBeGreaterThan(FIT_TOLERANCE)
+    expect(after.parts[CARD_TITLE_PART]).toBeLessThan(bodyOverflow)
+    expect(after.overflow).toBe(bodyOverflow)
+
+    expectRefused(
+      setCardTitle(presentation, { ...target(presentation), doc: hiddenTitle, ...checkers }),
+    )
+  })
+
+  it('lar det samme kortet fortsatt repareres i riktig retning', () => {
+    // The other half of the rule: an already overflowing document must stay
+    // editable towards less overflow, per region as well as in total.
+    const card = createTitledCard('Kort')
+    const overfull: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc(words(6000)) }],
+      },
+    }
+    const presentation = deckWith(overfull)
+    const shorter = setSubfieldDoc(presentation, {
+      ...target(presentation),
+      subfieldId: card.body.subfields[0].id,
+      doc: paragraphDoc(words(3000)),
+      ...checkers,
+    })
+    expect(shorter.ok).toBe(true)
+  })
+
+  it('avviser en bildetekst som er for lang for bildet', () => {
+    const picture = createImage('asset-1')
+    const presentation = deckWith(picture)
+    expectRefused(
+      setImageCaption(presentation, {
+        ...target(presentation),
+        doc: paragraphDoc(words(4000)),
+        ...checkers,
+      }),
+    )
+  })
+
+  it('rapporterer hvilken del av sonen som ikke får plass', () => {
+    const presentation = deckWith(createTitledCard('Kort'))
+    const refused = setCardTitle(presentation, {
+      ...target(presentation),
+      doc: titleDoc(LONG_TITLE),
+      ...checkers,
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.error.details?.part).toBe(CARD_TITLE_PART)
+  })
+
+  it('gir read-only-valideringen den samme delen, for det samme dokumentet', () => {
+    // The guard and the validator must agree about the same state: a document
+    // that got past the guard some other way is described in the same terms.
+    const presentation = deckWith({
+      ...createTitledCard('Kort'),
+      title: titleDoc(LONG_TITLE),
+    })
+    const issues = findPresentationIssues(presentation, checkers)
+    const clipped = issues.find((issue) => issue.code === 'CONTENT_DOES_NOT_FIT')
+    expect(clipped?.details?.part).toBe(CARD_TITLE_PART)
   })
 })
 

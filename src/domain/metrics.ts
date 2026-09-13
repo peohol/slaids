@@ -187,14 +187,23 @@ export function sectionGeometryForTheme(theme?: Partial<PresentationTheme>): {
 /**
  * Geometry options for a theme.
  *
- * The gap and the title zone are the two parts of the geometry a theme moves;
- * everything else about the design space is fixed.
+ * The gap and the title zone are the two parts of the geometry a theme *moves*;
+ * everything else about the design space is fixed. The tokens themselves ride
+ * along because how small a zone may be depends on what is in it and on the
+ * type the deck is set in — a card's header really is taller at a bigger font
+ * scale, so the smallest card really is bigger. See `domain/contentSize.ts`.
  */
 export function geometryForTheme(theme?: Partial<PresentationTheme>): {
   gap: number
   inset: number
   titleHeight: number
+  metrics: ThemeMetrics
 } {
   const metrics = themeMetrics(theme)
-  return { gap: metrics.gap, inset: metrics.gap, titleHeight: metrics.titleZoneHeight }
+  return {
+    gap: metrics.gap,
+    inset: metrics.gap,
+    titleHeight: metrics.titleZoneHeight,
+    metrics,
+  }
 }

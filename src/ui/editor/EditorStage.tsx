@@ -49,7 +49,7 @@ import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
 import { useContainerBox, type ContainerBox } from '../slide/useFitScale'
-import { domFitCheckers } from '../../state/measure'
+import { domFitCheckers, measureElementOverflow } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
@@ -198,9 +198,11 @@ export function stageView(box: ContainerBox, focus: Rect | null | undefined): St
  * is the guard that runs while the author is still typing.
  */
 function titleOverflow(host: HTMLElement | null): number {
-  if (!host) return 0
-  const boxes = [host, ...host.querySelectorAll<HTMLElement>('.rich-doc--title')]
-  return boxes.reduce((worst, box) => Math.max(worst, box.scrollWidth - box.clientWidth), 0)
+  // The title zone is the one box that clips, and it carries `data-fit-scroll`
+  // like every other clipping box — so the shared measurement is the whole
+  // answer. It was not always: `.rich-doc--title` used to clip too, which kept
+  // the overflow to itself and made the zone read zero. See `slide.css`.
+  return host ? measureElementOverflow(host) : 0
 }
 
 /** Whether a gesture asked for the ratios the split already has. */
@@ -321,7 +323,11 @@ export function EditorStage({
     const usable = along - tokens.gap * (split.children.length - 1)
     const total = sumWeights(split.weights)
     const minShare = split.children.map((child) => {
-      const min = minimumSizeFor(child)
+      // What the child actually holds decides how small it may get — air and an
+      // empty zone can be dragged down to nothing, a card stops at the card.
+      // Measured under this deck's own theme, because the chrome a card spends
+      // is the chrome the tokens dictate.
+      const min = minimumSizeFor(child, geometryForTheme(theme))
       const need = split.axis === 'x' ? min.width : min.height
       return (need / usable) * total
     })
@@ -584,6 +590,7 @@ export function EditorStage({
                   textShadow: textShadowFor(colors.background),
                 }}
                 data-fit-scroll=""
+                data-fit-axis="x"
               >
                 {slide.title && mode === 'content' && editableText ? (
                   <RichTextEditor
@@ -632,6 +639,7 @@ export function EditorStage({
                      the zone panel offers the content types at full size. */
                   <EmptyZone
                     nodeId={leaf.id}
+                    rect={geometry.rects.get(leaf.id) ?? null}
                     compact={mode === 'zone' || !editableText}
                     onAdd={onAddContent}
                   />

@@ -242,20 +242,72 @@ Den skal:
 
 Det skal ikke være en vilkårlig maksdybde som «4 nivåer».
 
-Splitting stoppes når geometri gjør resultatet ubrukelig.
+Splitting stoppes når geometri gjør resultatet ubrukelig — og «ubrukelig»
+avhenger av hva sonen skal inneholde, ikke av ett globalt tall.
 
-Startverdier:
+### Minstemålet er innholdstypens
+
+Det finnes ingen felles minstestørrelse alle blader må klare. Domenet svarer i
+stedet på ett spørsmål, i `src/domain/contentSize.ts`:
+
+> Kan denne innholdstypen tegnes i dette rektangelet?
+
+- **Negativt rom** (§7.1) har ingen minstestørrelse. Det tegner ingenting, så
+  ingen rektangel er for lite for det.
+- **En tom sone** — `content: null` — har heller ingen. Den tegner heller
+  ingenting; forskjellen på de to er hva de *betyr*, ikke hvor små de kan være.
+- **Tekstbærende typer** (`container`, `untitled-card`, `titled-card`) trenger
+  bredden en linje løpende tekst er lesbar i, og høyden av sitt eget krom pluss
+  én linje: kortpadding, og for et kort med tittel også tittelfeltets høyde.
+  Høyden er derfor avledet av temaets tokens og vokser med skriftstørrelsen.
+- **Bildetyper** trenger flaten et bilde fortsatt er et bilde i.
+
+De to tallene som er skjønn og ikke aritmetikk står igjen som tokens:
 
 ```ts
-export const MIN_ZONE_WIDTH = 180
-export const MIN_ZONE_HEIGHT = 120
+export const MIN_TEXT_WIDTH = 180
+export const MIN_IMAGE_SIZE = 120
 ```
 
-Disse er design-tokens og må kunne justeres.
+En foreslått split kan bare committes dersom hvert nytt leaf-/subtree-rektangel
+er gyldig for det innholdet det faktisk har. Nye, tomme barn begrenser derfor
+ingenting, og en split i luft er lovlig ved ethvert forhold stigen kan uttrykke.
+Én ting gjelder uansett innhold: en split med `n` barn trenger plass til sine
+`n - 1` mellomrom, ellers har barna ingen lengde i det hele tatt.
 
-En foreslått split kan bare committes dersom alle nye leaf-/subtree-rektangler består minimumsvalideringen.
+Hvis valgt sone har innhold, måles mottakerbarnet både mot innholdstypens
+minstemål (`ZONE_TOO_SMALL`) og mot `canFit()` (`CONTENT_DOES_NOT_FIT`). De to
+er ulike feil fordi de har ulik reparasjon: større sone, eller kortere tekst.
 
-Hvis valgt sone har innhold, må mottakerbarnet i tillegg bestå `canFit()`.
+Den samme regelen brukes av layout- og ratio-kommandoene, innholdsvelgeren i
+alle flater, drag/placement-targets, `validateSlideGeometry` og Agent Core. Det
+finnes ingen egen implementasjon for editoren og en annen for agenten.
+
+---
+
+## 7.1\. Negativt rom
+
+Bevisst luft er et designgrep, ikke en ugyldig layout. Innholdstypen
+`negative-space`:
+
+- har ingen tekst, filer, subfelter eller annen payload — det er definisjonen,
+  ikke en utelatelse;
+- tegner ingenting, hverken i editoren eller i presentasjonen;
+- har ingen minstestørrelse og kan være vilkårlig liten.
+
+**Tom sone og negativt rom er to forskjellige ting.** En tom sone (`content:
+null`) er et hull forfatteren ennå ikke har fylt: editoren tilbyr
+innholdsvelgeren i den, og `inspect_slide` rapporterer `empty: true`. Negativt
+rom er en beslutning: velgeren er borte, og agenten leser
+`contentKind: 'negative-space'`. De skilles overalt på om det finnes et
+innholdsobjekt — aldri på hva sonen tilfeldigvis tegner.
+
+Å konvertere innhold *til* negativt rom er den ene konverteringen som ikke kan
+ta noe med seg. Den avvises derfor når sonen har noe å miste; «Tøm sone» parkerer
+innholdet i sandkassen først, og den tømte sonen kan så gjøres til luft.
+
+Å legge til innholdstypen krevde ingen migrasjon: ingen lagret dokument endrer
+form, og et lagret tomt blad er fortsatt `content: null`.
 
 ---
 
@@ -1626,6 +1678,28 @@ canFit(content, rect, context): FitResult
 `context` er den **prospektive** rendringskonteksten: temaet som skal gjelde
 etter commit, og siteringsnummereringen decket får etter commit. Den
 tilstanden som skal vises etter commit, er den som måles før commit.
+
+### En sone er flere steder som kan klippe
+
+`FitResult` bærer både et samlet tall og en oppdeling per **region**: kortets
+tittelfelt, hvert tekstfelt i kroppen, bildeteksten over et bilde. Regionen er
+enheten fit-regelen sammenligner i, og det er ikke en detalj: måles en sone som
+ett verste tall, kan en korttittel vokse ut av headeren sin uten at tallet
+flytter seg — kroppen flommet allerede over mer — og «aldri verre» leses som
+«ingenting skjedde». Det var hullet korttitlene kom gjennom.
+
+Begge målerne rapporterer det samme: estimatoren deler opp per innholdstype, og
+DOM-måleren leser `data-fit-part` på hver klippende boks. En enkeltlinjeboks
+markeres i tillegg med `data-fit-axis="x"`: den er like høy som typen den er satt
+i, så den kan bare feile sidelengs, og dekorasjonen rundt et citation-nummer
+stikker ut vertikalt ved design.
+
+**Boksen som klipper må være boksen som måles.** En klippende boks holder sin
+egen overflow for seg selv, så et ekstra klipp inne i et tittelfelt gjorde at
+headeren rapporterte null uansett hvor langt teksten stakk forbi den. Én linje
+legges derfor ut i `max-content` med `100 %` som gulv, slik at den som ikke får
+plass starter ved venstre kant og hele overflyten er på høyre side, der
+`scrollWidth` faktisk ser den.
 
 skal etter hvert brukes av:
 
@@ -3023,7 +3097,7 @@ En agent får aldri en svakere eller alternativ versjon av Slaids' regler.
 
 Dette gjelder blant annet:
 
-- minimumsstørrelse på soner;
+- innholdsspesifikk minimumsstørrelse på soner (§7);
 - split-invariants;
 - layoutnormalisering;
 - innhold som må få plass;
@@ -3222,9 +3296,9 @@ Kontrakten er derfor:
   harmløse. Ingenting lagres. `expectedRevision` virker som ved enhver annen
   mutasjon.
 - **Luft og skriftstørrelse er to spørsmål, ikke ett.** De flytter geometrien
-  selv – gapet mellom soner og høyden på tittelsonen – og fit-guarden måler
-  innhold: en tom sone har ingenting som kan bli skjult, så et større gap kan
-  presse en sju-delt slide under minstemålet uten at ett tegn forsvinner.
+  selv – gapet mellom soner, høyden på tittelsonen og kromet et kort bruker – og
+  fit-guarden måler om teksten er synlig: et større gap kan presse en sju-delt
+  slide under minstemålet for kortene som står der uten at ett tegn forsvinner.
   `setTheme` spør derfor først om geometrien (`findGeometryRegression`, som
   bruker den samme `validateSlideGeometry` som `validate_presentation`) og
   svarer `ZONE_TOO_SMALL` med slide og sone. Et tema guarden slipper gjennom kan

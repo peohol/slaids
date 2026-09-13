@@ -14,6 +14,7 @@ import {
   DEFAULT_VERTICAL_ALIGN,
   SUBFIELD_DIVIDER_THICKNESS,
 } from '../../domain/constants'
+import { CARD_TITLE_PART, subfieldPart } from '../../domain/fit'
 import { themeMetrics } from '../../domain/metrics'
 import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
 import type {
@@ -102,6 +103,7 @@ function SubfieldStack({
           <div
             className="subfield"
             data-fit-scroll=""
+            data-fit-part={subfieldPart(field.id)}
             data-subfield-id={field.id}
             data-align={field.verticalAlign ?? DEFAULT_VERTICAL_ALIGN}
             style={
@@ -129,6 +131,22 @@ export function ZoneContentFrame({
   const { theme } = useSlideRender()
   const colors = usePageColors()
   const tokens = themeMetrics(theme)
+
+  if (content.kind === 'negative-space') {
+    /*
+     * Deliberate air draws nothing — not a placeholder, not a border, not a
+     * background. The box is still here because the zone is: it keeps the
+     * element tree the same shape as every other zone's, so hit-testing, the
+     * drop targets and the editor's outlines need no branch of their own, and
+     * an author can select the air and change their mind about it.
+     */
+    return (
+      <div
+        className="zone-content zone-content--negative-space"
+        data-content-kind="negative-space"
+      />
+    )
+  }
 
   if (content.kind === 'container') {
     // A container is a card without the card: same subfields, same dividers,
@@ -244,6 +262,8 @@ export function ZoneContentFrame({
       <div
         className="card-header"
         data-fit-scroll=""
+        data-fit-axis="x"
+        data-fit-part={CARD_TITLE_PART}
         style={{
           background: headerColor,
           color: headerText,

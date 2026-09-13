@@ -1,12 +1,11 @@
 /** Primary toolbar: modes, slide-level actions, insertion and presentation. */
 
-import { CONTENT_KIND_LABELS } from '../../domain/content'
 import type { ZoneContentKind } from '../../domain/types'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
-import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
+import type { ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
 
 export interface TopToolbarProps {
@@ -28,6 +27,14 @@ export interface TopToolbarProps {
   onRename: () => void
   onToggleTitle: () => void
   onSetContentKind: (kind: ZoneContentKind) => void
+  /**
+   * The content kinds, already told apart by what fits the selected zone.
+   *
+   * Built once in `EditorView` from the domain rule and handed to every surface
+   * that offers them, so the toolbar, the inspector, the picker in the zone and
+   * the compact panel cannot disagree about what is available.
+   */
+  contentKinds: ContentKindOption[]
   onOpenReferences: () => void
   onOpenTemplates: () => void
   onOpenImage: () => void
@@ -118,20 +125,27 @@ export function TopToolbar(props: TopToolbarProps) {
       </div>
 
       <div className="toolbar__group">
-        {CONTENT_KINDS.map((kind) => (
-          <Tooltip key={kind} label={CONTENT_KIND_LABELS[kind]}>
-            <button
-              type="button"
-              className="btn btn--sm btn--icon"
-              disabled={!props.selectionIsLeaf}
-              onClick={() => props.onSetContentKind(kind)}
-              data-testid={`content-kind-${kind}`}
-              aria-label={CONTENT_KIND_LABELS[kind]}
+        {props.contentKinds.map((option) => {
+          const disabled = !props.selectionIsLeaf || option.disabled
+          return (
+            <Tooltip
+              key={option.kind}
+              label={option.reason ?? option.label}
+              wrap={disabled}
             >
-              <Icon name={CONTENT_KIND_ICONS[kind]} size={15} />
-            </button>
-          </Tooltip>
-        ))}
+              <button
+                type="button"
+                className="btn btn--sm btn--icon"
+                disabled={disabled}
+                onClick={() => props.onSetContentKind(option.kind)}
+                data-testid={`content-kind-${option.kind}`}
+                aria-label={option.label}
+              >
+                <Icon name={option.icon} size={15} />
+              </button>
+            </Tooltip>
+          )
+        })}
         <Tooltip label="Sett inn bilde">
           <button
             type="button"

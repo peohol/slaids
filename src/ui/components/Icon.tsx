@@ -17,6 +17,7 @@ export type IconName =
   | 'edit'
   | 'eraser'
   | 'container'
+  | 'negative-space'
   | 'card'
   | 'card-titled'
   | 'card-image'
@@ -83,6 +84,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
   edit: <path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" />,
   eraser: <path d="M5 15l6-6 8 8-4 4H9zM4 21h16" />,
   container: <path d="M4 5h16v14H4z" strokeDasharray="4 3" />,
+  /* Deliberate air: the corners of a zone and nothing between them. */
+  'negative-space': <path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3" />,
   card: <path d="M4 5h16v14H4z" />,
   'card-titled': <path d="M4 5h16v14H4zM4 10h16" />,
   'card-image': <path d="M4 5h16v14H4zM4 10h16M8 15l2.5 2 2-2.5L16 18H7z" />,

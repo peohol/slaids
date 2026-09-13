@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { convertContentKind } from './content'
-import { createImage, createTitledCard, createUntitledCard } from '../content'
-import { docToPlainText, paragraphDoc } from '../richdoc'
+import { bodyOf, createImage, createNegativeSpace, createTitledCard, createUntitledCard } from '../content'
+import { docToPlainText, emptyDoc, paragraphDoc } from '../richdoc'
 import type { ZoneContent } from '../types'
 
 function textOf(content: ZoneContent): string {
   switch (content.kind) {
+    case 'negative-space':
+      return ''
     case 'container':
     case 'untitled-card':
       return content.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')
@@ -36,6 +38,30 @@ function titledWithBody(title: string, body: string) {
     },
   }
 }
+
+describe('konvertering til og fra negativt rom', () => {
+  it('lar en tom sone bli luft og luft bli et vanlig innhold igjen', () => {
+    const air = convertContentKind(createUntitledCard(), 'negative-space')
+    expect(air.kind).toBe('negative-space')
+    expect(textOf(air)).toBe('')
+
+    const back = convertContentKind(air, 'titled-card')
+    expect(back.kind).toBe('titled-card')
+    expect(textOf(back).trim()).toBe('')
+  })
+
+  it('gir et skrivbart tomt felt, ikke et dokument uten blokker', () => {
+    // `{ content: [] }` is not the empty document: the editor's schema wants a
+    // block to put the caret in, and a field built without one cannot be typed
+    // into at all. The two sources with nothing to carry are air and a picture
+    // panel with neither file nor caption.
+    for (const source of [createNegativeSpace(), createImage()]) {
+      const converted = convertContentKind(source, 'container')
+      const body = bodyOf(converted)
+      expect(body?.subfields[0].doc, source.kind).toEqual(emptyDoc())
+    }
+  })
+})
 
 describe('convertContentKind never loses content', () => {
   it('keeps the card title when a titled card becomes an untitled card', () => {

@@ -7,7 +7,7 @@
  */
 
 import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../constants'
-import { areWeightsValid, previewSplit, subtreeFitsInRect } from '../geometry'
+import { areWeightsValid, previewSplit } from '../geometry'
 import {
   cloneContentWithNewIds,
   collectContent,
@@ -24,7 +24,7 @@ import { quantizeRatios } from '../ratios'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
 import { fitContextFor, guardFit } from './fitGuard'
-import { contentSlide, geometryFor, rectForNode } from './internal'
+import { contentSlide, contentTooBigForZone, geometryFor, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
 
@@ -93,12 +93,27 @@ export function splitLeaf(
   // slide ends up with rather than one nobody can write down.
   const weights = quantizeRatios(input.weights)
 
-  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
+  const geometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
-  const preview = previewSplit(area, input.axis, weights, input.geometry)
+  // The children that are about to exist, not a generic pair: the one that
+  // receives the existing content has that content's minimum, and the rest are
+  // empty and therefore have none. A split into empty zones is legal at any
+  // ratio the ladder can express — an empty zone draws nothing a small
+  // rectangle could hide, and which kinds can be put in it afterwards is the
+  // content picker's answer, not this command's.
+  const targetIndex = leaf.content ? (input.contentTargetIndex ?? 0) : -1
+  if (leaf.content && (targetIndex < 0 || targetIndex >= weights.length)) {
+    return err('INVALID_ARGUMENT', 'Ugyldig målsone for eksisterende innhold.')
+  }
+  const prospective = weights.map((_, index) =>
+    index === targetIndex && leaf.content ? createLeaf(leaf.content) : null,
+  )
+
+  const preview = previewSplit(area, input.axis, weights, geometry, prospective)
   if (!preview.valid) {
-    return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små.', {
+    return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små for innholdet sitt.', {
       slideId: input.slideId,
       nodeId: input.nodeId,
       tooSmall: preview.tooSmall,
@@ -111,10 +126,6 @@ export function splitLeaf(
   let next = presentation
 
   if (leaf.content) {
-    const targetIndex = input.contentTargetIndex ?? 0
-    if (targetIndex < 0 || targetIndex >= children.length) {
-      return err('INVALID_ARGUMENT', 'Ugyldig målsone for eksisterende innhold.')
-    }
     const targetRect = preview.childRects[targetIndex]
     const fit = input.fits?.(leaf.content, targetRect, fitContextFor(presentation))
     if (!fit || fit.fits) {
@@ -202,7 +213,8 @@ export function updateSplit(
   const weights = quantizeRatios(wanted)
 
   const axis = input.axis ?? split.axis
-  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
+  const geometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
 
   const keptChildren = split.children.slice(0, targetCount)
@@ -212,7 +224,7 @@ export function updateSplit(
     ...Array.from({ length: addedCount }, () => createLeaf()),
   ]
 
-  const preview = previewSplit(area, axis, weights, input.geometry, children)
+  const preview = previewSplit(area, axis, weights, geometry, children)
   if (!preview.valid) {
     return err('ZONE_TOO_SMALL', 'Én eller flere subsoner blir for små for innholdet sitt.', {
       slideId: input.slideId,
@@ -373,8 +385,14 @@ export function setZoneContent(
   const next = touch(withSlide(disposed.presentation, { ...slide, root }))
 
   if (input.content) {
-    const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
+    const geometry = geometryFor(presentation, input.geometry)
+    const area = rectForNode(slide, input.nodeId, geometry)
     if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+    const tooSmall = contentTooBigForZone(input.content.kind, area, geometry, {
+      slideId: input.slideId,
+      nodeId: input.nodeId,
+    })
+    if (tooSmall) return tooSmall
     // Measured against the document as it will be *after* the placement:
     // content arriving with citations in it can renumber itself.
     const fit = input.fits?.(input.content, area, fitContextFor(next))
@@ -507,8 +525,11 @@ function transferZoneContent(
   if (ontoItself && !copying) return ok(outcome(presentation))
   if (to.content) return err('TARGET_OCCUPIED', 'Målsonen har allerede innhold.', target)
 
-  const area = rectForNode(targetSlide, input.toNodeId, geometryFor(presentation, input.geometry))
+  const targetGeometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(targetSlide, input.toNodeId, targetGeometry)
   if (!area) return err('NODE_NOT_FOUND', 'Fant ikke målsonen.', target)
+  const tooSmall = contentTooBigForZone(from.content.kind, area, targetGeometry, target)
+  if (tooSmall) return tooSmall
 
   let next = presentation
   // A copy gets fresh ids; sharing them would put the same content id on two
@@ -563,9 +584,16 @@ export function canAcceptContent(
   const slide = found.value
   const leaf = findLeaf(slide.root, input.nodeId)
   if (!leaf || leaf.content) return false
-  const area = rectForNode(slide, input.nodeId, geometryFor(presentation, input.geometry))
+  const geometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(slide, input.nodeId, geometry)
   if (!area) return false
-  if (!subtreeFitsInRect(leaf, area, input.geometry)) return false
+  // The same two gates the command runs, in the same order: a zone that cannot
+  // hold this kind of thing at all never lights up, and neither does one whose
+  // text would not fit. A target that lights up green and then refuses the drop
+  // is worse than one that never lit up.
+  if (contentTooBigForZone(input.content.kind, area, geometry, { slideId: input.slideId, nodeId: input.nodeId })) {
+    return false
+  }
   if (!input.fits) return true
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: input.content })
   const prospective = withSlide(presentation, { ...slide, root })

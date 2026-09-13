@@ -22,6 +22,19 @@ export interface Rect {
 
 export type Axis = 'x' | 'y'
 
+/**
+ * A width and a height with no position.
+ *
+ * Here rather than in `geometry.ts` because it is the answer two modules give:
+ * the geometry engine reports how small a subtree can be, and `contentSize.ts`
+ * reports how small a kind of content may be drawn. One shape, so the second
+ * can be fed straight into the first.
+ */
+export interface Size {
+  width: number
+  height: number
+}
+
 /* ------------------------------------------------------------------ *
  * Rich text (ProseMirror / Tiptap JSON)
  * ------------------------------------------------------------------ */
@@ -143,6 +156,26 @@ export interface ImagePanel {
   caption: ImageCaption | null
 }
 
+/**
+ * Deliberate air: a zone that is part of the composition and draws nothing.
+ *
+ * It carries no fields, no title, no file and no payload of any kind, and it
+ * has no minimum size — there is nothing in it that a small rectangle could
+ * hide, so it may be as small as the geometry allows.
+ *
+ * Not the same thing as a leaf with no content, and the difference is
+ * intentional. `content: null` is a hole the author has not filled: the editor
+ * offers the content picker in it, and an agent reads it as `empty: true`. This
+ * is a decision the author made, and the only thing either of them can do with
+ * it is change their mind. The two are told apart everywhere by exactly that —
+ * whether there is a content object — and never by one layer guessing from
+ * what a zone happens to draw.
+ */
+export interface NegativeSpaceContent {
+  id: string
+  kind: 'negative-space'
+}
+
 export interface UntitledCardContent {
   id: string
   kind: 'untitled-card'
@@ -189,6 +222,7 @@ export interface TitledImageCardContent {
 }
 
 export type ZoneContent =
+  | NegativeSpaceContent
   | ContainerContent
   | UntitledCardContent
   | TitledCardContent

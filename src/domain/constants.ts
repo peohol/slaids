@@ -21,9 +21,31 @@ export const G = 24
 /** Inset between the slide edge and the outermost content. Equal to G by definition. */
 export const SLIDE_INSET = G
 
-/** A zone smaller than this is not usable for content and may not be created. */
-export const MIN_ZONE_WIDTH = 180
-export const MIN_ZONE_HEIGHT = 120
+/**
+ * The narrowest a column of running text may be.
+ *
+ * There is no longer one minimum size every zone has to clear: how small a zone
+ * may be is decided by what is *in* it, and `domain/contentSize.ts` owns that
+ * answer. What is left here are the two judgements that arithmetic cannot make.
+ *
+ * This is the first: about a dozen characters at the default type size, below
+ * which a paragraph stops being a paragraph and becomes a column of hyphenated
+ * fragments. It is deliberately a flat number rather than a multiple of the
+ * type size — the heights a kind of content needs are chrome that really is
+ * drawn and really does scale, while «how narrow before text stops reading as
+ * text» is a judgement about the reader, not about the box.
+ */
+export const MIN_TEXT_WIDTH = 180
+
+/**
+ * The smallest square a picture is still a picture in.
+ *
+ * The second judgement: below this a photograph in a deck is an icon, and the
+ * crop the author chose is no longer visible in it. A picture has no chrome to
+ * derive a minimum from — it fills whatever frame it is given — so this is the
+ * whole rule for a picture zone, and the body half of a titled picture card.
+ */
+export const MIN_IMAGE_SIZE = 120
 
 /** Splits are limited to this many children. */
 export const MIN_SPLIT_CHILDREN = 2

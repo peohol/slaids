@@ -3,13 +3,14 @@
 export { cloneSubtreeWithNewIds, cloneContentWithNewIds, createLeaf } from '../layout'
 export { subtreeFitsInRect as subtreeFitsHelper } from '../geometry'
 
-import { computeSlideGeometry } from '../geometry'
+import { computeSlideGeometry, resolveOptions } from '../geometry'
+import { contentKindRefusal } from '../contentSize'
 import type { GeometryOptions } from '../geometry'
 import { geometryForTheme } from '../metrics'
 import { interactiveBudgetRegression, interactiveSlidesIn } from '../interactive'
 import { asDeckSlides, findSlide, touch } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
-import type { ContentSlide, NodeId, Presentation, Rect, Slide } from '../types'
+import type { ContentSlide, NodeId, Presentation, Rect, Slide, ZoneContentKind } from '../types'
 
 /**
  * Commit a rebuilt slide list.
@@ -109,6 +110,37 @@ export function geometryFor(
   options?: GeometryOptions,
 ): GeometryOptions {
   return { ...geometryForTheme(presentation.theme), ...options }
+}
+
+/**
+ * The refusal a kind of content earns in a rect it cannot be drawn in, if any.
+ *
+ * One helper behind every door that puts content into a zone — placing,
+ * moving, copying, converting, placing from the sandbox, and the drop target
+ * that lights up before any of them run — so «this kind cannot be drawn that
+ * small» is decided by `domain/contentSize.ts` and phrased once. It is asked
+ * *before* the fit check and answers with its own code, because the two call
+ * for different repairs: `ZONE_TOO_SMALL` needs a bigger zone, and
+ * `CONTENT_DOES_NOT_FIT` needs shorter text.
+ *
+ * The details carry both rectangles rather than only a sentence, so an agent
+ * can act on the numbers and a picker can grey a button out with the same
+ * answer.
+ */
+export function contentTooBigForZone(
+  kind: ZoneContentKind,
+  rect: Rect,
+  geometry: GeometryOptions,
+  where: { slideId: string; nodeId: NodeId },
+): Refusal | null {
+  const refusal = contentKindRefusal(kind, rect, resolveOptions(geometry).metrics)
+  if (!refusal) return null
+  return err('ZONE_TOO_SMALL', refusal.message, {
+    ...where,
+    contentKind: kind,
+    rect: refusal.rect,
+    minimum: refusal.minimum,
+  })
 }
 
 /** Rect of a node inside a slide, or `null` when the node does not exist. */

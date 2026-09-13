@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  G,
-  MAX_ZONE_RATIO,
-  MIN_ZONE_HEIGHT,
-  MIN_ZONE_WIDTH,
-  SLIDE_HEIGHT,
-  SLIDE_WIDTH,
-} from './constants'
+import { G, MAX_ZONE_RATIO, SLIDE_HEIGHT, SLIDE_WIDTH } from './constants'
+import { createContentOfKind, ZONE_CONTENT_KINDS } from './content'
+import { minimumSizeForContent } from './contentSize'
 import {
   computeSlideGeometry,
   measureSiblingGaps,
@@ -19,7 +14,7 @@ import {
 } from './geometry'
 import { createLeaf, createSplit, normalizeTree, validateTree } from './layout'
 import { createSlide } from './presentation'
-import type { LayoutNode } from './types'
+import type { LayoutNode, ZoneContent } from './types'
 
 /** Deterministic PRNG so a failure is always reproducible. */
 function makeRandom(seed: number): () => number {
@@ -43,13 +38,23 @@ function randomTree(
   depth: number,
   ratios: 'whole' | 'free' = 'whole',
 ): LayoutNode {
-  if (depth === 0 || random() < 0.35) return createLeaf()
+  // Leaves carry content, and every kind of it including none at all: how small
+  // a zone may be is a property of what is in it, so a generator that only made
+  // empty leaves would be generating the one case with no minimum to check.
+  if (depth === 0 || random() < 0.35) return createLeaf(randomContent(random))
   const count = 2 + Math.floor(random() * 4)
   const weights = Array.from({ length: count }, () =>
     ratios === 'whole' ? 1 + Math.floor(random() * MAX_ZONE_RATIO) : 0.25 + random() * 4,
   )
   const children = Array.from({ length: count }, () => randomTree(random, depth - 1, ratios))
   return createSplit(random() < 0.5 ? 'x' : 'y', weights, children)
+}
+
+/** Any content kind, or none — `null` is a zone nobody has filled yet. */
+function randomContent(random: () => number): ZoneContent | null {
+  const choice = Math.floor(random() * (ZONE_CONTENT_KINDS.length + 1))
+  const kind = ZONE_CONTENT_KINDS[choice]
+  return kind ? createContentOfKind(kind) : null
 }
 
 describe('geometry invariants hold for arbitrary trees', () => {
@@ -165,7 +170,7 @@ describe('geometry invariants hold for arbitrary trees', () => {
     }
   })
 
-  it('never produces a leaf smaller than the minimum when the subtree reports it fits', () => {
+  it('never leaves a zone too small for its own content when the subtree reports it fits', () => {
     for (const seed of seeds) {
       const random = makeRandom(seed)
       const root = randomTree(random, 2)
@@ -175,9 +180,16 @@ describe('geometry invariants hold for arbitrary trees', () => {
       const visit = (node: LayoutNode): void => {
         const rect = geometry.rects.get(node.id)
         if (!rect) return
-        expect(rect.width, `seed ${seed}`).toBeGreaterThan(MIN_ZONE_WIDTH - 1e-6)
-        expect(rect.height, `seed ${seed}`).toBeGreaterThan(MIN_ZONE_HEIGHT - 1e-6)
-        if (node.kind === 'split') for (const child of node.children) visit(child)
+        if (node.kind === 'leaf') {
+          // The minimum is the content's, so an empty zone and deliberate air
+          // clear a bar of zero — which is the whole point of the rule, and
+          // exactly the case a single global minimum got wrong.
+          const min = minimumSizeForContent(node.content)
+          expect(rect.width, `seed ${seed}`).toBeGreaterThan(min.width - 1e-6)
+          expect(rect.height, `seed ${seed}`).toBeGreaterThan(min.height - 1e-6)
+          return
+        }
+        for (const child of node.children) visit(child)
       }
       visit(root)
     }

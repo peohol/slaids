@@ -16,7 +16,6 @@ import {
 import {
   bodyOf,
   CAPTION_POSITION_LABELS,
-  CONTENT_KIND_LABELS,
   captionPositionsFor,
   imagePanelOf,
 } from '../../domain/content'
@@ -31,7 +30,8 @@ import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { Icon } from '../components/Icon'
 import { formatBytes, formatPixels } from '../format'
-import { CONTENT_KINDS, CONTENT_KIND_ICONS } from './contentKinds'
+import { contentKindOptions } from './contentKinds'
+import { Tooltip } from '../components/Tooltip'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
 import { ZoneSizeControls, splitContextFor } from './ZoneSizeControls'
 import type { ZoneAction } from './ZoneOverlay'
@@ -70,6 +70,9 @@ export function Inspector({
   /* Which split the size controls act on: the selected one, or the one the
      selected zone is a child of. A root leaf belongs to neither and gets none. */
   const splitContext = splitContextFor(slide, selectedNodeId)
+  // The zone's own rectangle decides which kinds can be drawn in it — the very
+  // rule the commands refuse by, so no button offers what a click would fail.
+  const kindOptions = contentKindOptions(rect ?? null, theme, content)
 
   if (!node || !selectedNodeId) {
     return (
@@ -168,16 +171,22 @@ export function Inspector({
         <section className="inspector__section">
           <h2 className="inspector__heading">Innhold</h2>
           <div className="inspector__actions">
-            {CONTENT_KINDS.map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                className="btn btn--sm"
-                data-testid={`inspector-add-${kind}`}
-                onClick={() => onAddContent(selectedNodeId, kind)}
+            {kindOptions.map((option) => (
+              <Tooltip
+                key={option.kind}
+                label={option.reason ?? option.label}
+                wrap={option.disabled}
               >
-                <Icon name={CONTENT_KIND_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
-              </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  data-testid={`inspector-add-${option.kind}`}
+                  disabled={option.disabled}
+                  onClick={() => onAddContent(selectedNodeId, option.kind)}
+                >
+                  <Icon name={option.icon} size={14} /> {option.label}
+                </button>
+              </Tooltip>
             ))}
           </div>
         </section>
@@ -187,25 +196,33 @@ export function Inspector({
         <section className="inspector__section">
           <h2 className="inspector__heading">Innholdstype</h2>
           <div className="inspector__actions">
-            {CONTENT_KINDS.map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                className={content.kind === kind ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-                data-testid={`inspector-kind-${kind}`}
-                onClick={() =>
-                  run('content-kind', (current) =>
-                    setContentKind(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      kind,
-                      ...domFitCheckers,
-                    }),
-                  )
-                }
+            {kindOptions.map((option) => (
+              <Tooltip
+                key={option.kind}
+                label={option.reason ?? option.label}
+                wrap={option.disabled}
               >
-                <Icon name={CONTENT_KIND_ICONS[kind]} size={14} /> {CONTENT_KIND_LABELS[kind]}
-              </button>
+                <button
+                  type="button"
+                  className={
+                    content.kind === option.kind ? 'btn btn--sm btn--active' : 'btn btn--sm'
+                  }
+                  data-testid={`inspector-kind-${option.kind}`}
+                  disabled={option.disabled}
+                  onClick={() =>
+                    run('content-kind', (current) =>
+                      setContentKind(current, {
+                        slideId: slide.id,
+                        nodeId: selectedNodeId,
+                        kind: option.kind,
+                        ...domFitCheckers,
+                      }),
+                    )
+                  }
+                >
+                  <Icon name={option.icon} size={14} /> {option.label}
+                </button>
+              </Tooltip>
             ))}
           </div>
         </section>

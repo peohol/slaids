@@ -256,6 +256,9 @@ function inlineBoxes(
       // A caption is one line of text with no picture node in its schema, and
       // a card title is the same; nothing inline can stand in either.
       break
+    case 'negative-space':
+      // Air holds no documents at all, so there is nothing to walk.
+      break
   }
   return out
 }

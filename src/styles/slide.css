@@ -24,11 +24,22 @@
 /*
  * Titles are centred by default — a slide title and a card title are labels,
  * not paragraphs. An explicit alignment is an inline style and wins over this.
+ *
+ * `max-content` with a `100%` floor is what keeps the fit rule honest here, and
+ * it is the same trick `.subfield` uses vertically with `safe center`. A line
+ * that fits is laid out in the full width of its box, so `text-align` has room
+ * to mean something. A line that does *not* fit is laid out at its own width
+ * instead, starting at the left edge — so all of the overflow is on the right,
+ * where `scrollWidth` can see it. Centred inside a full-width box, a long title
+ * sticks out equally on both sides, and the left half is not part of the
+ * scrollable overflow region at all: the browser reported exactly half of what
+ * was hidden, and the estimator reported all of it.
  */
 .slide-title :is(p, .rd-p),
 .card-header :is(p, .rd-p) {
   text-align: center;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
 }
 
 /*
@@ -51,6 +62,17 @@
 
 .zone-content--container {
   min-height: 0;
+}
+
+/*
+ * Deliberate air: a zone that is part of the composition and draws nothing.
+ *
+ * No background, no border, no placeholder — in the editor as in the
+ * presentation. What makes it selectable is the zone outline the editor draws
+ * around every zone, not anything this element paints.
+ */
+.zone-content--negative-space {
+  background: none;
 }
 
 .card-header {
@@ -589,13 +611,26 @@
   margin-bottom: 0;
 }
 
+/*
+ * One line, and deliberately *not* a clipping box.
+ *
+ * The box around it always clips — `.card-header`, `.slide-title` and
+ * `.section-pill` all do — and a second clip in here was invisible in exactly
+ * the wrong way: a clipping element keeps its own overflow to itself, so the
+ * card header it sits in reported `scrollWidth === clientWidth` however far the
+ * title ran past the end of it. The header carries `data-fit-scroll`, so that
+ * measurement is the fit gate for every card title in the editor, and it read
+ * zero every time. `EditorStage.titleOverflow` used to work around the same
+ * thing for the slide title by measuring this element too; with the clip gone
+ * there is one box that clips and one box that is measured, and they are the
+ * same box.
+ */
 .rich-doc--title {
   display: flex;
   align-items: center;
   width: 100%;
   height: 100%;
   white-space: nowrap;
-  overflow: hidden;
 }
 
 /*
@@ -616,7 +651,8 @@
   margin: 0;
   overflow: visible;
   white-space: pre;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
 }
 
 .rich-doc--title.tiptap,

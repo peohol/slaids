@@ -25,9 +25,10 @@ import {
 } from '../../domain/content'
 import { DEFAULT_VERTICAL_ALIGN, type InteractiveStyleContract } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
+import { availableContentKinds } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme } from '../../domain/metrics'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
@@ -358,9 +359,30 @@ export interface ZoneInspection {
   axis?: 'x' | 'y'
   weights?: number[]
   childNodeIds?: string[]
-  /** Leaf only. */
+  /**
+   * Leaf only: the zone has no content object at all.
+   *
+   * Told apart from `contentKind: 'negative-space'` deliberately. An empty zone
+   * is a hole waiting to be filled; negative space is a decision that this part
+   * of the composition stays blank. Both draw nothing, and neither has a
+   * minimum size, but only one of them is finished.
+   */
   empty?: boolean
   contentKind?: ZoneContentKind
+  /**
+   * Leaf only: which content kinds this zone could actually be set to.
+   *
+   * The same rule the commands refuse by, asked of this zone's rectangle *and*
+   * of what it holds today, so a caller can choose from this list instead of
+   * trying kinds until one is accepted. Three things shape it: a very small
+   * zone answers with `negative-space` alone — not a failure, but deliberate
+   * air, which is often the intended use of a small zone; a zone that already
+   * holds something does *not* offer `negative-space`, because air has no
+   * payload and the content would have to be cleared first; and the kind the
+   * zone already is is always on the list, however small the zone, because
+   * that call is how a cramped legacy zone gets repaired.
+   */
+  availableContentKinds?: ZoneContentKind[]
   /** Titled cards only: the card's own heading, and how it is aligned. */
   cardTitle?: TextSpan[]
   cardTitleAlign?: TextAlign
@@ -601,8 +623,16 @@ function collectZones(
     return
   }
 
+  // The same rule the command refuses by and the editor's picker greys its
+  // buttons by, asked of this zone's rectangle *and* of what it holds today —
+  // so an agent reading a zone learns what it may ask for rather than
+  // discovering it one rejection at a time. Asked with only the rectangle it
+  // would advertise air for a zone full of text, and hide a cramped zone's own
+  // kind, which the command deliberately still accepts.
+  const kinds = availableContentKinds(rect, node.content, themeMetrics(fitContext.theme))
+
   if (!node.content) {
-    out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true })
+    out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true, availableContentKinds: kinds })
     return
   }
 
@@ -614,6 +644,7 @@ function collectZones(
     kind: 'leaf',
     rect,
     empty: false,
+    availableContentKinds: kinds,
     ...inspectContent(content),
     fits: fit.fits,
     overflow: fit.overflow,

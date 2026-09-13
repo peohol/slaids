@@ -13,6 +13,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { setZoneContent } from '../domain/commands'
+import { createNegativeSpace, createTitledCard } from '../domain/content'
+import { estimateFitChecker } from '../domain/fit'
 import { findLeaf } from '../domain/layout'
 import { createPresentation } from '../domain/presentation'
 import { docToPlainText } from '../domain/richdoc'
@@ -41,6 +44,7 @@ import { describeOperations, runOperation } from './registry'
 import type { TextBlock } from './text'
 import type { AgentContext, AgentError, AgentResult } from './types'
 import { contentAt, sectionAt } from '../domain/testDecks'
+import { storedPresentation } from './testDeck'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -498,7 +502,7 @@ describe('layout', () => {
     )
   })
 
-  it('lar ingen omgå minstemålene for en sone', async () => {
+  it('lar ingen omgå minstemålet for innholdet som faktisk står i sonen', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
     const slideId = deck.slides[1].slideId
@@ -517,6 +521,15 @@ describe('layout', () => {
       weights: [1, 1, 1, 1],
     })
 
+    // Tekst i den første kolonnen: da har sonen noe som kan bli borte, og
+    // minstemålet er tekstens.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: split.childNodeIds[0],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Et avsnitt' }] }],
+    })
+
     const refused = await fails(context, 'split_zone', {
       presentationId: deck.presentationId,
       slideId,
@@ -533,6 +546,58 @@ describe('layout', () => {
       slideId,
     })
     expect(after.zones.filter((zone) => zone.kind === 'leaf')).toHaveLength(4)
+  })
+
+  it('deler en tom sone så smalt kalleren vil, og sier hva som får plass etterpå', async () => {
+    // En tom sone tegner ingenting, så ingen bredde er for liten for den. Det
+    // er slik bevisst luft lages: del først, og gjør så sliveren til negativt
+    // rom. `inspect_slide` sier hvilke innholdstyper som faktisk kan brukes.
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const root = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      axis: 'y',
+      weights: [1, 10, 1],
+    })
+
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const sliver = inspected.zones.find((zone) => zone.nodeId === split.childNodeIds[0])
+    expect(sliver?.empty).toBe(true)
+    expect(sliver?.availableContentKinds).toEqual(['negative-space'])
+
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: split.childNodeIds[0],
+      kind: 'negative-space',
+    })
+
+    const air = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const declared = air.zones.find((zone) => zone.nodeId === split.childNodeIds[0])
+    expect(declared?.empty).toBe(false)
+    expect(declared?.contentKind).toBe('negative-space')
+
+    const report = await ok<{ valid: boolean }>(context, 'validate_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(report.valid).toBe(true)
   })
 
   it('endrer forholdstall og antall subsoner, og tar vare på innhold som fortrenges', async () => {
@@ -679,6 +744,237 @@ describe('layout', () => {
 /* ------------------------------------------------------------------ *
  * Fit
  * ------------------------------------------------------------------ */
+
+describe('negativt rom', () => {
+  it('kan ikke settes på en sone som har innhold å miste', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('Noe som ikke skal forsvinne i stillhet'),
+    })
+
+    const refused = await fails(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'negative-space',
+    })
+    expect(refused.code).toBe('INVALID_CONTENT')
+
+    // Refused means refused: teksten står der fortsatt.
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const zone = after.zones.find((entry) => entry.nodeId === nodeId)
+    expect(zone?.contentKind).toBe('container')
+  })
+
+  it('tar hverken farge eller tekstfelt', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const refused = await fails(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'negative-space',
+      color: '#123456',
+    })
+    expect(refused.code).toBe('INVALID_ARGUMENT')
+  })
+
+  it('annonserer ikke negativt rom for en sone som har noe å miste', async () => {
+    // `inspect_slide` forteller en agent hva den kan be om. Ville den ha stått
+    // på lista mens `set_zone_card` avviser den, ville agenten blitt sendt på
+    // et kall som ikke kan lykkes.
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const empty = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(
+      empty.zones.find((zone) => zone.nodeId === nodeId)?.availableContentKinds,
+    ).toContain('negative-space')
+
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('Noe som ikke skal forsvinne i stillhet'),
+    })
+
+    const filled = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const zone = filled.zones.find((entry) => entry.nodeId === nodeId)
+    expect(zone?.availableContentKinds).not.toContain('negative-space')
+    // Og inspeksjonen er enig med kommandoen, som er hele poenget.
+    expect(
+      (
+        await fails(context, 'set_zone_card', {
+          presentationId: deck.presentationId,
+          slideId,
+          nodeId,
+          kind: 'negative-space',
+        })
+      ).code,
+    ).toBe('INVALID_CONTENT')
+  })
+
+  it('annonserer fortsatt sonens egen type når sonen er for liten for den', async () => {
+    /*
+     * A cramped geometry, as an imported document or one from before a token
+     * moved would have. The same-kind call is deliberately still accepted — it
+     * is how such a document gets repaired — so an inspection that left the
+     * zone's own kind off the list would point an agent away from the repair.
+     */
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('kort'),
+    })
+
+    // The same stored deck, read and edited in a design space too narrow for
+    // the container that is in it. The document is unchanged; what changed is
+    // the geometry it is being measured in, which is the shape a token move or
+    // an import leaves behind.
+    const cramped: AgentContext = { ...context, geometry: { slideWidth: 250, slideHeight: 400 } }
+
+    const inspected = await ok<ContentSlideInspection>(cramped, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    const zone = inspected.zones.find((entry) => entry.nodeId === nodeId)
+    expect(zone?.contentKind).toBe('container')
+    expect(zone?.availableContentKinds).toContain('container')
+    // Alle andre typer trenger mer plass enn denne sonen har.
+    expect(zone?.availableContentKinds).not.toContain('titled-card')
+
+    // Og kommandoen er enig: den samme typen går gjennom, en annen gjør ikke.
+    await ok(cramped, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'container',
+    })
+    expect(
+      (
+        await fails(cramped, 'set_zone_card', {
+          presentationId: deck.presentationId,
+          slideId,
+          nodeId,
+          kind: 'titled-card',
+        })
+      ).code,
+    ).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('gir agenten og editoren nøyaktig samme svar om det samme dokumentet', async () => {
+    /*
+     * The same prospective document through the two doors.
+     *
+     * The agent path is the operation; the editor path is the domain command
+     * the operation calls, run here directly with the same checker. They are
+     * the same rule or they are two rules, and two rules is how a deck the
+     * editor refuses gets written by an agent anyway.
+     */
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      axis: 'y',
+      weights: [1, 10, 1],
+    })
+    const sliver = split.childNodeIds[0]
+
+    const refusedByAgent = await fails(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: sliver,
+      kind: 'titled-card',
+    })
+    expect(refusedByAgent.code).toBe('ZONE_TOO_SMALL')
+
+    const stored = await storedPresentation(context, deck.presentationId)
+    const refusedByEditor = setZoneContent(stored, {
+      slideId,
+      nodeId: sliver,
+      content: createTitledCard(),
+      fits: estimateFitChecker,
+    })
+    expect(refusedByEditor.ok).toBe(false)
+    if (!refusedByEditor.ok) {
+      expect(refusedByEditor.error.code).toBe(refusedByAgent.code)
+      expect(refusedByEditor.error.details?.minimum).toEqual(refusedByAgent.details?.minimum)
+      expect(refusedByEditor.error.details?.rect).toEqual(refusedByAgent.details?.rect)
+    }
+
+    // And both let the air through, in the same zone, unchanged.
+    expect(
+      setZoneContent(stored, {
+        slideId,
+        nodeId: sliver,
+        content: createNegativeSpace(),
+        fits: estimateFitChecker,
+      }).ok,
+    ).toBe(true)
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: sliver,
+      kind: 'negative-space',
+    })
+  })
+})
 
 describe('innhold som får plass, og innhold som ikke gjør det', () => {
   it('godtar tekst som får plass', async () => {

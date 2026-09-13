@@ -20,6 +20,8 @@ import {
 } from './internal'
 import { withQuantizedRatios } from '../layout'
 import {
+  nodeIdOfKey,
+  partOfKey,
   sectionOverflow,
   findGeometryRegression,
   fitContextFor,
@@ -83,11 +85,13 @@ export function addSlide(
   // check as any other way of putting content on a slide. There is no baseline
   // to regress from on a brand new slide, so this one is absolute.
   const mainRect = computeMainRect(hasTitle, geometryFor(presentation, input.geometry))
-  for (const [nodeId, overflow] of subtreeOverflow(slide.root, mainRect, context, input)) {
+  for (const [key, overflow] of subtreeOverflow(slide.root, mainRect, context, input)) {
     if (overflow > FIT_TOLERANCE) {
+      const part = partOfKey(key)
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass på den nye sliden.', {
         slideId: slide.id,
-        nodeId,
+        nodeId: nodeIdOfKey(key),
+        ...(part ? { part } : {}),
         overflow,
       })
     }
@@ -240,8 +244,9 @@ export function addSection(
   if (!inserted.ok) return inserted
   const next = inserted.value
 
-  for (const [nodeId, overflow] of sectionOverflow(section, fitContextFor(next), input)) {
+  for (const [key, overflow] of sectionOverflow(section, fitContextFor(next), input)) {
     if (overflow <= FIT_TOLERANCE) continue
+    const nodeId = nodeIdOfKey(key)
     return err(
       'CONTENT_DOES_NOT_FIT',
       nodeId === SECTION_SUBTITLE_NODE_ID
@@ -424,8 +429,9 @@ export function createDeck(
 ): Result<Presentation> {
   const presentation = createPresentation(input)
   const front = presentation.slides[0]
-  for (const [nodeId, overflow] of sectionOverflow(front, fitContextFor(presentation), options)) {
+  for (const [key, overflow] of sectionOverflow(front, fitContextFor(presentation), options)) {
     if (overflow <= FIT_TOLERANCE) continue
+    const nodeId = nodeIdOfKey(key)
     return err(
       'CONTENT_DOES_NOT_FIT',
       nodeId === SECTION_SUBTITLE_NODE_ID

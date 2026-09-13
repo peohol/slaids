@@ -159,6 +159,21 @@ layoutet er nestet.
 - angre/gjør om, autosave med eksplisitt status, oversikt over hurtigtaster
 - lagringsbruk vises i biblioteket, og forlatte filer ryddes bort automatisk
 
+**Minstemål og negativt rom**
+
+Hvor liten en sone kan være avhenger av hva som står i den, ikke av ett globalt
+tall. `src/domain/contentSize.ts` svarer på ett spørsmål – «kan denne
+innholdstypen tegnes i dette rektangelet?» – og alle inngangene bruker det
+samme svaret: layout- og forholdstallsendringer, innholdsvelgeren på desktop og
+mobil, drop-targets, validering og agent-API-et.
+
+Innholdstypen **Negativt rom** tegner ingenting og har ingen minstestørrelse:
+bevisst luft er et designgrep, og en luftsone kan være så smal komposisjonen vil.
+En tom sone har heller ingen minstestørrelse — den tegner ingenting ennå — men
+er noe annet: et hull som ikke er fylt, mot en beslutning som er tatt. Blir sonen
+liten nok, er «Negativt rom» det eneste valget velgeren tilbyr, og den forteller
+hvorfor de andre er utilgjengelige.
+
 **Innholdsgrense**
 
 `overflow: hidden` er siste visuelle sikkerhetsnett, ikke regelen. Regelen er at
@@ -179,6 +194,13 @@ Regresjon, ikke absolutt fit, er riktig test for den andre formen: innhold kan
 allerede være i overflow – etter import, migrasjon eller en fontendring gjort før
 regelen fantes – og en sone som ikke kan endres i det hele tatt kan heller aldri
 repareres. Derfor er «ikke verre enn før» tillatt, «verre» ikke.
+
+Sammenligningen gjøres per **region**, ikke per sone: et kort er en header *og*
+en kropp, et bilde er en ramme *og* en bildetekst over den. Måles sonen som ett
+verste tall, kan en korttittel vokse ut av headeren sin uten at tallet flytter
+seg fordi kroppen allerede flommet over mer – og «aldri verre» blir «ingenting
+skjedde». Det var hullet korttitlene kom gjennom, både i estimatoren og i
+nettleseren, og det er tettet i begge.
 
 Under aktiv skriving håndheves grensen i stedet mot den levende DOM-en i
 `RichTextEditor`, som ruller tilbake til siste gyldige dokument – aldri midt i en
@@ -661,8 +683,11 @@ Noen ting til er verdt å vite om hvordan laget oppfører seg:
   setter dem – gjennom den samme kommandoen som temamodalen, så en temaendring
   som ville skjult innhold blir avvist på samme måte, i sin helhet, uten at noe
   lagres. Luft og skriftstørrelse flytter i tillegg geometrien, så de måles to
-  ganger: en endring som ville gjort soner mindre enn minstemålet avvises med
-  `ZONE_TOO_SMALL` selv om sonene er tomme og ingenting kunne blitt skjult.
+  ganger: en endring som ville gjort soner mindre enn det innholdet i dem
+  trenger avvises med `ZONE_TOO_SMALL` selv om ikke ett tegn ville blitt
+  borte – et kort bruker headeren og paddingen sin uansett hvor kort teksten
+  er. Tomme soner og soner satt til negativt rom har ingen minstestørrelse, så
+  de stopper ingenting: de tegner ingenting som kunne blitt skjult.
 - **Agenten får bare fonter Slaids kan garantere.** Katalogen skiller mellom
   webfonter, som Slaids henter selv og kan gi til hvem som helst som tegner
   dekket, og lokale fonter som Calibri og Segoe UI, som maskinen enten har eller

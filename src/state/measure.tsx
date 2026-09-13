@@ -25,6 +25,7 @@ import {
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
+import { nodeIdOfKey } from '../domain/commands/fitGuard'
 import { fitContextFor, pageOverflow, type StructuralOptions } from '../domain/commands'
 import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
@@ -55,18 +56,55 @@ function ensureHost(): { host: HTMLDivElement; root: Root } {
   return { host, root }
 }
 
+/**
+ * Overflow per clipped region inside `element`, in logical pixels.
+ *
+ * Every box that clips carries `data-fit-scroll`, and the ones that are *part*
+ * of something bigger carry `data-fit-part` naming which part they are — a
+ * card's header, one field of a body, the caption over a picture. Reporting
+ * them separately is what stops one full field from hiding another one starting
+ * to overflow: see `FitParts`.
+ *
+ * A region with no part id is the whole of whatever is being measured (a slide
+ * title, a section's line) and is reported under the empty key.
+ */
+export function measureOverflowParts(element: HTMLElement): Record<string, number> {
+  const parts: Record<string, number> = {}
+  // The element itself counts when it is one of them. `querySelectorAll` only
+  // looks at descendants, and the slide title's clipping box *is* the host a
+  // caller hands in — measured as descendants only, it reported nothing at all.
+  const self = element.matches('[data-fit-scroll]') ? [element] : []
+  for (const target of [...self, ...element.querySelectorAll<HTMLElement>('[data-fit-scroll]')]) {
+    const part = target.dataset.fitPart ?? ''
+    /*
+     * Which way a box can fail is a property of the box.
+     *
+     * A single line of heading type — a slide title, a card's header, a
+     * section's pill — is as tall as the type it is set in, by construction:
+     * the box's height comes from the same token the line does, so it can only
+     * fail sideways. What does stick out of it vertically is the decoration
+     * around a citation's number, which is drawn inside the line and clipped by
+     * design, and which the headless estimator does not measure either. Reading
+     * it as an overflow would roll back every citation ever put in a title.
+     */
+    const axis = target.dataset.fitAxis
+    const overflow = Math.max(
+      axis === 'x' ? 0 : target.scrollHeight - target.clientHeight,
+      axis === 'y' ? 0 : target.scrollWidth - target.clientWidth,
+    )
+    // Two boxes can legitimately claim the same part — a caption layer redrawn
+    // per variant — so the worst of them is the part's overflow.
+    parts[part] = Math.max(parts[part] ?? 0, overflow)
+  }
+  return parts
+}
+
 /** Largest overflow, in logical pixels, across every clipped region inside `element`. */
 export function measureElementOverflow(element: HTMLElement): number {
-  let worst = 0
-  const targets = element.querySelectorAll<HTMLElement>('[data-fit-scroll]')
-  for (const target of targets) {
-    worst = Math.max(
-      worst,
-      target.scrollHeight - target.clientHeight,
-      target.scrollWidth - target.clientWidth,
-    )
-  }
-  return worst
+  return Object.values(measureOverflowParts(element)).reduce(
+    (worst, overflow) => Math.max(worst, overflow),
+    0,
+  )
 }
 
 function withHost<T>(rect: Rect, render: () => React.ReactNode, read: (host: HTMLElement) => T): T {
@@ -104,10 +142,13 @@ export function measureContentFit(
   context: FitContext,
 ): FitResult {
   if (typeof document === 'undefined') return estimateFit(content, rect, context)
-  if (rect.width <= 0 || rect.height <= 0) return { fits: false, overflow: Number.MAX_SAFE_INTEGER }
+  // Nothing can be laid out in a rect of no size, so nothing is rendered into
+  // one: the estimator answers with every part of this content failing at once,
+  // which is the same shape a real measurement would have had.
+  if (rect.width <= 0 || rect.height <= 0) return estimateFit(content, rect, context)
   const { theme } = context
 
-  const overflow = withHost(
+  const parts = withHost(
     rect,
     () => (
       <SlideRenderProvider
@@ -132,9 +173,9 @@ export function measureContentFit(
         </div>
       </SlideRenderProvider>
     ),
-    measureElementOverflow,
+    measureOverflowParts,
   )
-  return fitResult(overflow)
+  return fitResult(parts)
 }
 
 /**
@@ -226,12 +267,15 @@ export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitl
  */
 export function overflowingCount(presentation: Presentation): number {
   const context = fitContextFor(presentation)
-  let count = 0
+  const places = new Set<string>()
   for (const slide of presentation.slides) {
     // Which kind is measured how is `pageOverflow`'s decision, not this file's.
-    for (const overflow of pageOverflow(slide, context, domFitCheckers).values()) {
-      if (overflow > FIT_TOLERANCE) count += 1
+    for (const [key, overflow] of pageOverflow(slide, context, domFitCheckers)) {
+      // Counted per *zone* rather than per region: what the status bar offers
+      // is somewhere to go and look, and a card whose header and body are both
+      // full is one place to look, not two.
+      if (overflow > FIT_TOLERANCE) places.add(`${slide.id}:${nodeIdOfKey(key)}`)
     }
   }
-  return count
+  return places.size
 }

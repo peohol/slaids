@@ -15,11 +15,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { setSplitWeights, splitLeaf } from '../../domain/commands'
+import { setSplitWeights, setZoneContent, splitLeaf } from '../../domain/commands'
 import type { StructuralOutcome } from '../../domain/commands'
 import { estimateFitChecker } from '../../domain/fit'
 import { computeSlideGeometry, minimumSizeFor, sumWeights } from '../../domain/geometry'
-import { findSplit } from '../../domain/layout'
+import { collectLeaves, findSplit } from '../../domain/layout'
+import { createContainer } from '../../domain/content'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { createPresentation } from '../../domain/presentation'
 import {
@@ -59,7 +60,27 @@ function deckWithSplit(
   const slide = contentAt(base, 1)
   const result = splitLeaf(base, { slideId: slide.id, nodeId: slide.root.id, axis, weights })
   if (!result.ok || !result.value) throw new Error('could not build the fixture')
-  return { presentation: result.value.presentation, nodeId: slide.root.id, slideId: slide.id }
+  /*
+   * Every zone holds a text container.
+   *
+   * What these tests are about is where a gesture *stops*, and a zone only
+   * stops a gesture if there is something in it that a smaller rectangle would
+   * hide. Empty zones have no minimum at all — deliberately, so deliberate air
+   * can be made as thin as the composition wants — so a fixture of empty zones
+   * would be a fixture with no stop conditions to test.
+   */
+  let presentation = result.value.presentation
+  for (const leaf of collectLeaves(contentAt(presentation, 1).root)) {
+    const placed = setZoneContent(presentation, {
+      slideId: slide.id,
+      nodeId: leaf.id,
+      content: createContainer(),
+      fits: estimateFitChecker,
+    })
+    if (!placed.ok) throw new Error('could not fill the fixture')
+    presentation = placed.value.presentation
+  }
+  return { presentation, nodeId: slide.root.id, slideId: slide.id }
 }
 
 function ratiosOf(presentation: Presentation, slideId: string, nodeId: string): number[] {
@@ -94,7 +115,7 @@ function fixture(weights: number[], axis: Axis): Fixture {
   const along = axis === 'x' ? rect.width : rect.height
   const usable = along - themeMetrics(presentation.theme).gap * (weights.length - 1)
   const minShare = split.children.map((child) => {
-    const min = minimumSizeFor(child)
+    const min = minimumSizeFor(child, geometryForTheme(presentation.theme))
     return ((axis === 'x' ? min.width : min.height) / usable) * total
   })
   return { presentation, slideId, nodeId, usable, total, minShare }
