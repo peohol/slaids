@@ -71,11 +71,34 @@ export interface EditorShellProps {
   placementBar: ReactNode
   /** Open one field on the focused writing surface. */
   onEditText: (entry: TextTargetEntry) => void
-  /** Whether the stage is zoomed onto the selected zone right now. */
-  zoomed: boolean
-  onToggleZoom: () => void
-  /** True when the selected zone is small enough that zooming into it helps. */
-  canZoom: boolean
+  /** How close the stage is to the selected zone, and the way up and down. */
+  focus: StageFocusControls
   /** The keyboard reference. On the desktop the status bar offers it. */
   onShowShortcuts: () => void
+}
+
+/**
+ * The compact stage's ladder — slide, selected zone, focused zone, typing —
+ * as the one thing a shell needs of it: which step it is on, which steps are
+ * available from here, and the way up and down.
+ *
+ * `EditorView` owns the state behind it for the same reason it owns the panel
+ * choice: a rotation that crosses the compact threshold swaps the shell, and a
+ * step the shell was holding would go with it.
+ */
+export interface StageFocusControls {
+  /** Whether the stage is filled with the selected zone rather than the slide. */
+  focused: boolean
+  /** Whether that zone is a writing surface right now. */
+  editing: boolean
+  /** True when a zone is selected that is worth filling the stage with. */
+  canFocus: boolean
+  /** True when the focused zone holds text that can be typed into. */
+  canEdit: boolean
+  /** Whether a pinch has magnified the view beyond the step it is on. */
+  magnified: boolean
+  onFocus: () => void
+  onEdit: () => void
+  /** One step back down: stop typing, then leave the zone, then drop the pinch. */
+  onBack: () => void
 }

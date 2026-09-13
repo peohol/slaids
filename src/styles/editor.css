@@ -239,27 +239,38 @@
   min-height: 0;
 }
 
+/*
+ * How many pages fit beside each other, and how wide each is drawn, is
+ * arithmetic on this box — see `stripLayout` in `Filmstrip.tsx`, which sets the
+ * columns and the gap inline and scales the thumbnails to the same answer. A
+ * desktop strip is that arithmetic with one column in it.
+ */
 .filmstrip__list {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  align-content: start;
+  /*
+   * `max-content` is not decoration.
+   *
+   * An entry clips (`overflow: hidden` below), which gives it an automatic
+   * minimum size of zero — so with plain `auto` rows the list divides its own
+   * height among the entries instead of scrolling, and the first thing squeezed
+   * off the bottom of each one is the row holding its move, duplicate and
+   * delete buttons. A row as tall as the page in it is what gives the list
+   * something to scroll.
+   */
+  grid-auto-rows: max-content;
 }
 
 /*
- * `flex: 0 0 auto` is not decoration.
- *
- * The list is a column flex container that scrolls, and a flex item shrinks by
- * default. `overflow: hidden` here makes the item's automatic minimum size zero
- * — so once the strip held more slides than fitted, every item was squeezed
- * instead of the list scrolling, and the first thing squeezed off the bottom of
- * each item was the row holding its duplicate and delete buttons. Refusing to
- * shrink is what gives the list something to scroll.
+ * An entry clips: the thumbnail inside it is a 1600 × 900 page under a scale
+ * transform, which is laid out at full size and only *drawn* small.
  */
 .filmstrip__item {
-  flex: 0 0 auto;
   border: 1px solid var(--chrome-border);
   border-radius: var(--radius-md);
   background: var(--chrome-bg-raised);
@@ -2009,11 +2020,36 @@
   overflow: hidden;
 }
 
-.compact-zoom {
+/*
+ * The ladder's controls, over the bottom right of the slide.
+ *
+ * One step is offered at a time — see `StageControls` — so this is a row that
+ * rarely holds more than two buttons, and it wraps rather than pushing itself
+ * off a narrow screen.
+ */
+.compact-stage-controls {
   position: absolute;
   right: 8px;
   bottom: 8px;
   z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+}
+
+/*
+ * Inside the slide area the pinch is ours.
+ *
+ * `touch-action: none` is what stops the browser taking a two-finger gesture
+ * and magnifying the whole application with it: the pointer events reach the
+ * stage instead, and only the stage's own view transform changes. Everything
+ * around it — the bars, the panels, the dialogs — keeps the browser's own
+ * pinch, which is a reader's last resort on any page and not ours to remove.
+ */
+:root[data-compact='true'] .compact-stage .stage-viewport {
+  touch-action: none;
 }
 
 .compact-panel {
@@ -2105,6 +2141,34 @@
   padding-right: var(--compact-panel-width);
 }
 
+/*
+ * The slide overview is navigation, not a side panel.
+ *
+ * It covers the body outright, so the pages get the whole height under the top
+ * bar and can be drawn big enough to recognise at a glance — there is nothing
+ * to gain from a sliver of the current slide while choosing among twenty. The
+ * stage keeps its box underneath rather than being hidden: a stage with no size
+ * measures the text on it as fitting anything, and that is the one answer the
+ * fit rule must never get.
+ */
+:root[data-compact='true'] .compact-panel[data-full] {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  border-left: none;
+  border-top: none;
+  box-shadow: none;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  z-index: 5;
+}
+
+/* Nothing floats over the stage while the overview is up, so it stands back
+   from nothing. */
+:root[data-orientation='landscape'] .editor--compact[data-panel='slides'] .compact-stage {
+  padding-right: 0;
+}
+
 /* A phone on its side has little height to spare; the bars give some back. */
 :root[data-orientation='landscape'][data-compact='true'] .compact-bar--top {
   min-height: 46px;
@@ -2112,6 +2176,46 @@
 
 :root[data-orientation='landscape'][data-compact='true'] .compact-bar--tabs {
   min-height: 50px;
+}
+
+/*
+ * The overview's entries: the same strip entries, sized for a thumb.
+ *
+ * Nothing here changes what an entry *is* — the grip, the move controls, the
+ * duplicate and the delete are the desktop's, calling the same commands. What
+ * changes is that a page is big enough to recognise and its controls are big
+ * enough to hit.
+ */
+.filmstrip[data-overview] .filmstrip__index {
+  padding: 6px 8px 4px 11px;
+  font-size: 12px;
+}
+
+.filmstrip[data-overview] .filmstrip__tools {
+  gap: 4px;
+  padding: 4px;
+  justify-content: space-around;
+}
+
+.filmstrip[data-overview] .filmstrip__item--active {
+  box-shadow: 0 0 0 2px var(--chrome-accent);
+}
+
+/*
+ * The three doors, side by side.
+ *
+ * The strip is a narrow column and gives the interactive slide a row of its
+ * own; an overview is as wide as the screen, and the height a second row would
+ * cost is exactly the height a landscape phone has to give the pages.
+ */
+.filmstrip[data-overview] .filmstrip__footer {
+  padding: 6px;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.filmstrip[data-overview] .filmstrip__footer .btn--interactive {
+  flex-basis: 0;
 }
 
 /* The list of text on the page: the portrait workspace's main surface. */

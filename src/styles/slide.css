@@ -820,6 +820,12 @@ button.interactive-page__activate:focus-visible {
   background: #000;
   /* The app's pointer is the app's; the presenting cursor stops here. */
   cursor: default;
+  /*
+   * And so are the app's gestures. The compact stage takes `touch-action` away
+   * from the browser so a pinch magnifies the slide rather than the page; a
+   * running app is the one surface inside it that must keep every one of them.
+   */
+  touch-action: auto;
 }
 
 .interactive-runtime__frame {

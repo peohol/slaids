@@ -125,6 +125,46 @@ body {
   touch-action: manipulation;
 }
 
+/* ----------------------------------------------------------------- *
+ * Text selection is an editing affordance
+ *
+ * A press on a zone means «this one». A long press means «show me what I can
+ * do with it». A drag moves the view or the deck. None of the three means
+ * «highlight these words» — and a browser that answers one of them with a blue
+ * selection and a callout menu makes all three unreliable at once, because the
+ * selection then eats the next press as well.
+ *
+ * So the rule is stated once, here, and positively: **the only selectable text
+ * in the app is text you can edit.** A Tiptap surface, an input, anything
+ * `contenteditable` — those are the places where the user has actually asked
+ * for a caret, and they get the selection, the callout and copy/paste back in
+ * full. Everywhere else the words are a picture of the presentation.
+ *
+ * Stated as one invariant rather than as a `preventDefault` per component: a
+ * gesture that has to be suppressed in five places is a gesture that will come
+ * back through the sixth.
+ *
+ * The presented deck is the one deliberate exception. An audience copies a
+ * quotation out of a slide, and the player already knows the difference
+ * between a press that left something selected and one that did not.
+ * ----------------------------------------------------------------- */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  /* iOS' long-press callout is the same gesture arriving through another door. */
+  -webkit-touch-callout: none;
+}
+
+.present,
+[contenteditable='true'],
+[contenteditable=''],
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 button {
   font: inherit;
   color: inherit;

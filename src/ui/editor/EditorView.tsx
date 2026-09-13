@@ -114,7 +114,9 @@ import {
   type Placement,
   type PlacementSource,
 } from './placement'
-import { hasTextTargetIn, textTargetsForSlide, type TextTargetEntry } from './textTarget'
+import { hasTextTargetIn, type TextTargetEntry } from './textTarget'
+import { liveFocus, type StageFocus } from './stageFocus'
+import { NO_ZOOM, isZoomed, type StageZoom } from './stageView'
 
 /**
  * Where the pointer is beats where the boxes overlap.
@@ -223,8 +225,28 @@ export function EditorView({
   const [placement, setPlacement] = useState<Placement | null>(null)
   /** The field open on the focused writing surface, on a compact workspace. */
   const [focusedText, setFocusedText] = useState<TextTargetEntry | null>(null)
-  /** Whether the stage is showing the selected zone rather than the whole slide. */
-  const [zoomed, setZoomed] = useState(false)
+  /**
+   * How close the stage is to the selected zone — the third and fourth steps
+   * of the ladder in `stageFocus.ts`.
+   *
+   * Held here for the same reason the panel choice is: a rotation that crosses
+   * the compact threshold swaps the shell, and a step the shell was holding
+   * would go with it. Read through `liveFocus`, never directly, so it cannot
+   * outlive the selection it is about.
+   */
+  const [stageFocus, setStageFocus] = useState<StageFocus | null>(null)
+  /**
+   * The pinch on the stage, and which step of the ladder it belongs to.
+   *
+   * Kept beside a key rather than reset by an effect: a magnification of one
+   * zone means nothing on the next slide, so a zoom whose key no longer matches
+   * simply is not the current one. Stated in slide coordinates, so rotating the
+   * phone or opening a panel keeps looking at the same part of the page.
+   */
+  const [stageZoom, setStageZoom] = useState<{ key: string; zoom: StageZoom }>(() => ({
+    key: '',
+    zoom: NO_ZOOM,
+  }))
 
   /*
    * How much room there is and how precisely it can be pointed at. Two facts
@@ -1064,20 +1086,27 @@ export function EditorView({
    * -------------------------------------------------------------- */
 
   /**
-   * Open the first field of a zone on the readable writing surface.
+   * Fill the stage with one zone, and — when asked — make it the writing
+   * surface: steps three and four of the ladder in `stageFocus.ts`.
    *
-   * A compact workspace's answer to "I want to change this text": the zone is
-   * selected by a press on the slide, and this is the way in from there. The
-   * list of fields is derived from the layout tree, so a zone with two
-   * subfields offers the first and the text panel offers the rest.
+   * This is a compact workspace's answer to "I want to change this text". The
+   * zone is selected by a press on the slide, focused from there, and typed in
+   * where it is drawn: the same Tiptap document, the same commands, the same
+   * undo history and the same fit measurement as on a desktop, at a size
+   * somebody can read. Nothing about it is a second text model — the zone is
+   * simply large enough to be one.
    */
-  const editTextInNode = useCallback((nodeId: string) => {
-    const slide = useEditorStore.getState().currentSlide()
-    if (!slide) return
-    const entry = textTargetsForSlide(slide).find(
-      (candidate) => 'nodeId' in candidate.target && candidate.target.nodeId === nodeId,
-    )
-    if (entry) setFocusedText(entry)
+  const focusZone = useCallback((nodeId: string, editing: boolean) => {
+    const store = useEditorStore.getState()
+    const slideId = store.currentSlideId
+    if (!slideId) return
+    // Typing happens in content mode; zone outlines and ratio handles belong to
+    // the step below, and a finger cannot mean both at once.
+    if (editing) store.setMode('content')
+    store.selectNode(nodeId)
+    setStageFocus({ slideId, nodeId, editing })
+    // The stage has to be visible to be written on.
+    setCompactPanel(null)
   }, [])
 
   /* -------------------------------------------------------------- *
@@ -1097,7 +1126,7 @@ export function EditorView({
               id: 'edit-text',
               label: 'Rediger tekst',
               icon: 'text',
-              onSelect: () => editTextInNode(selectedNodeId),
+              onSelect: () => focusZone(selectedNodeId, true),
               testId: 'zone-action-edit-text',
             } satisfies ZoneAction,
           ]
@@ -1173,7 +1202,7 @@ export function EditorView({
     beginPlacement,
     compact,
     contentSlide,
-    editTextInNode,
+    focusZone,
     runStructural,
     selectedLeaf,
     selectedNode,
@@ -1234,13 +1263,62 @@ export function EditorView({
    * -------------------------------------------------------------- */
 
   /**
-   * Zooming into a zone is worth offering only when it would show more than
-   * the whole slide already does: the root fills the stage, so focusing it is
-   * the view it is already in.
+   * Filling the stage with a zone is worth offering only when it would show
+   * more than the whole slide already does: the root *is* the slide, so
+   * focusing it is the view the stage is already in.
    */
-  const canZoom =
+  const canFocusZone =
     compact && contentSlide !== null && selectedRect != null && selectedNodeId !== contentSlide.root.id
-  const focusRect = canZoom && zoomed ? (selectedRect ?? null) : null
+  const canEditZoneText =
+    contentSlide !== null && selectedNodeId !== null && hasTextTargetIn(contentSlide, selectedNodeId)
+  /*
+   * Where the ladder actually is, as opposed to where it was last put. An undo
+   * that deletes the zone, a press on another one or a page turn all land on
+   * the step that is true now — see `liveFocus`.
+   */
+  const focus = liveFocus(stageFocus, {
+    slideId: currentSlideId,
+    selectedNodeId,
+    focusable: canFocusZone,
+    hasText: canEditZoneText,
+  })
+  const focusRect = focus ? (selectedRect ?? null) : null
+
+  /*
+   * The pinch belongs to this slide and this step; anywhere else there is none.
+   * Derived rather than reset, so no effect can leave a magnification behind on
+   * a page it was never taken on.
+   */
+  const zoomKey = `${currentSlideId ?? ''}:${focus?.nodeId ?? ''}`
+  const zoom = stageZoom.key === zoomKey ? stageZoom.zoom : NO_ZOOM
+  const changeZoom = (update: (current: StageZoom) => StageZoom): void => {
+    setStageZoom((previous) => ({
+      key: zoomKey,
+      // A pinch sends several moves per frame, and each has to build on the one
+      // before it rather than on whatever the last render drew.
+      zoom: update(previous.key === zoomKey ? previous.zoom : NO_ZOOM),
+    }))
+  }
+
+  /**
+   * One step back down the ladder, and only one.
+   *
+   * Typing stops before the zone is left, and the zone is left before the
+   * pinch is dropped — each press undoes exactly the last thing that was
+   * asked for, which is what makes the way out predictable without a map of
+   * the states in the user's head.
+   */
+  const stepBack = (): void => {
+    if (focus?.editing) {
+      setStageFocus({ ...focus, editing: false })
+      return
+    }
+    if (focus) {
+      setStageFocus(null)
+      return
+    }
+    changeZoom(() => NO_ZOOM)
+  }
 
   const stageNode = viewedDerivedPage ? (
     <ReadOnlySlideStage page={viewedDerivedPage} note={derivedPageNote(viewedDerivedPage)} />
@@ -1263,10 +1341,14 @@ export function EditorView({
         setImageOpen('zone')
       }}
       dropTargets={dropTargets}
-      selectOnTap={compact}
-      editableText={!compact}
+      // While the focused zone is being typed in, a press means "put the caret
+      // here" again — which is what the zone was made big enough for.
+      selectOnTap={compact && !focus?.editing}
+      textEditing={compact ? (focus?.editing ? 'selected' : 'none') : 'all'}
       chrome={!compact}
       focusRect={focusRect}
+      zoom={compact ? zoom : undefined}
+      onZoomChange={compact ? changeZoom : undefined}
       onPlace={activePlacement ? commitPlacement : null}
     />
   ) : null
@@ -1354,10 +1436,11 @@ export function EditorView({
       onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
       onToggleShare: toggleShare,
     },
-    // A compact workspace edits text on the focused surface, which carries its
-    // own formatting bar. A second one over the stage would act on a field
-    // nobody can see.
-    textToolbar: compact ? null : (
+    // A compact workspace has no field on the stage to format — until the
+    // focused zone becomes one, and then this is the bar for it. The writing
+    // sheet carries its own; a third one over a slide nobody is typing on
+    // would act on a field nobody can see.
+    textToolbar: compact && !focus?.editing ? null : (
       <TextToolbar
         onInsertReference={() => setReferencesOpen(true)}
         onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
@@ -1376,6 +1459,10 @@ export function EditorView({
         onRequestNewSlide={() => setNewSlideOpen(true)}
         onRequestNewSection={() => setNewSectionOpen(true)}
         onRequestNewInteractive={() => setNewInteractiveOpen(true)}
+        // On a compact workspace the strip is the whole slide overview rather
+        // than a column beside the stage, so its pages are drawn as big as the
+        // panel allows. Same component, same commands.
+        overview={compact}
       />
     ),
     stage: stageNode,
@@ -1410,9 +1497,20 @@ export function EditorView({
       </div>
     ) : null,
     onEditText: setFocusedText,
-    zoomed: Boolean(focusRect),
-    onToggleZoom: () => setZoomed((on) => !on),
-    canZoom,
+    focus: {
+      focused: focus !== null,
+      editing: focus?.editing ?? false,
+      canFocus: canFocusZone,
+      canEdit: canEditZoneText,
+      magnified: isZoomed(zoom),
+      onFocus: () => {
+        if (selectedNodeId) focusZone(selectedNodeId, false)
+      },
+      onEdit: () => {
+        if (selectedNodeId) focusZone(selectedNodeId, true)
+      },
+      onBack: stepBack,
+    },
     onShowShortcuts: () => setShortcutsOpen(true),
   }
 

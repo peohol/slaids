@@ -15,6 +15,7 @@ import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
 import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
+import { useWorkspace } from '../workspace/WorkspaceContext'
 import { alignmentIsActive, type Alignment } from './extensions'
 import { Icon, type IconName } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
@@ -85,6 +86,7 @@ export function TextToolbar({
   const version = useActiveEditor((state) => state.version)
   const bump = useActiveEditor((state) => state.bump)
   const activeField = useEditorStore((state) => state.activeField)
+  const { coarse } = useWorkspace()
   const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
   /** What a heading with no colour of its own is painted with: the section's. */
@@ -129,7 +131,12 @@ export function TextToolbar({
   if (!editor || !activeField) {
     return (
       <div className="text-toolbar text-toolbar--empty" data-testid="text-toolbar-empty">
-        <span className="hint">Klikk i et innholdsfelt for å redigere tekst.</span>
+        {/* A finger does not click. The bar is shown on a compact workspace
+            while the focused zone is a writing surface, so the one sentence in
+            it has to be about the pointer the reader actually has. */}
+        <span className="hint">
+          {coarse ? 'Trykk' : 'Klikk'} i et innholdsfelt for å redigere tekst.
+        </span>
       </div>
     )
   }

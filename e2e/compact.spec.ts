@@ -26,14 +26,22 @@ import {
 import {
   closeKeyboard,
   closePanel,
+  dragAcrossSlide,
   isCoarse,
   isOnScreen,
   openKeyboard,
   openPanel,
+  pinchSlide,
   pressSlide,
   rotate,
+  selectedText,
+  shownSlideId,
   slideOrder,
+  slidePointAt,
+  stageArea,
   stageRoom,
+  stageZoom,
+  swipeSlide,
 } from './compactHelpers'
 
 const COUNTER = readFileSync(new URL('./apps/counter-app.html', import.meta.url))
@@ -43,6 +51,42 @@ async function addCardToRootZone(page: Page): Promise<void> {
   await openPanel(page, 'zone')
   await page.getByTestId('inspector-add-untitled-card').click()
   await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+}
+
+/** Add `count` ordinary slides through the overview, the way a finger does. */
+async function addSlides(page: Page, count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await openPanel(page, 'slides')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+  }
+}
+
+/** Split the selected zone in two, through the dialog the panel offers. */
+async function splitSelectedZone(page: Page): Promise<void> {
+  await openPanel(page, 'zone')
+  await page.getByTestId('inspector-action-split').click()
+  await expect(page.getByTestId('split-modal')).toBeVisible()
+  await page.getByTestId('split-apply').click()
+  await expect(page.getByTestId('split-modal')).toBeHidden()
+}
+
+/** The smallest zone whose rectangle contains this slide point. */
+function zoneAt(zones: { id: string; x: number; y: number; w: number; h: number }[], point: { x: number; y: number }) {
+  return zones
+    .filter((zone) => 
+      point.x >= zone.x && point.x <= zone.x + zone.w && point.y >= zone.y && point.y <= zone.y + zone.h)
+    .sort((a, b) => a.w * a.h - b.w * b.h)[0]
+}
+
+/** The same box, to the pixel. */
+function expectSameBox(actual: { x: number; y: number; width: number; height: number } | null, expected: { x: number; y: number; width: number; height: number } | null): void {
+  expect(actual).not.toBeNull()
+  expect(expected).not.toBeNull()
+  expect(actual!.x).toBeCloseTo(expected!.x, 1)
+  expect(actual!.y).toBeCloseTo(expected!.y, 1)
+  expect(actual!.width).toBeCloseTo(expected!.width, 1)
+  expect(actual!.height).toBeCloseTo(expected!.height, 1)
 }
 
 test.describe('kompakt arbeidsflate', () => {
@@ -598,6 +642,377 @@ test.describe('kompakt arbeidsflate', () => {
     // And the one choice that is available carries no explanation at all.
     await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
     await expect(page.getByTestId('content-kind-reason-negative-space')).toHaveCount(0)
+  })
+
+  /* ----------------------------------------------------------------- *
+   * Swiping between slides
+   * ----------------------------------------------------------------- */
+
+  test('sveip over slideområdet bytter slide, nøyaktig én per gest', async ({ page }) => {
+    await createPresentation(page, 'Sveip')
+    await addSlides(page, 2)
+
+    await openPanel(page, 'slides')
+    const order = await slideOrder(page)
+    expect(order.length).toBe(4)
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect.poll(() => shownSlideId(page)).toBe(order[0])
+
+    /*
+     * One flick, one page. The second assertion is the one that matters: a
+     * recogniser that fired on every move instead of on the release would have
+     * gone straight to the end of the deck here.
+     */
+    await swipeSlide(page, 1)
+    await expect.poll(() => shownSlideId(page)).toBe(order[1])
+    await swipeSlide(page, 1)
+    await expect.poll(() => shownSlideId(page)).toBe(order[2])
+    await swipeSlide(page, -1)
+    await expect.poll(() => shownSlideId(page)).toBe(order[1])
+  })
+
+  test('trykk og loddrett bevegelse er ikke slidebytte', async ({ page }) => {
+    await createPresentation(page, 'Ikke sveip')
+    await addSlides(page, 2)
+    await closePanel(page)
+    const before = await shownSlideId(page)
+    const box = await stageArea(page)
+    // Up in the corner of the stage, so a downward drag has somewhere to go
+    // whichever way the phone is held.
+    const from = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.2 }
+
+    // A press that wobbled is still a press.
+    await dragAcrossSlide(page, { dx: 6, dy: 4 }, from)
+    expect(await shownSlideId(page)).toBe(before)
+
+    // A drag down the page, and a drag down it that drifted sideways: neither
+    // is a page turn, and a deck that jumped for one would be unusable.
+    await dragAcrossSlide(page, { dx: 0, dy: box.height * 0.5 }, from)
+    expect(await shownSlideId(page)).toBe(before)
+    await dragAcrossSlide(page, { dx: 60, dy: box.height * 0.5 }, from)
+    expect(await shownSlideId(page)).toBe(before)
+  })
+
+  test('en knapp og en kjørende miniapp eier sine egne gester', async ({ page }) => {
+    await createPresentation(page, 'Egne gester')
+    await openPanel(page, 'slides')
+    await page.getByTestId('add-interactive').click()
+    await page.getByTestId('interactive-file-input').setInputFiles({
+      name: 'counter-app.html',
+      mimeType: 'text/html',
+      buffer: COUNTER,
+    })
+    await page.getByTestId('interactive-name-input').fill('Teller')
+    await page.getByTestId('create-interactive').click()
+    await expect(page.getByTestId('new-interactive-modal')).toBeHidden()
+    await closePanel(page)
+    const before = await shownSlideId(page)
+
+    // A drag that starts on the cover's own button belongs to the button. The
+    // deck has a page before this one, so a hijacked gesture would show.
+    const activate = (await page.getByTestId('activate-interactive').boundingBox())!
+    await dragAcrossSlide(
+      page,
+      { dx: -200, dy: 0 },
+      { x: activate.x + activate.width / 2, y: activate.y + activate.height / 2 },
+    )
+    expect(await shownSlideId(page)).toBe(before)
+    await expect(page.getByTestId('activate-interactive')).toBeVisible()
+
+    // And while the app runs, every gesture on the page is the app's.
+    await page.getByTestId('activate-interactive').click()
+    await expect(page.getByTestId('interactive-runtime')).toBeVisible()
+    await dragAcrossSlide(page, { dx: -220, dy: 0 })
+    expect(await shownSlideId(page)).toBe(before)
+    await expect(page.getByTestId('interactive-runtime')).toBeVisible()
+  })
+
+  /* ----------------------------------------------------------------- *
+   * The slide overview
+   * ----------------------------------------------------------------- */
+
+  test('slideoversikten tar hele høyden under toppmenyen, med brede miniatyrer', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Oversikt')
+    await addSlides(page, 5)
+    await openPanel(page, 'slides')
+
+    const overview = (await page.getByTestId('compact-panel').boundingBox())!
+    const topBar = (await page.getByTestId('compact-top-bar').boundingBox())!
+    const tabBar = (await page.getByTestId('compact-tab-bar').boundingBox())!
+    // Everything between the two bars, in both orientations: the overview is
+    // navigation, not a drawer beside a sliver of the current slide.
+    expect(overview.y).toBeLessThanOrEqual(topBar.y + topBar.height + 1)
+    expect(overview.y + overview.height).toBeGreaterThanOrEqual(tabBar.y - 1)
+    expect(overview.width).toBeCloseTo(topBar.width, 0)
+
+    // The pages use the room: wider than the desktop column's thumbnail, and
+    // together filling the row they are in.
+    const list = (await page.getByTestId('filmstrip-list').boundingBox())!
+    const thumb = (await page.getByTestId('filmstrip-thumb').first().boundingBox())!
+    expect(thumb.width).toBeGreaterThan(168)
+    const perRow = Math.max(1, Math.round(list.width / thumb.width))
+    expect(thumb.width * perRow).toBeGreaterThan(list.width * 0.8)
+
+    // There is more deck than screen, and the list is what scrolls.
+    const scroll = await page
+      .getByTestId('filmstrip-list')
+      .evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+        return { top: element.scrollTop, height: element.scrollHeight, visible: element.clientHeight }
+      })
+    expect(scroll.height).toBeGreaterThan(scroll.visible)
+    expect(scroll.top).toBeGreaterThan(0)
+
+    // Choosing a page is one press, and it says so semantically.
+    await page.getByTestId('filmstrip-list').evaluate((element) => element.scrollTo(0, 0))
+    const thumbs = page.getByTestId('filmstrip-item')
+    await thumbs.nth(2).getByTestId('filmstrip-thumb').click()
+    await expect(thumbs.nth(2)).toHaveClass(/filmstrip__item--active/)
+    await expect(thumbs.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
+
+    // And the discrete way to reorder is still right there on every entry.
+    const order = await slideOrder(page)
+    await thumbs.nth(2).getByTestId('move-slide-up').click()
+    await expect
+      .poll(() => slideOrder(page))
+      .toEqual([order[0], order[2], order[1], ...order.slice(3)])
+  })
+
+  /* ----------------------------------------------------------------- *
+   * Pinch, pan and the focus ladder
+   * ----------------------------------------------------------------- */
+
+  test('pinch zoomer stagen og ingenting annet', async ({ page }) => {
+    await createPresentation(page, 'Pinch')
+    // Asked of the app once there is an app to ask: a pinch needs two fingers,
+    // and the run with a mouse has one pointer to give.
+    test.skip(!(await isCoarse(page)), 'Pinch trenger to fingre; denne kjøringen har mus.')
+    await addCardToRootZone(page)
+    await closePanel(page)
+
+    const topBefore = await page.getByTestId('compact-top-bar').boundingBox()
+    const tabsBefore = await page.getByTestId('compact-tab-bar').boundingBox()
+    const slideBefore = (await stage(page).boundingBox())!
+    expect(await stageZoom(page)).toBe(1)
+
+    await pinchSlide(page, { from: 80, to: 260 })
+
+    // The slide grew …
+    expect(await stageZoom(page)).toBeGreaterThan(1.5)
+    const slideAfter = (await stage(page).boundingBox())!
+    expect(slideAfter.width).toBeGreaterThan(slideBefore.width * 1.4)
+
+    // … and the application around it did not move, did not resize, and was
+    // not itself zoomed by the browser.
+    expectSameBox(await page.getByTestId('compact-top-bar').boundingBox(), topBefore)
+    expectSameBox(await page.getByTestId('compact-tab-bar').boundingBox(), tabsBefore)
+    expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBeCloseTo(1, 2)
+
+    // One press puts it back, and nothing about it was ever the document's:
+    // a reload comes back at the view the slide has always had.
+    await page.getByTestId('compact-stage-reset-zoom').click()
+    await expect.poll(() => stageZoom(page)).toBe(1)
+    expectSameBox(await stage(page).boundingBox(), slideBefore)
+
+    await pinchSlide(page, { from: 80, to: 260 })
+    expect(await stageZoom(page)).toBeGreaterThan(1.5)
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('stage-slide')).toBeVisible()
+    expect(await stageZoom(page)).toBe(1)
+  })
+
+  test('sonevalg treffer riktig slidepunkt gjennom en zoomet visning', async ({ page }) => {
+    await createPresentation(page, 'Treff under zoom')
+    test.skip(!(await isCoarse(page)), 'Pinch trenger to fingre; denne kjøringen har mus.')
+    await splitSelectedZone(page)
+    await closePanel(page)
+
+    await pinchSlide(page, { from: 80, to: 220 })
+    expect(await stageZoom(page)).toBeGreaterThan(1)
+
+    /*
+     * Press a point on screen, ask the geometry which zone is drawn there, and
+     * require the two to agree. That is the whole promise of the view
+     * transform: the page is bigger, the coordinates are not different.
+     */
+    const box = await stageArea(page)
+    const where = { x: box.x + box.width * 0.3, y: box.y + box.height * 0.5 }
+    const point = await slidePointAt(page, where)
+    const expected = zoneAt(await zoneRects(page), point)
+    expect(expected).toBeTruthy()
+
+    await page.mouse.click(where.x, where.y)
+    await openPanel(page, 'zone')
+    await expect(page.locator('.zone-outline--selected')).toHaveAttribute(
+      'data-node-outline',
+      expected.id,
+    )
+  })
+
+  test('den fokuserte sonen er skriveflaten, og fit måles mot den virkelige sonen', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Skriv i sonen')
+    await splitSelectedZone(page)
+    await closePanel(page)
+
+    // Step two: a press selects a zone that is not the whole slide.
+    const zones = await zoneRects(page)
+    const target = zones[0]
+    await pressSlide(page, target.x + target.w / 2, target.y + target.h / 2)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-untitled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+    await closePanel(page)
+
+    const wholeSlide = (await stage(page).boundingBox())!
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+
+    // Step three: the zone fills the stage. The page is drawn bigger; the page
+    // itself is unchanged.
+    await page.getByTestId('compact-stage-focus').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    const focused = (await stage(page).boundingBox())!
+    expect(focused.width).toBeGreaterThan(wholeSlide.width)
+
+    // Step four: that zone is the writing surface — the same document, typed
+    // where it is drawn.
+    await page.getByTestId('compact-stage-edit').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'text')
+    const field = stage(page).locator('.tiptap[contenteditable="true"]').first()
+    await expect(field).toBeVisible()
+    await field.click()
+    await page.keyboard.insertText('Skrevet rett i sonen.')
+    await expect(stage(page)).toContainText('Skrevet rett i sonen.')
+
+    /*
+     * And the surface is still not the measure. The zone is drawn several times
+     * its real size here, and would happily hold this; the zone at 1600 × 900
+     * would not, so the edit is refused with the same message and the draft
+     * that was accepted stays.
+     */
+    await page.keyboard.insertText('Altfor mye tekst til en halv slide. '.repeat(120))
+    await expect(toast(page, 'får ikke plass')).toBeVisible()
+    await expect(field).not.toContainText('Altfor mye tekst')
+    await expect(field).toContainText('Skrevet rett i sonen.')
+
+    // One press per step back down, and the text is on the slide.
+    await page.getByTestId('compact-stage-done').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await page.getByTestId('compact-stage-back').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    expectSameBox(await stage(page).boundingBox(), wholeSlide)
+    await expect(stage(page)).toContainText('Skrevet rett i sonen.')
+  })
+
+  test('rotasjon beholder den fokuserte sonen', async ({ page }) => {
+    await createPresentation(page, 'Fokus gjennom rotasjon')
+    await splitSelectedZone(page)
+    await closePanel(page)
+    const zones = await zoneRects(page)
+    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
+    await page.getByTestId('compact-stage-focus').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+
+    await rotate(page)
+
+    // A turn of the wrist is a layout signal. The step of the ladder the user
+    // was on is not a fact about the window, so it is still where it was.
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(page.getByTestId('compact-stage-back')).toBeVisible()
+    await openPanel(page, 'zone')
+    await expect(page.locator('.zone-outline--selected')).toHaveAttribute(
+      'data-node-outline',
+      zones[0].id,
+    )
+    await rotate(page)
+  })
+
+  /* ----------------------------------------------------------------- *
+   * Text selection
+   * ----------------------------------------------------------------- */
+
+  test('sonetekst markeres ikke av trykk eller drag, men et felt markerer som vanlig', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Markering')
+    await splitSelectedZone(page)
+    await closePanel(page)
+    const zones = await zoneRects(page)
+    const target = zones[0]
+    await pressSlide(page, target.x + target.w / 2, target.y + target.h / 2)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-untitled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+
+    // The card's own text, not the slide title: the words under test have to
+    // be inside the zone that is focused further down.
+    await openPanel(page, 'content')
+    await page
+      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
+      .first()
+      .click()
+    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
+    await page.keyboard.insertText('En setning som ser ut som den kan markeres.')
+    await page.getByTestId('focused-text-done').click()
+    await closePanel(page)
+    await expect(stage(page)).toContainText('En setning som ser ut')
+
+    // The invariant, as the browser computes it: the words on the slide are a
+    // picture of the presentation, not a text field.
+    const words = stage(page).locator('.rich-doc:not(.rich-doc--title) p').first()
+    expect(await words.evaluate((element) => getComputedStyle(element).userSelect)).toBe('none')
+
+    /*
+     * And as a hand performs it. Every drag here is kept shorter than a swipe
+     * on purpose: what is under test is whether the words highlight, and a
+     * gesture long enough to turn the page would be testing something else.
+     */
+    const line = (await words.boundingBox())!
+    const mid = line.y + line.height / 2
+    await page.mouse.move(line.x + 1, mid)
+    await page.mouse.down()
+    await page.mouse.move(line.x + 40, mid, { steps: 8 })
+    await page.mouse.up()
+    expect(await selectedText(page)).toBe('')
+
+    // A long press on them: the gesture a phone answers with a callout menu.
+    await page.mouse.move(line.x + 4, mid)
+    await page.mouse.down()
+    await page.waitForTimeout(700)
+    await page.mouse.move(line.x + 24, mid)
+    await page.mouse.up()
+    expect(await selectedText(page)).toBe('')
+
+    // And a finger dragged straight across them.
+    await dragAcrossSlide(page, { dx: 40, dy: 0 }, { x: line.x + 1, y: mid })
+    expect(await selectedText(page)).toBe('')
+
+    /*
+     * Inside a real writing surface it all comes back — because that is where
+     * the user actually asked for a caret. The drag may be as long as it likes
+     * here: a field owns its own gestures, so this one is never a page turn.
+     */
+    await page.getByTestId('compact-stage-focus').click()
+    await page.getByTestId('compact-stage-edit').click()
+    const field = stage(page).locator('.tiptap[contenteditable="true"]').first()
+    await expect(field).toBeVisible()
+    expect(await field.evaluate((element) => getComputedStyle(element).userSelect)).toBe('text')
+    await field.click()
+    await page.keyboard.press('ControlOrMeta+a')
+    expect(await selectedText(page)).toContain('setning')
+
+    // The caret is a caret too: what is selected can be replaced by typing.
+    await page.keyboard.insertText('Erstattet')
+    await expect(field).toContainText('Erstattet')
+    await expect(field).not.toContainText('setning')
   })
 
   test('lagrer og henter tilbake etter reload', async ({ page }) => {
