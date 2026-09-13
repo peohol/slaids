@@ -12,7 +12,9 @@
 import { describe, expect, it } from 'vitest'
 import { contentKindRefusal, minimumSizeForKind } from '../../domain/contentSize'
 import { themeMetrics } from '../../domain/metrics'
-import type { Rect } from '../../domain/types'
+import { createUntitledCard, negativeSpaceRefusal } from '../../domain/content'
+import { paragraphDoc } from '../../domain/richdoc'
+import type { Rect, ZoneContent } from '../../domain/types'
 import { contentKindOptions, CONTENT_KINDS } from './contentKinds'
 
 const at = (width: number, height: number): Rect => ({ x: 0, y: 0, width, height })
@@ -63,6 +65,48 @@ describe('contentKindOptions', () => {
   it('leaves negativt rom as the last choice standing', () => {
     const available = contentKindOptions(at(4, 3)).filter((option) => !option.disabled)
     expect(available.map((option) => option.kind)).toEqual(['negative-space'])
+  })
+
+  it('disables negativt rom when the zone holds something to lose', () => {
+    // Only air can lose anything, and it loses everything. A button that looks
+    // available and then fails on click is worse than one that was never
+    // offered — so the picker asks the same question the command refuses by.
+    const card = createUntitledCard()
+    const filled: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc('noe tekst') }],
+      },
+    }
+    const air = contentKindOptions(ROOMY, undefined, filled).find(
+      (option) => option.kind === 'negative-space',
+    )
+    expect(air?.disabled).toBe(true)
+    expect(air?.reason).toBe(negativeSpaceRefusal(filled))
+
+    // An empty card has nothing to lose, so it may become air.
+    const empty = contentKindOptions(ROOMY, undefined, card).find(
+      (option) => option.kind === 'negative-space',
+    )
+    expect(empty?.disabled).toBe(false)
+  })
+
+  it('never disables the kind the zone already is', () => {
+    // A zone too small for what it holds is the document that needs repairing.
+    // Greying out its own kind would read as broken, and the command answers
+    // «done» to that call anyway.
+    const cramped = at(60, 40)
+    const card = createUntitledCard()
+    const own = contentKindOptions(cramped, undefined, card).find(
+      (option) => option.kind === 'untitled-card',
+    )
+    expect(own?.disabled).toBe(false)
+    // Every other kind that needs more room is still unavailable.
+    const other = contentKindOptions(cramped, undefined, card).find(
+      (option) => option.kind === 'titled-card',
+    )
+    expect(other?.disabled).toBe(true)
   })
 
   it('offers everything when there is no zone to measure against', () => {

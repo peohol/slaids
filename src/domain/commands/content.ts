@@ -18,10 +18,10 @@ import {
   createNegativeSpace,
   createTitledImageCard,
   createUntitledCard,
-  contentIsEmpty,
   hasCardTitle,
   hasImagePanel,
   imagePanelOf,
+  negativeSpaceRefusal,
   withBody,
   withBodyAxis,
   withImagePanel,
@@ -653,17 +653,29 @@ export function setContentKind(
   presentation: Presentation,
   input: { kind: ZoneContentKind } & ZoneContentTarget,
 ): Result<Presentation> {
-  const refusal = contentKindRefusalFor(presentation, input, input.kind)
-  if (refusal) return refusal
   return updateZoneContent(
     presentation,
     input,
     (content) => {
-      if (input.kind === 'negative-space' && !contentIsEmpty(content)) {
-        return err(
-          'INVALID_CONTENT',
-          'Negativt rom har ikke noe innhold. Tøm sonen først — innholdet havner i sandkassen.',
-        )
+      /*
+       * Asking for the kind that is already there is asking for the document as
+       * it stands, and that is never refused.
+       *
+       * It matters because the size gate below is about *introducing* a kind
+       * into a rectangle. A zone that is already too small for what it holds —
+       * an import, or a document from before a token moved — would otherwise
+       * answer `ZONE_TOO_SMALL` to a call that changes nothing, and the
+       * compound agent operation that sets the kind before shortening a title
+       * could never reach the repair it was sent to make.
+       */
+      if (content.kind === input.kind) return ok(content)
+
+      const tooSmall = contentKindRefusalFor(presentation, input, input.kind)
+      if (tooSmall) return tooSmall
+
+      if (input.kind === 'negative-space') {
+        const refusal = negativeSpaceRefusal(content)
+        if (refusal) return err('INVALID_CONTENT', refusal)
       }
       return ok(convertContentKind(content, input.kind))
     },

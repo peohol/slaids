@@ -228,6 +228,15 @@ export function partOfKey(key: OverflowKey): string {
   return at < 0 ? '' : key.slice(at + 1)
 }
 
+/** The worst overflow among every region of one node in a measurement. */
+function worstInNode(overflow: ReadonlyMap<OverflowKey, number>, nodeId: NodeId): number {
+  let worst = 0
+  for (const [key, value] of overflow) {
+    if (nodeIdOfKey(key) === nodeId) worst = Math.max(worst, value)
+  }
+  return worst
+}
+
 export interface OverflowEntry {
   key: OverflowKey
   nodeId: NodeId
@@ -423,7 +432,24 @@ export function findFitRegressions(
     let baseline: Map<OverflowKey, number> | null = null
     const entries = overflowRegressions(next, (key) => {
       baseline ??= pageOverflow(previous, beforeContext, options)
-      return baseline.get(key) ?? 0
+      const same = baseline.get(key)
+      if (same !== undefined) return same
+      /*
+       * A region that did not exist before has no baseline of its own, and 0 is
+       * the wrong stand-in: it says «this place used to show everything», which
+       * turns any conversion of an already-overfull zone into a regression —
+       * including the one that *reduces* the overflow, which is exactly the
+       * repair an imported document needs.
+       *
+       * What the zone showed before is the honest baseline for a place that is
+       * new in it. Converting a card into a container mints new field ids, and
+       * a caption becomes a field; neither is the same region twice, so neither
+       * can be compared as one. This is never looser than measuring the zone as
+       * a whole was — and it cannot reopen the hole that measuring it as a whole
+       * left, because a region that exists on both sides is matched exactly and
+       * never reaches here.
+       */
+      return worstInNode(baseline, nodeIdOfKey(key))
     })
     for (const entry of entries) regressions.push({ slideId: slide.id, ...entry })
   }

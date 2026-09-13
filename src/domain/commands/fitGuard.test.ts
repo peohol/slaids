@@ -20,6 +20,7 @@ import {
   createTitledCard,
   createTitledImageCard,
   createUntitledCard,
+  negativeSpaceRefusal,
 } from '../content'
 import { CARD_TITLE_PART, estimateFit } from '../fit'
 import { computeSlideGeometry } from '../geometry'
@@ -114,6 +115,13 @@ function deckWith(content: ZoneContent, theme?: Partial<Presentation['theme']>):
   return unwrap(
     setZoneContent(presentation, { slideId: slide.id, nodeId: slide.root.id, content }),
   ).presentation
+}
+
+/** The one zone's content. */
+function contentOf(presentation: Presentation): ZoneContent {
+  const content = contentAt(presentation, 1).root
+  if (content.kind !== 'leaf' || !content.content) throw new Error('the zone is empty')
+  return content.content
 }
 
 /** The one zone's rectangle, under the deck's own theme. */
@@ -458,6 +466,86 @@ describe('setContentKind', () => {
       ...checkers,
     })
     expect(result.ok).toBe(true)
+  })
+
+  it('lets an already overfull card be converted into one with less chrome', () => {
+    /*
+     * The repair a region-by-region comparison must not block.
+     *
+     * A conversion mints fresh field ids and can turn a caption into a field,
+     * so the regions on the two sides are not the same regions — and a new
+     * region with no baseline of its own must not be read as «this place used
+     * to show everything». What the zone showed before is the honest baseline,
+     * and by it this conversion is an improvement: a container gives the text
+     * back the header and the padding a titled card spends.
+     */
+    const card = createTitledCard('Tittel')
+    const overfull: ZoneContent = {
+      ...card,
+      body: {
+        ...card.body,
+        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc(words(6000)) }],
+      },
+    }
+    const presentation = deckWith(overfull)
+    const before = estimateFit(overfull, rectOf(presentation), fitContextFor(presentation))
+    expect(before.fits).toBe(false)
+
+    const result = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'container',
+      ...checkers,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const after = estimateFit(
+        contentOf(result.value),
+        rectOf(result.value),
+        fitContextFor(result.value),
+      )
+      // Still over the edge, but less so — which is what «repairable» means.
+      expect(after.overflow).toBeGreaterThan(FIT_TOLERANCE)
+      expect(after.overflow).toBeLessThan(before.overflow)
+    }
+  })
+
+  it('answers «done» to the kind the zone already is, however small the zone', () => {
+    // A zone below the minimum for what it holds is exactly the document that
+    // needs repairing, and the compound agent operation sets the kind before it
+    // shortens anything. Refusing the no-op would make the repair unreachable.
+    const presentation = deckWith(containerWithDoc(paragraphDoc('kort')))
+    const cramped = { geometry: { slideWidth: 250, slideHeight: 400 } }
+    expect(
+      setContentKind(presentation, {
+        ...target(presentation),
+        kind: 'container',
+        ...cramped,
+        ...checkers,
+      }).ok,
+    ).toBe(true)
+    // A *different* kind in the same cramped zone is still refused.
+    const other = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'titled-card',
+      ...cramped,
+      ...checkers,
+    })
+    expect(other.ok).toBe(false)
+    if (!other.ok) expect(other.error.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('refuses to turn content that carries something into deliberate air', () => {
+    const presentation = deckWith(containerWithDoc(paragraphDoc('noe som ikke skal forsvinne')))
+    const refused = setContentKind(presentation, {
+      ...target(presentation),
+      kind: 'negative-space',
+      ...checkers,
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('INVALID_CONTENT')
+      expect(refused.error.message).toBe(negativeSpaceRefusal(containerWithDoc(paragraphDoc('x'))))
+    }
   })
 
   it('refuses turning a captioned picture into text it has no room for', () => {

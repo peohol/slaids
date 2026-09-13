@@ -493,8 +493,8 @@ export function EditorView({
    * different rectangle.
    */
   const selectionKindOptions = useMemo(
-    () => contentKindOptions(selectedRect ?? null, presentation?.theme),
-    [presentation?.theme, selectedRect],
+    () => contentKindOptions(selectedRect ?? null, presentation?.theme, selectedLeaf?.content ?? null),
+    [presentation?.theme, selectedLeaf?.content, selectedRect],
   )
 
   /* -------------------------------------------------------------- *

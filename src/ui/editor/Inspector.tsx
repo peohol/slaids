@@ -72,7 +72,7 @@ export function Inspector({
   const splitContext = splitContextFor(slide, selectedNodeId)
   // The zone's own rectangle decides which kinds can be drawn in it — the very
   // rule the commands refuse by, so no button offers what a click would fail.
-  const kindOptions = contentKindOptions(rect ?? null, theme)
+  const kindOptions = contentKindOptions(rect ?? null, theme, content)
 
   if (!node || !selectedNodeId) {
     return (

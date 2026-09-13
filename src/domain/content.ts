@@ -304,6 +304,20 @@ export function contentIsEmpty(content: ZoneContent): boolean {
   return contentDocs(content).every(isDocEmpty)
 }
 
+/**
+ * Why this zone cannot become deliberate air, or `null` when it can.
+ *
+ * Negative space has no payload by definition, so it is the one conversion that
+ * cannot carry anything across — and rather than deleting a card's text without
+ * saying so, the answer is «empty it first». One sentence, asked by the command
+ * that would refuse and by the picker that greys the choice out, so a button
+ * that looks available is never a button that fails on click.
+ */
+export function negativeSpaceRefusal(content: ZoneContent | null): string | null {
+  if (!content || contentIsEmpty(content)) return null
+  return 'Negativt rom har ikke noe innhold. Tøm sonen først — innholdet havner i sandkassen.'
+}
+
 /** Reference ids used by this content, in document order. */
 export function contentCitationIds(content: ZoneContent): string[] {
   return contentDocs(content).flatMap(collectCitationIds)
