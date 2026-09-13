@@ -860,6 +860,81 @@ test.describe('kompakt arbeidsflate', () => {
     expect(await stageZoom(page)).toBe(1)
   })
 
+  test('pinch zoomer også en seksjon, en miniappforside og en generert side', async ({ page }) => {
+    await createPresentation(page, 'Pinch overalt')
+    test.skip(!(await isCoarse(page)), 'Pinch trenger to fingre; denne kjøringen har mus.')
+    await addCardToRootZone(page)
+
+    // Cite something, so the deck also grows a generated reference page.
+    await openPanel(page, 'content')
+    await page
+      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
+      .first()
+      .click()
+    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
+    await page.keyboard.insertText('Påstand med kilde')
+    await page.getByTestId('insert-reference').click()
+    await page.getByTestId('reference-title').fill('En kilde')
+    await page.getByTestId('save-reference').click()
+    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('focused-text-done').click()
+
+    // … and a miniapp, so every kind of page the stage can show is in the deck.
+    await openPanel(page, 'slides')
+    await page.getByTestId('add-interactive').click()
+    await page.getByTestId('interactive-file-input').setInputFiles({
+      name: 'counter-app.html',
+      mimeType: 'text/html',
+      buffer: COUNTER,
+    })
+    await page.getByTestId('interactive-name-input').fill('Teller')
+    await page.getByTestId('create-interactive').click()
+    await expect(page.getByTestId('new-interactive-modal')).toBeHidden()
+
+    /**
+     * The whole requirement, on one page: the slide grows, the application
+     * does not, and the browser never zoomed the page itself.
+     */
+    const pinchHere = async (what: string): Promise<void> => {
+      const barBefore = await page.getByTestId('compact-top-bar').boundingBox()
+      const slideBefore = (await stage(page).boundingBox())!
+      expect(await stageZoom(page), what).toBe(1)
+
+      await pinchSlide(page, { from: 80, to: 260 })
+
+      expect(await stageZoom(page), what).toBeGreaterThan(1.5)
+      const slideAfter = (await stage(page).boundingBox())!
+      expect(slideAfter.width, what).toBeGreaterThan(slideBefore.width * 1.4)
+      expectSameBox(await page.getByTestId('compact-top-bar').boundingBox(), barBefore)
+      expect(await page.evaluate(() => window.visualViewport?.scale ?? 1), what).toBeCloseTo(1, 2)
+
+      await page.getByTestId('compact-stage-reset-zoom').click()
+      await expect.poll(() => stageZoom(page)).toBe(1)
+    }
+
+    // The front page is a section.
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-section', '')
+    await pinchHere('seksjon')
+
+    // The miniapp's cover, with nothing running on it.
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-item').last().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-interactive', '')
+    await pinchHere('miniappforside')
+
+    // And the generated reference page, which nobody can edit but anyone may
+    // want to read.
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
+    await closePanel(page)
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
+    await pinchHere('generert side')
+  })
+
   test('sonevalg treffer riktig slidepunkt gjennom en zoomet visning', async ({ page }) => {
     await createPresentation(page, 'Treff under zoom')
     test.skip(!(await isCoarse(page)), 'Pinch trenger to fingre; denne kjøringen har mus.')
@@ -1031,30 +1106,79 @@ test.describe('kompakt arbeidsflate', () => {
    * Text selection
    * ----------------------------------------------------------------- */
 
-  test('bare stagen som selv zoomer tar pinchen fra nettleseren', async ({ page }) => {
+  test('hver stage tar pinchen fra nettleseren, og bare stagen', async ({ page }) => {
     await createPresentation(page, 'Hvem eier pinchen')
-    const touchAction = (): Promise<string> =>
-      page
-        .getByTestId('stage-viewport')
-        .evaluate((element) => getComputedStyle(element).touchAction)
+    const touchAction = (testId: string): Promise<string> =>
+      page.getByTestId(testId).evaluate((element) => getComputedStyle(element).touchAction)
 
-    // The slide stage magnifies the page itself, so it takes the gesture.
-    expect(await touchAction()).toBe('none')
-
-    /*
-     * A section only fits its content — it installs no pinch of its own — so
-     * taking the browser's away there would leave two fingers doing nothing at
-     * all. The front page is a section, and it is one swipe away.
-     */
+    // Every stage magnifies the slide itself, so every stage takes the gesture.
+    expect(await touchAction('stage-viewport')).toBe('none')
     await openPanel(page, 'slides')
     await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
     await closePanel(page)
-    expect(await touchAction()).not.toBe('none')
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-section', '')
+    expect(await touchAction('stage-viewport')).toBe('none')
 
-    // And the deck can still be swiped there, which is the other half of it.
+    /*
+     * The area around it keeps what the browser needs: it must not take a
+     * sideways drag (that is the deck's), but vertical panning and the
+     * browser's own pinch are still its own outside the page itself.
+     */
+    expect(await touchAction('compact-stage')).toContain('pan-y')
+    expect(await touchAction('compact-stage')).toContain('pinch-zoom')
+
+    // And the deck can still be swiped on a section, which is the other half.
     const before = await shownSlideId(page)
     await swipeSlide(page, 1)
     await expect.poll(() => shownSlideId(page)).not.toBe(before)
+  })
+
+  test('slideoversikten kan dra-sorteres i flerkolonnevisning', async ({ page }) => {
+    await createPresentation(page, 'Dra i gridet')
+    await addSlides(page, 3)
+    await openPanel(page, 'slides')
+
+    const list = (await page.getByTestId('filmstrip-list').boundingBox())!
+    const thumb = (await page.getByTestId('filmstrip-thumb').first().boundingBox())!
+    const columns = Math.max(1, Math.round(list.width / thumb.width))
+    test.skip(columns < 2, 'Denne flaten gir én kolonne; gridet testes der det finnes.')
+
+    /*
+     * A drag in a grid is not a drag in a column: the entries to either side
+     * move sideways, not up and down, so the sorting strategy has to be the
+     * one that makes no assumption about the shape. This is the test that
+     * would fail if the overview kept the list's strategy.
+     */
+    const before = await slideOrder(page)
+    const items = page.getByTestId('filmstrip-item')
+    const from = (await items.nth(2).locator('.filmstrip__grip').boundingBox())!
+    const to = (await items.nth(1).boundingBox())!
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(from.x + from.width / 2 - 10, from.y + from.height / 2, { steps: 4 })
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 })
+    await page.mouse.move(to.x + to.width / 2 - 4, to.y + to.height / 2, { steps: 4 })
+    await page.waitForTimeout(250)
+
+    /*
+     * Still holding: the entry being pushed out of the way has to move
+     * *sideways*, because in a grid that is where the next cell is. This is
+     * the assertion the list's own strategy fails — it would displace the
+     * neighbour straight down, past an entry that is not underneath it. The
+     * drop order alone would not catch it: where an item lands comes from
+     * collision detection, and only the displacement comes from the strategy.
+     */
+    const pushed = await items.nth(1).evaluate((element) => {
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform)
+      return { x: matrix.m41, y: matrix.m42 }
+    })
+    expect(Math.abs(pushed.x)).toBeGreaterThan(Math.abs(pushed.y))
+    expect(Math.abs(pushed.x)).toBeGreaterThan(8)
+
+    await page.mouse.up()
+    await expect
+      .poll(() => slideOrder(page))
+      .toEqual([before[0], before[2], before[1], ...before.slice(3)])
   })
 
   test('sonetekst markeres ikke av trykk eller drag, men et felt markerer som vanlig', async ({

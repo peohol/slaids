@@ -5597,9 +5597,10 @@ For pinch gjelder:
   på det igjen;
 - panorering skjer med to fingre under pinchen og med én finger når visningen
   er forstørret;
-- der stagen *ikke* selv forstørrer sliden — en seksjon, en miniapps forside,
-  en generert side — beholder nettleseren sin egen pinch, slik at to fingre
-  aldri er en gest som ikke gjør noe;
+- dette gjelder **alle sidetyper som vises i slideområdet** — en vanlig slide,
+  en seksjon, en miniapps forside og en generert side. De deler én stage-ramme,
+  så det er den samme transformen i alle fire tilfellene og ikke fire av dem;
+  utenfor slideområdet beholder nettleseren sin egen pinch;
 - ingen del av den lagres, ingen kommando ser den, og den **kastes** når
   trinnet eller sliden den hørte til ikke lenger gjelder. Det samme gjelder
   trinnet på stigen: en tilstand som bare var skjult ville blitt gyldig igjen

@@ -85,7 +85,7 @@ import { InteractiveStage } from './InteractiveStage'
 import { EditorStage } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
-import { ReadOnlySlideStage } from '../slide/ReadOnlySlideStage'
+import { ReadOnlySlideStage } from './ReadOnlySlideStage'
 import { ImageOptimizeModal } from './ImageOptimizeModal'
 import { ImageUploadModal } from './ImageUploadModal'
 import { IdeasWindow } from './IdeasWindow'
@@ -1299,7 +1299,7 @@ export function EditorView({
   /*
    * The pinch belongs to this slide and this step; anywhere else there is none.
    */
-  const zoomKey = `${currentSlideId ?? ''}:${focus?.nodeId ?? ''}`
+  const zoomKey = `${viewedDerivedPage?.id ?? currentSlideId ?? ''}:${focus?.nodeId ?? ''}`
   const zoom = stageZoom.key === zoomKey ? stageZoom.zoom : NO_ZOOM
 
   /*
@@ -1350,17 +1350,32 @@ export function EditorView({
     changeZoom(() => NO_ZOOM)
   }
 
+  /*
+   * The pinch, handed to whichever page is on the stage.
+   *
+   * Every page kind gets it, not only the one with zones: the requirement is
+   * that a pinch *inside the slide area* magnifies the slide rather than the
+   * application, and a section or a generated page is as much the slide area
+   * as a content slide is. They share one `StageSurface`, so it is the same
+   * transform in all four cases and not four of them.
+   */
+  const stageZoomProps = compact ? { zoom, onZoomChange: changeZoom } : {}
+
   const stageNode = viewedDerivedPage ? (
-    <ReadOnlySlideStage page={viewedDerivedPage} note={derivedPageNote(viewedDerivedPage)} />
+    <ReadOnlySlideStage
+      page={viewedDerivedPage}
+      note={derivedPageNote(viewedDerivedPage)}
+      {...stageZoomProps}
+    />
   ) : section ? (
-    <SectionStage section={section} editable={!compact} />
+    <SectionStage section={section} editable={!compact} {...stageZoomProps} />
   ) : interactive ? (
     // Keyed by the slide, so moving between two interactive slides replaces
     // the surface — and closes whatever was running on it. The stage and the
     // inspector are siblings in one list, so the two keys must differ: React
     // keys siblings by key alone, and two children under one key leave one of
     // them never removed.
-    <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} />
+    <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} {...stageZoomProps} />
   ) : contentSlide ? (
     <EditorStage
       slide={contentSlide}
@@ -1377,8 +1392,7 @@ export function EditorView({
       textEditing={compact ? (focus?.editing ? 'selected' : 'none') : 'all'}
       chrome={!compact}
       focusRect={focusRect}
-      zoom={compact ? zoom : undefined}
-      onZoomChange={compact ? changeZoom : undefined}
+      {...stageZoomProps}
       onPlace={activePlacement ? commitPlacement : null}
     />
   ) : null

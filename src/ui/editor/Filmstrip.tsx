@@ -6,7 +6,12 @@
  */
 
 import { useRef } from 'react'
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { canDeleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
@@ -348,9 +353,16 @@ export function Filmstrip({
           gap: STRIP_GAP,
         }}
       >
+        {/*
+          The strategy has to match the shape the entries are actually in.
+          `verticalListSortingStrategy` assumes one column and moves the others
+          straight up and down past the dragged one; in the overview's grid
+          that is the wrong animation and the wrong drop target. `rectSorting`
+          makes no such assumption, and the strip is a grid of one column.
+        */}
         <SortableContext
             items={presentation.slides.map((slide) => slide.id)}
-            strategy={verticalListSortingStrategy}
+            strategy={layout.columns > 1 ? rectSortingStrategy : verticalListSortingStrategy}
           >
             {presentation.slides.map((slide, index) => (
               <SlideThumb

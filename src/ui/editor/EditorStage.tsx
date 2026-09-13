@@ -8,11 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  SLIDE_HEIGHT,
-  SLIDE_WIDTH,
-  TITLE_LINE_HEIGHT,
-} from '../../domain/constants'
+import { SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import {
   TITLE_NODE_ID,
@@ -47,7 +43,6 @@ import type {
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
-import { useContainerBox } from '../slide/useFitScale'
 import { domFitCheckers, measureElementOverflow } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -64,17 +59,8 @@ import {
   zoneDragMode,
   type ZoneDragMode,
 } from './ratioDrag'
-import {
-  FULL_SLIDE,
-  NO_ZOOM,
-  isZoomed,
-  panBy,
-  stageView,
-  viewRect,
-  zoomAbout,
-  type StageZoom,
-} from './stageView'
-import { useStageGestures, type PinchGesture } from './stageGestures'
+import { FULL_SLIDE, NO_ZOOM, type StageZoom } from './stageView'
+import { StageSurface } from './StageSurface'
 import { ZoneOverlay, type ZoneAction } from './ZoneOverlay'
 import { ZoneDropZone } from './ZoneDropZone'
 import { EmptyZone } from './EmptyZone'
@@ -220,7 +206,6 @@ export function EditorStage({
   onZoomChange,
   chrome = true,
 }: EditorStageProps) {
-  const viewportRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
   const titleHostRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<NodeId | null>(null)
@@ -233,16 +218,6 @@ export function EditorStage({
    */
   const draggedRef = useRef(false)
 
-  const box = useContainerBox(viewportRef)
-  /*
-   * One rectangle of the slide fills the stage: the whole page, the focused
-   * zone, or a pinched-in part of whichever of those two the view is based on.
-   * See `stageView.ts` — there is no second transform anywhere.
-   */
-  const base = focusRect ?? FULL_SLIDE
-  const view = stageView(box, viewRect(base, zoom))
-  const scale = view.scale
-  const magnified = isZoomed(zoom)
   const mode = useEditorStore((state) => state.mode)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const selectNode = useEditorStore((state) => state.selectNode)
@@ -287,65 +262,25 @@ export function EditorStage({
     return viewportToSlide(clientX, clientY, { left: rect.left, top: rect.top }, rendered)
   }, [])
 
+  /**
+   * How many screen pixels one slide unit is, right now.
+   *
+   * Read off the element for the same reason `toSlidePoint` is: a ratio drag
+   * converts pointer travel into weights, and a pinch mid-drag would otherwise
+   * have it converting against the scale some earlier render drew.
+   */
+  const renderedScale = useCallback((): number => {
+    const element = slideRef.current
+    if (!element) return 1
+    return element.getBoundingClientRect().width / SLIDE_WIDTH || 1
+  }, [])
+
   /** Abandon an in-flight ratio drag without committing anything. */
   const cancelDrag = useCallback((): void => {
     if (!dragRef.current) return
     dragRef.current = null
     setPreview(null)
   }, [])
-
-  /**
-   * Two fingers on the slide.
-   *
-   * The view magnifies about the point they grabbed and follows them as they
-   * travel, which together is the whole of "the content under the fingers does
-   * not jump". Both are applied to the zoom as it is *now* rather than as this
-   * render drew it: a pinch produces several moves per frame, and each of them
-   * has to build on the one before it.
-   */
-  const applyPinch = (gesture: PinchGesture): void => {
-    if (!onZoomChange) return
-    // A second finger always means the view, never the layout: a ratio drag
-    // that was under way is abandoned rather than fighting the pinch for the
-    // same hand, and nothing it had reached is committed.
-    cancelDrag()
-    const anchor = toSlidePoint(gesture.previousX, gesture.previousY)
-    // The press that ends a pinch must not also select whatever it landed on.
-    draggedRef.current = true
-    onZoomChange((current) => {
-      const zoomed = anchor
-        ? zoomAbout(base, current, gesture.factor, anchor.x, anchor.y)
-        : { ...current, scale: current.scale * gesture.factor }
-      const perUnit = stageView(box, viewRect(base, zoomed)).scale || 1
-      return panBy(
-        base,
-        zoomed,
-        (gesture.x - gesture.previousX) / perUnit,
-        (gesture.y - gesture.previousY) / perUnit,
-      )
-    })
-  }
-
-  /** One finger dragging a magnified slide about, to see the rest of it. */
-  const applyPan = (dx: number, dy: number): void => {
-    // A ratio drag has the hand; the view holds still underneath it.
-    if (!onZoomChange || dragRef.current) return
-    draggedRef.current = true
-    onZoomChange((current) => {
-      const perUnit = stageView(box, viewRect(base, current)).scale || 1
-      return panBy(base, current, dx / perUnit, dy / perUnit)
-    })
-  }
-
-  const gestures = useStageGestures({
-    // Without somewhere to put a zoom there is nothing to listen for, and the
-    // browser's own pinch is left to do what it has always done.
-    enabled: Boolean(onZoomChange),
-    onPinch: applyPinch,
-    onPan: applyPan,
-    // One finger is the deck's — a page turn — until there is somewhere to pan.
-    panWithOnePointer: magnified,
-  })
 
   const handlePointerMove = (event: React.PointerEvent): void => {
     if (mode !== 'zone' || dragRef.current) return
@@ -515,7 +450,7 @@ export function EditorStage({
       const total = sumWeights(drag.originalWeights)
       /** A pointer distance on screen, in the weight units the split is in. */
       const inWeights = (deltaPx: number): number =>
-        (deltaPx / (scale || 1) / drag.usable) * total
+        (deltaPx / renderedScale() / drag.usable) * total
       const deltaX = event.clientX - drag.startX
       const deltaY = event.clientY - drag.startY
 
@@ -610,24 +545,28 @@ export function EditorStage({
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
     }
-  }, [cancelDrag, fitContext, preview, runStructural, scale, slide.id, tokens.gap])
+  }, [cancelDrag, fitContext, preview, renderedScale, runStructural, slide.id, tokens.gap])
 
   const titleColor = bestTextColor(colors.background)
 
   return (
-    <div
-      className="stage-viewport"
-      ref={viewportRef}
-      data-testid="stage-viewport"
-      /* This stage answers a pinch itself, so the stylesheet takes the
-         browser's out of the way here and only here. */
-      data-pinch={onZoomChange ? '' : undefined}
+    <StageSurface
+      base={focusRect ?? FULL_SLIDE}
+      zoom={zoom}
+      onZoomChange={onZoomChange}
+      slideRef={slideRef}
+      /* Two fingers always mean the view, so a ratio drag lets go rather than
+         fighting the pinch for the same hand — and the press that ends the
+         gesture must not also select whatever it landed on. */
+      onViewMoved={() => {
+        cancelDrag()
+        draggedRef.current = true
+      }}
+      /* One finger may well mean the layout: while a ratio drag has the hand,
+         the view holds still underneath it. */
+      canPan={() => dragRef.current === null}
       onPointerDown={(event) => {
         handlePointerDown(event)
-        /* Every press is offered to the recogniser as well, so a second finger
-           is always the view's — including one that lands while a ratio drag is
-           under way, which the pinch then takes over from. */
-        gestures.onPointerDown(event)
         if (dragRef.current) {
           /* A ratio drag has taken this press. Stopping it here is how the
              surface around the stage learns that the gesture is spoken for —
@@ -639,24 +578,8 @@ export function EditorStage({
       onPointerLeave={() => setHovered(null)}
       onClick={handleClick}
     >
-      <div
-        className="stage-scaler"
-        data-focused={focusRect ? '' : undefined}
-        style={{ width: view.width, height: view.height }}
-      >
-        <div
-          ref={slideRef}
-          className="stage-slide"
-          data-testid="stage-slide"
-          data-scale={scale}
-          data-zoom={zoom.scale}
-          style={{
-            width: SLIDE_WIDTH,
-            height: SLIDE_HEIGHT,
-            transform: `translate(${view.offsetX}px, ${view.offsetY}px) scale(${scale})`,
-            transformOrigin: 'top left',
-          }}
-        >
+      {(scale) => (
+        <>
           <SlideView
             slide={displaySlide}
             className={mode === 'zone' ? 'slide--zone-mode' : undefined}
@@ -783,8 +706,8 @@ export function EditorStage({
             */}
             <SlideProgressBar pageId={slide.id} />
           </SlideView>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </StageSurface>
   )
 }

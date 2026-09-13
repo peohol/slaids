@@ -24,7 +24,6 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { setSectionSubtitle, setSectionTitle } from '../../domain/commands'
 import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID } from '../../domain/geometry'
 import type { RichDoc, SectionSlide } from '../../domain/types'
@@ -37,7 +36,8 @@ import {
   type SectionLine,
 } from '../slide/SectionPageView'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
-import { useFitScale } from '../slide/useFitScale'
+import { StageSurface } from './StageSurface'
+import type { StageZoom } from './stageView'
 import { RichTextEditor } from './RichTextEditor'
 
 const LINE_TEXT: Record<
@@ -61,6 +61,8 @@ const LINE_TEXT: Record<
 export function SectionStage({
   section,
   editable = true,
+  zoom,
+  onZoomChange,
 }: {
   section: SectionSlide
   /**
@@ -71,10 +73,11 @@ export function SectionStage({
    * from the text panel instead, and measured against the pill either way.
    */
   editable?: boolean
+  /** The pinch, where the workspace offers one. See `StageSurface`. */
+  zoom?: StageZoom
+  onZoomChange?: (update: (current: StageZoom) => StageZoom) => void
 }) {
-  const viewportRef = useRef<HTMLDivElement>(null)
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
-  const scale = useFitScale(viewportRef)
   const run = useEditorStore((state) => state.run)
   // Stable, so React does not detach and reattach the pill on every keystroke.
   const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
@@ -82,23 +85,9 @@ export function SectionStage({
   }, [])
 
   return (
-    <div className="stage-viewport" ref={viewportRef} data-testid="stage-viewport">
-      <div
-        className="stage-scaler"
-        style={{ width: SLIDE_WIDTH * scale, height: SLIDE_HEIGHT * scale }}
-      >
-        <div
-          className="stage-slide"
-          data-testid="stage-slide"
-          data-section=""
-          data-scale={scale}
-          style={{
-            width: SLIDE_WIDTH,
-            height: SLIDE_HEIGHT,
-            transform: `scale(${scale})`,
-            transformOrigin: 'top left',
-          }}
-        >
+    <StageSurface kind="section" zoom={zoom} onZoomChange={onZoomChange}>
+      {() => (
+        <>
           <SectionFrame
             accentColor={section.accentColor}
             backgroundColor={section.backgroundColor}
@@ -131,9 +120,9 @@ export function SectionStage({
             */}
             <SlideProgressBar pageId={section.id} />
           </SectionFrame>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </StageSurface>
   )
 }
 

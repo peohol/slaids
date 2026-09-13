@@ -34,7 +34,9 @@
 | hvilket rektangel av sliden som fyller stagen | `src/ui/editor/stageView.ts` |
 | sveip, pinch og panorering, som pointer events | `src/ui/editor/stageGestures.ts` |
 | hvilket trinn av stigen editoren er på | `src/ui/editor/stageFocus.ts` |
-| stagen som bruker alle tre | `src/ui/editor/EditorStage.tsx` |
+| rammen og view-transformen alle fire stages deler | `src/ui/editor/StageSurface.tsx` |
+| stagen med soner, som legger hit-testing oppå | `src/ui/editor/EditorStage.tsx` |
+| seksjon, miniappforside og generert side | `SectionStage` · `InteractiveStage` · `ReadOnlySlideStage` |
 | slideoversikt og desktopstripe, samme komponent | `src/ui/editor/Filmstrip.tsx` (`stripLayout`) |
 | flytende vindu som ark på liten flate | `src/ui/components/FloatingWindow.tsx` |
 | trykkbare kontroller i presentasjonsmodus | `src/ui/present/PresentationPlayer.tsx` |
@@ -203,6 +205,14 @@ Stagen blir liggende under oversikten i stedet for å skjules. En stage uten
 størrelse måler teksten sin til å passe hva som helst, og det er det ene svaret
 fit-regelen aldri må få.
 
+Én detalj i gridet er verdt å kjenne: dnd-kit trenger en sorteringsstrategi som
+passer formen. `verticalListSortingStrategy` forutsetter én kolonne og skyver
+naboene rett opp og ned forbi den som dras; i en flerkolonneoversikt er neste
+celle til *siden*. Oversikten bruker derfor `rectSortingStrategy` når den har
+mer enn én kolonne, og stripen beholder listestrategien. Rekkefølgen etter slipp
+kommer fra kollisjonsdeteksjonen og er riktig uansett, så testen måler
+forskyvningen av naboen midt i draget — det er der forskjellen faktisk er.
+
 **Slik ble det – sveipen.** Sveip endte ikke opp som noe bare
 presentasjonsmodus har. På compact er slideområdet selv dekknavigasjon:
 
@@ -290,10 +300,17 @@ skaleringen av det samme 1600 × 900-rommet.
 
 Pinchen er forankret om fingrenes midtpunkt, klampes inni basisrektangelet, og
 panoreres med to fingre under pinchen eller med én når visningen er forstørret.
-Den er lagret i slidekoordinater sammen med en nøkkel for hvilket trinn og
-hvilken slide den hører til — så rotasjon beholder den, og et sidebytte
-nullstiller den uten at noen effekt rører ved den. Ingenting av den når
-dokumentet.
+Den er lagret i slidekoordinater sammen med en nøkkel for hvilken side og
+hvilket trinn den hører til — så rotasjon beholder den, og et sidebytte kaster
+den. Ingenting av den når dokumentet.
+
+**Og den gjelder alle sidetyper.** Kravet er at en pinch *i slideområdet*
+forstørrer sliden i stedet for appen, og en seksjon, en miniapps forside og en
+generert referanseside er like mye slideområdet som en vanlig slide. Derfor ble
+rammen trukket ut til `StageSurface`: den måler rommet, fitter siden inn i det,
+og svarer på pinchen — én gang, for alle fire. Var den ikke det, ville
+`touch-action` tatt nettleserens pinch fra tre sider som ikke hadde noe å gi
+tilbake.
 
 ### 6.3 Ingen viktig funksjon skal kreve dragging
 
@@ -402,21 +419,20 @@ seg `onPointerDown` som en React-handler og følger resten av gesten på
 
 Den siste regelen ble presisert i praksis, og sagt flate for flate:
 
-- `.compact-stage` — sveipeflaten — får `touch-action: pan-y pinch-zoom`.
-  Nettleseren skal ikke ta et vannrett drag og gjøre noe eget av det, men den
-  beholder både loddrett panorering og pinchen.
+- `.compact-stage` — sveipeflaten rundt siden — får `touch-action: pan-y
+  pinch-zoom`. Nettleseren skal ikke ta et vannrett drag og gjøre noe eget av
+  det, men den beholder loddrett panorering og pinchen i lufta rundt sliden.
 - `.stage-viewport[data-pinch]` får `touch-action: none`. Attributtet settes av
-  `EditorStage` når den faktisk har et sted å legge en zoom, så det er nøyaktig
-  den stagen som forstørrer sliden selv som tar gesten fra nettleseren. En
-  seksjon, en miniapps forside og en generert side gjør bare fit — der ville
-  det å ta nettleserens pinch bare etterlatt to fingre som ikke gjør noe.
+  `StageSurface` når den har fått et sted å legge en zoom — altså på alle fire
+  stages på en kompakt flate, og på ingen av dem på desktop. Det er der pinchen
+  er vår.
 - `.interactive-runtime` tar `touch-action` tilbake, så en kjørende miniapp
   beholder alle sine egne gester.
 
 Nettleserens effektive `touch-action` er snittet fra elementet under fingeren og
-oppover, så den mest restriktive vinner: en pinch over redigeringsstagen blir
-vår, en pinch over en seksjon blir nettleserens, og et vannrett drag blir vårt
-begge steder.
+oppover, så den mest restriktive vinner: en pinch over sliden blir vår, en pinch
+utenfor den — i topplinja, i et panel, i en dialog — blir nettleserens, og et
+vannrett drag i slideområdet blir vårt.
 
 En sveip som faktisk blar sluker også klikket som følger etter seg, med én
 capture-lytter brukt én gang. Uten det ville fingeren, etter å ha bladd, valgt
@@ -579,7 +595,13 @@ divergere:
 - `stageView.ts`, `stageGestures.ts` og `stageFocus.ts` – hvilket rektangel av
   sliden som vises, hvordan fingrene endrer det, og hvilket trinn av stigen
   editoren er på. Alle tre er rene moduler uten React-avhengigheter utenom
-  hooken, og ingen av dem vet noe om en telefon.
+  hooken, og ingen av dem vet noe om en telefon;
+- `StageSurface.tsx` – rammen de tre settes sammen i. De fire stagene var fire
+  kopier av de samme tre boksene (viewport, scaler, side), og det gikk bra helt
+  til visningen sluttet å være fast: i det øyeblikket en pinch kunne endre den,
+  betydde fire kopier en pinch som virket på én sidetype og forstørret hele
+  appen på de tre andre. Nå eier rammen transformen, og hver stage eier bare
+  det som står *i* den — og for den ene med soner, hva et trykk betyr.
 
 Ingen av dem inneholder domeneregler. Der det stod på valget mellom et nytt
 adapterlag og en ekstra prop på en eksisterende komponent, vant proppen:
@@ -636,9 +658,11 @@ Minimum automatisert dekning:
 13. desktop: eksisterende filmstrip/inspector/drag/shortcuts/presentasjonsflyter fungerer fortsatt;
 14. sveipe fram og tilbake mellom slides, og ikke gjøre det med et trykk, et
     loddrett drag, en knapp eller en kjørende miniapp;
+14b. dra-sortere i flerkolonneoversikten, og se naboen bli skjøvet sideveis;
 15. åpne slideoversikten og se at den tar hele høyden, at sidene er brede, at
     lista scroller og at valg og flytting fortsatt er ett trykk;
-16. pinche i slideområdet og se at bare stagen forstørres;
+16. pinche i slideområdet — på en slide, en seksjon, en miniappforside og en
+    generert side — og se at bare stagen forstørres;
 17. velge en sone gjennom en forstørret visning;
 18. skrive rett i den fokuserte sonen, og se fit-guarden stoppe for mye tekst;
 19. rotere med en fokusert sone og beholde den;
