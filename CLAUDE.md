@@ -9,6 +9,7 @@ Slaids er en nettleserbasert presentasjonseditor med rigid, matematisk sonelayou
 3. `VISION.md` er bare en peker. `docs/archive/VISION.original-2026-08-20.md` er historisk kontekst, ikke normativt.
 4. Bruk eksisterende typer, domenekommandoer, tester og validering som executable documentation. Hvis kode og plan ser ut til å motsi hverandre, undersøk før du endrer noe; ikke oppfinn en tredje regel her.
 5. Når du lager eller endrer en miniapp: les `docs/INTERACTIVE_MINIAPPS.md`, start fra `examples/interactive-miniapps/starter.html`, og følg forfatterkontraktens nettleser- og layoutkontroller. Riktige temavariabler og en grønn build er ikke tilstrekkelig verifikasjon.
+6. Når du endrer agentens presentasjonsdesign, agentinstruksjoner eller eksempeldekk: les `docs/AGENT_PRESENTATION_DESIGN.md`. Designguiden beskriver hvordan innholdets logiske struktur skal drive sonetreet; den er veiledning, ikke en parallell produktspesifikasjon.
 
 ## Arbeidsmåte
 
