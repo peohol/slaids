@@ -216,7 +216,10 @@ presentasjonsmodus har. På compact er slideområdet selv dekknavigasjon:
 - `OWNS_ITS_GESTURE` holder knapper, lenker, felt som skrives i og en kjørende
   miniapp utenfor — og et sonedrag som allerede har startet stopper gesten der
   den er, så å dra en sonegrense sideveis ikke også blar;
-- den kaller `stepPage`, altså det samme slidevalget oversikten bruker.
+- den kaller den samme «ett skritt langs dekket» som piltastene og hjulet
+  (`stepDeck`), som først lukker en avledet side og så bruker `stepPage`. En
+  generert referanseside er en *visning av* en slide, ikke en side i dekket, så
+  uten den halvdelen ville et skritt skjedd usynlig bak den.
 
 **Merk at retningen er motsatt av presentasjonsmodus.** Der er sveip mot venstre
 «neste», slik en karusell pleier å være. I editoren ble det uttrykkelig bestilt
@@ -261,12 +264,21 @@ To ting er verdt å merke seg.
    kant, uten hover, uten ratio-håndtak og uten verktøylinje. Uten det ville
    «valgt sone» vært et trinn uten noe å se på — og med hele sonemodusens
    chrome ville content mode sett ut som sonemodus.
-2. **Trinnet er derivert, ikke synkronisert.** `liveFocus` leser fokuset mot
-   slide, utvalg og om sonen i det hele tatt bærer tekst, hver render. En
-   angring som fjerner sonen, et sidebytte eller en rotasjon som bytter skall
-   faller dermed ned til det trinnet som er sant, uten at noen effekt må oppdage
-   det. Selve tilstanden ligger i `EditorView`, høyt nok til å overleve at
-   skallet byttes ut under den.
+2. **Trinnet er derivert, og det som ikke lenger gjelder kastes.** `liveFocus`
+   leser fokuset mot slide, utvalg og om sonen i det hele tatt bærer tekst, hver
+   render, så en angring som fjerner sonen, et sidebytte eller en rotasjon som
+   bytter skall faller ned til det trinnet som er sant uten at noen effekt må
+   oppdage det.
+   Men *skjult* er ikke det samme som *borte*, og her må det være borte: et
+   utvalg kan komme tilbake. Fokuserer man en sone, velger foreldresonen og så
+   trykker på den første igjen, ville et fokus som bare var gjemt blitt gyldig
+   på nytt og satt stagen i en visning ingen ba om. Det samme gjelder en pinch
+   og en slide man kommer tilbake til. Derfor kastes begge i samme render de
+   slutter å gjelde — et `setState` under render, som er Reacts eget svar på «juster
+   tilstand når noe endrer seg», og som rendrer på nytt før noe males, slik at
+   den forlatte visningen aldri vises et bilde.
+   Selve tilstanden ligger i `EditorView`, høyt nok til å overleve at skallet
+   byttes ut under den.
 
 **Og én view-transform.** `stageView.ts` stiller ett spørsmål: *hvilket
 rektangel av sliden fyller stagen?* Hel slide er `FULL_SLIDE`, fokusert sone er
@@ -388,11 +400,23 @@ seg `onPointerDown` som en React-handler og følger resten av gesten på
 `window`, slik at en sveip kan fullføres utenfor stagen uten at
 `setPointerCapture` stjeler klikket etterpå.
 
-Den siste regelen ble presisert i praksis: nettleserens pinch er fortsatt i
-behold overalt *utenom* inne i slideområdet, hvor `touch-action: none` på
-`.stage-viewport` (kun på compact) gjør at pekerhendelsene når fram til stagen i
-stedet for at nettleseren forstørrer hele appen. `.interactive-runtime` tar
-`touch-action` tilbake, så en kjørende miniapp beholder alle sine egne gester.
+Den siste regelen ble presisert i praksis, og sagt flate for flate:
+
+- `.compact-stage` — sveipeflaten — får `touch-action: pan-y pinch-zoom`.
+  Nettleseren skal ikke ta et vannrett drag og gjøre noe eget av det, men den
+  beholder både loddrett panorering og pinchen.
+- `.stage-viewport[data-pinch]` får `touch-action: none`. Attributtet settes av
+  `EditorStage` når den faktisk har et sted å legge en zoom, så det er nøyaktig
+  den stagen som forstørrer sliden selv som tar gesten fra nettleseren. En
+  seksjon, en miniapps forside og en generert side gjør bare fit — der ville
+  det å ta nettleserens pinch bare etterlatt to fingre som ikke gjør noe.
+- `.interactive-runtime` tar `touch-action` tilbake, så en kjørende miniapp
+  beholder alle sine egne gester.
+
+Nettleserens effektive `touch-action` er snittet fra elementet under fingeren og
+oppover, så den mest restriktive vinner: en pinch over redigeringsstagen blir
+vår, en pinch over en seksjon blir nettleserens, og et vannrett drag blir vårt
+begge steder.
 
 En sveip som faktisk blar sluker også klikket som følger etter seg, med én
 capture-lytter brukt én gang. Uten det ville fingeren, etter å ha bladd, valgt

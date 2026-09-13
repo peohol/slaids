@@ -2040,15 +2040,27 @@
 }
 
 /*
- * Inside the slide area the pinch is ours.
+ * Which gestures the browser keeps, told surface by surface.
  *
- * `touch-action: none` is what stops the browser taking a two-finger gesture
- * and magnifying the whole application with it: the pointer events reach the
- * stage instead, and only the stage's own view transform changes. Everything
- * around it — the bars, the panels, the dialogs — keeps the browser's own
- * pinch, which is a reader's last resort on any page and not ours to remove.
+ * The slide area answers a sideways flick itself, so the browser must not take
+ * a horizontal pan and turn it into something of its own — but it keeps the
+ * vertical pan and, crucially, the pinch.
  */
-:root[data-compact='true'] .compact-stage .stage-viewport {
+:root[data-compact='true'] .compact-stage {
+  touch-action: pan-y pinch-zoom;
+}
+
+/*
+ * …except on a stage that magnifies the slide itself. There the pinch is ours,
+ * and `touch-action: none` is what makes the pointer events reach it instead of
+ * the browser zooming the whole application.
+ *
+ * Scoped to the stage that actually handles it — `EditorStage` sets the
+ * attribute when it is given somewhere to put a zoom. A section, a miniapp's
+ * cover and a generated page only fit their content, so taking the browser's
+ * pinch away there would leave a two-finger gesture doing nothing at all.
+ */
+.stage-viewport[data-pinch] {
   touch-action: none;
 }
 

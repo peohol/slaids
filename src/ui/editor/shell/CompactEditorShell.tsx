@@ -27,7 +27,6 @@
  * which is the whole of the one-at-a-time rule.
  */
 
-import { useEditorStore } from '../../../state/store'
 import { Icon } from '../../components/Icon'
 import { CompactContentList } from '../compact/CompactContentList'
 import { CompactTabBar } from '../compact/CompactTabBar'
@@ -50,7 +49,6 @@ export function CompactEditorShell(props: EditorShellProps) {
   const { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen, compactPanel, setCompactPanel } =
     props.panels
   const focus = props.focus
-  const stepPage = useEditorStore((state) => state.stepPage)
 
   /*
    * One big surface at a time, derived rather than synchronised: a tool window
@@ -82,7 +80,7 @@ export function CompactEditorShell(props: EditorShellProps) {
    */
   const swipe = useStageGestures({
     enabled: !focus.editing && !focus.magnified,
-    onSwipe: (direction) => stepPage(direction),
+    onSwipe: (direction) => props.onStepPage(direction),
   })
 
   return (

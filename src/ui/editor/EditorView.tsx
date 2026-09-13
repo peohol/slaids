@@ -751,6 +751,20 @@ export function EditorView({
     [insertSlide],
   )
 
+  /**
+   * One page along the deck, however the reader asked for it.
+   *
+   * The arrow keys, the wheel and a finger swiped across the slide all mean
+   * the same thing and all have to do the same thing — including leaving a
+   * derived page, which is a view *of* a slide rather than a page of the deck:
+   * `stepPage` walks the authored slides, so a generated page would otherwise
+   * stay open with the step happening invisibly behind it.
+   */
+  const stepDeck = useCallback((delta: number) => {
+    setDerivedView(null)
+    useEditorStore.getState().stepPage(delta)
+  }, [])
+
   /* -------------------------------------------------------------- *
    * Keyboard
    * -------------------------------------------------------------- */
@@ -820,8 +834,7 @@ export function EditorView({
        */
       if (state.mode !== 'zone' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
         event.preventDefault()
-        setDerivedView(null)
-        state.stepPage(event.key === 'ArrowDown' ? 1 : -1)
+        stepDeck(event.key === 'ArrowDown' ? 1 : -1)
         return
       }
 
@@ -915,7 +928,7 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [presenting, redo, runStructural, setMode, toggleMode, undo])
+  }, [presenting, redo, runStructural, setMode, stepDeck, toggleMode, undo])
 
   /*
    * The mouse wheel steps through the deck, the same slide the up and down
@@ -938,12 +951,11 @@ export function EditorView({
       const now = Date.now()
       if (now - lastStepAt < WHEEL_STEP_COOLDOWN_MS) return
       lastStepAt = now
-      setDerivedView(null)
-      useEditorStore.getState().stepPage(event.deltaY > 0 ? 1 : -1)
+      stepDeck(event.deltaY > 0 ? 1 : -1)
     }
     window.addEventListener('wheel', onWheel, { capture: true, passive: false })
     return () => window.removeEventListener('wheel', onWheel, { capture: true })
-  }, [presenting])
+  }, [presenting, stepDeck])
 
   /* -------------------------------------------------------------- *
    * Drag and drop
@@ -1286,11 +1298,29 @@ export function EditorView({
 
   /*
    * The pinch belongs to this slide and this step; anywhere else there is none.
-   * Derived rather than reset, so no effect can leave a magnification behind on
-   * a page it was never taken on.
    */
   const zoomKey = `${currentSlideId ?? ''}:${focus?.nodeId ?? ''}`
   const zoom = stageZoom.key === zoomKey ? stageZoom.zoom : NO_ZOOM
+
+  /*
+   * Hidden is not the same as gone, and here it has to be gone.
+   *
+   * Reading the two through a derived value is what makes them fall to the
+   * step that is true — but the stale value is still in state, and a selection
+   * or a slide can come *back*: press a zone, focus it, select its parent,
+   * press the first zone again, and a focus nobody asked for would return; go
+   * to another slide and back, and a magnification would. So what is no longer
+   * live is discarded on the spot.
+   *
+   * A set during render rather than in an effect, which is React's own answer
+   * to "adjust state when something changes": it re-renders before anything is
+   * painted, so the view that was let go is never on screen for a frame. Both
+   * are conditional on there being something to drop, so neither can loop.
+   */
+  if (stageFocus !== null && focus !== stageFocus) setStageFocus(focus)
+  if (stageZoom.key !== zoomKey && isZoomed(stageZoom.zoom)) {
+    setStageZoom({ key: zoomKey, zoom: NO_ZOOM })
+  }
   const changeZoom = (update: (current: StageZoom) => StageZoom): void => {
     setStageZoom((previous) => ({
       key: zoomKey,
@@ -1497,6 +1527,7 @@ export function EditorView({
       </div>
     ) : null,
     onEditText: setFocusedText,
+    onStepPage: stepDeck,
     focus: {
       focused: focus !== null,
       editing: focus?.editing ?? false,

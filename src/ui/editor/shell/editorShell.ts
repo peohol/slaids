@@ -71,6 +71,14 @@ export interface EditorShellProps {
   placementBar: ReactNode
   /** Open one field on the focused writing surface. */
   onEditText: (entry: TextTargetEntry) => void
+  /**
+   * One page along the deck — the same step the arrow keys and the wheel take.
+   *
+   * Handed down rather than taken from the store, because stepping is more
+   * than `stepPage`: a generated page is a view *of* a slide and has to be
+   * left on the way, which only `EditorView` can do.
+   */
+  onStepPage: (delta: number) => void
   /** How close the stage is to the selected zone, and the way up and down. */
   focus: StageFocusControls
   /** The keyboard reference. On the desktop the status bar offers it. */

@@ -5597,8 +5597,14 @@ For pinch gjelder:
   på det igjen;
 - panorering skjer med to fingre under pinchen og med én finger når visningen
   er forstørret;
-- ingen del av den lagres, ingen kommando ser den, og den nullstilles når
-  trinnet den hørte til ikke lenger gjelder.
+- der stagen *ikke* selv forstørrer sliden — en seksjon, en miniapps forside,
+  en generert side — beholder nettleseren sin egen pinch, slik at to fingre
+  aldri er en gest som ikke gjør noe;
+- ingen del av den lagres, ingen kommando ser den, og den **kastes** når
+  trinnet eller sliden den hørte til ikke lenger gjelder. Det samme gjelder
+  trinnet på stigen: en tilstand som bare var skjult ville blitt gyldig igjen
+  neste gang det samme utvalget eller den samme sliden kom tilbake, og satt
+  editoren i en visning ingen ba om.
 
 **Sveip bytter slide.** På slideområdet på en kompakt arbeidsflate:
 
@@ -5610,8 +5616,9 @@ For pinch gjelder:
   gang tar pekeren;
 - sveip er av mens visningen er forstørret (da panorerer fingeren) og mens et
   felt skrives i;
-- sveip bruker **det samme slidevalget** som slideoversikten. Det finnes ingen
-  egen mobil navigasjonsmodell.
+- sveip bruker **den samme dekknavigasjonen** som piltastene og hjulet — samme
+  funksjon, som også lukker en avledet side på veien. Det finnes ingen egen
+  mobil navigasjonsmodell.
 
 Alle gester er pointer events. Det finnes ikke ett kodeløp for touch og ett for
 mus, og derfor heller ingen user-agent-deteksjon: et smalt desktopvindu oppfører

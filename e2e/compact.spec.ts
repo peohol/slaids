@@ -796,6 +796,7 @@ test.describe('kompakt arbeidsflate', () => {
     await addCardToRootZone(page)
     await closePanel(page)
 
+    const pinched = await shownSlideId(page)
     const topBefore = await page.getByTestId('compact-top-bar').boundingBox()
     const tabsBefore = await page.getByTestId('compact-tab-bar').boundingBox()
     const slideBefore = (await stage(page).boundingBox())!
@@ -819,6 +820,37 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByTestId('compact-stage-reset-zoom').click()
     await expect.poll(() => stageZoom(page)).toBe(1)
     expectSameBox(await stage(page).boundingBox(), slideBefore)
+
+    await pinchSlide(page, { from: 80, to: 260 })
+    expect(await stageZoom(page)).toBeGreaterThan(1.5)
+
+    /*
+     * And a magnification is let go of, not merely hidden. Leaving the slide
+     * and coming back must land on the page as it is, not on the corner
+     * somebody was inspecting a minute ago — which would also silently take
+     * the swipe away, since a magnified view pans instead of paging.
+     */
+    await openPanel(page, 'slides')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await openPanel(page, 'slides')
+    const order = await slideOrder(page)
+    // The slide just added, not the front page: a section draws no slide stage
+    // of its own, and what is under test here is the stage's own state.
+    await page.getByTestId('filmstrip-item').last().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect.poll(() => shownSlideId(page)).toBe(order[order.length - 1])
+    expect(await stageZoom(page)).toBe(1)
+
+    await openPanel(page, 'slides')
+    await page
+      .getByTestId('filmstrip-item')
+      .nth(order.indexOf(pinched))
+      .getByTestId('filmstrip-thumb')
+      .click()
+    await closePanel(page)
+    await expect.poll(() => shownSlideId(page)).toBe(pinched)
+    expect(await stageZoom(page)).toBe(1)
 
     await pinchSlide(page, { from: 80, to: 260 })
     expect(await stageZoom(page)).toBeGreaterThan(1.5)
@@ -912,6 +944,66 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(stage(page)).toContainText('Skrevet rett i sonen.')
   })
 
+  test('en forlatt fokusering kommer ikke tilbake av seg selv', async ({ page }) => {
+    await createPresentation(page, 'Forlatt fokus')
+    await splitSelectedZone(page)
+    await closePanel(page)
+    const zones = await zoneRects(page)
+
+    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
+    await page.getByTestId('compact-stage-focus').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+
+    // Leave it by choosing the other zone: the stage goes back to the slide.
+    await page.getByTestId('compact-stage-back').click()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    await pressSlide(page, zones[1].x + zones[1].w / 2, zones[1].y + zones[1].h / 2)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+
+    /*
+     * And pressing the first zone again is a selection and nothing more. A
+     * focus that was only *hidden* would match its zone again here and put the
+     * stage back into a view nobody asked for.
+     */
+    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    await expect(page.getByTestId('compact-stage-focus')).toBeVisible()
+  })
+
+  test('en sveip på en avledet side forlater den, slik piltastene gjør', async ({ page }) => {
+    await createPresentation(page, 'Avledet og sveip')
+    await addCardToRootZone(page)
+
+    // Cite something, so the deck grows a reference page after the last slide.
+    await openPanel(page, 'content')
+    await page
+      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
+      .first()
+      .click()
+    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
+    await page.keyboard.insertText('Påstand med kilde')
+    await page.getByTestId('insert-reference').click()
+    await page.getByTestId('reference-title').fill('En kilde')
+    await page.getByTestId('save-reference').click()
+    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('focused-text-done').click()
+
+    // Open the generated page. It belongs to the last authored slide, which is
+    // exactly the case where a step taken silently behind it would do nothing.
+    await openPanel(page, 'slides')
+    const order = await slideOrder(page)
+    await page.getByTestId('filmstrip-item').last().getByTestId('filmstrip-thumb').click()
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
+    await closePanel(page)
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
+
+    // A swipe leaves the generated page, the same way an arrow key does.
+    await swipeSlide(page, 1)
+    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
+    expect(await shownSlideId(page)).toBe(order[order.length - 1])
+  })
+
   test('rotasjon beholder den fokuserte sonen', async ({ page }) => {
     await createPresentation(page, 'Fokus gjennom rotasjon')
     await splitSelectedZone(page)
@@ -938,6 +1030,32 @@ test.describe('kompakt arbeidsflate', () => {
   /* ----------------------------------------------------------------- *
    * Text selection
    * ----------------------------------------------------------------- */
+
+  test('bare stagen som selv zoomer tar pinchen fra nettleseren', async ({ page }) => {
+    await createPresentation(page, 'Hvem eier pinchen')
+    const touchAction = (): Promise<string> =>
+      page
+        .getByTestId('stage-viewport')
+        .evaluate((element) => getComputedStyle(element).touchAction)
+
+    // The slide stage magnifies the page itself, so it takes the gesture.
+    expect(await touchAction()).toBe('none')
+
+    /*
+     * A section only fits its content — it installs no pinch of its own — so
+     * taking the browser's away there would leave two fingers doing nothing at
+     * all. The front page is a section, and it is one swipe away.
+     */
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    expect(await touchAction()).not.toBe('none')
+
+    // And the deck can still be swiped there, which is the other half of it.
+    const before = await shownSlideId(page)
+    await swipeSlide(page, 1)
+    await expect.poll(() => shownSlideId(page)).not.toBe(before)
+  })
 
   test('sonetekst markeres ikke av trykk eller drag, men et felt markerer som vanlig', async ({
     page,

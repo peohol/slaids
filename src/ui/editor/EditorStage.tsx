@@ -619,6 +619,9 @@ export function EditorStage({
       className="stage-viewport"
       ref={viewportRef}
       data-testid="stage-viewport"
+      /* This stage answers a pinch itself, so the stylesheet takes the
+         browser's out of the way here and only here. */
+      data-pinch={onZoomChange ? '' : undefined}
       onPointerDown={(event) => {
         handlePointerDown(event)
         /* Every press is offered to the recogniser as well, so a second finger
