@@ -106,16 +106,23 @@ export function PresentationPlayer({
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const workspace = useWorkspace()
   /*
-   * Where a press is the only input there is.
+   * Two questions, and they have different answers.
    *
-   * With a mouse and a keyboard the page itself is the whole screen and the
-   * keys are the controls — that is the presentation Slaids has always given,
-   * and nothing is drawn over the slide. With a finger there are no keys, so
-   * the same deck needs buttons: a way forward, a way back and a way out that
-   * do not depend on a keyboard being attached.
+   * **Are the controls drawn?** On a small surface, yes. With a finger there
+   * are no keys at all, and in a narrow window the audience is as likely to be
+   * looking for a way out as for a way forward — so a way forward, a way back
+   * and a way out are on screen. On a roomy desktop nothing is drawn over the
+   * slide, which is the presentation Slaids has always given.
+   *
+   * **Does a press on the slide mean "show me the controls"?** Only with a
+   * finger. A click is the fastest way through a deck and always has been, and
+   * a mouse in a small window is still a mouse: taking its click away to
+   * toggle a bar it can already see would be answering the first question with
+   * the second one's answer.
    */
-  const touchFirst = workspace.coarse || workspace.compact
-  const [controlsVisible, setControlsVisible] = useState(touchFirst)
+  const controlsDrawn = workspace.compact || workspace.coarse
+  const pressRevealsControls = workspace.coarse
+  const [controlsVisible, setControlsVisible] = useState(true)
   const hideAt = useRef(0)
 
   useEffect(() => {
@@ -147,19 +154,23 @@ export function PresentationPlayer({
   }, [])
 
   /*
-   * The controls get out of the way by themselves, and a press anywhere brings
-   * them back. One timer polling a deadline rather than a timeout restarted on
-   * every press: a press during the countdown only moves the deadline, so
-   * nothing is cleared, rescheduled or left dangling.
+   * The controls get out of the way by themselves, and a press brings them
+   * back — which is why only a surface that *has* that press hides them. With
+   * a mouse the press is a page turn, so there would be nothing to bring them
+   * back with, and hiding them would simply lose them.
+   *
+   * One timer polling a deadline rather than a timeout restarted on every
+   * press: a press during the countdown only moves the deadline, so nothing is
+   * cleared, rescheduled or left dangling.
    */
   useEffect(() => {
-    if (!touchFirst) return
+    if (!pressRevealsControls) return
     hideAt.current = Date.now() + CONTROLS_HIDE_MS
     const timer = window.setInterval(() => {
       if (hideAt.current !== 0 && Date.now() >= hideAt.current) setControlsVisible(false)
     }, 500)
     return () => window.clearInterval(timer)
-  }, [touchFirst])
+  }, [pressRevealsControls])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -223,7 +234,7 @@ export function PresentationPlayer({
          * there it asks for the controls instead, and the controls turn the
          * page.
          */
-        if (touchFirst) {
+        if (pressRevealsControls) {
           if (controlsVisible) setControlsVisible(false)
           else showControls()
           return
@@ -277,7 +288,7 @@ export function PresentationPlayer({
         </div>
       </SlideRenderProvider>
 
-      {touchFirst && (
+      {controlsDrawn && (
         <div
           className="present-controls"
           data-testid="present-controls"

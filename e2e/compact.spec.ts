@@ -24,6 +24,7 @@ import {
 import {
   closeKeyboard,
   closePanel,
+  isCoarse,
   isOnScreen,
   openKeyboard,
   openPanel,
@@ -300,6 +301,38 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('present-view')).toHaveAttribute('data-page', String(start + 1))
     await page.getByTestId('present-prev').click()
     await expect(page.getByTestId('present-view')).toHaveAttribute('data-page', String(start))
+
+    /*
+     * A press on empty slide area is the one thing that differs by pointer, so
+     * it is asserted against the pointer this run actually has.
+     *
+     * With a finger it asks for the controls: a tap is as likely to be
+     * somebody steadying the phone as a request for the next page. With a
+     * mouse it is the fastest way through a deck and always has been — a small
+     * window does not change that, and taking the click away to toggle a bar
+     * the mouse can already see would be a regression on the desktop.
+     */
+    const view = page.getByTestId('present-view')
+    // The top-left corner: away from the controls and away from the page's text.
+    const emptyArea = { position: { x: 5, y: 5 } }
+
+    if (await isCoarse(page)) {
+      await expect(controls).toHaveAttribute('data-visible', '')
+      await view.click(emptyArea)
+      await expect(view).toHaveAttribute('data-page', String(start))
+      await expect(controls).not.toHaveAttribute('data-visible', '')
+      // And a press brings them back, which on this surface is the only way.
+      await view.click(emptyArea)
+      await expect(controls).toHaveAttribute('data-visible', '')
+    } else {
+      await view.click(emptyArea)
+      await expect(view).toHaveAttribute('data-page', String(start + 1))
+      // The controls stay put: with no press to bring them back, hiding them
+      // would simply lose them.
+      await expect(controls).toHaveAttribute('data-visible', '')
+      await page.getByTestId('present-prev').click()
+      await expect(view).toHaveAttribute('data-page', String(start))
+    }
 
     // Out without touching a key.
     await page.getByTestId('present-exit').click()

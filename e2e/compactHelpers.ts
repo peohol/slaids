@@ -32,6 +32,17 @@ export async function isCompact(page: Page): Promise<boolean> {
 }
 
 /**
+ * Whether the pointer on this run is a finger.
+ *
+ * Read from the root element rather than from the project's name: it is the
+ * same fact the app itself acts on, so a test that branches on it is branching
+ * on the app's own answer instead of on an assumption about the runner.
+ */
+export async function isCoarse(page: Page): Promise<boolean> {
+  return (await page.evaluate(() => document.documentElement.dataset.coarse)) === 'true'
+}
+
+/**
  * Press a point on the slide, in slide coordinates.
  *
  * A press rather than a click: on a compact workspace a press on a zone is
