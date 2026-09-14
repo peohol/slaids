@@ -395,7 +395,19 @@ stagen gjør det gjennom kommandoene som eier dem, slik de alltid har gjort.
 
 Tekstlista ble værende, som **navigasjon**. Å sikte på et felt inne i en
 nedskalert slide er ikke noe en finger kan gjøre, så lista navngir dem; å velge
-ett gjør nøyaktig det langtrykket gjør.
+ett fokuserer feltet på stagen, slik langtrykket gjør.
+
+Med én forskjell, og den er hvor caret-en havner. `StageFocus` bærer et
+valgfritt `caret: ActiveField | null`: langtrykket setter det ikke, fordi
+trykket som avslutter gesten *er* valget av hvor i teksten man vil skrive — og
+den brukergesten iOS krever før tastaturet kommer opp. Lista setter det, fordi
+brukeren har navngitt ett felt blant flere i samme sone, og en sone med
+korttittel og to bunnfelt ville ellers svart identisk på tre oppføringer.
+`RichTextEditor` fikk `takeCaret` til det: `autoFocus` er en opsjon editoren
+*bygges* med, og et felt på den kompakte stagen bygges lenge før det blir en
+skriveflate — det tegnes skrivebeskyttet til noe fokuseres — så da er den
+muligheten forbi. `takeCaret` er den samme forespørselen til en editor som
+allerede finnes.
 
 **Det den ikke løser, og som er verdt å vite:** fokusering er en uniform
 skalering av den samme geometrien, ikke en ny ombrekking. En sone som er bred i
@@ -462,6 +474,16 @@ bevegelse forbi toleransen avslutter langtrykket, en annen finger avslutter båd
 det og sveipen, og et langtrykk som utløses avslutter sveipen. At langtrykket
 ikke finnes på desktop følger av det samme: `StageSurface` får det bare der
 stagen også får en zoom, og det er bare på en kompakt flate.
+
+Én ting den konstruksjonen ikke dekker av seg selv: det er **to** gjenkjennere
+på det samme slideområdet, én på skallet for sveipen og én på `StageSurface` for
+visningen og langtrykket, og de deler ikke tilstand. Den indre kan slå av den
+ytre midt i et trykk — det er nøyaktig det som skjer når langtrykket fokuserer
+et felt — men den ytre hadde da allerede armet sveipen sin. Derfor leses
+`enabled` mens gesten pågår og ikke bare når den starter: en gjenkjenner som
+blir slått av forkaster gesten der den er. Uten det ville et drag sideveis
+etter langtrykket, altså måten man utvider en markering på, bladd bort fra
+feltet som nettopp ble åpnet.
 
 Klikket etter et langtrykk *slukes ikke*, og det er med vilje. Feltet
 autofokuseres ikke — iOS åpner ikke tastaturet på et programmatisk `focus()`
@@ -727,7 +749,9 @@ Minimum automatisert dekning:
     i dem på stagen;
 18d. se at bare et ekte langtrykk fokuserer: drift over toleransen, en sveip og
     en pinch gjør det ikke;
-18e. velge et felt i tekstlista og havne i den samme skriveflaten på sliden;
+18e. velge et felt i tekstlista og havne i den samme skriveflaten på sliden,
+    med caret-en i nettopp det feltet — også når sonen har flere;
+18f. dra sideveis rett etter et langtrykk og ikke bla i dekket;
 19. rotere med et fokusert felt og beholde det;
 20. prøve å markere sonetekst uten å få lov — med trykk, drag og langtrykk — og
     markere i et fokusert felt og få lov.

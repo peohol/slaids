@@ -13,7 +13,7 @@ import { createPresentation } from '../../domain/presentation'
 import { contentAt, sectionAt } from '../../domain/testDecks'
 import { canTypeIn, focusFieldRect, isZoneField, liveFocus, type StageFocus } from './stageFocus'
 
-const focused: StageFocus = { slideId: 'slide-1', fieldId: 'zone-a' }
+const focused: StageFocus = { slideId: 'slide-1', fieldId: 'zone-a', caret: null }
 
 /** What the editor is looking at, with the focus's own slide and field drawn. */
 const here = { slideId: 'slide-1', rect: { x: 0, y: 0, width: 400, height: 300 } }

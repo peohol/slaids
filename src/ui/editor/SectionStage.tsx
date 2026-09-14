@@ -32,7 +32,7 @@ import {
 } from '../../domain/geometry'
 import { sectionGeometryForTheme } from '../../domain/metrics'
 import type { Rect, RichDoc, SectionSlide } from '../../domain/types'
-import { useEditorStore } from '../../state/store'
+import { useEditorStore, type ActiveField } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import {
   SectionFrame,
@@ -69,6 +69,7 @@ export function SectionStage({
   section,
   textEditing = 'all',
   focusRect = null,
+  caret = null,
   onLongPressField,
   zoom,
   onZoomChange,
@@ -85,6 +86,8 @@ export function SectionStage({
   textEditing?: StageTextEditing
   /** The line the view is focused on, as a rect of the page. See `StageSurface`. */
   focusRect?: Rect | null
+  /** The line that should take the caret, or `null` to leave it to a tap. */
+  caret?: ActiveField | null
   /** One finger that rested on the page, answered with the line under it. */
   onLongPressField?: (fieldId: string) => void
   /** The pinch, where the workspace offers one. See `StageSurface`. */
@@ -138,6 +141,7 @@ export function SectionStage({
                 section={section}
                 line={line}
                 editable={canTypeIn(textEditing, LINE_TEXT[line].nodeId)}
+                takeCaret={caret?.nodeId === LINE_TEXT[line].nodeId}
                 measureOverflow={() => {
                   const pill = pillRefs.current[line]
                   return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
@@ -183,12 +187,15 @@ function SectionLineEditor({
   section,
   line,
   editable,
+  takeCaret,
   measureOverflow,
   onChange,
 }: {
   section: SectionSlide
   line: SectionLine
   editable: boolean
+  /** Whether this is the line somebody named, rather than one they pressed. */
+  takeCaret: boolean
   measureOverflow: () => number
   onChange: (doc: RichDoc) => void
 }) {
@@ -226,6 +233,7 @@ function SectionLineEditor({
       doc={sectionLineDoc(section, line)}
       variant="cover"
       editable={editable}
+      takeCaret={takeCaret && editable}
       placeholder={LINE_TEXT[line].placeholder}
       overflowMessage={LINE_TEXT[line].overflow}
       measureOverflow={measureOverflow}

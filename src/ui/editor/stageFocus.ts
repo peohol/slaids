@@ -31,6 +31,7 @@ import {
   computeSlideGeometry,
 } from '../../domain/geometry'
 import { geometryForTheme, sectionGeometryForTheme } from '../../domain/metrics'
+import type { ActiveField } from '../../state/store'
 import type { PresentationTheme, Rect, Slide } from '../../domain/types'
 
 export interface StageFocus {
@@ -38,6 +39,18 @@ export interface StageFocus {
   slideId: string
   /** The field filling the stage: a layout zone, a slide title, a section line. */
   fieldId: string
+  /**
+   * The one editor inside it that should take the caret, or `null` to leave the
+   * choice to a tap.
+   *
+   * The two ways in want different things. A long press has already put the
+   * finger somewhere, and the press that ends it is both the user saying *where*
+   * in the text to write and the gesture a phone needs before it will raise its
+   * keyboard — so it asks for nothing here. The text list is the opposite: the
+   * user has named one field out of several in the same zone, and arriving with
+   * no caret would throw that choice away.
+   */
+  caret: ActiveField | null
 }
 
 /** What the editor is looking at right now, as the focus was asked about it. */

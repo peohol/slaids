@@ -58,6 +58,17 @@ export interface RichTextEditorProps {
   placeholder?: string
   className?: string
   autoFocus?: boolean
+  /**
+   * Take the caret the moment this turns true.
+   *
+   * Not the same thing as `autoFocus`, which is an option the editor is *built*
+   * with: a field on the compact stage is built long before it becomes a
+   * writing surface — it is drawn read-only until one is focused — so by the
+   * time somebody asks for it, creating it with the caret is no longer on
+   * offer. This is the same request made of an editor that already exists,
+   * which is what lets the text list open one particular field.
+   */
+  takeCaret?: boolean
   onFocus?: () => void
   /** Used by the caption, which deletes itself when it is left empty. */
   onBlur?: () => void
@@ -84,6 +95,7 @@ export function RichTextEditor({
   placeholder,
   className,
   autoFocus,
+  takeCaret = false,
   onFocus,
   onBlur,
   onEditorReady,
@@ -330,6 +342,17 @@ export function RichTextEditor({
     if (!editor) return
     if (editor.isEditable !== editable) editor.setEditable(editable)
   }, [editor, editable])
+
+  /*
+   * Declared after the one above so the editor is already editable when the
+   * caret is asked for: `focus()` on a read-only ProseMirror does nothing.
+   * Only the transition into `takeCaret` focuses, so a render that happens
+   * while somebody is typing somewhere else cannot pull the caret back.
+   */
+  useEffect(() => {
+    if (!editor || !takeCaret) return
+    editor.commands.focus('end')
+  }, [editor, takeCaret])
 
   // Adopt external changes (undo/redo, structural commands) without clobbering
   // what the user is currently typing.

@@ -302,6 +302,31 @@ describe('useStageGestures: the long press', () => {
     expect(onSwipe).not.toHaveBeenCalled()
   })
 
+  /*
+   * Two recognisers share the slide area: the shell arms a swipe on the same
+   * press this one arms a long press on. When the long press focuses a field
+   * the shell's swipe is switched off — but it was already armed, so unless
+   * being switched off is checked *while* the gesture runs, letting go after a
+   * sideways drag would turn the page out from under the field just opened.
+   */
+  it('drops a gesture it is switched off for mid-press, rather than finishing it', () => {
+    const onSwipe = vi.fn()
+    mount({ onSwipe })
+    down(at('surface'), 100, 200)
+    move(160, 200)
+    mount({ onSwipe, enabled: false })
+    move(300, 200)
+    up(300, 200)
+    expect(onSwipe).not.toHaveBeenCalled()
+
+    // And a press that is released without moving is dropped just the same.
+    mount({ onSwipe })
+    down(at('surface'), 100, 200)
+    mount({ onSwipe, enabled: false })
+    up(300, 200)
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+
   it('leaves a press that belongs to a control or a field alone', () => {
     const onLongPress = vi.fn()
     mount({ onLongPress })

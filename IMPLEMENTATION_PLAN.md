@@ -5652,6 +5652,13 @@ Alle gester er pointer events. Det finnes ikke ett kodeløp for touch og ett for
 mus, og derfor heller ingen user-agent-deteksjon: et smalt desktopvindu oppfører
 seg som en telefon fordi det er den samme koden.
 
+To gjenkjennere er festet til det samme slideområdet — én for sveipen, én for
+visningen og langtrykket — og den indre kan slå av den ytre midt i et trykk ved
+å fokusere et felt. En gjenkjenner som blir slått av mens en gest pågår skal
+derfor **forkaste** gesten der den er, ikke fullføre den når fingeren slippes.
+Ellers ville et drag sideveis etter et langtrykk, altså måten man utvider en
+markering på, bladd bort fra feltet som nettopp ble åpnet.
+
 Slideoversikten er navigasjon, ikke et sidepanel: på compact dekker den hele
 høyden under toppmenyen, og miniatyrene er så store som flaten tillater.
 Hvor mange som får plass ved siden av hverandre er regnestykke på boksen, ikke
@@ -5669,9 +5676,19 @@ inn i det.
 
 Tekstlista (`CompactContentList`) er **navigasjon**, ikke en andre skriveflate.
 En smal skjerm gjør det upraktisk å sikte på et felt inne i en nedskalert slide,
-så lista navngir hvert felt på siden; å velge et av dem gjør nøyaktig det
-langtrykket gjør — fokuserer feltet på stagen. `textTarget.ts` er derfor bare
-adressering og oppramsing; det leser og skriver ingen dokumenter.
+så lista navngir hvert felt på siden; å velge et av dem fokuserer feltet på
+stagen, slik langtrykket gjør. `textTarget.ts` er derfor bare adressering og
+oppramsing; det leser og skriver ingen dokumenter.
+
+De to veiene inn skiller seg på **ett** punkt, og det er hvor caret-en havner.
+Et langtrykk har allerede satt fingeren et sted, og trykket som avslutter det er
+både brukerens valg av hvor i teksten hun vil skrive og den gesten en telefon
+krever før den åpner tastaturet — det autofokuseres derfor ikke. Tekstlista er
+det motsatte: brukeren har navngitt ett felt blant flere i samme sone, og å
+komme fram uten caret ville kastet det valget. Fokuset bærer derfor med seg
+hvilket felt som ble navngitt (`ActiveField`, samme adresse som butikkens
+`activeField`), og nøyaktig den ene editoren tar caret-en. En sone med
+korttittel og to bunnfelt svarer ellers identisk på tre listeoppføringer.
 
 **Fit-regelen er uendret.** Om teksten passer avgjøres av den virkelige sonen i
 det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,

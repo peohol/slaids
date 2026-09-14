@@ -14,6 +14,7 @@ import { docEditRenumberProblem } from '../../state/citationFit'
 import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
+import { sameField } from './textTarget'
 import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
@@ -25,6 +26,7 @@ export function EditableZoneContent({
   nodeId,
   slideId,
   editable = true,
+  caret = null,
   onPickImage,
 }: {
   content: ZoneContent
@@ -39,6 +41,14 @@ export function EditableZoneContent({
    * writing surface at three pixels a line.
    */
   editable?: boolean
+  /**
+   * The one field in this zone that should take the caret, or `null`.
+   *
+   * A zone is several fields — a card's title, each body field, a caption — so
+   * "open this zone" is not enough to say where the caret goes. Set only where
+   * somebody named a field rather than pressed one; see `StageFocus`.
+   */
+  caret?: ActiveField | null
   /** Opens the upload dialog for a picture panel with no file in it yet. */
   onPickImage: (nodeId: string) => void
 }) {
@@ -69,6 +79,7 @@ export function EditableZoneContent({
         nodeId={nodeId}
         slideId={slideId}
         editable={editable}
+        takeCaret={editable && sameField(caret, { nodeId, subfieldId: null, kind: 'caption' })}
         measureOverflow={() => measurePart(CAPTION_PART)}
       />
     </CaptionBox>
@@ -85,6 +96,7 @@ export function EditableZoneContent({
             placeholder="Korttittel"
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             editable={editable}
+            caret={caret}
             measureOverflow={() => measurePart(CARD_TITLE_PART)}
             overflowMessage="Tittelen får ikke plass i kortet."
             validateDoc={(next) =>
@@ -109,6 +121,7 @@ export function EditableZoneContent({
             placeholder="Skriv innhold …"
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             editable={editable}
+            caret={caret}
             measureOverflow={() => measurePart(subfieldPart(field.id))}
             validateDoc={(next) =>
               docEditRenumberProblem({
@@ -156,12 +169,14 @@ function CaptionEditor({
   nodeId,
   slideId,
   editable,
+  takeCaret,
   measureOverflow,
 }: {
   caption: ImageCaption
   nodeId: string
   slideId: string
   editable: boolean
+  takeCaret: boolean
   measureOverflow: () => number
 }) {
   const run = useEditorStore((state) => state.run)
@@ -191,6 +206,7 @@ function CaptionEditor({
       placeholder="Bildetekst"
       editable={editable}
       autoFocus={editable && isDocEmpty(caption.doc)}
+      takeCaret={takeCaret}
       className="image-caption__text"
       measureOverflow={measureOverflow}
       overflowMessage="Bildeteksten får ikke plass i bildet."
@@ -241,6 +257,7 @@ function FieldEditor({
   placeholder,
   field,
   editable,
+  caret,
   onChange,
   measureOverflow,
   overflowMessage,
@@ -251,6 +268,8 @@ function FieldEditor({
   placeholder?: string
   field: ActiveField
   editable: boolean
+  /** The field that was asked for, which may or may not be this one. */
+  caret: ActiveField | null
   onChange: (doc: RichDoc) => void
   measureOverflow: () => number
   overflowMessage?: string
@@ -290,6 +309,7 @@ function FieldEditor({
       variant={variant}
       placeholder={placeholder}
       editable={editable}
+      takeCaret={editable && sameField(caret, field)}
       onChange={onChange}
       onFocus={handleFocus}
       onEditorReady={handleReady}

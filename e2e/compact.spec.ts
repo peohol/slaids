@@ -30,6 +30,7 @@ import {
   isCoarse,
   isOnScreen,
   longPressSlide,
+  longPressThenDrag,
   longPressWithDrift,
   openKeyboard,
   openPanel,
@@ -77,7 +78,11 @@ function focusedField(page: Page) {
 
 /**
  * Write in one of the slide's fields the way a phone gets there: choose it in
- * the text list, which fills the stage with it, and type where it is drawn.
+ * the text list, which fills the stage with it, and type.
+ *
+ * Nothing is clicked after the list entry, deliberately — a field named rather
+ * than pressed arrives with the caret already in it, so every use of this
+ * helper is also a check that it does.
  */
 async function writeInField(page: Page, kind: string, text: string): Promise<void> {
   await openPanel(page, 'content')
@@ -85,9 +90,7 @@ async function writeInField(page: Page, kind: string, text: string): Promise<voi
     .locator(`[data-testid="compact-content-item"][data-target-kind="${kind}"]`)
     .first()
     .click()
-  const field = focusedField(page)
-  await expect(field).toBeVisible()
-  await field.click()
+  await expect(focusedField(page)).toBeVisible()
   await page.keyboard.insertText(text)
 }
 
@@ -281,7 +284,8 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
     const field = focusedField(page)
     await expect(field).toBeVisible()
-    await field.click()
+    // Typed without pressing anything first: naming a field in the list brings
+    // the caret with it, which is the whole difference from a long press.
     await page.keyboard.insertText('Kort nok.')
     await expect(stage(page)).toContainText('Kort nok.')
 
@@ -1143,6 +1147,46 @@ test.describe('kompakt arbeidsflate', () => {
     // And the same hand, held still, does focus the zone.
     await longPressSlide(page, centre.x, centre.y)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await exitFocus(page)
+
+    /*
+     * And the press is spent once it has fired. Dragging sideways before
+     * letting go is how a hand extends a selection in the field it just
+     * opened — the deck must not turn under it. Two recognisers saw this one
+     * press, and only one of them knows it became a long press.
+     */
+    const here = await shownSlideId(page)
+    await longPressThenDrag(page, centre.x, centre.y, { dx: -260, dy: 0 })
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    expect(await shownSlideId(page)).toBe(here)
+  })
+
+  /*
+   * A zone is several fields — a card's title, its body — and all of them carry
+   * the same node id. A focus that remembered only the zone would answer every
+   * entry of that zone identically, and the list's own distinction between them
+   * would be decoration.
+   */
+  test('tekstlista åpner feltet man valgte, ikke bare sonen det ligger i', async ({ page }) => {
+    await createPresentation(page, 'Riktig felt')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-titled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+
+    await writeInField(page, 'card-title', 'Korttittelen')
+    await expect(stage(page).locator('.card-header')).toContainText('Korttittelen')
+    await expect(stage(page).locator('.card-body')).not.toContainText('Korttittelen')
+    await exitFocus(page)
+
+    await writeInField(page, 'body', 'Brødteksten')
+    await expect(stage(page).locator('.card-body')).toContainText('Brødteksten')
+    await expect(stage(page).locator('.card-header')).not.toContainText('Brødteksten')
+    await exitFocus(page)
+
+    // And the heading, which is not in a zone at all, is its own field too.
+    await writeInField(page, 'slide-title', 'Slidetittelen')
+    await expect(stage(page).getByTestId('slide-title')).toContainText('Slidetittelen')
+    await expect(stage(page).locator('.card-header')).not.toContainText('Slidetittelen')
   })
 
   /*

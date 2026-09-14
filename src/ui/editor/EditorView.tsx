@@ -63,7 +63,7 @@ import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
-import { useEditorStore } from '../../state/store'
+import { useEditorStore, type ActiveField } from '../../state/store'
 import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
 import { domFitCheckers, overflowingCount } from '../../state/measure'
@@ -113,7 +113,7 @@ import {
   type Placement,
   type PlacementSource,
 } from './placement'
-import { activeFieldNodeId, type TextTargetEntry } from './textTarget'
+import { activeFieldFor, type TextTargetEntry } from './textTarget'
 import { focusFieldRect, isZoneField, liveFocus, type StageFocus } from './stageFocus'
 import { NO_ZOOM, isZoomed, type StageZoom } from './stageView'
 
@@ -1107,7 +1107,7 @@ export function EditorView({
    * drawn. A field with no text to type, a picture without a caption, is
    * focused just the same and has nothing to put a caret in.
    */
-  const focusField = useCallback((fieldId: string) => {
+  const focusField = useCallback((fieldId: string, caret: ActiveField | null = null) => {
     const store = useEditorStore.getState()
     const slideId = store.currentSlideId
     if (!slideId) return
@@ -1117,7 +1117,7 @@ export function EditorView({
     // A title and a section's lines are text on the page without being zones,
     // so there is nothing for the selection to point at.
     if (isZoneField(fieldId)) store.selectNode(fieldId)
-    setStageFocus({ slideId, fieldId })
+    setStageFocus({ slideId, fieldId, caret })
     // The stage has to be visible to be written on.
     setCompactPanel(null)
   }, [])
@@ -1346,6 +1346,7 @@ export function EditorView({
     ? {
         textEditing: focus ? ({ only: focus.fieldId } as const) : ('none' as const),
         focusRect,
+        caret: focus?.caret ?? null,
         onLongPressField: focusField,
       }
     : {}
@@ -1527,9 +1528,13 @@ export function EditorView({
         </button>
       </div>
     ) : null,
-    // The text list addresses *fields*; the stage focuses the field's own
-    // rect, whether that is a zone, the slide's heading or a section's line.
-    onEditText: (entry: TextTargetEntry) => focusField(activeFieldNodeId(entry.target)),
+    // The text list addresses *fields*; the stage focuses the field's own rect
+    // — a zone, the slide's heading or a section's line — and hands the caret
+    // to the one editor inside it the entry actually named.
+    onEditText: (entry: TextTargetEntry) => {
+      const field = activeFieldFor(entry.target)
+      focusField(field.nodeId, field)
+    },
     onStepPage: stepDeck,
     focus: {
       focused: focus !== null,

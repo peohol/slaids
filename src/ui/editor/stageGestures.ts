@@ -117,6 +117,12 @@ export interface StageGestureOptions {
   /**
    * Whether the surface is listening at all. False while something else owns
    * the screen — a magnified view under a swipe, a field being typed in.
+   *
+   * Checked while a gesture runs and not only when it starts. Two recognisers
+   * are attached to the same slide area — one for the swipe, one for the view
+   * and the long press — and the inner one can switch the outer one off
+   * mid-press by focusing a field. A gesture that is no longer wanted is then
+   * dropped where it is rather than completed on release.
    */
   enabled?: boolean
   /** A decisive horizontal flick: `1` to the right, `-1` to the left. */
@@ -219,6 +225,11 @@ export function useStageGestures(options: StageGestureOptions): {
     const move = (event: PointerEvent): void => {
       const current = state.current
       if (!current) return
+      // Switched off under the hand: the gesture is abandoned, not finished.
+      if (latest.current.enabled === false) {
+        stop()
+        return
+      }
       const moved = current.pointers.find((pointer) => pointer.id === event.pointerId)
       if (!moved) return
       const pointers = current.pointers.map((pointer) =>
@@ -274,6 +285,10 @@ export function useStageGestures(options: StageGestureOptions): {
     const finish = (event: PointerEvent): void => {
       const current = state.current
       if (!current) return
+      if (latest.current.enabled === false) {
+        stop()
+        return
+      }
       const ended = current.pointers.find((pointer) => pointer.id === event.pointerId)
       const pointers = current.pointers.filter((pointer) => pointer.id !== event.pointerId)
       const swipe = current.swipe

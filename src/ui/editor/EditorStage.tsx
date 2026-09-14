@@ -29,7 +29,7 @@ import {
   setSplitWeights,
   subtreeOverflow,
 } from '../../domain/commands'
-import { useEditorStore } from '../../state/store'
+import { useEditorStore, type ActiveField } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { Editor } from '@tiptap/react'
 import type {
@@ -139,6 +139,13 @@ export interface EditorStageProps {
   /** Which text on the stage may be typed into where it is drawn. */
   textEditing?: StageTextEditing
   /**
+   * The one field that should take the caret, or `null` to leave it to a tap.
+   *
+   * See `StageFocus`: a press already says where in the text to write, but a
+   * name chosen from a list does not, so only the second asks for this.
+   */
+  caret?: ActiveField | null
+  /**
    * One finger that rested on the page, answered with the field under it.
    *
    * The stage's own hit test rather than the DOM's: what is under a fingertip
@@ -201,6 +208,7 @@ export function EditorStage({
   dropTargets,
   selectOnTap = false,
   textEditing = 'all',
+  caret = null,
   onLongPressField,
   onPlace = null,
   focusRect = null,
@@ -652,6 +660,7 @@ export function EditorStage({
                     doc={slide.title}
                     variant="title"
                     placeholder="Slidetittel"
+                    takeCaret={caret?.nodeId === TITLE_NODE_ID}
                     overflowMessage="Overskriften får ikke plass i tittelsonen."
                     measureOverflow={() => titleOverflow(titleHostRef.current)}
                     onEditorReady={(editor) => {
@@ -706,6 +715,7 @@ export function EditorStage({
                     nodeId={leaf.id}
                     slideId={slide.id}
                     editable={canTypeIn(textEditing, leaf.id)}
+                    caret={caret}
                     onPickImage={onPickImage}
                   />
                 )}

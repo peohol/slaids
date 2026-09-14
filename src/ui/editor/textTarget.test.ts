@@ -11,7 +11,7 @@ import {
 } from '../../domain/geometry'
 import { contentAt, sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
-import { activeFieldNodeId, textTargetKey, textTargetsForSlide } from './textTarget'
+import { activeFieldFor, sameField, textTargetKey, textTargetsForSlide } from './textTarget'
 
 const fits = { fits: estimateFitChecker }
 
@@ -114,22 +114,46 @@ describe('textTargetsForSlide', () => {
 })
 
 /*
- * The list addresses fields; the stage focuses them by node id. The bridge
- * between the two is this one function, so a field the list offers has to name
- * something the stage can actually fill itself with — including the three that
- * are drawn outside the layout tree.
+ * The list addresses fields; the stage focuses a *rect* by node id and then
+ * hands the caret to one editor inside it. Both halves come from here, so a
+ * field the list offers has to name something the stage can fill itself with —
+ * including the three drawn outside the layout tree — and, within a zone that
+ * holds several fields, exactly which one was asked for.
  */
-describe('activeFieldNodeId', () => {
-  it('names a zone by its own id, and the rest by the geometry engine\'s', () => {
-    expect(activeFieldNodeId({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' })).toBe(
-      'n1',
+describe('activeFieldFor', () => {
+  it('names the zone to fill the stage with, and the rest by the geometry engine\'s ids', () => {
+    expect(
+      activeFieldFor({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' }).nodeId,
+    ).toBe('n1')
+    expect(activeFieldFor({ kind: 'card-title', slideId: 's', nodeId: 'n1' }).nodeId).toBe('n1')
+    expect(activeFieldFor({ kind: 'caption', slideId: 's', nodeId: 'n1' }).nodeId).toBe('n1')
+    expect(activeFieldFor({ kind: 'slide-title', slideId: 's' }).nodeId).toBe(TITLE_NODE_ID)
+    expect(activeFieldFor({ kind: 'section-title', slideId: 's' }).nodeId).toBe(
+      SECTION_TITLE_NODE_ID,
     )
-    expect(activeFieldNodeId({ kind: 'card-title', slideId: 's', nodeId: 'n1' })).toBe('n1')
-    expect(activeFieldNodeId({ kind: 'caption', slideId: 's', nodeId: 'n1' })).toBe('n1')
-    expect(activeFieldNodeId({ kind: 'slide-title', slideId: 's' })).toBe(TITLE_NODE_ID)
-    expect(activeFieldNodeId({ kind: 'section-title', slideId: 's' })).toBe(SECTION_TITLE_NODE_ID)
-    expect(activeFieldNodeId({ kind: 'section-subtitle', slideId: 's' })).toBe(
+    expect(activeFieldFor({ kind: 'section-subtitle', slideId: 's' }).nodeId).toBe(
       SECTION_SUBTITLE_NODE_ID,
     )
+  })
+
+  /*
+   * The half that would be easy to lose: three entries of one zone must not
+   * collapse into one indistinguishable answer, or choosing «felt 2» from the
+   * list would land wherever «felt 1» did.
+   */
+  it('tells apart the fields of one zone, which share a node id', () => {
+    const zone = { slideId: 's', nodeId: 'n1' }
+    const first = activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f1' })
+    const second = activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f2' })
+    const title = activeFieldFor({ kind: 'card-title', ...zone })
+    const caption = activeFieldFor({ kind: 'caption', ...zone })
+
+    expect(sameField(first, second)).toBe(false)
+    expect(sameField(first, title)).toBe(false)
+    expect(sameField(title, caption)).toBe(false)
+    expect(sameField(first, activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f1' }))).toBe(true)
+    // Nothing is the same field as nothing: no caret asked for is no caret given.
+    expect(sameField(null, null)).toBe(false)
+    expect(sameField(first, null)).toBe(false)
   })
 })

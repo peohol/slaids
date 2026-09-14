@@ -22,6 +22,7 @@ import {
 } from '../../domain/geometry'
 import { collectLeaves, breadcrumbLabels } from '../../domain/layout'
 import { docToPlainText } from '../../domain/richdoc'
+import type { ActiveField } from '../../state/store'
 import type { Slide } from '../../domain/types'
 
 /** One editable piece of text, addressed by where it lives in the document. */
@@ -123,23 +124,35 @@ export function textTargetsForSlide(slide: Slide): TextTargetEntry[] {
 }
 
 /**
- * The node id this field is addressed by on the stage.
+ * This field as the editor addresses it everywhere else.
  *
- * One id for two jobs, deliberately: it is what the store's `activeField`
- * carries, and it is what the stage focuses itself on — so choosing a field in
- * the list and long-pressing the same field on the page arrive at the very same
- * place. The three that are not zones have the ids the geometry engine already
+ * One shape for two jobs, deliberately. Its `nodeId` is what the stage focuses
+ * itself on — so choosing a field in the list and long-pressing the same field
+ * on the page arrive at the very same view — and the whole of it is what the
+ * store's `activeField` carries, which is how the *one* editor inside that view
+ * gets the caret. Without the second half a zone with a card title and two body
+ * fields would answer three list entries with one indistinguishable state.
+ *
+ * The three fields that are not zones have the ids the geometry engine already
  * gives them.
  */
-export function activeFieldNodeId(target: TextTarget): string {
+export function activeFieldFor(target: TextTarget): ActiveField {
   switch (target.kind) {
     case 'slide-title':
-      return TITLE_NODE_ID
+      return { nodeId: TITLE_NODE_ID, subfieldId: null, kind: target.kind }
     case 'section-title':
-      return SECTION_TITLE_NODE_ID
+      return { nodeId: SECTION_TITLE_NODE_ID, subfieldId: null, kind: target.kind }
     case 'section-subtitle':
-      return SECTION_SUBTITLE_NODE_ID
+      return { nodeId: SECTION_SUBTITLE_NODE_ID, subfieldId: null, kind: target.kind }
+    case 'body':
+      return { nodeId: target.nodeId, subfieldId: target.subfieldId, kind: target.kind }
     default:
-      return target.nodeId
+      return { nodeId: target.nodeId, subfieldId: null, kind: target.kind }
   }
+}
+
+/** Whether two field addresses point at the same editor. */
+export function sameField(a: ActiveField | null, b: ActiveField | null): boolean {
+  if (!a || !b) return false
+  return a.nodeId === b.nodeId && a.subfieldId === b.subfieldId && a.kind === b.kind
 }

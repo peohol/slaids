@@ -257,6 +257,49 @@ export async function longPressSlide(
 }
 
 /**
+ * Hold still until the long press has fired, then drag sideways and let go.
+ *
+ * The gesture a hand performs when it long-presses a field and then drags to
+ * extend a selection in it. Two recognisers see the same press, so this is the
+ * sequence that asks whether the one the long press switched off stayed off.
+ */
+export async function longPressThenDrag(
+  page: Page,
+  x: number,
+  y: number,
+  delta: { dx: number; dy: number },
+  hold = 800,
+): Promise<void> {
+  const point = await slidePoint(page, x, y)
+  const steps = [0.25, 0.5, 0.75, 1]
+  if (await isCoarse(page)) {
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: point.x, y: point.y, id: 1 }],
+    })
+    await page.waitForTimeout(hold)
+    for (const step of steps) {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: point.x + delta.dx * step, y: point.y + delta.dy * step, id: 1 }],
+      })
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await session.detach()
+  } else {
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    await page.waitForTimeout(hold)
+    for (const step of steps) {
+      await page.mouse.move(point.x + delta.dx * step, point.y + delta.dy * step)
+    }
+    await page.mouse.up()
+  }
+  await page.waitForTimeout(150)
+}
+
+/**
  * Hold a finger down, move it, and only then let go.
  *
  * The movement is what separates a long press from everything else, so this is
