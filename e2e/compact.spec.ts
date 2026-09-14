@@ -250,6 +250,15 @@ test.describe('kompakt arbeidsflate', () => {
     await longPressSlide(page, 800, 500)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
     await expect(focusedField(page)).toHaveCount(0)
+    // Nothing to type in means no bar to type with, either.
+    await expect(page.getByTestId('text-toolbar')).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar-empty')).toHaveCount(0)
+    /*
+     * An empty picture panel offers to pick a file, so the press that ends the
+     * long press may land on that offer — depending on where the panel is drawn
+     * once the zone fills the stage. Either way it is not what is under test.
+     */
+    if (await page.getByTestId('image-modal').isVisible()) await dismissImageModal(page)
     await exitFocus(page)
 
     // Give it a caption with something in it. A caption that is still empty is
@@ -1078,9 +1087,15 @@ test.describe('kompakt arbeidsflate', () => {
 
     const field = focusedField(page)
     await expect(field).toBeVisible()
-    await field.click()
+    /*
+     * Typed with nothing pressed in between. The long press is the whole way
+     * in, so the caret has to be in the field when it ends — not only when the
+     * fingertip happens to come down over a word after the zone has been
+     * re-laid out several times its size.
+     */
     await page.keyboard.insertText('Skrevet rett i sonen.')
     await expect(stage(page)).toContainText('Skrevet rett i sonen.')
+    await expect(field).toBeFocused()
 
     // The toolbar is there for the field that has the caret, and acts on it.
     await page.getByTestId('format-bold').click()
@@ -1159,6 +1174,59 @@ test.describe('kompakt arbeidsflate', () => {
     await longPressThenDrag(page, centre.x, centre.y, { dx: -260, dy: 0 })
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
     expect(await shownSlideId(page)).toBe(here)
+  })
+
+  /*
+   * The bar formats the field you are looking at, or it is not there.
+   *
+   * The editors on a compact stage stay mounted when the focus moves and only
+   * turn read-only, so a bar that was merely *shown* whenever something is
+   * focused would still be aimed at the field just left — and pressing Bold
+   * would change a page the user cannot see.
+   */
+  test('verktøylinja følger ikke med inn i en sone det ikke er noe å skrive i', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Verktøylinja')
+    await splitSelectedZone(page)
+    await closePanel(page)
+    const zones = await zoneRects(page)
+    const a = { x: zones[0].x + zones[0].w / 2, y: zones[0].y + zones[0].h / 2 }
+    const b = { x: zones[1].x + zones[1].w / 2, y: zones[1].y + zones[1].h / 2 }
+
+    // A card in one zone and deliberate air in the other. Air rather than a
+    // picture because an empty picture panel offers to pick a file, and what is
+    // under test here is the bar, not that affordance.
+    await pressSlide(page, a.x, a.y)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-untitled-card').click()
+    await closePanel(page)
+    await pressSlide(page, b.x, b.y)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-negative-space').click()
+    await closePanel(page)
+    // Out of zone mode, so nothing below clears the active field on the way.
+    await openPanel(page, 'content')
+    await closePanel(page)
+
+    await longPressSlide(page, a.x, a.y)
+    await page.keyboard.insertText('Uendret tekst')
+    await expect(stage(page)).toContainText('Uendret tekst')
+    await expect(page.getByTestId('text-toolbar')).toBeVisible()
+    await exitFocus(page)
+
+    // The empty zone focuses like any other, and has nothing to format.
+    await longPressSlide(page, b.x, b.y)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(focusedField(page)).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar')).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar-empty')).toHaveCount(0)
+    await expect(page.getByTestId('format-bold')).toHaveCount(0)
+
+    // And the field left behind is exactly as it was.
+    await exitFocus(page)
+    await expect(stage(page)).toContainText('Uendret tekst')
+    await expect(stage(page).locator('strong')).toHaveCount(0)
   })
 
   /*

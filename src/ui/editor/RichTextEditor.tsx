@@ -14,6 +14,7 @@ import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { FIT_TOLERANCE } from '../../domain/constants'
 import { trimTrailingBlankLines } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
+import { useActiveEditor } from '../../state/activeEditor'
 import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
 
@@ -341,6 +342,20 @@ export function RichTextEditor({
   useEffect(() => {
     if (!editor) return
     if (editor.isEditable !== editable) editor.setEditable(editable)
+    /*
+     * A field that is no longer a writing surface is no longer anything's
+     * target either.
+     *
+     * On a compact workspace the editors stay mounted when the focus moves —
+     * they only turn read-only — so the unmount cleanup each field owns never
+     * runs, and the toolbar, the reference dialog and the picture dialog would
+     * all still be aimed at the field the user has just left. Formatting a
+     * paragraph on a page nobody can see is the bug that follows, so the rule
+     * is stated once, here, where `editable` actually changes.
+     */
+    if (!editable && useActiveEditor.getState().editor === editor) {
+      useActiveEditor.getState().setEditor(null)
+    }
   }, [editor, editable])
 
   /*

@@ -5680,15 +5680,32 @@ så lista navngir hvert felt på siden; å velge et av dem fokuserer feltet på
 stagen, slik langtrykket gjør. `textTarget.ts` er derfor bare adressering og
 oppramsing; det leser og skriver ingen dokumenter.
 
-De to veiene inn skiller seg på **ett** punkt, og det er hvor caret-en havner.
-Et langtrykk har allerede satt fingeren et sted, og trykket som avslutter det er
-både brukerens valg av hvor i teksten hun vil skrive og den gesten en telefon
-krever før den åpner tastaturet — det autofokuseres derfor ikke. Tekstlista er
-det motsatte: brukeren har navngitt ett felt blant flere i samme sone, og å
-komme fram uten caret ville kastet det valget. Fokuset bærer derfor med seg
-hvilket felt som ble navngitt (`ActiveField`, samme adresse som butikkens
-`activeField`), og nøyaktig den ene editoren tar caret-en. En sone med
-korttittel og to bunnfelt svarer ellers identisk på tre listeoppføringer.
+**Caret-en plasseres, den overlates ikke til trykket som avslutter gesten.**
+Begge veier inn setter den, med ulik presisjon: tekstlista navngir ett felt
+blant flere i samme sone og sier nøyaktig hvilket; et langtrykk kan bare navngi
+sonen og tar dens første felt. Fokuset bærer adressen (`ActiveField`, den samme
+butikkens `activeField` bruker), og nøyaktig den ene editoren tar caret-en — en
+sone med korttittel og to bunnfelt svarer ellers identisk på tre
+listeoppføringer.
+
+At langtrykket også må gjøre det er målt, ikke antatt: feltet tegnes flere
+ganger større i det øyeblikket det fokuseres, så trykket som avslutter gesten
+lander der fingertuppen tilfeldigvis er *etterpå* — noen ganger i teksten, noen
+ganger i lufta ved siden av. En vei inn som virker fra ett sted i en sone og
+ikke fra et annet er ingen vei inn.
+
+Følgelig: **mens ett felt er skriveflaten, tar ikke et trykk ved siden av det
+caret-en bort.** Nettleseren flytter fokus på `mousedown`, og på touch er det
+trykket det *samme* som åpnet feltet. Et trykk *i* teksten flytter caret-en som
+vanlig.
+
+**En sone uten tekst har ingen verktøylinje.** Et bilde uten bildetekst fyller
+stagen som enhver annen sone og har ingenting å skrive i; en verktøylinje der
+ville pekt på det som sist ble redigert. Og en editor som ikke lenger er
+redigerbar er ikke lenger noe verktøys mål: på compact blir editorene stående
+mountet og bare skrivebeskyttet, så regelen står ett sted — der `editable`
+faktisk endres — og gjelder verktøylinja, referansedialogen og bildedialogen
+likt.
 
 **Fit-regelen er uendret.** Om teksten passer avgjøres av den virkelige sonen i
 det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,

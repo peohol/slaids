@@ -124,6 +124,24 @@ export function textTargetsForSlide(slide: Slide): TextTargetEntry[] {
 }
 
 /**
+ * The first thing to write in inside this part of the page, or `null` when
+ * there is nothing.
+ *
+ * Two questions with one answer, and they have to agree: whether a focused
+ * field is a writing surface at all — a picture with no caption is not — and,
+ * when it is, which of its editors takes the caret. Read off the same walk the
+ * list is, so «the bar is offered» and «there is somewhere to type» can never
+ * come apart.
+ */
+export function firstFieldIn(slide: Slide, fieldId: string): ActiveField | null {
+  for (const entry of textTargetsForSlide(slide)) {
+    const field = activeFieldFor(entry.target)
+    if (field.nodeId === fieldId) return field
+  }
+  return null
+}
+
+/**
  * This field as the editor addresses it everywhere else.
  *
  * One shape for two jobs, deliberately. Its `nodeId` is what the stage focuses

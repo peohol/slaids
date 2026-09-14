@@ -113,7 +113,7 @@ import {
   type Placement,
   type PlacementSource,
 } from './placement'
-import { activeFieldFor, type TextTargetEntry } from './textTarget'
+import { activeFieldFor, firstFieldIn, type TextTargetEntry } from './textTarget'
 import { focusFieldRect, isZoneField, liveFocus, type StageFocus } from './stageFocus'
 import { NO_ZOOM, isZoomed, type StageZoom } from './stageView'
 
@@ -1122,6 +1122,25 @@ export function EditorView({
     setCompactPanel(null)
   }, [])
 
+  /**
+   * The same thing, from a finger that rested on the page.
+   *
+   * The caret is placed rather than left to the press that ends the gesture.
+   * That press *sometimes* lands in the text — the field is re-laid out several
+   * times larger the moment it is focused, so where the finger ends up is an
+   * accident of the zoom — and a way in that works from one spot of a zone and
+   * not from another is not a way in. It is still the first field of what was
+   * pressed, never a guess at which of several; a tap inside the text moves the
+   * caret from there, as it does anywhere else.
+   */
+  const focusPressedField = useCallback(
+    (fieldId: string) => {
+      const current = useEditorStore.getState().currentSlide()
+      focusField(fieldId, current ? firstFieldIn(current, fieldId) : null)
+    },
+    [focusField],
+  )
+
   /* -------------------------------------------------------------- *
    * Zone actions
    * -------------------------------------------------------------- */
@@ -1278,6 +1297,8 @@ export function EditorView({
       : null
   const focus = liveFocus(stageFocus, { slideId: currentSlideId, rect: focusCandidateRect })
   const focusRect = focus ? focusCandidateRect : null
+  /** Whether the focused field is one there is anything to type in. */
+  const focusedText = focus && slide ? firstFieldIn(slide, focus.fieldId) !== null : false
 
   /*
    * The pinch belongs to this page and this field; anywhere else there is none.
@@ -1347,7 +1368,7 @@ export function EditorView({
         textEditing: focus ? ({ only: focus.fieldId } as const) : ('none' as const),
         focusRect,
         caret: focus?.caret ?? null,
-        onLongPressField: focusField,
+        onLongPressField: focusPressedField,
       }
     : {}
 
@@ -1469,10 +1490,15 @@ export function EditorView({
       onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
       onToggleShare: toggleShare,
     },
-    // A compact workspace has no field on the stage to format — until one is
-    // focused, and then this is the bar for it. A bar over a page nobody is
-    // typing on would act on a field nobody can see.
-    textToolbar: compact && !focus ? null : (
+    /*
+     * A compact workspace has no field on the stage to format — until one that
+     * holds text is focused, and then this is the bar for it.
+     *
+     * «Holds text» rather than merely «is focused»: a picture with no caption
+     * fills the stage like any other zone and has nothing to type into, and a
+     * bar offered over it would be a bar aimed at whatever was edited last.
+     */
+    textToolbar: compact && !focusedText ? null : (
       <TextToolbar
         onInsertReference={() => setReferencesOpen(true)}
         onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}

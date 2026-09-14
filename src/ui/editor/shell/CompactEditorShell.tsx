@@ -110,6 +110,27 @@ export function CompactEditorShell(props: EditorShellProps) {
             // slide behind it, so it has no id here either.
             data-slide-id={props.slide?.id ?? ''}
             onPointerDown={swipe.onPointerDown}
+            /*
+             * While one field is the writing surface, the space around it does
+             * not take the caret away.
+             *
+             * The browser moves focus on `mousedown`, and the letterbox, the
+             * card's padding and the page behind the field are all one press
+             * away from the text. On touch that press is the *same* one that
+             * opened the field: the synthesised mouse event arrives after the
+             * finger lifts, by which time the field has been re-laid out
+             * several times larger and the fingertip may well be beside the
+             * text rather than in it. Preventing the default here is what the
+             * toolbar's own buttons already do for the same reason — and a
+             * press that lands *in* the text is left alone, so tapping to move
+             * the caret works exactly as it does anywhere else.
+             */
+            onMouseDown={(event) => {
+              if (!focus.focused) return
+              const target = event.target
+              if (target instanceof Element && target.closest('[contenteditable="true"]')) return
+              event.preventDefault()
+            }}
           >
             {props.stage}
             <StageControls focus={focus} />

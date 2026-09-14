@@ -40,15 +40,18 @@ export interface StageFocus {
   /** The field filling the stage: a layout zone, a slide title, a section line. */
   fieldId: string
   /**
-   * The one editor inside it that should take the caret, or `null` to leave the
-   * choice to a tap.
+   * The one editor inside it that takes the caret, or `null` when there is
+   * nothing to type in.
    *
-   * The two ways in want different things. A long press has already put the
-   * finger somewhere, and the press that ends it is both the user saying *where*
-   * in the text to write and the gesture a phone needs before it will raise its
-   * keyboard — so it asks for nothing here. The text list is the opposite: the
-   * user has named one field out of several in the same zone, and arriving with
-   * no caret would throw that choice away.
+   * Both ways in set it, for the same reason and with different precision. The
+   * text list names one field out of several in the same zone, so it says
+   * exactly which. A long press can only name the zone, so it takes that zone's
+   * first field — but it does have to name one: the press that ends the gesture
+   * lands wherever the fingertip happens to be *after* the field has been
+   * re-laid out several times larger, which is sometimes the text and sometimes
+   * the air beside it. A way in that works from one spot of a zone and not from
+   * another is not a way in. A tap inside the text moves the caret from there,
+   * exactly as it does anywhere else.
    */
   caret: ActiveField | null
 }
