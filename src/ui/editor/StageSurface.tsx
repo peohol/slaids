@@ -66,6 +66,15 @@ export interface StageSurfaceProps {
    * view, but one finger may well mean the layout.
    */
   canPan?: () => boolean
+  /**
+   * One finger that stayed put, in **slide** coordinates.
+   *
+   * The conversion happens here because this is where the view transform is,
+   * so every stage hit-tests the press against the 1600 × 900 page it actually
+   * drew rather than against the pixels it happened to be scaled to. Given
+   * only where a long press means something; without it no timer is ever set.
+   */
+  onLongPress?: (point: { x: number; y: number }) => void
   onPointerDown?: (event: React.PointerEvent) => void
   onPointerMove?: (event: React.PointerEvent) => void
   onPointerLeave?: (event: React.PointerEvent) => void
@@ -84,6 +93,7 @@ export function StageSurface({
   slideRef,
   onViewMoved,
   canPan,
+  onLongPress,
   onPointerDown,
   onPointerMove,
   onPointerLeave,
@@ -164,11 +174,20 @@ export function StageSurface({
   }
 
   const gestures = useStageGestures({
-    enabled: Boolean(onZoomChange),
+    enabled: Boolean(onZoomChange || onLongPress),
     onPinch: applyPinch,
     onPan: applyPan,
     // One finger is the deck's — a page turn — until there is somewhere to pan.
     panWithOnePointer: isZoomed(zoom),
+    // Whether a resting finger meant anything is the host's question: only it
+    // knows whether a gesture of its own has taken the hand. All this does is
+    // put the point in the space the host hit-tests in.
+    onLongPress: onLongPress
+      ? (point) => {
+          const onSlide = toSlidePoint(point.x, point.y)
+          if (onSlide) onLongPress(onSlide)
+        }
+      : undefined,
   })
 
   const kindAttribute = KIND_ATTRIBUTE[kind]

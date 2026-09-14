@@ -12,7 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { useInteractiveRuntime } from '../../state/interactiveRuntime'
-import { swipeDirection, useStageGestures, type StageGestureOptions } from './stageGestures'
+import {
+  LONG_PRESS_DELAY,
+  LONG_PRESS_MOVE_TOLERANCE,
+  swipeDirection,
+  useStageGestures,
+  type StageGestureOptions,
+} from './stageGestures'
 
 function Surface(options: StageGestureOptions) {
   const gestures = useStageGestures(options)
@@ -20,7 +26,7 @@ function Surface(options: StageGestureOptions) {
     <div data-testid="surface" onPointerDown={gestures.onPointerDown}>
       <span data-testid="text">Tekst på sliden</span>
       <button type="button" data-testid="control">
-        Fokuser sonen
+        En knapp på sliden
       </button>
     </div>
   )
@@ -31,6 +37,7 @@ let root: Root | null = null
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  vi.useFakeTimers()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -39,9 +46,17 @@ beforeEach(() => {
 afterEach(() => {
   if (root) act(() => root!.unmount())
   container?.remove()
+  vi.useRealTimers()
   root = null
   container = null
 })
+
+/** Hold still for long enough that a resting finger has become a long press. */
+function wait(ms = LONG_PRESS_DELAY): void {
+  act(() => {
+    vi.advanceTimersByTime(ms)
+  })
+}
 
 function mount(options: StageGestureOptions): void {
   act(() => root!.render(<Surface {...options} />))
@@ -194,5 +209,122 @@ describe('useStageGestures', () => {
     mount({ onSwipe, enabled: false })
     drag(at('surface'), 100, 200, 220, 0)
     expect(onSwipe).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * The long press is the way into a focused field, so what matters is not only
+ * that it fires but that nothing *else* the same hand does turns into one. Each
+ * of the other gestures starts from the same pointerdown, and each of them has
+ * to end it.
+ */
+describe('useStageGestures: the long press', () => {
+  it('fires when one finger stays put, and reports where it is', () => {
+    const onLongPress = vi.fn()
+    mount({ onLongPress })
+    down(at('surface'), 120, 240)
+    wait()
+    expect(onLongPress).toHaveBeenCalledWith({ x: 120, y: 240 })
+    up(120, 240)
+  })
+
+  it('is not an ordinary tap', () => {
+    const onLongPress = vi.fn()
+    mount({ onLongPress })
+    down(at('surface'), 120, 240)
+    up(120, 240)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+  })
+
+  /*
+   * A finger resting on glass never holds perfectly still, so the tolerance has
+   * to be real — and it has to end at a distance well short of a swipe, or the
+   * two gestures would overlap.
+   */
+  it('tolerates the drift of a resting finger but not a movement', () => {
+    const onLongPress = vi.fn()
+    mount({ onLongPress })
+    down(at('surface'), 120, 240)
+    move(120 + LONG_PRESS_MOVE_TOLERANCE - 2, 241)
+    wait()
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+
+    onLongPress.mockClear()
+    up(120, 240)
+    down(at('surface'), 120, 240)
+    move(120 + LONG_PRESS_MOVE_TOLERANCE + 6, 240)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+    up(120, 240)
+  })
+
+  it('is not what a swipe becomes, however slowly it is performed', () => {
+    const onLongPress = vi.fn()
+    const onSwipe = vi.fn()
+    mount({ onLongPress, onSwipe })
+    down(at('surface'), 100, 200)
+    move(180, 204)
+    wait()
+    move(280, 206)
+    up(280, 206)
+    expect(onLongPress).not.toHaveBeenCalled()
+    expect(onSwipe).toHaveBeenCalledWith(1)
+  })
+
+  it('is not what a pinch becomes, however still the fingers are held', () => {
+    const onLongPress = vi.fn()
+    const onPinch = vi.fn()
+    mount({ onLongPress, onPinch })
+    const surface = at('surface')
+    down(surface, 100, 200, 1)
+    down(surface, 200, 200, 2)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+    up(100, 200, 1)
+    up(200, 200, 2)
+  })
+
+  /*
+   * And once it has fired, the hand has spent its gesture: lifting off after a
+   * long press must not also turn the page, however far the field it just
+   * opened moved under the finger.
+   */
+  it('spends the gesture: the same hand no longer turns the page', () => {
+    const onLongPress = vi.fn()
+    const onSwipe = vi.fn()
+    mount({ onLongPress, onSwipe })
+    down(at('surface'), 100, 200)
+    wait()
+    move(300, 200)
+    up(300, 200)
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+
+  it('leaves a press that belongs to a control or a field alone', () => {
+    const onLongPress = vi.fn()
+    mount({ onLongPress })
+    down(at('control'), 100, 200)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+    up(100, 200)
+  })
+
+  it('stands aside while a miniapp is running, and when it is switched off', () => {
+    const onLongPress = vi.fn()
+    mount({ onLongPress, enabled: false })
+    down(at('surface'), 100, 200)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+    up(100, 200)
+
+    mount({ onLongPress })
+    const token = useInteractiveRuntime.getState().begin('slide-1')
+    down(at('surface'), 100, 200)
+    wait()
+    expect(onLongPress).not.toHaveBeenCalled()
+    act(() => useInteractiveRuntime.getState().end(token))
+    up(100, 200)
   })
 })

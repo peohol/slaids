@@ -69,7 +69,7 @@ export interface EditorShellProps {
   sandbox: ReactNode
   /** The bar that asks for a target zone, or `null` when nothing is being placed. */
   placementBar: ReactNode
-  /** Open one field on the focused writing surface. */
+  /** Fill the stage with the field this entry addresses, and write in it. */
   onEditText: (entry: TextTargetEntry) => void
   /**
    * One page along the deck — the same step the arrow keys and the wheel take.
@@ -79,34 +79,34 @@ export interface EditorShellProps {
    * left on the way, which only `EditorView` can do.
    */
   onStepPage: (delta: number) => void
-  /** How close the stage is to the selected zone, and the way up and down. */
+  /** Whether one field fills the stage, and the one way back out. */
   focus: StageFocusControls
   /** The keyboard reference. On the desktop the status bar offers it. */
   onShowShortcuts: () => void
 }
 
 /**
- * The compact stage's ladder — slide, selected zone, focused zone, typing —
- * as the one thing a shell needs of it: which step it is on, which steps are
- * available from here, and the way up and down.
+ * The compact stage's two states — the whole page, or one field of it filling
+ * the stage and taking the caret — as the little a shell needs of them: which
+ * one it is in, and the way out.
+ *
+ * There is no way *in* here on purpose. Focusing is a long press on the field
+ * itself (see `stageFocus.ts`), so it is the stage's gesture rather than a
+ * control the shell draws, and a shell that offered a button for it would be
+ * offering a second way to do the one thing.
  *
  * `EditorView` owns the state behind it for the same reason it owns the panel
- * choice: a rotation that crosses the compact threshold swaps the shell, and a
- * step the shell was holding would go with it.
+ * choice: a rotation that crosses the compact threshold swaps the shell, and
+ * state the shell was holding would go with it.
  */
 export interface StageFocusControls {
-  /** Whether the stage is filled with the selected zone rather than the slide. */
+  /** Whether one field fills the stage rather than the whole page. */
   focused: boolean
-  /** Whether that zone is a writing surface right now. */
-  editing: boolean
-  /** True when a zone is selected that is worth filling the stage with. */
-  canFocus: boolean
-  /** True when the focused zone holds text that can be typed into. */
-  canEdit: boolean
-  /** Whether a pinch has magnified the view beyond the step it is on. */
+  /** Whether a pinch has magnified the view beyond what is focused. */
   magnified: boolean
-  onFocus: () => void
-  onEdit: () => void
-  /** One step back down: stop typing, then leave the zone, then drop the pinch. */
-  onBack: () => void
+  /**
+   * Back to the whole page in one press: the caret, the focused view and any
+   * magnification taken on top of it all go together.
+   */
+  onExit: () => void
 }

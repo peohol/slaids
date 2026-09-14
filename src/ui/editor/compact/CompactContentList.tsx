@@ -1,16 +1,18 @@
 /**
  * What is written on this slide, as a list.
  *
- * A portrait phone is a reading shape, not a canvas shape, so the slide is a
- * preview at the top and this is the working surface below it: every field on
- * the page, named by where it sits, with the first line of what is in it. A tap
- * opens that field on the focused writing surface.
+ * Navigation, not a second place to write. A portrait phone is a reading shape,
+ * so finding a field by hunting for it in a slide scaled to a quarter of its
+ * size is not something a finger can do — this names every field on the page by
+ * where it sits, with the first line of what is in it. A tap then does exactly
+ * what a long press on the page itself does: it fills the stage with that
+ * field, where the text is edited. There is one writing surface, and it is the
+ * slide.
  *
  * The list is derived from the layout tree, so a zone split this morning has
  * its fields here this afternoon without this file knowing anything about it.
  */
 
-import { useEditorStore } from '../../../state/store'
 import type { Slide } from '../../../domain/types'
 import { Icon } from '../../components/Icon'
 import { textTargetKey, textTargetsForSlide, type TextTargetEntry } from '../textTarget'
@@ -21,9 +23,9 @@ export function CompactContentList({
 }: {
   /** `null` on a derived page: it is generated, and there is nothing to edit. */
   slide: Slide | null
+  /** Fill the stage with this field and put the caret in it. */
   onEdit: (entry: TextTargetEntry) => void
 }) {
-  const selectNode = useEditorStore((state) => state.selectNode)
   const entries = slide ? textTargetsForSlide(slide) : []
 
   if (entries.length === 0) {
@@ -47,12 +49,10 @@ export function CompactContentList({
             className="compact-content__item"
             data-testid="compact-content-item"
             data-target-kind={entry.target.kind}
-            onClick={() => {
-              // The panel beside this list follows the caret, the same way the
-              // stage's own fields make the inspector follow it.
-              if ('nodeId' in entry.target) selectNode(entry.target.nodeId)
-              onEdit(entry)
-            }}
+            // Selecting the zone, focusing it and closing the panel are all
+            // one step, and it is the same step the page's own long press
+            // takes — see `focusField` in `EditorView`.
+            onClick={() => onEdit(entry)}
           >
             <span className="compact-content__where">{entry.label}</span>
             <span className="compact-content__preview">

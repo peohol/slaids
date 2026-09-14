@@ -3,18 +3,15 @@ import { createPresentation } from '../../domain/presentation'
 import { createTitledCard, createUntitledCard } from '../../domain/content'
 import { setZoneContent, splitLeaf, setImageCaption, setContentKind } from '../../domain/commands'
 import { estimateFitChecker } from '../../domain/fit'
-import { paragraphDoc, titleDoc, docToPlainText } from '../../domain/richdoc'
+import { paragraphDoc } from '../../domain/richdoc'
+import {
+  SECTION_SUBTITLE_NODE_ID,
+  SECTION_TITLE_NODE_ID,
+  TITLE_NODE_ID,
+} from '../../domain/geometry'
 import { contentAt, sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
-import {
-  readTextTarget,
-  textTargetKey,
-  textTargetsForSlide,
-  typingLabelFor,
-  variantFor,
-  writeTextTarget,
-  type TextTarget,
-} from './textTarget'
+import { activeFieldNodeId, textTargetKey, textTargetsForSlide } from './textTarget'
 
 const fits = { fits: estimateFitChecker }
 
@@ -116,74 +113,23 @@ describe('textTargetsForSlide', () => {
   })
 })
 
-describe('readTextTarget / writeTextTarget', () => {
-  it('round-trips every kind of field through the command that owns it', () => {
-    let deck = deckWithCard()
-    const slide = contentAt(deck, 1)
-    const targets = textTargetsForSlide(slide).map((entry) => entry.target)
-
-    for (const target of targets) {
-      const written = writeTextTarget(deck, target, paragraphDoc(`Skrevet i ${target.kind}`))
-      expect(written.ok, `${target.kind} skulle kunne skrives`).toBe(true)
-      if (!written.ok) continue
-      deck = written.value
-      expect(docToPlainText(readTextTarget(deck, target))).toBe(`Skrevet i ${target.kind}`)
-    }
-  })
-
-  it('answers null for a field the document no longer has', () => {
-    const deck = deckWithCard()
-    const gone: TextTarget = {
-      kind: 'body',
-      slideId: contentAt(deck, 1).id,
-      nodeId: contentAt(deck, 1).root.id,
-      subfieldId: 'finnes-ikke',
-    }
-    expect(readTextTarget(deck, gone)).toBeNull()
-  })
-
-  it('refuses a field the content kind does not have, through the command', () => {
-    const base = createPresentation({ title: 'Uten tittel i kortet' })
-    const slide = contentAt(base, 1)
-    const placed = setZoneContent(base, {
-      slideId: slide.id,
-      nodeId: slide.root.id,
-      content: createUntitledCard(),
-      ...fits,
-    })
-    if (!placed.ok) throw new Error('kunne ikke legge inn innhold')
-
-    // A card with no title is not given one by writing to it here: the rule
-    // belongs to `setCardTitle`, and this module only dispatches.
-    const written = writeTextTarget(
-      placed.value.presentation,
-      { kind: 'card-title', slideId: slide.id, nodeId: slide.root.id },
-      titleDoc('Nei'),
+/*
+ * The list addresses fields; the stage focuses them by node id. The bridge
+ * between the two is this one function, so a field the list offers has to name
+ * something the stage can actually fill itself with — including the three that
+ * are drawn outside the layout tree.
+ */
+describe('activeFieldNodeId', () => {
+  it('names a zone by its own id, and the rest by the geometry engine\'s', () => {
+    expect(activeFieldNodeId({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' })).toBe(
+      'n1',
     )
-    expect(written.ok).toBe(false)
-  })
-})
-
-describe('field descriptions', () => {
-  it('uses the same editor variants the stage uses', () => {
-    expect(variantFor({ kind: 'body', slideId: 's', nodeId: 'n', subfieldId: 'f' })).toBe('body')
-    expect(variantFor({ kind: 'caption', slideId: 's', nodeId: 'n' })).toBe('caption')
-    expect(variantFor({ kind: 'slide-title', slideId: 's' })).toBe('title')
-    expect(variantFor({ kind: 'section-title', slideId: 's' })).toBe('title')
-  })
-
-  /*
-   * The undo label is what makes a run of typing coalesce into one step, so a
-   * field opened on the focused surface has to carry the same label the stage
-   * would have used for it — otherwise the same keystrokes would leave a
-   * different history depending on where they were typed.
-   */
-  it('labels typing the way the stage labels it', () => {
-    expect(typingLabelFor({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' })).toBe(
-      'typing:n1:f1',
+    expect(activeFieldNodeId({ kind: 'card-title', slideId: 's', nodeId: 'n1' })).toBe('n1')
+    expect(activeFieldNodeId({ kind: 'caption', slideId: 's', nodeId: 'n1' })).toBe('n1')
+    expect(activeFieldNodeId({ kind: 'slide-title', slideId: 's' })).toBe(TITLE_NODE_ID)
+    expect(activeFieldNodeId({ kind: 'section-title', slideId: 's' })).toBe(SECTION_TITLE_NODE_ID)
+    expect(activeFieldNodeId({ kind: 'section-subtitle', slideId: 's' })).toBe(
+      SECTION_SUBTITLE_NODE_ID,
     )
-    expect(typingLabelFor({ kind: 'card-title', slideId: 's', nodeId: 'n1' })).toBe('typing:n1:title')
-    expect(typingLabelFor({ kind: 'caption', slideId: 's', nodeId: 'n1' })).toBe('typing:n1:caption')
-    expect(typingLabelFor({ kind: 'slide-title', slideId: 's1' })).toBe('typing:s1:slide-title')
   })
 })

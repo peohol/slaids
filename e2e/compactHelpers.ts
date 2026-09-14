@@ -8,6 +8,7 @@
  */
 
 import { expect, type Page } from './fixtures'
+import { slidePoint } from './helpers'
 
 export type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
 
@@ -50,15 +51,7 @@ export async function isCoarse(page: Page): Promise<boolean> {
  * mouse — which is the whole claim the compact-mouse project exists to check.
  */
 export async function pressSlide(page: Page, x: number, y: number): Promise<void> {
-  const point = await page.evaluate(
-    ([sx, sy]) => {
-      const element = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
-      const rect = element.getBoundingClientRect()
-      const scale = Number(element.dataset.scale)
-      return { x: rect.left + sx * scale, y: rect.top + sy * scale }
-    },
-    [x, y],
-  )
+  const point = await slidePoint(page, x, y)
   await page.mouse.click(point.x, point.y)
   await page.waitForTimeout(120)
 }
@@ -217,11 +210,87 @@ export async function dragAcrossSlide(
   await page.waitForTimeout(150)
 }
 
-/** A swipe to the right — the deck's «next» — across the slide area. */
+/**
+ * One page along the deck, as a flick across the slide area.
+ *
+ * `1` is the next page and `-1` the previous one, and the hand travels the
+ * *other* way: dragging the page to the left brings the next one in from the
+ * right, the way every carousel on a phone behaves.
+ */
 export async function swipeSlide(page: Page, direction: 1 | -1): Promise<void> {
   const box = await stageArea(page)
   const travel = Math.min(240, box.width * 0.5)
-  await dragAcrossSlide(page, { dx: travel * direction, dy: 0 })
+  await dragAcrossSlide(page, { dx: -travel * direction, dy: 0 })
+}
+
+/**
+ * Press and hold a point of the slide, in slide coordinates.
+ *
+ * The browser's own input again, and held past the recogniser's threshold with
+ * a margin: what is under test is a gesture a hand performs, so a test that
+ * dispatched a synthetic event would prove the handler runs without proving
+ * the browser ever lets it.
+ */
+export async function longPressSlide(
+  page: Page,
+  x: number,
+  y: number,
+  hold = 800,
+): Promise<void> {
+  const point = await slidePoint(page, x, y)
+  if (await isCoarse(page)) {
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: point.x, y: point.y, id: 1 }],
+    })
+    await page.waitForTimeout(hold)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await session.detach()
+  } else {
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    await page.waitForTimeout(hold)
+    await page.mouse.up()
+  }
+  await page.waitForTimeout(150)
+}
+
+/**
+ * Hold a finger down, move it, and only then let go.
+ *
+ * The movement is what separates a long press from everything else, so this is
+ * how a test asks whether travel really does cancel one.
+ */
+export async function longPressWithDrift(
+  page: Page,
+  x: number,
+  y: number,
+  drift: { dx: number; dy: number },
+  hold = 800,
+): Promise<void> {
+  const point = await slidePoint(page, x, y)
+  if (await isCoarse(page)) {
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: point.x, y: point.y, id: 1 }],
+    })
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: point.x + drift.dx, y: point.y + drift.dy, id: 1 }],
+    })
+    await page.waitForTimeout(hold)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await session.detach()
+  } else {
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    await page.mouse.move(point.x + drift.dx, point.y + drift.dy)
+    await page.waitForTimeout(hold)
+    await page.mouse.up()
+  }
+  await page.waitForTimeout(150)
 }
 
 /**

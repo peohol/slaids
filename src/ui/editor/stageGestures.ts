@@ -1,14 +1,23 @@
 /**
  * The finger gestures the slide area answers, in one place.
  *
- * Two of them, and they are told apart by how many fingers are down rather than
- * by anything about the device:
+ * Three of them, and they are told apart by how many fingers are down and by
+ * how long they stay, rather than by anything about the device:
  *
  *  - **one finger across the slide** turns the page, the same way pressing a
  *    thumbnail in the overview does;
+ *  - **one finger that stays put** is a long press, which is the way into a
+ *    focused field: it is the same press a swipe starts as, told apart by the
+ *    one thing that separates them — whether the hand went anywhere;
  *  - **two fingers** change the view transform — pinch to magnify, move
  *    together to pan — and a single finger joins them once the view is
  *    magnified, because there is then somewhere to pan to.
+ *
+ * The three are mutually exclusive by construction rather than by a priority
+ * list: travel past the tolerance ends the long press, a second finger ends
+ * both it and the swipe, and a long press that fires ends the swipe. So a
+ * flick never focuses a field, a pinch never does, and a press that meant to
+ * focus one never turns the page on the way.
  *
  * Everything is pointer events. There is no touch code path and no mouse code
  * path, so a narrow desktop window behaves like a phone because it *is* the
@@ -47,6 +56,24 @@ export function swipeDirection(dx: number, dy: number): 1 | -1 | null {
   if (Math.abs(dx) < Math.abs(dy) * SWIPE_DIRECTION_RATIO) return null
   return dx > 0 ? 1 : -1
 }
+
+/**
+ * How long one finger has to stay before the press means "open this".
+ *
+ * Long enough that a tap, and the pause at the start of an unhurried swipe,
+ * are never mistaken for it; short enough that holding still for it does not
+ * feel like waiting. The platforms' own long press sits in the same region.
+ */
+export const LONG_PRESS_DELAY = 500
+
+/**
+ * And how far it may drift while it waits.
+ *
+ * A finger resting on glass never holds perfectly still, so zero tolerance
+ * would mean a gesture nobody can perform. This is well inside the swipe's own
+ * threshold, so the two can never both be true of the same movement.
+ */
+export const LONG_PRESS_MOVE_TOLERANCE = 10
 
 /**
  * Things a press belongs to rather than to the slide area.
@@ -94,6 +121,13 @@ export interface StageGestureOptions {
   enabled?: boolean
   /** A decisive horizontal flick: `1` to the right, `-1` to the left. */
   onSwipe?: (direction: 1 | -1) => void
+  /**
+   * One finger that stayed put, in client coordinates.
+   *
+   * Reported where the finger is when it fires rather than where it landed, so
+   * a caller that hit-tests the point hits what is under the fingertip now.
+   */
+  onLongPress?: (point: { x: number; y: number }) => void
   onPinch?: (gesture: PinchGesture) => void
   /** A drag that moves the view rather than the deck, in CSS pixels. */
   onPan?: (dx: number, dy: number) => void
@@ -111,6 +145,8 @@ interface GestureState {
   pointers: Tracked[]
   /** The single-finger candidate: where it began, and whether it is still one. */
   swipe: { id: number; x: number; y: number; alive: boolean } | null
+  /** The waiting long press: where it began, and the timer that will fire it. */
+  longPress: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null
   /** The two-finger state: how far apart and where, at the last move. */
   pinch: { distance: number; x: number; y: number } | null
   /** The finger that is dragging the view, and where it was last. */
@@ -119,6 +155,12 @@ interface GestureState {
 
 function distanceBetween(a: Tracked, b: Tracked): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+/** Give up on a pending long press, whatever ended it. */
+function cancelLongPress(state: GestureState | null): GestureState['longPress'] {
+  if (state?.longPress) clearTimeout(state.longPress.timer)
+  return null
 }
 
 /**
@@ -143,6 +185,7 @@ export function useStageGestures(options: StageGestureOptions): {
   const detach = useRef<(() => void) | null>(null)
 
   const stop = useCallback(() => {
+    cancelLongPress(state.current)
     state.current = null
     detach.current?.()
     detach.current = null
@@ -183,6 +226,17 @@ export function useStageGestures(options: StageGestureOptions): {
           ? { id: pointer.id, x: event.clientX, y: event.clientY }
           : pointer,
       )
+
+      // A finger that travelled was never resting, so the press it might have
+      // become is over — whatever the movement turns out to be instead.
+      const longPress =
+        current.longPress &&
+        current.longPress.id === event.pointerId &&
+        Math.hypot(event.clientX - current.longPress.x, event.clientY - current.longPress.y) >
+          LONG_PRESS_MOVE_TOLERANCE
+          ? cancelLongPress(current)
+          : current.longPress
+      current.longPress = longPress
 
       const { onPinch, onPan } = latest.current
       if (pointers.length >= 2 && current.pinch) {
@@ -226,6 +280,10 @@ export function useStageGestures(options: StageGestureOptions): {
       state.current = {
         pointers,
         swipe: swipe && swipe.id === event.pointerId ? null : swipe,
+        longPress:
+          current.longPress?.id === event.pointerId
+            ? cancelLongPress(current)
+            : current.longPress,
         pinch: pointers.length < 2 ? null : current.pinch,
         pan: current.pan?.id === event.pointerId ? null : current.pan,
       }
@@ -254,9 +312,36 @@ export function useStageGestures(options: StageGestureOptions): {
     }
   }, [stop, swallowNextClick])
 
+  /**
+   * Start the clock on a resting finger.
+   *
+   * Where it fires is read back out of the tracked pointer rather than out of
+   * this closure: the finger is allowed to drift inside the tolerance while it
+   * waits, and the caller is going to hit-test the point it is given.
+   */
+  const armLongPress = useCallback(
+    (pointerId: number) =>
+      setTimeout(() => {
+        const current = state.current
+        if (!current?.longPress || current.longPress.id !== pointerId) return
+        const resting = current.pointers.find((pointer) => pointer.id === pointerId)
+        if (!resting) return
+        state.current = {
+          ...current,
+          longPress: null,
+          // The press is spoken for. Whatever the hand does on its way up, it
+          // is no longer a page turn.
+          swipe: current.swipe ? { ...current.swipe, alive: false } : null,
+        }
+        latest.current.onLongPress?.({ x: resting.x, y: resting.y })
+      }, LONG_PRESS_DELAY),
+    [],
+  )
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent): void => {
-      const { enabled = true, onSwipe, onPinch, onPan, panWithOnePointer } = latest.current
+      const { enabled = true, onSwipe, onLongPress, onPinch, onPan, panWithOnePointer } =
+        latest.current
       if (!enabled) return
       // While a miniapp runs, every gesture on the page is the app's.
       if (isInteractiveRuntimeActive()) return
@@ -272,6 +357,7 @@ export function useStageGestures(options: StageGestureOptions): {
         state.current = {
           pointers,
           swipe: onSwipe ? { ...down, alive: true } : null,
+          longPress: onLongPress ? { ...down, timer: armLongPress(down.id) } : null,
           pinch: null,
           pan: onPan && panWithOnePointer ? down : null,
         }
@@ -281,6 +367,8 @@ export function useStageGestures(options: StageGestureOptions): {
           pointers,
           // A second finger means this was never a page turn.
           swipe: previous?.swipe ? { ...previous.swipe, alive: false } : null,
+          // Nor a long press: a pinch is two fingers that may well both rest.
+          longPress: cancelLongPress(previous),
           pinch:
             onPinch && pointers.length === 2
               ? { distance: distanceBetween(a, b), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
@@ -292,7 +380,7 @@ export function useStageGestures(options: StageGestureOptions): {
 
       begin()
     },
-    [begin],
+    [armLongPress, begin],
   )
 
   return { onPointerDown }

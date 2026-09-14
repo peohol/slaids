@@ -25,8 +25,13 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { setSectionSubtitle, setSectionTitle } from '../../domain/commands'
-import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID } from '../../domain/geometry'
-import type { RichDoc, SectionSlide } from '../../domain/types'
+import {
+  SECTION_SUBTITLE_NODE_ID,
+  SECTION_TITLE_NODE_ID,
+  computeSectionGeometry,
+} from '../../domain/geometry'
+import { sectionGeometryForTheme } from '../../domain/metrics'
+import type { Rect, RichDoc, SectionSlide } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import {
@@ -35,8 +40,10 @@ import {
   sectionLineDoc,
   type SectionLine,
 } from '../slide/SectionPageView'
+import { useSlideRender } from '../slide/SlideRenderContext'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { StageSurface } from './StageSurface'
+import { canTypeIn, type StageTextEditing } from './stageFocus'
 import type { StageZoom } from './stageView'
 import { RichTextEditor } from './RichTextEditor'
 
@@ -60,32 +67,65 @@ const LINE_TEXT: Record<
 
 export function SectionStage({
   section,
-  editable = true,
+  textEditing = 'all',
+  focusRect = null,
+  onLongPressField,
   zoom,
   onZoomChange,
 }: {
   section: SectionSlide
   /**
-   * Whether the two lines may be typed into where they are drawn.
+   * Which of the two lines may be typed into where it is drawn.
    *
-   * False on a compact workspace, for the reason a zone's fields are: a
-   * heading scaled to a phone is not a writing surface. The lines are opened
-   * from the text panel instead, and measured against the pill either way.
+   * `all` on a roomy workspace. On a compact one neither is, until a long
+   * press focuses one — a section has no zones to select, so its lines are
+   * focused exactly the way a zone is and edited on the page like everything
+   * else. They are measured against the pill either way.
    */
-  editable?: boolean
+  textEditing?: StageTextEditing
+  /** The line the view is focused on, as a rect of the page. See `StageSurface`. */
+  focusRect?: Rect | null
+  /** One finger that rested on the page, answered with the line under it. */
+  onLongPressField?: (fieldId: string) => void
   /** The pinch, where the workspace offers one. See `StageSurface`. */
   zoom?: StageZoom
   onZoomChange?: (update: (current: StageZoom) => StageZoom) => void
 }) {
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
   const run = useEditorStore((state) => state.run)
+  const { theme } = useSlideRender()
   // Stable, so React does not detach and reattach the pill on every keystroke.
   const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
     pillRefs.current[line] = element
   }, [])
 
+  /**
+   * Which line one resting finger asked for.
+   *
+   * Split at the midpoint between the two pills rather than tested against the
+   * lines themselves: a pill is a few dozen slide units tall and a fingertip is
+   * wider than that on the page, so testing the rects would leave most of the
+   * screen answering nothing at all. Above the seam is the heading, below it the
+   * subheading, and there is nowhere on the page that is neither.
+   */
+  const lineUnder = (point: { x: number; y: number }): SectionLine => {
+    const geometry = computeSectionGeometry(sectionGeometryForTheme(theme))
+    const seam = (geometry.titleRect.y + geometry.titleRect.height + geometry.subtitleRect.y) / 2
+    return point.y < seam ? 'title' : 'subtitle'
+  }
+
   return (
-    <StageSurface kind="section" zoom={zoom} onZoomChange={onZoomChange}>
+    <StageSurface
+      kind="section"
+      base={focusRect ?? undefined}
+      zoom={zoom}
+      onZoomChange={onZoomChange}
+      onLongPress={
+        onLongPressField
+          ? (point) => onLongPressField(LINE_TEXT[lineUnder(point)].nodeId)
+          : undefined
+      }
+    >
       {() => (
         <>
           <SectionFrame
@@ -97,7 +137,7 @@ export function SectionStage({
               <SectionLineEditor
                 section={section}
                 line={line}
-                editable={editable}
+                editable={canTypeIn(textEditing, LINE_TEXT[line].nodeId)}
                 measureOverflow={() => {
                   const pill = pillRefs.current[line]
                   return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
