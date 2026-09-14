@@ -3,18 +3,15 @@ import { createPresentation } from '../../domain/presentation'
 import { createTitledCard, createUntitledCard } from '../../domain/content'
 import { setZoneContent, splitLeaf, setImageCaption, setContentKind } from '../../domain/commands'
 import { estimateFitChecker } from '../../domain/fit'
-import { paragraphDoc, titleDoc, docToPlainText } from '../../domain/richdoc'
+import { paragraphDoc } from '../../domain/richdoc'
+import {
+  SECTION_SUBTITLE_NODE_ID,
+  SECTION_TITLE_NODE_ID,
+  TITLE_NODE_ID,
+} from '../../domain/geometry'
 import { contentAt, sectionAt } from '../../domain/testDecks'
 import type { Presentation } from '../../domain/types'
-import {
-  readTextTarget,
-  textTargetKey,
-  textTargetsForSlide,
-  typingLabelFor,
-  variantFor,
-  writeTextTarget,
-  type TextTarget,
-} from './textTarget'
+import { activeFieldFor, sameField, textTargetKey, textTargetsForSlide } from './textTarget'
 
 const fits = { fits: estimateFitChecker }
 
@@ -116,74 +113,47 @@ describe('textTargetsForSlide', () => {
   })
 })
 
-describe('readTextTarget / writeTextTarget', () => {
-  it('round-trips every kind of field through the command that owns it', () => {
-    let deck = deckWithCard()
-    const slide = contentAt(deck, 1)
-    const targets = textTargetsForSlide(slide).map((entry) => entry.target)
-
-    for (const target of targets) {
-      const written = writeTextTarget(deck, target, paragraphDoc(`Skrevet i ${target.kind}`))
-      expect(written.ok, `${target.kind} skulle kunne skrives`).toBe(true)
-      if (!written.ok) continue
-      deck = written.value
-      expect(docToPlainText(readTextTarget(deck, target))).toBe(`Skrevet i ${target.kind}`)
-    }
-  })
-
-  it('answers null for a field the document no longer has', () => {
-    const deck = deckWithCard()
-    const gone: TextTarget = {
-      kind: 'body',
-      slideId: contentAt(deck, 1).id,
-      nodeId: contentAt(deck, 1).root.id,
-      subfieldId: 'finnes-ikke',
-    }
-    expect(readTextTarget(deck, gone)).toBeNull()
-  })
-
-  it('refuses a field the content kind does not have, through the command', () => {
-    const base = createPresentation({ title: 'Uten tittel i kortet' })
-    const slide = contentAt(base, 1)
-    const placed = setZoneContent(base, {
-      slideId: slide.id,
-      nodeId: slide.root.id,
-      content: createUntitledCard(),
-      ...fits,
-    })
-    if (!placed.ok) throw new Error('kunne ikke legge inn innhold')
-
-    // A card with no title is not given one by writing to it here: the rule
-    // belongs to `setCardTitle`, and this module only dispatches.
-    const written = writeTextTarget(
-      placed.value.presentation,
-      { kind: 'card-title', slideId: slide.id, nodeId: slide.root.id },
-      titleDoc('Nei'),
+/*
+ * The list addresses fields; the stage focuses a *rect* by node id and then
+ * hands the caret to one editor inside it. Both halves come from here, so a
+ * field the list offers has to name something the stage can fill itself with —
+ * including the three drawn outside the layout tree — and, within a zone that
+ * holds several fields, exactly which one was asked for.
+ */
+describe('activeFieldFor', () => {
+  it('names the zone to fill the stage with, and the rest by the geometry engine\'s ids', () => {
+    expect(
+      activeFieldFor({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' }).nodeId,
+    ).toBe('n1')
+    expect(activeFieldFor({ kind: 'card-title', slideId: 's', nodeId: 'n1' }).nodeId).toBe('n1')
+    expect(activeFieldFor({ kind: 'caption', slideId: 's', nodeId: 'n1' }).nodeId).toBe('n1')
+    expect(activeFieldFor({ kind: 'slide-title', slideId: 's' }).nodeId).toBe(TITLE_NODE_ID)
+    expect(activeFieldFor({ kind: 'section-title', slideId: 's' }).nodeId).toBe(
+      SECTION_TITLE_NODE_ID,
     )
-    expect(written.ok).toBe(false)
-  })
-})
-
-describe('field descriptions', () => {
-  it('uses the same editor variants the stage uses', () => {
-    expect(variantFor({ kind: 'body', slideId: 's', nodeId: 'n', subfieldId: 'f' })).toBe('body')
-    expect(variantFor({ kind: 'caption', slideId: 's', nodeId: 'n' })).toBe('caption')
-    expect(variantFor({ kind: 'slide-title', slideId: 's' })).toBe('title')
-    expect(variantFor({ kind: 'section-title', slideId: 's' })).toBe('title')
+    expect(activeFieldFor({ kind: 'section-subtitle', slideId: 's' }).nodeId).toBe(
+      SECTION_SUBTITLE_NODE_ID,
+    )
   })
 
   /*
-   * The undo label is what makes a run of typing coalesce into one step, so a
-   * field opened on the focused surface has to carry the same label the stage
-   * would have used for it — otherwise the same keystrokes would leave a
-   * different history depending on where they were typed.
+   * The half that would be easy to lose: three entries of one zone must not
+   * collapse into one indistinguishable answer, or choosing «felt 2» from the
+   * list would land wherever «felt 1» did.
    */
-  it('labels typing the way the stage labels it', () => {
-    expect(typingLabelFor({ kind: 'body', slideId: 's', nodeId: 'n1', subfieldId: 'f1' })).toBe(
-      'typing:n1:f1',
-    )
-    expect(typingLabelFor({ kind: 'card-title', slideId: 's', nodeId: 'n1' })).toBe('typing:n1:title')
-    expect(typingLabelFor({ kind: 'caption', slideId: 's', nodeId: 'n1' })).toBe('typing:n1:caption')
-    expect(typingLabelFor({ kind: 'slide-title', slideId: 's1' })).toBe('typing:s1:slide-title')
+  it('tells apart the fields of one zone, which share a node id', () => {
+    const zone = { slideId: 's', nodeId: 'n1' }
+    const first = activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f1' })
+    const second = activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f2' })
+    const title = activeFieldFor({ kind: 'card-title', ...zone })
+    const caption = activeFieldFor({ kind: 'caption', ...zone })
+
+    expect(sameField(first, second)).toBe(false)
+    expect(sameField(first, title)).toBe(false)
+    expect(sameField(title, caption)).toBe(false)
+    expect(sameField(first, activeFieldFor({ kind: 'body', ...zone, subfieldId: 'f1' }))).toBe(true)
+    // Nothing is the same field as nothing: no caret asked for is no caret given.
+    expect(sameField(null, null)).toBe(false)
+    expect(sameField(first, null)).toBe(false)
   })
 })

@@ -5566,18 +5566,43 @@ stiller det samme spørsmålet gjennom den samme funksjonen.
 
 Dragging beholdes som rask snarvei der den fungerer.
 
-**Fire trinn, og editoren er alltid på nøyaktig ett av dem:**
+**To tilstander, og editoren er alltid i nøyaktig én av dem:**
 
-1. **sliden** – ingenting er fokusert, og et trykk velger en sone;
-2. **valgt sone** – sonen er markert på sliden, og handlingene gjelder den;
-3. **fokusert sone** – visningen fyller stagen med den ene sonen;
-4. **tekstredigering** – den fokuserte sonen *er* skriveflaten.
+1. **hele siden** – ingenting er fokusert, og et kort trykk velger en sone;
+2. **fokusert felt** – ett felt fyller stagen, og bærer feltet tekst, *er* det
+   samtidig skriveflaten.
 
-Hvert trinn nås med én kontroll og forlates med én. Trinn 3 og 4 er transient
-editor-state: de eies høyt nok til å overleve rotasjon og skallbytte, og de
-leses alltid derivert mot det som faktisk er på skjermen, aldri synkronisert med
-en effekt. En angring som fjerner sonen, et trykk på en annen sone eller et
-sidebytte faller dermed av seg selv ned til det trinnet som er sant.
+Veien inn er **ett langtrykk** rett på feltet: det identifiserer feltet under
+fingeren, velger sonen, fyller stagen med den og setter caret-en i den, i én
+operasjon. Bærer feltet ingen tekst – et bilde uten bildetekst – fokuseres det
+likevel, og det finnes da ikke noe å skrive i. Veien ut er **én ×** øverst til
+høyre, som avslutter redigering, fokus og en eventuell pinch samtidig. Det
+finnes ingen mellomtrinn, ingen «fokuser sonen»-kontroll og ingen «rediger
+tekst»-kontroll; å nå fokus fra tekstlista er den samme operasjonen, ikke en
+annen vei.
+
+Et **felt** er ikke alltid en sone. Slidetittelen og en seksjons to linjer
+tegnes utenfor layouttreet, men er tekst på siden på samme måte, og adresseres
+med de samme syntetiske node-id-ene geometrimotoren allerede gir dem
+(`TITLE_NODE_ID`, `SECTION_TITLE_NODE_ID`, `SECTION_SUBTITLE_NODE_ID`). Det er
+det som holder compact til **én** tekstmodell: hvert felt på hver sidetype
+redigeres der det er tegnet, og ingenting redigeres noe annet sted.
+
+Fokuset er transient editor-state: det eies høyt nok til å overleve rotasjon og
+skallbytte, og leses alltid derivert mot det som faktisk er på skjermen, aldri
+synkronisert med en effekt. En angring som fjerner sonen, en tittel som slås av
+eller et sidebytte faller dermed av seg selv tilbake til hele siden.
+
+**Langtrykket er en ekte gest, ikke en timer.** Det ligger i den samme
+pointer-gjenkjenneren som sveip og pinch (`stageGestures.ts`) og er gjensidig
+utelukkende med dem ved konstruksjon: bevegelse forbi toleransen avslutter det,
+en annen finger avslutter det og sveipen, og et langtrykk som utløses avslutter
+sveipen. `pointerup`, `pointercancel` og `blur` forkaster et ventende
+langtrykk. En knapp, en lenke, et felt som skrives i og en kjørende miniapp
+eier fortsatt sine egne gester, og en layoutgest som faktisk har tatt hånda –
+et sonedrag som har begynt å bevege seg – er ikke en hvilende finger. Et
+langtrykk skal aldri etterlate nettleserens tekstmarkering eller callout på
+skrivebeskyttet slideinnhold; se § 44.5.9.
 
 **Én view-transform-modell.** Hel slide, fokusert sone og pinch er ikke tre
 transformer, men det samme spørsmålet med tre svar: *hvilket rektangel av sliden
@@ -5609,14 +5634,16 @@ For pinch gjelder:
 
 **Sveip bytter slide.** På slideområdet på en kompakt arbeidsflate:
 
-- sveip mot høyre er neste slide, mot venstre er forrige;
+- sveip mot venstre er neste slide, mot høyre er forrige — altså samme retning
+  som presentasjonsmodus og som enhver karusell: å dra siden mot venstre henter
+  den neste inn fra høyre;
 - én tydelig gest flytter nøyaktig én slide, avgjort når fingeren slippes;
 - små bevegelser er vanlige trykk, og vertikale bevegelser er ikke sveip;
 - gesten gjelder bare slideområdet: en knapp, en lenke, et felt som skrives i og
   en kjørende miniapp eier sine egne gester, og et sonedrag som allerede er i
   gang tar pekeren;
 - sveip er av mens visningen er forstørret (da panorerer fingeren) og mens et
-  felt skrives i;
+  felt er fokusert, der siden er en skriveflate og et drag er en markering;
 - sveip bruker **den samme dekknavigasjonen** som piltastene og hjulet — samme
   funksjon, som også lukker en avledet side på veien. Det finnes ingen egen
   mobil navigasjonsmodell.
@@ -5624,6 +5651,13 @@ For pinch gjelder:
 Alle gester er pointer events. Det finnes ikke ett kodeløp for touch og ett for
 mus, og derfor heller ingen user-agent-deteksjon: et smalt desktopvindu oppfører
 seg som en telefon fordi det er den samme koden.
+
+To gjenkjennere er festet til det samme slideområdet — én for sveipen, én for
+visningen og langtrykket — og den indre kan slå av den ytre midt i et trykk ved
+å fokusere et felt. En gjenkjenner som blir slått av mens en gest pågår skal
+derfor **forkaste** gesten der den er, ikke fullføre den når fingeren slippes.
+Ellers ville et drag sideveis etter et langtrykk, altså måten man utvider en
+markering på, bladd bort fra feltet som nettopp ble åpnet.
 
 Slideoversikten er navigasjon, ikke et sidepanel: på compact dekker den hele
 høyden under toppmenyen, og miniatyrene er så store som flaten tillater.
@@ -5633,19 +5667,58 @@ desktopstripen, inkludert de diskrete flyttekontrollene.
 
 ### 44.5.5 Tekstredigering: flaten er ikke målet
 
-På compact skrives tekst enten i den **fokuserte sonen** – som er den primære
-skriveflaten når en tekstførende sone er valgt og fokusert – eller på en egen,
-lesbar flate for felt man når fra tekstlista. Begge bruker samme
-ProseMirror-dokument, samme formatteringskommandoer, samme undo/redo og samme
-`TextTarget`-adressering. Det finnes ingen egen mobil tekstmodell.
+På compact skrives tekst **i det fokuserte feltet, på sliden selv**. Det finnes
+ikke en annen skriveflate ved siden av, og ingen egen mobil tekstmodell: samme
+`RichTextEditor`, samme ProseMirror-dokument, samme formatteringskommandoer,
+samme undo/redo, samme citation-regler og samme fit-måling som på desktop. Det
+eneste som skiller flatene er hvor stort feltet er tegnet, og hvordan man kommer
+inn i det.
+
+Tekstlista (`CompactContentList`) er **navigasjon**, ikke en andre skriveflate.
+En smal skjerm gjør det upraktisk å sikte på et felt inne i en nedskalert slide,
+så lista navngir hvert felt på siden; å velge et av dem fokuserer feltet på
+stagen, slik langtrykket gjør. `textTarget.ts` er derfor bare adressering og
+oppramsing; det leser og skriver ingen dokumenter.
+
+**Caret-en plasseres, den overlates ikke til trykket som avslutter gesten.**
+Begge veier inn setter den, med ulik presisjon: tekstlista navngir ett felt
+blant flere i samme sone og sier nøyaktig hvilket; et langtrykk kan bare navngi
+sonen og tar dens første felt. Fokuset bærer adressen (`ActiveField`, den samme
+butikkens `activeField` bruker), og nøyaktig den ene editoren tar caret-en — en
+sone med korttittel og to bunnfelt svarer ellers identisk på tre
+listeoppføringer.
+
+At langtrykket også må gjøre det er målt, ikke antatt: feltet tegnes flere
+ganger større i det øyeblikket det fokuseres, så trykket som avslutter gesten
+lander der fingertuppen tilfeldigvis er *etterpå* — noen ganger i teksten, noen
+ganger i lufta ved siden av. En vei inn som virker fra ett sted i en sone og
+ikke fra et annet er ingen vei inn.
+
+Følgelig: **mens ett felt er skriveflaten, tar ikke et trykk ved siden av det
+caret-en bort.** Nettleseren flytter fokus på `mousedown`, og på touch er det
+trykket det *samme* som åpnet feltet. Et trykk *i* teksten flytter caret-en som
+vanlig.
+
+**En sone uten tekst har ingen verktøylinje.** Et bilde uten bildetekst fyller
+stagen som enhver annen sone og har ingenting å skrive i; en verktøylinje der
+ville pekt på det som sist ble redigert. Og en editor som ikke lenger er
+redigerbar er ikke lenger noe verktøys mål: på compact blir editorene stående
+mountet og bare skrivebeskyttet, så regelen står ett sted — der `editable`
+faktisk endres — og gjelder verktøylinja, referansedialogen og bildedialogen
+likt.
 
 **Fit-regelen er uendret.** Om teksten passer avgjøres av den virkelige sonen i
 det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
-gjennom den samme offscreen-måleren kommandoene bruker. At den fokuserte sonen
-er tegnet flere ganger så stor endrer ingenting: visningen er en transform, og
-målingen skjer i layout, ikke på skjermen. En endring som ikke får plass rulles
-tilbake med samme melding som på stagen, og kladden som ble godtatt blir
-stående.
+gjennom den samme offscreen-måleren kommandoene bruker. At det fokuserte feltet
+er tegnet større endrer ingenting: visningen er en transform, og målingen skjer
+i layout, ikke på skjermen. En endring som ikke får plass rulles tilbake med
+samme melding som på stagen, og kladden som ble godtatt blir stående.
+
+**Konsekvens som må kjennes:** en sone som er bred i det logiske rommet tegnes
+ikke stor på en smal skjerm, fordi fokuseringen er en uniform skalering av den
+samme geometrien og ikke en ny ombrekking. På en stående telefon er en
+slidebred sone derfor bare marginalt større enn hele sliden. Pinchen er svaret
+der det trengs, og den komponerer med fokuseringen (§ 44.5.4).
 
 ### 44.5.6 Skjermtastatur og synlig viewport
 

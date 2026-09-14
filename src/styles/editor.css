@@ -2021,11 +2021,78 @@
 }
 
 /*
- * The ladder's controls, over the bottom right of the slide.
+ * The formatting bar on a phone.
  *
- * One step is offered at a time — see `StageControls` — so this is a row that
- * rarely holds more than two buttons, and it wraps rather than pushing itself
- * off a narrow screen.
+ * The desktop's single row of controls is wider than a phone is, and a bar that
+ * simply runs off the edge puts its last buttons where nobody can press them.
+ * It scrolls sideways instead of wrapping, and that is the deliberate choice of
+ * the two: a bar that changed height as the selection gained a table or a
+ * picture would resize the stage under the caret — and the stage's height is
+ * what the slide is scaled by, so the page would jump every time the toolbar
+ * gained a row.
+ *
+ * It sits above the tab bar, which is above the keyboard: the field it formats
+ * is the slide itself, and both have to stay in the visible band.
+ */
+.editor--compact .text-toolbar {
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-top: 1px solid var(--chrome-border);
+  border-bottom: none;
+}
+
+.editor--compact .text-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Nothing in a scrolling row may be squeezed: it is already past the edge. */
+.editor--compact .text-toolbar > *,
+.editor--compact .text-toolbar__group > *,
+.editor--compact .text-toolbar__table > * {
+  flex: 0 0 auto;
+}
+
+.editor--compact .text-toolbar__spacer {
+  display: none;
+}
+
+/*
+ * The way out of a focused field: one × in the top right of the slide area.
+ *
+ * Up in the corner rather than down among the content, because the field
+ * underneath is a writing surface and the bottom of the screen is where a
+ * keyboard and a formatting bar come up. Drawn in screen pixels, so it is the
+ * same size to a thumb whatever the page is scaled to.
+ */
+.compact-stage-exit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  background: var(--chrome-bg-raised);
+  color: var(--chrome-text);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.compact-stage-exit:hover {
+  border-color: var(--chrome-border-strong);
+}
+
+/*
+ * The pinch's own way back, over the bottom right of the slide.
+ *
+ * Only ever drawn while nothing is focused — the × covers both otherwise —
+ * so this is a row that holds one button, and it wraps rather than pushing
+ * itself off a narrow screen.
  */
 .compact-stage-controls {
   position: absolute;
@@ -2317,92 +2384,6 @@
 .compact-tools__item:disabled {
   opacity: 0.42;
   cursor: not-allowed;
-}
-
-/* ----------------------------------------------------------------- *
- * The focused writing surface
- *
- * Big enough to read; never the thing the text is measured against — see
- * `FocusedTextEditor`.
- * ----------------------------------------------------------------- */
-
-.text-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  /* Exactly the band that is on screen, so the keyboard covers nothing of it. */
-  top: var(--slaids-visible-top);
-  height: var(--slaids-visible-height);
-  z-index: 52;
-  display: flex;
-  flex-direction: column;
-  background: var(--chrome-bg);
-  padding-top: var(--safe-top);
-  padding-left: var(--safe-left);
-  padding-right: var(--safe-right);
-}
-
-.text-sheet__head {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas: 'title done' 'note done';
-  align-items: center;
-  gap: 0 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--chrome-border);
-}
-
-.text-sheet__title {
-  grid-area: title;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.text-sheet__head .hint {
-  grid-area: note;
-}
-
-.text-sheet__head .btn {
-  grid-area: done;
-}
-
-.text-sheet__body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 14px;
-}
-
-/*
- * Readable type, and nothing else overridden.
- *
- * The document is the same ProseMirror document the slide holds, so every
- * structural style it carries still applies; what changes here is the size it
- * is drawn at, which is a property of this surface and of nothing that gets
- * stored.
- */
-.text-sheet__field .tiptap {
-  min-height: 40vh;
-  font-size: 17px;
-  line-height: 1.55;
-  outline: none;
-}
-
-.text-sheet__tools {
-  flex: 0 0 auto;
-  padding-bottom: var(--safe-bottom);
-}
-
-.text-sheet__tools .text-toolbar {
-  height: auto;
-  min-height: 46px;
-  flex-wrap: wrap;
-  row-gap: 4px;
-  padding: 6px 10px;
-  border-bottom: none;
-  border-top: 1px solid var(--chrome-border);
 }
 
 /* ----------------------------------------------------------------- *

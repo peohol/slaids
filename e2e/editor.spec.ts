@@ -213,6 +213,36 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('stage-slide')).toContainText('Brødtekst i kortet.')
   })
 
+  /*
+   * The compact workspace answers a resting finger with a focused, writable
+   * field. None of that may reach a roomy one: there the caret is already
+   * where the pointer is, so a press held still is simply a press held still —
+   * no view moves, no control appears, and the text stays where it was typed.
+   */
+  test('a press held still on the desktop stage is not a mobile long press', async ({ page }) => {
+    await createPresentation(page, 'Musetrykk')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    const field = stage(page).locator('.subfield .tiptap').first()
+    await field.click()
+    await page.keyboard.type('Skrevet med mus')
+    const before = (await stage(page).boundingBox())!
+
+    const box = (await field.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(900)
+    await page.mouse.up()
+
+    await expect(page.getByTestId('compact-stage-exit')).toHaveCount(0)
+    expect((await stage(page).boundingBox())!.width).toBeCloseTo(before.width, 1)
+    await expect(field).toContainText('Skrevet med mus')
+    // And the desktop keeps typing in every field, not in one focused one.
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Tittelen også')
+    await expect(page.getByTestId('slide-title')).toContainText('Tittelen også')
+  })
+
   test('applies bold formatting through the text toolbar', async ({ page }) => {
     await createPresentation(page, 'Formatering')
     const zones = await zoneRects(page)

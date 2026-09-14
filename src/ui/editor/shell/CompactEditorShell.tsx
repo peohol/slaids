@@ -16,10 +16,11 @@
  * field are all where they were, because none of them lives here.
  *
  * The slide area is also the deck's own navigation: one finger across it turns
- * the page, two fingers magnify it. Both are pointer gestures on this one
- * element (see `stageGestures.ts`), so every kind of page — a slide, a section,
- * a miniapp's cover, a generated reference page — can be swiped away from
- * without any of them knowing about it.
+ * the page, two fingers magnify it, and one finger that stays put opens the
+ * field under it. All three are pointer gestures (see `stageGestures.ts`), and
+ * the swipe is the one that lives here — so every kind of page — a slide, a
+ * section, a miniapp's cover, a generated reference page — can be swiped away
+ * from without any of them knowing about it.
  *
  * The floating tool windows (Ideas, the sandbox) are the same components the
  * desktop uses; `FloatingWindow` itself becomes a sheet on a compact
@@ -62,9 +63,9 @@ export function CompactEditorShell(props: EditorShellProps) {
     if (next !== null) {
       setIdeasOpen(false)
       setSandboxOpen(false)
-      // A panel takes the very room the writing surface needs, so typing stops
-      // before it opens rather than carrying on somewhere too small to see.
-      if (focus.editing) focus.onBack()
+      // A panel takes the very room the writing surface needs, so the focused
+      // field is left before it opens rather than kept behind it.
+      if (focus.focused) focus.onExit()
     }
     setCompactPanel(next)
   }
@@ -72,15 +73,21 @@ export function CompactEditorShell(props: EditorShellProps) {
   /*
    * The deck, one finger at a time.
    *
+   * A flick to the left goes on through the deck and one to the right goes
+   * back, the way every carousel and every reader on a phone behaves — so the
+   * travel is the *opposite* of the step: dragging the page leftwards brings
+   * the next one in from the right. It is the same direction presentation mode
+   * has, because there is no reason for the two to disagree.
+   *
    * Off while the view is magnified — a hand on a zoomed slide is inspecting
-   * it, and the same drag has to pan — and off while a field is being typed in,
-   * where a drag is a selection. Everything else the gesture refuses to touch
-   * (controls, links, a running miniapp) it refuses for everyone; see
-   * `OWNS_ITS_GESTURE`.
+   * it, and the same drag has to pan — and off while a field is focused, where
+   * the page is a writing surface and a drag is a selection. Everything else
+   * the gesture refuses to touch (controls, links, a running miniapp) it
+   * refuses for everyone; see `OWNS_ITS_GESTURE`.
    */
   const swipe = useStageGestures({
-    enabled: !focus.editing && !focus.magnified,
-    onSwipe: (direction) => props.onStepPage(direction),
+    enabled: !focus.focused && !focus.magnified,
+    onSwipe: (direction) => props.onStepPage(-direction),
   })
 
   return (
@@ -91,7 +98,7 @@ export function CompactEditorShell(props: EditorShellProps) {
         data-shell="compact"
         data-fonts={props.fontState}
         data-panel={panel ?? 'none'}
-        data-focus={focus.editing ? 'text' : focus.focused ? 'zone' : 'slide'}
+        data-focus={focus.focused ? 'zone' : 'slide'}
       >
         <CompactTopBar toolbar={props.toolbar} />
 
@@ -103,6 +110,27 @@ export function CompactEditorShell(props: EditorShellProps) {
             // slide behind it, so it has no id here either.
             data-slide-id={props.slide?.id ?? ''}
             onPointerDown={swipe.onPointerDown}
+            /*
+             * While one field is the writing surface, the space around it does
+             * not take the caret away.
+             *
+             * The browser moves focus on `mousedown`, and the letterbox, the
+             * card's padding and the page behind the field are all one press
+             * away from the text. On touch that press is the *same* one that
+             * opened the field: the synthesised mouse event arrives after the
+             * finger lifts, by which time the field has been re-laid out
+             * several times larger and the fingertip may well be beside the
+             * text rather than in it. Preventing the default here is what the
+             * toolbar's own buttons already do for the same reason — and a
+             * press that lands *in* the text is left alone, so tapping to move
+             * the caret works exactly as it does anywhere else.
+             */
+            onMouseDown={(event) => {
+              if (!focus.focused) return
+              const target = event.target
+              if (target instanceof Element && target.closest('[contenteditable="true"]')) return
+              event.preventDefault()
+            }}
           >
             {props.stage}
             <StageControls focus={focus} />
@@ -163,78 +191,45 @@ export function CompactEditorShell(props: EditorShellProps) {
 }
 
 /**
- * The ladder, as the one control that is ever needed next.
+ * The one control the stage ever draws.
  *
- * Whole slide → the selected zone fills the stage → that zone is the writing
- * surface, and one button back down at every step. Only the step the editor is
- * actually on is drawn, so there is never a row of buttons to read: what is on
- * screen says where you are.
+ * A focused field is a mode, not a rung of a ladder, so what it needs is a way
+ * out and nothing else: one × in the corner that stops the typing, drops the
+ * focused view and brings the whole page back, all at once. Getting *in* is
+ * the long press on the field itself, which is why there is no matching button
+ * for it here.
+ *
+ * A magnification taken on the whole page is the one other thing a press can
+ * undo, and it is only ever offered when nothing is focused — the × already
+ * covers it otherwise.
  */
 function StageControls({ focus }: { focus: EditorShellProps['focus'] }) {
-  if (focus.editing) {
-    return (
-      <div className="compact-stage-controls" data-testid="compact-stage-controls">
-        <button
-          type="button"
-          className="btn btn--primary btn--sm touch-target"
-          onClick={focus.onBack}
-          data-testid="compact-stage-done"
-        >
-          <Icon name="check" size={16} /> Ferdig
-        </button>
-      </div>
-    )
-  }
-
   if (focus.focused) {
     return (
-      <div className="compact-stage-controls" data-testid="compact-stage-controls">
-        {focus.canEdit && (
-          <button
-            type="button"
-            className="btn btn--primary btn--sm touch-target"
-            onClick={focus.onEdit}
-            data-testid="compact-stage-edit"
-          >
-            <Icon name="text" size={16} /> Rediger tekst
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn--sm touch-target"
-          onClick={focus.onBack}
-          data-testid="compact-stage-back"
-        >
-          <Icon name="collapse" size={16} /> Hele sliden
-        </button>
-      </div>
+      <button
+        type="button"
+        className="compact-stage-exit touch-target"
+        onClick={focus.onExit}
+        aria-label="Lukk sonen og vis hele sliden"
+        data-testid="compact-stage-exit"
+      >
+        <Icon name="close" size={18} />
+      </button>
     )
   }
 
-  if (!focus.canFocus && !focus.magnified) return null
+  if (!focus.magnified) return null
 
   return (
     <div className="compact-stage-controls" data-testid="compact-stage-controls">
-      {focus.magnified && (
-        <button
-          type="button"
-          className="btn btn--sm touch-target"
-          onClick={focus.onBack}
-          data-testid="compact-stage-reset-zoom"
-        >
-          <Icon name="collapse" size={16} /> Nullstill zoom
-        </button>
-      )}
-      {focus.canFocus && (
-        <button
-          type="button"
-          className="btn btn--sm touch-target"
-          onClick={focus.onFocus}
-          data-testid="compact-stage-focus"
-        >
-          <Icon name="expand" size={16} /> Fokuser sonen
-        </button>
-      )}
+      <button
+        type="button"
+        className="btn btn--sm touch-target"
+        onClick={focus.onExit}
+        data-testid="compact-stage-reset-zoom"
+      >
+        <Icon name="collapse" size={16} /> Nullstill zoom
+      </button>
     </div>
   )
 }

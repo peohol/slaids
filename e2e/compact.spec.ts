@@ -29,6 +29,9 @@ import {
   dragAcrossSlide,
   isCoarse,
   isOnScreen,
+  longPressSlide,
+  longPressThenDrag,
+  longPressWithDrift,
   openKeyboard,
   openPanel,
   pinchSlide,
@@ -60,6 +63,41 @@ async function addSlides(page: Page, count: number): Promise<void> {
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
   }
+}
+
+/**
+ * The field the stage is a writing surface for right now.
+ *
+ * The real thing rather than a stand-in: `.tiptap[contenteditable="true"]` is
+ * ProseMirror's own answer to «this is a document you may type in», so a test
+ * that finds one has found the same editor the desktop uses.
+ */
+function focusedField(page: Page) {
+  return stage(page).locator('.tiptap[contenteditable="true"]').first()
+}
+
+/**
+ * Write in one of the slide's fields the way a phone gets there: choose it in
+ * the text list, which fills the stage with it, and type.
+ *
+ * Nothing is clicked after the list entry, deliberately — a field named rather
+ * than pressed arrives with the caret already in it, so every use of this
+ * helper is also a check that it does.
+ */
+async function writeInField(page: Page, kind: string, text: string): Promise<void> {
+  await openPanel(page, 'content')
+  await page
+    .locator(`[data-testid="compact-content-item"][data-target-kind="${kind}"]`)
+    .first()
+    .click()
+  await expect(focusedField(page)).toBeVisible()
+  await page.keyboard.insertText(text)
+}
+
+/** The one way out of a focused field. */
+async function exitFocus(page: Page): Promise<void> {
+  await page.getByTestId('compact-stage-exit').click()
+  await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
 }
 
 /** Split the selected zone in two, through the dialog the panel offers. */
@@ -196,27 +234,48 @@ test.describe('kompakt arbeidsflate', () => {
 
   /*
    * Content is not the same thing as text. A plain picture fills its zone and
-   * has nothing to type into until it is given a caption, so the action that
-   * opens the writing surface is not offered — a button that does nothing is
-   * worse than no button.
+   * has nothing to type into until it is given a caption — so a long press on
+   * it still fills the stage with the zone, and still finds no caret to offer,
+   * because there is none to offer.
    */
-  test('en bildesone uten bildetekst tilbyr ingen tekstredigering', async ({ page }) => {
+  test('en bildesone uten bildetekst fokuseres, men har ingen tekst å skrive i', async ({
+    page,
+  }) => {
     await createPresentation(page, 'Bilde uten tekst')
     await openPanel(page, 'zone')
     await page.getByTestId('inspector-add-image').click()
     await dismissImageModal(page)
+    await closePanel(page)
 
+    await longPressSlide(page, 800, 500)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(focusedField(page)).toHaveCount(0)
+    // Nothing to type in means no bar to type with, either.
+    await expect(page.getByTestId('text-toolbar')).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar-empty')).toHaveCount(0)
+    /*
+     * An empty picture panel offers to pick a file, so the press that ends the
+     * long press may land on that offer — depending on where the panel is drawn
+     * once the zone fills the stage. Either way it is not what is under test.
+     */
+    if (await page.getByTestId('image-modal').isVisible()) await dismissImageModal(page)
+    await exitFocus(page)
+
+    // Give it a caption with something in it. A caption that is still empty is
+    // not a field yet — it removes itself the moment the caret leaves, which is
+    // the rule `CaptionEditor` states — so the text list is where one is filled.
     await openPanel(page, 'zone')
-    await expect(page.getByTestId('inspector-action-move')).toBeVisible()
-    await expect(page.getByTestId('inspector-action-edit-text')).toHaveCount(0)
-    await expect(page.getByTestId('compact-tab-content')).toBeVisible()
-
-    // Give it a caption, and the action is there — same walk, same answer.
     await page.getByTestId('caption-position-bottom').click()
-    await expect(page.getByTestId('inspector-action-edit-text')).toBeVisible()
+    await writeInField(page, 'caption', 'En bildetekst')
+    await exitFocus(page)
+
+    // And now the very same gesture lands in a writing surface.
+    await longPressSlide(page, 800, 500)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(focusedField(page)).toBeVisible()
   })
 
-  test('redigerer tekst på en lesbar flate, og fit måles mot den virkelige sonen', async ({
+  test('tekstlista åpner den samme skriveflaten på sliden, og fit måles der', async ({
     page,
   }) => {
     await createPresentation(page, 'Tekst')
@@ -227,24 +286,28 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(fields.first()).toBeVisible()
     await fields.filter({ hasText: 'Rot' }).first().click()
 
-    const sheet = page.getByTestId('focused-text-editor')
-    await expect(sheet).toBeVisible()
-    const field = sheet.locator('.tiptap').first()
-    await field.click()
+    // The list is navigation: what it opens is the field on the slide, not a
+    // sheet over it. The old separate writing surface is gone for good.
+    await expect(page.getByTestId('focused-text-editor')).toHaveCount(0)
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    const field = focusedField(page)
+    await expect(field).toBeVisible()
+    // Typed without pressing anything first: naming a field in the list brings
+    // the caret with it, which is the whole difference from a long press.
     await page.keyboard.insertText('Kort nok.')
     await expect(stage(page)).toContainText('Kort nok.')
 
-    // The writing surface is far bigger than the zone and would happily hold
-    // this. The zone would not, so the edit is refused — measured against the
-    // slide at 1600 × 900, exactly as a command measures it.
+    // The zone is drawn several times its real size here and would happily
+    // hold this. The zone at 1600 × 900 would not, so the edit is refused —
+    // measured against the slide, exactly as a command measures it.
     await page.keyboard.insertText('Altfor mye tekst til denne sonen. '.repeat(120))
     await expect(toast(page, 'får ikke plass')).toBeVisible()
     await expect(field).not.toContainText('Altfor mye tekst')
     // The draft that was accepted is still there; nothing was lost.
     await expect(field).toContainText('Kort nok.')
 
-    await sheet.getByTestId('focused-text-done').click()
-    await expect(sheet).toBeHidden()
+    await exitFocus(page)
     await expect(stage(page)).toContainText('Kort nok.')
   })
 
@@ -253,13 +316,13 @@ test.describe('kompakt arbeidsflate', () => {
     await addCardToRootZone(page)
     await openPanel(page, 'content')
     await page.getByTestId('compact-content-item').first().click()
-    await expect(page.getByTestId('focused-text-editor')).toBeVisible()
+    await expect(focusedField(page)).toBeVisible()
 
     const shellBefore = await page.getAttribute('[data-testid="editor"]', 'data-shell')
     await openKeyboard(page)
-    // «Ferdig» is the way out of the writing surface, so it is the one control
+    // The × is the way out of the writing surface, so it is the one control
     // that may never end up behind the keyboard.
-    expect(await isOnScreen(page, 'focused-text-done')).toBe(true)
+    expect(await isOnScreen(page, 'compact-stage-exit')).toBe(true)
     /*
      * And the editor underneath is the same editor.
      *
@@ -271,10 +334,9 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('editor')).toHaveAttribute('data-shell', shellBefore ?? '')
 
     await closeKeyboard(page)
-    await page.getByTestId('focused-text-done').click()
-    await expect(page.getByTestId('focused-text-editor')).toBeHidden()
+    await exitFocus(page)
 
-    // And the workspace's own bottom bar, once the sheet is gone.
+    // And the workspace's own bottom bar, once the field is left.
     await openKeyboard(page)
     expect(await isOnScreen(page, 'compact-tab-bar')).toBe(true)
     await closeKeyboard(page)
@@ -527,16 +589,13 @@ test.describe('kompakt arbeidsflate', () => {
     // Cite something, so the deck grows a reference slide. A body field, not
     // the title: a citation is body text, and the title's toolbar says so by
     // not offering the button.
-    await openPanel(page, 'content')
-    await page.locator('[data-testid="compact-content-item"][data-target-kind="body"]').first().click()
-    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
-    await page.keyboard.insertText('Påstand med kilde')
+    await writeInField(page, 'body', 'Påstand med kilde')
     await page.getByTestId('insert-reference').click()
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('En viktig kilde')
     await page.getByTestId('save-reference').click()
     await page.getByRole('button', { name: 'Lukk' }).click()
-    await page.getByTestId('focused-text-done').click()
+    await exitFocus(page)
 
     // Go to the generated page from the slide overview.
     await openPanel(page, 'slides')
@@ -648,7 +707,7 @@ test.describe('kompakt arbeidsflate', () => {
    * Swiping between slides
    * ----------------------------------------------------------------- */
 
-  test('sveip over slideområdet bytter slide, nøyaktig én per gest', async ({ page }) => {
+  test('sveip mot venstre er neste slide, mot høyre er forrige', async ({ page }) => {
     await createPresentation(page, 'Sveip')
     await addSlides(page, 2)
 
@@ -660,9 +719,31 @@ test.describe('kompakt arbeidsflate', () => {
     await expect.poll(() => shownSlideId(page)).toBe(order[0])
 
     /*
-     * One flick, one page. The second assertion is the one that matters: a
-     * recogniser that fired on every move instead of on the release would have
-     * gone straight to the end of the deck here.
+     * The direction, spelled out in the hand's own travel rather than through
+     * the helper: dragging the page leftwards brings the next one in from the
+     * right, the way every carousel on a phone behaves.
+     */
+    const travel = Math.min(240, (await stageArea(page)).width * 0.5)
+    await dragAcrossSlide(page, { dx: -travel, dy: 0 })
+    await expect.poll(() => shownSlideId(page)).toBe(order[1])
+    await dragAcrossSlide(page, { dx: travel, dy: 0 })
+    await expect.poll(() => shownSlideId(page)).toBe(order[0])
+  })
+
+  test('én gest flytter nøyaktig én slide', async ({ page }) => {
+    await createPresentation(page, 'Én per gest')
+    await addSlides(page, 2)
+
+    await openPanel(page, 'slides')
+    const order = await slideOrder(page)
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect.poll(() => shownSlideId(page)).toBe(order[0])
+
+    /*
+     * One flick, one page, however far the hand goes. A recogniser that fired
+     * on every move instead of on the release would have gone straight to the
+     * end of the deck here.
      */
     await swipeSlide(page, 1)
     await expect.poll(() => shownSlideId(page)).toBe(order[1])
@@ -709,12 +790,13 @@ test.describe('kompakt arbeidsflate', () => {
     await closePanel(page)
     const before = await shownSlideId(page)
 
-    // A drag that starts on the cover's own button belongs to the button. The
-    // deck has a page before this one, so a hijacked gesture would show.
+    // A drag that starts on the cover's own button belongs to the button. It
+    // goes rightwards — back through the deck — because this page was added
+    // last and there is nothing after it for a hijacked gesture to reach.
     const activate = (await page.getByTestId('activate-interactive').boundingBox())!
     await dragAcrossSlide(
       page,
-      { dx: -200, dy: 0 },
+      { dx: 200, dy: 0 },
       { x: activate.x + activate.width / 2, y: activate.y + activate.height / 2 },
     )
     expect(await shownSlideId(page)).toBe(before)
@@ -723,7 +805,7 @@ test.describe('kompakt arbeidsflate', () => {
     // And while the app runs, every gesture on the page is the app's.
     await page.getByTestId('activate-interactive').click()
     await expect(page.getByTestId('interactive-runtime')).toBeVisible()
-    await dragAcrossSlide(page, { dx: -220, dy: 0 })
+    await dragAcrossSlide(page, { dx: 220, dy: 0 })
     expect(await shownSlideId(page)).toBe(before)
     await expect(page.getByTestId('interactive-runtime')).toBeVisible()
   })
@@ -866,18 +948,12 @@ test.describe('kompakt arbeidsflate', () => {
     await addCardToRootZone(page)
 
     // Cite something, so the deck also grows a generated reference page.
-    await openPanel(page, 'content')
-    await page
-      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
-      .first()
-      .click()
-    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
-    await page.keyboard.insertText('Påstand med kilde')
+    await writeInField(page, 'body', 'Påstand med kilde')
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('En kilde')
     await page.getByTestId('save-reference').click()
     await page.getByRole('button', { name: 'Lukk' }).click()
-    await page.getByTestId('focused-text-done').click()
+    await exitFocus(page)
 
     // … and a miniapp, so every kind of page the stage can show is in the deck.
     await openPanel(page, 'slides')
@@ -963,17 +1039,17 @@ test.describe('kompakt arbeidsflate', () => {
     )
   })
 
-  test('den fokuserte sonen er skriveflaten, og fit måles mot den virkelige sonen', async ({
+  test('langtrykk fyller stagen med sonen og gjør den skrivbar i samme gest', async ({
     page,
   }) => {
     await createPresentation(page, 'Skriv i sonen')
     await splitSelectedZone(page)
     await closePanel(page)
 
-    // Step two: a press selects a zone that is not the whole slide.
     const zones = await zoneRects(page)
     const target = zones[0]
-    await pressSlide(page, target.x + target.w / 2, target.y + target.h / 2)
+    const centre = { x: target.x + target.w / 2, y: target.y + target.h / 2 }
+    await pressSlide(page, centre.x, centre.y)
     await openPanel(page, 'zone')
     await page.getByTestId('inspector-add-untitled-card').click()
     await expect(stage(page).locator('.zone-content--card')).toBeVisible()
@@ -982,26 +1058,54 @@ test.describe('kompakt arbeidsflate', () => {
     const wholeSlide = (await stage(page).boundingBox())!
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
 
-    // Step three: the zone fills the stage. The page is drawn bigger; the page
-    // itself is unchanged.
-    await page.getByTestId('compact-stage-focus').click()
+    /*
+     * An ordinary press is still an ordinary press: it selects, and nothing
+     * about the view changes. The two gestures start identically, so this is
+     * the assertion that says they are actually told apart.
+     */
+    await pressSlide(page, centre.x, centre.y)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    expectSameBox(await stage(page).boundingBox(), wholeSlide)
+
+    /*
+     * And holding still is the whole of it: the zone fills the stage *and* is
+     * a writing surface, in one gesture. Nothing is pressed in between, and
+     * there is nothing left to press — the two controls the old four-step
+     * model needed do not exist.
+     */
+    await longPressSlide(page, centre.x, centre.y)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
     const focused = (await stage(page).boundingBox())!
     expect(focused.width).toBeGreaterThan(wholeSlide.width)
+    await expect(page.getByTestId('compact-stage-focus')).toHaveCount(0)
+    await expect(page.getByTestId('compact-stage-edit')).toHaveCount(0)
+    await expect(page.getByTestId('compact-stage-done')).toHaveCount(0)
+    // And not under any other name either: the two controls of the old
+    // four-step model are gone from the product, not merely renamed.
+    await expect(page.getByRole('button', { name: 'Fokuser sonen' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Rediger tekst' })).toHaveCount(0)
 
-    // Step four: that zone is the writing surface — the same document, typed
-    // where it is drawn.
-    await page.getByTestId('compact-stage-edit').click()
-    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'text')
-    const field = stage(page).locator('.tiptap[contenteditable="true"]').first()
+    const field = focusedField(page)
     await expect(field).toBeVisible()
-    await field.click()
+    /*
+     * Typed with nothing pressed in between. The long press is the whole way
+     * in, so the caret has to be in the field when it ends — not only when the
+     * fingertip happens to come down over a word after the zone has been
+     * re-laid out several times its size.
+     */
     await page.keyboard.insertText('Skrevet rett i sonen.')
     await expect(stage(page)).toContainText('Skrevet rett i sonen.')
+    await expect(field).toBeFocused()
+
+    // The toolbar is there for the field that has the caret, and acts on it.
+    await page.getByTestId('format-bold').click()
+    await page.keyboard.insertText('Uthevet')
+    await expect(field.locator('strong')).toContainText('Uthevet')
+    await page.getByTestId('format-bold').click()
 
     /*
      * And the surface is still not the measure. The zone is drawn several times
-     * its real size here, and would happily hold this; the zone at 1600 × 900
+     * its real size here and would happily hold this; the zone at 1600 × 900
      * would not, so the edit is refused with the same message and the draft
      * that was accepted stays.
      */
@@ -1010,39 +1114,221 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(field).not.toContainText('Altfor mye tekst')
     await expect(field).toContainText('Skrevet rett i sonen.')
 
-    // One press per step back down, and the text is on the slide.
-    await page.getByTestId('compact-stage-done').click()
-    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
-    await page.getByTestId('compact-stage-back').click()
-    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    // One × ends the typing and the focused view together, in one press.
+    await exitFocus(page)
     expectSameBox(await stage(page).boundingBox(), wholeSlide)
+    await expect(focusedField(page)).toHaveCount(0)
     await expect(stage(page)).toContainText('Skrevet rett i sonen.')
+  })
+
+  /*
+   * The gesture has to be a gesture, not merely a timer: every other thing a
+   * hand does on the slide area starts from the same pointerdown, and none of
+   * them may end in a focused field.
+   */
+  test('bare et ekte langtrykk fokuserer: ikke drift, ikke sveip, ikke pinch', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Ekte langtrykk')
+    await addSlides(page, 1)
+    await splitSelectedZone(page)
+    // Back out of zone mode before the swipes: the zone tab *is* zone mode, and
+    // there a press on the slide is a layout gesture that keeps the deck still.
+    await openPanel(page, 'content')
+    await closePanel(page)
+    const zones = await zoneRects(page)
+    const centre = { x: zones[0].x + zones[0].w / 2, y: zones[0].y + zones[0].h / 2 }
+
+    // A finger that travelled was never resting.
+    await longPressWithDrift(page, centre.x, centre.y, { dx: 90, dy: 0 })
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+
+    // A swipe, however unhurried, turns the page instead.
+    const before = await shownSlideId(page)
+    await swipeSlide(page, -1)
+    await expect.poll(() => shownSlideId(page)).not.toBe(before)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+    await swipeSlide(page, 1)
+    await expect.poll(() => shownSlideId(page)).toBe(before)
+
+    // Two fingers held still are a pinch, and a pinch is never a long press.
+    if (await isCoarse(page)) {
+      await pinchSlide(page, { from: 80, to: 260 })
+      await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
+      await page.getByTestId('compact-stage-reset-zoom').click()
+      await expect.poll(() => stageZoom(page)).toBe(1)
+    }
+
+    // And the same hand, held still, does focus the zone.
+    await longPressSlide(page, centre.x, centre.y)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await exitFocus(page)
+
+    /*
+     * And the press is spent once it has fired. Dragging sideways before
+     * letting go is how a hand extends a selection in the field it just
+     * opened — the deck must not turn under it. Two recognisers saw this one
+     * press, and only one of them knows it became a long press.
+     */
+    const here = await shownSlideId(page)
+    await longPressThenDrag(page, centre.x, centre.y, { dx: -260, dy: 0 })
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    expect(await shownSlideId(page)).toBe(here)
+  })
+
+  /*
+   * The bar formats the field you are looking at, or it is not there.
+   *
+   * The editors on a compact stage stay mounted when the focus moves and only
+   * turn read-only, so a bar that was merely *shown* whenever something is
+   * focused would still be aimed at the field just left — and pressing Bold
+   * would change a page the user cannot see.
+   */
+  test('verktøylinja følger ikke med inn i en sone det ikke er noe å skrive i', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Verktøylinja')
+    await splitSelectedZone(page)
+    await closePanel(page)
+    const zones = await zoneRects(page)
+    const a = { x: zones[0].x + zones[0].w / 2, y: zones[0].y + zones[0].h / 2 }
+    const b = { x: zones[1].x + zones[1].w / 2, y: zones[1].y + zones[1].h / 2 }
+
+    // A card in one zone and deliberate air in the other. Air rather than a
+    // picture because an empty picture panel offers to pick a file, and what is
+    // under test here is the bar, not that affordance.
+    await pressSlide(page, a.x, a.y)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-untitled-card').click()
+    await closePanel(page)
+    await pressSlide(page, b.x, b.y)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-negative-space').click()
+    await closePanel(page)
+    // Out of zone mode, so nothing below clears the active field on the way.
+    await openPanel(page, 'content')
+    await closePanel(page)
+
+    await longPressSlide(page, a.x, a.y)
+    await page.keyboard.insertText('Uendret tekst')
+    await expect(stage(page)).toContainText('Uendret tekst')
+    await expect(page.getByTestId('text-toolbar')).toBeVisible()
+    await exitFocus(page)
+
+    // The empty zone focuses like any other, and has nothing to format.
+    await longPressSlide(page, b.x, b.y)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(focusedField(page)).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar')).toHaveCount(0)
+    await expect(page.getByTestId('text-toolbar-empty')).toHaveCount(0)
+    await expect(page.getByTestId('format-bold')).toHaveCount(0)
+
+    // And the field left behind is exactly as it was.
+    await exitFocus(page)
+    await expect(stage(page)).toContainText('Uendret tekst')
+    await expect(stage(page).locator('strong')).toHaveCount(0)
+  })
+
+  /*
+   * A zone is several fields — a card's title, its body — and all of them carry
+   * the same node id. A focus that remembered only the zone would answer every
+   * entry of that zone identically, and the list's own distinction between them
+   * would be decoration.
+   */
+  test('tekstlista åpner feltet man valgte, ikke bare sonen det ligger i', async ({ page }) => {
+    await createPresentation(page, 'Riktig felt')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-titled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+
+    await writeInField(page, 'card-title', 'Korttittelen')
+    await expect(stage(page).locator('.card-header')).toContainText('Korttittelen')
+    await expect(stage(page).locator('.card-body')).not.toContainText('Korttittelen')
+    await exitFocus(page)
+
+    await writeInField(page, 'body', 'Brødteksten')
+    await expect(stage(page).locator('.card-body')).toContainText('Brødteksten')
+    await expect(stage(page).locator('.card-header')).not.toContainText('Brødteksten')
+    await exitFocus(page)
+
+    // And the heading, which is not in a zone at all, is its own field too.
+    await writeInField(page, 'slide-title', 'Slidetittelen')
+    await expect(stage(page).getByTestId('slide-title')).toContainText('Slidetittelen')
+    await expect(stage(page).locator('.card-header')).not.toContainText('Slidetittelen')
+  })
+
+  /*
+   * A heading and a section's two lines are text on the page without being
+   * zones of the layout. They are focused by the same gesture and edited on the
+   * same stage — which is what keeps the compact workspace to one text model
+   * rather than a stage for zones and a sheet for everything else.
+   */
+  test('slidetittel og seksjonslinjer redigeres på stagen som alt annet', async ({ page }) => {
+    await createPresentation(page, 'Tittel og seksjon')
+    await closePanel(page)
+
+    // The heading sits above the layout, so `hitTestLayout` alone would miss it.
+    await longPressSlide(page, 800, 60)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    const heading = focusedField(page)
+    await expect(heading).toBeVisible()
+    await heading.click()
+    await page.keyboard.insertText('En overskrift')
+    await exitFocus(page)
+    await expect(stage(page).getByTestId('slide-title')).toContainText('En overskrift')
+
+    // And the front page, which is a section: no zones at all, same gesture.
+    await openPanel(page, 'slides')
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    await closePanel(page)
+    await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-section', '')
+    await expect(focusedField(page)).toHaveCount(0)
+
+    await longPressSlide(page, 800, 200)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    const line = focusedField(page)
+    await expect(line).toBeVisible()
+    await line.click()
+    await page.keyboard.insertText('Seksjonen')
+    await exitFocus(page)
+    await expect(stage(page)).toContainText('Seksjonen')
   })
 
   test('en forlatt fokusering kommer ikke tilbake av seg selv', async ({ page }) => {
     await createPresentation(page, 'Forlatt fokus')
+    await addSlides(page, 1)
     await splitSelectedZone(page)
     await closePanel(page)
     const zones = await zoneRects(page)
+    const centre = { x: zones[0].x + zones[0].w / 2, y: zones[0].y + zones[0].h / 2 }
+    const focusedOn = await shownSlideId(page)
 
-    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
-    await page.getByTestId('compact-stage-focus').click()
+    await longPressSlide(page, centre.x, centre.y)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
 
-    // Leave it by choosing the other zone: the stage goes back to the slide.
-    await page.getByTestId('compact-stage-back').click()
-    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
-    await pressSlide(page, zones[1].x + zones[1].w / 2, zones[1].y + zones[1].h / 2)
+    /*
+     * Leave by turning the page, and come back. A focus that was only *hidden*
+     * would be true again here and put the stage into a view nobody asked for.
+     */
+    await openPanel(page, 'slides')
+    const order = await slideOrder(page)
+    await page
+      .getByTestId('filmstrip-item')
+      .nth(order.indexOf(focusedOn) === 0 ? 1 : 0)
+      .getByTestId('filmstrip-thumb')
+      .click()
+    await closePanel(page)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
 
-    /*
-     * And pressing the first zone again is a selection and nothing more. A
-     * focus that was only *hidden* would match its zone again here and put the
-     * stage back into a view nobody asked for.
-     */
-    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
+    await openPanel(page, 'slides')
+    await page
+      .getByTestId('filmstrip-item')
+      .nth(order.indexOf(focusedOn))
+      .getByTestId('filmstrip-thumb')
+      .click()
+    await closePanel(page)
+    await expect.poll(() => shownSlideId(page)).toBe(focusedOn)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
-    await expect(page.getByTestId('compact-stage-focus')).toBeVisible()
   })
 
   test('en sveip på en avledet side forlater den, slik piltastene gjør', async ({ page }) => {
@@ -1050,18 +1336,12 @@ test.describe('kompakt arbeidsflate', () => {
     await addCardToRootZone(page)
 
     // Cite something, so the deck grows a reference page after the last slide.
-    await openPanel(page, 'content')
-    await page
-      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
-      .first()
-      .click()
-    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
-    await page.keyboard.insertText('Påstand med kilde')
+    await writeInField(page, 'body', 'Påstand med kilde')
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('En kilde')
     await page.getByTestId('save-reference').click()
     await page.getByRole('button', { name: 'Lukk' }).click()
-    await page.getByTestId('focused-text-done').click()
+    await exitFocus(page)
 
     // Open the generated page. It belongs to the last authored slide, which is
     // exactly the case where a step taken silently behind it would do nothing.
@@ -1084,16 +1364,15 @@ test.describe('kompakt arbeidsflate', () => {
     await splitSelectedZone(page)
     await closePanel(page)
     const zones = await zoneRects(page)
-    await pressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
-    await page.getByTestId('compact-stage-focus').click()
+    await longPressSlide(page, zones[0].x + zones[0].w / 2, zones[0].y + zones[0].h / 2)
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
 
     await rotate(page)
 
-    // A turn of the wrist is a layout signal. The step of the ladder the user
-    // was on is not a fact about the window, so it is still where it was.
+    // A turn of the wrist is a layout signal. Which field the user is writing
+    // in is not a fact about the window, so it is still the one it was.
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
-    await expect(page.getByTestId('compact-stage-back')).toBeVisible()
+    await expect(page.getByTestId('compact-stage-exit')).toBeVisible()
     await openPanel(page, 'zone')
     await expect(page.locator('.zone-outline--selected')).toHaveAttribute(
       'data-node-outline',
@@ -1196,15 +1475,8 @@ test.describe('kompakt arbeidsflate', () => {
 
     // The card's own text, not the slide title: the words under test have to
     // be inside the zone that is focused further down.
-    await openPanel(page, 'content')
-    await page
-      .locator('[data-testid="compact-content-item"][data-target-kind="body"]')
-      .first()
-      .click()
-    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
-    await page.keyboard.insertText('En setning som ser ut som den kan markeres.')
-    await page.getByTestId('focused-text-done').click()
-    await closePanel(page)
+    await writeInField(page, 'body', 'En setning som ser ut som den kan markeres.')
+    await exitFocus(page)
     await expect(stage(page)).toContainText('En setning som ser ut')
 
     // The invariant, as the browser computes it: the words on the slide are a
@@ -1225,26 +1497,24 @@ test.describe('kompakt arbeidsflate', () => {
     await page.mouse.up()
     expect(await selectedText(page)).toBe('')
 
-    // A long press on them: the gesture a phone answers with a callout menu.
-    await page.mouse.move(line.x + 4, mid)
-    await page.mouse.down()
-    await page.waitForTimeout(700)
-    await page.mouse.move(line.x + 24, mid)
-    await page.mouse.up()
-    expect(await selectedText(page)).toBe('')
-
     // And a finger dragged straight across them.
     await dragAcrossSlide(page, { dx: 40, dy: 0 }, { x: line.x + 1, y: mid })
     expect(await selectedText(page)).toBe('')
 
     /*
-     * Inside a real writing surface it all comes back — because that is where
-     * the user actually asked for a caret. The drag may be as long as it likes
-     * here: a field owns its own gestures, so this one is never a page turn.
+     * A long press on them is the one gesture that has to do *both* things at
+     * once: open the field, and leave no highlight behind on the way in. The
+     * callout menu a phone would otherwise raise is the same thing said in the
+     * platform's words.
      */
-    await page.getByTestId('compact-stage-focus').click()
-    await page.getByTestId('compact-stage-edit').click()
-    const field = stage(page).locator('.tiptap[contenteditable="true"]').first()
+    await longPressSlide(page, target.x + target.w / 2, target.y + target.h / 2)
+    expect(await selectedText(page)).toBe('')
+
+    /*
+     * Inside the writing surface it all comes back — because that is where the
+     * user actually asked for a caret.
+     */
+    const field = focusedField(page)
     await expect(field).toBeVisible()
     expect(await field.evaluate((element) => getComputedStyle(element).userSelect)).toBe('text')
     await field.click()
@@ -1260,16 +1530,16 @@ test.describe('kompakt arbeidsflate', () => {
   test('lagrer og henter tilbake etter reload', async ({ page }) => {
     await createPresentation(page, 'Varig')
     await addCardToRootZone(page)
-    await openPanel(page, 'content')
-    await page.getByTestId('compact-content-item').first().click()
-    await page.getByTestId('focused-text-editor').locator('.tiptap').first().click()
-    await page.keyboard.insertText('Skrevet på mobil')
-    await page.getByTestId('focused-text-done').click()
+    await writeInField(page, 'body', 'Skrevet på mobil')
+    await exitFocus(page)
 
     await waitForSaved(page)
     await page.reload()
     await expect(page.getByTestId('editor')).toHaveAttribute('data-shell', 'compact')
     await expect(stage(page)).toContainText('Skrevet på mobil')
+    // The text was the document's; the focused view never was. A reload comes
+    // back on the whole slide.
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
 
     // And the way back out of the editor still works from the compact bar.
     await backToLibrary(page)

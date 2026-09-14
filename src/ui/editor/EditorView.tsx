@@ -63,7 +63,7 @@ import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
-import { useEditorStore } from '../../state/store'
+import { useEditorStore, type ActiveField } from '../../state/store'
 import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
 import { domFitCheckers, overflowingCount } from '../../state/measure'
@@ -107,15 +107,14 @@ import { useWorkspace } from '../workspace/WorkspaceContext'
 import { CompactEditorShell } from './shell/CompactEditorShell'
 import { DesktopEditorShell } from './shell/DesktopEditorShell'
 import type { CompactPanel, EditorShellProps } from './shell/editorShell'
-import { FocusedTextEditor } from './compact/FocusedTextEditor'
 import {
   PLACEMENT_PROMPT,
   placementTargets,
   type Placement,
   type PlacementSource,
 } from './placement'
-import { hasTextTargetIn, type TextTargetEntry } from './textTarget'
-import { liveFocus, type StageFocus } from './stageFocus'
+import { activeFieldFor, firstFieldIn, type TextTargetEntry } from './textTarget'
+import { focusFieldRect, isZoneField, liveFocus, type StageFocus } from './stageFocus'
 import { NO_ZOOM, isZoomed, type StageZoom } from './stageView'
 
 /**
@@ -223,16 +222,14 @@ export function EditorView({
    * drop runs.
    */
   const [placement, setPlacement] = useState<Placement | null>(null)
-  /** The field open on the focused writing surface, on a compact workspace. */
-  const [focusedText, setFocusedText] = useState<TextTargetEntry | null>(null)
   /**
-   * How close the stage is to the selected zone — the third and fourth steps
-   * of the ladder in `stageFocus.ts`.
+   * The one field filling the compact stage, or `null` for the whole page —
+   * the two states of `stageFocus.ts`.
    *
    * Held here for the same reason the panel choice is: a rotation that crosses
-   * the compact threshold swaps the shell, and a step the shell was holding
+   * the compact threshold swaps the shell, and a state the shell was holding
    * would go with it. Read through `liveFocus`, never directly, so it cannot
-   * outlive the selection it is about.
+   * outlive the field it is about.
    */
   const [stageFocus, setStageFocus] = useState<StageFocus | null>(null)
   /**
@@ -1094,32 +1091,55 @@ export function EditorView({
   const activePlacement = placement?.slideId === currentSlideId ? placement : null
 
   /* -------------------------------------------------------------- *
-   * Focused text editing
+   * Focused fields
    * -------------------------------------------------------------- */
 
   /**
-   * Fill the stage with one zone, and — when asked — make it the writing
-   * surface: steps three and four of the ladder in `stageFocus.ts`.
+   * Fill the compact stage with one field of the page, and write in it.
    *
-   * This is a compact workspace's answer to "I want to change this text". The
-   * zone is selected by a press on the slide, focused from there, and typed in
-   * where it is drawn: the same Tiptap document, the same commands, the same
-   * undo history and the same fit measurement as on a desktop, at a size
-   * somebody can read. Nothing about it is a second text model — the zone is
-   * simply large enough to be one.
+   * A compact workspace's whole answer to "I want to change this". A long
+   * press on the slide lands here, and so does a press in the text list: the
+   * field is selected, the view fills the stage with it, and — because it is
+   * then drawn several times larger — it simply *is* a writing surface, with
+   * no second step to take and nothing extra to press. The same Tiptap
+   * document, the same commands, the same undo history and the same fit
+   * measurement as on a desktop; the only thing that differs is how big it is
+   * drawn. A field with no text to type, a picture without a caption, is
+   * focused just the same and has nothing to put a caret in.
    */
-  const focusZone = useCallback((nodeId: string, editing: boolean) => {
+  const focusField = useCallback((fieldId: string, caret: ActiveField | null = null) => {
     const store = useEditorStore.getState()
     const slideId = store.currentSlideId
     if (!slideId) return
-    // Typing happens in content mode; zone outlines and ratio handles belong to
-    // the step below, and a finger cannot mean both at once.
-    if (editing) store.setMode('content')
-    store.selectNode(nodeId)
-    setStageFocus({ slideId, nodeId, editing })
+    // Typing happens in content mode; zone outlines and ratio handles are the
+    // other mode's chrome, and a finger cannot mean both at once.
+    store.setMode('content')
+    // A title and a section's lines are text on the page without being zones,
+    // so there is nothing for the selection to point at.
+    if (isZoneField(fieldId)) store.selectNode(fieldId)
+    setStageFocus({ slideId, fieldId, caret })
     // The stage has to be visible to be written on.
     setCompactPanel(null)
   }, [])
+
+  /**
+   * The same thing, from a finger that rested on the page.
+   *
+   * The caret is placed rather than left to the press that ends the gesture.
+   * That press *sometimes* lands in the text — the field is re-laid out several
+   * times larger the moment it is focused, so where the finger ends up is an
+   * accident of the zoom — and a way in that works from one spot of a zone and
+   * not from another is not a way in. It is still the first field of what was
+   * pressed, never a guess at which of several; a tap inside the text moves the
+   * caret from there, as it does anywhere else.
+   */
+  const focusPressedField = useCallback(
+    (fieldId: string) => {
+      const current = useEditorStore.getState().currentSlide()
+      focusField(fieldId, current ? firstFieldIn(current, fieldId) : null)
+    },
+    [focusField],
+  )
 
   /* -------------------------------------------------------------- *
    * Zone actions
@@ -1132,17 +1152,6 @@ export function EditorView({
     const isRoot = contentSlide.root.id === selectedNodeId
 
     return [
-      ...(compact && hasContent && hasTextTargetIn(contentSlide, selectedNodeId)
-        ? [
-            {
-              id: 'edit-text',
-              label: 'Rediger tekst',
-              icon: 'text',
-              onSelect: () => focusZone(selectedNodeId, true),
-              testId: 'zone-action-edit-text',
-            } satisfies ZoneAction,
-          ]
-        : []),
       {
         id: 'move',
         label: 'Flytt innholdet til en annen sone',
@@ -1212,9 +1221,7 @@ export function EditorView({
   }, [
     applyContentKind,
     beginPlacement,
-    compact,
     contentSlide,
-    focusZone,
     runStructural,
     selectedLeaf,
     selectedNode,
@@ -1274,43 +1281,39 @@ export function EditorView({
    * whatever size the window is.
    * -------------------------------------------------------------- */
 
-  /**
-   * Filling the stage with a zone is worth offering only when it would show
-   * more than the whole slide already does: the root *is* the slide, so
-   * focusing it is the view the stage is already in.
-   */
-  const canFocusZone =
-    compact && contentSlide !== null && selectedRect != null && selectedNodeId !== contentSlide.root.id
-  const canEditZoneText =
-    contentSlide !== null && selectedNodeId !== null && hasTextTargetIn(contentSlide, selectedNodeId)
   /*
-   * Where the ladder actually is, as opposed to where it was last put. An undo
-   * that deletes the zone, a press on another one or a page turn all land on
-   * the step that is true now — see `liveFocus`.
+   * Whether the focus is still about something on screen, as opposed to where
+   * it was last put. An undo that deletes the zone, a title switched off, a
+   * page turn and a generated page opened over the slide all land on the state
+   * that is true now — see `liveFocus`.
+   *
+   * A derived page is a *view of* a slide rather than the slide, so there is no
+   * field of it to focus: the rect is asked for against `null`, which is the
+   * same answer a page with no such field gives.
    */
-  const focus = liveFocus(stageFocus, {
-    slideId: currentSlideId,
-    selectedNodeId,
-    focusable: canFocusZone,
-    hasText: canEditZoneText,
-  })
-  const focusRect = focus ? (selectedRect ?? null) : null
+  const focusCandidateRect =
+    stageFocus && !viewedDerivedPage
+      ? focusFieldRect(slide, presentation.theme, stageFocus.fieldId)
+      : null
+  const focus = liveFocus(stageFocus, { slideId: currentSlideId, rect: focusCandidateRect })
+  const focusRect = focus ? focusCandidateRect : null
+  /** Whether the focused field is one there is anything to type in. */
+  const focusedText = focus && slide ? firstFieldIn(slide, focus.fieldId) !== null : false
 
   /*
-   * The pinch belongs to this slide and this step; anywhere else there is none.
+   * The pinch belongs to this page and this field; anywhere else there is none.
    */
-  const zoomKey = `${viewedDerivedPage?.id ?? currentSlideId ?? ''}:${focus?.nodeId ?? ''}`
+  const zoomKey = `${viewedDerivedPage?.id ?? currentSlideId ?? ''}:${focus?.fieldId ?? ''}`
   const zoom = stageZoom.key === zoomKey ? stageZoom.zoom : NO_ZOOM
 
   /*
    * Hidden is not the same as gone, and here it has to be gone.
    *
-   * Reading the two through a derived value is what makes them fall to the
-   * step that is true — but the stale value is still in state, and a selection
-   * or a slide can come *back*: press a zone, focus it, select its parent,
-   * press the first zone again, and a focus nobody asked for would return; go
-   * to another slide and back, and a magnification would. So what is no longer
-   * live is discarded on the spot.
+   * Reading the two through a derived value is what makes them fall to what is
+   * true — but the stale value is still in state, and a page can come *back*:
+   * focus a field, turn to another slide and back, and a focused view nobody
+   * asked for would return, with the magnification taken inside it. So what is
+   * no longer live is discarded on the spot.
    *
    * A set during render rather than in an effect, which is React's own answer
    * to "adjust state when something changes": it re-renders before anything is
@@ -1331,22 +1334,16 @@ export function EditorView({
   }
 
   /**
-   * One step back down the ladder, and only one.
+   * Out of the focused field, all the way, in one press.
    *
-   * Typing stops before the zone is left, and the zone is left before the
-   * pinch is dropped — each press undoes exactly the last thing that was
-   * asked for, which is what makes the way out predictable without a map of
-   * the states in the user's head.
+   * Not a step down a ladder: the focused field is one mode and the whole page
+   * is the other, so leaving means leaving both the writing surface and the
+   * view that made it one — and the magnification taken on top of it, which
+   * belonged to the field rather than to the page. One × does all of it, and
+   * there is nothing left behind to press again.
    */
-  const stepBack = (): void => {
-    if (focus?.editing) {
-      setStageFocus({ ...focus, editing: false })
-      return
-    }
-    if (focus) {
-      setStageFocus(null)
-      return
-    }
+  const exitFocus = (): void => {
+    if (focus) setStageFocus(null)
     changeZoom(() => NO_ZOOM)
   }
 
@@ -1360,6 +1357,20 @@ export function EditorView({
    * transform in all four cases and not four of them.
    */
   const stageZoomProps = compact ? { zoom, onZoomChange: changeZoom } : {}
+  /*
+   * What a compact stage needs to be a writing surface: which field is one,
+   * where it is drawn, and the gesture that gets there. Built once, because a
+   * slide and a section answer the same three questions about different
+   * fields — and a second copy of the answer is a second interaction model.
+   */
+  const stageFocusProps = compact
+    ? {
+        textEditing: focus ? ({ only: focus.fieldId } as const) : ('none' as const),
+        focusRect,
+        caret: focus?.caret ?? null,
+        onLongPressField: focusPressedField,
+      }
+    : {}
 
   const stageNode = viewedDerivedPage ? (
     <ReadOnlySlideStage
@@ -1368,7 +1379,7 @@ export function EditorView({
       {...stageZoomProps}
     />
   ) : section ? (
-    <SectionStage section={section} editable={!compact} {...stageZoomProps} />
+    <SectionStage section={section} {...stageFocusProps} {...stageZoomProps} />
   ) : interactive ? (
     // Keyed by the slide, so moving between two interactive slides replaces
     // the surface — and closes whatever was running on it. The stage and the
@@ -1386,12 +1397,11 @@ export function EditorView({
         setImageOpen('zone')
       }}
       dropTargets={dropTargets}
-      // While the focused zone is being typed in, a press means "put the caret
-      // here" again — which is what the zone was made big enough for.
-      selectOnTap={compact && !focus?.editing}
-      textEditing={compact ? (focus?.editing ? 'selected' : 'none') : 'all'}
+      // While a field is focused, a press means "put the caret here" again —
+      // which is what the field was made big enough for.
+      selectOnTap={compact && !focus}
       chrome={!compact}
-      focusRect={focusRect}
+      {...stageFocusProps}
       {...stageZoomProps}
       onPlace={activePlacement ? commitPlacement : null}
     />
@@ -1480,11 +1490,15 @@ export function EditorView({
       onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
       onToggleShare: toggleShare,
     },
-    // A compact workspace has no field on the stage to format — until the
-    // focused zone becomes one, and then this is the bar for it. The writing
-    // sheet carries its own; a third one over a slide nobody is typing on
-    // would act on a field nobody can see.
-    textToolbar: compact && !focus?.editing ? null : (
+    /*
+     * A compact workspace has no field on the stage to format — until one that
+     * holds text is focused, and then this is the bar for it.
+     *
+     * «Holds text» rather than merely «is focused»: a picture with no caption
+     * fills the stage like any other zone and has nothing to type into, and a
+     * bar offered over it would be a bar aimed at whatever was edited last.
+     */
+    textToolbar: compact && !focusedText ? null : (
       <TextToolbar
         onInsertReference={() => setReferencesOpen(true)}
         onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
@@ -1540,21 +1554,18 @@ export function EditorView({
         </button>
       </div>
     ) : null,
-    onEditText: setFocusedText,
+    // The text list addresses *fields*; the stage focuses the field's own rect
+    // — a zone, the slide's heading or a section's line — and hands the caret
+    // to the one editor inside it the entry actually named.
+    onEditText: (entry: TextTargetEntry) => {
+      const field = activeFieldFor(entry.target)
+      focusField(field.nodeId, field)
+    },
     onStepPage: stepDeck,
     focus: {
       focused: focus !== null,
-      editing: focus?.editing ?? false,
-      canFocus: canFocusZone,
-      canEdit: canEditZoneText,
       magnified: isZoomed(zoom),
-      onFocus: () => {
-        if (selectedNodeId) focusZone(selectedNodeId, false)
-      },
-      onEdit: () => {
-        if (selectedNodeId) focusZone(selectedNodeId, true)
-      },
-      onBack: stepBack,
+      onExit: exitFocus,
     },
     onShowShortcuts: () => setShortcutsOpen(true),
   }
@@ -1610,16 +1621,6 @@ export function EditorView({
           )}
         </DragOverlay>
       </DndContext>
-
-      {focusedText && (
-        <FocusedTextEditor
-          target={focusedText.target}
-          label={focusedText.label}
-          onClose={() => setFocusedText(null)}
-          onInsertReference={() => setReferencesOpen(true)}
-          onOptimizeImage={(assetId) => setOptimizeScope({ kind: 'asset', assetId })}
-        />
-      )}
 
       {splitOpen && selectedRect && (
         <SplitModal

@@ -10,11 +10,13 @@
 > gjøre desktopopplevelsen dårligere eller lage en egen mobilvariant av
 > presentasjonsmodellen.
 >
-> Dokumentet dekker to leveranser: den kompakte arbeidsflaten (PR 1, § 18), og
+> Dokumentet dekker tre leveranser: den kompakte arbeidsflaten (PR 1, § 18), og
 > oppfølgingen som gjorde selve slideområdet til noe man betjener med fingrene
 > — sveip mellom slides, en slideoversikt som tar skjermen, pinch som zoomer
 > stagen og ikke appen, tekstredigering rett i den fokuserte sonen, og
-> tekstmarkering som bare finnes der tekst faktisk kan redigeres.
+> tekstmarkering som bare finnes der tekst faktisk kan redigeres — og
+> rettelsen som ga betjeningen den formen den skulle hatt: sveip mot venstre er
+> neste slide, og ett langtrykk går rett inn i det fokuserte, skrivbare feltet.
 
 ## 0. Hvor koden ligger
 
@@ -26,14 +28,13 @@
 | dagens trekolonneflate | `src/ui/editor/shell/DesktopEditorShell.tsx` |
 | én flate om gangen | `src/ui/editor/shell/CompactEditorShell.tsx` |
 | topplinje, tabs, verktøyliste, tekstliste | `src/ui/editor/compact/` |
-| den lesbare skriveflaten | `src/ui/editor/compact/FocusedTextEditor.tsx` |
-| adressering, lesing, skriving og fit-måling av ett tekstfelt | `src/ui/editor/textTarget.ts` |
+| å navngi og ramse opp hvert tekstfelt på en side | `src/ui/editor/textTarget.ts` |
 | «velg innhold, velg sone» for sandkasse og soneflytting | `src/ui/editor/placement.ts` |
 | større/mindre og eksplisitte forholdstall | `src/ui/editor/ZoneSizeControls.tsx` |
 | sonestien som parent/child-navigasjon | `src/ui/editor/ZoneBreadcrumb.tsx` |
 | hvilket rektangel av sliden som fyller stagen | `src/ui/editor/stageView.ts` |
-| sveip, pinch og panorering, som pointer events | `src/ui/editor/stageGestures.ts` |
-| hvilket trinn av stigen editoren er på | `src/ui/editor/stageFocus.ts` |
+| sveip, langtrykk, pinch og panorering, som pointer events | `src/ui/editor/stageGestures.ts` |
+| om ett felt fyller stagen, og hvilket | `src/ui/editor/stageFocus.ts` |
 | rammen og view-transformen alle fire stages deler | `src/ui/editor/StageSurface.tsx` |
 | stagen med soner, som legger hit-testing oppå | `src/ui/editor/EditorStage.tsx` |
 | seksjon, miniappforside og generert side | `SectionStage` · `InteractiveStage` · `ReadOnlySlideStage` |
@@ -46,9 +47,12 @@ To ting er verdt å vite før man endrer noe her:
 1. **`FloatingWindow` er det samme vinduet på begge flater.** På compact tegnes
    det som et ark uten geometri, men markupen er uendret – `IdeasWindow` finner
    fortsatt `.floating-window__body` for scroll og autoscroll under dra.
-2. **Compact viser `TextToolbar` bare når det finnes et felt å formatere.** Den
-   er inne i skriveflaten, og over tabs-raden mens den fokuserte sonen faktisk
-   skrives i. Ellers er den ikke der, fordi det da ikke er noe å formatere.
+2. **Compact viser `TextToolbar` bare når det finnes et felt å formatere** —
+   altså mens ett fokusert felt faktisk bærer tekst; et bilde uten bildetekst
+   fyller stagen som enhver annen sone og får ingen linje. Den står over tabs-raden, og den *scroller*
+   sideveis i stedet for å brekke om: en linje som ble høyere når utvalget fikk
+   en tabell eller et bilde ville endret stagens høyde, og stagens høyde er det
+   sliden skaleres etter.
 
 ## 1. Produktretning
 
@@ -216,7 +220,7 @@ forskyvningen av naboen midt i draget — det er der forskjellen faktisk er.
 **Slik ble det – sveipen.** Sveip endte ikke opp som noe bare
 presentasjonsmodus har. På compact er slideområdet selv dekknavigasjon:
 
-- sveip mot høyre er neste slide, mot venstre er forrige;
+- sveip mot venstre er neste slide, mot høyre er forrige;
 - én gest er nøyaktig én slide, avgjort når fingeren slippes — ikke mens den
   beveger seg, som ellers ville tatt flere sider på én bevegelse;
 - terskelen er 56 px og sideveis må slå opp/ned med god margin, så et trykk som
@@ -226,15 +230,20 @@ presentasjonsmodus har. På compact er slideområdet selv dekknavigasjon:
 - `OWNS_ITS_GESTURE` holder knapper, lenker, felt som skrives i og en kjørende
   miniapp utenfor — og et sonedrag som allerede har startet stopper gesten der
   den er, så å dra en sonegrense sideveis ikke også blar;
+- sveip er av mens ett felt er fokusert: da er siden en skriveflate, og et drag
+  i den er en markering;
 - den kaller den samme «ett skritt langs dekket» som piltastene og hjulet
   (`stepDeck`), som først lukker en avledet side og så bruker `stepPage`. En
   generert referanseside er en *visning av* en slide, ikke en side i dekket, så
   uten den halvdelen ville et skritt skjedd usynlig bak den.
 
-**Merk at retningen er motsatt av presentasjonsmodus.** Der er sveip mot venstre
-«neste», slik en karusell pleier å være. I editoren ble det uttrykkelig bestilt
-motsatt vei, og de to flatene er derfor ikke like. Om det skal harmoniseres, er
-det én linje i `CompactEditorShell` og én i `PresentationPlayer`.
+**Retningen er den samme som i presentasjonsmodus.** Editoren hadde den
+opprinnelig motsatt, fordi spesifikasjonen sa det; det var feil, og den er nå
+rettet. Å dra siden mot venstre henter den neste inn fra høyre, slik enhver
+karusell og enhver leser på en telefon oppfører seg. Håndens reise er altså det
+motsatte av skrittet, og det er `CompactEditorShell` som snur fortegnet —
+gjenkjenneren rapporterer fortsatt hvilken vei fingeren gikk, ikke hva det
+betyr.
 
 ## 6. Sonevalg og layoutredigering
 
@@ -255,40 +264,58 @@ Det skal være mulig å «fokusere» en valgt sone:
 - en tydelig kontroll returnerer til hel slide;
 - dersom nesting gjør direkte tapping vanskelig, skal parent/child kunne velges fra inspector/soneoversikt.
 
-**Slik ble det: én stige med fire trinn.**
+**Slik ble det: to tilstander, og én gest mellom dem.**
 
-| Trinn | Hva som er på skjermen | Veien opp | Veien ned |
+| Tilstand | Hva som er på skjermen | Veien inn | Veien ut |
 | --- | --- | --- | --- |
-| sliden | hele siden, ingen markering | – | – |
-| valgt sone | sonen har omriss på sliden | et trykk på sonen | et trykk på en annen |
-| fokusert sone | sonen fyller stagen | «Fokuser sonen» | «Hele sliden» |
-| tekstredigering | sonen er skriveflaten | «Rediger tekst» | «Ferdig» |
+| hele siden | hele siden; et kort trykk velger en sone | – | – |
+| fokusert felt | feltet fyller stagen og har caret-en | et langtrykk på feltet | én × øverst til høyre |
 
-Bare det trinnet editoren faktisk er på har en kontroll på skjermen, så det er
-aldri en rad med knapper å lese: det som vises sier hvor man er.
+Det var en stige med fire trinn først — valgt sone, «Fokuser sonen», «Rediger
+tekst», «Ferdig» — og den var feil. Fire kontroller for å komme til en
+tekstlinje er ikke en telefonflate, den er en desktopflate med knapper på. Nå er
+det én gest inn og én knapp ut, og alt det mellomliggende er borte: `StageFocus`
+har ikke lenger noe `editing`-trinn, og `stepBack` er blitt `exitFocus`, som
+avslutter alt på én gang.
 
-To ting er verdt å merke seg.
+Tre ting er verdt å merke seg.
 
-1. **Omrisset på trinn to er sonemodusens eget omriss.** `ZoneOverlay` fikk et
-   `purpose`, ikke en tvilling: i `selection` tegner den bare den valgte sonens
-   kant, uten hover, uten ratio-håndtak og uten verktøylinje. Uten det ville
-   «valgt sone» vært et trinn uten noe å se på — og med hele sonemodusens
-   chrome ville content mode sett ut som sonemodus.
-2. **Trinnet er derivert, og det som ikke lenger gjelder kastes.** `liveFocus`
-   leser fokuset mot slide, utvalg og om sonen i det hele tatt bærer tekst, hver
-   render, så en angring som fjerner sonen, et sidebytte eller en rotasjon som
-   bytter skall faller ned til det trinnet som er sant uten at noen effekt må
-   oppdage det.
-   Men *skjult* er ikke det samme som *borte*, og her må det være borte: et
-   utvalg kan komme tilbake. Fokuserer man en sone, velger foreldresonen og så
-   trykker på den første igjen, ville et fokus som bare var gjemt blitt gyldig
-   på nytt og satt stagen i en visning ingen ba om. Det samme gjelder en pinch
-   og en slide man kommer tilbake til. Derfor kastes begge i samme render de
-   slutter å gjelde — et `setState` under render, som er Reacts eget svar på «juster
+1. **Et «felt» er ikke alltid en sone.** Slidetittelen og en seksjons to linjer
+   tegnes utenfor layouttreet, men er tekst på siden på samme måte.
+   `stageFocus.ts` adresserer derfor et felt med den node-id-en geometrimotoren
+   allerede gir det — `computeSlideGeometry` legger tittelen i den *samme*
+   rect-tabellen som sonene — og `focusFieldRect` er det ene stedet som vet
+   hvilke deler av en side som kan fylle stagen. Det er det som gjorde det mulig
+   å fjerne `FocusedTextEditor` helt: den eksisterte nettopp for feltene som
+   ikke hadde noen sone å skrives i.
+2. **Kort trykk og langtrykk starter likt, og skilles på det ene som skiller
+   dem: om hånda gikk noe sted.** Begge er den samme `pointerdown`.
+   Gjenkjenneren gir et langtrykk 500 ms og 10 px slingring; bevegelse forbi
+   den avslutter det, en annen finger avslutter det og sveipen, og et langtrykk
+   som utløses avslutter sveipen. Et sonedrag som *har begynt å bevege seg* er
+   en layoutgest og ikke en hvilende finger — men et som bare er *armet*, slik
+   hvert trykk i sonemodus er, er ingen av delene ennå, og slippes derfor når
+   langtrykket vinner.
+3. **Tilstanden er derivert, og det som ikke lenger gjelder kastes.**
+   `liveFocus` leser fokuset mot sliden og mot om feltet fortsatt tegnes, hver
+   render, så en angring som fjerner sonen, en tittel som slås av, et sidebytte
+   eller en rotasjon som bytter skall faller tilbake til hele siden uten at noen
+   effekt må oppdage det.
+   Men *skjult* er ikke det samme som *borte*, og her må det være borte: en side
+   kan komme tilbake. Går man til en annen slide og tilbake, ville et fokus som
+   bare var gjemt blitt gyldig på nytt og satt stagen i en visning ingen ba om.
+   Det samme gjelder pinchen. Derfor kastes begge i samme render de slutter å
+   gjelde — et `setState` under render, som er Reacts eget svar på «juster
    tilstand når noe endrer seg», og som rendrer på nytt før noe males, slik at
    den forlatte visningen aldri vises et bilde.
    Selve tilstanden ligger i `EditorView`, høyt nok til å overleve at skallet
    byttes ut under den.
+
+Omrisset for et *valgt* (ikke fokusert) felt er fortsatt sonemodusens eget:
+`ZoneOverlay` fikk et `purpose`, ikke en tvilling — i `selection` tegner den
+bare den valgte sonens kant, uten hover, uten ratio-håndtak og uten
+verktøylinje. Mens et felt er fokusert tegnes det ikke i det hele tatt: da er
+caret-en det som sier hvor man er.
 
 **Og én view-transform.** `stageView.ts` stiller ett spørsmål: *hvilket
 rektangel av sliden fyller stagen?* Hel slide er `FULL_SLIDE`, fokusert sone er
@@ -337,13 +364,13 @@ Tekst inne i en nedskalert 1600×900-slide er ikke en god mobil skriveflate. Mob
 
 Når tekst aktiveres på compact workspace:
 
-- åpne en lesbar skriveflate/fullskjerms editor eller et stort panel;
+- fyll stagen med det ene feltet, slik at det er stort nok til å skrives i;
 - behold samme Tiptap/ProseMirror-dokument og samme formatteringskommandoer;
 - vis bare relevante formatteringskontroller;
-- gi en enkel vei tilbake til slide-preview;
+- gi én tydelig vei tilbake til hele siden;
 - bevar selection så langt browser/Tiptap gjør det robust.
 
-**Fit-regelen endres ikke.** Den store skriveflaten må aldri bli sannhetskilde for om teksten passer. Commit/fit skal fortsatt valideres mot den virkelige sonen i det logiske slide-rommet med eksisterende målemekanisme.
+**Fit-regelen endres ikke.** Den forstørrede visningen må aldri bli sannhetskilde for om teksten passer. Commit/fit skal fortsatt valideres mot den virkelige sonen i det logiske slide-rommet med eksisterende målemekanisme.
 
 Hvis ny tekst ikke får plass:
 
@@ -352,20 +379,57 @@ Hvis ny tekst ikke får plass:
 - det skal være lett å gå tilbake og forkorte/formatere teksten;
 - løsningen må ikke omgå fit-guarden eller tillate skjult innhold.
 
-**Slik ble det: to veier inn, ett dokument.**
+**Slik ble det: én skriveflate, og den er sliden.**
 
-Den fokuserte sonen ble den primære skriveflaten. Når en tekstførende sone er
-valgt og fokusert, er sonen allerede tegnet flere ganger så stor som på den hele
-sliden — den *er* en lesbar skriveflate, og «Rediger tekst» gjør den til en.
-`EditorStage` fikk `textEditing: 'all' | 'none' | 'selected'` i stedet for den
-gamle boolske: desktop skriver i alle felt, compact i ingen mens hele sliden
-vises, og i nøyaktig ett mens det ene er fokusert.
+Det fokuserte feltet er den eneste skriveflaten. `EditorStage` og `SectionStage`
+deler `textEditing: 'all' | 'none' | { only }` — desktop skriver i alle felt,
+compact i ingen mens hele siden vises, og i nøyaktig ett mens det ene er
+fokusert — og `canTypeIn` er det ene stedet det spørsmålet stilles, så en
+seksjonslinje og en sonetekst kan ikke svare forskjellig.
 
-`FocusedTextEditor` ble værende, men som den andre veien inn: tekstlista
-adresserer *felt*, ikke soner, og et felt som ikke ligger i en sone man kan
-fokusere — slidetittelen, en seksjons to linjer — har ingen fokusert sone å
-skrives i. Begge veier skriver gjennom `textTarget.ts`, altså de samme
-domenekommandoene, den samme undo-merkelappen og den samme fit-målingen.
+Den separate skriveflaten `FocusedTextEditor` finnes ikke lenger. Den eksisterte
+for feltene som ikke lå i en sone man kunne fokusere, og da fokuset ble
+generalisert fra «sone» til «felt» var det ikke noe igjen den kunne gjøre som
+sliden ikke gjorde bedre. Med den gikk halve `textTarget.ts`: modulen navngir og
+ramser opp felt, og leser eller skriver ikke lenger noen dokumenter — feltene på
+stagen gjør det gjennom kommandoene som eier dem, slik de alltid har gjort.
+
+Tekstlista ble værende, som **navigasjon**. Å sikte på et felt inne i en
+nedskalert slide er ikke noe en finger kan gjøre, så lista navngir dem; å velge
+ett fokuserer feltet på stagen, slik langtrykket gjør.
+
+Med ulik presisjon, og det er det eneste som skiller dem. `StageFocus` bærer et
+`caret: ActiveField | null`; lista navngir ett felt blant flere i samme sone og
+setter nøyaktig det, langtrykket kan bare navngi sonen og tar dens første felt.
+En sone med korttittel og to bunnfelt ville ellers svart identisk på tre
+oppføringer. `RichTextEditor` fikk `takeCaret` til å ta imot adressen:
+`autoFocus` er en opsjon editoren *bygges* med, og et felt på den kompakte
+stagen bygges lenge før det blir en skriveflate — det tegnes skrivebeskyttet til
+noe fokuseres — så da er den muligheten forbi. `takeCaret` er den samme
+forespørselen til en editor som allerede finnes.
+
+**At langtrykket måtte gjøre det er målt, ikke antatt.** Det stod først at
+trykket som avslutter gesten setter caret-en av seg selv, og det gjør det —
+noen ganger. Feltet tegnes flere ganger større i samme øyeblikk som det
+fokuseres, så fingertuppen havner der den havner: et langtrykk midt i en
+halvsides sone endte på `BODY` uten caret, mens det samme langtrykket 60 px
+lenger til høyre traff teksten. En vei inn som virker fra ett sted i en sone og
+ikke fra et annet er ingen vei inn.
+
+Derfor to ting sammen: caret-en plasseres, og **et trykk ved siden av teksten
+tar den ikke bort igjen**. Nettleseren flytter fokus på `mousedown`, og på touch
+er nettopp det trykket det samme som åpnet feltet — så `.compact-stage`
+`preventDefault`-er en `mousedown` som ikke lander i et `contenteditable`, mens
+et trykk *i* teksten slippes gjennom og flytter caret-en som vanlig. Det er det
+samme grepet verktøylinjas egne knapper allerede bruker, av samme grunn.
+
+**Det den ikke løser, og som er verdt å vite:** fokusering er en uniform
+skalering av den samme geometrien, ikke en ny ombrekking. En sone som er bred i
+1600 × 900-rommet blir derfor ikke stor på en smal skjerm — en slidebred sone på
+en stående telefon er bare noen prosent større fokusert enn den er på hele
+sliden. Det er pinchen som er svaret der, og den komponerer med fokuseringen:
+den forstørrer det rektangelet fokuseringen valgte, og én finger panorerer inni
+det. En smalere sone, eller telefonen på langs, gir lesbar type med én gang.
 
 **Fit-regelen tålte flyttingen uendret, og det er ikke tilfeldig.** Målingen
 skjer i layout — `scrollHeight` mot `clientHeight` i sonens virkelige
@@ -405,7 +469,8 @@ Krav:
 - sentrale treffflater skal normalt være minst omtrent 44×44 CSS-piksler;
 - funksjoner som i dag bare finnes på hover må få synlig touch-vei;
 - kontekstmenyer må kunne åpnes med trykk;
-- langtrykk og dobbelttrykk kan være snarveier, aldri eneste vei;
+- langtrykk og dobbelttrykk kan være snarveier, aldri eneste vei — langtrykket
+  inn i et fokusert felt har tekstlista som sin andre vei;
 - scrollområder må få scroll selv om de ligger nær drag-/gestureflater;
 - aktiv interaktiv miniapp eier pointer/touch/wheel inne i sin runtimeflate;
 - nettleserens pinch-zoom skal ikke blokkeres globalt.
@@ -416,6 +481,28 @@ oppføre seg forskjellig på et smalt desktopvindu og en telefon. Hooken gir fra
 seg `onPointerDown` som en React-handler og følger resten av gesten på
 `window`, slik at en sveip kan fullføres utenfor stagen uten at
 `setPointerCapture` stjeler klikket etterpå.
+
+De tre — sveip, langtrykk og pinch — er gjensidig utelukkende ved konstruksjon
+og ikke ved en prioritetsliste, fordi en liste kan bli uenig med seg selv:
+bevegelse forbi toleransen avslutter langtrykket, en annen finger avslutter både
+det og sveipen, og et langtrykk som utløses avslutter sveipen. At langtrykket
+ikke finnes på desktop følger av det samme: `StageSurface` får det bare der
+stagen også får en zoom, og det er bare på en kompakt flate.
+
+Én ting den konstruksjonen ikke dekker av seg selv: det er **to** gjenkjennere
+på det samme slideområdet, én på skallet for sveipen og én på `StageSurface` for
+visningen og langtrykket, og de deler ikke tilstand. Den indre kan slå av den
+ytre midt i et trykk — det er nøyaktig det som skjer når langtrykket fokuserer
+et felt — men den ytre hadde da allerede armet sveipen sin. Derfor leses
+`enabled` mens gesten pågår og ikke bare når den starter: en gjenkjenner som
+blir slått av forkaster gesten der den er. Uten det ville et drag sideveis
+etter langtrykket, altså måten man utvider en markering på, bladd bort fra
+feltet som nettopp ble åpnet.
+
+Klikket etter et langtrykk *slukes ikke*, og det er med vilje: lander det i
+teksten, flytter det caret-en dit fingeren er, og på iOS er det den brukergesten
+som henter opp tastaturet. Lander det ved siden av, gjør det ingenting — se § 7.
+Caret-en selv er allerede satt.
 
 Den siste regelen ble presisert i praksis, og sagt flate for flate:
 
@@ -456,8 +543,10 @@ To konsekvenser er verdt å kjenne:
 
 1. En ikke-redigerbar Tiptap — som er det compact tegner sonetekst med når
    ingenting skrives i den — får `contenteditable="false"` av ProseMirror selv
-   og er derfor ikke markerbar. Den blir det i samme øyeblikk sonen fokuseres og
-   settes i redigering, uten at noe annet endres.
+   og er derfor ikke markerbar. Den blir det i samme øyeblikk feltet fokuseres,
+   uten at noe annet endres. Det gjelder også langtrykket: gesten som *åpner*
+   feltet skjer mens teksten fortsatt er uredigerbar, så den kan ikke etterlate
+   en markering på veien inn.
 2. Presentasjonsmodus er unntatt med vilje. Publikum kopierer sitater ut av en
    slide, og spilleren skiller allerede mellom et trykk som etterlot en
    markering og et som ikke gjorde det (`endedASelection`).
@@ -656,17 +745,33 @@ Minimum automatisert dekning:
 11. aktivere og avslutte miniapp med touch/pointer;
 12. reload og verifisere persistens;
 13. desktop: eksisterende filmstrip/inspector/drag/shortcuts/presentasjonsflyter fungerer fortsatt;
-14. sveipe fram og tilbake mellom slides, og ikke gjøre det med et trykk, et
-    loddrett drag, en knapp eller en kjørende miniapp;
+14. sveipe mot venstre til neste slide og mot høyre til forrige, én slide per
+    gest, og ikke gjøre det med et trykk, et loddrett drag, en knapp eller en
+    kjørende miniapp;
 14b. dra-sortere i flerkolonneoversikten, og se naboen bli skjøvet sideveis;
 15. åpne slideoversikten og se at den tar hele høyden, at sidene er brede, at
     lista scroller og at valg og flytting fortsatt er ett trykk;
 16. pinche i slideområdet — på en slide, en seksjon, en miniappforside og en
     generert side — og se at bare stagen forstørres;
 17. velge en sone gjennom en forstørret visning;
-18. skrive rett i den fokuserte sonen, og se fit-guarden stoppe for mye tekst;
-19. rotere med en fokusert sone og beholde den;
-20. prøve å markere sonetekst uten å få lov, og markere i et felt og få lov.
+18. langtrykke en tekstsone og skrive rett i den — uten et eneste knappetrykk
+    mellom — og se fit-guarden stoppe for mye tekst, verktøylinja virke og én ×
+    avslutte både skriving og fokus;
+18b. langtrykke en bildesone uten bildetekst og se den fokusert, men uten noe å
+    skrive i;
+18c. langtrykke slidetittelen og en seksjonslinje, som ikke er soner, og skrive
+    i dem på stagen;
+18d. se at bare et ekte langtrykk fokuserer: drift over toleransen, en sveip og
+    en pinch gjør det ikke;
+18e. velge et felt i tekstlista og havne i den samme skriveflaten på sliden,
+    med caret-en i nettopp det feltet — også når sonen har flere;
+18f. dra sideveis rett etter et langtrykk og ikke bla i dekket;
+18g. skrive rett etter et langtrykk uten å trykke én gang til;
+18h. redigere ett felt, gå ut, fokusere en sone uten tekst, og se at det ikke
+    finnes noen verktøylinje å endre det forrige feltet med;
+19. rotere med et fokusert felt og beholde det;
+20. prøve å markere sonetekst uten å få lov — med trykk, drag og langtrykk — og
+    markere i et fokusert felt og få lov.
 
 ### Hva som faktisk kjører
 
@@ -723,10 +828,23 @@ og er **ikke** dekket av suiten:
    den er riktig – og om en sveip som starter helt ute ved skjermkanten kommer i
    veien for nettleserens egen «tilbake»-gest.
 7. **Langt trykk på sonetekst, iOS.** `-webkit-touch-callout: none` skal fjerne
-   markerings- og delemenyen. Chromium-baserte runtimes kan ikke bekrefte det.
-8. **Tastatur mens den fokuserte sonen skrives i.** Den nye skriveflaten er
-   stagen selv: kontroller at «Ferdig» og formatteringslinja står over
-   tastaturet, og at sonen ikke havner bak det.
+   markerings- og delemenyen, også for det langtrykket som åpner feltet.
+   Chromium-baserte runtimes kan ikke bekrefte det.
+7b. **Langtrykkets lengde og toleranse med en ekte tommel.** 500 ms og 10 px er
+   valgt mot plattformenes egne verdier, men bare en hånd kan si om et vanlig
+   trykk noen gang blir til et langtrykk ved et uhell, eller om en sveip som
+   starter langsomt gjør det.
+7c. **Tastaturet rett etter langtrykket.** Feltet autofokuseres ikke; det er
+   trykket som avslutter langtrykket som setter caret-en. Kontroller på iOS og
+   Android at tastaturet faktisk kommer opp av det, uten et ekstra trykk.
+8. **Tastatur mens det fokuserte feltet skrives i.** Skriveflaten er stagen
+   selv: kontroller at × og formatteringslinja står over tastaturet, at linja
+   lar seg scrolle sideveis til siste knapp, og at feltet ikke havner bak
+   tastaturet.
+9. **Lesbarhet i stående modus.** En slidebred sone er liten på en stående
+   telefon selv fokusert (§ 7). Kontroller at pinchen er en praktisk vei videre
+   der, og at panorering med én finger inni det forstørrede feltet ikke kommer i
+   veien for caret og markering.
 
 WebKit er i skrivende stund ikke installert i prosjektmiljøet, så alt over er
 kjørt i Chromium-baserte runtimes; iOS-spesifikk tastatur- og safe-area-atferd
@@ -779,6 +897,14 @@ Del bare PR-en dersom implementeringen avdekker en reell arkitektonisk avhengigh
 ### Eventuell PR 2 — responsiv miniappkontrakt
 
 Bare dersom vi ønsker at nye miniapper skal kunne kjenne den fysiske mobilviewporten og selv bytte layout. Dette er en separat kompatibilitets-/forfatterkontrakt og er derfor faglig uavhengig av hoved-PR-en.
+
+### PR 1c — betjeningen slik den skulle vært
+
+Rettelsen av PR 1b: sveiperetningen snudd til «venstre er neste», firetrinns­
+modellen fjernet i sin helhet, langtrykk som den ene veien inn i et fokusert,
+umiddelbart skrivbart felt, én × som den ene veien ut, og `FocusedTextEditor`
+slettet fordi feltmodellen gjorde den overflødig. Ingen ny geometri, ingen ny
+tekstmodell — bare færre trinn mellom fingeren og teksten.
 
 ### PR 1b — slideområdet som betjeningsflate
 

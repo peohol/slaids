@@ -1,45 +1,29 @@
 /**
- * Every piece of text on a slide, named so it can be edited from anywhere.
+ * Every piece of text on a slide, named so it can be found from anywhere.
  *
- * The stage edits text where it is drawn, which is right on a desktop and
- * unusable on a phone: a slide scaled to a quarter of its size puts twelve-point
- * type at three. A compact workspace therefore lists the slide's text and opens
- * one field at a time on a surface you can actually read — and to do that it
- * needs to be able to *address* a field, read it, and write it back.
+ * Text is always edited where it is drawn — on a compact workspace by focusing
+ * the field so it fills the stage, on a desktop simply by clicking into it. But
+ * a phone also needs a way to *find* a field: a list of what is written on this
+ * page, because a slide scaled to a quarter of its size puts twelve-point type
+ * at three and hunting for a caret in that is not something a finger can do.
  *
- * That is all this module is: a name for each field, and a dispatch to the
- * domain command that already owns it. No rule about what may be typed lives
- * here — `setSlideTitle`, `setCardTitle`, `setSubfieldDoc`, `setImageCaption`,
- * `setSectionTitle` and `setSectionSubtitle` keep theirs, and the fit
- * measurement below asks the same geometry and the same checkers the commands
- * ask.
+ * That is all this module is: a name for every field on a page, in the order
+ * the page reads, and the node id each one is focused by. Nothing here reads or
+ * writes a document — the fields on the stage do that through the commands that
+ * own them, and a second path to the same text would be a second set of rules
+ * about it.
  */
 
-import {
-  fitContextFor,
-  setCardTitle,
-  setImageCaption,
-  setSectionSubtitle,
-  setSectionTitle,
-  setSlideTitle,
-  setSubfieldDoc,
-} from '../../domain/commands'
 import { bodyOf, hasCardTitle, imagePanelOf } from '../../domain/content'
 import {
   SECTION_SUBTITLE_NODE_ID,
   SECTION_TITLE_NODE_ID,
   TITLE_NODE_ID,
-  computeSectionGeometry,
-  computeSlideGeometry,
 } from '../../domain/geometry'
 import { collectLeaves, breadcrumbLabels } from '../../domain/layout'
-import { geometryForTheme, sectionGeometryForTheme } from '../../domain/metrics'
 import { docToPlainText } from '../../domain/richdoc'
-import { findSlide } from '../../domain/presentation'
-import { measureContentFit, measureTitleFit } from '../../state/measure'
-import type { Presentation, RichDoc, Slide } from '../../domain/types'
-import type { Result } from '../../domain/result'
-import type { EditorVariant } from './RichTextEditor'
+import type { ActiveField } from '../../state/store'
+import type { Slide } from '../../domain/types'
 
 /** One editable piece of text, addressed by where it lives in the document. */
 export type TextTarget =
@@ -60,56 +44,6 @@ export function textTargetKey(target: TextTarget): string {
       return `${target.kind}:${target.slideId}:${target.nodeId}`
     default:
       return `${target.kind}:${target.slideId}`
-  }
-}
-
-/**
- * Which editor a field is: the same four variants the stage uses, so the text
- * is typed under exactly the schema it is stored under.
- */
-export function variantFor(target: TextTarget): EditorVariant {
-  switch (target.kind) {
-    case 'body':
-      return 'body'
-    case 'caption':
-      return 'caption'
-    default:
-      return 'title'
-  }
-}
-
-export function placeholderFor(target: TextTarget): string {
-  switch (target.kind) {
-    case 'slide-title':
-      return 'Slidetittel'
-    case 'card-title':
-      return 'Korttittel'
-    case 'caption':
-      return 'Bildetekst'
-    case 'section-title':
-      return 'Overskrift'
-    case 'section-subtitle':
-      return 'Underoverskrift (valgfri)'
-    case 'body':
-      return 'Skriv innhold …'
-  }
-}
-
-/** The message shown when a field is asked to hold more than its box can show. */
-export function overflowMessageFor(target: TextTarget): string {
-  switch (target.kind) {
-    case 'slide-title':
-      return 'Overskriften får ikke plass i tittelsonen.'
-    case 'card-title':
-      return 'Tittelen får ikke plass i kortet.'
-    case 'caption':
-      return 'Bildeteksten får ikke plass i bildet.'
-    case 'section-title':
-      return 'Overskriften får ikke plass på seksjonssliden.'
-    case 'section-subtitle':
-      return 'Underoverskriften får ikke plass på seksjonssliden.'
-    case 'body':
-      return 'Innholdet får ikke plass i sonen.'
   }
 }
 
@@ -190,161 +124,53 @@ export function textTargetsForSlide(slide: Slide): TextTargetEntry[] {
 }
 
 /**
- * Whether this zone holds any text at all.
+ * The first thing to write in inside this part of the page, or `null` when
+ * there is nothing.
  *
- * Asked before offering «Rediger tekst», because content is not the same thing
- * as text: a plain picture with no caption fills its zone and has nothing to
- * type into. Derived from the same walk the list is, so the button and the list
- * can never disagree about what a zone contains.
+ * Two questions with one answer, and they have to agree: whether a focused
+ * field is a writing surface at all — a picture with no caption is not — and,
+ * when it is, which of its editors takes the caret. Read off the same walk the
+ * list is, so «the bar is offered» and «there is somewhere to type» can never
+ * come apart.
  */
-export function hasTextTargetIn(slide: Slide, nodeId: string): boolean {
-  return textTargetsForSlide(slide).some(
-    (entry) => 'nodeId' in entry.target && entry.target.nodeId === nodeId,
-  )
-}
-
-/** What the field holds now, or `null` when the target no longer addresses one. */
-export function readTextTarget(presentation: Presentation, target: TextTarget): RichDoc | null {
-  const slide = findSlide(presentation, target.slideId)
-  if (!slide) return null
-  if (slide.kind === 'section') {
-    if (target.kind === 'section-title') return slide.title
-    if (target.kind === 'section-subtitle') return slide.subtitle
-    return null
+export function firstFieldIn(slide: Slide, fieldId: string): ActiveField | null {
+  for (const entry of textTargetsForSlide(slide)) {
+    const field = activeFieldFor(entry.target)
+    if (field.nodeId === fieldId) return field
   }
-  if (slide.kind !== 'content') return null
-  if (target.kind === 'slide-title') return slide.title
-  if (target.kind === 'section-title' || target.kind === 'section-subtitle') return null
-  const leaf = collectLeaves(slide.root).find((entry) => entry.id === target.nodeId)
-  const content = leaf?.content
-  if (!content) return null
-  switch (target.kind) {
-    case 'card-title':
-      return hasCardTitle(content) ? content.title : null
-    case 'caption':
-      return imagePanelOf(content)?.caption?.doc ?? null
-    case 'body':
-      return bodyOf(content)?.subfields.find((field) => field.id === target.subfieldId)?.doc ?? null
-  }
+  return null
 }
 
 /**
- * Write the field, through the command that owns it.
+ * This field as the editor addresses it everywhere else.
  *
- * Deliberately a dispatch and nothing more. Each of these commands carries its
- * own rules — a card title only exists on a kind that has one, a caption
- * removes itself when it is emptied, a section line is measured against the
- * pill it is drawn in — and a second implementation here would be a second set
- * of rules that agreed with the first until it did not.
+ * One shape for two jobs, deliberately. Its `nodeId` is what the stage focuses
+ * itself on — so choosing a field in the list and long-pressing the same field
+ * on the page arrive at the very same view — and the whole of it is what the
+ * store's `activeField` carries, which is how the *one* editor inside that view
+ * gets the caret. Without the second half a zone with a card title and two body
+ * fields would answer three list entries with one indistinguishable state.
+ *
+ * The three fields that are not zones have the ids the geometry engine already
+ * gives them.
  */
-export function writeTextTarget(
-  presentation: Presentation,
-  target: TextTarget,
-  doc: RichDoc,
-): Result<Presentation> {
+export function activeFieldFor(target: TextTarget): ActiveField {
   switch (target.kind) {
     case 'slide-title':
-      return setSlideTitle(presentation, target.slideId, doc)
+      return { nodeId: TITLE_NODE_ID, subfieldId: null, kind: target.kind }
     case 'section-title':
-      return setSectionTitle(presentation, target.slideId, doc)
+      return { nodeId: SECTION_TITLE_NODE_ID, subfieldId: null, kind: target.kind }
     case 'section-subtitle':
-      return setSectionSubtitle(presentation, target.slideId, doc)
-    case 'card-title':
-      return setCardTitle(presentation, {
-        slideId: target.slideId,
-        nodeId: target.nodeId,
-        doc,
-      })
-    case 'caption':
-      return setImageCaption(presentation, {
-        slideId: target.slideId,
-        nodeId: target.nodeId,
-        doc,
-      })
+      return { nodeId: SECTION_SUBTITLE_NODE_ID, subfieldId: null, kind: target.kind }
     case 'body':
-      return setSubfieldDoc(presentation, {
-        slideId: target.slideId,
-        nodeId: target.nodeId,
-        subfieldId: target.subfieldId,
-        doc,
-      })
-  }
-}
-
-/** The undo label a run of typing in this field coalesces under. */
-export function typingLabelFor(target: TextTarget): string {
-  switch (target.kind) {
-    case 'body':
-      return `typing:${target.nodeId}:${target.subfieldId}`
-    case 'card-title':
-      return `typing:${target.nodeId}:title`
-    case 'caption':
-      return `typing:${target.nodeId}:caption`
-    case 'slide-title':
-      return `typing:${target.slideId}:slide-title`
+      return { nodeId: target.nodeId, subfieldId: target.subfieldId, kind: target.kind }
     default:
-      return `typing:${target.slideId}:${target.kind}`
+      return { nodeId: target.nodeId, subfieldId: null, kind: target.kind }
   }
 }
 
-/**
- * How far this field's text reaches past the box it is drawn in — measured
- * against the real slide, never against the surface it is being typed on.
- *
- * This is the whole reason a comfortable mobile writing surface is allowed to
- * exist. The text is typed at a readable size in a panel the size of a phone;
- * whether it *fits* is asked of the zone it will be drawn in, at 1600 × 900,
- * with the deck's own typography and citation numbering, through the same
- * offscreen renderer every domain command uses. The panel is where the text is
- * entered; the slide is where it has to fit.
- *
- * A body field is measured as the whole zone it belongs to, because that is
- * what has to fit: two subfields share one box, and a line added to the first
- * is what pushes the second out of it.
- */
-export function textTargetOverflow(presentation: Presentation, target: TextTarget): number {
-  const slide = findSlide(presentation, target.slideId)
-  if (!slide) return 0
-  const context = fitContextFor(presentation)
-
-  if (slide.kind === 'section') {
-    if (target.kind !== 'section-title' && target.kind !== 'section-subtitle') return 0
-    const resolved = sectionGeometryForTheme(presentation.theme)
-    const geometry = computeSectionGeometry(resolved)
-    const isTitle = target.kind === 'section-title'
-    return measureTitleFit(
-      isTitle ? slide.title : slide.subtitle,
-      isTitle ? geometry.titleRect : geometry.subtitleRect,
-      context,
-      isTitle ? resolved.titleFontSize : resolved.subtitleFontSize,
-    ).overflow
-  }
-
-  if (slide.kind !== 'content') return 0
-  const geometry = computeSlideGeometry(slide, geometryForTheme(presentation.theme))
-
-  if (target.kind === 'slide-title') {
-    if (!slide.title || !geometry.titleRect) return 0
-    return measureTitleFit(slide.title, geometry.titleRect, context).overflow
-  }
-  if (target.kind === 'section-title' || target.kind === 'section-subtitle') return 0
-
-  const leaf = collectLeaves(slide.root).find((entry) => entry.id === target.nodeId)
-  const rect = geometry.rects.get(target.nodeId)
-  if (!leaf?.content || !rect) return 0
-  return measureContentFit(leaf.content, rect, context).overflow
-}
-
-/** The node id the store's `activeField` uses for this target. */
-export function activeFieldNodeId(target: TextTarget): string {
-  switch (target.kind) {
-    case 'slide-title':
-      return TITLE_NODE_ID
-    case 'section-title':
-      return SECTION_TITLE_NODE_ID
-    case 'section-subtitle':
-      return SECTION_SUBTITLE_NODE_ID
-    default:
-      return target.nodeId
-  }
+/** Whether two field addresses point at the same editor. */
+export function sameField(a: ActiveField | null, b: ActiveField | null): boolean {
+  if (!a || !b) return false
+  return a.nodeId === b.nodeId && a.subfieldId === b.subfieldId && a.kind === b.kind
 }
