@@ -28,11 +28,15 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
+  COLOR_SEMANTICS_RULE,
   CONTENT_KIND_RULE,
   DESIGN_DOCS_PATH,
   IMAGE_POLICY_SUMMARY,
+  IMAGE_USAGE_RULE,
   PARALLEL_RULE,
+  QUOTE_RULE,
   RASTER_POLICY,
   REPEATED_FALLBACK_RULE,
   SEMANTIC_DECOMPOSITION,
@@ -40,6 +44,7 @@ import {
   SIMPLEST_TREE,
   SINGLE_CONTAINER_RULE,
   SPLIT_RULE,
+  TEXT_RHYTHM_RULE,
   VECTOR_POLICY,
 } from '../../agent/design'
 import { MCP_INSTRUCTIONS } from './instructions'
@@ -56,11 +61,16 @@ const NORMATIVE = [
   SEMANTIC_DECOMPOSITION,
   SIMPLEST_TREE,
   SINGLE_CONTAINER_RULE,
+  AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
+  QUOTE_RULE,
+  TEXT_RHYTHM_RULE,
   PARALLEL_RULE,
+  COLOR_SEMANTICS_RULE,
   REPEATED_FALLBACK_RULE,
   CONTENT_KIND_RULE,
   SPLIT_RULE,
+  IMAGE_USAGE_RULE,
   IMAGE_POLICY_SUMMARY,
   ...VECTOR_POLICY,
   ...RASTER_POLICY,
@@ -78,11 +88,27 @@ describe('det agenten vet før første kall', () => {
     for (const unit of SEMANTIC_UNITS) expect(MCP_INSTRUCTIONS).toContain(unit)
   })
 
+  it('holder publikumsinnholdet på temaet i stedet for å kommentere designarbeidet', () => {
+    expect(MCP_INSTRUCTIONS).toContain(AUDIENCE_CONTENT_RULE)
+    expect(AUDIENCE_CONTENT_RULE).toMatch(/Alt publikum ser/i)
+    expect(AUDIENCE_CONTENT_RULE).toMatch(/Slaids|layoutvalg|designprosessen/i)
+    expect(AUDIENCE_CONTENT_RULE).toMatch(/med mindre brukeren uttrykkelig/i)
+  })
+
   it('skiller punktlisten som underordnede utsagn fra flere parallelle konsepter', () => {
     expect(BULLET_RULE).toMatch(/underordnede utsagn/i)
     expect(BULLET_RULE).toMatch(/navngivbare konsepter|kategorier|faser|sammenligningsenheter/i)
     expect(MCP_INSTRUCTIONS).toContain(BULLET_RULE)
     expect(MCP_INSTRUCTIONS).toContain(SINGLE_CONTAINER_RULE)
+  })
+
+  it('holder sitater til ekte ordlyd og bruker avsnitt når høyden tillater det', () => {
+    expect(MCP_INSTRUCTIONS).toContain(QUOTE_RULE)
+    expect(MCP_INSTRUCTIONS).toContain(TEXT_RHYTHM_RULE)
+    expect(QUOTE_RULE).toMatch(/faktisk, etterprøvbar formulering/i)
+    expect(QUOTE_RULE).toMatch(/ikke gjør egne oppsummeringer, parafraser eller slagord/i)
+    expect(TEXT_RHYTHM_RULE).toMatch(/separate avsnitt|linjeskift/i)
+    expect(TEXT_RHYTHM_RULE).toMatch(/god plass i høyden/i)
   })
 
   it('ber om det enkleste treet som gjør relasjonene visuelt eksplisitte', () => {
@@ -103,6 +129,21 @@ describe('det agenten vet før første kall', () => {
     expect(MCP_INSTRUCTIONS).toContain(PARALLEL_RULE)
   })
 
+  it('bruker farge for grouping eller kontrast, ikke som tilfeldig pynt', () => {
+    expect(MCP_INSTRUCTIONS).toContain(COLOR_SEMANTICS_RULE)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/Samme farge kan samle/i)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/ulike, harmoniske headerfarger/i)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/ikke for tilfeldig dekorasjon/i)
+  })
+
+  it('krever aktiv vurdering av relevante bilder før agenten kan hoppe over dem', () => {
+    expect(MCP_INSTRUCTIONS).toContain(IMAGE_USAGE_RULE)
+    expect(IMAGE_USAGE_RULE).toMatch(/Vurder aktivt på hver slide/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/anatomi|historiske miljøer/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/skal du ikke droppe relevante bilder/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/bildenotater/i)
+  })
+
   it('holder detaljreglene ute av systeminstruksen, der de hører til på et verktøy', () => {
     // The instruction is what an agent is given unasked, so it carries what
     // changes the first call and nothing an agent could read off the catalogue.
@@ -110,6 +151,20 @@ describe('det agenten vet før første kall', () => {
       expect(MCP_INSTRUCTIONS).not.toContain(detail)
       expect(toolProse()).toContain(detail)
     }
+  })
+})
+
+describe('negativt rom', () => {
+  it('brukes primært til å trimme synlige kort i høyden, ikke til å skvise peers sideveis', () => {
+    expect(CONTENT_KIND_RULE).toMatch(/over og\/eller under et synlig kort/i)
+    expect(CONTENT_KIND_RULE).toMatch(/Ikke legg negativt rom mellom parallelle kort/i)
+    expect(CONTENT_KIND_RULE).toMatch(/horisontal luft.*smalere/i)
+    expect(CONTENT_KIND_RULE).toMatch(/ikke transparente containere/i)
+  })
+
+  it('må ha en kompositorisk gevinst for å bli stående', () => {
+    expect(CONTENT_KIND_RULE).toMatch(/forbedrer komposisjonen/i)
+    expect(CONTENT_KIND_RULE).toMatch(/Hvis å fjerne det negative rommet.*skal det bort/i)
   })
 })
 
@@ -135,6 +190,12 @@ describe('raster og vektor', () => {
   it('sier at denne serveren ikke lager bilder, uten å love at det aldri skjer', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/lager ikke bilder/i)
     expect(agentSurface()).not.toMatch(/kommer ikke til å|aldri kommer til/i)
+  })
+
+  it('krever bildebrief også når bare ett generert rasterbilde er planlagt', () => {
+    const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
+    expect(guide).toMatch(/minst ett generert rasterbilde planlegges/i)
+    expect(guide).not.toMatch(/dersom flere rasterbilder skal genereres/i)
   })
 })
 

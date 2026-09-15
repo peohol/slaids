@@ -1,20 +1,29 @@
 # Agentstyrt presentasjonsdesign
 
-Denne guiden beskriver **hvordan en agent bør tenke når den komponerer slides i Slaids**. Den er ikke en katalog med ferdige maler. Domeneregler, datamodell og tekniske invariants ligger fortsatt i `IMPLEMENTATION_PLAN.md` og koden.
+Denne guiden forklarer hvordan en agent bør komponere presentasjoner i Slaids. Den er ikke en katalog med ferdige maler. Den normative agentkontrakten bor i `src/agent/design.ts`; MCP-instruksen og verktøybeskrivelsene eksponerer reglene derfra. Denne filen forklarer tankegangen og gir eksempler.
 
-Utgangspunktet er et enkelt prinsipp:
+Utgangspunktet er enkelt:
 
-> **Innholdets logiske struktur skal bestemme sonetreet. Agenten skal aldri velge et vilkårlig layout først og deretter presse innholdet inn i det.**
+> **Innholdets logiske struktur skal bestemme sonetreet. Ikke velg layout først og press innholdet inn etterpå.**
 
-Et layoutmønster er derfor en hypotese om hvordan et bestemt informasjonsforhold kan uttrykkes visuelt — ikke en template som skal fylles.
+En gyldig slide er ikke nødvendigvis en god slide. Slaids kan kontrollere geometri og fit; agenten må selv kontrollere pedagogikk, relevans, rytme og visuell prioritering.
 
-**Hvor reglene faktisk bor.** De normative setningene i denne guiden finnes én gang i `src/agent/design.ts`. Derfra går de to veier ut til agenten: de som må virke før første kall veves inn i MCP-systeminstruksen, og de som først betyr noe når agenten velger en bestemt innholdstype eller en bestemt slags grafikk ligger på kontrakten til verktøyet som gjør nettopp det. Denne filen forklarer og eksemplifiserer de samme reglene for et menneske; den innfører aldri en regel til.
+## 1. Alt publikum ser skal handle om temaet
 
-## 1. Semantisk dekomponering er obligatorisk
+Publikumsflaten er ikke et sted for kommentarer om hvordan presentasjonen ble laget. Tekst som forklarer «designgrep», «layoutvalg», Slaids, agentens arbeidsprosess eller testhensikten hører ikke hjemme på en vanlig faglig slide. Det kan finnes i en presentasjon bare når brukeren uttrykkelig har bedt om en presentasjon om selve design- eller arbeidsprosessen.
 
-**Før geometri kommer dekomponering.** Før agenten oppretter eller deler en sone, skal den finne ut hvilke *semantiske enheter* sliden faktisk består av. Dette er ikke et valgfritt analysesteg: det er det som avgjør om sliden kan si noe med formen sin i det hele tatt.
+Det samme gjelder dekorativ tekstbruk:
 
-Agenten skal aktivt lete etter:
+- sitater bør være sjeldne;
+- en quote-blokk bør inneholde en faktisk, etterprøvbar formulering fra en identifiserbar kilde der den eksakte ordlyden er viktig;
+- egne oppsummeringer, parafraser og slagord skal ikke settes i anførselstegn eller quote-stil bare for å få visuell variasjon;
+- har et kort eller en container god høyde, kan flere tydelige delpoenger med fordel stå som separate avsnitt eller få bevisste linjeskift i stedet for å bli presset sammen i én tett tekstblokk.
+
+Luft i teksten skal hjelpe lesingen, ikke fylle tom plass for sin egen skyld.
+
+## 2. Semantisk dekomponering kommer før geometri
+
+Før agenten deler en sone, skal den spørre hva sliden faktisk består av. Let aktivt etter:
 
 - **kategorier**;
 - **aktører**;
@@ -27,534 +36,237 @@ Agenten skal aktivt lete etter:
 - **hovedpåstand + evidens**;
 - **ett objekt med interne underdeler**.
 
-Hver av dem er et spørsmål — finnes det flere av disse her? — og et ja gjør en relasjon tilgjengelig å uttrykke visuelt. Deretter skal relasjonen faktisk uttrykkes: navngitte enheter blir normalt navngitte soner eller kort, ikke kulepunkter i samme boks.
+Disse er ikke slide-maler, men semantiske enheter. Når flere navngivbare enheter finnes, bør relasjonen mellom dem normalt kunne ses i geometrien.
 
 ### Container og punktliste
 
-- **Én stor tekstcontainer er et legitimt valg når innholdet faktisk er én sammenhengende idé, men den er ikke standardløsningen.** En slide som virkelig har ett poeng med utdyping er riktig som én container; en slide som har fem navngitte begreper er det ikke.
-- **En punktliste hører hjemme der punktene er underordnede utsagn om det samme objektet eller den samme påstanden.** Da er listen intern struktur i én enhet.
-- **Representerer punktene derimot flere navngivbare konsepter, kategorier, faser eller sammenligningsenheter, skal agenten normalt vurdere separate soner eller kort i stedet.** «Sahelanthropus», «Australopithecus» og «Homo habilis» er tre enheter, ikke tre utsagn om én.
-- **`titled-card` bør foretrekkes når hvert element naturlig kan få en kort semantisk etikett.** Kan du sette en toords overskrift på punktet uten å finne den opp, er punktet en enhet.
-- **Parallelle konsepter skal normalt ha parallell visuell behandling**: samme innholdstype, samme nivå i treet og like eller nesten like vekter.
+Én stor container er riktig når sliden faktisk er én sammenhengende idé. Den er ikke et standardsvar.
 
-### Selvkontrollen
+En punktliste er egnet når punktene er underordnede utsagn om samme objekt eller påstand. Dersom punktene egentlig er flere kategorier, faser, aktører eller sammenligningsenheter, bør de normalt få egne soner eller kort.
 
-**Ender flere slides på rad som «én stor container + punktliste», har agenten sannsynligvis oversett semantisk struktur og skal dekomponere de slidene på nytt.** Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon: et dekk der hver slide *virkelig* har én sammenhengende idé har lov til å se slik ut. Poenget er at mønsteret skal utløse en ny gjennomgang av stoffet, ikke en tilfeldig annen geometri.
+Parallelle konsepter bør normalt få parallell behandling: samme innholdstype, samme nivå i treet og like eller nesten like vekter.
 
-## 2. Fra mening til geometri
+## 3. Sonetreet skal uttrykke relasjonene
 
-Når enhetene er identifisert, skal agenten svare på hva sliden faktisk skal gjøre for publikum.
-
-Typiske logiske forhold er:
-
-- **ett hovedpoeng med støtte** — én påstand, med forklaring, figur eller evidens;
-- **sammenligning eller kontrast** — to eller flere likeverdige ting skal leses mot hverandre;
-- **taksonomi eller katalog** — flere medlemmer av samme kategori skal kunne skannes som en familie;
-- **sekvens eller prosess** — rekkefølgen er en del av meningen;
-- **oversikt med detaljer** — én overordnet idé har flere underordnede deler;
-- **argument med evidens** — konklusjonen og dokumentasjonen har ulik hierarkisk tyngde;
-- **ett semantisk objekt med interne deler** — delene hører så tett sammen at de bør være subfelter i samme innholdsenhet;
-- **fokus eller pause** — ett bilde, ett tall eller én kort formulering skal dominere sliden;
-- **negativt rom** — tom flate brukes bevisst for å styre bredde, balanse, fokus eller vertikal plassering.
-
-Først når dette er bestemt, velges trestruktur, akser og vekter.
-
-## 3. Sonetreet skal speile informasjonsstrukturen
-
-Slaids sitt rekursive split-tre er ikke bare en måte å få bokser på skjermen. Det skal uttrykke hierarki.
+Bygg det enkleste treet som gjør de viktige relasjonene visuelt eksplisitte.
 
 ### Likeverdige ting → søsken
 
-Elementer som skal sammenlignes direkte bør normalt være søsken i samme split, med like eller nesten like vekter og samme type visuell behandling.
+To eller flere ting som skal sammenlignes direkte bør vanligvis være søsken i samme split. Eksempler:
 
-Eksempler:
+- to arter side om side;
+- tre parallelle mekanismer;
+- fire definisjoner i 2×2;
+- flere medlemmer av samme kategori.
 
-- to mekanismer side om side;
-- tre parallelle prosesser i tre kolonner;
-- fire definisjoner i et 2×2-rutenett;
-- en produktfamilie i et regelmessig grid.
-
-Hvis to elementer er faglig likeverdige, men får svært ulik størrelse uten en god grunn, kommuniserer layouten et hierarki som innholdet ikke har.
+Hvis likeverdige elementer får svært ulik størrelse uten semantisk grunn, kommuniserer layouten et hierarki som ikke finnes i innholdet.
 
 ### Hierarki → asymmetri
 
-Når én del er viktigere enn en annen, bør størrelsen vise det. En stor figur med en smal forklaring, eller en stor oppsummering med mindre evidenspaneler, er ofte bedre enn 1:1 bare fordi to elementer finnes.
+Når én del er viktigere, bør størrelsen vise det. Et hovedpoeng, en sentral figur eller en oppsummering kan dominere, mens støttende detaljer får mindre flater.
 
-Vektene skal altså svare på **hva som skal dominere**, ikke på hvor mange elementer agenten tilfeldigvis har.
+### Nested splits → bare ved intern struktur
 
-### Underordnede grupper → nested splits
+Nested splits er gode når én del av sliden selv består av flere underdeler. De skal ikke brukes bare fordi det er teknisk mulig eller for å presse inn mer tekst.
 
-Nested splits er nyttige når én del av sliden har en annen intern struktur enn resten.
+### Soner vs. subfelter
 
-Eksempel:
+Bruk egne soner når deler skal ha selvstendig visuell rolle, ulik størrelse, egen bakgrunn eller sammenlignes på tvers av sliden.
 
-- venstre side: to mindre kort stablet;
-- midten: ett høyt hovedkort;
-- høyre side: én stor illustrasjon.
+Bruk subfelter når delene sammen utgjør ett semantisk objekt og bør oppfattes som intern struktur i samme kort eller container.
 
-Dette er en god komposisjon når innholdet faktisk har tre forskjellige roller. Nested splits uten en semantisk grunn gjør bare layouten vanskeligere å lese og vedlikeholde.
-
-## 4. Velg innholdstype etter semantisk rolle
+## 4. Velg innholdstype etter rolle
 
 ### Titled card
 
-Bruk når tittelen navngir en **kategori, aktør, fase eller sammenligningsenhet**.
-
-Typiske bruksområder:
-
-- «Alternativ A» / «Alternativ B»;
-- reseptor A / reseptor B;
-- akutt / kronisk;
-- absorpsjon / distribusjon / metabolisme;
-- medlemmer av en taksonomi.
-
-Korttittelen skal hjelpe publikum å forstå hva slags enhet de ser på før de leser innholdet.
+Bruk når tittelen navngir en kategori, aktør, fase, art, alternativ eller annen sammenligningsenhet. Tittelen skal gjøre enheten lettere å skanne.
 
 ### Untitled card
 
-Bruk når selve innholdet er **budskapet**, og en ekstra kategorietikett bare ville lagt til støy.
-
-Typiske bruksområder:
-
-- én konklusjon;
-- et resonnement;
-- en kort forklaring;
-- et sentrert nøkkelutsagn;
-- et lite sett med poenger som til sammen utgjør én påstand.
+Bruk når selve innholdet er budskapet og en ekstra etikett bare ville vært støy.
 
 ### Container
 
-Bruk når flere tekstdeler hører sammen, men ikke trenger kortets visuelle ramme eller header. En container er særlig nyttig når sliden trenger intern struktur uten at hvert felt skal se ut som et selvstendig objekt.
+Bruk for innhold som hører sammen, men ikke trenger synlig kortbakgrunn eller tittellinje. En container er transparent; mye tom høyde rundt kort tekst er derfor mindre problematisk her enn i et synlig kort.
 
-### Image
+### Image / titled image card
 
-Bruk når bildet er et **selvstendig visuelt felt**: figur, foto, diagram eller illustrasjon som ikke trenger en egen kategoriheader.
-
-Et bilde skal ikke legges til bare for å fylle en tom sone. Hvis det ikke bærer informasjon, gir emosjonell støtte eller skaper en bevisst pause, er negativt rom ofte bedre.
-
-### Titled image card
-
-Bruk når bildet representerer **ett medlem av en navngitt kategori eller katalog**. Det er særlig egnet når flere visuelle objekter skal kunne skannes med samme struktur.
+Bruk et selvstendig bilde når bildet selv bærer informasjonen. Bruk titled image card når bildet er ett medlem av en navngitt serie eller katalog.
 
 ### Negativt rom
 
-Negativt rom er et legitimt innholdsgrep, ikke «ubrukte rester» av layouten. Det kan brukes til å:
+Negativt rom er bevisst tom flate, men skal brukes konservativt. Det vanligste gode tilfellet er **vertikal høydejustering av synlige kort**:
 
-- begrense tekstbredden;
-- sentrere et kort eller en figur uten absolutt posisjonering;
-- skape visuell ro rundt et viktig poeng;
-- forskyve tyngdepunktet i komposisjonen;
-- lage en rytmisk pause mellom tette slides.
+- et kort har bare én eller to korte tekstblokker;
+- et kort som fyller hele tilgjengelige høyde ville fått uforholdsmessig mye tom flate;
+- tittellinjen og brødteksten havner visuelt for langt fra hverandre;
+- sonen splittes da gjerne som luft / kort / luft, for eksempel omtrent 1:10:1, slik at kortets høyde passer bedre til innholdet.
 
-**Slik brukes den:** `set_zone_card` med `kind: "negative-space"` gjør en sone
-til bevisst luft. Den tegner ingenting, har verken tekst, farge eller subfelter,
-og har ingen minstestørrelse — den kan være så smal komposisjonen vil. Den kan
-bare settes på en sone som er tom; har sonen innhold, bruk `clear_zone` først,
-slik at innholdet havner i sandkassen i stedet for å forsvinne.
+Dette er særlig nyttig ved siden av et stort bilde: bildet kan fylle høyden, mens et kort med lite tekst får en mer naturlig høyde.
 
-**Tom sone er ikke det samme som negativt rom.** En tom sone er et hull som
-ennå ikke er fylt (`empty: true` i `inspect_slide`); negativt rom er en
-beslutning (`contentKind: "negative-space"`). Skriv beslutningen inn i dekket
-i stedet for å la den se ut som noe du glemte.
+Det er derimot som regel en dårlig idé å legge negativt rom **mellom parallelle kort sideveis**. Slaids har allerede faste mellomrom mellom soner. Ekstra horisontal luft som bare gjør kortene smalere og teksten trangere tilfører vanligvis ingenting.
 
-**Rekkefølgen som virker:** del sonen først, og gjør så sliveren til negativt
-rom. Tomme soner har ingen minstestørrelse, så en split i luft er lovlig ved
-ethvert forholdstall — men et kort eller en tekstsone som skal *bli* smal, blir
-avvist. `inspect_slide` oppgir `availableContentKinds` per sone, så du kan lese
-hva som faktisk får plass i stedet for å prøve deg fram.
+En enkel kontroll er: Hvis det negative rommet fjernes og resultatet bare blir tydeligere, bredere eller romsligere uten at fokus, hierarki eller rytme svekkes, skal luften bort.
 
-### Notat
+Negativt rom er ikke en måte å «vise at designet bruker negativt rom» på, og det er ikke det samme som en tom, uferdig sone.
 
-Et **notat** er redaksjonell tekst som hører til én sone og som **aldri vises for
-publikum**. I editoren har sonen en tydelig knapp — «Notat», eller «Bildeprompt»
-når notatet er merket som det. I presentasjonsmodus, hos spilleren, i en publisert
-presentasjon og i eksport er sonen en helt tom flate: ingen knapp, ingen tekst,
-ingen ramme, ingen bakgrunn. Sonen beholder likevel plassen sin i treet.
+## 5. Tekstrytme i romslige soner
 
-Det er nettopp *derfor* notatet finnes. Et notat er måten en agent **reserverer
-geometrien til et bilde som ennå ikke er laget**: komposisjonen blir ferdig først,
-og når filen kommer, overtar den nøyaktig det rektangelet som var planlagt.
+Når et kort eller en container har god plass i høyden, trenger teksten ikke stå som ett kompakt avsnitt.
 
-**Notat er ikke negativt rom.**
+To eller tre korte ideer kan få hvert sitt avsnitt. Dette gjør det lettere å skanne og kan gi bedre balanse i kortet uten å legge til mer tekst. Bruk semantiske avsnitt, ikke tilfeldige tomlinjer.
 
-| | Negativt rom | Notat |
-| --- | --- | --- |
-| Betyr | «Her skal det med hensikt ikke være visuelt innhold.» | «Her ligger redaksjonelt arbeid publikum ikke skal se, og sonen skal få annet innhold senere.» |
-| Tegner | ingenting, for alle | ingenting for publikum; en knapp for forfatteren |
-| Har payload | nei | ja: teksten |
-| Er sonen ferdig | ja | nei |
+Et godt kort kan derfor ha:
 
-**Slik brukes den:** `set_zone_card` med `kind: "note"`, og `noteText` med selve
-teksten. `notePurpose: "image-prompt"` sier at sonen er reservert til et bilde;
-da skriver editoren «Bildeprompt» på knappen. `inspect_slide` svarer med
-`contentKind: "note"`, `noteText` og `notePurpose`, så en agent kan komme
-tilbake til et dekk den har laget og lese promptene den la igjen.
+- kort tittellinje;
+- ett tydelig avsnitt;
+- et mellomrom;
+- et nytt, selvstendig avsnitt.
 
-**Notatet kan bare settes på en tom sone, og et notat med tekst i kan ikke gjøres
-om til noe annet.** Teksten er redaksjonell og har ingen plass på sliden, så den
-skal verken forsvinne eller bli synlig innhold. Bruk `clear_zone` først; notatet
-havner i sandkassen, og sonen kan deretter bli akkurat det den skal bli. Legger
-brukeren et bilde i sonen fra editoren, skjer det samme av seg selv: bildet
-erstatter notatet, og notatet parkeres.
+Dette er ofte bedre enn både et langt avsnitt og et unødvendig sitat.
 
-**Et bildenotat reserverer den geometrien det fremtidige bildet skal bruke.**
-Selve `note`-typen har ingen minstestørrelse — den tegner ingenting — men det har
-`image`. Opprett derfor bildenotatet i en sone der `image` faktisk er en tillatt
-innholdstype; `availableContentKinds` i `inspect_slide` sier hvilke som er det.
-Dette gjelder bare bildenotater: et notat er en generell redaksjonell
-innholdstype, og et lite notat i en smal sone er helt lovlig.
+## 6. Bilder skal planlegges aktivt
 
-## 5. Raster eller vektor
+Bilder skal ikke være pynt, men de bør heller ikke bli et sjeldent unntak bare fordi tekst er enklere å lage.
 
-Slaids tar imot to slags bildefiler, og de er ikke utskiftbare. Valget er semantisk, akkurat som valget av innholdstype.
+På hver slide bør agenten spørre om et relevant visuelt element kan forklare stoffet bedre enn mer tekst. I temaer med mennesker, dyr, anatomi, steder, gjenstander, historiske miljøer eller andre visuelt konkrete motiver vil et godt dekk ofte ha mange bilder.
 
-**Bruk SVG til grafikk som faktisk bør være vektor:**
+Eksempler på naturlige visuelle behov:
 
-- grafer og plott;
-- diagrammer og flytskjemaer;
-- enkel ikonografi;
-- geometriske illustrasjoner og skjematiske figurer.
+- rekonstruksjon av en organisme eller person;
+- utsnitt av et viktig anatomisk trekk;
+- foto eller rekonstruksjon av miljø;
+- kart;
+- faglig figur;
+- sammenlignende bilder av morfologi;
+- illustrasjon av en mekanisme eller prosess.
 
-En agent kan skrive slik grafikk direkte som markup, uten noen bildegenerator, og resultatet er skarpt i enhver skala. **SVG skal beholdes som SVG.** Ikke rasteriser en SVG bare for å gjøre den om til «et bilde».
+### Raster vs. SVG
 
-**Bruk rasterbilder til det som faktisk er bildeaktig:** fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner. Slike motiver skal normalt være rasterbilder laget av en egnet bildegenerator og lastet opp som fil.
+Bruk SVG til grafer, diagrammer, flytskjemaer, enkel ikonografi og geometriske forklaringsfigurer. SVG skal forbli SVG.
 
-**Ikke etterlign fotografiske eller organiske motiver med hjemmelaget SVG**, og ikke rasteriser et slikt forsøk for å få det til å ligne et ekte bilde. En håndskrevet «rekonstruksjon» av et ansikt i polygoner er ikke en illustrasjon; den er en påstand om at figuren er mer enn den er.
+Fotografiske, naturtro, kunstneriske og visuelt komplekse motiver skal være rasterbilder fra en egnet bildegenerator. Ikke etterlign fotografiske eller organiske motiver med hjemmelaget SVG og rasteriser dem etterpå.
 
-**Har agentmiljøet ingen generativ bildemodell tilgjengelig, skal agenten være tydelig på begrensningen** i stedet for å lage en dårligere erstatning og fremstille den som likeverdig. Den skal heller ikke la sonen stå tom og gå videre: den **planlegger** bildet i stedet, ved å reservere sonen og legge igjen et bildenotat med en ferdig prompt. Det er §11.5, og det er den normale veien til et fotografi i et dekk laget av en agent. Alternativene ellers er et reelt, lovlig bilde brukeren skaffer, en ærlig vektorfigur som faktisk er en figur, eller bevisst negativt rom.
+### Når bildegenerator mangler
 
-Slaids-serveren genererer selv ingen bilder: et rasterbilde lastes opp ferdig, og SVG opprettes som markup.
+Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Agenten skal planlegge dem:
 
-## 6. Sone eller subfelt?
+1. bestem bildets faglige rolle;
+2. reserver en sone der et bilde faktisk får plass;
+3. legg inn et bildenotat (`notePurpose: "image-prompt"`) i sonen;
+4. skriv en konkret prompt tilpasset sonens aspektforhold og komposisjon;
+5. bruk én felles bildebrief for dekket dersom minst ett generert rasterbilde planlegges.
 
-Dette skillet er viktig.
+Bildenotatet er et fremtidig bilde, ikke negativt rom.
 
-Bruk **egen sone** når delene:
-
-- har selvstendig visuell rolle;
-- skal sammenlignes på tvers av sliden;
-- trenger ulik bakgrunn, bildebehandling eller størrelse;
-- skal kunne flyttes eller vektes som egne kompositoriske enheter.
-
-Bruk **subfelt i samme innholdsenhet** når delene:
-
-- sammen utgjør ett semantisk objekt;
-- deler samme korttittel eller visuelle ramme;
-- bør oppfattes som intern struktur, ikke som separate paneler.
-
-En god tommelfingerregel er: **sonetreet uttrykker makrokomposisjon; subfelter uttrykker intern struktur.**
-
-## 7. Anbefalte komposisjonskonsepter
+## 7. Komposisjoner som ofte fungerer
 
 Dette er startpunkter, ikke maler.
 
-### A. Hovedpoeng + visuell støtte
+### Hovedpåstand + forklaring + peers
 
-**Logikk:** én påstand er viktigst; bildet eller figuren støtter den.
+En sterk faglig komposisjon er:
 
-**Tre:** to søsken, ofte asymmetriske.
+- et kort hovedutsagn øverst;
+- en kort forklaring under;
+- 2–4 likeverdige kort eller figurer i en rad nederst.
 
-**Typisk:** tekst 2:3 bilde, 3:5 eller 1:1 avhengig av hvor mye figuren skal dominere.
+Dette fungerer når sliden først skal etablere én idé og deretter vise flere dimensjoner eller bevis som hører til den. Det er særlig effektivt når hver underdel har en kort, naturlig etikett.
 
-### B. Direkte sammenligning
+### Direkte sammenligning
 
-**Logikk:** publikum skal se forskjellen mellom to likeverdige alternativer.
+To likeverdige objekter → to like søskensoner. Dersom innholdet er kort, kan hvert kort få redusert høyde med luft over og under i stedet for å fylle hele hovedområdet.
 
-**Tre:** 1:1 langs x, samme innholdstype på begge sider.
+### Bilde + kompakt kort
 
-Hvis ett alternativ trenger dobbelt så mye tekst, er løsningen oftest å redigere teksten eller revurdere om sammenligningen faktisk er likeverdig — ikke automatisk å gi det dobbel bredde.
+Et stort bilde kan dominere én side. Et kort med bare en kort forklaring på den andre siden trenger ikke strekke seg over samme høyde; bruk heller vertikal negativ plass rundt kortet dersom det gir bedre balanse.
 
-### C. Taksonomi / katalog
+### Taksonomi / katalog
 
-**Logikk:** flere ting er medlemmer av samme familie.
+Flere parallelle medlemmer → regelmessig grid eller rad med konsistent innholdstype.
 
-**Tre:** regelmessig grid, for eksempel 3×2 eller 2×2.
+### Oversikt + detaljer
 
-**Innhold:** titled cards eller titled image cards med konsistent struktur.
+Én overordnet idé → stor hovedsone, med en mindre nested gruppe for evidens eller detaljer.
 
-Tom celle kan være bevisst hvis antallet objekter ikke fyller hele gridet; ikke legg inn fyllstoff bare for symmetri.
+### Fokus / pause
 
-### D. Oversikt + detaljer
+Ett stort bilde, ett tall eller én kort formulering kan få dominere en hel slide når poenget faktisk tåler det.
 
-**Logikk:** én overordnet idé med flere bevis eller detaljpaneler.
+## 8. Farger skal støtte semantikk
 
-**Tre:** stor hovedsone ved siden av en nested split med to eller flere mindre soner.
+Like roller bør ha en gjenkjennelig visuell grammatikk, men det betyr ikke at alle kort må ha identisk farge.
 
-Dette er ofte bedre enn tre like kolonner fordi hierarkiet blir synlig.
+- samme farge kan understreke at flere kort tilhører samme gruppe;
+- ulike, harmoniske headerfarger kan hjelpe publikum å skille to kontrasterende eller tydelig separate peers;
+- fargevariasjon skal ha en funksjon, ikke være tilfeldig dekorasjon.
 
-### E. Én idé med intern todeling
+Typografi, kortform, spacing og hierarki bør være mer konsistente enn selve fargene.
 
-**Logikk:** to delpoenger hører til samme konsept.
+## 9. Fit er redaksjonell tilbakemelding
 
-**Tre:** én sone.
+Når noe ikke får plass:
 
-**Innhold:** ett kort/container med to subfelter, ofte 1:1 internt.
+1. kort ned teksten;
+2. fjern redundans og detaljer som kan sies muntlig;
+3. sjekk om grouping er feil;
+4. juster vekter dersom hierarkiet tilsier det;
+5. bygg om treet hvis relasjonen er feil representert;
+6. del sliden hvis den egentlig gjør flere kommunikative jobber.
 
-Bruk dette fremfor to separate kort når publikum først og fremst skal huske helheten.
+Ikke løs overflow ved å gjøre skriften stadig mindre eller ved å lage ekstremt smale soner.
 
-### F. Sentrert nøkkelpoeng med negativt rom
+## 10. Visuell konsistens uten layoutmonotoni
 
-**Logikk:** én kort formulering skal få høy saliens.
-
-**Tre:** for eksempel y-split med luft / innhold / luft, eller x-split med smale luftsoner på sidene.
-
-Dette kan være mer effektivt enn å gjøre teksten større eller legge på dekorasjon.
-
-### G. Teknisk oversikt i parallelle kolonner
-
-**Logikk:** flere faser, komponenter eller dimensjoner må kunne skannes raskt.
-
-**Tre:** 3–4 søsken langs x, eventuelt med subfelter internt.
-
-Bruk bare når hver kolonne kan holdes kort. Hvis hver kolonne blir et miniessay, bør innholdet deles over flere slides.
-
-### H. Argument + evidensstack
-
-**Logikk:** én konklusjon ledsages av flere figurer, studier eller eksempler.
-
-**Tre:** stor tekst-/konklusjonssone mot en nabosone som splittes vertikalt i flere evidensfelter.
-
-### I. Full visuell flate / pause
-
-**Logikk:** publikum skal se, ikke lese.
-
-**Tre:** ett blad som fyller hovedområdet.
-
-**Innhold:** bilde eller svært kort innhold. Dette kan brukes som emosjonell eller rytmisk pause mellom tette faglige slides.
-
-## 8. Retning og leseflyt
-
-Velg split-akse etter hvordan publikum naturlig skal lese relasjonen:
-
-- **x-akse**: sammenligning, progresjon fra venstre mot høyre, tekst + bilde;
-- **y-akse**: før/etter, overskrift/evidens, stablede figurer, vertikal prioritering;
-- **nested x/y**: når en hovedgruppe trenger sin egen interne orden.
-
-Ikke velg akse bare for å få teksten til å passe. Hvis bytte av retning endrer hvordan relasjonen forstås, er det en semantisk endring.
-
-## 9. Vekter uttrykker prioritet
-
-Vekter er ikke bare plassfordeling. De kommuniserer betydning.
-
-- likeverdige elementer → like eller nesten like vekter;
-- hovedpoeng → større andel;
-- sekundær støtte → mindre andel;
-- bilde som faktisk er beviset → bildet kan dominere;
-- bilde som bare illustrerer → teksten kan dominere.
-
-Agenten bør kunne forklare hver tydelig asymmetri med innholdets rolle.
-
-## 10. Fit er en redaksjonell tilbakemelding
-
-Når innhold ikke får plass, er dette normalt et signal om at enten teksten eller informasjonsarkitekturen er feil.
-
-Anbefalt reparasjonsrekkefølge:
-
-1. **Rediger teksten.** Fjern redundans, detaljer som kan sies muntlig og formuleringer som ikke er nødvendige for poenget.
-2. **Sjekk grouping.** Burde noe være et subfelt, egen sone eller en ny slide?
-3. **Juster hierarkiet.** Gi det viktigste mer areal og mindre viktige deler mindre.
-4. **Endre treet** hvis den logiske strukturen var feil representert.
-5. **Del sliden** hvis den faktisk rommer mer enn én tydelig kommunikativ oppgave.
-
-Ikke løs overflow ved å gjøre skriften stadig mindre eller ved å bygge ekstremt smale/høye soner som gjør lesbarheten dårligere. Fit-regelen er en kvalitetsmekanisme, ikke en hindring som skal omgås.
-
-## 11. Visuell konsistens uten layoutmonotoni
-
-Et godt dekk bør være gjenkjennelig uten at alle slides har samme geometri.
-
-Repeter:
+Repeter den samme visuelle grammatikken for like semantiske roller:
 
 - typografi;
-- fargehierarki;
-- hvordan like semantiske roller ser ut;
-- korttype for samme type innhold;
-- retning og orden i gjentatte sammenligninger.
+- korttype;
+- hierarki;
+- fargebruk med samme betydning;
+- rekkefølge i gjentatte sammenligninger.
 
-Varier:
+Varier geometrien når innholdsrelasjonen endres. Et godt dekk trenger ikke at hver slide ser ulik ut, men det skal heller ikke falle tilbake til samme layout bare fordi den er enkel å produsere.
 
-- sonegeometri når informasjonsforholdet endres;
-- grad av asymmetri;
-- mengde negativt rom;
-- forholdet mellom tekst og bilde;
-- antall parallelle enheter.
+## 11. Anti-mønstre
 
-Konsistens betyr altså **samme visuelle grammatikk**, ikke samme slide-mal.
+Unngå aktivt:
 
-## 11.5. Bilder som skal lages et annet sted
+- publikumsinnhold som beskriver Slaids, layoutvalget eller agentens arbeidsprosess;
+- oppdiktede eller parafraserte «sitater» brukt som dekorasjon;
+- negativt rom mellom sideordnede kort når det bare gjør kortene smalere;
+- store synlige kort med svært lite tekst og unødvendig mye tom høyde når en enkel vertikal trim ville gitt bedre balanse;
+- å bruke negativt rom for å demonstrere at presentasjonen har negativt rom;
+- å droppe relevante bilder fordi agenten mangler rastergenerator;
+- å tegne mennesker, dyr eller andre organiske motiver som hjemmelaget SVG;
+- å bruke bilder som ren fyllmasse;
+- én stor container + punktliste som generelt standardsvar;
+- flere navngivbare konsepter i én punktliste når de burde være peers;
+- nested splits uten faktisk hierarki;
+- asymmetri uten semantisk grunn;
+- tekst lagt inn bare for å fylle tom plass.
 
-§5 sier at fotografiske, naturtro og visuelt komplekse motiver skal være
-rasterbilder fra en egnet bildegenerator, og at de aldri skal etterlignes med
-hjemmelaget SVG. Denne delen svarer på det som gjenstår: **hva agenten gjør når
-den ikke har en slik bildegenerator.** Vanlig Slaids og MCP har ikke det, og
-Slaids-serveren lager ingen bilder selv.
-
-Svaret er ikke å droppe fotografiet, og ikke å improvisere en erstatning. Det er
-å **planlegge** bildet: agenten komponerer sliden ferdig, reserverer sonen bildet
-skal ha, og legger et bildenotat i den sonen. Brukeren lager bildet i en samtale
-med en assistent som har bildeverktøy, og setter det inn etterpå. Fordi sonen
-allerede står der, overtar filen nøyaktig den geometrien som var planlagt.
-
-Det gjelder når sliden trenger et fotografi, en fotorealistisk rekonstruksjon,
-mennesker, dyr, natur eller miljø, en kompleks organisk illustrasjon eller en
-kunstnerisk rasterillustrasjon. Trenger den en graf, et diagram eller en
-geometrisk forklaringsfigur, skriver agenten den som SVG med én gang — det er
-ikke et bilde som mangler, det er vektorgrafikk den kan lage selv.
-
-### Bildebriefen: skriv den først
-
-Trenger dekket genererte rasterbilder, oppretter agenten **én felles bildebrief
-for hele presentasjonen** før den skriver de enkelte promptene
-(`set_image_brief`; `get_presentation` leser den tilbake). Briefen er
-presentasjonsnivå-metadata, ikke en sone på første slide, og vises aldri for
-publikum.
-
-Briefen beskriver **hvordan bildene skal se ut — ikke hva de skal vise**. Den er
-det brukeren limer inn én gang i starten av samtalen der bildene lages, og
-premisset hver enkelt bildeprompt skrives mot. Typiske egenskaper:
-
-- fotografisk vs. illustrert uttrykk;
-- realismegrad;
-- lyssetting;
-- kontrast;
-- tidsperiode;
-- miljø;
-- kamerafølelse eller linsespråk der det er relevant;
-- bakgrunnskarakter;
-- detaljnivå;
-- fargekarakter;
-- komposisjonsprinsipper;
-- hvordan mennesker, dyr og gjenstander bør fremstilles;
-- ting som konsekvent skal unngås.
-
-Prinsippet, ikke malen:
-
-> Alle bildene skal være fotorealistiske vitenskapelige rekonstruksjoner med
-> naturlig dagslys, dokumentarisk uttrykk, realistisk anatomi, dempet
-> jordfargepalett og uten tekst, rammer eller infografiske elementer.
-
-Dette er et *eksempel på en brief*, ikke en brief å gjenbruke. Agenten skal
-skrive uttrykket den aktuelle presentasjonen faktisk trenger.
-
-### Den enkelte bildeprompten
-
-Når agenten mener en slide trenger et generert rasterbilde:
-
-1. bestem bildets semantiske rolle på sliden;
-2. bygg sonetreet ut fra sliden, ikke ut fra bildet;
-3. reserver riktig bildeareal — en sone der `image` er tillatt;
-4. opprett `note` med `notePurpose: "image-prompt"` i den sonen;
-5. skriv en komplett, kopierbar bildeprompt.
-
-Prompten beskriver **motivet**. Stilen ligger allerede i briefen, som antas å
-stå i samtalen fra før, så ikke gjenta hele stilbriefen i hvert notat. Et
-bildenotat bør typisk inneholde:
-
-- klart motiv;
-- viktige objekter eller personer;
-- handling eller scene;
-- nødvendig historisk eller faglig presisjon;
-- komposisjon;
-- kameravinkel når det er relevant;
-- hvilken del av bildet som bør ha visuell tyngde;
-- ønsket format eller orientering;
-- nødvendig negativ plass dersom layouten krever det;
-- ting som spesifikt ikke skal forekomme i akkurat dette bildet.
-
-**Agenten kjenner sonens rektangel fra `inspect_slide` og skal bruke det aktivt.**
-Et stående rektangel skal ha en stående komposisjon; skal teksten ligge inntil
-bildet, skal den siden av bildet tåle å være roligere.
-
-> Fotorealistisk vitenskapelig rekonstruksjon av en voksen neandertaler i et
-> paleolittisk europeisk landskap. Halvfigur, kroppen lett vendt mot kamera.
-> Personen skal ligge hovedsakelig i venstre tredjedel av bildet; høyre tredjedel
-> skal være visuelt roligere slik at beskjæring tåles. Ingen tekst eller grafiske
-> elementer. Stående komposisjon tilpasset denne sonens aspektforhold.
-
-Ikke legg til overflødig prompt-engineering-sjargong. Prompten skal kunne
-kopieres rett inn i en vanlig samtale.
-
-### Hele arbeidsflyten
-
-**Agenten, når den lager presentasjonen:**
-
-1. Analyser presentasjonens innhold.
-2. Bestem en visuell identitet.
-3. Trenger dekket genererte rasterbilder: opprett én felles bildebrief.
-4. Komponer hver slide semantisk, som ellers i denne guiden.
-5. For hver planlagt rasterillustrasjon: lag riktig sonegeometri, opprett et
-   `note` med `notePurpose: "image-prompt"`, og skriv en bildeprompt tilpasset
-   sonens rektangel.
-6. Bruk ekte SVG der vektor er riktig medium.
-7. Valider resten av presentasjonen normalt.
-
-**Brukeren, etterpå:**
-
-1. Åpne «Bildebrief» i editoren og kopier den.
-2. Lim den inn i starten av én samtale med en assistent som kan lage bilder.
-3. Gå gjennom bildenotatene i dekket.
-4. Kopier én prompt om gangen inn i den samme samtalen.
-5. Generer bildet.
-6. Last det ned.
-7. Erstatt notatsonen med bildet.
-8. Juster utsnitt ved behov.
-
-Fordi alle promptene er skrevet mot den samme briefen, får bildene et konsistent
-visuelt uttrykk, og fordi komposisjonen alt er ferdig, er det bare innholdstypen
-i sonen som byttes.
-
-## 12. Anti-mønstre
-
-Agenten bør aktivt unngå:
-
-- å tegne fotografiske eller organiske motiver som SVG, eller rasterisere slik
-  SVG til PNG, i stedet for å legge igjen et bildenotat;
-- å la en bildeprompt gjenta hele stilbriefen i stedet for å beskrive motivet;
-- å skrive bildeprompter før dekket har en felles bildebrief;
-- å velge «to kolonner» før den har analysert innholdet;
-- å gjøre «én stor container med overskrift og punktliste» til et generelt standardsvar;
-- å legge flere navngitte konsepter, kategorier eller faser i én punktliste i stedet for i egne soner eller kort;
-- å dele hver paragraf i sin egen sone;
-- å gi like store soner til elementer med tydelig ulik betydning;
-- å bruke bilder som dekorativ fyllmasse;
-- å legge inn tekst bare for å fylle en tom celle i et grid;
-- å lage nested splits som ikke uttrykker et faktisk hierarki;
-- å bruke ulike innholdstyper for semantisk parallelle enheter uten grunn;
-- å redusere fontstørrelse som standardløsning på overflow;
-- å beholde alt kildemateriale på sliden bare fordi det er faglig korrekt;
-- å rasterisere en SVG, eller å etterligne et fotografisk motiv med hjemmelaget SVG.
-
-## 13. Arbeidsflyt for en agent
-
-Trenger dekket genererte rasterbilder, skriv den felles bildebriefen før den
-første bildeprompten — se §11.5.
+## 12. Arbeidsflyt
 
 For hver slide:
 
-1. Formuler **én kommunikativ oppgave** for sliden.
-2. **Dekomponer stoffet semantisk**: gå gjennom listen i §1 og finn ut hvilke av enhetene som faktisk finnes i dette materialet.
-3. Klassifiser relasjonene: peer, hierarki, sekvens, gruppe, evidens eller fokus.
-4. Velg innholdstype for hvert semantisk objekt.
-5. **Bygg det enkleste sonetreet som gjør de viktige semantiske relasjonene visuelt eksplisitte.**
-6. Sett vekter etter prioritet, ikke etter tekstmengde alene.
-7. Legg inn innholdet kortfattet. Skal en sone ha et rasterbilde som ikke finnes
-   ennå, legg et bildenotat i den i stedet for en midlertidig illustrasjon.
-8. Inspiser den faktiske geometrien og fit-resultatet.
-9. Ved overflow: rediger først, komponer deretter på nytt hvis nødvendig.
-10. Valider sliden og dekket før den anses ferdig.
+1. Formuler én kommunikativ oppgave.
+2. Kontroller at alt planlagt publikumsinnhold faktisk handler om denne oppgaven.
+3. Dekomponer stoffet i semantiske enheter.
+4. Spør aktivt om bilde, figur eller visuelt utsnitt vil forklare noe bedre enn mer tekst.
+5. Klassifiser relasjonen mellom enhetene.
+6. Bygg det enkleste sonetreet som gjør relasjonen synlig.
+7. Velg innholdstype og vekter etter semantisk rolle.
+8. Skriv kort tekst; bruk avsnitt eller linjeskift når en romslig flate har flere tydelige delpoenger.
+9. Bruk quote bare når et ekte sitat fortjener det.
+10. Bruk negativt rom bare når du kan forklare den konkrete kompositoriske gevinsten; særlig for å trimme høyden på synlige kort med lite innhold.
+11. Hvis et relevant rasterbilde mangler, reserver sonen med bildenotat i stedet for å droppe bildet.
+12. Inspiser, render representative slides og valider dekket.
 
-For hele dekket:
-
-- bruk seksjoner og visuell rytme til å markere større argumentasjonsdeler;
-- varier komposisjon når innholdets logikk varierer;
-- repeter visuelle regler når semantiske roller repeteres;
-- la enkelte slides være luftige slik at tette slides får kontrast;
-- vurder dekket som en sekvens, ikke som 30 isolerte plakater;
-- merk deg mønsteret: flere slides på rad som «én stor container + punktliste» betyr at stoffet skal dekomponeres på nytt (§1).
-
-## 14. Den viktigste testen
-
-Før agenten godtar en slide, bør den kunne svare på dette spørsmålet:
+Den viktigste testen er fortsatt:
 
 > **Hvis jeg bare så geometrien og innholdstypene, ville hierarkiet og relasjonene fortsatt ligne på det innholdet prøver å si?**
 
-Hvis svaret er nei, er sonetreet sannsynligvis valgt for tidlig.
+Legg nå til en andre test:
+
+> **Hvis jeg fjernet alle forklaringer om designprosessen og alt dekorativt tekstgrep, ville sliden blitt faglig svakere? Hvis nei, skulle de elementene aldri vært der.**

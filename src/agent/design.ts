@@ -66,13 +66,29 @@ export const SIMPLEST_TREE =
 export const SINGLE_CONTAINER_RULE =
   'Én stor tekstcontainer er et legitimt valg når innholdet faktisk er én sammenhengende idé, men den er ikke standardløsningen.'
 
+/** Audience-visible content belongs to the subject, never to the authoring process. */
+export const AUDIENCE_CONTENT_RULE =
+  'Alt publikum ser skal tjene presentasjonens tema og kommunikative mål. Ikke legg inn kommentarer om Slaids, layoutvalg, designprosessen, testhensikten eller agentarbeidet i selve presentasjonen med mindre brukeren uttrykkelig har bedt om en presentasjon om nettopp dette.'
+
 /** The distinction that decides between a list and several zones. */
 export const BULLET_RULE =
   'En punktliste hører hjemme der punktene er underordnede utsagn om det samme objektet eller den samme påstanden. Representerer punktene derimot flere navngivbare konsepter, kategorier, faser eller sammenligningsenheter, skal du normalt vurdere separate soner eller kort i stedet.'
 
+/** Quotes are evidence or voice, not decorative typography. */
+export const QUOTE_RULE =
+  'Bruk sitater sparsomt. En quote-blokk skal være en faktisk, etterprøvbar formulering fra en identifiserbar kilde der den eksakte ordlyden tilfører noe; ikke gjør egne oppsummeringer, parafraser eller slagord om til sitater for visuell effekt.'
+
+/** Give short prose room to breathe when the geometry already provides it. */
+export const TEXT_RHYTHM_RULE =
+  'Når et kort eller en container har god plass i høyden og teksten består av flere tydelige delpoenger, bruk separate avsnitt eller bevisste linjeskift for å gi dem lesbar avstand i stedet for å presse alt sammen i én tett tekstblokk. Ikke legg inn tomme linjer bare for å fylle høyden.'
+
 /** Same role, same treatment. */
 export const PARALLEL_RULE =
   'Parallelle konsepter skal normalt ha parallell visuell behandling: samme innholdstype, samme nivå i treet og like eller nesten like vekter.'
+
+/** Color can clarify grouping or contrast, but may not become random decoration. */
+export const COLOR_SEMANTICS_RULE =
+  'Bruk farge semantisk. Samme farge kan samle elementer som tilhører samme gruppe; ulike, harmoniske headerfarger kan skille tydelig forskjellige eller kontrasterende peers. Varier farge bare når variasjonen hjelper publikum å forstå strukturen, ikke for tilfeldig dekorasjon.'
 
 /**
  * The self-check, which is about noticing a pattern rather than avoiding one.
@@ -92,7 +108,7 @@ export const REPEATED_FALLBACK_RULE =
  * the choice is actually made — instead of taking up room in the instructions.
  */
 export const CONTENT_KIND_RULE =
-  'Velg innholdstype etter semantisk rolle. Foretrekk `titled-card` når hvert element naturlig kan få en kort semantisk etikett — en kategori, aktør, fase, et alternativ eller en sammenligningsenhet; korttittelen er da den etiketten. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter. `negative-space` er en beslutning om luft, ikke en sone du glemte å fylle.'
+  'Velg innholdstype etter semantisk rolle. Foretrekk `titled-card` når hvert element naturlig kan få en kort semantisk etikett — en kategori, aktør, fase, et alternativ eller en sammenligningsenhet; korttittelen er da den etiketten. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter. Bruk `negative-space` konservativt og bare når den tomme flaten forbedrer komposisjonen. Det vanligste gode tilfellet er luft over og/eller under et synlig kort med lite innhold, slik at kortet ikke blir unødvendig høyt og tittel og brødtekst holdes visuelt samlet. Ikke legg negativt rom mellom parallelle kort bare for å skape avstand eller demonstrere luft; Slaids har allerede faste mellomrom, og horisontal luft som bare gjør innholdssonene smalere er vanligvis et tilbakeskritt. Denne høyde-trimmingen gjelder synlige kort, ikke transparente containere. Hvis å fjerne det negative rommet bare gir innholdet mer nyttig plass uten å svekke fokus, hierarki eller rytme, skal det bort.'
 
 /** What a split has to be able to justify. */
 export const SPLIT_RULE =
@@ -101,6 +117,10 @@ export const SPLIT_RULE =
 /* ------------------------------------------------------------------ *
  * Pictures: raster or vector
  * ------------------------------------------------------------------ */
+
+/** Pictures must be considered before a deck can be called visually planned. */
+export const IMAGE_USAGE_RULE =
+  'Vurder aktivt på hver slide om et relevant bilde, en figur eller et utsnitt av et viktig visuelt trekk kan forklare stoffet bedre enn mer tekst. I emner med mennesker, dyr, anatomi, steder, gjenstander, historiske miljøer eller andre visuelt konkrete motiver skal bilder normalt være en tydelig del av dekket når de har faglig verdi. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: planlegg bildefeltene som bildenotater med konkrete prompter og en felles bildebrief.'
 
 /**
  * The short form, for the agent that has not yet decided it needs a picture.
