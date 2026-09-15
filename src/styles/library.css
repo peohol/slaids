@@ -577,6 +577,18 @@
   margin-left: 0;
 }
 
+:root[data-compact='true'] .folder-select__label {
+  right: 35px;
+}
+
+:root[data-compact='true'] .folder-select__fade {
+  right: 33px;
+}
+
+:root[data-compact='true'] .folder-select__chevron {
+  right: 12px;
+}
+
 :root[data-compact='true'] .library__footer {
   flex-direction: column;
   align-items: flex-start;
