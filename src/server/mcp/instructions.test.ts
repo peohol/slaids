@@ -30,6 +30,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
+  COLOR_SEMANTICS_RULE,
   CONTENT_KIND_RULE,
   DESIGN_DOCS_PATH,
   IMAGE_POLICY_SUMMARY,
@@ -65,6 +66,7 @@ const NORMATIVE = [
   QUOTE_RULE,
   TEXT_RHYTHM_RULE,
   PARALLEL_RULE,
+  COLOR_SEMANTICS_RULE,
   REPEATED_FALLBACK_RULE,
   CONTENT_KIND_RULE,
   SPLIT_RULE,
@@ -125,6 +127,13 @@ describe('det agenten vet før første kall', () => {
 
   it('krever parallell behandling av parallelle konsepter', () => {
     expect(MCP_INSTRUCTIONS).toContain(PARALLEL_RULE)
+  })
+
+  it('bruker farge for grouping eller kontrast, ikke som tilfeldig pynt', () => {
+    expect(MCP_INSTRUCTIONS).toContain(COLOR_SEMANTICS_RULE)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/Samme farge kan samle/i)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/ulike, harmoniske headerfarger/i)
+    expect(COLOR_SEMANTICS_RULE).toMatch(/ikke for tilfeldig dekorasjon/i)
   })
 
   it('krever aktiv vurdering av relevante bilder før agenten kan hoppe over dem', () => {
