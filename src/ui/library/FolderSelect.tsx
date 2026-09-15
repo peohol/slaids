@@ -15,7 +15,9 @@ export function FolderSelect({
 }) {
   const labelRef = useRef<HTMLSpanElement>(null)
   const [overflowing, setOverflowing] = useState(false)
-  const label = value ? folders.find((folder) => folder.id === value)?.name ?? 'Ingen mappe' : 'Ingen mappe'
+  const label = value
+    ? (folders.find((folder) => folder.id === value)?.name ?? 'Ingen mappe')
+    : 'Ingen mappe'
 
   const measureOverflow = useCallback(() => {
     const node = labelRef.current
