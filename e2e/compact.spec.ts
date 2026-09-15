@@ -194,8 +194,11 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
     const before = await slideOrder(page)
 
-    // Selecting a page from the overview, by pressing its thumbnail.
+    // Selecting a page from the overview is navigation, so the overview closes
+    // and leaves the selected page on screen.
     await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+    await openPanel(page, 'slides')
     await expect(page.getByTestId('filmstrip-item').nth(1)).toHaveClass(/filmstrip__item--active/)
 
     // Reordering without a drag anywhere in sight.
@@ -848,10 +851,13 @@ test.describe('kompakt arbeidsflate', () => {
     expect(scroll.height).toBeGreaterThan(scroll.visible)
     expect(scroll.top).toBeGreaterThan(0)
 
-    // Choosing a page is one press, and it says so semantically.
+    // Choosing a page is one press, and the overview gives the stage back.
     await page.getByTestId('filmstrip-list').evaluate((element) => element.scrollTo(0, 0))
-    const thumbs = page.getByTestId('filmstrip-item')
+    let thumbs = page.getByTestId('filmstrip-item')
     await thumbs.nth(2).getByTestId('filmstrip-thumb').click()
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+    await openPanel(page, 'slides')
+    thumbs = page.getByTestId('filmstrip-item')
     await expect(thumbs.nth(2)).toHaveClass(/filmstrip__item--active/)
     await expect(thumbs.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute(
       'aria-current',
@@ -1331,7 +1337,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'slide')
   })
 
-  test('en sveip på en avledet side forlater den, slik piltastene gjør', async ({ page }) => {
+  test('sveip når fram til en avledet referanseside og tilbake igjen', async ({ page }) => {
     await createPresentation(page, 'Avledet og sveip')
     await addCardToRootZone(page)
 
@@ -1343,18 +1349,20 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByRole('button', { name: 'Lukk' }).click()
     await exitFocus(page)
 
-    // Open the generated page. It belongs to the last authored slide, which is
-    // exactly the case where a step taken silently behind it would do nothing.
+    // Start on the last authored page. The next page in the audience order is
+    // generated, but it must still be reachable by the same swipe.
     await openPanel(page, 'slides')
     const order = await slideOrder(page)
     await page.getByTestId('filmstrip-item').last().getByTestId('filmstrip-thumb').click()
-    await openPanel(page, 'slides')
-    await page.getByTestId('filmstrip-derived').getByRole('button').first().click()
-    await closePanel(page)
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+    await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
+
+    await swipeSlide(page, 1)
     await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
 
-    // A swipe leaves the generated page, the same way an arrow key does.
-    await swipeSlide(page, 1)
+    // Going back walks the same page list in reverse and returns to the authored
+    // page that came immediately before the generated one.
+    await swipeSlide(page, -1)
     await expect(page.getByTestId('stage-slide')).not.toHaveAttribute('data-readonly', '')
     expect(await shownSlideId(page)).toBe(order[order.length - 1])
   })
