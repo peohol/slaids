@@ -86,6 +86,10 @@ export const TEXT_RHYTHM_RULE =
 export const PARALLEL_RULE =
   'Parallelle konsepter skal normalt ha parallell visuell behandling: samme innholdstype, samme nivå i treet og like eller nesten like vekter.'
 
+/** Color can clarify grouping or contrast, but may not become random decoration. */
+export const COLOR_SEMANTICS_RULE =
+  'Bruk farge semantisk. Samme farge kan samle elementer som tilhører samme gruppe; ulike, harmoniske headerfarger kan skille tydelig forskjellige eller kontrasterende peers. Varier farge bare når variasjonen hjelper publikum å forstå strukturen, ikke for tilfeldig dekorasjon.'
+
 /**
  * The self-check, which is about noticing a pattern rather than avoiding one.
  *
