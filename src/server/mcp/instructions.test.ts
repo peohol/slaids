@@ -191,6 +191,12 @@ describe('raster og vektor', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/lager ikke bilder/i)
     expect(agentSurface()).not.toMatch(/kommer ikke til å|aldri kommer til/i)
   })
+
+  it('krever bildebrief også når bare ett generert rasterbilde er planlagt', () => {
+    const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
+    expect(guide).toMatch(/minst ett generert rasterbilde planlegges/i)
+    expect(guide).not.toMatch(/dersom flere rasterbilder skal genereres/i)
+  })
 })
 
 describe('regelen mot å falle tilbake til container + punktliste', () => {
