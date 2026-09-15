@@ -762,16 +762,32 @@ export function EditorView({
   /**
    * One page along the deck, however the reader asked for it.
    *
-   * The arrow keys, the wheel and a finger swiped across the slide all mean
-   * the same thing and all have to do the same thing — including leaving a
-   * derived page, which is a view *of* a slide rather than a page of the deck:
-   * `stepPage` walks the authored slides, so a generated page would otherwise
-   * stay open with the step happening invisibly behind it.
+   * The arrow keys, the wheel and a finger swiped across the slide all walk the
+   * audience order, including generated reference and QR pages. `currentSlideId`
+   * intentionally remains on the authored slide while a generated page is on
+   * screen, so `derivedView` keeps that authored anchor while the visible page
+   * id determines where the next step goes.
    */
-  const stepDeck = useCallback((delta: number) => {
-    setDerivedView(null)
-    useEditorStore.getState().stepPage(delta)
-  }, [])
+  const stepDeck = useCallback(
+    (delta: number) => {
+      const visibleId = viewedDerivedPage?.id ?? currentSlideId
+      if (!visibleId) return
+      const index = pages.findIndex((page) => page.id === visibleId)
+      if (index < 0) return
+      const next = pages[index + delta]
+      if (!next) return
+
+      if (isDerivedPage(next)) {
+        if (!currentSlideId) return
+        setDerivedView({ id: next.id, from: currentSlideId })
+        return
+      }
+
+      setDerivedView(null)
+      useEditorStore.getState().selectSlide(next.id)
+    },
+    [currentSlideId, pages, viewedDerivedPage],
+  )
 
   /* -------------------------------------------------------------- *
    * Keyboard
