@@ -400,8 +400,24 @@ replace-semantikk: bildet overtar sonen og notatet parkeres i sandkassen.
 Agentens *planlegging* er en annen sak: et bildenotat reserverer geometrien det
 fremtidige bildet skal bruke, så det skal opprettes i en sone der `image`
 faktisk er en tillatt innholdstype. Det er en instruks til agenten (se
-`docs/AGENT_PRESENTATION_DESIGN.md` §11.5), ikke en regel i `contentSize.ts`:
+`docs/AGENT_PRESENTATION_DESIGN.md` §6), ikke en regel i `contentSize.ts`:
 `note` er en generell redaksjonell innholdstype, ikke en bildeplassholder.
+
+Instruksen er likevel bare etterprøvbar hvis reservasjonen kan leses tilbake.
+`availableContentKinds` kan ikke svare på den — en sone som holder et notat med
+tekst i tilbyr bare `note` til den tømmes — og et notat uten minstestørrelse gjør
+at en senere splitt eller vektendring kan krympe reservasjonen under et bildes
+minstemål uten at noe avviser den. `inspect_slide` svarer derfor med
+`reservedImageKinds` på soner med `notePurpose: 'image-prompt'`: et avledet
+faktum, målt med `contentKindFitsRect` — den samme regelen konverteringen senere
+avvises av — og ikke en ny minstestørrelse på `note`.
+
+Det er en liste og ikke et ja eller nei, fordi de to bildetypene ikke er samme
+reservasjon: et `titled-image-card` har en tittellinje over bildet og trenger
+derfor en tekstsones bredde og den linjens høyde i tillegg til bildets eget
+minstemål. Et rektangel kan romme et bart `image` og avvise kortet, og en agent
+som planla et navngitt medlem i en serie må kunne se hvilken av de to den
+faktisk reserverte.
 
 ### Publisering
 

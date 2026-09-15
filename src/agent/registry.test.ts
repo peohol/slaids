@@ -17,6 +17,7 @@ import type { PresentationSummary } from '../domain/types'
 import { AGENT_TOOL_PREFIX, describeOperations, findOperation, operations, runOperation } from './registry'
 import { AGENT_SCOPES, type AgentContext } from './types'
 import { contentAt } from '../domain/testDecks'
+import { ZONE_CONTENT_KINDS } from '../domain/content'
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -134,6 +135,19 @@ describe('operasjonskatalogen', () => {
     )
     // The published enum is the domain's own axis, not a second vocabulary.
     expect((properties.axis as { enum: string[] }).enum).toEqual(['x', 'y'])
+  })
+
+  it('publiserer innholdstypene som domenets egen liste, ikke en kopi av den', () => {
+    // The same claim as the axis above, and the one with room to drift: a kind
+    // added to `ZONE_CONTENT_KINDS` is offered by the editor's picker and
+    // advertised by `inspect_slide` in `availableContentKinds` the day it is
+    // added, so a hand-written enum here would reject a kind the agent has just
+    // been told it may ask for. Asserted as equality rather than membership:
+    // «contains the kind I happened to think of» is what lets the next one slip
+    // through.
+    const schema = describeOperations().find((entry) => entry.name === 'set_zone_card')
+    const properties = (schema?.inputSchema as { properties: Record<string, unknown> }).properties
+    expect((properties.kind as { enum: string[] }).enum).toEqual([...ZONE_CONTENT_KINDS])
   })
 
   it('har fase 6: flytting av innhold, med kilde og mål navngitt hver for seg', () => {

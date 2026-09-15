@@ -223,6 +223,25 @@ export const CONTENT_KIND_LABELS: Record<ZoneContentKind, string> = {
 export const ZONE_CONTENT_KINDS = Object.keys(CONTENT_KIND_LABELS) as ZoneContentKind[]
 
 /**
+ * The same two questions as `hasImagePanel` and `hasCardTitle`, asked of a
+ * *kind* rather than of content.
+ *
+ * A caller that is choosing what a zone should become has no content to ask
+ * yet, and the two lists it would otherwise write out by hand are the ones
+ * that go stale on the day a kind is added. So they are filtered from
+ * `ZONE_CONTENT_KINDS` through the predicates that already answer, and there
+ * is still exactly one place that knows which kinds carry a picture and which
+ * carry a title of their own.
+ */
+export const IMAGE_CONTENT_KINDS: readonly ZoneContentKind[] = ZONE_CONTENT_KINDS.filter((kind) =>
+  hasImagePanel(createContentOfKind(kind)),
+)
+
+export const TITLED_CONTENT_KINDS: readonly ZoneContentKind[] = ZONE_CONTENT_KINDS.filter((kind) =>
+  hasCardTitle(createContentOfKind(kind)),
+)
+
+/**
  * What each purpose is called, in the one place every surface reads it from.
  *
  * `'general'` is simply what a note is called, so its label is the content

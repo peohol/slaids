@@ -27,6 +27,7 @@ import {
   contentAssetIds,
   contentCitationIds,
   hasCardTitle,
+  IMAGE_CONTENT_KINDS,
   imagePanelOf,
 } from '../../domain/content'
 import {
@@ -36,7 +37,7 @@ import {
   type NotePurpose,
 } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
-import { availableContentKinds } from '../../domain/contentSize'
+import { availableContentKinds, contentKindFitsRect } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
@@ -448,6 +449,28 @@ export interface ZoneInspection {
   noteText?: string
   notePurpose?: NotePurpose
   /**
+   * `image-prompt` notes only: which picture kinds the reserved rectangle could
+   * actually become, once the note is cleared.
+   *
+   * A note draws nothing and therefore has no minimum size, which is what makes
+   * it usable as a reservation at all — and also what makes the reservation
+   * silently breakable: a later split or a changed ratio can shrink the zone
+   * below a picture's minimum without anything refusing, and
+   * `availableContentKinds` cannot say so, because a note with text in it
+   * offers nothing but `note` until the zone is cleared. So the question the
+   * reservation exists to answer is asked here directly, of the same rule the
+   * conversion will be refused by.
+   *
+   * A list rather than a yes or no, because the two picture kinds are not the
+   * same reservation: a `titled-image-card` carries a header above the picture
+   * and therefore needs a text zone's width and that header's height on top of
+   * a picture's minimum. A rectangle can hold a bare `image` and refuse the
+   * card — so an agent that planned a named member of a series has to be able
+   * to see which of the two it actually reserved. Empty means the zone has
+   * become too small for any picture at all.
+   */
+  reservedImageKinds?: ZoneContentKind[]
+  /**
    * How the text fields inside the content divide it, and in what proportions —
    * the card's own layout, one level below the `axis`/`weights` a split reports.
    * `adjust_subfields` takes exactly these two back.
@@ -704,7 +727,8 @@ function collectZones(
   // discovering it one rejection at a time. Asked with only the rectangle it
   // would advertise air for a zone full of text, and hide a cramped zone's own
   // kind, which the command deliberately still accepts.
-  const kinds = availableContentKinds(rect, node.content, themeMetrics(fitContext.theme))
+  const tokens = themeMetrics(fitContext.theme)
+  const kinds = availableContentKinds(rect, node.content, tokens)
 
   if (!node.content) {
     out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true, availableContentKinds: kinds })
@@ -721,6 +745,15 @@ function collectZones(
     empty: false,
     availableContentKinds: kinds,
     ...inspectContent(content),
+    // See `ZoneInspection.reservedImageKinds`: only a reservation has a question
+    // to answer here, and each picture kind's own minimum answers it.
+    ...(content.kind === 'note' && content.purpose === 'image-prompt'
+      ? {
+          reservedImageKinds: IMAGE_CONTENT_KINDS.filter((kind) =>
+            contentKindFitsRect(kind, rect, tokens),
+          ),
+        }
+      : {}),
     fits: fit.fits,
     overflow: fit.overflow,
   })
