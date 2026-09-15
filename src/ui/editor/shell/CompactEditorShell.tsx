@@ -155,7 +155,14 @@ export function CompactEditorShell(props: EditorShellProps) {
                   <Icon name="close" />
                 </button>
               </header>
-              <div className="compact-panel__body">
+              <div
+                className="compact-panel__body"
+                onClick={(event) => {
+                  if (panel !== 'slides') return
+                  const target = event.target instanceof Element ? event.target : null
+                  if (target?.closest('.filmstrip__thumb')) openPanel(null)
+                }}
+              >
                 {panel === 'slides' && props.filmstrip}
                 {panel === 'content' && (
                   <CompactContentList slide={props.slide} onEdit={props.onEditText} />

@@ -212,11 +212,84 @@
   border-top: 1px solid var(--chrome-border);
 }
 
-.select--inline {
+/*
+ * The native select remains the accessible/clickable control, but its browser
+ * chrome is transparent. That gives the arrow a predictable inset and lets the
+ * visible label fade before it only when the label is actually clipped.
+ *
+ * `flex-basis` is the comfortable width, not a minimum: on a narrow card this
+ * is the one tool that shrinks, so it can never force itself beyond the card's
+ * right padding.
+ */
+.folder-select {
+  position: relative;
+  flex: 0 1 200px;
+  min-width: 0;
+  max-width: 200px;
   height: 28px;
-  width: auto;
   margin-left: auto;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+  color: var(--chrome-text);
   font-size: 12px;
+  overflow: hidden;
+}
+
+.folder-select:focus-within {
+  border-color: var(--chrome-accent);
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: 2px;
+}
+
+.folder-select__label {
+  position: absolute;
+  inset: 0 30px 0 10px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.folder-select__fade {
+  position: absolute;
+  top: 1px;
+  right: 28px;
+  bottom: 1px;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--chrome-bg-inset));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.folder-select[data-overflow='true'] .folder-select__fade {
+  opacity: 1;
+}
+
+.folder-select__chevron {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.folder-select__native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
 }
 
 .new-presentation__fonts {
@@ -495,10 +568,25 @@
   padding: 14px 14px 10px;
 }
 
-:root[data-compact='true'] .select--inline {
-  min-height: 38px;
-  margin-left: 0;
+:root[data-compact='true'] .folder-select {
+  flex: 1 0 100%;
   width: 100%;
+  max-width: none;
+  min-height: 38px;
+  height: 38px;
+  margin-left: 0;
+}
+
+:root[data-compact='true'] .folder-select__label {
+  right: 35px;
+}
+
+:root[data-compact='true'] .folder-select__fade {
+  right: 33px;
+}
+
+:root[data-compact='true'] .folder-select__chevron {
+  right: 12px;
 }
 
 :root[data-compact='true'] .library__footer {
