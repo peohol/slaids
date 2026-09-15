@@ -187,7 +187,7 @@ describe('det agenten vet før første kall', () => {
 })
 
 describe('navngitte, parallelle enheter får en ramme', () => {
-  it('gjør titled-card til hovedregelen, før agenten har skrevet en linje tekst', () => {
+  it('gjør innramming til hovedregelen, før agenten har skrevet en linje tekst', () => {
     // Before the first call, not on a tool: the choice between a framed card
     // and a transparent container is made during decomposition, and an agent
     // that has not made it by then has already made it by default.
@@ -197,6 +197,25 @@ describe('navngitte, parallelle enheter får en ramme', () => {
     for (const unit of NAMED_UNITS) expect(MCP_INSTRUCTIONS).toContain(unit)
   })
 
+  it('er rollebasert, så den ikke kolliderer med bildereglene på de samme dekkene', () => {
+    // Three named species are both named peers and a subject where pictures
+    // belong, so a framing rule stated only about text would contradict the
+    // picture rules on exactly the decks it exists for — and an agent reading a
+    // contradiction reaches for the kind that needs no decision.
+    expect(CARD_FRAMING_RULE).toMatch(/titled-image-card/)
+    expect(CARD_FRAMING_RULE).toMatch(/når enheten bæres av tekst/i)
+    expect(CARD_FRAMING_RULE).toMatch(/når det er bildet som bærer den/i)
+    // Both unframed kinds answer the same question, so both are bounded here.
+    expect(CARD_FRAMING_RULE).toMatch(/`container` og et bart `image`/)
+
+    // And the kind the rule names has to be one the agent can actually ask for.
+    const card = mcpTools().find((tool) => tool.name.endsWith('set_zone_card'))
+    const kind = (
+      (card?.inputSchema.properties ?? {}) as Record<string, { enum?: string[] }>
+    ).kind
+    expect(kind?.enum).toContain('titled-image-card')
+  })
+
   it('svarer på en avvist korttittel med en kortere tittel, ikke med en container', () => {
     // A card title is one line and does not wrap, so a long name is refused at
     // the width several peers get. Without this, the refusal reads like «a card
@@ -204,14 +223,14 @@ describe('navngitte, parallelle enheter får en ramme', () => {
     // away. See `agent/design.test.ts`, which pins the refusal itself.
     expect(CARD_FRAMING_RULE).toMatch(/én linje/i)
     expect(CARD_FRAMING_RULE).toMatch(/kort ned tittelen/i)
-    expect(CARD_FRAMING_RULE).toMatch(/aldri en grunn til å gå tilbake til en container/i)
+    expect(CARD_FRAMING_RULE).toMatch(/aldri en grunn til å droppe rammen/i)
   })
 
-  it('avgrenser container til én samlet idé uten behov for synlig innramming', () => {
-    // Still legal — the rule is about what a container is *for*, not a ban.
-    expect(CARD_FRAMING_RULE).toMatch(/container/)
-    expect(CARD_FRAMING_RULE).toMatch(/én samlet idé/i)
-    expect(CARD_FRAMING_RULE).toMatch(/uten behov for synlig innramming/i)
+  it('avgrenser de rammeløse typene til det de faktisk er for', () => {
+    // Still legal — the rule is about what the unframed kinds are *for*, not a
+    // ban. Both of them, now that a named peer can be a picture.
+    expect(CARD_FRAMING_RULE).toMatch(/én samlet idé eller ett bilde som står alene/i)
+    expect(CARD_FRAMING_RULE).toMatch(/ikke der den er ett navngitt medlem blant flere/i)
     expect(CARD_FRAMING_RULE).toMatch(/verken standardvalget/i)
     expect(SINGLE_CONTAINER_RULE).toMatch(/én samlet idé/i)
   })
@@ -291,7 +310,16 @@ describe('raster og vektor', () => {
     for (const rule of IMAGE_NOTE_POLICY) expect(surface).toContain(rule)
     expect(surface).toContain(IMAGE_BRIEF_RULE)
     expect(IMAGE_NOTE_POLICY.join(' ')).toMatch(/image-prompt/)
-    expect(IMAGE_NOTE_POLICY.join(' ')).toMatch(/reservedImageFits/)
+    expect(IMAGE_NOTE_POLICY.join(' ')).toMatch(/reservedImageKinds/)
+  })
+
+  it('sier at reservasjonen måles mot bildetypen som faktisk er planlagt', () => {
+    // A `titled-image-card` carries a header above the picture and needs more
+    // room than a bare `image`, so «the reservation holds» is not one answer.
+    const policy = IMAGE_NOTE_POLICY.join(' ')
+    expect(policy).toMatch(/titled-image-card/)
+    expect(policy).toMatch(/trenger mer plass enn et bart `image`/i)
+    expect(policy).toMatch(/tom liste/i)
   })
 })
 

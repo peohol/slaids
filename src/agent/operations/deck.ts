@@ -27,6 +27,7 @@ import {
   contentAssetIds,
   contentCitationIds,
   hasCardTitle,
+  IMAGE_CONTENT_KINDS,
   imagePanelOf,
 } from '../../domain/content'
 import {
@@ -448,8 +449,8 @@ export interface ZoneInspection {
   noteText?: string
   notePurpose?: NotePurpose
   /**
-   * `image-prompt` notes only: whether the reserved rectangle can still take a
-   * picture.
+   * `image-prompt` notes only: which picture kinds the reserved rectangle could
+   * actually become, once the note is cleared.
    *
    * A note draws nothing and therefore has no minimum size, which is what makes
    * it usable as a reservation at all — and also what makes the reservation
@@ -459,8 +460,16 @@ export interface ZoneInspection {
    * offers nothing but `note` until the zone is cleared. So the question the
    * reservation exists to answer is asked here directly, of the same rule the
    * conversion will be refused by.
+   *
+   * A list rather than a yes or no, because the two picture kinds are not the
+   * same reservation: a `titled-image-card` carries a header above the picture
+   * and therefore needs a text zone's width and that header's height on top of
+   * a picture's minimum. A rectangle can hold a bare `image` and refuse the
+   * card — so an agent that planned a named member of a series has to be able
+   * to see which of the two it actually reserved. Empty means the zone has
+   * become too small for any picture at all.
    */
-  reservedImageFits?: boolean
+  reservedImageKinds?: ZoneContentKind[]
   /**
    * How the text fields inside the content divide it, and in what proportions —
    * the card's own layout, one level below the `axis`/`weights` a split reports.
@@ -736,10 +745,14 @@ function collectZones(
     empty: false,
     availableContentKinds: kinds,
     ...inspectContent(content),
-    // See `ZoneInspection.reservedImageFits`: only a reservation has a question
-    // to answer here, and it is the picture's minimum that answers it.
+    // See `ZoneInspection.reservedImageKinds`: only a reservation has a question
+    // to answer here, and each picture kind's own minimum answers it.
     ...(content.kind === 'note' && content.purpose === 'image-prompt'
-      ? { reservedImageFits: contentKindFitsRect('image', rect, tokens) }
+      ? {
+          reservedImageKinds: IMAGE_CONTENT_KINDS.filter((kind) =>
+            contentKindFitsRect(kind, rect, tokens),
+          ),
+        }
       : {}),
     fits: fit.fits,
     overflow: fit.overflow,

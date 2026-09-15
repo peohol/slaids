@@ -53,7 +53,10 @@ import {
   captionPositionsFor,
   containerWithDoc,
   createContentOfKind,
+  hasCardTitle,
+  IMAGE_CONTENT_KINDS,
   imagePanelOf,
+  TITLED_CONTENT_KINDS,
 } from '../../domain/content'
 import { MAX_NOTE_CHARS, NOTE_PURPOSES } from '../../domain/constants'
 import { findLeaf, findNode } from '../../domain/layout'
@@ -253,7 +256,7 @@ export const setZoneText = defineOperation({
 export const setZoneCard = defineOperation({
   name: 'set_zone_card',
   summary:
-    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, negativt rom (bevisst luft som ikke tegner noe), eller et notat (redaksjonell tekst som aldri vises for publikum). Tekst som ligger der beholdes – bortsett fra ved negativt rom og notat, som ikke har plass til den og derfor krever en tom sone. ' +
+    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, bilde, kort med tittel og bilde, negativt rom (bevisst luft som ikke tegner noe), eller et notat (redaksjonell tekst som aldri vises for publikum). Tekst som ligger der beholdes – bortsett fra ved negativt rom og notat, som ikke har plass til den og derfor krever en tom sone. De to bildetypene lages tomme og venter på filen; set_zone_asset fyller dem uten å røre korttittelen. ' +
     CONTENT_KIND_RULE +
     ' ' +
     NEGATIVE_SPACE_RULE +
@@ -267,9 +270,21 @@ export const setZoneCard = defineOperation({
     slideId: slideIdSchema,
     nodeId: nodeIdSchema,
     kind: z
-      .enum(['container', 'untitled-card', 'titled-card', 'negative-space', 'note'])
+      .enum([
+        'container',
+        'untitled-card',
+        'titled-card',
+        'image',
+        'titled-image-card',
+        'negative-space',
+        'note',
+      ])
       .describe(
         '`container` er et gjennomsiktig kort; `untitled-card` og `titled-card` har bakgrunn. ' +
+          '`image` er et bilde uten ramme, og `titled-image-card` er det samme bildet med en ' +
+          'tittellinje over seg – den innholdstypen et navngitt medlem i en bildeserie skal ha. ' +
+          'Begge kan settes på en tom sone før filen finnes: sonen venter da på et bilde, og ' +
+          'set_zone_asset legger filen inn uten å erstatte noe. ' +
           '`negative-space` er bevisst luft: den tegner ingenting, har ingen tekstfelt og ingen ' +
           'minstestørrelse, så den kan være vilkårlig liten. `note` er redaksjonell tekst som ' +
           'hører til sonen og aldri vises for publikum – den tegner heller ingenting og har ' +
@@ -297,7 +312,7 @@ export const setZoneCard = defineOperation({
       ),
     title: titleSpansSchema
       .optional()
-      .describe('Korttittelen. Bare for titled-card.'),
+      .describe('Korttittelen. Bare for titled-card og titled-image-card.'),
     titleAlign: alignSchema
       .optional()
       .describe('Justering av korttittelen. Utelatt beholder den kortet allerede har.'),
@@ -321,8 +336,18 @@ export const setZoneCard = defineOperation({
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; slideId: string; nodeId: string; kind: string; subfieldIds: string[] }>> {
     return mutatePresentation(context, input, (presentation) => {
-      if ((input.title || input.titleAlign) && input.kind !== 'titled-card') {
+      if ((input.title || input.titleAlign) && !TITLED_CONTENT_KINDS.includes(input.kind)) {
         return err('INVALID_ARGUMENT', 'Bare et kort med tittel kan ha en korttittel.')
+      }
+      // A picture has a caption, not fields. Answered here rather than left to
+      // `setSubfieldCount`, for the same reason air and a note are: the call
+      // asked for something the kind does not have, and saying which thing it
+      // does have instead is the useful half of the refusal.
+      if (input.subfieldCount !== undefined && IMAGE_CONTENT_KINDS.includes(input.kind)) {
+        return err(
+          'INVALID_ARGUMENT',
+          'Et bilde har ingen tekstfelt. Teksten over eller under bildet er en bildetekst – bruk set_image_caption.',
+        )
       }
       if ((input.noteText !== undefined || input.notePurpose !== undefined) && input.kind !== 'note') {
         return err('INVALID_ARGUMENT', 'Bare et notat har notattekst.')
@@ -359,7 +384,7 @@ export const setZoneCard = defineOperation({
       const existing = zone.value.content
       const align =
         input.titleAlign ??
-        (existing?.kind === 'titled-card' ? docToTitleAlign(existing.title) : undefined)
+        (existing && hasCardTitle(existing) ? docToTitleAlign(existing.title) : undefined)
 
       // Several domain commands, one save: the intermediate documents never
       // leave this function, so a failure in the last step leaves nothing behind

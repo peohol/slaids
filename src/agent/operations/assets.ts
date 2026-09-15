@@ -179,7 +179,7 @@ export interface ZoneAssetPlacement {
 export const setZoneAsset = defineOperation({
   name: 'set_zone_asset',
   summary:
-    'Plasser en eksisterende fil som innholdet i en sone. Bildet fyller sonen helt og beskjæres om formatet ikke passer; bruk set_image_focus for å velge utsnitt.',
+    'Plasser en eksisterende fil som innholdet i en sone. Bildet fyller sonen helt og beskjæres om formatet ikke passer; bruk set_image_focus for å velge utsnitt. Venter sonen allerede på en fil – den er satt til `image` eller `titled-image-card` og har ingen ennå – beholder den typen og korttittelen sin. Ellers blir sonen et bart `image`, så skal bildet være ett navngitt medlem i en serie, setter du innholdstypen først.',
   mutates: true,
   scopes: ['presentations:write'],
   input: setZoneAssetInput,

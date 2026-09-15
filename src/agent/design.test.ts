@@ -18,6 +18,12 @@
  *  - a reservation for a picture has no minimum size, so planning a picture
  *    the agent cannot generate is easy to skip and easy to get wrong.
  *
+ * The named species are also the case where the framing rule and the picture
+ * rules meet: three species are both named peers and a subject where pictures
+ * belong, so the peer a picture carries has to be reachable as a
+ * `titled-image-card` and not only as a text card. That is tested here too —
+ * with the file placed, and with the file still to be made.
+ *
  * Nothing here judges a deck. The domain deliberately does not decide whether a
  * slide communicates, and a test that tried would be inventing a validator the
  * product does not have. What is asserted is weaker and more useful: the weak
@@ -271,7 +277,7 @@ describe('formen reglene ber om, på det samme stoffet', () => {
     })
     expect(zoneOf(await zones(context, slide), slide.columnIds[0]).contentKind).toBe('titled-card')
     expect(CARD_FRAMING_RULE).toMatch(/kort ned tittelen/i)
-    expect(CARD_FRAMING_RULE).toMatch(/aldri en grunn til å gå tilbake til en container/i)
+    expect(CARD_FRAMING_RULE).toMatch(/aldri en grunn til å droppe rammen/i)
   })
 
   it('reserverer en sone til en rekonstruksjon og bekrefter at reservasjonen holder', async () => {
@@ -309,7 +315,9 @@ describe('formen reglene ber om, på det samme stoffet', () => {
     const reserved = zoneOf(await zones(context, slide), pictureZone)
     expect(reserved.notePurpose).toBe('image-prompt')
     expect(reserved.availableContentKinds).toEqual(['note'])
-    expect(reserved.reservedImageFits).toBe(true)
+    // Both picture kinds, because this zone is roomy enough for the framed one
+    // too — which is the reservation a named member of a series needs.
+    expect(reserved.reservedImageKinds).toEqual(['image', 'titled-image-card'])
   })
 
   it('tar imot dekkets felles bildebrief selv om bare ett rasterbilde er planlagt', async () => {
@@ -332,6 +340,114 @@ describe('formen reglene ber om, på det samme stoffet', () => {
       presentationId: slide.presentationId,
     })
     expect(deck.imageBrief).toBe(BRIEF)
+  })
+})
+
+describe('den navngitte serien der bildet bærer enheten', () => {
+  /**
+   * A stand-in file, so the test is about the zone rather than about pixels.
+   *
+   * Vector here only because a test needs bytes it can write down; the policy
+   * an agent reads says a species reconstruction is a raster picture, and the
+   * path this test walks is the same one a raster file takes.
+   */
+  const FILE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
+
+  it('lar de tre artene bli titled image cards med artsnavnet i tittelen', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'rekonstruksjon',
+      svgMarkup: FILE,
+    })
+
+    for (const [index, species] of SPECIES.entries()) {
+      // The frame first, with the name in it, and the file second: the card is
+      // what makes the picture a named member of a series rather than three
+      // unrelated pictures in a row.
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId: slide.columnIds[index],
+        kind: 'titled-image-card',
+        title: [{ text: species.label }],
+      })
+      await ok(context, 'set_zone_asset', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId: slide.columnIds[index],
+        assetId: asset.assetId,
+      })
+    }
+
+    const all = await zones(context, slide)
+    for (const [index, species] of SPECIES.entries()) {
+      const zone = zoneOf(all, slide.columnIds[index])
+      // The file went into the panel the card was already waiting with, so the
+      // title survived: placing a picture did not flatten the peer into a bare
+      // image.
+      expect(zone.contentKind).toBe('titled-image-card')
+      expect(zone.image?.assetId).toBe(asset.assetId)
+      expect(zone.cardTitle?.map((span) => ('text' in span ? span.text : ''))).toEqual([
+        species.label,
+      ])
+      expect(zone.fits).toBe(true)
+    }
+  })
+
+  it('planlegger den samme serien uten en bildegenerator, og gir sonen videre', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    const column = slide.columnIds[0]
+
+    // No generator: reserve the zone with the prompt, and check that what is
+    // reserved is the framed kind the series needs — not merely «a picture».
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      kind: 'note',
+      notePurpose: 'image-prompt',
+      noteText: `Vitenskapelig rekonstruksjon av ${SPECIES[0].name}, helfigur, nøytral bakgrunn.`,
+    })
+    await ok(context, 'set_image_brief', { presentationId: slide.presentationId, brief: BRIEF })
+
+    expect(zoneOf(await zones(context, slide), column).reservedImageKinds).toContain(
+      'titled-image-card',
+    )
+
+    // And the hand-over works: the prompt goes to the sandbox, the zone becomes
+    // the card the reservation promised, and the file lands inside it.
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'afarensis',
+      svgMarkup: FILE,
+    })
+    await ok(context, 'clear_zone', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+    })
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      kind: 'titled-image-card',
+      title: [{ text: SPECIES[0].label }],
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      assetId: asset.assetId,
+    })
+
+    const zone = zoneOf(await zones(context, slide), column)
+    expect(zone.contentKind).toBe('titled-image-card')
+    expect(zone.image?.assetId).toBe(asset.assetId)
+    expect(zone.fits).toBe(true)
   })
 })
 
@@ -369,7 +485,57 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
 
     const reserved = zoneOf(await zones(context, slide), pictureZone)
     expect(reserved.notePurpose).toBe('image-prompt')
-    expect(reserved.reservedImageFits).toBe(false)
+    expect(reserved.reservedImageKinds).toEqual([])
+  })
+
+  it('skiller den bare bildetypen fra den innrammede, som trenger mer plass', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    // Narrow enough that a picture still fits but a titled picture card does
+    // not: the card's header needs a text zone's width above the picture. A
+    // single yes-or-no would have called this reservation sound and left the
+    // named peer to fail on the day its file arrived.
+    const column = slide.columnIds[0]
+    const narrow = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      axis: 'x',
+      weights: [1, 2],
+    })
+    const pictureZone = narrow.childNodeIds[0]
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: pictureZone,
+      kind: 'note',
+      notePurpose: 'image-prompt',
+      noteText: 'Utsnitt av hodeskalle, sett fra siden.',
+    })
+
+    const reserved = zoneOf(await zones(context, slide), pictureZone)
+    expect(reserved.reservedImageKinds).toEqual(['image'])
+
+    // And the list is the truth: the kind it left out really is refused.
+    await ok(context, 'clear_zone', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: pictureZone,
+    })
+    const refused = await fails(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: pictureZone,
+      kind: 'titled-image-card',
+    })
+    expect(refused.code).toBe('ZONE_TOO_SMALL')
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: pictureZone,
+      kind: 'image',
+    })
   })
 
   it('spør ikke om bildet i et notat som ikke reserverer noe', async () => {
@@ -387,7 +553,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
 
     const zone = zoneOf(await zones(context, slide), slide.columnIds[0])
     expect(zone.notePurpose).toBe('general')
-    expect(zone.reservedImageFits).toBeUndefined()
+    expect(zone.reservedImageKinds).toBeUndefined()
   })
 })
 

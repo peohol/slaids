@@ -93,7 +93,7 @@ export const NAMED_UNITS: readonly string[] = [
 ]
 
 /**
- * Which of the two a named unit gets: a frame, or no frame.
+ * Whether a named unit gets a frame, and which frame.
  *
  * In the instructions rather than on `set_zone_card`, unlike the rest of the
  * content-kind detail, because it is not a detail — it is the decision the
@@ -102,13 +102,21 @@ export const NAMED_UNITS: readonly string[] = [
  * failure is precisely that: a deck about named species in which every species
  * is a sentence inside a transparent container, because a container is what a
  * zone becomes when nobody chooses.
+ *
+ * Stated by *role* rather than by content kind, because the two are not the
+ * same question. Framing a named peer is the rule; whether that peer's body is
+ * text or a picture is what picks `titled-card` or `titled-image-card`. Said
+ * only about text, the rule would collide with the picture rules on exactly the
+ * decks it exists for — three named species, which are both named peers and a
+ * subject where pictures belong — and an agent reading a collision falls back
+ * to the kind that needs no decision.
  */
 export const CARD_FRAMING_RULE = `Består sliden av flere navngitte, parallelle enheter – ${NAMED_UNITS.slice(
   0,
   -1,
 ).join(', ')} eller ${
   NAMED_UNITS[NAMED_UNITS.length - 1]
-} – skal hver enhet normalt være et \`titled-card\` der korttittelen er enhetens navn. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. Korttittelen står på én linje og brytes ikke: får det fulle navnet ikke plass, kort ned tittelen og la den fulle formen stå i teksten – en avvist korttittel er aldri en grunn til å gå tilbake til en container. \`container\` er gjennomsiktig og rammer ingenting inn: den hører hjemme der sonen faktisk er én samlet idé uten behov for synlig innramming, og er verken standardvalget eller en måte å slippe å navngi enhetene på.`
+} – skal hver enhet normalt rammes inn med enhetens navn som korttittel: \`titled-card\` når enheten bæres av tekst, og \`titled-image-card\` når det er bildet som bærer den. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. Korttittelen står på én linje og brytes ikke: får det fulle navnet ikke plass, kort ned tittelen og la den fulle formen stå i teksten – en avvist korttittel er aldri en grunn til å droppe rammen. De rammeløse typene svarer på det motsatte: \`container\` og et bart \`image\` hører hjemme der sonen er én samlet idé eller ett bilde som står alene, ikke der den er ett navngitt medlem blant flere, og er verken standardvalget eller en måte å slippe å navngi enhetene på.`
 
 /** Audience-visible content belongs to the subject, never to the authoring process. */
 export const AUDIENCE_CONTENT_RULE =
@@ -165,7 +173,7 @@ export const IMPLICIT_CONTAINER_RULE =
  * the choice is actually made — instead of taking up room in the instructions.
  */
 export const CONTENT_KIND_RULE =
-  'Velg innholdstype etter semantisk rolle, ikke etter hvor mye tekst sonen har. Korttittelen på et `titled-card` er navnet på enheten kortet viser, og skal være kort nok til å skannes. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter, og som ikke trenger synlig innramming. `note` er redaksjonell tekst som aldri vises for publikum, og er måten en sone reserveres til et bilde som lages et annet sted.'
+  'Velg innholdstype etter semantisk rolle, ikke etter hvor mye tekst sonen har. Korttittelen på et `titled-card` eller et `titled-image-card` er navnet på enheten kortet viser, og skal være kort nok til å skannes. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter, og som ikke trenger synlig innramming. `image` er bildet som står alene og bærer sitt eget budskap; `titled-image-card` er det samme bildet som ett navngitt medlem i en serie eller katalog. `note` er redaksjonell tekst som aldri vises for publikum, og er måten en sone reserveres til et bilde som lages et annet sted.'
 
 /**
  * Air, which is a composition decision and not a spacer.
@@ -278,7 +286,7 @@ export const RASTER_POLICY: readonly string[] = [
 export const IMAGE_NOTE_POLICY: readonly string[] = [
   'Et notat med `notePurpose: "image-prompt"` reserverer geometrien til et bilde som skal lages et annet sted: komponer sliden ferdig, lag sonen bildet skal ha, og skriv prompten i notatet.',
   'Opprett et slikt notat i en sone der `image` faktisk er en tillatt innholdstype – notatet selv har ingen minstestørrelse, men bildet som skal overta sonen har det.',
-  'Når notatet ligger der, svarer inspeksjonen med `reservedImageFits`: er den false, er reservasjonen for liten til å bli et bilde, og sonen må få mer plass før du går videre.',
+  'Når notatet ligger der, svarer inspeksjonen med `reservedImageKinds`: listen over bildetypene sonen faktisk kan bli. Et `titled-image-card` trenger mer plass enn et bart `image` fordi det har en tittellinje over bildet, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. En tom liste betyr at reservasjonen er blitt for liten til noe bilde i det hele tatt.',
   'Skriv motivet, de viktige objektene, handlingen, nødvendig faglig presisjon, komposisjonen, kameravinkelen når den betyr noe, hvilken del av bildet som skal bære tyngden, ønsket format eller orientering tilpasset sonens rektangel, nødvendig negativ plass, og hva som ikke skal forekomme i akkurat dette bildet.',
   'Ikke gjenta dekkets felles bildebrief i hvert notat: den ligger allerede i konteksten der bildet lages, og notatet beskriver motivet.',
 ]

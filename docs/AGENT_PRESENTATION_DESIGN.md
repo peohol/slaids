@@ -79,9 +79,11 @@ Bruk subfelter når delene sammen utgjør ett semantisk objekt og bør oppfattes
 
 ## 4. Velg innholdstype etter rolle
 
-### Titled card
+### Titled card og titled image card
 
-Hovedregelen for navngitte, parallelle enheter. Består sliden av flere av:
+Hovedregelen for navngitte, parallelle enheter er at de rammes inn med navnet som korttittel. Hvilken av de to typene det blir, avgjøres av hva som bærer enheten: **titled card** når det er tekst, **titled image card** når det er bildet.
+
+Består sliden av flere av:
 
 - **arter**;
 - **kategorier**;
@@ -90,11 +92,13 @@ Hovedregelen for navngitte, parallelle enheter. Består sliden av flere av:
 - **alternativer**;
 - **sammenligningsobjekter**;
 
-så skal hver enhet normalt være et titled card med enhetens navn som korttittel. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk.
+så skal hver enhet normalt rammes inn, med enhetens navn som korttittel. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk.
+
+Tre arter er både navngitte peers og et emne der bilder hører hjemme (§6). Da er svaret tre titled image cards, ikke tre bare bilder og ikke tre tekstkort. Agenten oppretter korttypen først — den kan settes på en tom sone, og sonen venter da på filen — og legger filen inn etterpå; korttittelen overlever.
 
 Testen er enkel: kan enheten pekes på og kalles noe? Da har korttittelen noe å si.
 
-Korttittelen står på én linje og brytes ikke. Får det fulle navnet ikke plass — «Australopithecus afarensis» i en av tre kolonner, for eksempel — kortes tittelen ned («A. afarensis») og den fulle formen står i teksten. En avvist korttittel er aldri en grunn til å gå tilbake til en container.
+Korttittelen står på én linje og brytes ikke. Får det fulle navnet ikke plass — «Australopithecus afarensis» i en av tre kolonner, for eksempel — kortes tittelen ned («A. afarensis») og den fulle formen står i teksten eller i bildeteksten. En avvist korttittel er aldri en grunn til å droppe rammen.
 
 ### Untitled card
 
@@ -108,9 +112,9 @@ Skriver du tekst i en tom sone, blir den en container. Det er utgangspunktet Sla
 
 En container er derfor aldri svaret på at stoffet var vanskelig å dekomponere.
 
-### Image / titled image card
+### Image
 
-Bruk et selvstendig bilde når bildet selv bærer informasjonen. Bruk titled image card når bildet er ett medlem av en navngitt serie eller katalog.
+Bruk et bart bilde når bildet står alene og bærer informasjonen selv. Er bildet ett navngitt medlem i en serie eller katalog, hører det hjemme i et titled image card i stedet — se over.
 
 ### Negativt rom
 
@@ -188,7 +192,7 @@ Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Agente
 4. skriv en konkret prompt tilpasset sonens aspektforhold og komposisjon;
 5. bruk én felles bildebrief for dekket dersom minst ett generert rasterbilde planlegges.
 
-Et notat tegner ingenting og har derfor ingen minstestørrelse. Reservasjonen kan altså bli for liten uten at noe protesterer, og en sone som holder et notat med tekst i tilbyr ingen andre innholdstyper før den tømmes. Derfor svarer inspeksjonen med `reservedImageFits` for bildenotater: er den `false`, må sonen få mer plass før bildet kan settes inn.
+Et notat tegner ingenting og har derfor ingen minstestørrelse. Reservasjonen kan altså bli for liten uten at noe protesterer, og en sone som holder et notat med tekst i tilbyr ingen andre innholdstyper før den tømmes. Derfor svarer inspeksjonen med `reservedImageKinds` for bildenotater: bildetypene sonen faktisk kan bli. Et titled image card trenger mer plass enn et bart bilde, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. Tom liste betyr at sonen må få mer plass før noe bilde kan settes inn.
 
 Bildenotatet er et fremtidig bilde, ikke negativt rom.
 
@@ -275,7 +279,7 @@ Unngå aktivt:
 - å bruke bilder som ren fyllmasse;
 - én stor container + punktliste som generelt standardsvar;
 - gjennomsiktig container + overskrift + tekst som generelt standardsvar;
-- navngitte, parallelle enheter uten synlig innramming, der korttittelen kunne båret navnet;
+- navngitte, parallelle enheter uten synlig innramming, der korttittelen kunne båret navnet — også når enheten bæres av et bilde;
 - flere navngivbare konsepter i én punktliste når de burde være peers;
 - nested splits uten faktisk hierarki;
 - asymmetri uten semantisk grunn;
