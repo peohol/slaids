@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { contentKindRefusal, minimumSizeForKind } from '../../domain/contentSize'
 import { themeMetrics } from '../../domain/metrics'
-import { createUntitledCard, negativeSpaceRefusal } from '../../domain/content'
+import { contentConversionRefusal, createUntitledCard } from '../../domain/content'
 import { paragraphDoc } from '../../domain/richdoc'
 import type { Rect, ZoneContent } from '../../domain/types'
 import { contentKindOptions, CONTENT_KINDS } from './contentKinds'
@@ -37,8 +37,10 @@ describe('contentKindOptions', () => {
   it('disables what cannot be drawn, and says why', () => {
     const narrow = at(60, 40)
     for (const option of contentKindOptions(narrow)) {
-      if (option.kind === 'negative-space') {
-        expect(option.disabled).toBe(false)
+      // The kinds that draw nothing have no floor to fall below — air and a
+      // note alike — so they stay available however small the zone is.
+      if (minimumSizeForKind(option.kind).height === 0) {
+        expect(option.disabled, option.kind).toBe(false)
         continue
       }
       expect(option.disabled, option.kind).toBe(true)
@@ -62,34 +64,52 @@ describe('contentKindOptions', () => {
     expect(narrow).toBeLessThan(short)
   })
 
-  it('leaves negativt rom as the last choice standing', () => {
+  it('leaves the kinds that draw nothing as the last choices standing', () => {
     const available = contentKindOptions(at(4, 3)).filter((option) => !option.disabled)
-    expect(available.map((option) => option.kind)).toEqual(['negative-space'])
+    expect(available.map((option) => option.kind)).toEqual(
+      CONTENT_KINDS.filter((kind) => minimumSizeForKind(kind).height === 0),
+    )
   })
 
-  it('disables negativt rom when the zone holds something to lose', () => {
-    // Only air can lose anything, and it loses everything. A button that looks
-    // available and then fails on click is worse than one that was never
-    // offered — so the picker asks the same question the command refuses by.
-    const card = createUntitledCard()
-    const filled: ZoneContent = {
-      ...card,
-      body: {
-        ...card.body,
-        subfields: [{ ...card.body.subfields[0], doc: paragraphDoc('noe tekst') }],
-      },
-    }
-    const air = contentKindOptions(ROOMY, undefined, filled).find(
-      (option) => option.kind === 'negative-space',
-    )
-    expect(air?.disabled).toBe(true)
-    expect(air?.reason).toBe(negativeSpaceRefusal(filled))
+  it.each(['negative-space', 'note'] as const)(
+    'disables %s when the zone holds something to lose',
+    (kind) => {
+      // Neither can take a payload with it, and both would lose everything. A
+      // button that looks available and then fails on click is worse than one
+      // that was never offered — so the picker asks the same question the
+      // command refuses by.
+      const card = createUntitledCard()
+      const filled: ZoneContent = {
+        ...card,
+        body: {
+          ...card.body,
+          subfields: [{ ...card.body.subfields[0], doc: paragraphDoc('noe tekst') }],
+        },
+      }
+      const option = contentKindOptions(ROOMY, undefined, filled).find(
+        (entry) => entry.kind === kind,
+      )
+      expect(option?.disabled).toBe(true)
+      expect(option?.reason).toBe(contentConversionRefusal(filled, kind))
 
-    // An empty card has nothing to lose, so it may become air.
-    const empty = contentKindOptions(ROOMY, undefined, card).find(
-      (option) => option.kind === 'negative-space',
-    )
-    expect(empty?.disabled).toBe(false)
+      // An empty card has nothing to lose, so it may become either.
+      const empty = contentKindOptions(ROOMY, undefined, card).find((entry) => entry.kind === kind)
+      expect(empty?.disabled).toBe(false)
+    },
+  )
+
+  it('disables everything else when the zone holds a note with text in it', () => {
+    // The other direction of the same rule: a note's text is editorial and has
+    // no place on a slide, so it cannot be folded into a card either.
+    const note: ZoneContent = { id: 'n1', kind: 'note', text: 'en bildeprompt', purpose: 'image-prompt' }
+    for (const option of contentKindOptions(ROOMY, undefined, note)) {
+      if (option.kind === 'note') {
+        expect(option.disabled).toBe(false)
+        continue
+      }
+      expect(option.disabled, option.kind).toBe(true)
+      expect(option.reason, option.kind).toBe(contentConversionRefusal(note, option.kind))
+    }
   })
 
   it('never disables the kind the zone already is', () => {

@@ -15,7 +15,12 @@
  */
 
 import { z } from 'zod'
-import { createDeck, fitContextFor, setPresentationTitle } from '../../domain/commands'
+import {
+  createDeck,
+  fitContextFor,
+  setImageBrief,
+  setPresentationTitle,
+} from '../../domain/commands'
 import {
   bodyOf,
   contentAssetIds,
@@ -23,7 +28,12 @@ import {
   hasCardTitle,
   imagePanelOf,
 } from '../../domain/content'
-import { DEFAULT_VERTICAL_ALIGN, type InteractiveStyleContract } from '../../domain/constants'
+import {
+  DEFAULT_VERTICAL_ALIGN,
+  MAX_IMAGE_BRIEF_CHARS,
+  type InteractiveStyleContract,
+  type NotePurpose,
+} from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
 import { availableContentKinds } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
@@ -167,6 +177,17 @@ export interface PresentationView {
    * typography leaves. See `operations/theme.ts`.
    */
   theme: ThemeView
+  /**
+   * The deck's shared visual premise for its pictures, or `null` when it has
+   * none — see `set_image_brief`.
+   *
+   * Here rather than in an operation of its own, for the same reason the theme
+   * is: it is one small thing that applies to the whole deck, and every image
+   * prompt written for a slide depends on it. An agent that has read the
+   * presentation should not need a second call to know what its pictures are
+   * supposed to look like.
+   */
+  imageBrief: string | null
   slideCount: number
   assetCount: number
   referenceCount: number
@@ -216,6 +237,7 @@ export function presentationView(presentation: Presentation): PresentationView {
     updatedAt: presentation.updatedAt,
     revision: presentationRevision(presentation),
     theme: themeView(presentation.theme),
+    imageBrief: presentation.imageBrief ?? null,
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
     referenceCount: presentation.references.length,
@@ -340,6 +362,41 @@ export const setPresentationTitleOperation = defineOperation({
 })
 
 /* ------------------------------------------------------------------ *
+ * set_image_brief
+ * ------------------------------------------------------------------ */
+
+export const setImageBriefOperation = defineOperation({
+  name: 'set_image_brief',
+  summary:
+    'Sett dekkets felles bildebrief: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum – den er premissen hver enkelt bildeprompt skrives mot, og det brukeren limer inn først i samtalen der bildene lages. Les den tilbake med get_presentation.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    brief: z
+      .string()
+      .max(MAX_IMAGE_BRIEF_CHARS)
+      .nullable()
+      .describe(
+        'Hvordan bildene skal se ut – ikke hva de skal vise. Beskriv uttrykk (fotografisk ' +
+          'eller illustrert), realismegrad, lyssetting, kontrast, tidsperiode, miljø, ' +
+          'bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan ' +
+          'mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås. ' +
+          'Motivene hører hjemme i notatet i den enkelte sonen. `null` eller bare mellomrom ' +
+          'fjerner briefen.',
+      ),
+  }),
+  run(context, input): Promise<AgentResult<PresentationView>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const written = setImageBrief(presentation, input.brief)
+      if (!written.ok) return written
+      return ok({ presentation: written.value, value: presentationView(written.value) })
+    })
+  },
+})
+
+/* ------------------------------------------------------------------ *
  * inspect_slide
  * ------------------------------------------------------------------ */
 
@@ -362,10 +419,12 @@ export interface ZoneInspection {
   /**
    * Leaf only: the zone has no content object at all.
    *
-   * Told apart from `contentKind: 'negative-space'` deliberately. An empty zone
-   * is a hole waiting to be filled; negative space is a decision that this part
-   * of the composition stays blank. Both draw nothing, and neither has a
-   * minimum size, but only one of them is finished.
+   * Told apart from `contentKind: 'negative-space'` and `contentKind: 'note'`
+   * deliberately. An empty zone is a hole waiting to be filled; negative space
+   * is a decision that this part of the composition stays blank; a note is
+   * editorial work parked in a zone that is expected to hold something else
+   * later. All three draw nothing and none of them has a minimum size, but
+   * they are three different states and only one of them is unfinished.
    */
   empty?: boolean
   contentKind?: ZoneContentKind
@@ -375,12 +434,14 @@ export interface ZoneInspection {
    * The same rule the commands refuse by, asked of this zone's rectangle *and*
    * of what it holds today, so a caller can choose from this list instead of
    * trying kinds until one is accepted. Three things shape it: a very small
-   * zone answers with `negative-space` alone — not a failure, but deliberate
-   * air, which is often the intended use of a small zone; a zone that already
-   * holds something does *not* offer `negative-space`, because air has no
-   * payload and the content would have to be cleared first; and the kind the
-   * zone already is is always on the list, however small the zone, because
-   * that call is how a cramped legacy zone gets repaired.
+   * zone answers with the kinds that draw nothing — `negative-space` and
+   * `note` — which is not a failure but the intended use of a small zone; a
+   * zone that already holds something offers neither of those two, because
+   * neither can take a payload with it and the content would have to be
+   * cleared first (and by the same rule a zone holding a note with text in it
+   * offers nothing but `note`); and the kind the zone already is is always on
+   * the list, however small the zone, because that call is how a cramped
+   * legacy zone gets repaired.
    */
   availableContentKinds?: ZoneContentKind[]
   /** Titled cards only: the card's own heading, and how it is aligned. */
@@ -388,6 +449,9 @@ export interface ZoneInspection {
   cardTitleAlign?: TextAlign
   /** Picture kinds only: the file, the crop and the caption over it. */
   image?: InspectedImage
+  /** Notes only: the editorial text in this zone, and what it is for. */
+  noteText?: string
+  notePurpose?: NotePurpose
   /**
    * How the text fields inside the content divide it, and in what proportions —
    * the card's own layout, one level below the `axis`/`weights` a split reports.
@@ -468,6 +532,7 @@ export interface InspectedImage {
   caption?: { position: CaptionPosition; color: string | null; spans: TextSpan[] }
 }
 
+
 export interface ContentInspection {
   contentKind: ZoneContentKind
   /** Titled cards only: the card's own heading, and how it is aligned. */
@@ -475,6 +540,18 @@ export interface ContentInspection {
   cardTitleAlign?: TextAlign
   /** Picture kinds only: the file, the crop and the caption over it. */
   image?: InspectedImage
+  /**
+   * Notes only: the editorial text in this zone, and what it is for.
+   *
+   * Two flat fields rather than a nested object, the way a card's title is two
+   * — `note` alone is already taken, by the sentence a sandbox item carries
+   * saying what displaced it, and one word meaning two things across two
+   * readings of the same vocabulary is how an agent ends up reading the wrong
+   * one. The text is the same string that goes back in, so an agent can come
+   * back to a deck it built, read the prompt it left in a zone and refine it.
+   */
+  noteText?: string
+  notePurpose?: NotePurpose
   /**
    * The subfield layout: which way the fields run and how they share the room.
    *
@@ -519,6 +596,9 @@ export function inspectContent(content: ZoneContent): ContentInspection {
               : {}),
           },
         }
+      : {}),
+    ...(content.kind === 'note'
+      ? { noteText: content.text, notePurpose: content.purpose }
       : {}),
     ...(body ? { subfieldAxis: body.axis, subfieldWeights: [...body.weights] } : {}),
     subfields:
@@ -656,5 +736,6 @@ export const deckOperations = [
   getPresentation,
   createPresentationOperation,
   setPresentationTitleOperation,
+  setImageBriefOperation,
   inspectSlide,
 ]

@@ -14,11 +14,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SharingStatus } from '../../state/sharing'
 import { notify } from '../../state/toast'
+import { COPIED_FEEDBACK_MS, copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
-
-/** How long the copy button says it worked. Long enough to read, short enough to forget. */
-const COPIED_FEEDBACK_MS = 1800
 
 export interface ShareToggleProps {
   status: SharingStatus
@@ -28,31 +26,6 @@ export interface ShareToggleProps {
   /** The live link, or `null` when there is nothing to hand out. */
   link: string | null
   onToggle: () => void
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // Denied or unavailable; the fallback below still works in most browsers.
-  }
-  try {
-    const field = document.createElement('textarea')
-    field.value = text
-    field.setAttribute('readonly', '')
-    field.style.position = 'fixed'
-    field.style.opacity = '0'
-    document.body.appendChild(field)
-    field.select()
-    const copied = document.execCommand('copy')
-    field.remove()
-    return copied
-  } catch {
-    return false
-  }
 }
 
 export function ShareToggle({ status, shared, busy, error, link, onToggle }: ShareToggleProps) {

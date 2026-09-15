@@ -16,6 +16,7 @@ import { mapDeckSlides } from './deckSlides'
 import { emptyDoc } from './richdoc'
 import type {
   CardBody,
+  DeckSlides,
   ImagePanel,
   LayoutNode,
   Presentation,
@@ -29,8 +30,10 @@ export type DocTransform = (doc: RichDoc) => RichDoc
 
 export function mapContentDocs(content: ZoneContent, transform: DocTransform): ZoneContent {
   switch (content.kind) {
-    // Air draws no text, so there is no document in it to map.
+    // Air draws no text at all, and a note's text is plain editorial prose
+    // rather than a rich-text document — neither has anything to map.
     case 'negative-space':
+    case 'note':
       return content
     case 'container':
     case 'untitled-card': {
@@ -74,19 +77,47 @@ function mapBodyDocs(body: CardBody, transform: DocTransform): CardBody {
   return changed ? { ...body, subfields } : body
 }
 
-function mapTreeDocs(node: LayoutNode, transform: DocTransform): LayoutNode {
+/** A rewrite of one zone's content, whatever kind it is. */
+export type ContentTransform = (content: ZoneContent) => ZoneContent
+
+/**
+ * Rebuild every leaf's content in a zone tree.
+ *
+ * The one traversal of the tree, so a caller that wants to reach every zone —
+ * to rewrite documents, or to strip something out on the way to being
+ * published — says what it wants done rather than walking the tree again. An
+ * unchanged transform returns the very same nodes, so callers can tell a no-op
+ * apart from a change by identity.
+ */
+export function mapTreeContent(node: LayoutNode, transform: ContentTransform): LayoutNode {
   if (node.kind === 'leaf') {
     if (!node.content) return node
-    const content = mapContentDocs(node.content, transform)
+    const content = transform(node.content)
     return content === node.content ? node : { ...node, content }
   }
   let changed = false
   const children = node.children.map((child) => {
-    const next = mapTreeDocs(child, transform)
+    const next = mapTreeContent(child, transform)
     if (next !== child) changed = true
     return next
   })
   return changed ? { ...node, children } : node
+}
+
+/** Every zone of every content slide, rebuilt. Sections and miniapps have none. */
+export function mapDeckContents(slides: DeckSlides, transform: ContentTransform): DeckSlides {
+  return mapDeckSlides(slides, {
+    section: (slide) => slide,
+    interactive: (slide) => slide,
+    content: (slide) => {
+      const root = mapTreeContent(slide.root, transform)
+      return root === slide.root ? slide : { ...slide, root }
+    },
+  })
+}
+
+function mapTreeDocs(node: LayoutNode, transform: DocTransform): LayoutNode {
+  return mapTreeContent(node, (content) => mapContentDocs(content, transform))
 }
 
 /** Apply a transform to every document in the presentation. Structure-preserving. */
@@ -348,20 +379,3 @@ function emptyBlock(): RichNode {
   return { type: 'paragraph' }
 }
 
-function mapTreeContent(
-  node: LayoutNode,
-  transform: (content: ZoneContent) => ZoneContent,
-): LayoutNode {
-  if (node.kind === 'leaf') {
-    if (!node.content) return node
-    const content = transform(node.content)
-    return content === node.content ? node : { ...node, content }
-  }
-  let changed = false
-  const children = node.children.map((child) => {
-    const next = mapTreeContent(child, transform)
-    if (next !== child) changed = true
-    return next
-  })
-  return changed ? { ...node, children } : node
-}

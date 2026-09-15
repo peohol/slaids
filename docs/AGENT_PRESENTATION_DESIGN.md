@@ -130,6 +130,47 @@ ethvert forholdstall — men et kort eller en tekstsone som skal *bli* smal, bli
 avvist. `inspect_slide` oppgir `availableContentKinds` per sone, så du kan lese
 hva som faktisk får plass i stedet for å prøve deg fram.
 
+### Notat
+
+Et **notat** er redaksjonell tekst som hører til én sone og som **aldri vises for
+publikum**. I editoren har sonen en tydelig knapp — «Notat», eller «Bildeprompt»
+når notatet er merket som det. I presentasjonsmodus, hos spilleren, i en publisert
+presentasjon og i eksport er sonen en helt tom flate: ingen knapp, ingen tekst,
+ingen ramme, ingen bakgrunn. Sonen beholder likevel plassen sin i treet.
+
+Det er nettopp *derfor* notatet finnes. Et notat er måten en agent **reserverer
+geometrien til et bilde som ennå ikke er laget**: komposisjonen blir ferdig først,
+og når filen kommer, overtar den nøyaktig det rektangelet som var planlagt.
+
+**Notat er ikke negativt rom.**
+
+| | Negativt rom | Notat |
+| --- | --- | --- |
+| Betyr | «Her skal det med hensikt ikke være visuelt innhold.» | «Her ligger redaksjonelt arbeid publikum ikke skal se, og sonen skal få annet innhold senere.» |
+| Tegner | ingenting, for alle | ingenting for publikum; en knapp for forfatteren |
+| Har payload | nei | ja: teksten |
+| Er sonen ferdig | ja | nei |
+
+**Slik brukes den:** `set_zone_card` med `kind: "note"`, og `noteText` med selve
+teksten. `notePurpose: "image-prompt"` sier at sonen er reservert til et bilde;
+da skriver editoren «Bildeprompt» på knappen. `inspect_slide` svarer med
+`contentKind: "note"`, `noteText` og `notePurpose`, så en agent kan komme
+tilbake til et dekk den har laget og lese promptene den la igjen.
+
+**Notatet kan bare settes på en tom sone, og et notat med tekst i kan ikke gjøres
+om til noe annet.** Teksten er redaksjonell og har ingen plass på sliden, så den
+skal verken forsvinne eller bli synlig innhold. Bruk `clear_zone` først; notatet
+havner i sandkassen, og sonen kan deretter bli akkurat det den skal bli. Legger
+brukeren et bilde i sonen fra editoren, skjer det samme av seg selv: bildet
+erstatter notatet, og notatet parkeres.
+
+**Et bildenotat reserverer den geometrien det fremtidige bildet skal bruke.**
+Selve `note`-typen har ingen minstestørrelse — den tegner ingenting — men det har
+`image`. Opprett derfor bildenotatet i en sone der `image` faktisk er en tillatt
+innholdstype; `availableContentKinds` i `inspect_slide` sier hvilke som er det.
+Dette gjelder bare bildenotater: et notat er en generell redaksjonell
+innholdstype, og et lite notat i en smal sone er helt lovlig.
+
 ## 4. Sone eller subfelt?
 
 Dette skillet er viktig.
@@ -285,10 +326,148 @@ Varier:
 
 Konsistens betyr altså **samme visuelle grammatikk**, ikke samme slide-mal.
 
+## 9.5. Bilder som skal lages et annet sted
+
+Slaids lager ikke bilder, og kommer ikke til å gjøre det. Vanlig Slaids og MCP
+har heller ikke tilgang til en generativ bildemodell. Det betyr **ikke** at et
+dekk må klare seg uten fotografier — det betyr at agenten planlegger bildene, og
+at brukeren lager dem i en samtale med en assistent som har bildeverktøy og
+legger dem inn etterpå.
+
+### Når skal agenten bruke et bildenotat?
+
+Når sliden trenger
+
+- fotografi,
+- fotorealistisk rekonstruksjon,
+- mennesker,
+- dyr,
+- natur eller miljø,
+- kompleks organisk illustrasjon,
+- kunstnerisk rasterillustrasjon,
+
+og agentmiljøet ikke faktisk har en egnet generativ bildemodell, skal agenten
+**ikke lage en primitiv SVG-erstatning**. Den skal opprette et bildenotat i den
+sonen bildet skal ligge i.
+
+SVG skal fortsatt brukes til det SVG er egnet for: grafer, plott, diagrammer,
+flytskjemaer, geometriske forklaringsfigurer og enkel vektorgrafikk. Og SVG skal
+forbli vektor.
+
+> **Eksplisitt anti-mønster:** ikke tegn et fotografisk eller organisk motiv som
+> SVG og rasteriser det til PNG for å fylle en planlagt bildesone. Resultatet er
+> dårligere enn en tom sone, og det låser geometrien til noe som må erstattes.
+
+### Bildebriefen: skriv den først
+
+Trenger dekket genererte rasterbilder, oppretter agenten **én felles bildebrief
+for hele presentasjonen** før den skriver de enkelte promptene
+(`set_image_brief`; `get_presentation` leser den tilbake). Briefen er
+presentasjonsnivå-metadata, ikke en sone på første slide, og vises aldri for
+publikum.
+
+Briefen beskriver **hvordan bildene skal se ut — ikke hva de skal vise**. Den er
+det brukeren limer inn én gang i starten av samtalen der bildene lages, og
+premisset hver enkelt bildeprompt skrives mot. Typiske egenskaper:
+
+- fotografisk vs. illustrert uttrykk;
+- realismegrad;
+- lyssetting;
+- kontrast;
+- tidsperiode;
+- miljø;
+- kamerafølelse eller linsespråk der det er relevant;
+- bakgrunnskarakter;
+- detaljnivå;
+- fargekarakter;
+- komposisjonsprinsipper;
+- hvordan mennesker, dyr og gjenstander bør fremstilles;
+- ting som konsekvent skal unngås.
+
+Prinsippet, ikke malen:
+
+> Alle bildene skal være fotorealistiske vitenskapelige rekonstruksjoner med
+> naturlig dagslys, dokumentarisk uttrykk, realistisk anatomi, dempet
+> jordfargepalett og uten tekst, rammer eller infografiske elementer.
+
+Dette er et *eksempel på en brief*, ikke en brief å gjenbruke. Agenten skal
+skrive uttrykket den aktuelle presentasjonen faktisk trenger.
+
+### Den enkelte bildeprompten
+
+Når agenten mener en slide trenger et generert rasterbilde:
+
+1. bestem bildets semantiske rolle på sliden;
+2. bygg sonetreet ut fra sliden, ikke ut fra bildet;
+3. reserver riktig bildeareal — en sone der `image` er tillatt;
+4. opprett `note` med `notePurpose: "image-prompt"` i den sonen;
+5. skriv en komplett, kopierbar bildeprompt.
+
+Prompten beskriver **motivet**. Stilen ligger allerede i briefen, som antas å
+stå i samtalen fra før, så ikke gjenta hele stilbriefen i hvert notat. Et
+bildenotat bør typisk inneholde:
+
+- klart motiv;
+- viktige objekter eller personer;
+- handling eller scene;
+- nødvendig historisk eller faglig presisjon;
+- komposisjon;
+- kameravinkel når det er relevant;
+- hvilken del av bildet som bør ha visuell tyngde;
+- ønsket format eller orientering;
+- nødvendig negativ plass dersom layouten krever det;
+- ting som spesifikt ikke skal forekomme i akkurat dette bildet.
+
+**Agenten kjenner sonens rektangel fra `inspect_slide` og skal bruke det aktivt.**
+Et stående rektangel skal ha en stående komposisjon; skal teksten ligge inntil
+bildet, skal den siden av bildet tåle å være roligere.
+
+> Fotorealistisk vitenskapelig rekonstruksjon av en voksen neandertaler i et
+> paleolittisk europeisk landskap. Halvfigur, kroppen lett vendt mot kamera.
+> Personen skal ligge hovedsakelig i venstre tredjedel av bildet; høyre tredjedel
+> skal være visuelt roligere slik at beskjæring tåles. Ingen tekst eller grafiske
+> elementer. Stående komposisjon tilpasset denne sonens aspektforhold.
+
+Ikke legg til overflødig prompt-engineering-sjargong. Prompten skal kunne
+kopieres rett inn i en vanlig samtale.
+
+### Hele arbeidsflyten
+
+**Agenten, når den lager presentasjonen:**
+
+1. Analyser presentasjonens innhold.
+2. Bestem en visuell identitet.
+3. Trenger dekket genererte rasterbilder: opprett én felles bildebrief.
+4. Komponer hver slide semantisk, som ellers i denne guiden.
+5. For hver planlagt rasterillustrasjon: lag riktig sonegeometri, opprett et
+   `note` med `notePurpose: "image-prompt"`, og skriv en bildeprompt tilpasset
+   sonens rektangel.
+6. Bruk ekte SVG der vektor er riktig medium.
+7. Valider resten av presentasjonen normalt.
+
+**Brukeren, etterpå:**
+
+1. Åpne «Bildebrief» i editoren og kopier den.
+2. Lim den inn i starten av én samtale med en assistent som kan lage bilder.
+3. Gå gjennom bildenotatene i dekket.
+4. Kopier én prompt om gangen inn i den samme samtalen.
+5. Generer bildet.
+6. Last det ned.
+7. Erstatt notatsonen med bildet.
+8. Juster utsnitt ved behov.
+
+Fordi alle promptene er skrevet mot den samme briefen, får bildene et konsistent
+visuelt uttrykk, og fordi komposisjonen alt er ferdig, er det bare innholdstypen
+i sonen som byttes.
+
 ## 10. Anti-mønstre
 
 Agenten bør aktivt unngå:
 
+- å tegne fotografiske eller organiske motiver som SVG, eller rasterisere slik
+  SVG til PNG, i stedet for å legge igjen et bildenotat;
+- å la en bildeprompt gjenta hele stilbriefen i stedet for å beskrive motivet;
+- å skrive bildeprompter før dekket har en felles bildebrief;
 - å velge «to kolonner» før den har analysert innholdet;
 - å dele hver paragraf i sin egen sone;
 - å gi like store soner til elementer med tydelig ulik betydning;
@@ -301,6 +480,9 @@ Agenten bør aktivt unngå:
 
 ## 11. Arbeidsflyt for en agent
 
+Trenger dekket genererte rasterbilder, skriv den felles bildebriefen før den
+første bildeprompten — se §9.5.
+
 For hver slide:
 
 1. Formuler **én kommunikativ oppgave** for sliden.
@@ -309,7 +491,8 @@ For hver slide:
 4. Velg innholdstype for hvert semantisk objekt.
 5. Bygg det enkleste sonetreet som uttrykker relasjonene korrekt.
 6. Sett vekter etter prioritet, ikke etter tekstmengde alene.
-7. Legg inn innholdet kortfattet.
+7. Legg inn innholdet kortfattet. Skal en sone ha et rasterbilde som ikke finnes
+   ennå, legg et bildenotat i den i stedet for en midlertidig illustrasjon.
 8. Inspiser den faktiske geometrien og fit-resultatet.
 9. Ved overflow: rediger først, komponer deretter på nytt hvis nødvendig.
 10. Valider sliden og dekket før den anses ferdig.

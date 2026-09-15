@@ -576,7 +576,9 @@ describe('layout', () => {
     })
     const sliver = inspected.zones.find((zone) => zone.nodeId === split.childNodeIds[0])
     expect(sliver?.empty).toBe(true)
-    expect(sliver?.availableContentKinds).toEqual(['negative-space'])
+    // Only the kinds that draw nothing, in the domain's own order: air and a
+    // note. Neither has a floor, so neither can be too small for the sliver.
+    expect(sliver?.availableContentKinds).toEqual(['negative-space', 'note'])
 
     await ok(context, 'set_zone_card', {
       presentationId: deck.presentationId,

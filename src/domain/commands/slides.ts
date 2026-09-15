@@ -28,7 +28,7 @@ import {
   guardFit,
   subtreeOverflow,
 } from './fitGuard'
-import { FIT_TOLERANCE } from '../constants'
+import { FIT_TOLERANCE, MAX_IMAGE_BRIEF_CHARS } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
 import {
@@ -450,6 +450,39 @@ export function setPresentationTitle(
   const trimmed = title.trim()
   if (!trimmed) return err('INVALID_ARGUMENT', 'Tittelen kan ikke være tom.')
   return ok(touch({ ...presentation, title: trimmed }))
+}
+
+/**
+ * Write the deck's image brief, or clear it.
+ *
+ * Nothing on any slide changes, so no fit gate and no geometry is involved: the
+ * brief is editorial metadata about how this deck's pictures should look, read
+ * by the author and by an agent writing prompts, and drawn nowhere. See
+ * `Presentation.imageBrief`.
+ *
+ * A brief that is blank is *removed* rather than stored as an empty string, so
+ * "this deck has no brief" has one representation — which is what keeps a deck
+ * that never had one byte-identical after somebody opens the dialog and closes
+ * it again.
+ */
+export function setImageBrief(
+  presentation: Presentation,
+  brief: string | null,
+): Result<Presentation> {
+  if (brief !== null && brief.length > MAX_IMAGE_BRIEF_CHARS) {
+    return err(
+      'INVALID_ARGUMENT',
+      `Bildebriefen kan ikke være lengre enn ${MAX_IMAGE_BRIEF_CHARS} tegn.`,
+      { maxChars: MAX_IMAGE_BRIEF_CHARS, received: brief.length },
+    )
+  }
+  const trimmed = brief === null ? '' : brief.trim()
+  if (trimmed === (presentation.imageBrief ?? '')) return ok(presentation)
+  if (!trimmed) {
+    const { imageBrief: _removed, ...rest } = presentation
+    return ok(touch(rest))
+  }
+  return ok(touch({ ...presentation, imageBrief: trimmed }))
 }
 
 /**

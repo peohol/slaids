@@ -20,6 +20,7 @@ import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../doma
 import type {
   CardBody,
   ImagePanel,
+  NoteContent,
   Subfield,
   TitledCardContent,
   TitledImageCardContent,
@@ -38,6 +39,17 @@ export interface ZoneContentFrameProps {
    * hidden parts, which is why it is a prop rather than a branch in here.
    */
   renderImage: (panel: ImagePanel, variant: 'card' | 'body') => ReactNode
+  /**
+   * What a note draws — which for everyone but the editor is nothing at all.
+   *
+   * A note is editorial text the audience must never see (see `NoteContent`),
+   * so the default is «draw nothing» and the editor's affordance is something
+   * one caller opts into. Written as a prop rather than as a branch on the
+   * render context for exactly that reason: a renderer that forgets to pass it
+   * shows an empty zone, which is the safe answer. Branching on `isStatic`
+   * would make the audience-facing case the one that has to be remembered.
+   */
+  renderNote?: (content: NoteContent) => ReactNode
 }
 
 /**
@@ -127,6 +139,7 @@ export function ZoneContentFrame({
   renderTitle,
   renderField,
   renderImage,
+  renderNote,
 }: ZoneContentFrameProps) {
   const { theme } = useSlideRender()
   const colors = usePageColors()
@@ -145,6 +158,21 @@ export function ZoneContentFrame({
         className="zone-content zone-content--negative-space"
         data-content-kind="negative-space"
       />
+    )
+  }
+
+  if (content.kind === 'note') {
+    /*
+     * Editorial text, and therefore nothing an audience ever sees: the box is
+     * here for the same reason air's is — the zone exists, and every zone's
+     * element tree is the same shape — but nothing is painted in it.
+     * `renderNote` is the editor's affordance and no other caller passes one,
+     * so a presented, published, exported or measured note zone is bare ground.
+     */
+    return (
+      <div className="zone-content zone-content--note" data-content-kind="note">
+        {renderNote?.(content)}
+      </div>
     )
   }
 

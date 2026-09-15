@@ -34,6 +34,7 @@ import {
 } from '../../persistence/agentTokens'
 import { AGENT_API_BASE_PATH, AGENT_MCP_PATH } from '../../routing'
 import { notify } from '../../state/toast'
+import { copyToClipboard } from '../components/clipboard'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
 import { Modal } from '../components/Modal'
@@ -76,18 +77,6 @@ function statusOf(record: AgentTokenRecord, now: Date): { label: string; tone: s
   if (record.revokedAt) return { label: 'Trukket tilbake', tone: 'revoked' }
   if (!isAgentTokenActive(record, now)) return { label: 'Utløpt', tone: 'expired' }
   return { label: 'Aktivt', tone: 'active' }
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // Denied or unavailable; the field below is still selectable by hand.
-  }
-  return false
 }
 
 export interface AgentTokensModalProps {

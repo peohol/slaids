@@ -31,44 +31,60 @@ import type { Rect, ZoneContentKind } from './types'
 
 const at = (width: number, height: number): Rect => ({ x: 0, y: 0, width, height })
 
-/** Every kind that draws something, which is every kind but the air. */
-const DRAWING_KINDS = ZONE_CONTENT_KINDS.filter((kind) => kind !== 'negative-space')
+/**
+ * The kinds that draw nothing on a slide, and therefore have no floor.
+ *
+ * Written out rather than derived from the minimums, because that is the
+ * claim: these two are the kinds the domain says draw nothing, and the tests
+ * below check that the arithmetic agrees. Deriving it would make the assertion
+ * true by construction and test nothing at all.
+ */
+const SIZELESS_KINDS: ZoneContentKind[] = ['negative-space', 'note']
 
-describe('negativt rom har ingen minstestørrelse', () => {
-  it('passer i et rektangel uten utstrekning i det hele tatt', () => {
-    expect(minimumSizeForKind('negative-space')).toEqual({ width: 0, height: 0 })
-    expect(contentKindFitsRect('negative-space', at(0, 0))).toBe(true)
-    expect(contentKindRefusal('negative-space', at(1, 1))).toBeNull()
+/** Every kind that draws something on the slide. */
+const DRAWING_KINDS = ZONE_CONTENT_KINDS.filter((kind) => !SIZELESS_KINDS.includes(kind))
+
+describe('typene som ikke tegner noe har ingen minstestørrelse', () => {
+  it.each(SIZELESS_KINDS)('%s passer i et rektangel uten utstrekning i det hele tatt', (kind) => {
+    expect(minimumSizeForKind(kind)).toEqual({ width: 0, height: 0 })
+    expect(contentKindFitsRect(kind, at(0, 0))).toBe(true)
+    expect(contentKindRefusal(kind, at(1, 1))).toBeNull()
   })
 
-  it('er det eneste valget når sonen er liten nok', () => {
+  it('er de eneste valgene når sonen er liten nok', () => {
     const tiny = at(24, 12)
     const available = ZONE_CONTENT_KINDS.filter((kind) => contentKindFitsRect(kind, tiny))
-    expect(available).toEqual(['negative-space'])
+    expect(available).toEqual(SIZELESS_KINDS)
   })
 
-  it('får aldri en fit-innvending, uansett hvor lite rektangelet er', () => {
-    const air = createContentOfKind('negative-space')
-    expect(estimateFit(air, at(0, 0)).fits).toBe(true)
-    expect(estimateFit(air, at(3, 2)).overflow).toBe(0)
-    expect(estimateFit(air, at(3, 2)).parts).toEqual({})
-  })
+  it.each(SIZELESS_KINDS)(
+    '%s får aldri en fit-innvending, uansett hvor lite rektangelet er',
+    (kind) => {
+      const content = createContentOfKind(kind)
+      expect(estimateFit(content, at(0, 0)).fits).toBe(true)
+      expect(estimateFit(content, at(3, 2)).overflow).toBe(0)
+      expect(estimateFit(content, at(3, 2)).parts).toEqual({})
+    },
+  )
 })
 
-describe('en tom sone og negativt rom er to ting, ikke to størrelser', () => {
-  it('har begge null minstemål, fordi ingen av dem tegner noe', () => {
+describe('en tom sone, negativt rom og et notat er tre ting, ikke tre størrelser', () => {
+  it('har alle null minstemål, fordi ingen av dem tegner noe', () => {
     expect(minimumSizeForContent(null)).toEqual({ width: 0, height: 0 })
-    expect(minimumSizeForContent(createContentOfKind('negative-space'))).toEqual({
-      width: 0,
-      height: 0,
-    })
+    for (const kind of SIZELESS_KINDS) {
+      expect(minimumSizeForContent(createContentOfKind(kind)), kind).toEqual({
+        width: 0,
+        height: 0,
+      })
+    }
   })
 
-  it('skilles på om det finnes et innholdsobjekt, ikke på hva de tegner', () => {
+  it('skilles på innholdsobjektets kind, ikke på hva de tegner', () => {
     const empty = createLeaf(null)
-    const air = createLeaf(createContentOfKind('negative-space'))
     expect(empty.content).toBeNull()
-    expect(air.content?.kind).toBe('negative-space')
+    for (const kind of SIZELESS_KINDS) {
+      expect(createLeaf(createContentOfKind(kind)).content?.kind).toBe(kind)
+    }
   })
 })
 
@@ -214,7 +230,7 @@ describe('«kan denne sonen bli type X?» har ett svar', () => {
     for (const kind of ZONE_CONTENT_KINDS) {
       expect(zoneKindRefusal(kind, roomy, null), kind).toBeNull()
     }
-    expect(availableContentKinds(at(4, 3), null)).toEqual(['negative-space'])
+    expect(availableContentKinds(at(4, 3), null)).toEqual(SIZELESS_KINDS)
   })
 
   it('spør ikke om størrelse når det ikke finnes en sone å måle mot', () => {

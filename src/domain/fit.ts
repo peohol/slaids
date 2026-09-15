@@ -448,9 +448,11 @@ export function estimateFit(
   rect: Rect,
   context?: Partial<FitContext>,
 ): FitResult {
-  // Air is the one kind with nothing to measure, and it is measured first: a
-  // rect of no size holds it perfectly well, because it draws nothing there.
-  if (content.kind === 'negative-space') return fitResult({})
+  // Air and a note are the kinds with nothing to measure, and they are measured
+  // first: a rect of no size holds either perfectly well, because neither draws
+  // anything there. A note's editor affordance is chrome rather than content,
+  // so it is no more measured here than a zone outline is.
+  if (content.kind === 'negative-space' || content.kind === 'note') return fitResult({})
   if (rect.width <= 0 || rect.height <= 0) return doesNotFitAtAll(partsOf(content))
   const estimate = estimateContext(context)
 
@@ -521,6 +523,7 @@ export function estimateFit(
 function partsOf(content: ZoneContent): string[] {
   switch (content.kind) {
     case 'negative-space':
+    case 'note':
       return []
     case 'image':
       return content.image.caption ? [CAPTION_PART] : []

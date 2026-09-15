@@ -54,6 +54,7 @@ export function CompactToolsPanel({
     { id: 'templates', label: 'Maler', icon: 'template', disabled: !toolbar.canEditZones, onSelect: toolbar.onOpenTemplates },
     { id: 'references', label: 'Referanser', icon: 'reference', onSelect: toolbar.onOpenReferences },
     { id: 'theme', label: 'Tema', icon: 'palette', onSelect: toolbar.onOpenTheme },
+    { id: 'image-brief', label: 'Bildebrief', icon: 'note', onSelect: toolbar.onOpenImageBrief },
     { id: 'optimize', label: 'Optimaliser bilder', icon: 'optimize', onSelect: toolbar.onOptimizeImages },
     { id: 'ideas', label: 'Idéer', icon: 'ideas', onSelect: onOpenIdeas },
     {
