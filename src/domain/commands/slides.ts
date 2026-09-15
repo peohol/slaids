@@ -464,6 +464,17 @@ export function setPresentationTitle(
  * "this deck has no brief" has one representation — which is what keeps a deck
  * that never had one byte-identical after somebody opens the dialog and closes
  * it again.
+ *
+ * **What is stored is exactly what was given, byte for byte.** The editor's
+ * dialog is a controlled field that runs this command on every keystroke and
+ * then shows back whatever came out, so anything normalised here is a character
+ * the author watches vanish under the caret as they type it. Trimming looked
+ * harmless and was not: a trailing space is how every word in a sentence but
+ * the last one ends, so `«Dempet »` came back as `«Dempet»` and the next letter
+ * landed against the previous word. A trailing newline is the same story for a
+ * paragraph break. Emptiness is therefore a question this command *asks* of the
+ * value, never an edit it makes to it — see `imageBrief.test.ts`, which types a
+ * sentence one character at a time the way the component does.
  */
 export function setImageBrief(
   presentation: Presentation,
@@ -476,13 +487,18 @@ export function setImageBrief(
       { maxChars: MAX_IMAGE_BRIEF_CHARS, received: brief.length },
     )
   }
-  const trimmed = brief === null ? '' : brief.trim()
-  if (trimmed === (presentation.imageBrief ?? '')) return ok(presentation)
-  if (!trimmed) {
+  const value = brief ?? ''
+  const current = presentation.imageBrief ?? ''
+  if (value === current) return ok(presentation)
+  /* Nothing but air is no brief — but that is a reading of the value, and the
+     one case where discarding it costs nothing, because there is nothing in it
+     to lose. A field the author is still filling in has a character in it. */
+  if (value.trim() === '') {
+    if (current === '') return ok(presentation)
     const { imageBrief: _removed, ...rest } = presentation
     return ok(touch(rest))
   }
-  return ok(touch({ ...presentation, imageBrief: trimmed }))
+  return ok(touch({ ...presentation, imageBrief: value }))
 }
 
 /**

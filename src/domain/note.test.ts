@@ -194,6 +194,27 @@ describe('setNoteText', () => {
     })
   })
 
+  it('skriver aldri om teksten under markøren', () => {
+    /*
+     * The note dialog is a controlled field that runs this command on every
+     * keystroke and shows back what was stored, exactly as the image brief's
+     * is — so the same rule holds, and for the same reason. Modelled as the
+     * loop the component actually is: what the field shows after a keystroke
+     * is what was stored, and the next keystroke is appended to that.
+     */
+    const { presentation, slideId, nodeId } = deckWithNote(createNote())
+    let current = presentation
+    let shown = ''
+    for (const character of 'Halvfigur, motivet i venstre tredjedel.\n\nIngen tekst.') {
+      const written = setNoteText(current, { slideId, nodeId, text: shown + character })
+      expect(written.ok, `avvist etter «${shown}»`).toBe(true)
+      if (!written.ok) return
+      current = written.value
+      shown = noteIn(current, slideId, nodeId).text
+    }
+    expect(shown).toBe('Halvfigur, motivet i venstre tredjedel.\n\nIngen tekst.')
+  })
+
   it('svarer med det samme dokumentet når ingenting endres', () => {
     const { presentation, slideId, nodeId } = deckWithNote()
     const same = setNoteText(presentation, { slideId, nodeId, text: PROMPT })

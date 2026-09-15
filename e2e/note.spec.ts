@@ -68,7 +68,12 @@ test.describe('notat og bildebrief', () => {
     /* 1. The deck's shared visual premise, written once and copied once. */
     await page.getByTestId('open-image-brief').click()
     await expect(page.getByTestId('image-brief-modal')).toBeVisible()
-    await page.getByTestId('image-brief-modal-text').fill(BRIEF)
+    /* Typed a character at a time rather than filled in one go. The field is
+       controlled by what the command stored, so a command that normalised the
+       value would eat every space as it was typed — and `fill` sets the whole
+       string at once, which is exactly the gesture that cannot see it. */
+    await page.getByTestId('image-brief-modal-text').pressSequentially(BRIEF)
+    await expect(page.getByTestId('image-brief-modal-text')).toHaveValue(BRIEF)
     await page.getByTestId('image-brief-modal-copy').click()
     await expect(page.getByTestId('image-brief-modal-copy')).toContainText('Kopiert')
     await page.getByTestId('image-brief-modal').getByRole('button', { name: 'Lukk' }).click()
@@ -89,7 +94,9 @@ test.describe('notat og bildebrief', () => {
     await noteButton(page, pictureZone.id).click()
     await expect(page.getByTestId('note-modal')).toBeVisible()
     await page.getByTestId('note-purpose-image-prompt').click()
-    await page.getByTestId('note-modal-text').fill(PROMPT)
+    // Typed, for the reason the brief above is.
+    await page.getByTestId('note-modal-text').pressSequentially(PROMPT)
+    await expect(page.getByTestId('note-modal-text')).toHaveValue(PROMPT)
     await page.getByTestId('note-modal-copy').click()
     await expect(page.getByTestId('note-modal-copy')).toContainText('Kopiert')
     await page.getByTestId('note-modal').getByRole('button', { name: 'Lukk' }).click()

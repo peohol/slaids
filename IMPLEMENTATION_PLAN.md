@@ -442,6 +442,13 @@ interface Presentation {
   samme grunn som `AssetRef.contentHash` ikke gjorde det. Ingen eksisterende
   presentasjon får en tom bildebrief skrevet inn fordi skjemaet endret seg.
 - **Avgrenset** av `MAX_IMAGE_BRIEF_CHARS`.
+- **Lagres nøyaktig som den ble skrevet.** Dialogen er et kontrollert felt som
+  kjører kommandoen på hvert tastetrykk og viser tilbake det som ble lagret, så
+  alt kommandoen normaliserer er et tegn forfatteren ser forsvinne under
+  markøren. Et avsluttende mellomrom er slutten på hvert ord i en setning
+  bortsett fra det siste, og et avsluttende linjeskift er et avsnittsskift. Tomhet
+  er derfor et *spørsmål* kommandoen stiller til verdien, aldri en endring den
+  gjør på den. Det samme gjelder notatteksten (§7.2).
 
 Briefen beskriver **hvordan bildene skal se ut — ikke hva de skal vise**: uttrykk,
 realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter,

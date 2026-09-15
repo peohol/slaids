@@ -24,10 +24,15 @@ describe('setImageBrief', () => {
     if (written.ok) expect(written.value.imageBrief).toBe(BRIEF)
   })
 
-  it('trimmer, fordi luft rundt en brief ikke er en brief', () => {
-    const written = setImageBrief(createPresentation({ title: 'x' }), `  ${BRIEF}  `)
+  it('lagrer nøyaktig det den fikk, uten å normalisere noe', () => {
+    // Deliberately not trimmed: see the note on the command. Whitespace around
+    // a brief is harmless, and rewriting the value is not — the editor's field
+    // is controlled by what is stored, so every normalisation is a keystroke
+    // the author loses.
+    const padded = `  ${BRIEF}\n`
+    const written = setImageBrief(createPresentation({ title: 'x' }), padded)
     expect(written.ok).toBe(true)
-    if (written.ok) expect(written.value.imageBrief).toBe(BRIEF)
+    if (written.ok) expect(written.value.imageBrief).toBe(padded)
   })
 
   it('skriver ingenting inn i en presentasjon som ikke har en brief', () => {
@@ -35,12 +40,26 @@ describe('setImageBrief', () => {
     // it again, or any other write of nothing, must leave the document alone.
     const base = createPresentation({ title: 'Uten brief' })
     expect('imageBrief' in base).toBe(false)
-    for (const nothing of ['', '   ', null] as const) {
+    // Air is not a brief, so none of these writes anything — and the one
+    // keystroke this costs is a leading space in an empty field, which is the
+    // one place there is genuinely nothing to lose.
+    for (const nothing of ['', ' ', '   ', '\n', null] as const) {
       const written = setImageBrief(base, nothing)
-      expect(written.ok).toBe(true)
+      expect(written.ok, JSON.stringify(nothing)).toBe(true)
       if (!written.ok) continue
-      expect(written.value).toBe(base)
+      expect(written.value, JSON.stringify(nothing)).toBe(base)
       expect('imageBrief' in written.value).toBe(false)
+    }
+  })
+
+  it('fjerner briefen når forfatteren tømmer feltet helt', () => {
+    const base = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+    expect(base.ok).toBe(true)
+    if (!base.ok) return
+    for (const emptied of ['', '  '] as const) {
+      const cleared = setImageBrief(base.value, emptied)
+      expect(cleared.ok, JSON.stringify(emptied)).toBe(true)
+      if (cleared.ok) expect('imageBrief' in cleared.value).toBe(false)
     }
   })
 
@@ -63,6 +82,47 @@ describe('setImageBrief', () => {
       expect(refused.error.code).toBe('INVALID_ARGUMENT')
       expect(refused.error.details).toMatchObject({ maxChars: MAX_IMAGE_BRIEF_CHARS })
     }
+  })
+})
+
+describe('feltet skrives aldri om under markøren', () => {
+  /**
+   * The editor's dialog is a controlled textarea that runs this command on
+   * every keystroke and then shows back whatever was stored. So anything this
+   * command rewrites is a character the user watches disappear as they type
+   * it — and a command that normalised the value would make a trailing space
+   * impossible to type, which is most of the spaces in a sentence.
+   *
+   * Modelled as the loop the component actually is, rather than as one call:
+   * what the field shows after a keystroke is what was stored, and the next
+   * keystroke is appended to *that*.
+   */
+  function typed(text: string): string {
+    let presentation = createPresentation({ title: 'Skriver' })
+    let shown = ''
+    for (const character of text) {
+      const written = setImageBrief(presentation, shown + character)
+      expect(written.ok, `avvist etter «${shown}»`).toBe(true)
+      if (!written.ok) return shown
+      presentation = written.value
+      shown = presentation.imageBrief ?? ''
+    }
+    return shown
+  }
+
+  it('lar forfatteren skrive en helt vanlig setning, mellomrom og alt', () => {
+    expect(typed(BRIEF)).toBe(BRIEF)
+  })
+
+  it('lar linjeskift stå, så briefen kan ha avsnitt', () => {
+    const paragraphs = 'Naturlig dagslys.\n\nIngen tekst i bildene.'
+    expect(typed(paragraphs)).toBe(paragraphs)
+  })
+
+  it('beholder et avsluttende mellomrom, som er halve veien til neste ord', () => {
+    const written = setImageBrief(createPresentation({ title: 'x' }), 'Dempet ')
+    expect(written.ok).toBe(true)
+    if (written.ok) expect(written.value.imageBrief).toBe('Dempet ')
   })
 })
 
