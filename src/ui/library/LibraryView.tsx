@@ -40,6 +40,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AgentTokensModal } from './AgentTokensModal'
+import { FolderSelect } from './FolderSelect'
 
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
@@ -563,13 +564,12 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                       </button>
                     </Tooltip>
                     {folders.length > 0 && (
-                      <select
-                        className="select select--inline"
-                        value={summary.folderId ?? ''}
-                        aria-label={`Mappe for ${summary.title}`}
-                        data-testid="folder-select"
-                        onChange={(event) => {
-                          void movePresentationToFolder(summary.id, event.target.value || null)
+                      <FolderSelect
+                        value={summary.folderId}
+                        folders={folders}
+                        ariaLabel={`Mappe for ${summary.title}`}
+                        onChange={(folderId) => {
+                          void movePresentationToFolder(summary.id, folderId)
                             .catch((error: unknown) => {
                               notify.error(
                                 error instanceof Error ? error.message : 'Kunne ikke flytte presentasjonen.',
@@ -577,14 +577,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                             })
                             .finally(() => refresh())
                         }}
-                      >
-                        <option value="">Ingen mappe</option>
-                        {folders.map((folder) => (
-                          <option key={folder.id} value={folder.id}>
-                            {folder.name}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     )}
                   </div>
                 </article>
