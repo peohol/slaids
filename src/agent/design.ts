@@ -22,6 +22,15 @@
  * heading and a bullet list. Every one of them is valid, and the deck is flat.
  * The cause is not that the agent prefers bullet lists — it is that it never
  * asked what the material was *made of* before it reached for geometry.
+ *
+ * A deck about human evolution showed the same failure twice more, and both
+ * times the rule existed while the *mechanism* did not. The named species came
+ * back as sentences inside transparent containers, because a container is what
+ * a zone becomes when text is written into it and nobody chose otherwise; and
+ * the deck planned almost no pictures, because «consider whether a picture
+ * would help» is cheapest to answer no when nothing names the pictures worth
+ * looking for. Hence `CARD_FRAMING_RULE` and `IMPLICIT_CONTAINER_RULE` on the
+ * one side, and named subjects and picture roles on the other.
  */
 
 /**
@@ -64,7 +73,42 @@ export const SIMPLEST_TREE =
 
 /** When one container is the right answer, and when it is the lazy one. */
 export const SINGLE_CONTAINER_RULE =
-  'Én stor tekstcontainer er et legitimt valg når innholdet faktisk er én sammenhengende idé, men den er ikke standardløsningen.'
+  'Én stor tekstcontainer er et legitimt valg når sliden faktisk er én samlet idé som ikke trenger synlig innramming, men den er ikke standardløsningen, og den er aldri svaret på at stoffet var vanskelig å dekomponere.'
+
+/**
+ * The units that arrive with a name of their own.
+ *
+ * A subset of `SEMANTIC_UNITS`, and a deliberate one: these are the units a
+ * reader can point at and call something. That is exactly the test for whether
+ * a card title has anything to say — and therefore the test that decides
+ * between a framed card and a transparent container.
+ */
+export const NAMED_UNITS: readonly string[] = [
+  'arter',
+  'kategorier',
+  'aktører',
+  'faser',
+  'alternativer',
+  'sammenligningsobjekter',
+]
+
+/**
+ * Which of the two a named unit gets: a frame, or no frame.
+ *
+ * In the instructions rather than on `set_zone_card`, unlike the rest of the
+ * content-kind detail, because it is not a detail — it is the decision the
+ * decomposition step feeds directly into, and an agent that has not made it
+ * before it starts writing text has already made it by default. The observed
+ * failure is precisely that: a deck about named species in which every species
+ * is a sentence inside a transparent container, because a container is what a
+ * zone becomes when nobody chooses.
+ */
+export const CARD_FRAMING_RULE = `Består sliden av flere navngitte, parallelle enheter – ${NAMED_UNITS.slice(
+  0,
+  -1,
+).join(', ')} eller ${
+  NAMED_UNITS[NAMED_UNITS.length - 1]
+} – skal hver enhet normalt være et \`titled-card\` der korttittelen er enhetens navn. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. Korttittelen står på én linje og brytes ikke: får det fulle navnet ikke plass, kort ned tittelen og la den fulle formen stå i teksten – en avvist korttittel er aldri en grunn til å gå tilbake til en container. \`container\` er gjennomsiktig og rammer ingenting inn: den hører hjemme der sonen faktisk er én samlet idé uten behov for synlig innramming, og er verken standardvalget eller en måte å slippe å navngi enhetene på.`
 
 /** Audience-visible content belongs to the subject, never to the authoring process. */
 export const AUDIENCE_CONTENT_RULE =
@@ -99,7 +143,20 @@ export const COLOR_SEMANTICS_RULE =
  * is the thing being caught.
  */
 export const REPEATED_FALLBACK_RULE =
-  'Ender flere slides på rad som «én stor container + punktliste», har du sannsynligvis oversett semantisk struktur: dekomponer de slidene på nytt. Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon.'
+  'Ender flere slides på rad som «én gjennomsiktig container med overskrift og tekst eller punktliste», har du sannsynligvis oversett semantisk struktur: dekomponer de slidene på nytt, og gi de navngitte enhetene hver sin ramme. Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon.'
+
+/**
+ * The default nobody chose.
+ *
+ * Writing text into an empty zone has to put it *somewhere*, and the lightest
+ * thing that can hold text is a transparent container — so the cheapest route
+ * through the API, split and write, produces containers without the agent ever
+ * opening the contract of the call that picks a content kind. That is the
+ * mechanism behind the flat deck, and this is the one place it can be said:
+ * on the call that applies the default.
+ */
+export const IMPLICIT_CONTAINER_RULE =
+  'Beholderen du får når du skriver tekst i en tom sone er utgangspunktet Slaids må velge for å ha et sted å legge teksten – den er ikke et designvalg du har tatt. Skal sonen være én av flere navngitte, parallelle enheter, sett innholdstypen først og skriv teksten etterpå. Gjør du ikke det, ender dekket som en rekke gjennomsiktige containere ingen har bestemt seg for.'
 
 /**
  * Which content kind a semantic role asks for.
@@ -108,7 +165,18 @@ export const REPEATED_FALLBACK_RULE =
  * the choice is actually made — instead of taking up room in the instructions.
  */
 export const CONTENT_KIND_RULE =
-  'Velg innholdstype etter semantisk rolle. Foretrekk `titled-card` når hvert element naturlig kan få en kort semantisk etikett — en kategori, aktør, fase, et alternativ eller en sammenligningsenhet; korttittelen er da den etiketten. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter. Bruk `negative-space` konservativt og bare når den tomme flaten forbedrer komposisjonen. Det vanligste gode tilfellet er luft over og/eller under et synlig kort med lite innhold, slik at kortet ikke blir unødvendig høyt og tittel og brødtekst holdes visuelt samlet. Ikke legg negativt rom mellom parallelle kort bare for å skape avstand eller demonstrere luft; Slaids har allerede faste mellomrom, og horisontal luft som bare gjør innholdssonene smalere er vanligvis et tilbakeskritt. Denne høyde-trimmingen gjelder synlige kort, ikke transparente containere. Hvis å fjerne det negative rommet bare gir innholdet mer nyttig plass uten å svekke fokus, hierarki eller rytme, skal det bort.'
+  'Velg innholdstype etter semantisk rolle, ikke etter hvor mye tekst sonen har. Korttittelen på et `titled-card` er navnet på enheten kortet viser, og skal være kort nok til å skannes. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter, og som ikke trenger synlig innramming. `note` er redaksjonell tekst som aldri vises for publikum, og er måten en sone reserveres til et bilde som lages et annet sted.'
+
+/**
+ * Air, which is a composition decision and not a spacer.
+ *
+ * Its own constant rather than the tail of `CONTENT_KIND_RULE`: the two answer
+ * different questions — which kind this zone is, and whether a zone should draw
+ * nothing at all — and a reader who needed the first had to read past four
+ * sentences about the second to find it.
+ */
+export const NEGATIVE_SPACE_RULE =
+  'Bruk `negative-space` konservativt og bare når den tomme flaten forbedrer komposisjonen. Det vanligste gode tilfellet er luft over og/eller under et synlig kort med lite innhold, slik at kortet ikke blir unødvendig høyt og tittel og brødtekst holdes visuelt samlet. Ikke legg negativt rom mellom parallelle kort bare for å skape avstand eller demonstrere luft; Slaids har allerede faste mellomrom, og horisontal luft som bare gjør innholdssonene smalere er vanligvis et tilbakeskritt. Denne høyde-trimmingen gjelder synlige kort, ikke transparente containere. Hvis å fjerne det negative rommet bare gir innholdet mer nyttig plass uten å svekke fokus, hierarki eller rytme, skal det bort.'
 
 /** What a split has to be able to justify. */
 export const SPLIT_RULE =
@@ -118,9 +186,53 @@ export const SPLIT_RULE =
  * Pictures: raster or vector
  * ------------------------------------------------------------------ */
 
-/** Pictures must be considered before a deck can be called visually planned. */
-export const IMAGE_USAGE_RULE =
-  'Vurder aktivt på hver slide om et relevant bilde, en figur eller et utsnitt av et viktig visuelt trekk kan forklare stoffet bedre enn mer tekst. I emner med mennesker, dyr, anatomi, steder, gjenstander, historiske miljøer eller andre visuelt konkrete motiver skal bilder normalt være en tydelig del av dekket når de har faglig verdi. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: planlegg bildefeltene som bildenotater med konkrete prompter og en felles bildebrief.'
+/**
+ * The subjects where a picture is part of the answer rather than a bonus.
+ *
+ * Named, for the same reason `SEMANTIC_UNITS` are named: «consider whether a
+ * picture would help» is advice an agent can honestly answer «no» to on every
+ * slide without ever having looked. A list of subjects is a question it has to
+ * answer about *this* deck.
+ */
+export const VISUAL_SUBJECTS: readonly string[] = [
+  'mennesker',
+  'dyr og arter',
+  'anatomi',
+  'steder og landskap',
+  'gjenstander og redskaper',
+  'historiske miljøer',
+  'geografi og utbredelse',
+]
+
+/** The pictures worth looking for, the way `SEMANTIC_UNITS` are units. */
+export const IMAGE_ROLES: readonly string[] = [
+  'rekonstruksjon av en art, organisme eller person',
+  'utsnitt av et viktig anatomisk trekk',
+  'sammenlignende morfologi',
+  'kart',
+  'foto eller rekonstruksjon av et miljø',
+  'faglig figur',
+  'illustrasjon av en mekanisme eller prosess',
+]
+
+/**
+ * Pictures must be considered before a deck can be called visually planned.
+ *
+ * The earlier wording asked the agent to «consider actively», which a deck
+ * about human evolution answered with one picture: a question with no named
+ * candidates is a question that is cheapest to answer no. So the subjects and
+ * the picture roles are enumerated here, and the deck-level consequence — a
+ * visually concrete subject with nothing planned at all is normally wrong — is
+ * stated rather than implied.
+ */
+export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: kan et relevant bilde, en figur eller et utsnitt av et viktig visuelt trekk forklare stoffet bedre enn mer tekst? I visuelt konkrete emner – ${VISUAL_SUBJECTS.join(
+  ', ',
+)} – er svaret normalt ja på flere slides, og et slikt dekk som ender uten et eneste planlagt bilde er som regel feil. Let konkret etter ${IMAGE_ROLES.slice(
+  0,
+  -1,
+).join(', ')} og ${
+  IMAGE_ROLES[IMAGE_ROLES.length - 1]
+}. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: reserver sonen, skriv bildenotatet med en konkret prompt, og gi dekket én felles bildebrief så snart minst ett generert rasterbilde er planlagt – også om det bare er ett.`
 
 /**
  * The short form, for the agent that has not yet decided it needs a picture.
@@ -166,6 +278,7 @@ export const RASTER_POLICY: readonly string[] = [
 export const IMAGE_NOTE_POLICY: readonly string[] = [
   'Et notat med `notePurpose: "image-prompt"` reserverer geometrien til et bilde som skal lages et annet sted: komponer sliden ferdig, lag sonen bildet skal ha, og skriv prompten i notatet.',
   'Opprett et slikt notat i en sone der `image` faktisk er en tillatt innholdstype – notatet selv har ingen minstestørrelse, men bildet som skal overta sonen har det.',
+  'Når notatet ligger der, svarer inspeksjonen med `reservedImageFits`: er den false, er reservasjonen for liten til å bli et bilde, og sonen må få mer plass før du går videre.',
   'Skriv motivet, de viktige objektene, handlingen, nødvendig faglig presisjon, komposisjonen, kameravinkelen når den betyr noe, hvilken del av bildet som skal bære tyngden, ønsket format eller orientering tilpasset sonens rektangel, nødvendig negativ plass, og hva som ikke skal forekomme i akkurat dette bildet.',
   'Ikke gjenta dekkets felles bildebrief i hvert notat: den ligger allerede i konteksten der bildet lages, og notatet beskriver motivet.',
 ]

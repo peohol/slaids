@@ -36,7 +36,7 @@ import {
   type NotePurpose,
 } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
-import { availableContentKinds } from '../../domain/contentSize'
+import { availableContentKinds, contentKindFitsRect } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
@@ -448,6 +448,20 @@ export interface ZoneInspection {
   noteText?: string
   notePurpose?: NotePurpose
   /**
+   * `image-prompt` notes only: whether the reserved rectangle can still take a
+   * picture.
+   *
+   * A note draws nothing and therefore has no minimum size, which is what makes
+   * it usable as a reservation at all — and also what makes the reservation
+   * silently breakable: a later split or a changed ratio can shrink the zone
+   * below a picture's minimum without anything refusing, and
+   * `availableContentKinds` cannot say so, because a note with text in it
+   * offers nothing but `note` until the zone is cleared. So the question the
+   * reservation exists to answer is asked here directly, of the same rule the
+   * conversion will be refused by.
+   */
+  reservedImageFits?: boolean
+  /**
    * How the text fields inside the content divide it, and in what proportions —
    * the card's own layout, one level below the `axis`/`weights` a split reports.
    * `adjust_subfields` takes exactly these two back.
@@ -704,7 +718,8 @@ function collectZones(
   // discovering it one rejection at a time. Asked with only the rectangle it
   // would advertise air for a zone full of text, and hide a cramped zone's own
   // kind, which the command deliberately still accepts.
-  const kinds = availableContentKinds(rect, node.content, themeMetrics(fitContext.theme))
+  const tokens = themeMetrics(fitContext.theme)
+  const kinds = availableContentKinds(rect, node.content, tokens)
 
   if (!node.content) {
     out.push({ nodeId: node.id, kind: 'leaf', rect, empty: true, availableContentKinds: kinds })
@@ -721,6 +736,11 @@ function collectZones(
     empty: false,
     availableContentKinds: kinds,
     ...inspectContent(content),
+    // See `ZoneInspection.reservedImageFits`: only a reservation has a question
+    // to answer here, and it is the picture's minimum that answers it.
+    ...(content.kind === 'note' && content.purpose === 'image-prompt'
+      ? { reservedImageFits: contentKindFitsRect('image', rect, tokens) }
+      : {}),
     fits: fit.fits,
     overflow: fit.overflow,
   })

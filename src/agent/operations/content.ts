@@ -15,6 +15,12 @@
  * agent that wants a card asks for one with `set_zone_card` first; the text
  * survives the conversion either way.
  *
+ * That convenience is also the cheapest route to a flat deck, which is why
+ * `IMPLICIT_CONTAINER_RULE` rides on this operation rather than on the one that
+ * picks a content kind: an agent that never needs `set_zone_card` never reads
+ * `set_zone_card`'s contract, and the container it keeps getting is a default
+ * it never chose.
+ *
  * `adjust_subfields` is the other half of that: `set_zone_card` decides what
  * kind of thing holds the text, and `adjust_subfields` decides how the fields
  * inside it divide the room — the same pair as `split_zone` and `adjust_split`
@@ -22,7 +28,12 @@
  */
 
 import { z } from 'zod'
-import { CONTENT_KIND_RULE, IMAGE_NOTE_POLICY } from '../design'
+import {
+  CONTENT_KIND_RULE,
+  IMAGE_NOTE_POLICY,
+  IMPLICIT_CONTAINER_RULE,
+  NEGATIVE_SPACE_RULE,
+} from '../design'
 import {
   setBodyLayout,
   setCardColor,
@@ -133,7 +144,8 @@ interface ZoneTextView {
 export const setZoneText = defineOperation({
   name: 'set_zone_text',
   summary:
-    'Sett teksten i en sone. Er sonen tom, opprettes en beholder med teksten. Avvises hvis teksten ikke får plass.',
+    'Sett teksten i en sone. Er sonen tom, opprettes en beholder med teksten. Avvises hvis teksten ikke får plass. ' +
+    IMPLICIT_CONTAINER_RULE,
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -243,6 +255,8 @@ export const setZoneCard = defineOperation({
   summary:
     'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, negativt rom (bevisst luft som ikke tegner noe), eller et notat (redaksjonell tekst som aldri vises for publikum). Tekst som ligger der beholdes – bortsett fra ved negativt rom og notat, som ikke har plass til den og derfor krever en tom sone. ' +
     CONTENT_KIND_RULE +
+    ' ' +
+    NEGATIVE_SPACE_RULE +
     ' ' +
     IMAGE_NOTE_POLICY.join(' '),
   mutates: true,

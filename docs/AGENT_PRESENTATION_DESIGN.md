@@ -42,6 +42,8 @@ Disse er ikke slide-maler, men semantiske enheter. Når flere navngivbare enhete
 
 Én stor container er riktig når sliden faktisk er én sammenhengende idé. Den er ikke et standardsvar.
 
+Dette gjelder like mye uten punktliste. «Gjennomsiktig container + overskrift + ett avsnitt», gjentatt slide etter slide, er det samme standardsvaret med listen tatt ut.
+
 En punktliste er egnet når punktene er underordnede utsagn om samme objekt eller påstand. Dersom punktene egentlig er flere kategorier, faser, aktører eller sammenligningsenheter, bør de normalt få egne soner eller kort.
 
 Parallelle konsepter bør normalt få parallell behandling: samme innholdstype, samme nivå i treet og like eller nesten like vekter.
@@ -79,7 +81,20 @@ Bruk subfelter når delene sammen utgjør ett semantisk objekt og bør oppfattes
 
 ### Titled card
 
-Bruk når tittelen navngir en kategori, aktør, fase, art, alternativ eller annen sammenligningsenhet. Tittelen skal gjøre enheten lettere å skanne.
+Hovedregelen for navngitte, parallelle enheter. Består sliden av flere av:
+
+- **arter**;
+- **kategorier**;
+- **aktører**;
+- **faser**;
+- **alternativer**;
+- **sammenligningsobjekter**;
+
+så skal hver enhet normalt være et titled card med enhetens navn som korttittel. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk.
+
+Testen er enkel: kan enheten pekes på og kalles noe? Da har korttittelen noe å si.
+
+Korttittelen står på én linje og brytes ikke. Får det fulle navnet ikke plass — «Australopithecus afarensis» i en av tre kolonner, for eksempel — kortes tittelen ned («A. afarensis») og den fulle formen står i teksten. En avvist korttittel er aldri en grunn til å gå tilbake til en container.
 
 ### Untitled card
 
@@ -87,7 +102,11 @@ Bruk når selve innholdet er budskapet og en ekstra etikett bare ville vært st�
 
 ### Container
 
-Bruk for innhold som hører sammen, men ikke trenger synlig kortbakgrunn eller tittellinje. En container er transparent; mye tom høyde rundt kort tekst er derfor mindre problematisk her enn i et synlig kort.
+Bruk når sonen faktisk er én samlet idé uten behov for synlig innramming. En container er gjennomsiktig og rammer ingenting inn, og det er nettopp poenget med den — men det gjør den også til den innholdstypen en sone får når ingen velger.
+
+Skriver du tekst i en tom sone, blir den en container. Det er utgangspunktet Slaids må velge for å ha et sted å legge teksten, ikke et designvalg. Skal sonen være én av flere navngitte enheter, settes innholdstypen før teksten skrives.
+
+En container er derfor aldri svaret på at stoffet var vanskelig å dekomponere.
 
 ### Image / titled image card
 
@@ -129,16 +148,28 @@ Dette er ofte bedre enn både et langt avsnitt og et unødvendig sitat.
 
 Bilder skal ikke være pynt, men de bør heller ikke bli et sjeldent unntak bare fordi tekst er enklere å lage.
 
-På hver slide bør agenten spørre om et relevant visuelt element kan forklare stoffet bedre enn mer tekst. I temaer med mennesker, dyr, anatomi, steder, gjenstander, historiske miljøer eller andre visuelt konkrete motiver vil et godt dekk ofte ha mange bilder.
+Bildespørsmålet stilles på hver enkelt slide: kan et relevant bilde, en figur eller et utsnitt av et viktig visuelt trekk forklare stoffet bedre enn mer tekst?
 
-Eksempler på naturlige visuelle behov:
+I visuelt konkrete emner er svaret normalt ja på flere slides:
 
-- rekonstruksjon av en organisme eller person;
+- mennesker;
+- dyr og arter;
+- anatomi;
+- steder og landskap;
+- gjenstander og redskaper;
+- historiske miljøer;
+- geografi og utbredelse.
+
+Et dekk om et slikt emne som ender uten et eneste planlagt bilde er som regel feil. En presentasjon om menneskets evolusjon skal normalt planlegge flere bilder, ikke ett.
+
+Let konkret etter:
+
+- rekonstruksjon av en art, organisme eller person;
 - utsnitt av et viktig anatomisk trekk;
-- foto eller rekonstruksjon av miljø;
+- sammenlignende morfologi;
 - kart;
+- foto eller rekonstruksjon av et miljø;
 - faglig figur;
-- sammenlignende bilder av morfologi;
 - illustrasjon av en mekanisme eller prosess.
 
 ### Raster vs. SVG
@@ -156,6 +187,8 @@ Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Agente
 3. legg inn et bildenotat (`notePurpose: "image-prompt"`) i sonen;
 4. skriv en konkret prompt tilpasset sonens aspektforhold og komposisjon;
 5. bruk én felles bildebrief for dekket dersom minst ett generert rasterbilde planlegges.
+
+Et notat tegner ingenting og har derfor ingen minstestørrelse. Reservasjonen kan altså bli for liten uten at noe protesterer, og en sone som holder et notat med tekst i tilbyr ingen andre innholdstyper før den tømmes. Derfor svarer inspeksjonen med `reservedImageFits` for bildenotater: er den `false`, må sonen få mer plass før bildet kan settes inn.
 
 Bildenotatet er et fremtidig bilde, ikke negativt rom.
 
@@ -241,6 +274,8 @@ Unngå aktivt:
 - å tegne mennesker, dyr eller andre organiske motiver som hjemmelaget SVG;
 - å bruke bilder som ren fyllmasse;
 - én stor container + punktliste som generelt standardsvar;
+- gjennomsiktig container + overskrift + tekst som generelt standardsvar;
+- navngitte, parallelle enheter uten synlig innramming, der korttittelen kunne båret navnet;
 - flere navngivbare konsepter i én punktliste når de burde være peers;
 - nested splits uten faktisk hierarki;
 - asymmetri uten semantisk grunn;
@@ -253,10 +288,10 @@ For hver slide:
 1. Formuler én kommunikativ oppgave.
 2. Kontroller at alt planlagt publikumsinnhold faktisk handler om denne oppgaven.
 3. Dekomponer stoffet i semantiske enheter.
-4. Spør aktivt om bilde, figur eller visuelt utsnitt vil forklare noe bedre enn mer tekst.
+4. Still bildespørsmålet for denne sliden: vil et bilde, en figur eller et visuelt utsnitt forklare noe bedre enn mer tekst?
 5. Klassifiser relasjonen mellom enhetene.
 6. Bygg det enkleste sonetreet som gjør relasjonen synlig.
-7. Velg innholdstype og vekter etter semantisk rolle.
+7. Velg innholdstype og vekter etter semantisk rolle — før teksten skrives, ikke etter.
 8. Skriv kort tekst; bruk avsnitt eller linjeskift når en romslig flate har flere tydelige delpoenger.
 9. Bruk quote bare når et ekte sitat fortjener det.
 10. Bruk negativt rom bare når du kan forklare den konkrete kompositoriske gevinsten; særlig for å trimme høyden på synlige kort med lite innhold.

@@ -27,6 +27,7 @@
 import {
   AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
+  CARD_FRAMING_RULE,
   COLOR_SEMANTICS_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_USAGE_RULE,
@@ -64,7 +65,8 @@ Slik henger en presentasjon sammen:
 Design før geometri:
 - **Dekomponer innholdet semantisk først.** ${SEMANTIC_DECOMPOSITION} Velg aldri først «to kolonner», «tre kort» eller et annet vilkårlig layout og press deretter stoffet inn. ${SIMPLEST_TREE}
 - **Skriv for publikum, ikke for arbeidsprosessen.** ${AUDIENCE_CONTENT_RULE}
-- **Én stor container med overskrift og punktliste er et valg, ikke et standardsvar.** ${SINGLE_CONTAINER_RULE} ${BULLET_RULE}
+- **Navngitte, parallelle enheter skal rammes inn.** ${CARD_FRAMING_RULE}
+- **Én gjennomsiktig container med overskrift og punktliste er et valg, ikke et standardsvar.** ${SINGLE_CONTAINER_RULE} ${BULLET_RULE}
 - **Bruk sitater som sitater, og luft tekst med mening.** ${QUOTE_RULE} ${TEXT_RHYTHM_RULE}
 - **${PARALLEL_RULE}** Tydelig ulike vekter skal uttrykke et reelt hierarki, ikke bare at én tekst tilfeldigvis er lengre.
 - **Farge skal bære mening.** ${COLOR_SEMANTICS_RULE}
@@ -87,7 +89,7 @@ Nyttige startmønstre – bare når innholdsrelasjonen faktisk passer:
 
 Slik arbeider du:
 1. Inspiser før du skriver. Inspeksjonen gir deg id-ene til slider og soner, rektangelet hver sone faktisk får, teksten som ligger der, og om den får plass.
-2. Formuler hva sliden skal kommunisere, dekomponer stoffet i semantiske enheter, klassifiser relasjonene mellom dem, og bygg deretter sonetreet og velg innholdstyper.
+2. Formuler hva sliden skal kommunisere, dekomponer stoffet i semantiske enheter, still bildespørsmålet for denne sliden, klassifiser relasjonene mellom enhetene, og bygg deretter sonetreet og velg innholdstyper – innholdstypen er et valg du tar før du skriver teksten, ikke etter.
 3. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
 4. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
 

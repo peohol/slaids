@@ -14,7 +14,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { MAX_NOTE_CHARS, MAX_IMAGE_BRIEF_CHARS } from '../domain/constants'
+import { MAX_NOTE_CHARS, MAX_IMAGE_BRIEF_CHARS, NOTE_PURPOSES } from '../domain/constants'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import { IMAGE_BRIEF_RULE, IMAGE_NOTE_POLICY } from './design'
@@ -362,6 +362,23 @@ describe('katalogen forklarer semantikken den krever', () => {
     // in `agent/design.ts` so each normative sentence has one home, and a rule
     // that is reworded there stays tested here — see `instructions.test.ts`.
     for (const rule of IMAGE_NOTE_POLICY) expect(card).toContain(rule)
+  })
+
+  it('publiserer notat og bildeprompt i selve skjemaet, ikke bare i prosaen', () => {
+    // What an MCP client hands the model is the JSON Schema, so «a note is a
+    // possible content kind» has to be in there rather than only in a sentence
+    // about notes: an agent that plans a picture it cannot generate needs both
+    // the kind and the purpose to be visible choices.
+    const card = describeOperations().find((entry) => entry.name === 'set_zone_card')
+    const properties = (card?.inputSchema.properties ?? {}) as Record<
+      string,
+      { enum?: string[] }
+    >
+    expect(properties.kind?.enum).toContain('note')
+    expect(properties.notePurpose?.enum).toEqual([...NOTE_PURPOSES])
+    // And the deck-level half of the plan is an operation of its own, so the
+    // brief is reachable from the catalogue rather than only from the guide.
+    expect(describeOperations().map((entry) => entry.name)).toContain('set_image_brief')
   })
 
   it('sier på set_image_brief at briefen er uttrykket, aldri motivet', () => {
