@@ -42,6 +42,8 @@ export interface TopToolbarProps {
   onToggleSandbox: () => void
   onPresent: () => void
   onOpenTheme: () => void
+  /** The deck's shared visual premise for its pictures; see `ImageBriefModal`. */
+  onOpenImageBrief: () => void
   /** Analyse and shrink every picture in the deck; see `ImageOptimizeModal`. */
   onOptimizeImages: () => void
   /** Publish or revoke the secret link. The toggle itself owns the state. */
@@ -220,6 +222,17 @@ export function TopToolbar(props: TopToolbarProps) {
         <Tooltip label="Tema: bakgrunn, fonter, luft og skriftstørrelse">
           <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenTheme} data-testid="open-theme" aria-label="Tema">
             <Icon name="palette" size={15} />
+          </button>
+        </Tooltip>
+        <Tooltip label="Bildebrief: felles visuelt uttrykk for bildene du får laget">
+          <button
+            type="button"
+            className="btn btn--sm btn--icon"
+            onClick={props.onOpenImageBrief}
+            data-testid="open-image-brief"
+            aria-label="Bildebrief"
+          >
+            <Icon name="note" size={15} />
           </button>
         </Tooltip>
         <Tooltip label="Optimaliser bilder: mindre filer uten synlig kvalitetstap">

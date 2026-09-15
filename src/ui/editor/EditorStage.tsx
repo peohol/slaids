@@ -49,6 +49,7 @@ import { docEditRenumberProblem } from '../../state/citationFit'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
+import { NoteAffordance } from './NoteAffordance'
 import { RichTextEditor } from './RichTextEditor'
 import {
   commitDraggedRatios,
@@ -122,6 +123,8 @@ export interface EditorStageProps {
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
   /** Opens the upload dialog for a picture zone that has no file yet. */
   onPickImage: (nodeId: NodeId) => void
+  /** Opens the note in a zone that holds one. */
+  onOpenNote: (nodeId: NodeId) => void
   /**
    * Zones that can accept what is currently looking for one — the item being
    * dragged, or the content waiting for a target press. Decided when the
@@ -205,6 +208,7 @@ export function EditorStage({
   actions,
   onAddContent,
   onPickImage,
+  onOpenNote,
   dropTargets,
   selectOnTap = false,
   textEditing = 'all',
@@ -708,7 +712,15 @@ export function EditorStage({
                     onAdd={onAddContent}
                   />
                 ) : mode === 'zone' ? (
-                  <ZoneContentView content={leaf.content} />
+                  /* Zone mode draws content statically — there is no typing in
+                     it — but it is still the editor, so a note still shows its
+                     handle. Without it the zone would read as empty in the one
+                     mode that is about the zones themselves. Inert, though: a
+                     press in zone mode selects the zone. */
+                  <ZoneContentView
+                    content={leaf.content}
+                    renderNote={(note) => <NoteAffordance content={note} />}
+                  />
                 ) : (
                   <EditableZoneContent
                     content={leaf.content}
@@ -717,6 +729,7 @@ export function EditorStage({
                     editable={canTypeIn(textEditing, leaf.id)}
                     caret={caret}
                     onPickImage={onPickImage}
+                    onOpenNote={onOpenNote}
                   />
                 )}
               </ZoneDropZone>

@@ -19,6 +19,7 @@ import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
 import { EditableImagePanel } from './EditableImagePanel'
+import { NoteAffordance } from './NoteAffordance'
 import { RichTextEditor } from './RichTextEditor'
 
 export function EditableZoneContent({
@@ -28,6 +29,7 @@ export function EditableZoneContent({
   editable = true,
   caret = null,
   onPickImage,
+  onOpenNote,
 }: {
   content: ZoneContent
   nodeId: string
@@ -51,6 +53,15 @@ export function EditableZoneContent({
   caret?: ActiveField | null
   /** Opens the upload dialog for a picture panel with no file in it yet. */
   onPickImage: (nodeId: string) => void
+  /**
+   * Opens the note in a zone that holds one.
+   *
+   * Passed in rather than owned here for the same reason `onPickImage` is: the
+   * dialog belongs to the editor, and a zone that draws it would open one
+   * dialog per zone. This is also the only place a note's text is ever put on
+   * screen — see `NoteAffordance`.
+   */
+  onOpenNote: (nodeId: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
@@ -138,6 +149,9 @@ export function EditableZoneContent({
               )
             }
           />
+        )}
+        renderNote={(note) => (
+          <NoteAffordance content={note} onOpen={() => onOpenNote(nodeId)} />
         )}
         renderImage={(panel, variant) => (
           <EditableImagePanel

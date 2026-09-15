@@ -20,7 +20,7 @@ import {
   createTitledCard,
   createTitledImageCard,
   createUntitledCard,
-  negativeSpaceRefusal,
+  contentConversionRefusal,
 } from '../content'
 import { CARD_TITLE_PART, estimateFit } from '../fit'
 import { computeSlideGeometry } from '../geometry'
@@ -544,7 +544,9 @@ describe('setContentKind', () => {
     expect(refused.ok).toBe(false)
     if (!refused.ok) {
       expect(refused.error.code).toBe('INVALID_CONTENT')
-      expect(refused.error.message).toBe(negativeSpaceRefusal(containerWithDoc(paragraphDoc('x'))))
+      expect(refused.error.message).toBe(
+        contentConversionRefusal(containerWithDoc(paragraphDoc('x')), 'negative-space'),
+      )
     }
   })
 

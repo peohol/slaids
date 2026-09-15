@@ -13,9 +13,11 @@ import {
   createCaption,
   createCardBody,
   createContainer,
+  createContentOfKind,
   createImage,
   createTitledCard,
   createNegativeSpace,
+  createNote,
   createTitledImageCard,
   createUntitledCard,
   hasCardTitle,
@@ -42,6 +44,7 @@ import { contentSlide, geometryFor, rectForNode } from './internal'
 import { touch, withSlide } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
+import { MAX_NOTE_CHARS } from '../constants'
 import { hasAsset } from './assets'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
@@ -51,6 +54,7 @@ import type {
   CardBody,
   ImageCaption,
   ImagePanel,
+  NotePurpose,
   Presentation,
   RichDoc,
   RichNode,
@@ -450,14 +454,23 @@ export function setCardColor(
  * conversion with a message saying so. Refusing is the honest answer: a
  * paragraph is not a caption, and a conversion that quietly ate it would be
  * the one thing this function promises never to do.
+ *
+ * Two kinds stand outside that story, in both directions: air has no payload
+ * at all, and a note's payload is editorial prose that must never become
+ * something an audience reads. `setContentKind` only reaches those branches
+ * once it has established there is nothing to carry — see the refusal there
+ * and `contentConversionRefusal`.
  */
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
-  // Air has no payload, so this is the one direction that cannot carry
-  // anything across. `setContentKind` only reaches here once it has
-  // established there is nothing to carry — see the refusal there.
   if (kind === 'negative-space') return createNegativeSpace()
+  // A note keeps the purpose it is being created with, not one carried from
+  // content that had none: this branch is only ever reached for an empty zone.
+  if (kind === 'note') return createNote()
+  // Out of a note, likewise: there is nothing to carry, so the target is made
+  // fresh rather than fed the note's own text.
+  if (content.kind === 'note') return createContentOfKind(kind)
 
   const title = hasCardTitle(content) ? content.title : null
   const headerColor = hasCardTitle(content) ? content.headerColor : null
@@ -631,6 +644,41 @@ function titleAsHeading(title: RichDoc): RichNode | null {
   return { type: 'heading', attrs: { level: 1 }, content: inline }
 }
 
+/* ------------------------------------------------------------------ *
+ * Notes
+ * ------------------------------------------------------------------ */
+
+/**
+ * Write a note's text, or change what it is for.
+ *
+ * Goes through `updateZoneContent` like every other content command, so an
+ * agent and the editor's modal write the same way — and so the command answers
+ * `TARGET_EMPTY`, `NODE_NOT_LEAF` and the rest in the vocabulary a caller
+ * already knows. The fit gate runs and can never refuse: a note draws nothing,
+ * so `estimateFit` reports no parts and no overflow for it.
+ *
+ * The bound is the schema's own, asked here so a refusal names the number
+ * instead of a document failing validation on the way to disk.
+ */
+export function setNoteText(
+  presentation: Presentation,
+  input: { text?: string; purpose?: NotePurpose } & ZoneContentTarget,
+): Result<Presentation> {
+  if (input.text !== undefined && input.text.length > MAX_NOTE_CHARS) {
+    return err('INVALID_ARGUMENT', `Et notat kan ikke være lengre enn ${MAX_NOTE_CHARS} tegn.`, {
+      maxChars: MAX_NOTE_CHARS,
+      received: input.text.length,
+    })
+  }
+  return updateZoneContent(presentation, input, (content) => {
+    if (content.kind !== 'note') return err('INVALID_CONTENT', 'Sonen har ikke et notat.')
+    const text = input.text ?? content.text
+    const purpose = input.purpose ?? content.purpose
+    if (text === content.text && purpose === content.purpose) return ok(content)
+    return ok({ ...content, text, purpose })
+  })
+}
+
 /**
  * Converting between content kinds changes the chrome around the text: a titled
  * card spends `CARD_HEADER_HEIGHT + CARD_PADDING * 2` of the zone that a
@@ -644,10 +692,11 @@ function titleAsHeading(title: RichDoc): RichNode | null {
  *    card however short its text is — the header and the padding are drawn
  *    whatever it says. That is `ZONE_TOO_SMALL`, and the fix is a bigger zone.
  *  - **Is there anything this conversion would throw away?** Only negative
- *    space can lose something, and it loses everything: it has no payload by
- *    definition. Rather than silently deleting a card's text, the command
+ *    space and notes can, and they lose everything: air has no payload by
+ *    definition, and a note holds editorial prose that has no place on a slide
+ *    — in either direction. Rather than silently deleting the work, the command
  *    refuses and names the gesture that keeps it — «Tøm sone» parks the content
- *    in the sandbox, and the emptied zone can then be made into air.
+ *    in the sandbox, and the emptied zone converts freely.
  */
 export function setContentKind(
   presentation: Presentation,

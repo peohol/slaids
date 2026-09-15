@@ -24,6 +24,7 @@
 
 import { z } from 'zod'
 import { slideAssetIds } from './commands/assets'
+import { mapDeckContents } from './docs'
 import { migratePresentation } from './migrations'
 import { splitReferences } from './references'
 import { err, ok, type Result } from './result'
@@ -74,13 +75,37 @@ export interface SharedPresentationSnapshot extends DeckSource {
 const PLACEHOLDER_ID = 'shared'
 
 /**
+ * The deck as an audience may receive it: every note emptied of its text.
+ *
+ * The one thing a snapshot cannot do by listing fields. A note is editorial
+ * working material — an image prompt, a reminder, a question to oneself — and
+ * it lives *inside* a slide's zone tree, so publishing the slides publishes it
+ * too unless something takes it out. Nothing draws it, but «invisible in the
+ * viewer» is not the promise: what leaves this machine is the promise, and a
+ * published document is a file anybody with the link can read.
+ *
+ * The zone itself stays, with its kind and its place in the tree. It is
+ * deliberate composition — most often the rectangle a picture has not arrived
+ * in yet — and removing it would reflow every sibling around it, so a shared
+ * deck would not be the deck the author laid out. What is removed is the text,
+ * which is the only part anybody could read.
+ */
+function withoutNoteText(slides: DeckSlides): DeckSlides {
+  return mapDeckContents(slides, (content) =>
+    content.kind === 'note' && content.text !== '' ? { ...content, text: '' } : content,
+  )
+}
+
+/**
  * Cut the publishable snapshot out of a presentation.
  *
  * Both the reference list and the asset list are narrowed by the same traversal
  * the rest of the app uses — `splitReferences` for what is cited, `slideAssetIds`
  * for what is shown — rather than by a second implementation that could drift
  * from it. The sandbox is not consulted by either, which is the point: content
- * parked there is unfinished work, not part of the deck.
+ * parked there is unfinished work, not part of the deck. The image brief is not
+ * listed here at all, for the same reason and by the same default: a field that
+ * is not named is a field that is not published.
  */
 export function buildSharedSnapshot(
   presentation: Presentation,
@@ -93,7 +118,7 @@ export function buildSharedSnapshot(
     schemaVersion: presentation.schemaVersion,
     title: presentation.title,
     theme: presentation.theme,
-    slides: presentation.slides,
+    slides: withoutNoteText(presentation.slides),
     references: splitReferences(presentation).used,
     assets: presentation.assets.filter((asset) => shownAssetIds.has(asset.id)),
     publishedAt,

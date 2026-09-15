@@ -106,10 +106,10 @@ export const SPLIT_RULE =
  * The short form, for the agent that has not yet decided it needs a picture.
  *
  * Long enough to make the choice, short enough for a system instruction; the
- * two halves below carry the rest, each on the tool that stores that kind.
+ * halves below carry the rest, each on the tool that stores or plans that kind.
  */
 export const IMAGE_POLICY_SUMMARY =
-  'Vektor og raster er ikke samme verktøy. Grafer, plott, diagrammer, flytskjemaer, enkel ikonografi og geometriske illustrasjoner skal være SVG, og skal forbli SVG. Fotografiske, naturtro, kunstneriske eller visuelt komplekse motiver skal være rasterbilder fra en egnet bildegenerator.'
+  'Vektor og raster er ikke samme verktøy. Grafer, plott, diagrammer, flytskjemaer, enkel ikonografi og geometriske illustrasjoner skal være SVG, og skal forbli SVG. Fotografiske, naturtro, kunstneriske eller visuelt komplekse motiver skal være rasterbilder fra en egnet bildegenerator; har du ingen, planlegger du bildet i stedet for å improvisere en erstatning.'
 
 /** The vector half, on the tool that writes markup. */
 export const VECTOR_POLICY: readonly string[] = [
@@ -122,8 +122,43 @@ export const VECTOR_POLICY: readonly string[] = [
 export const RASTER_POLICY: readonly string[] = [
   'Fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner skal normalt være rasterbilder laget av en egnet bildegenerator.',
   'Ikke lever en hjemmelaget, rasterisert SVG i stedet for et slikt bilde.',
-  'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig.',
+  'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig – og legg igjen et bildenotat i sonen bildet skal ha, så brukeren kan lage filen selv og sette den inn i den geometrien du planla.',
 ]
+
+/* ------------------------------------------------------------------ *
+ * Planning a picture that will be made somewhere else
+ * ------------------------------------------------------------------ */
+
+/**
+ * How an agent reserves a picture's place without pretending to have made it.
+ *
+ * The concrete answer to the last line of `RASTER_POLICY`. Saying «I have no
+ * image model» is honest but leaves the deck with a hole; this is what to do
+ * instead, and it rides on `set_zone_card` — the call that creates a note —
+ * rather than in the instructions, because it is only actionable once the
+ * agent is already choosing what a particular zone holds.
+ *
+ * The two halves that make it work are the two things an agent would otherwise
+ * get wrong: the zone has to be big enough for the *picture*, not for the note
+ * (a note has no minimum size at all), and the style belongs in the deck's one
+ * brief rather than repeated in every prompt.
+ */
+export const IMAGE_NOTE_POLICY: readonly string[] = [
+  'Et notat med `notePurpose: "image-prompt"` reserverer geometrien til et bilde som skal lages et annet sted: komponer sliden ferdig, lag sonen bildet skal ha, og skriv prompten i notatet.',
+  'Opprett et slikt notat i en sone der `image` faktisk er en tillatt innholdstype – notatet selv har ingen minstestørrelse, men bildet som skal overta sonen har det.',
+  'Skriv motivet, de viktige objektene, handlingen, nødvendig faglig presisjon, komposisjonen, kameravinkelen når den betyr noe, hvilken del av bildet som skal bære tyngden, ønsket format eller orientering tilpasset sonens rektangel, nødvendig negativ plass, og hva som ikke skal forekomme i akkurat dette bildet.',
+  'Ikke gjenta dekkets felles bildebrief i hvert notat: den ligger allerede i konteksten der bildet lages, og notatet beskriver motivet.',
+]
+
+/**
+ * The deck's shared visual premise, on the tool that writes it.
+ *
+ * One brief per presentation, written before the individual prompts, because
+ * its whole purpose is that the pictures come back looking like one deck rather
+ * than like several.
+ */
+export const IMAGE_BRIEF_RULE =
+  'Skriv dekkets felles bildebrief før de enkelte bildepromptene: den beskriver hvordan bildene skal se ut – uttrykk, realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås – og aldri hva et enkelt bilde skal vise. Motivene hører hjemme i notatet i den enkelte sonen.'
 
 /** Where the same thinking is written out at length, for a reader. */
 export const DESIGN_DOCS_PATH = 'docs/AGENT_PRESENTATION_DESIGN.md'

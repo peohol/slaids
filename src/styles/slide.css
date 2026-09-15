@@ -75,6 +75,19 @@
   background: none;
 }
 
+/*
+ * A note: editorial text that belongs to the zone and is never presented.
+ *
+ * Nothing is painted here either. What the editor puts inside it — the handle
+ * that opens the note — is passed in as `renderNote` and styled in
+ * `editor.css`, so the audience-facing renderers leave this box empty. Air and
+ * a note therefore look identical to everyone but the author, which is exactly
+ * the promise: a note reserves geometry, never ink.
+ */
+.zone-content--note {
+  background: none;
+}
+
 .card-header {
   display: flex;
   align-items: center;

@@ -32,6 +32,9 @@ export const CONTENT_KIND_ICONS: Record<ZoneContentKind, IconName> = {
      the end of the list — and the only one left in a zone too small for the
      rest. */
   'negative-space': 'negative-space',
+  /* Beside air, and after it: a note draws nothing either, but it is editorial
+     work parked in a zone rather than a finished compositional choice. */
+  note: 'note',
 }
 
 /** The kinds, in the order they are offered everywhere. */

@@ -397,3 +397,41 @@ export type InteractiveStyleContract = (typeof INTERACTIVE_STYLE_CONTRACTS)[numb
 
 /** What a slide made today is written against. */
 export const CURRENT_INTERACTIVE_STYLE_CONTRACT: InteractiveStyleContract = 1
+
+/* ------------------------------------------------------------------ *
+ * Editorial text: notes and the deck's image brief
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a note is for.
+ *
+ * A closed list rather than free text, so the editor's label, the schema and
+ * the agent's enum are the same three words — and so a purpose added later is
+ * one edit here rather than three that can disagree. `'general'` is first
+ * because it is what a note is until somebody says otherwise.
+ */
+export const NOTE_PURPOSES = ['general', 'image-prompt'] as const
+
+export type NotePurpose = (typeof NOTE_PURPOSES)[number]
+
+/**
+ * The longest a single note may be, in characters.
+ *
+ * A note is editorial working text — most often one image prompt meant to be
+ * copied into a chat window — not a document. The bound is here because the
+ * note rides inside the presentation document on every save and every agent
+ * call, exactly like a miniapp's source, and because a field with no bound is
+ * a field somebody eventually pastes a book into. Characters rather than
+ * bytes: this is prose a person writes and reads back, and the number is what
+ * a refusal has to be able to state in the same unit the writer counts in.
+ */
+export const MAX_NOTE_CHARS = 8000
+
+/**
+ * The longest the deck's image brief may be, in characters.
+ *
+ * One brief per presentation — the shared visual premise every image prompt in
+ * the deck is written against — so it is a paragraph or two, not a style guide.
+ * Same unit and the same reasoning as `MAX_NOTE_CHARS`.
+ */
+export const MAX_IMAGE_BRIEF_CHARS = 8000

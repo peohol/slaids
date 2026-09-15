@@ -254,8 +254,10 @@ stedet på ett spørsmål, i `src/domain/contentSize.ts`:
 
 - **Negativt rom** (§7.1) har ingen minstestørrelse. Det tegner ingenting, så
   ingen rektangel er for lite for det.
+- **Et notat** (§7.2) har heller ingen. Knappen editoren tegner i sonen er
+  krom, ikke komposisjon, og måles aldri.
 - **En tom sone** — `content: null` — har heller ingen. Den tegner heller
-  ingenting; forskjellen på de to er hva de *betyr*, ikke hvor små de kan være.
+  ingenting; forskjellen på de tre er hva de *betyr*, ikke hvor små de kan være.
 - **Tekstbærende typer** (`container`, `untitled-card`, `titled-card`) trenger
   bredden en linje løpende tekst er lesbar i, og høyden av sitt eget krom pluss
   én linje: kortpadding, og for et kort med tittel også tittelfeltets høyde.
@@ -308,6 +310,160 @@ innholdet i sandkassen først, og den tømte sonen kan så gjøres til luft.
 
 Å legge til innholdstypen krevde ingen migrasjon: ingen lagret dokument endrer
 form, og et lagret tomt blad er fortsatt `content: null`.
+
+---
+
+## 7.2\. Notat
+
+Et notat er **redaksjonell tekst som hører til én sone og aldri vises for
+publikum**. Innholdstypen `note`:
+
+```ts
+interface NoteContent {
+  id: string
+  kind: 'note'
+  text: string
+  purpose: 'general' | 'image-prompt'
+}
+```
+
+- **Teksten er ren tekst**, ikke rich text. Alt et notat bærer er ment å bli
+  markert og limt inn i en annen tekstboks, der formatering går tapt uansett;
+  rich text her ville vært en andre dokumentmodell å migrere, validere og
+  rendre uten en leser.
+- **`purpose` er påkrevd.** `note` er en ny innholdstype, så det finnes ingen
+  lagret notat fra før feltet fantes og ingen «ingen har valgt»-tilstand å
+  skille fra et valg. `'image-prompt'` sier at sonen er reservert til et bilde
+  og at teksten er prompten som skal lage det; editoren skriver «Bildeprompt»
+  i stedet for «Notat» på knappen.
+- **Lengden er avgrenset** av `MAX_NOTE_CHARS`, av samme grunn som en miniapp
+  er det: notatet ligger inne i presentasjonsdokumentet og rir med på hver
+  lagring og hvert agentkall.
+
+### Editoren tegner en knapp; ingen andre tegner noe
+
+I editoren viser sonen et enkelt redaksjonelt affordance: et ikon og navnet på
+notatet, som åpner det i en modal. Knappen prøver aldri å vise notatteksten —
+en prompt er et avsnitt, en sone kan være hundre piksler høy, og en forhåndsvisning
+som noen ganger er lesbar og ellers er tre avkuttede ord er verre enn en etikett
+som alltid sier det samme.
+
+**Knappen er editor-krom, ikke komposisjon.** Den er ikke en del av presentasjonens
+design, inngår ikke i content-fit og setter ingen minstestørrelse. Den tegnes over
+sonen, og i en svært smal sone folder etiketten seg bort slik at ikonet står alene
+— en notatsone skal kunne være vilkårlig liten uten at layouten blir ugyldig.
+
+I sonemodus tegnes den samme merkelappen, men inert: et trykk der velger sonen,
+slik det gjør over et korts tekst.
+
+I **presentasjonsmodus, hos spilleren, i en publisert presentasjon, i
+publikumsorientert preview og i eksport** er en notatsone en tom flate. Ingen
+knapp, intet ikon, ingen bakgrunn, ingen ramme, ingen tekst, ingen etikett.
+Mekanikken er at `ZoneContentFrame` tegner ingenting i en notatsone med mindre
+kalleren sender inn en `renderNote` — og bare editoren gjør det. En renderer som
+glemmer den, viser en tom sone, som er det trygge svaret; en gren på `isStatic`
+ville gjort publikumstilfellet til det man må huske.
+
+**Sonens geometri finnes fortsatt**, fordi hele poenget kan være at notatet
+reserverer plassen til et bilde som skal settes inn senere.
+
+### Notat er ikke negativt rom
+
+- `negative-space` = «Her skal det med hensikt ikke være visuelt innhold.»
+- `note` = «Her finnes redaksjonelt arbeid publikum ikke skal se, og sonen kan
+  senere få annet innhold.»
+
+Sammen med `content: null` er dette **tre** tilstander som ikke tegner noe og som
+ingen av dem har en minstestørrelse. De skilles overalt på `kind`, aldri på hva
+sonen tilfeldigvis tegner: `inspect_slide` svarer `empty: true`,
+`contentKind: 'negative-space'` eller `contentKind: 'note'` med `noteText` og
+`notePurpose`.
+
+### Konvertering går ikke gjennom et notat
+
+Et notat har en payload, og den payloaden hører ikke hjemme på sliden. Derfor
+avvises konverteringen **begge veier** når det er noe å miste:
+
+- *inn i* et notat, fra en sone som har innhold — et notat har ingen plass til
+  rich text;
+- *ut av* et notat som har tekst — teksten er redaksjonell og skal ikke bli
+  innhold publikum leser.
+
+Det er den samme regelen som for negativt rom, og den har det samme svaret:
+«Tøm sone» parkerer innholdet i sandkassen, og den tømte sonen konverterer fritt.
+Legger brukeren et bilde i sonen fra opplastingsdialogen, gjelder vanlig
+replace-semantikk: bildet overtar sonen og notatet parkeres i sandkassen.
+
+### Minstestørrelse
+
+`note` har ingen minstestørrelse, fordi den ikke tegner noe. Det gjelder typen.
+Agentens *planlegging* er en annen sak: et bildenotat reserverer geometrien det
+fremtidige bildet skal bruke, så det skal opprettes i en sone der `image`
+faktisk er en tillatt innholdstype. Det er en instruks til agenten (se
+`docs/AGENT_PRESENTATION_DESIGN.md` §11.5), ikke en regel i `contentSize.ts`:
+`note` er en generell redaksjonell innholdstype, ikke en bildeplassholder.
+
+### Publisering
+
+Snapshotet bygges ved å liste hva som skal med (§43.5), men notatet ligger
+*inne i* sonetreet og ville fulgt med slidene. Derfor tømmes hver notattekst på
+vei ut: sonen publiseres med sin kind og sin plass i treet, og `text` er `''`.
+«Usynlig i viseren» er ikke løftet — det som forlater maskinen er løftet, og et
+publisert dokument er en fil alle med lenken kan lese. Sonen blir stående, fordi
+den er bevisst komposisjon og fordi å fjerne den ville flyttet alle søsknene.
+
+Å legge til innholdstypen krevde ingen migrasjon, av samme grunn som negativt
+rom ikke gjorde det: ingen lagret dokument endrer form.
+
+---
+
+## 7.3\. Bildebrief
+
+Slaids genererer ikke bilder, og vanlig Slaids/MCP har ikke tilgang til en
+generativ bildemodell. Arbeidsflyten for genererte rasterbilder er derfor:
+agenten planlegger bildene, brukeren lager dem i en samtale med en assistent som
+har bildeverktøy, og setter dem inn i sonene som allerede står klare.
+
+For at bildene skal få et konsistent visuelt uttrykk, har presentasjonen **én
+bildebrief**:
+
+```ts
+interface Presentation {
+  imageBrief?: string
+}
+```
+
+- **Presentasjonsnivå-metadata**, ikke en sone på første slide.
+- **Vises aldri for publikum**, og publiseres aldri: snapshotet lister hva som
+  skal med, og briefen er ikke på listen.
+- **Valgfri, og fraværende betyr «dekket har ingen»**. Feltet skrives aldri inn
+  som tom streng — å åpne dialogen og lukke den igjen skal la dokumentet være
+  som det var — og det krevde ingen migrasjon og ingen ny `schemaVersion`, av
+  samme grunn som `AssetRef.contentHash` ikke gjorde det. Ingen eksisterende
+  presentasjon får en tom bildebrief skrevet inn fordi skjemaet endret seg.
+- **Avgrenset** av `MAX_IMAGE_BRIEF_CHARS`.
+- **Lagres nøyaktig som den ble skrevet.** Dialogen er et kontrollert felt som
+  kjører kommandoen på hvert tastetrykk og viser tilbake det som ble lagret, så
+  alt kommandoen normaliserer er et tegn forfatteren ser forsvinne under
+  markøren. Et avsluttende mellomrom er slutten på hvert ord i en setning
+  bortsett fra det siste, og et avsluttende linjeskift er et avsnittsskift. Tomhet
+  er derfor et *spørsmål* kommandoen stiller til verdien, aldri en endring den
+  gjør på den. Det samme gjelder notatteksten (§7.2).
+
+Briefen beskriver **hvordan bildene skal se ut — ikke hva de skal vise**: uttrykk,
+realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter,
+detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og
+gjenstander fremstilles, og hva som konsekvent skal unngås. Motivene hører hjemme
+i notatet i den enkelte sonen.
+
+Editoren har én knapp, «Bildebrief», som åpner den samme dialogflaten et notat
+bruker: ett stort tekstfelt og én kopier-knapp, slik at hele briefen kan limes
+inn i starten av en samtale i én gest. Begge lagres mens man skriver, som all
+annen redigering i editoren.
+
+Agentflaten er `set_image_brief` for å skrive og `get_presentation` for å lese;
+den ligger på presentasjonsvisningen av samme grunn som temaet gjør — den er én
+liten ting som gjelder hele dekket, og hver bildeprompt avhenger av den.
 
 ---
 
@@ -1408,6 +1564,13 @@ Et kort med tittel (§13.3) der innholdsfeltet i sin helhet er et bilde:
 
 De to bildetypene bærer den samme `ImagePanel`, så det finnes ett utsnitt, én
 bildetekst og én renderer (`ImagePanelView`) for begge.
+
+### 13.7 Notat
+
+Redaksjonell tekst som hører til sonen og aldri vises for publikum. Den fulle
+regelen står i §7.2, fordi den hører sammen med negativt rom og minstemålene:
+begge tegner ingenting, begge har ingen minstestørrelse, og forskjellen på dem
+er hva de betyr.
 
 ---
 
@@ -3161,6 +3324,7 @@ list_presentations
 get_presentation
 create_presentation
 set_presentation_title
+set_image_brief
 move_presentation
 duplicate_presentation
 delete_presentation
@@ -4079,10 +4243,10 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   tekstformatet; `assetStore.ts` er den ene veien et asset kommer inn;
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `list_folders`, `get_presentation` (som også
-  bærer temaet og `sandboxCount`), `inspect_slide`, `list_assets`,
+  bærer temaet, `sandboxCount` og bildebriefen), `inspect_slide`, `list_assets`,
   `list_sandbox_items`, `validate_slide`, `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
-- Skriving: `create_presentation`, `set_presentation_title`,
+- Skriving: `create_presentation`, `set_presentation_title`, `set_image_brief`,
   `create_folder`, `delete_folder`,
   `move_presentation`, `duplicate_presentation`, `delete_presentation`,
   `set_theme`, `add_section`, `set_section`, `set_section_colors`, `add_slide`,

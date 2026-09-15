@@ -99,6 +99,8 @@ import { ShortcutsModal } from './ShortcutsModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
 import { TextToolbar } from './TextToolbar'
+import { ImageBriefModal } from './ImageBriefModal'
+import { NoteModal } from './NoteModal'
 import { ThemeModal } from './ThemeModal'
 import { PresentView } from '../present/PresentView'
 import { DRAG_ACTIVATION, SurfacePointerSensor } from './dragActivation'
@@ -186,6 +188,15 @@ export function EditorView({
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
+  const [imageBriefOpen, setImageBriefOpen] = useState(false)
+  /**
+   * The zone whose note is open, or `null`.
+   *
+   * The id and not the note: a note is content in the document, so the dialog
+   * reads the live one every render and cannot show text an undo has already
+   * taken back.
+   */
+  const [noteNodeId, setNoteNodeId] = useState<string | null>(null)
   /**
    * The image dialog, and whether it still has a question to ask.
    *
@@ -1396,6 +1407,10 @@ export function EditorView({
         useEditorStore.getState().selectNode(nodeId)
         setImageOpen('zone')
       }}
+      onOpenNote={(nodeId) => {
+        useEditorStore.getState().selectNode(nodeId)
+        setNoteNodeId(nodeId)
+      }}
       dropTargets={dropTargets}
       // While a field is focused, a press means "put the caret here" again —
       // which is what the field was made big enough for.
@@ -1432,6 +1447,7 @@ export function EditorView({
       slide={contentSlide}
       actions={zoneActions}
       onAddContent={addContentTo}
+      onOpenNote={setNoteNodeId}
       onOptimizeImage={(nodeId) =>
         setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
       }
@@ -1487,6 +1503,7 @@ export function EditorView({
       onToggleSandbox: () => setSandboxOpen((open) => !open),
       onPresent: () => setPresenting(true),
       onOpenTheme: () => setThemeOpen(true),
+      onOpenImageBrief: () => setImageBriefOpen(true),
       onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
       onToggleShare: toggleShare,
     },
@@ -1677,6 +1694,14 @@ export function EditorView({
         onApplyTemplate={createSlideFromTemplate}
       />
       <ThemeModal open={themeOpen} onOpenChange={setThemeOpen} />
+      {imageBriefOpen && <ImageBriefModal onClose={() => setImageBriefOpen(false)} />}
+      {contentSlide && (
+        <NoteModal
+          slideId={contentSlide.id}
+          nodeId={noteNodeId}
+          onClose={() => setNoteNodeId(null)}
+        />
+      )}
       <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {imageOpen && (
         <ImageUploadModal
