@@ -1,5 +1,17 @@
-import { expect, test } from './fixtures'
+import { expect, test, type Locator } from './fixtures'
 import { createPresentation } from './helpers'
+
+async function expectEvenChevronSpacing(picker: Locator): Promise<void> {
+  const pickerBox = await picker.boundingBox()
+  const chevronBox = await picker.locator('.folder-select__chevron').boundingBox()
+  if (!pickerBox || !chevronBox) throw new Error('Kunne ikke måle mappefeltet.')
+
+  const top = chevronBox.y - pickerBox.y
+  const bottom = pickerBox.y + pickerBox.height - (chevronBox.y + chevronBox.height)
+  const right = pickerBox.x + pickerBox.width - (chevronBox.x + chevronBox.width)
+  expect(Math.abs(top - bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(right - top)).toBeLessThanOrEqual(1)
+}
 
 test('folder picker stays inside a narrow card and fades only clipped names', async ({ page }) => {
   // Stay just above the compact breakpoint while making the desktop card as
@@ -29,19 +41,19 @@ test('folder picker stays inside a narrow card and fades only clipped names', as
 
   const cardBox = await card.boundingBox()
   const pickerBox = await picker.boundingBox()
-  const chevronBox = await picker.locator('.folder-select__chevron').boundingBox()
-  if (!cardBox || !pickerBox || !chevronBox) throw new Error('Kunne ikke måle mappefeltet.')
+  if (!cardBox || !pickerBox) throw new Error('Kunne ikke måle presentasjonskortet.')
 
   // The control remains inside the card and its footer padding instead of
   // being clipped by the card's overflow boundary.
   expect(pickerBox.x).toBeGreaterThanOrEqual(cardBox.x + 9)
   expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width - 9)
 
-  // The custom chevron has the same breathing room above, below and to the
-  // right, which also moves it in from the browser select's old edge position.
-  const top = chevronBox.y - pickerBox.y
-  const bottom = pickerBox.y + pickerBox.height - (chevronBox.y + chevronBox.height)
-  const right = pickerBox.x + pickerBox.width - (chevronBox.x + chevronBox.width)
-  expect(Math.abs(top - bottom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(right - top)).toBeLessThanOrEqual(1)
+  // The custom chevron has equal breathing room above, below and to the right.
+  await expectEvenChevronSpacing(picker)
+
+  // Compact controls are taller touch targets. The arrow moves farther in on
+  // those too, rather than keeping the desktop inset and hugging the edge.
+  await page.setViewportSize({ width: 430, height: 800 })
+  await expect(page.locator('html')).toHaveAttribute('data-compact', 'true')
+  await expectEvenChevronSpacing(picker)
 })
