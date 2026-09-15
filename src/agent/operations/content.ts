@@ -57,6 +57,7 @@ import {
   IMAGE_CONTENT_KINDS,
   imagePanelOf,
   TITLED_CONTENT_KINDS,
+  ZONE_CONTENT_KINDS,
 } from '../../domain/content'
 import { MAX_NOTE_CHARS, NOTE_PURPOSES } from '../../domain/constants'
 import { findLeaf, findNode } from '../../domain/layout'
@@ -269,16 +270,19 @@ export const setZoneCard = defineOperation({
     expectedRevision: expectedRevisionSchema,
     slideId: slideIdSchema,
     nodeId: nodeIdSchema,
+    /*
+     * The domain's own list, not a copy of it.
+     *
+     * Every kind a zone can hold is a kind this operation converts to, through
+     * the same `setContentKind` the editor's picker uses — so writing the seven
+     * names out here would be a second list to keep in step with the first, and
+     * the failure it invites is the quiet one: a kind added to the domain that
+     * `inspect_slide` advertises in `availableContentKinds` while this schema
+     * rejects it. That is not hypothetical — it is exactly what the two picture
+     * kinds were until this change.
+     */
     kind: z
-      .enum([
-        'container',
-        'untitled-card',
-        'titled-card',
-        'image',
-        'titled-image-card',
-        'negative-space',
-        'note',
-      ])
+      .enum(ZONE_CONTENT_KINDS)
       .describe(
         '`container` er et gjennomsiktig kort; `untitled-card` og `titled-card` har bakgrunn. ' +
           '`image` er et bilde uten ramme, og `titled-image-card` er det samme bildet med en ' +
