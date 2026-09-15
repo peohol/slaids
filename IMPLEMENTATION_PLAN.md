@@ -877,7 +877,32 @@ Agentflaten: `get_interactive_contract` (`presentations:read`) svarer med
 kontraktversjonen, variabelnavnene — lest av tokenene selv, ikke listet ved siden
 av dem — flatestørrelsen, grensene og hva sandkassen nekter, så en agent kan
 oppdage at typen finnes og hva den skriver mot uten å kjenne en eneste font eller
-farge. `add_interactive_slide` og `set_interactive_slide` (begge
+farge.
+
+Variablene er den lette halvdelen. Den som stille går galt er layout — en
+høydekjede som ikke er avgrenset, flere konkurrerende rulleflater, en
+avstandsskala funnet opp per element — og ingenting av det synes på det første
+skjermbildet. Kontrakten svarer derfor også med `layout`, de obligatoriske
+strukturkravene som tekst (én tydelig rot, avgrenset høydekjede,
+`box-sizing: border-box`, `html, body` uten default-marger, nøyaktig én navngitt
+vertikal rulleflate med `min-height: 0` og `overflow-y: auto`, at `overflow-x`
+ikke er et bevis på at innholdet har plass, én eier per avstand gjennom
+`--slaids-gap`/`--slaids-padding`/`--slaids-block-spacing`, panelbasert og
+balansert hovedinnhold, og friplassen til «Avslutt miniapp»), og med `starter`,
+de samme reglene som det minste skallet som følger dem. En agent på den andre
+siden av MCP har ingen utsjekking å lese, så reglene leveres i stedet for å
+henvises til.
+
+Begge feltene er **additive forfatterdata og bumper ikke `styleContract`**.
+Versjonen over beskytter runtime-CSS-en og tokenene en app som alt finnes kunne
+merke; en regel eller et skall som beskriver hvordan en *ny* fil bør skrives,
+endrer ingen lagret app. Sannhetskilden er `INTERACTIVE_LAYOUT_RULES`,
+`INTERACTIVE_STARTER_SKELETON` og `INTERACTIVE_EXIT_CLEARANCE` i
+`src/domain/interactiveStyle.ts`; `docs/INTERACTIVE_MINIAPPS.md` peker dit i
+stedet for å kopiere dem, og eksemplene i `examples/interactive-miniapps/`
+måles mot skallet.
+
+`add_interactive_slide` og `set_interactive_slide` (begge
 `presentations:write`) går gjennom nøyaktig de samme kommandoene, så en agents
 fil møter den samme døren som et menneskes. `get_presentation` og
 `inspect_slide` beskriver sliden med navn, filnavn og `htmlByteSize` – aldri
@@ -899,7 +924,10 @@ Enhet: `src/domain/interactive.test.ts` (endelse, navn, dekoding, NUL,
 elementkrav, bytegrense i UTF-8, budsjett),
 `src/domain/interactiveStyle.test.ts` (variablene er dekkets egne tall og
 seksjonens farger, de to fontrollene, basisarket som bare leser variabler og
-bare bruker elementselektorer, ett ark per versjon),
+bare bruker elementselektorer, ett ark per versjon, strukturreglene som sier
+rulle-, høyde-, avstands- og box-sizing-kravene direkte, skallet som følger sine
+egne regler med nøyaktig én rulleflate og uten egne farger eller fontstørrelser,
+og eksemplene som fortsatt bærer skallets bærende regler),
 `src/ui/interactive/documentStyle.test.ts` (fonter som `data:`-URL-er uten noe
 igjen som peker på en vert, ingenting hentet for en systemstakk, tom CSS når en
 font ikke kan hentes, rekkefølgen fonter → variabler → basisark),
@@ -912,7 +940,8 @@ Dexie og `.slaids`-rundtur byte for byte, store-oppførsel,
 `src/ui/interactive/sandboxDocument.test.ts` (policyen som data, rekkefølgen,
 escapingen, én ramme og ett skript uansett fil), `src/agent/interactive.test.ts`
 (operasjonene, avvisninger med kode, ingen kilde i lister eller inspeksjon,
-scopes, kontrakten som data med variabelnavn lest av tokenene selv, filen sendt
+scopes, kontrakten som data med variabelnavn lest av tokenene selv og med
+strukturreglene og startskallet levert direkte, filen sendt
 som `content` i stedet for som JSON-streng), `src/render/document.test.tsx` (previewen er forsiden),
 `src/ui/slide/interactive.test.tsx` (forside uten aktivering og uten merkelapp
 eller filnavn; flaten monterer og avmonterer rammen, holder låsen, gir fokus

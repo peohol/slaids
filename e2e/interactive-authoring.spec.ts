@@ -1,16 +1,24 @@
 /** Authoring examples must fit the real v1 stylesheet, not browser defaults.
  * This is a layout harness. The existing interactive/security specs cover the
  * full editor/player flow and host security; this spec does not replace them.
+ *
+ * The skeleton `get_interactive_contract` hands an agent is mounted here too:
+ * it is what an agent with no checkout starts from, so it has to lay out under
+ * the same stylesheet and the same theme extremes as the worked examples.
  */
 import { readFileSync } from 'node:fs'
 import { test, expect, type FrameLocator, type Page } from '@playwright/test'
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from '../src/domain/constants'
 import { defaultTheme } from '../src/domain/presentation'
 import { FONT_SCALE_RANGE, SPACING_RANGE, DEFAULT_SPACING, DEFAULT_FONT_SCALE } from '../src/domain/metrics'
-import { interactiveBaseStylesheet, interactiveThemeCss } from '../src/domain/interactiveStyle'
+import { INTERACTIVE_STARTER_SKELETON, interactiveBaseStylesheet, interactiveThemeCss } from '../src/domain/interactiveStyle'
 import { buildInteractiveWrapperDocument, escapeHtmlAttribute, INTERACTIVE_SANDBOX_FLAGS } from '../src/ui/interactive/sandboxDocument'
 
 const examples = ['starter.html', 'system-test.html'] as const
+const sources: Record<string, string> = {
+  ...Object.fromEntries(examples.map(file => [file, readFileSync(new URL(`../examples/interactive-miniapps/${file}`, import.meta.url), 'utf8')])),
+  'agent-startskall': INTERACTIVE_STARTER_SKELETON,
+}
 const variants = [
   { name: 'normal-light', spacing: DEFAULT_SPACING, fontScale: DEFAULT_FONT_SCALE, dark: false, font: 'Arial, sans-serif', scale: 1 },
   { name: 'normal-dark-serif', spacing: DEFAULT_SPACING, fontScale: DEFAULT_FONT_SCALE, dark: true, font: 'Georgia, serif', scale: 1 },
@@ -19,8 +27,8 @@ const variants = [
   { name: 'maximum-scaled-serif', spacing: SPACING_RANGE.max, fontScale: FONT_SCALE_RANGE.max, dark: false, font: 'Georgia, serif', scale: 0.75 },
 ]
 
-async function mount(page: Page, file: (typeof examples)[number], variant = variants[0]): Promise<FrameLocator> {
-  const html = readFileSync(new URL(`../examples/interactive-miniapps/${file}`, import.meta.url), 'utf8')
+async function mount(page: Page, file: string, variant = variants[0]): Promise<FrameLocator> {
+  const html = sources[file]
   const theme = { ...defaultTheme(), spacing: variant.spacing, fontScale: variant.fontScale, headingFontFamily: variant.font, bodyFontFamily: variant.font }
   const colors = variant.dark ? { background: '#192737', accent: '#ebc277' } : { background: '#eff2f5', accent: '#33475b' }
   const styleCss = `${interactiveThemeCss({ theme, colors })}\n${interactiveBaseStylesheet(1)}`
@@ -58,7 +66,7 @@ async function layout(app: FrameLocator, fits: boolean) {
 }
 
 for (const variant of variants) {
-  for (const file of examples) test(`${file}: ${variant.name}`, async ({ page }) => {
+  for (const file of Object.keys(sources)) test(`${file}: ${variant.name}`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     const app = await mount(page, file, variant)

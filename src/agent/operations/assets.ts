@@ -17,6 +17,7 @@
  */
 
 import { z } from 'zod'
+import { RASTER_POLICY, VECTOR_POLICY } from '../design'
 import {
   hasAsset,
   removeAsset,
@@ -82,7 +83,8 @@ const uploadAssetTransportInput = z.strictObject({
 export const uploadAsset = defineOperation({
   name: 'upload_asset',
   summary:
-    'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv. En fil med nøyaktig samme bytes som en presentasjonen alt har, lagres ikke igjen: svaret peker på den eksisterende filen, med deduplicated: true.',
+    'Lagre en ferdig bildefil i en presentasjon og få tilbake en assetId. Slaids genererer ikke bilder selv; filen kommer fra ditt eget miljø. En fil med nøyaktig samme bytes som en presentasjonen alt har, lagres ikke igjen: svaret peker på den eksisterende filen, med deduplicated: true. ' +
+    RASTER_POLICY.join(' '),
   mutates: true,
   scopes: ['assets:write'],
   input: uploadAssetInput,
@@ -121,7 +123,8 @@ const createSvgAssetInput = z.strictObject({
 export const createSvgAsset = defineOperation({
   name: 'create_svg_asset',
   summary:
-    'Lag en vektorfil direkte fra SVG-markup og få tilbake en assetId. Markup som saneres til nøyaktig samme fil som en presentasjonen alt har, gjenbruker den (deduplicated: true).',
+    'Lag en vektorfil direkte fra SVG-markup og få tilbake en assetId. Markup som saneres til nøyaktig samme fil som en presentasjonen alt har, gjenbruker den (deduplicated: true). ' +
+    VECTOR_POLICY.join(' '),
   mutates: true,
   scopes: ['assets:write'],
   input: createSvgAssetInput,

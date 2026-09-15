@@ -58,7 +58,9 @@ import {
 } from '../../domain/constants'
 import {
   INTERACTIVE_DOCS_PATH,
+  INTERACTIVE_LAYOUT_RULES,
   INTERACTIVE_RESTRICTIONS,
+  INTERACTIVE_STARTER_SKELETON,
   interactiveThemeTokens,
 } from '../../domain/interactiveStyle'
 import {
@@ -206,7 +208,7 @@ function addInteractiveInput(content: z.ZodType<AgentFileContent>) {
 export const addInteractiveSlideOperation = defineOperation({
   name: 'add_interactive_slide',
   summary:
-    'Legg til en interaktiv slide: én selvstendig miniapp i én HTML-fil. Publikum ser en forside med navnet og starter appen selv, isolert fra Slaids, uten nettverk. Kilden lagres som data og kjøres aldri av Slaids.',
+    'Legg til en interaktiv slide: én selvstendig miniapp i én HTML-fil. Publikum ser en forside med navnet og starter appen selv, isolert fra Slaids, uten nettverk. Kilden lagres som data og kjøres aldri av Slaids. Skriv filen mot miniapp-kontrakten – rot, høydekjede, én rulleflate og Slaids-variablene for avstand – som hentes som data før du skriver HTML.',
   mutates: true,
   scopes: ['presentations:write'],
   input: addInteractiveInput(contentSchema),
@@ -336,6 +338,19 @@ export interface InteractiveContractView {
    * nothing stored rewritten.
    */
   variables: string[]
+  /**
+   * What the app's structure has to be, whatever it does.
+   *
+   * The variables above are the easy half: an app that names them is the right
+   * colour immediately. The half that goes wrong is layout — an unbounded
+   * height chain, several competing scroll boxes, a spacing scale invented per
+   * element — and none of it shows in a first screenshot. So the rules are
+   * handed over rather than left to be inferred, and an agent that never reads
+   * the repository still has them.
+   */
+  layout: readonly string[]
+  /** Those rules as the smallest file that obeys them, to start from. */
+  starter: string
   /** What the sandbox refuses. Stated so an agent does not write it and wonder. */
   restrictions: readonly string[]
   /** The prose contract, for a reader rather than a parser. */
@@ -345,7 +360,7 @@ export interface InteractiveContractView {
 export const getInteractiveContractOperation = defineOperation({
   name: 'get_interactive_contract',
   summary:
-    'Hva en interaktiv slide er og hvordan en miniapp skal skrives: designkontrakten Slaids injiserer, CSS-variablene appen skal bruke, størrelsen den tegnes i, grensene og hva sandkassen nekter.',
+    'Hva en interaktiv slide er og hvordan en miniapp skal skrives: designkontrakten Slaids injiserer, CSS-variablene appen skal bruke, de obligatoriske struktur-, rulle- og avstandsreglene, et minimalt startskall som følger dem, størrelsen appen tegnes i, grensene og hva sandkassen nekter. Hent den før du skriver HTML.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({}),
@@ -370,6 +385,8 @@ export const getInteractiveContractOperation = defineOperation({
             colors: { accent: DEFAULT_PILL_COLOR, background: DEFAULT_BACKGROUND_COLOR },
           }),
         ),
+        layout: INTERACTIVE_LAYOUT_RULES,
+        starter: INTERACTIVE_STARTER_SKELETON,
         restrictions: INTERACTIVE_RESTRICTIONS,
         documentation: INTERACTIVE_DOCS_PATH,
       }),
