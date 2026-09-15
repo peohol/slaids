@@ -16,8 +16,23 @@
  * else in the repository hardcodes them: the design space and the zone minimums
  * are the domain's, and an agent told a stale one would plan against a slide
  * Slaids does not have.
+ *
+ * The design rules are imported for the same reason. `agent/design.ts` holds
+ * them once; what is woven in here is the half an agent needs *before* its
+ * first call — decompose the material, then build the tree — and the applied
+ * detail stays on the contract of the tool that applies it, so no normative
+ * sentence exists twice with two chances to drift.
  */
 
+import {
+  BULLET_RULE,
+  IMAGE_POLICY_SUMMARY,
+  PARALLEL_RULE,
+  REPEATED_FALLBACK_RULE,
+  SEMANTIC_DECOMPOSITION,
+  SIMPLEST_TREE,
+  SINGLE_CONTAINER_RULE,
+} from '../../agent/design'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { AGENT_API_VERSION } from '../../routing'
 
@@ -42,12 +57,13 @@ Slik henger en presentasjon sammen:
 - Hvor liten en sone kan bli avhenger av hva som står i den. En tom sone, en sone satt til «negative-space» og en sone som holder et notat har ingen minstestørrelse – ingen av dem tegner noe på sliden. De tre betyr likevel tre forskjellige ting: et hull som ikke er fylt, bevisst luft som er et lovlig designgrep, og redaksjonell tekst parkert i en sone som skal få annet innhold senere. Kort, beholdere og bilder har hver sine minstemål, og når du leser en slide får du oppgitt hvilke innholdstyper som faktisk får plass i hver sone. Det er én fast avstand mellom alt synlig innhold, og den håndteres av Slaids – du regner ikke ut marger selv.
 
 Design før geometri:
-- **La innholdets logiske struktur bestemme sonetreet.** Velg aldri først «to kolonner», «tre kort» eller et annet vilkårlig layout og press deretter stoffet inn. Finn først ut om sliden uttrykker ett hovedpoeng med støtte, en sammenligning, en taksonomi, en sekvens, en oversikt med detaljer, et argument med evidens eller et fokus/pausepunkt. Bygg så det enkleste treet som gjør den relasjonen synlig.
-- **Likeverdige ting bør se likeverdige ut.** Sammenlignbare enheter er normalt søsken med samme innholdstype og like eller nesten like vekter. Tydelig ulike vekter skal uttrykke et reelt hierarki, ikke bare at én tekst tilfeldigvis er lengre.
+- **Dekomponer innholdet semantisk først.** ${SEMANTIC_DECOMPOSITION} Velg aldri først «to kolonner», «tre kort» eller et annet vilkårlig layout og press deretter stoffet inn. ${SIMPLEST_TREE}
+- **Én stor container med overskrift og punktliste er et valg, ikke et standardsvar.** ${SINGLE_CONTAINER_RULE} ${BULLET_RULE}
+- **${PARALLEL_RULE}** Tydelig ulike vekter skal uttrykke et reelt hierarki, ikke bare at én tekst tilfeldigvis er lengre.
 - **Bruk asymmetri når innholdet har hierarki.** Et hovedpoeng, en viktig figur eller en oppsummering kan få større flate enn støttende materiale. Nested splits er gode når én del faktisk har en egen intern struktur; ikke nest soner uten semantisk grunn.
-- **Soner er makrokomposisjon; subfelter er intern struktur.** Lag egne soner når deler skal ha selvstendig visuell rolle, ulik størrelse eller sammenlignes på tvers. Hold delene i samme kort/container når de til sammen er ett semantisk objekt.
-- **Velg innholdstype etter rolle.** Kort med tittel passer kategorier, faser og sammenligningsenheter. Kort uten tittel passer påstander og forklaringer der budskapet selv er overskriften. Bilde passer en selvstendig figur eller illustrasjon; bildekort med tittel passer et visuelt medlem av en katalog eller taksonomi. Tomme soner kan brukes bevisst som negativt rom innenfor gjeldende minstemål.
-- **Bruk gjentakelse som grammatikk, ikke som mal.** Parallelle konsepter bør ha samme visuelle behandling. Når informasjonsforholdet endres, kan geometrien også endres. Et godt dekk er konsistent i typografi, farger og semantiske roller uten at alle slides har samme layout.
+- **Soner er makrokomposisjon; subfelter er intern struktur.** Lag egne soner når deler skal ha selvstendig visuell rolle, ulik størrelse eller sammenlignes på tvers. Hold delene i samme kort/container når de til sammen er ett semantisk objekt. Verktøyet som setter innholdstype forklarer hvilken type hver rolle ber om.
+- **Sjekk deg selv underveis.** ${REPEATED_FALLBACK_RULE}
+- **Bilder: vektor der vektor hører hjemme.** ${IMAGE_POLICY_SUMMARY} Verktøyene som lagrer filene sier resten.
 - **Fit er redaksjonell tilbakemelding.** Hvis innhold ikke får plass, kort ned og prioriter først. Sjekk deretter grouping, vekter og trestruktur. Del sliden hvis den egentlig gjør flere kommunikative jobber. Ikke prøv å bevare all kildetekst ved å gjøre layouten stadig tettere.
 
 Nyttige startmønstre – bare når innholdsrelasjonen faktisk passer:
@@ -62,7 +78,7 @@ Nyttige startmønstre – bare når innholdsrelasjonen faktisk passer:
 
 Slik arbeider du:
 1. Inspiser før du skriver. Inspeksjonen gir deg id-ene til slider og soner, rektangelet hver sone faktisk får, teksten som ligger der, og om den får plass.
-2. Formuler hva sliden skal kommunisere, identifiser relasjonene mellom delene, og bygg deretter sonetreet og velg innholdstyper.
+2. Formuler hva sliden skal kommunisere, dekomponer stoffet i semantiske enheter, klassifiser relasjonene mellom dem, og bygg deretter sonetreet og velg innholdstyper.
 3. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
 4. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
 
@@ -70,8 +86,7 @@ Reglene som avgjør om et kall lykkes:
 - **Alt må få plass.** En endring som ville skjult innhold blir avvist før den lagres, med feilkoden CONTENT_DOES_NOT_FIT og hvor mange piksler som ble til overs. Svaret er å korte ned teksten, dele sonen annerledes eller gi den mer plass – ikke å prøve på nytt.
 - **Skriv mot det du leste.** Hver lesing svarer med en revisjon. Send den med på neste endring, så får du CONFLICT i stedet for å overskrive noen som skrev i mellomtiden. Da leser du på nytt før du prøver igjen.
 - **Du sender aldri editorens interne JSON.** Tekst er navngitte blokker med spans; en sitering er en referanse-id, ikke et tall du skriver selv.
-- **Slaids lager ikke bilder.** Det finnes ingen bildegenerering her og kommer ikke til å gjøre det. Et rasterbilde må du ha ferdig og laste opp, og en figur skriver du selv som SVG-markup. Begge blir helt vanlige filer du deretter plasserer i en sone.
-- **Trenger dekket et fotografi eller en fotorealistisk illustrasjon du ikke har fil til, så tegn den ikke som SVG.** SVG er for grafer, plott, diagrammer, flytskjemaer og geometriske forklaringsfigurer, og skal forbli vektor; et organisk motiv tegnet som primitiv vektor og lagt i en bildesone er dårligere enn ingenting. Komponer sliden ferdig, reserver sonen bildet skal ha, og legg et notat i den sonen med en ferdig prompt brukeren kan kopiere inn i en samtale med en assistent som har bildeverktøy. Notatet er redaksjonelt og vises aldri for publikum, og sonen beholder geometrien sin, så filen tar nøyaktig den plassen du planla når den kommer. Skriv i tillegg dekkets felles bildebrief – det visuelle uttrykket alle bildene skal dele – før du skriver de enkelte promptene, og la hver prompt beskrive bare motivet, komposisjonen og formatet sonen faktisk har.
+- **Slaids lager ikke bilder.** Denne serveren genererer ingen bilder. Et rasterbilde må du ha ferdig – fra ditt eget miljø – og laste opp, og en figur skriver du selv som SVG-markup. Begge blir helt vanlige filer du deretter plasserer i en sone. Mangler du en bildegenerator, er svaret et bildenotat i sonen bildet skal ha, ikke en hjemmelaget erstatning; verktøyene som lager innhold og skriver bildebriefen sier hvordan.
 
 Feil er svar, ikke unntak. Når et verktøy har kjørt og Slaids sier nei – CONTENT_DOES_NOT_FIT, CONFLICT, noe som ikke finnes, et scope du mangler – kommer det tilbake som et resultat med isError og en maskinlesbar kode i structuredContent.error. Les koden og detaljene: de sier hva som skal endres. Et kall som aldri var gyldig – et verktøy som ikke finnes, eller argumenter som ikke passer verktøyets skjema – kommer som en JSON-RPC-feil i stedet, med den samme koden i data.
 

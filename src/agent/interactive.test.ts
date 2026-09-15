@@ -14,7 +14,12 @@ import {
   MAX_INTERACTIVE_HTML_BYTES,
   MAX_INTERACTIVE_HTML_TOTAL_BYTES,
 } from '../domain/constants'
-import { INTERACTIVE_RESTRICTIONS, interactiveThemeTokens } from '../domain/interactiveStyle'
+import {
+  INTERACTIVE_LAYOUT_RULES,
+  INTERACTIVE_RESTRICTIONS,
+  INTERACTIVE_STARTER_SKELETON,
+  interactiveThemeTokens,
+} from '../domain/interactiveStyle'
 import { defaultTheme } from '../domain/presentation'
 import { encodeBase64 } from './binary'
 import { htmlOfBytes, interactiveAt } from '../domain/testDecks'
@@ -336,6 +341,8 @@ describe('get_interactive_contract', () => {
       canvas: { width: number; height: number }
       limits: { htmlByteSize: number; deckHtmlByteSize: number; fileExtension: string }
       variables: string[]
+      layout: string[]
+      starter: string
       restrictions: string[]
       documentation: string
     }>(context, 'get_interactive_contract', {})
@@ -383,6 +390,39 @@ describe('get_interactive_contract', () => {
       {},
     )
     expect(contract.restrictions).toEqual([...INTERACTIVE_RESTRICTIONS])
+  })
+
+  it('gir strukturreglene direkte, ikke som en henvisning til et dokument', async () => {
+    // The point of this field: an agent on the other side of MCP has no
+    // checkout to read. Colours it would get right anyway from the variables;
+    // the height chain, the single scroll owner and the spacing ownership are
+    // the half that silently goes wrong, so they are handed over as text.
+    const context = testAgentContext()
+    const contract = await agentOperation<{ layout: string[]; starter: string }>(
+      context,
+      'get_interactive_contract',
+      {},
+    )
+
+    expect(contract.layout).toEqual([...INTERACTIVE_LAYOUT_RULES])
+    const stated = contract.layout.join('\n')
+    for (const required of [
+      '#miniapp',
+      'box-sizing: border-box',
+      'min-height: 0',
+      'overflow-y: auto',
+      'overflow-x',
+      '--slaids-gap',
+      '--slaids-padding',
+      '--slaids-block-spacing',
+    ]) {
+      expect(stated).toContain(required)
+    }
+
+    // And the same rules as a file to start from, rather than only as prose.
+    expect(contract.starter).toBe(INTERACTIVE_STARTER_SKELETON)
+    expect(contract.starter).toContain('id="miniapp"')
+    expect(contract.starter).toContain('overflow-y: auto')
   })
 })
 

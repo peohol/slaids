@@ -22,6 +22,7 @@
  */
 
 import { z } from 'zod'
+import { CONTENT_KIND_RULE, IMAGE_NOTE_POLICY } from '../design'
 import {
   setBodyLayout,
   setCardColor,
@@ -240,7 +241,10 @@ export const setZoneText = defineOperation({
 export const setZoneCard = defineOperation({
   name: 'set_zone_card',
   summary:
-    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, negativt rom (bevisst luft som ikke tegner noe), eller et notat (redaksjonell tekst som aldri vises for publikum). Tekst som ligger der beholdes – bortsett fra ved negativt rom og notat, som ikke har plass til den og derfor krever en tom sone.',
+    'Velg hva slags innhold en sone har: gjennomsiktig beholder, kort uten tittel, kort med tittel, negativt rom (bevisst luft som ikke tegner noe), eller et notat (redaksjonell tekst som aldri vises for publikum). Tekst som ligger der beholdes – bortsett fra ved negativt rom og notat, som ikke har plass til den og derfor krever en tom sone. ' +
+    CONTENT_KIND_RULE +
+    ' ' +
+    IMAGE_NOTE_POLICY.join(' '),
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

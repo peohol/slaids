@@ -246,5 +246,99 @@ export const INTERACTIVE_RESTRICTIONS: readonly string[] = [
   'Ingen kontakt med Slaids: appen kan ikke lese eller endre presentasjonen, og postMessage til Slaids gjør ingenting.',
 ]
 
+/**
+ * The space an author keeps clear for «Avslutt miniapp».
+ *
+ * Slaids draws its own exit control over the app's top right corner, and the
+ * app cannot see it: it is outside the frame. So the clearance is the author's
+ * to leave, and these are the numbers the examples leave — generous on purpose,
+ * because the real control is smaller than this, and an app that keeps this
+ * much clear cannot collide with it.
+ *
+ * One pair of numbers, used by the skeleton below and asserted against the
+ * examples in `interactiveStyle.test.ts`, so the template a person starts from
+ * and the contract an agent is handed cannot come to reserve different amounts.
+ */
+export const INTERACTIVE_EXIT_CLEARANCE = { top: 100, right: 400 } as const
+
+/**
+ * What a miniapp's structure has to be, whatever the app does.
+ *
+ * Colours and fonts are the easy half — the tokens above hand those over, and
+ * an app that uses them looks like the deck immediately. The half that goes
+ * wrong is layout: an unbounded height chain, three competing scroll boxes, a
+ * spacing scale invented per element, `overflow-x: hidden` hiding a row that
+ * does not fit. None of it shows in a first screenshot and all of it shows in
+ * the room.
+ *
+ * So the structure is stated as rules rather than left to be inferred from an
+ * example, and `get_interactive_contract` returns them: an agent writing a
+ * miniapp over MCP has them without reading anything in this repository.
+ */
+export const INTERACTIVE_LAYOUT_RULES: readonly string[] = [
+  'Én tydelig rot som eier hele appen, for eksempel #miniapp. All layout henger under den.',
+  'html, body og roten har full høyde, og body har ingen nettleser-default marg. Høydekjeden ned til rulleflaten må være avgrenset hele veien.',
+  'box-sizing: border-box på roten og alt under den, så padding og rammer ikke legger seg utenpå oppgitte bredder.',
+  'Nøyaktig én navngitt vertikal rulleflate for appens innhold, ikke flere uavhengige rullebokser.',
+  'Rulleflaten har min-height: 0 og overflow-y: auto. overflow-y: auto alene er ikke nok: uten min-height: 0 på hvert krympbart Grid/Flex-ledd vokser flaten i stedet for å rulle.',
+  'overflow-x skal aldri brukes til å skjule en faktisk layoutfeil. Mål scrollWidth mot clientWidth; klipping er ikke et bevis på at innholdet har plass.',
+  '--slaids-gap er ytterluft og avstand mellom hovedområder.',
+  '--slaids-padding er innvendig panelpadding.',
+  '--slaids-block-spacing er avstand mellom sammenhørende elementer inne i et panel.',
+  'Hver avstand skal ha én eier, normalt foreldrens gap. Ikke stable tilfeldige marger oppå gap og padding; nullstill basisstilarkets marger innenfor roten.',
+  'Hovedinnholdet skal være ryddig og panel-/beholderbasert, og visuelt sentrert eller balansert der det passer.',
+  'Ingen tilfeldige asymmetriske paddings uten semantisk grunn, og ingen negative marger eller translate for å lappe over feil flyt.',
+  `Hold de øverste ${INTERACTIVE_EXIT_CLEARANCE.top} logiske pikslene og ${INTERACTIVE_EXIT_CLEARANCE.right} piksler til høyre fri for innhold: Slaids tegner «Avslutt miniapp» der.`,
+]
+
+/**
+ * The rules above as the smallest file that obeys them.
+ *
+ * Deliberately empty of content: it is a shell to fill, not an app to imitate.
+ * `examples/interactive-miniapps/starter.html` is the worked template — the
+ * same structure with a working counter in it — and the test beside this file
+ * checks that it still is, so the shell an agent is handed and the template a
+ * person starts from cannot drift apart.
+ */
+export const INTERACTIVE_STARTER_SKELETON = `<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Miniapp</title>
+<style>
+html, body { height: 100%; margin: 0; }
+body { padding: 0; overflow: hidden; }
+#miniapp, #miniapp * { box-sizing: border-box; }
+#miniapp {
+  height: 100%; min-height: 0; min-width: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--slaids-gap); padding: var(--slaids-gap);
+}
+#miniapp :where(h1, h2, h3, p, ul, ol, li, figure, label, output) { margin: 0; }
+#miniapp [hidden] { display: none !important; }
+.app-title { padding-right: ${INTERACTIVE_EXIT_CLEARANCE.right}px; min-height: ${INTERACTIVE_EXIT_CLEARANCE.top}px; }
+/* The one vertical scroll owner. */
+.app-content {
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable;
+}
+.panel {
+  min-width: 0; padding: var(--slaids-padding);
+  border-radius: var(--slaids-radius); background: var(--slaids-surface);
+  display: grid; gap: var(--slaids-block-spacing); align-content: start;
+}
+</style>
+</head>
+<body>
+<main id="miniapp">
+  <header class="app-header"><h1 class="app-title">Tittel</h1></header>
+  <div class="app-content" role="region" aria-label="Innhold" tabindex="0">
+    <section class="panel"></section>
+  </div>
+</main>
+</body>
+</html>
+`
+
 /** Where the prose version lives, for an agent that would rather read it. */
 export const INTERACTIVE_DOCS_PATH = 'docs/INTERACTIVE_MINIAPPS.md'

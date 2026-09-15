@@ -288,11 +288,9 @@ describe('protokollversjonen', () => {
 })
 
 describe('instruksjonene klienten får ved initialize', () => {
-  it('sier at Slaids aldri lager bilder', () => {
-    expect(MCP_INSTRUCTIONS).toMatch(/lager ikke bilder/i)
-    expect(MCP_INSTRUCTIONS).not.toMatch(/generer\w* bilde/i)
-  })
-
+  // What the instructions *say* about composing a deck — the design rules, the
+  // raster/vector policy, and the promise that each of them is stated once
+  // across instructions and tool descriptions — is `instructions.test.ts`.
   it('sier hva en agent må gjøre med de to feilene den faktisk vil møte', () => {
     expect(MCP_INSTRUCTIONS).toContain('CONTENT_DOES_NOT_FIT')
     expect(MCP_INSTRUCTIONS).toContain('CONFLICT')

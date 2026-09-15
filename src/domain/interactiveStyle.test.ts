@@ -9,6 +9,8 @@
  * from, and lives in `src/ui/slide/interactive.test.tsx`.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { bestTextColor } from './color'
 import {
@@ -18,7 +20,10 @@ import {
   INTERACTIVE_STYLE_CONTRACTS,
 } from './constants'
 import {
+  INTERACTIVE_EXIT_CLEARANCE,
+  INTERACTIVE_LAYOUT_RULES,
   INTERACTIVE_RESTRICTIONS,
+  INTERACTIVE_STARTER_SKELETON,
   interactiveBaseStylesheet,
   interactiveThemeCss,
   interactiveThemeTokens,
@@ -133,4 +138,116 @@ describe('begrensningene', () => {
       expect(all, refused).toContain(refused)
     }
   })
+})
+
+/* ------------------------------------------------------------------ *
+ * The structure an app has to have
+ * ------------------------------------------------------------------ */
+
+describe('strukturreglene', () => {
+  const stated = INTERACTIVE_LAYOUT_RULES.join('\n')
+
+  it.each([
+    ['én rot', /#miniapp/],
+    ['full høydekjede', /full høyde/i],
+    ['box-sizing', /box-sizing: border-box/],
+    ['ingen default-marg på body', /html, body/],
+    ['én rulleflate', /[Nn]øyaktig én navngitt vertikal rulleflate/],
+    ['min-height på rulleflaten', /min-height: 0/],
+    ['overflow-y', /overflow-y: auto/],
+    ['overflow-x som ikke er et bevis', /overflow-x skal aldri brukes/],
+    ['ytterluft', /--slaids-gap/],
+    ['panelpadding', /--slaids-padding/],
+    ['blokkavstand', /--slaids-block-spacing/],
+    ['én eier per avstand', /[Hh]ver avstand skal ha én eier/],
+    ['panelbasert og balansert', /panel-\/beholderbasert/],
+    ['ingen tilfeldig asymmetri', /asymmetriske paddings/],
+  ])('sier %s direkte, ikke ved antydning', (_what, expected) => {
+    expect(stated).toMatch(expected)
+  })
+
+  it('reserverer plass til avslutningsknappen med de samme tallene som skallet', () => {
+    expect(stated).toContain(String(INTERACTIVE_EXIT_CLEARANCE.top))
+    expect(stated).toContain(String(INTERACTIVE_EXIT_CLEARANCE.right))
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The skeleton, and the examples that have to keep obeying it
+ * ------------------------------------------------------------------ */
+
+/** The selectors that carry the height chain, the scroll owner and the clearance. */
+const LOAD_BEARING = [
+  'html, body',
+  'body',
+  '#miniapp, #miniapp *',
+  '#miniapp',
+  '#miniapp [hidden]',
+  '.app-title',
+  '.app-content',
+]
+
+/** A stylesheet as `selector → declarations`, whitespace and comments removed. */
+function cssRules(html: string): Map<string, string[]> {
+  const css = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)]
+    .map(([, block]) => block)
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules = new Map<string, string[]>()
+  for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const key = selector.trim().replace(/\s+/g, ' ')
+    const declarations = body
+      .split(';')
+      .map((declaration) => declaration.trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+    rules.set(key, [...(rules.get(key) ?? []), ...declarations])
+  }
+  return rules
+}
+
+function example(file: string): string {
+  return readFileSync(join(process.cwd(), 'examples', 'interactive-miniapps', file), 'utf8')
+}
+
+describe('startskallet', () => {
+  const skeleton = cssRules(INTERACTIVE_STARTER_SKELETON)
+
+  it('følger sine egne regler: én rot, avgrenset høyde og én rulleflate', () => {
+    expect(INTERACTIVE_STARTER_SKELETON).toContain('<main id="miniapp">')
+    expect(skeleton.get('html, body')).toContain('height: 100%')
+    expect(skeleton.get('html, body')).toContain('margin: 0')
+    expect(skeleton.get('#miniapp, #miniapp *')).toContain('box-sizing: border-box')
+    expect(skeleton.get('#miniapp')).toContain('min-height: 0')
+    expect(skeleton.get('.app-content')).toEqual(
+      expect.arrayContaining(['min-height: 0', 'overflow-y: auto']),
+    )
+    // One scroll owner, not several: nothing else may own vertical overflow.
+    const scrollers = [...skeleton].filter(([, declarations]) =>
+      declarations.some((declaration) => /^overflow(-y)?: (auto|scroll)$/.test(declaration)),
+    )
+    expect(scrollers.map(([selector]) => selector)).toEqual(['.app-content'])
+  })
+
+  it('navngir Slaids-avstandene i stedet for å finne opp sine egne', () => {
+    for (const variable of ['--slaids-gap', '--slaids-padding', '--slaids-block-spacing']) {
+      expect(INTERACTIVE_STARTER_SKELETON).toContain(`var(${variable})`)
+    }
+    // A colour or a type size written out here would be a second theme.
+    expect(INTERACTIVE_STARTER_SKELETON).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+    expect(INTERACTIVE_STARTER_SKELETON).not.toMatch(/font-size:\s*(?!var\()/)
+  })
+
+  it.each(['starter.html', 'system-test.html'])(
+    '%s bærer de samme bærende reglene, så malen og kontrakten ikke gror fra hverandre',
+    (file) => {
+      const actual = cssRules(example(file))
+      for (const selector of LOAD_BEARING) {
+        const required = skeleton.get(selector)
+        expect(required, `skallet mangler «${selector}»`).toBeDefined()
+        expect(actual.get(selector) ?? [], `${file}: ${selector}`).toEqual(
+          expect.arrayContaining(required!),
+        )
+      }
+    },
+  )
 })

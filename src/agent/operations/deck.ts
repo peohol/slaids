@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod'
+import { IMAGE_BRIEF_RULE } from '../design'
 import {
   createDeck,
   fitContextFor,
@@ -368,7 +369,8 @@ export const setPresentationTitleOperation = defineOperation({
 export const setImageBriefOperation = defineOperation({
   name: 'set_image_brief',
   summary:
-    'Sett dekkets felles bildebrief: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum – den er premissen hver enkelt bildeprompt skrives mot, og det brukeren limer inn først i samtalen der bildene lages. Les den tilbake med get_presentation.',
+    'Sett dekkets felles bildebrief: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum – den er premissen hver enkelt bildeprompt skrives mot, og det brukeren limer inn først i samtalen der bildene lages. Les den tilbake med get_presentation. ' +
+    IMAGE_BRIEF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -378,14 +380,7 @@ export const setImageBriefOperation = defineOperation({
       .string()
       .max(MAX_IMAGE_BRIEF_CHARS)
       .nullable()
-      .describe(
-        'Hvordan bildene skal se ut – ikke hva de skal vise. Beskriv uttrykk (fotografisk ' +
-          'eller illustrert), realismegrad, lyssetting, kontrast, tidsperiode, miljø, ' +
-          'bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan ' +
-          'mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås. ' +
-          'Motivene hører hjemme i notatet i den enkelte sonen. `null` eller bare mellomrom ' +
-          'fjerner briefen.',
-      ),
+      .describe('Selve briefen. `null` eller bare mellomrom fjerner den.'),
   }),
   run(context, input): Promise<AgentResult<PresentationView>> {
     return mutatePresentation(context, input, (presentation) => {

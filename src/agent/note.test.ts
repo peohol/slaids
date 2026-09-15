@@ -17,7 +17,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_NOTE_CHARS, MAX_IMAGE_BRIEF_CHARS } from '../domain/constants'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
+import { IMAGE_BRIEF_RULE, IMAGE_NOTE_POLICY } from './design'
 import { describeOperations, runOperation } from './registry'
+import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import type { ContentSlideInspection, PresentationView } from './operations/deck'
 import type { SandboxItemView } from './operations/sandbox'
 import type { ZoneChange } from './operations/layout'
@@ -343,24 +345,40 @@ describe('bildebriefen', () => {
 })
 
 describe('katalogen forklarer semantikken den krever', () => {
-  it('sier i verktøybeskrivelsen hva et notat er og at det aldri vises', () => {
-    const described = describeOperations()
+  /** Everything an agent reads about one operation: its summary and its schema. */
+  function prose(name: string): string {
+    const operation = describeOperations().find((entry) => entry.name === name)
+    if (!operation) throw new Error(`Fant ingen operasjon som heter ${name}`)
+    return `${operation.summary}\n${JSON.stringify(operation.inputSchema)}`
+  }
 
-    const card = described.find((operation) => operation.name === 'set_zone_card')
-    expect(card).toBeDefined()
-    const cardSchema = JSON.stringify(card?.inputSchema)
-    expect(card?.summary).toMatch(/aldri vises for publikum/)
-    expect(cardSchema).toContain('note')
-    // The two things a caller cannot guess: it is never presented, and the zone
-    // keeps the geometry for what comes next.
-    expect(cardSchema).toMatch(/aldri vises for publikum/)
-    expect(cardSchema).toMatch(/reservere geometrien/)
+  it('sier på set_zone_card hva et notat er, og hvordan det reserverer et bilde', () => {
+    const card = prose('set_zone_card')
+    // The two things a caller cannot guess from the enum member alone: it is
+    // never presented, and the zone keeps the geometry for what comes next.
+    expect(card).toMatch(/aldri vises for publikum/)
+    expect(card).toMatch(/reservere geometrien/)
+    // Asserted against the constant rather than against wording: the rules live
+    // in `agent/design.ts` so each normative sentence has one home, and a rule
+    // that is reworded there stays tested here — see `instructions.test.ts`.
+    for (const rule of IMAGE_NOTE_POLICY) expect(card).toContain(rule)
+  })
 
-    const brief = described.find((operation) => operation.name === 'set_image_brief')
-    expect(brief).toBeDefined()
-    expect(brief?.requiredScopes).toEqual(['presentations:write'])
-    expect(brief?.summary).toMatch(/aldri for publikum/)
-    // The brief is about how pictures look, never about what any one shows.
-    expect(JSON.stringify(brief?.inputSchema)).toMatch(/ikke hva de skal vise/)
+  it('sier på set_image_brief at briefen er uttrykket, aldri motivet', () => {
+    const described = describeOperations().find((entry) => entry.name === 'set_image_brief')
+    expect(described?.requiredScopes).toEqual(['presentations:write'])
+    const brief = prose('set_image_brief')
+    expect(brief).toMatch(/aldri for publikum/)
+    expect(brief).toContain(IMAGE_BRIEF_RULE)
+    expect(IMAGE_BRIEF_RULE).toMatch(/aldri hva et enkelt bilde skal vise/)
+  })
+
+  it('sier det bare ett sted: ingen av reglene står også i systeminstruksen', () => {
+    // The contract `instructions.test.ts` states for the rules that came before
+    // these, applied to the two this PR adds: detail rides on the tool that
+    // applies it, and the instruction carries what changes the first call.
+    for (const rule of [...IMAGE_NOTE_POLICY, IMAGE_BRIEF_RULE]) {
+      expect(MCP_INSTRUCTIONS).not.toContain(rule)
+    }
   })
 })
