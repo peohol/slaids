@@ -10,6 +10,7 @@ import {
   BLOCK_SPACING,
   CARD_PADDING,
   G,
+  PARAGRAPH_SPACING,
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
   titleZoneHeightFor,
@@ -41,6 +42,7 @@ describe('themeMetrics', () => {
     expect(metrics.cardPadding).toBe(Math.round(CARD_PADDING * DEFAULT_SPACING))
     expect(metrics.subfieldGap).toBe(Math.round(SUBFIELD_GAP * DEFAULT_SPACING))
     expect(metrics.blockSpacing).toBe(Math.round(BLOCK_SPACING * DEFAULT_SPACING))
+    expect(metrics.paragraphSpacing).toBe(Math.round(PARAGRAPH_SPACING * DEFAULT_SPACING))
     expect(metrics.bodyFontSize).toBe(Math.round(BODY_FONT_SIZE * DEFAULT_FONT_SCALE))
     expect(metrics.titleFontSize).toBe(Math.round(TITLE_FONT_SIZE * DEFAULT_FONT_SCALE))
   })
@@ -51,6 +53,7 @@ describe('themeMetrics', () => {
     expect(airy.cardPadding).toBe(Math.round(CARD_PADDING * AIRY))
     expect(airy.subfieldGap).toBe(Math.round(SUBFIELD_GAP * AIRY))
     expect(airy.blockSpacing).toBe(Math.round(BLOCK_SPACING * AIRY))
+    expect(airy.paragraphSpacing).toBe(Math.round(PARAGRAPH_SPACING * AIRY))
     expect(airy.bodyFontSize).toBe(Math.round(BODY_FONT_SIZE * DEFAULT_FONT_SCALE))
   })
 

@@ -298,7 +298,7 @@
 }
 
 .rich-doc :is(p, .rd-p) {
-  margin: 0 0 var(--slaids-block-spacing, 6px);
+  margin: 0 0 var(--slaids-paragraph-spacing, 10px);
 }
 
 /*

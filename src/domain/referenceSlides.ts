@@ -93,7 +93,7 @@ export function buildReferenceSlides(deck: DeckSource): ContentSlide[] {
       if (!entry) return 0
       const doc: RichDoc = { type: 'doc', content: [entryParagraph(entry)] }
       const height = estimateDocHeight(doc, columnWidth, { theme: deck.theme })
-      return height - tokens.blockSpacing + tokens.referenceEntryGap
+      return height - tokens.paragraphSpacing + tokens.referenceEntryGap
     },
   })
 

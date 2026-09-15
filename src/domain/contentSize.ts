@@ -44,7 +44,7 @@ const NO_MINIMUM: Size = { width: 0, height: 0 }
  * about the same empty card.
  */
 function oneTextLine(tokens: ThemeMetrics): number {
-  return tokens.bodyFontSize * BODY_LINE_HEIGHT + tokens.blockSpacing
+  return tokens.bodyFontSize * BODY_LINE_HEIGHT + tokens.paragraphSpacing
 }
 
 /**
