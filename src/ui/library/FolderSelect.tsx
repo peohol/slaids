@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Folder } from '../../domain/types'
 import { Icon } from '../components/Icon'
 
@@ -19,20 +19,24 @@ export function FolderSelect({
     ? (folders.find((folder) => folder.id === value)?.name ?? 'Ingen mappe')
     : 'Ingen mappe'
 
-  const measureOverflow = useCallback(() => {
+  useEffect(() => {
     const node = labelRef.current
     if (!node) return
-    setOverflowing(node.scrollWidth > node.clientWidth + 1)
-  }, [])
-
-  useEffect(() => {
-    measureOverflow()
-    const node = labelRef.current
-    if (!node || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measureOverflow)
+    const measure = (): void => setOverflowing(node.scrollWidth > node.clientWidth + 1)
+    // The observer is the source of truth after layout. The first frame covers
+    // a label change that leaves the box at exactly the same size, which does
+    // not have to produce a ResizeObserver entry by itself.
+    const frame = requestAnimationFrame(measure)
+    if (typeof ResizeObserver === 'undefined') {
+      return () => cancelAnimationFrame(frame)
+    }
+    const observer = new ResizeObserver(measure)
     observer.observe(node)
-    return () => observer.disconnect()
-  }, [label, measureOverflow])
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [label])
 
   return (
     <div
