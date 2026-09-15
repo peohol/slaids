@@ -261,7 +261,15 @@
   pointer-events: auto;
 }
 
-.image-caption :is(p, .rd-p) {
+/*
+ * The class is doubled for the same reason the trailing-margin rule below
+ * doubles `.rich-doc`: `:is(p, .rd-p)` ties in specificity with the general
+ * paragraph rule, and a tie is won by source order — which the wider
+ * `--slaids-paragraph-spacing` margin would otherwise win, since it sits
+ * later in this file. A caption stays tight at one class more, wherever a
+ * future rule lands.
+ */
+.image-caption.image-caption :is(p, .rd-p) {
   margin: 0;
   text-align: center;
 }
@@ -597,6 +605,18 @@
 .rich-doc :is(th, .rd-th) {
   background: rgba(128, 128, 128, 0.18);
   font-weight: 600;
+}
+
+/*
+ * A cell's own paragraph carries no bottom margin: `estimateNodeHeight`'s
+ * `table` case sizes a row from its line count alone and never adds
+ * `paragraphSpacing`, so a cell that drew one would render taller than the
+ * fit guard ever measured it. The doubled `.rich-doc` class beats the
+ * general paragraph rule's specificity outright, the same trick the
+ * trailing-margin rule below uses.
+ */
+.rich-doc.rich-doc :is(td, .rd-td, th, .rd-th) :is(p, .rd-p) {
+  margin: 0;
 }
 
 /*
