@@ -155,7 +155,7 @@ Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Agente
 2. reserver en sone der et bilde faktisk får plass;
 3. legg inn et bildenotat (`notePurpose: "image-prompt"`) i sonen;
 4. skriv en konkret prompt tilpasset sonens aspektforhold og komposisjon;
-5. bruk én felles bildebrief for dekket dersom flere rasterbilder skal genereres.
+5. bruk én felles bildebrief for dekket dersom minst ett generert rasterbilde planlegges.
 
 Bildenotatet er et fremtidig bilde, ikke negativt rom.
 
