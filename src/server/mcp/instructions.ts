@@ -27,6 +27,7 @@
 import {
   AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
+  COLOR_SEMANTICS_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_USAGE_RULE,
   PARALLEL_RULE,
@@ -66,6 +67,7 @@ Design før geometri:
 - **Én stor container med overskrift og punktliste er et valg, ikke et standardsvar.** ${SINGLE_CONTAINER_RULE} ${BULLET_RULE}
 - **Bruk sitater som sitater, og luft tekst med mening.** ${QUOTE_RULE} ${TEXT_RHYTHM_RULE}
 - **${PARALLEL_RULE}** Tydelig ulike vekter skal uttrykke et reelt hierarki, ikke bare at én tekst tilfeldigvis er lengre.
+- **Farge skal bære mening.** ${COLOR_SEMANTICS_RULE}
 - **Bruk asymmetri når innholdet har hierarki.** Et hovedpoeng, en viktig figur eller en oppsummering kan få større flate enn støttende materiale. Nested splits er gode når én del faktisk har en egen intern struktur; ikke nest soner uten semantisk grunn.
 - **Soner er makrokomposisjon; subfelter er intern struktur.** Lag egne soner når deler skal ha selvstendig visuell rolle, ulik størrelse eller sammenlignes på tvers. Hold delene i samme kort/container når de til sammen er ett semantisk objekt. Verktøyet som setter innholdstype forklarer hvilken type hver rolle ber om.
 - **Planlegg visuelt innhold aktivt.** ${IMAGE_USAGE_RULE}
