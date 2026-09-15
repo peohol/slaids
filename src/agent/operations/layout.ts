@@ -28,6 +28,7 @@
  */
 
 import { z } from 'zod'
+import { SPLIT_RULE } from '../design'
 import {
   clearLayoutNode,
   copyZoneContent,
@@ -106,7 +107,7 @@ function childNodeIds(presentation: Presentation, slideId: string, nodeId: strin
 
 export const splitZone = defineOperation({
   name: 'split_zone',
-  summary: 'Del en sone i 2–10 subsoner og få tilbake id-ene til de nye sonene.',
+  summary: `Del en sone i 2–10 subsoner og få tilbake id-ene til de nye sonene. ${SPLIT_RULE}`,
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

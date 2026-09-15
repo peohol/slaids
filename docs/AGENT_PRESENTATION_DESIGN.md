@@ -8,9 +8,42 @@ Utgangspunktet er et enkelt prinsipp:
 
 Et layoutmønster er derfor en hypotese om hvordan et bestemt informasjonsforhold kan uttrykkes visuelt — ikke en template som skal fylles.
 
-## 1. Fra mening til geometri
+**Hvor reglene faktisk bor.** De normative setningene i denne guiden finnes én gang i `src/agent/design.ts`. Derfra går de to veier ut til agenten: de som må virke før første kall veves inn i MCP-systeminstruksen, og de som først betyr noe når agenten velger en bestemt innholdstype eller en bestemt slags grafikk ligger på kontrakten til verktøyet som gjør nettopp det. Denne filen forklarer og eksemplifiserer de samme reglene for et menneske; den innfører aldri en regel til.
 
-Før agenten oppretter eller deler en sone, skal den svare på hva sliden faktisk skal gjøre for publikum.
+## 1. Semantisk dekomponering er obligatorisk
+
+**Før geometri kommer dekomponering.** Før agenten oppretter eller deler en sone, skal den finne ut hvilke *semantiske enheter* sliden faktisk består av. Dette er ikke et valgfritt analysesteg: det er det som avgjør om sliden kan si noe med formen sin i det hele tatt.
+
+Agenten skal aktivt lete etter:
+
+- **kategorier**;
+- **aktører**;
+- **faser**;
+- **alternativer**;
+- **årsaker og virkninger**;
+- **parallelle dimensjoner**;
+- **tidssekvenser**;
+- **sammenlignbare objekter**;
+- **hovedpåstand + evidens**;
+- **ett objekt med interne underdeler**.
+
+Hver av dem er et spørsmål — finnes det flere av disse her? — og et ja gjør en relasjon tilgjengelig å uttrykke visuelt. Deretter skal relasjonen faktisk uttrykkes: navngitte enheter blir normalt navngitte soner eller kort, ikke kulepunkter i samme boks.
+
+### Container og punktliste
+
+- **Én stor tekstcontainer er et legitimt valg når innholdet faktisk er én sammenhengende idé, men den er ikke standardløsningen.** En slide som virkelig har ett poeng med utdyping er riktig som én container; en slide som har fem navngitte begreper er det ikke.
+- **En punktliste hører hjemme der punktene er underordnede utsagn om det samme objektet eller den samme påstanden.** Da er listen intern struktur i én enhet.
+- **Representerer punktene derimot flere navngivbare konsepter, kategorier, faser eller sammenligningsenheter, skal agenten normalt vurdere separate soner eller kort i stedet.** «Sahelanthropus», «Australopithecus» og «Homo habilis» er tre enheter, ikke tre utsagn om én.
+- **`titled-card` bør foretrekkes når hvert element naturlig kan få en kort semantisk etikett.** Kan du sette en toords overskrift på punktet uten å finne den opp, er punktet en enhet.
+- **Parallelle konsepter skal normalt ha parallell visuell behandling**: samme innholdstype, samme nivå i treet og like eller nesten like vekter.
+
+### Selvkontrollen
+
+**Ender flere slides på rad som «én stor container + punktliste», har agenten sannsynligvis oversett semantisk struktur og skal dekomponere de slidene på nytt.** Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon: et dekk der hver slide *virkelig* har én sammenhengende idé har lov til å se slik ut. Poenget er at mønsteret skal utløse en ny gjennomgang av stoffet, ikke en tilfeldig annen geometri.
+
+## 2. Fra mening til geometri
+
+Når enhetene er identifisert, skal agenten svare på hva sliden faktisk skal gjøre for publikum.
 
 Typiske logiske forhold er:
 
@@ -26,7 +59,7 @@ Typiske logiske forhold er:
 
 Først når dette er bestemt, velges trestruktur, akser og vekter.
 
-## 2. Sonetreet skal speile informasjonsstrukturen
+## 3. Sonetreet skal speile informasjonsstrukturen
 
 Slaids sitt rekursive split-tre er ikke bare en måte å få bokser på skjermen. Det skal uttrykke hierarki.
 
@@ -61,7 +94,7 @@ Eksempel:
 
 Dette er en god komposisjon når innholdet faktisk har tre forskjellige roller. Nested splits uten en semantisk grunn gjør bare layouten vanskeligere å lese og vedlikeholde.
 
-## 3. Velg innholdstype etter semantisk rolle
+## 4. Velg innholdstype etter semantisk rolle
 
 ### Titled card
 
@@ -130,7 +163,28 @@ ethvert forholdstall — men et kort eller en tekstsone som skal *bli* smal, bli
 avvist. `inspect_slide` oppgir `availableContentKinds` per sone, så du kan lese
 hva som faktisk får plass i stedet for å prøve deg fram.
 
-## 4. Sone eller subfelt?
+## 5. Raster eller vektor
+
+Slaids tar imot to slags bildefiler, og de er ikke utskiftbare. Valget er semantisk, akkurat som valget av innholdstype.
+
+**Bruk SVG til grafikk som faktisk bør være vektor:**
+
+- grafer og plott;
+- diagrammer og flytskjemaer;
+- enkel ikonografi;
+- geometriske illustrasjoner og skjematiske figurer.
+
+En agent kan skrive slik grafikk direkte som markup, uten noen bildegenerator, og resultatet er skarpt i enhver skala. **SVG skal beholdes som SVG.** Ikke rasteriser en SVG bare for å gjøre den om til «et bilde».
+
+**Bruk rasterbilder til det som faktisk er bildeaktig:** fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner. Slike motiver skal normalt være rasterbilder laget av en egnet bildegenerator og lastet opp som fil.
+
+**Ikke etterlign fotografiske eller organiske motiver med hjemmelaget SVG**, og ikke rasteriser et slikt forsøk for å få det til å ligne et ekte bilde. En håndskrevet «rekonstruksjon» av et ansikt i polygoner er ikke en illustrasjon; den er en påstand om at figuren er mer enn den er.
+
+**Har agentmiljøet ingen generativ bildemodell tilgjengelig, skal agenten være tydelig på begrensningen** i stedet for å lage en dårligere erstatning og fremstille den som likeverdig. Alternativene er da et reelt, lovlig opphavsrettsbeskyttet bilde brukeren skaffer, en ærlig vektorfigur som faktisk er en figur, eller bevisst negativt rom.
+
+Slaids-serveren genererer selv ingen bilder: et rasterbilde lastes opp ferdig, og SVG opprettes som markup.
+
+## 6. Sone eller subfelt?
 
 Dette skillet er viktig.
 
@@ -149,7 +203,7 @@ Bruk **subfelt i samme innholdsenhet** når delene:
 
 En god tommelfingerregel er: **sonetreet uttrykker makrokomposisjon; subfelter uttrykker intern struktur.**
 
-## 5. Anbefalte komposisjonskonsepter
+## 7. Anbefalte komposisjonskonsepter
 
 Dette er startpunkter, ikke maler.
 
@@ -227,7 +281,7 @@ Bruk bare når hver kolonne kan holdes kort. Hvis hver kolonne blir et miniessay
 
 **Innhold:** bilde eller svært kort innhold. Dette kan brukes som emosjonell eller rytmisk pause mellom tette faglige slides.
 
-## 6. Retning og leseflyt
+## 8. Retning og leseflyt
 
 Velg split-akse etter hvordan publikum naturlig skal lese relasjonen:
 
@@ -237,7 +291,7 @@ Velg split-akse etter hvordan publikum naturlig skal lese relasjonen:
 
 Ikke velg akse bare for å få teksten til å passe. Hvis bytte av retning endrer hvordan relasjonen forstås, er det en semantisk endring.
 
-## 7. Vekter uttrykker prioritet
+## 9. Vekter uttrykker prioritet
 
 Vekter er ikke bare plassfordeling. De kommuniserer betydning.
 
@@ -249,7 +303,7 @@ Vekter er ikke bare plassfordeling. De kommuniserer betydning.
 
 Agenten bør kunne forklare hver tydelig asymmetri med innholdets rolle.
 
-## 8. Fit er en redaksjonell tilbakemelding
+## 10. Fit er en redaksjonell tilbakemelding
 
 Når innhold ikke får plass, er dette normalt et signal om at enten teksten eller informasjonsarkitekturen er feil.
 
@@ -263,7 +317,7 @@ Anbefalt reparasjonsrekkefølge:
 
 Ikke løs overflow ved å gjøre skriften stadig mindre eller ved å bygge ekstremt smale/høye soner som gjør lesbarheten dårligere. Fit-regelen er en kvalitetsmekanisme, ikke en hindring som skal omgås.
 
-## 9. Visuell konsistens uten layoutmonotoni
+## 11. Visuell konsistens uten layoutmonotoni
 
 Et godt dekk bør være gjenkjennelig uten at alle slides har samme geometri.
 
@@ -285,11 +339,13 @@ Varier:
 
 Konsistens betyr altså **samme visuelle grammatikk**, ikke samme slide-mal.
 
-## 10. Anti-mønstre
+## 12. Anti-mønstre
 
 Agenten bør aktivt unngå:
 
 - å velge «to kolonner» før den har analysert innholdet;
+- å gjøre «én stor container med overskrift og punktliste» til et generelt standardsvar;
+- å legge flere navngitte konsepter, kategorier eller faser i én punktliste i stedet for i egne soner eller kort;
 - å dele hver paragraf i sin egen sone;
 - å gi like store soner til elementer med tydelig ulik betydning;
 - å bruke bilder som dekorativ fyllmasse;
@@ -297,17 +353,18 @@ Agenten bør aktivt unngå:
 - å lage nested splits som ikke uttrykker et faktisk hierarki;
 - å bruke ulike innholdstyper for semantisk parallelle enheter uten grunn;
 - å redusere fontstørrelse som standardløsning på overflow;
-- å beholde alt kildemateriale på sliden bare fordi det er faglig korrekt.
+- å beholde alt kildemateriale på sliden bare fordi det er faglig korrekt;
+- å rasterisere en SVG, eller å etterligne et fotografisk motiv med hjemmelaget SVG.
 
-## 11. Arbeidsflyt for en agent
+## 13. Arbeidsflyt for en agent
 
 For hver slide:
 
 1. Formuler **én kommunikativ oppgave** for sliden.
-2. Identifiser elementene som trengs for å løse den.
+2. **Dekomponer stoffet semantisk**: gå gjennom listen i §1 og finn ut hvilke av enhetene som faktisk finnes i dette materialet.
 3. Klassifiser relasjonene: peer, hierarki, sekvens, gruppe, evidens eller fokus.
 4. Velg innholdstype for hvert semantisk objekt.
-5. Bygg det enkleste sonetreet som uttrykker relasjonene korrekt.
+5. **Bygg det enkleste sonetreet som gjør de viktige semantiske relasjonene visuelt eksplisitte.**
 6. Sett vekter etter prioritet, ikke etter tekstmengde alene.
 7. Legg inn innholdet kortfattet.
 8. Inspiser den faktiske geometrien og fit-resultatet.
@@ -320,9 +377,10 @@ For hele dekket:
 - varier komposisjon når innholdets logikk varierer;
 - repeter visuelle regler når semantiske roller repeteres;
 - la enkelte slides være luftige slik at tette slides får kontrast;
-- vurder dekket som en sekvens, ikke som 30 isolerte plakater.
+- vurder dekket som en sekvens, ikke som 30 isolerte plakater;
+- merk deg mønsteret: flere slides på rad som «én stor container + punktliste» betyr at stoffet skal dekomponeres på nytt (§1).
 
-## 12. Den viktigste testen
+## 14. Den viktigste testen
 
 Før agenten godtar en slide, bør den kunne svare på dette spørsmålet:
 

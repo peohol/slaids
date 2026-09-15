@@ -8,11 +8,12 @@ også verifiseres.**
 
 ## 1. Obligatorisk arbeidsflyt for agenter
 
-1. Les denne filen før du skriver HTML. Ved API-bruk: hent også
-   `get_interactive_contract` for gjeldende kontraktversjon, variabelnavn,
-   flatestørrelse, bytegrenser og sikkerhetsbegrensninger. Operasjonens
-   `documentation` peker hit; listen over variabler er ikke en komplett
-   designinstruks.
+1. Les denne filen før du skriver HTML. Ved API-bruk: hent
+   `get_interactive_contract` først. Den gir gjeldende kontraktversjon,
+   variabelnavn, de obligatoriske strukturreglene, et minimalt startskall,
+   flatestørrelse, bytegrenser og sikkerhetsbegrensninger — nok til å skrive
+   en korrekt miniapp uten repotilgang. Operasjonens `documentation` peker hit
+   for begrunnelsene og leveransekravene.
 2. Start fra `examples/interactive-miniapps/starter.html`. Behold prinsippene
    for rot, rulleflate, avstandseierskap og fokus. Endre innholdet og den lokale
    layouten, ikke presentasjonens farger eller fontroller.
@@ -77,8 +78,9 @@ plassmangel i en Slaids-slide. Ikke legg inn en ny skalering av hele appen.
 
 Slaids tegner «Avslutt miniapp» oppå øvre høyre hjørne, som en liten og diskret
 «×» med en større usynlig treffflate rundt seg – litt større på berøringsflater.
-Startmalen reserverer konservativt de øverste 100 logiske pikslene og 400 piksler
-til høyre for overskriftens innhold. Dette er malens sikkerhetsmargin, ikke en
+Startmalen reserverer konservativt et felt øverst og til høyre for overskriftens
+innhold; målene står ett sted, som `INTERACTIVE_EXIT_CLEARANCE` i
+`src/domain/interactiveStyle.ts`. Dette er malens sikkerhetsmargin, ikke en
 målangivelse for Slaids-kontrollen; den faktiske kontrollen er klart mindre.
 Kontroller den i editor og spiller; ingen kontroll, tekst eller fokusmarkering
 skal havne under den.
@@ -95,7 +97,12 @@ sted, normalt av foreldrens `gap`:
 | Mellom sammenhørende tekst- og kontrollblokker | `--slaids-block-spacing` |
 | Hjørner og eventuell skygge | `--slaids-radius`, `--slaids-shadow` |
 
-En strukturell innpakning skal ikke introdusere ny padding eller marg.
+En strukturell innpakning skal ikke introdusere ny padding eller marg, og ingen
+avstand skal ha to eiere samtidig — tilfeldige marger oppå `gap` og `padding` er
+den vanligste kilden til skjev luft. Hovedinnholdet skal være ryddig og
+panel-/beholderbasert, og visuelt sentrert eller balansert der det passer;
+asymmetrisk padding skal ha en semantisk grunn.
+
 I eksplisitte stack/grid-layouts skal blant annet overskrifter, avsnitt, lister,
 figurer og labels få `margin: 0` **innenfor appens rot**. Ellers legger
 basisstilarkets marger seg oppå `gap`. Behold tilsiktet listeinnrykk.
@@ -131,31 +138,20 @@ største støttede skrift- og luftinnstillingene. Ekstra materiale kan være
 uttrykkelig rullbart. Uventet innholdsvekst må aldri gjøre noe utilgjengelig.
 
 Bruk **én navngitt vertikal rulleflate** for appens innhold, ikke flere
-uavhengige rullebokser. Standardmønsteret i startmalen er:
+uavhengige rullebokser.
 
-```css
-html, body { height: 100%; margin: 0; }
-body { padding: 0; overflow: hidden; }
-#miniapp {
-  height: 100%;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--slaids-gap);
-  padding: var(--slaids-gap);
-}
-.app-content {
-  min-height: 0;
-  min-width: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior-y: contain;
-  scrollbar-gutter: stable;
-}
-```
+De obligatoriske strukturkravene — én tydelig rot, full og avgrenset høydekjede,
+`box-sizing: border-box`, `html, body` uten default-marger, én navngitt vertikal
+rulleflate med `min-height: 0` og `overflow-y: auto`, og avstandsvariablene
+under — står **ett sted**: `INTERACTIVE_LAYOUT_RULES` i
+`src/domain/interactiveStyle.ts`. Samme fil har `INTERACTIVE_STARTER_SKELETON`,
+det minimale skallet som følger dem. Begge returneres av
+`get_interactive_contract`, så en agent har dem uten å lese repoet, og
+`examples/interactive-miniapps/starter.html` er det samme skallet med en
+fungerende app i seg. Denne filen gjentar dem ikke; den forklarer hvorfor de
+gjelder.
 
-Dette er et utdrag, ikke en erstatning for den komplette startmalen. Rotens
-`overflow: hidden` er lovlig her **bare fordi det finnes en avgrenset,
+Rotens `overflow: hidden` er lovlig **bare fordi det finnes en avgrenset,
 fungerende indre rulleflate som gjør alt innhold tilgjengelig**. Det er aldri
 lov å bruke klipping for å få en overfylt side til å se ut som den passer.
 Tilsvarende skal horisontal overflow måles; `overflow-x: hidden` er ikke et
@@ -288,8 +284,11 @@ fit-guard for vilkårlig HTML fra andre kilder.
 
 ## 8. Agentoperasjoner
 
-- `get_interactive_contract`: stilversjon, variabelnavn, flate, bytegrenser,
-  begrensninger og dokumentasjonssti. Les denne forfatterkontrakten i tillegg.
+- `get_interactive_contract`: stilversjon, variabelnavn, de obligatoriske
+  struktur-, rulle- og avstandsreglene, et minimalt startskall som følger dem,
+  flate, bytegrenser, begrensninger og dokumentasjonssti. Den er nok til å
+  skrive en korrekt miniapp uten tilgang til repoet; denne forfatterkontrakten
+  gir begrunnelsene og leveransekravene i §7.
 - `add_interactive_slide`: fil som `html` (JSON-streng) eller `content`
   (base64/tekst over JSON, rå bytes over REST). Velg `content` nær bytegrensen,
   fordi JSON-escaping ellers kan sprenge forespørselsgrensen.
