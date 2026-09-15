@@ -5,7 +5,7 @@ import { emptyDoc, paragraphDoc } from './richdoc'
 import type { Rect } from './types'
 
 const big: Rect = { x: 0, y: 0, width: 800, height: 600 }
-const small: Rect = { x: 0, y: 0, width: 200, height: 120 }
+const small: Rect = { x: 0, y: 0, width: 200, height: 130 }
 
 describe('estimateDocHeight', () => {
   it('grows with text length', () => {

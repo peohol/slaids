@@ -224,6 +224,12 @@ export const SUBFIELD_DIVIDER_THICKNESS = 2
  * the DOM always agree about how much room a paragraph takes.
  */
 export const BLOCK_SPACING = 6
+/**
+ * Space below an ordinary paragraph — more air than `BLOCK_SPACING` gives a
+ * list or a quote, so consecutive paragraphs read as separate thoughts, but
+ * short of a full blank line's worth of space.
+ */
+export const PARAGRAPH_SPACING = 10
 export const HEADING_SPACING = 10
 export const LIST_INDENT = 24
 

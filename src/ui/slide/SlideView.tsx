@@ -61,6 +61,7 @@ export function slideTokenStyle(
     '--slaids-card-radius': `${CARD_RADIUS}px`,
     '--slaids-card-padding': `${tokens.cardPadding}px`,
     '--slaids-block-spacing': `${tokens.blockSpacing}px`,
+    '--slaids-paragraph-spacing': `${tokens.paragraphSpacing}px`,
     '--slaids-reference-gap': `${tokens.referenceEntryGap}px`,
     '--slaids-heading-spacing': `${tokens.headingSpacing}px`,
     '--slaids-list-indent': `${tokens.listIndent}px`,

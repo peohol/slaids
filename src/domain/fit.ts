@@ -273,7 +273,7 @@ function estimateNodeHeight(
       const chars = countChars(node, context)
       const size = tokens.bodyFontSize
       const lines = Math.ceil(chars / charsPerLine(width, size, metrics.body)) || 1
-      return lines * size * BODY_LINE_HEIGHT + tokens.blockSpacing
+      return lines * size * BODY_LINE_HEIGHT + tokens.paragraphSpacing
     }
     case 'blockquote': {
       const inner = (node.content ?? []).reduce(
