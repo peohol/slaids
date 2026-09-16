@@ -594,6 +594,23 @@ angrehistorikken, av samme grunn som bildeoptimalisereren gjør det: filene er
 allerede lagret, og en Ctrl+Z tilbake til «ingen bilder» ville vært en angring
 inn i en tilstand dekkets egne filer ikke lenger passer.
 
+«Alle eller ingen» gjelder også lagringen, og det er ikke gratis: bytene
+skrives før noe peker på dem, så et sett som stopper halvveis ville etterlatt
+filer dekket ikke lister — unåbare, og ikke noe `deleteOrphanAssets` rydder,
+siden den bare tar rader hvis *presentasjon* er borte. Derfor huskes hver fil
+kallet selv skriver, og med mindre dokumentet blir skrevet tas de alle tilbake
+(`discardUploadedAssets`) før dialogen kan brukes igjen. En fil som ble
+*gjenbrukt* telles aldri med: den var dekkets fra før, og å slette den ville
+tatt et bilde av en slide.
+
+**Dekket kan flytte seg under opplastingen.** Ctrl+Z når dokumentet også mens
+denne dialogen står åpen, og `replaceDocument` sjekker bare presentasjonens
+*id*. Derfor holdes dokumentet fullføringen ble regnet ut fra, og er det ikke
+lenger det levende dokumentet, skrives ingenting: å skrive ville lagt tilbake en
+versjon brukeren nettopp gikk bort fra, og tømt historikken på veien. Det er den
+samme regelen den tilbakeholdte strukturendringen følger — en utregning gjelder
+bare mot dokumentet den ble gjort på.
+
 **`completed` og `abandoned` er endelige.** Ingenting setter et dekk tilbake til
 `pending` — heller ikke en ny bildeplan. Begge avslutningene fjerner numrene fra
 panelene, så et ferdig dekk er et helt vanlig dekk.
