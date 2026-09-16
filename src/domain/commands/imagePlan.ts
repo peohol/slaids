@@ -79,7 +79,7 @@ export function setImagePlan(
   const withPlan: Presentation =
     plan.length === 0 ? stripPlan(presentation) : { ...presentation, imagePlan: plan }
 
-  const stamped = stampPlaceholders(withPlan, options)
+  const stamped = syncImagePlaceholders(withPlan, options)
   if (!stamped.ok) return stamped
   // A call that changed nothing writes nothing — the same contract
   // `setImageContext` keeps, and what stops a re-read of the current plan from
@@ -117,8 +117,16 @@ function stripPlan(presentation: Presentation): Presentation {
  * `setImageAsset` applies the same reasoning to one zone when a file lands in
  * it, through the same `isPlaceholderCaption` test — so there is one definition
  * of «a caption Slaids may take back», and two places that honour it.
+ *
+ * Exported as the repair for `PLACEHOLDER_STALE`. The numbering is deck order,
+ * and the deck keeps moving after a plan is written — a slide dragged in the
+ * filmstrip renumbers the brief while the captions keep saying what they said.
+ * Re-stamping inside every command that can move a slide or a zone would be a
+ * rule a dozen call sites have to remember; this is one idempotent call that
+ * brings any deck back into line, and `checkImagePlan` is what notices it is
+ * needed.
  */
-function stampPlaceholders(
+export function syncImagePlaceholders(
   presentation: Presentation,
   options: StructuralOptions = {},
 ): Result<Presentation> {

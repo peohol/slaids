@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_IMAGE_CONTEXT_CHARS } from '../../domain/constants'
-import { setImageContext } from '../../domain/commands'
+import { setImageContext, syncImagePlaceholders } from '../../domain/commands'
 import { checkImagePlan, composeImageBrief, resolveImagePlan } from '../../domain/imagePlan'
 import { COPIED_FEEDBACK_MS, copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
@@ -44,6 +44,21 @@ export function ImageBriefModal({ onClose }: { onClose: () => void }) {
       if (timer.current) clearTimeout(timer.current)
     }
   }, [])
+
+  /*
+   * Bring the slides' placeholder captions back in line with the brief, once,
+   * as the dialog opens.
+   *
+   * The numbering is deck order and the deck keeps moving after a plan is
+   * written — a slide dragged in the filmstrip renumbers the brief while the
+   * captions keep saying what they said. This is the one screen where the two
+   * are read together, so it is the honest place to reconcile them, and it is
+   * the app's job rather than the author's. Idempotent: a deck already in line
+   * comes back unchanged and nothing is saved.
+   */
+  useEffect(() => {
+    run('image-placeholders', (current) => syncImagePlaceholders(current))
+  }, [run])
 
   const brief = useMemo(
     () => (presentation ? composeImageBrief(presentation) : null),

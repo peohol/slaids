@@ -222,7 +222,7 @@ Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Rekkef
 1. **Trenger sliden bilde i det hele tatt?** Bestem bildets faglige rolle først.
 2. **Planlegg sonetreet slik at bildesonen passer motivet.** Et stående motiv trenger en høy sone; en vid scene trenger en bred sone. Passer ikke sonens format til motivet, skal sonene planlegges på nytt — motivet skal ikke presses inn i feil rektangel.
 3. **Reserver sonen som en ekte bildesone:** sett innholdstypen til `image` eller `titled-image-card` uten fil. Sonen venter da på bildet, og har en bildesones minstemål. Inspeksjonen svarer med `reservedImageKinds`: bildetypene rektangelet faktisk rommer. Et titled image card trenger mer plass enn et bart bilde, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. Tom liste betyr at sonen må få mer plass.
-4. **Legg bildet inn i dekkets bildeplan** — én oppføring per bildesone, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet.
+4. **Legg bildet inn i dekkets bildeplan** — én oppføring per bildesone, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet. Motivet er påkrevd; de tre andre feltene skrives bare når de har noe å si, og briefen utelater de tomme.
 5. **Skriv dekkets felles bildekontekst** så snart minst ett rasterbilde planlegges — også om det bare er ett.
 
 Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
@@ -302,6 +302,8 @@ Slaids sjekker planen mot dekket og melder fra om:
 - en bildesone som venter på en fil uten at noen oppføring beskriver den;
 - et motiv som beskriver et annet format enn sonen faktisk har — enten i ord («panorama», «stående») eller som et forholdstall skrevet inn i teksten;
 - to oppføringer som i praksis beskriver samme motiv;
+- en oppføring uten komposisjon, som er det feltet som må passe sonens format;
+- en plassholdertekst på sliden som ikke lenger sier det samme nummeret som briefen — det skjer når slides flyttes etter at planen ble skrevet, og rettes ved å skrive bildeplanen på nytt;
 - planlagte bilder uten felles bildekontekst;
 - en felles bildekontekst som gjentar motivet til ett enkelt bilde.
 

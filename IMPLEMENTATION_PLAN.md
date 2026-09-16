@@ -387,6 +387,25 @@ eller fjernet. Bare en tekst Slaids selv skrev (`isPlaceholderCaption`) tas
 tilbake, og det er den samme testen plassholderne skrives etter, så ingenting
 annet kan forveksles med en.
 
+**Nummereringen er dekkets rekkefølge, og dekket fortsetter å flytte på seg.**
+En slide dratt i filmstripen renummererer briefen mens bildetekstene står igjen
+med det de sa. Å stemple på nytt inne i hver kommando som kan flytte en slide
+eller en sone ville vært en regel et dusin kallsteder må huske — og den ville
+fortsatt ikke fanget en bildetekst noen slettet for hånd. I stedet spør
+`checkImagePlan` dokumentet om nummeret på sliden stemmer med nummeret i
+briefen (`PLACEHOLDER_STALE`), og `syncImagePlaceholders` er reparasjonen: ett
+idempotent kall som bringer et hvilket som helst dekk i orden igjen. Editorens
+bildebrief-dialog kjører det når den åpnes, så forfatteren aldri ser et utdatert
+nummer; agenten skriver bildeplanen på nytt.
+
+En oppføring **må** ha et motiv: det er det ene feltet som skiller to bilder fra
+hverandre, og en brief som nummererer et bilde uten noe å vise er en brief som
+produserer hva som helst. Kommandoen avviser en tom `subject`. De tre andre
+feltene er valgfrie, og briefen skriver bare de seksjonene som faktisk sier noe
+— en overskrift over «(ikke beskrevet)» er en instruks om å tegne ingenting
+spesielt. Mangler komposisjonen, sier `INCOMPLETE_ENTRY` fra, fordi det er den
+som må passe sonens format.
+
 ### Den felles bildekonteksten
 
 ```ts
@@ -446,6 +465,8 @@ ingen av delene kan svare på alene:
 | `ZONE_NOT_PLANNED` | En bildesone venter på en fil uten at noen oppføring beskriver den. |
 | `ASPECT_MISMATCH` | Motivet beskriver et annet format enn sonen har — i ord eller som et forholdstall skrevet inn i teksten. |
 | `NEAR_DUPLICATE` | To oppføringer beskriver i praksis samme motiv. |
+| `INCOMPLETE_ENTRY` | En oppføring mangler komposisjonen, som er det som må passe sonens format. |
+| `PLACEHOLDER_STALE` | Nummeret på sliden og nummeret i briefen har kommet fra hverandre. |
 | `MISSING_CONTEXT` | Det planlegges bilder uten felles bildekontekst. |
 | `CONTEXT_OVERREACH` | Den felles konteksten gjentar motivet til ett enkelt bilde og overstyrer det. |
 

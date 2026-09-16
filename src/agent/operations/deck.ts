@@ -492,8 +492,8 @@ export const planDeckImages = defineOperation({
           nodeId: nodeIdSchema.describe(
             'Sonen bildet skal ligge i. Den må allerede være `image` eller `titled-image-card`.',
           ),
-          subject: plannedImageField.describe(
-            'Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre.',
+          subject: plannedImageField.min(1).describe(
+            'Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre, og det eneste som er påkrevd.',
           ),
           composition: plannedImageField.describe(
             'Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',

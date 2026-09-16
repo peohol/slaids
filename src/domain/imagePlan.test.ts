@@ -17,8 +17,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { setImagePlan } from './commands/imagePlan'
+import { setImagePlan, syncImagePlaceholders } from './commands/imagePlan'
 import { setContentKind, setImageAsset, setImageCaption } from './commands/content'
+import { moveSlide } from './commands/slides'
 import { setImageContext } from './commands/slides'
 import { registerAsset } from './commands/assets'
 import { createImage, createTitledImageCard } from './content'
@@ -211,6 +212,13 @@ describe('bildeplanen mot dekket', () => {
     if (!missing.ok) expect(missing.error.code).toBe('NODE_NOT_FOUND')
   })
 
+  it('avviser en oppføring uten motiv, som ikke er en oppføring', () => {
+    const { deck, slideId, nodeIds } = threeColumns()
+    const blank = setImagePlan(deck, [{ ...entry(slideId, nodeIds[0], ''), subject: '   ' }])
+    expect(blank.ok).toBe(false)
+    if (!blank.ok) expect(blank.error.code).toBe('INVALID_ARGUMENT')
+  })
+
   it('avviser to oppføringer på den samme sonen', () => {
     const { deck, slideId, nodeIds } = threeColumns()
     const twice = setImagePlan(deck, [
@@ -227,6 +235,103 @@ describe('bildeplanen mot dekket', () => {
     const again = setImagePlan(written, [entry(slideId, nodeIds[0], 'Homo erectus i helfigur.')])
     expect(again.ok).toBe(true)
     if (again.ok) expect(again.value).toBe(written)
+  })
+})
+
+describe('nummeret på sliden mot nummeret i briefen', () => {
+  /** Two planned pictures, one per slide, so the deck's order is what numbers them. */
+  function twoSlides() {
+    const base = createPresentation({ title: 'To slides' })
+    const first = createLeaf(createImage())
+    const second = createLeaf(createImage())
+    const deck: Presentation = {
+      ...base,
+      imageContext: CONTEXT,
+      slides: [
+        sectionAt(base, 0),
+        { ...contentAt(base, 1), id: 's1', title: titleDoc('Først'), root: first },
+        { ...contentAt(base, 1), id: 's2', title: titleDoc('Så'), root: second },
+      ],
+    }
+    const written = planned(deck, [
+      entry('s1', first.id, 'Australopithecus afarensis i helfigur.'),
+      entry('s2', second.id, 'Homo erectus som bearbeider en steinøks.'),
+    ])
+    return { deck: written, first: first.id, second: second.id }
+  }
+
+  function captionOnAnySlide(deck: Presentation, nodeId: string): string | null {
+    for (const slide of deck.slides) {
+      if (slide.kind !== 'content' || slide.root.kind !== 'leaf') continue
+      if (slide.root.id !== nodeId) continue
+      const content = slide.root.content
+      if (!content || !('image' in content)) return ''
+      return content.image.caption ? docToPlainText(content.image.caption.doc) : ''
+    }
+    return null
+  }
+
+  it('melder fra når slidene er flyttet og plassholderne har blitt hengende igjen', () => {
+    const { deck, first, second } = twoSlides()
+    expect(captionOnAnySlide(deck, first)).toBe(placeholderCaption(1))
+
+    // Dragging a slide in the filmstrip renumbers the brief — the numbering is
+    // deck order — while the captions keep saying what they said. That is the
+    // one way an author puts a generated file into the wrong zone.
+    const moved = moveSlide(deck, 's2', 1)
+    expect(moved.ok).toBe(true)
+    if (!moved.ok) return
+
+    expect(resolveImagePlan(moved.value).map((image) => image.plan.nodeId)).toEqual([second, first])
+    expect(captionOnAnySlide(moved.value, second)).toBe(placeholderCaption(2))
+
+    const stale = checkImagePlan(moved.value).filter((issue) => issue.code === 'PLACEHOLDER_STALE')
+    expect(stale.map((issue) => issue.nodeId).sort()).toEqual([first, second].sort())
+  })
+
+  it('rettes opp av én idempotent kommando', () => {
+    const { deck, first, second } = twoSlides()
+    const moved = moveSlide(deck, 's2', 1)
+    expect(moved.ok).toBe(true)
+    if (!moved.ok) return
+
+    const synced = syncImagePlaceholders(moved.value)
+    expect(synced.ok).toBe(true)
+    if (!synced.ok) return
+
+    expect(captionOnAnySlide(synced.value, second)).toBe(placeholderCaption(1))
+    expect(captionOnAnySlide(synced.value, first)).toBe(placeholderCaption(2))
+    expect(checkImagePlan(synced.value)).toEqual([])
+
+    // Idempotent: a deck already in line comes back untouched, so running it on
+    // every open of the dialog cannot churn the document.
+    const again = syncImagePlaceholders(synced.value)
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.value).toBe(synced.value)
+  })
+
+  it('melder fra når plassholderen er slettet for hånd', () => {
+    const { deck, first } = twoSlides()
+    const removed = setImageCaption(deck, { slideId: 's1', nodeId: first, remove: true })
+    expect(removed.ok).toBe(true)
+    if (!removed.ok) return
+
+    // No command could have caught this one — which is why the check is asked
+    // of the document rather than re-stamped inside the structural commands.
+    const stale = checkImagePlan(removed.value).find((issue) => issue.code === 'PLACEHOLDER_STALE')
+    expect(stale?.nodeId).toBe(first)
+  })
+
+  it('regner ikke en bildetekst forfatteren skrev som utdatert', () => {
+    const { deck, first } = twoSlides()
+    const authored = setImageCaption(deck, {
+      slideId: 's1',
+      nodeId: first,
+      doc: titleDoc('Lucy, 3,2 millioner år'),
+    })
+    expect(authored.ok).toBe(true)
+    if (!authored.ok) return
+    expect(checkImagePlan(authored.value)).toEqual([])
   })
 })
 
@@ -289,6 +394,38 @@ describe('den samlede briefen', () => {
     // The brief still generates: a deck being worked on is not a deck that
     // refuses to show what it has.
     expect(composeImageBrief(stripped.value)).toContain('FELLES BILDEKONTEKST')
+  })
+
+  it('skriver bare de seksjonene som faktisk sier noe', () => {
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = planned(deck, [
+      {
+        ...entry(slideId, nodeIds[0], 'Nærbilde av en bearbeidet flintøks.'),
+        requirements: '',
+        avoid: '',
+      },
+    ])
+    const brief = composeImageBrief(written) ?? ''
+
+    // A heading over «(ikke beskrevet)» is an instruction to render nothing in
+    // particular, and reads to the author as a defect in the brief.
+    expect(brief).toContain('Motiv:')
+    expect(brief).toContain('Komposisjon og utsnitt:')
+    expect(brief).not.toContain('Faglige krav:')
+    expect(brief).not.toContain('Unngå i akkurat dette bildet:')
+    expect(brief).not.toContain('ikke beskrevet')
+  })
+
+  it('melder fra om en oppføring uten komposisjon i stedet for å skrive et tomt avsnitt', () => {
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = planned(deck, [
+      { ...entry(slideId, nodeIds[0], 'Nærbilde av en flintøks.'), composition: '' },
+    ])
+    // The composition is what has to match the zone's shape, so an entry
+    // without one cannot be checked against its zone at all — and a plan that
+    // cannot be checked must not report itself finished.
+    const incomplete = checkImagePlan(written).find((issue) => issue.code === 'INCOMPLETE_ENTRY')
+    expect(incomplete?.number).toBe(1)
   })
 
   it('er null når dekket ikke planlegger bilder', () => {

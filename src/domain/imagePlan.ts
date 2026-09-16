@@ -154,6 +154,8 @@ export interface ResolvedPlannedImage {
   orientation: ImageOrientation
   /** Whether the file has arrived. A filled zone keeps its number. */
   filled: boolean
+  /** What the zone's caption says today, as plain text. `null` when it has none. */
+  caption: string | null
 }
 
 /**
@@ -200,6 +202,7 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
         aspectRatio: aspectRatioLabel(frame),
         orientation: orientationOf(aspect),
         filled: Boolean(panel.assetId),
+        caption: panel.caption ? docToPlainText(panel.caption.doc) : null,
       })
     }
   })
@@ -244,6 +247,10 @@ export type ImagePlanIssueCode =
   | 'ZONE_NOT_PLANNED'
   /** The prompt claims a shape the zone does not have. */
   | 'ASPECT_MISMATCH'
+  /** An entry is missing a section the brief needs in order to be usable. */
+  | 'INCOMPLETE_ENTRY'
+  /** The number on the slide and the number in the brief have come apart. */
+  | 'PLACEHOLDER_STALE'
   /** Two entries describe what amounts to the same picture. */
   | 'NEAR_DUPLICATE'
   /** Pictures are planned and the deck has no shared visual context. */
@@ -330,6 +337,17 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
 
   for (const image of resolved) {
     issues.push(...aspectIssues(image))
+    if (image.plan.composition.trim() === '') {
+      issues.push({
+        code: 'INCOMPLETE_ENTRY',
+        message: `Bilde ${image.number} har ingen komposisjon. Komposisjonen er det som må passe sonens format, så uten den kan ikke briefen kontrolleres mot sonen.`,
+        number: image.number,
+        slideId: image.plan.slideId,
+        nodeId: image.plan.nodeId,
+      })
+    }
+    const stale = placeholderIssue(image)
+    if (stale) issues.push(stale)
   }
   issues.push(...duplicateIssues(resolved))
 
@@ -344,6 +362,41 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
     issues.push(...contextOverreachIssues(context, resolved))
   }
   return issues
+}
+
+/**
+ * The number on the slide against the number in the brief.
+ *
+ * Stamping happens when the plan is written; the numbering is deck order, and
+ * the deck keeps moving afterwards — a slide dragged in the filmstrip, a zone
+ * split, a planned zone cleared. Every one of those renumbers the brief and
+ * leaves the captions saying what they said before, and an author reading
+ * «Sett inn bilde 2 her» while the brief calls that picture 1 puts the file in
+ * the wrong zone.
+ *
+ * Asked here, once, rather than re-stamped inside each structural command:
+ * there are a dozen ways a deck can move under a plan and only one place that
+ * can see the result. It also catches the ones no command could — a caption
+ * deleted by hand, a document imported from elsewhere. `syncImagePlaceholders`
+ * is the repair, and it is one call.
+ *
+ * A caption the author wrote is not stale: it was never Slaids' to number.
+ */
+function placeholderIssue(image: ResolvedPlannedImage): ImagePlanIssue | null {
+  if (image.filled) return null
+  const wanted = placeholderCaption(image.number)
+  const current = image.caption?.trim() ?? ''
+  if (current === wanted) return null
+  if (current !== '' && !isPlaceholderCaption(current)) return null
+  return {
+    code: 'PLACEHOLDER_STALE',
+    message: `Sonen til bilde ${image.number} sier ${
+      current === '' ? 'ingenting' : `«${current}»`
+    }, mens briefen kaller bildet ${image.number}. Skriv bildeplanen på nytt, så settes plassholderteksten riktig.`,
+    number: image.number,
+    slideId: image.plan.slideId,
+    nodeId: image.plan.nodeId,
+  }
 }
 
 function aspectIssues(image: ResolvedPlannedImage): ImagePlanIssue[] {
@@ -456,8 +509,6 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 const MISSING_CONTEXT_TEXT =
   '(Ingen felles bildekontekst er skrevet for dette dekket ennå.)'
 
-const MISSING_FIELD_TEXT = '(ikke beskrevet)'
-
 /**
  * The deck's pictures as one message an author can paste into a chat window.
  *
@@ -478,23 +529,25 @@ export function composeImageBrief(presentation: Presentation): string | null {
   const count = images.length
   const context = (presentation.imageContext ?? '').trim() || MISSING_CONTEXT_TEXT
 
+  /*
+   * Only the sections that say something.
+   *
+   * A heading over «(ikke beskrevet)» is worse than no heading: it is an
+   * instruction to an image generator to render nothing in particular, and it
+   * reads to the author as a defect in the brief rather than as a gap in the
+   * plan. The motif is never absent — `plannedImagesRefusal` refuses an entry
+   * without one — and a missing composition is reported by `checkImagePlan`
+   * rather than printed.
+   */
   const sections = images.map((image) =>
     [
       `BILDE ${image.number} AV ${count}`,
       `Skal brukes på slide: ${image.slideLabel}`,
       `Aspect ratio: ${image.aspectRatio} (${image.orientation})`,
-      '',
-      'Motiv:',
-      field(image.plan.subject),
-      '',
-      'Komposisjon og utsnitt:',
-      field(image.plan.composition),
-      '',
-      'Faglige krav:',
-      field(image.plan.requirements),
-      '',
-      'Unngå i akkurat dette bildet:',
-      field(image.plan.avoid),
+      ...section('Motiv', image.plan.subject),
+      ...section('Komposisjon og utsnitt', image.plan.composition),
+      ...section('Faglige krav', image.plan.requirements),
+      ...section('Unngå i akkurat dette bildet', image.plan.avoid),
     ].join('\n'),
   )
 
@@ -533,9 +586,9 @@ export function composeImageBrief(presentation: Presentation): string | null {
   ].join('\n')
 }
 
-function field(value: string): string {
+function section(heading: string, value: string): string[] {
   const text = value.trim()
-  return text === '' ? MISSING_FIELD_TEXT : text
+  return text === '' ? [] : ['', `${heading}:`, text]
 }
 
 /* ------------------------------------------------------------------ *
@@ -560,6 +613,12 @@ export function plannedImagesRefusal(entries: readonly PlannedImage[]): string |
     const key = imageZoneKey(entry.slideId, entry.nodeId)
     if (seen.has(key)) return 'To bildeoppføringer peker på den samme sonen.'
     seen.add(key)
+    /* The motif is what the entry *is*: it is the one field that has to differ
+       between two pictures, and a brief that numbers a picture with nothing to
+       show is a brief that produces whatever the generator felt like. */
+    if (entry.subject.trim() === '') {
+      return 'En bildeoppføring må beskrive et motiv. Uten motiv er det ingenting å generere.'
+    }
     for (const name of PLANNED_IMAGE_FIELDS) {
       if (entry[name].length > MAX_PLANNED_IMAGE_FIELD_CHARS) {
         return `Hvert felt i en bildeoppføring kan være inntil ${MAX_PLANNED_IMAGE_FIELD_CHARS} tegn.`
