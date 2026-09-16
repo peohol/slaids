@@ -449,10 +449,21 @@
   margin-left: -0.32em;
   transform: translateX(-100%);
   white-space: pre;
+  /* A marker points at the words; it is not one of them. */
+  opacity: 0.75;
 }
 
 .rich-doc :is(ol, .rd-ol) > :is(li, .rd-li):has(> p:only-child) > p::before {
   content: counter(rd-list-item) '.';
+}
+
+/*
+ * The same 0.75 for the browser's own marker on a multi-paragraph item, as a
+ * colour rather than an opacity: `::marker` takes `color` and does not take
+ * `opacity`, and this is the one way to say it that both paths agree on.
+ */
+.rich-doc :is(li, .rd-li)::marker {
+  color: color-mix(in srgb, currentColor 75%, transparent);
 }
 
 /*
