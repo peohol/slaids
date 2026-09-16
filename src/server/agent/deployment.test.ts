@@ -63,25 +63,27 @@ const TOKEN = 'slaids_at_0123456789012345678901234567890123456789042'
 
 interface VercelConfig {
   rewrites?: { source: string; destination: string }[]
-  functions?: Record<string, { includeFiles?: string; maxDuration?: number }>
+  functions?: Record<
+    string,
+    { includeFiles?: string; excludeFiles?: string; maxDuration?: number }
+  >
 }
 
 const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as VercelConfig
 const rewrites = config.rewrites ?? []
 
 /**
- * The Chromium the preview renders with, and why it needs saying twice.
+ * The Chromium the preview renders with is intentionally absent from the
+ * deployed function bundle.
  *
- * `@sparticuz/chromium` is an ordinary dependency, so the platform's dependency
- * tracer follows the *import* and packages the JavaScript. What it cannot see is
- * that the package then reads a browser out of its own `bin/` directory at
- * runtime: those are brotli blobs, reached by a path computed from
- * `import.meta.url`, and nothing in any import graph mentions them. A deployment
- * without them type-checks, builds, deploys green, and answers every preview
- * with "the input directory does not exist".
- *
- * So they are listed explicitly, and asserted here — this is precisely the
- * class of failure that only production would otherwise report.
+ * `@sparticuz/chromium` stays an ordinary dependency so local development and
+ * the Linux test suite can use its exact, pinned browser. Production is
+ * different: each Vercel deployment is retained as Function Storage, so copying
+ * the roughly 70 MB browser payload into every preview and production deploy
+ * multiplies storage without changing behaviour. The renderer therefore falls
+ * back to the same versioned Chromium pack over HTTPS when these files are not
+ * present, and this configuration explicitly prevents Vercel's tracer from
+ * putting them back into the function later.
  */
 const CHROMIUM_BIN_GLOB = 'node_modules/@sparticuz/chromium/bin/**'
 
@@ -202,11 +204,12 @@ describe('adressene til agent-API-et', () => {
     expect(routed?.url.searchParams.get('name')).toBe('figur.png')
   })
 
-  it('pakker Chromium-binærene med funksjonen, som ingen importgraf nevner', () => {
+  it('holder Chromium-binærene utenfor funksjonslagringen', () => {
     const entry = config.functions?.[join('api', 'agent', 'v1.ts')]
-    expect(entry?.includeFiles).toBe(CHROMIUM_BIN_GLOB)
-    // A browser launch plus a first inflation is seconds, not milliseconds, so
-    // the default ten is not enough for the first preview a cold instance draws.
+    expect(entry?.includeFiles).toBeUndefined()
+    expect(entry?.excludeFiles).toBe(CHROMIUM_BIN_GLOB)
+    // A cold start may now include one remote download plus inflation before
+    // Chromium launches, so the function must keep the existing generous cap.
     expect(entry?.maxDuration).toBeGreaterThanOrEqual(30)
   })
 
