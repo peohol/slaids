@@ -76,6 +76,36 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(1\)/)
   })
 
+  test('copies the presentation id without opening the presentation', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: 'http://127.0.0.1:4173',
+    })
+    await createPresentation(page, 'ID-kopi')
+
+    const presentationId = await page.evaluate(() => {
+      const raw = localStorage.getItem('slaids.ui.lastOpenPresentation')
+      return raw ? (JSON.parse(raw) as string | null) : null
+    })
+    expect(presentationId).not.toBeNull()
+
+    await page.getByTestId('back-to-library').click()
+    const copyButton = page.getByTestId('copy-presentation-id')
+    await expect(copyButton).toHaveAttribute('aria-label', 'Kopier presentasjons-ID for ID-kopi')
+    await copyButton.hover()
+    await expect(page.getByRole('tooltip')).toHaveText('Kopier presentasjons-ID')
+
+    // A real button remains keyboard reachable, and activating it must not hit
+    // the card's separate open button.
+    await copyButton.focus()
+    await expect(copyButton).toBeFocused()
+    await copyButton.press('Enter')
+
+    await expect(toast(page, 'Presentasjons-ID kopiert')).toHaveCount(1)
+    await expect(page.getByTestId('presentation-grid')).toBeVisible()
+    await expect(page.getByTestId('editor')).toHaveCount(0)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(presentationId)
+  })
+
   test('restores from the trash, deletes for good, and empties it', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Angret')
