@@ -13,17 +13,18 @@ import {
   MAX_IMAGE_CONTEXT_CHARS,
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
-  PLANNED_IMAGE_FIELDS,
   REQUIRED_PLANNED_IMAGE_FIELDS,
   plannedImageFieldIsBlank,
   MAX_SPLIT_CHILDREN,
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
+  type PlannedImageField,
 } from './constants'
 import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
 import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactive'
+import type { ImageDepositStatus } from './imageDeposit'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
 export const CURRENT_SCHEMA_VERSION = 16
@@ -88,6 +89,14 @@ export const imagePanelSchema = z.object({
     y: z.number().finite().min(0).max(1),
   }),
   caption: imageCaptionSchema.nullable(),
+  /* Optional, and no schema version bump, for the reason `imageContext` is:
+     a panel that is not part of an image deposit is exactly the panel every
+     document written before deposits existed already has. Whether the numbers
+     across the deck still spell out 1‥N is *not* asked here — that is a
+     question about the slides as a whole, and `depositIsOpen` answers it, so a
+     deck whose numbered zone was deleted stays openable and simply stops
+     offering the deposit. See `domain/imageDeposit.ts`. */
+  depositIndex: z.number().int().min(1).max(MAX_PLANNED_IMAGES).optional(),
 })
 
 export const zoneContentSchema = z.discriminatedUnion('kind', [
@@ -285,7 +294,7 @@ const requiredPlanField = z
 
 const optionalPlanField = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
 
-function planField(name: (typeof PLANNED_IMAGE_FIELDS)[number]) {
+function planField(name: PlannedImageField) {
   return REQUIRED_PLANNED_IMAGE_FIELDS.includes(name) ? requiredPlanField : optionalPlanField
 }
 
@@ -296,6 +305,17 @@ export const plannedImageSchema = z.object({
   composition: planField('composition'),
   requirements: planField('requirements'),
   avoid: planField('avoid'),
+})
+
+/**
+ * Where the deck is in handing its pictures over. See `domain/imageDeposit.ts`.
+ *
+ * The status list is read off the type rather than written out again, so a
+ * state added to the union is a type error here until it is stored.
+ */
+export const imageDepositSchema = z.object({
+  status: z.enum(['pending', 'completed', 'abandoned'] satisfies ImageDepositStatus[]),
+  expectedCount: z.number().int().min(0).max(MAX_PLANNED_IMAGES),
 })
 
 export const presentationSchema = z.object({
@@ -314,6 +334,9 @@ export const presentationSchema = z.object({
      deck whose tree was re-split stays openable and reports the mismatch
      instead of failing validation. */
   imagePlan: z.array(plannedImageSchema).max(MAX_PLANNED_IMAGES).optional(),
+  /* Optional for the same reason again: absent is a deck that never planned an
+     image deposit, which is not the same as one that gave up on it. */
+  imageDeposit: imageDepositSchema.optional(),
   theme: themeSchema,
   /* At least one slide, and the first one is a section. The refinement is the
      runtime half of `DeckSlides`: it is the only place a stored document is

@@ -3,8 +3,16 @@ import { useEditorStore } from './store'
 import { useToasts } from './toast'
 import { createInteractiveSlide, createPresentation } from '../domain/presentation'
 import { createLeaf, createSplit, findNode } from '../domain/layout'
-import { createUntitledCard } from '../domain/content'
-import { addSlide, deleteLayoutNode, setInteractiveSlideHtml, splitLeaf } from '../domain/commands'
+import { createImage, createUntitledCard } from '../domain/content'
+import {
+  addSlide,
+  deleteLayoutNode,
+  setContentKind,
+  setImagePlan,
+  setInteractiveSlideHtml,
+  splitLeaf,
+} from '../domain/commands'
+import { depositIsOpen } from '../domain/imageDeposit'
 import { err, ok } from '../domain/result'
 import type { Presentation } from '../domain/types'
 import { contentAt, interactiveAt, sectionAt } from '../domain/testDecks'
@@ -36,6 +44,7 @@ beforeEach(() => {
     lastLabel: null,
     lastChangeAt: 0,
     saveStatus: 'saved',
+    pendingDepositBreak: null,
   })
   useToasts.setState({ toasts: [] })
 })
@@ -377,5 +386,139 @@ describe('an interactive slide', () => {
     })
     useEditorStore.getState().redo()
     expect(interactiveAt(useEditorStore.getState().presentation!, 2).fileName).toBe('quiz.html')
+  })
+})
+
+
+/* ------------------------------------------------------------------ *
+ * The image deposit
+ *
+ * The store is the one place every structural command passes through, which is
+ * why the question «does this edit end the deposit» is asked here rather than
+ * inside a dozen commands with nothing in common but their outcome.
+ * ------------------------------------------------------------------ */
+
+/** A deck of two picture zones, planned and numbered: a deposit waiting. */
+function pendingDeposit(): { deck: Presentation; slideId: string; nodeIds: string[] } {
+  const presentation = createPresentation({ title: 'Bilder' })
+  const leaves = [createLeaf(createImage()), createLeaf(createImage())]
+  const base: Presentation = {
+    ...presentation,
+    imageContext: 'Fotorealistisk, dempet palett.',
+    slides: [
+      sectionAt(presentation, 0),
+      { ...contentAt(presentation, 1), root: createSplit('x', [1, 1], leaves) },
+    ],
+  }
+  const slideId = base.slides[1].id
+  const written = setImagePlan(
+    base,
+    leaves.map((leaf, index) => ({
+      slideId,
+      nodeId: leaf.id,
+      subject: `Motiv nummer ${index + 1}, tydelig forskjellig fra det andre`,
+      composition: 'Sentrert motiv.',
+      requirements: '',
+      avoid: '',
+    })),
+  )
+  if (!written.ok) throw new Error(written.error.message)
+  return { deck: written.value, slideId, nodeIds: leaves.map((leaf) => leaf.id) }
+}
+
+describe('image deposit guard', () => {
+  it('holds back a structural change that would break the deposit', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+
+    const committed = useEditorStore.getState().runStructural('delete-zone', (current) =>
+      deleteLayoutNode(current, { slideId, nodeId: nodeIds[0], contentDisposition: 'delete' }),
+    )
+
+    expect(committed).toBe(false)
+    // Nothing was written: the deck is exactly what it was.
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    expect(useEditorStore.getState().saveStatus).toBe('saved')
+    expect(useEditorStore.getState().pendingDepositBreak).not.toBeNull()
+  })
+
+  it('cancelling leaves the deck untouched', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+    useEditorStore.getState().runStructural('delete-zone', (current) =>
+      deleteLayoutNode(current, { slideId, nodeId: nodeIds[0], contentDisposition: 'delete' }),
+    )
+
+    useEditorStore.getState().cancelDepositBreak()
+
+    expect(useEditorStore.getState().pendingDepositBreak).toBeNull()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    expect(depositIsOpen(deck)).toBe(true)
+  })
+
+  it('confirming commits the change and abandons the deposit in one undo step', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+    useEditorStore.getState().runStructural('delete-zone', (current) =>
+      deleteLayoutNode(current, { slideId, nodeId: nodeIds[0], contentDisposition: 'delete' }),
+    )
+
+    useEditorStore.getState().confirmDepositBreak()
+
+    const after = useEditorStore.getState().presentation as Presentation
+    expect(after.imageDeposit).toEqual({ status: 'abandoned', expectedCount: 2 })
+    expect(depositIsOpen(after)).toBe(false)
+    expect(useEditorStore.getState().saveStatus).toBe('dirty')
+    // One decision, one history entry: Ctrl+Z takes both halves back together.
+    expect(useEditorStore.getState().past).toHaveLength(1)
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+  })
+
+  it('lets go of the held change when the user steps through history instead', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+    // Something to step back to, so undo has somewhere to go.
+    useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+    const withSlide = useEditorStore.getState().presentation as Presentation
+
+    useEditorStore.getState().runStructural('delete-zone', (current) =>
+      deleteLayoutNode(current, { slideId, nodeId: nodeIds[0], contentDisposition: 'delete' }),
+    )
+    expect(useEditorStore.getState().pendingDepositBreak).not.toBeNull()
+
+    // Ctrl+Z reaches the deck even while the dialog is up — one deck, one
+    // history — so the held change is about a document that is no longer here.
+    useEditorStore.getState().undo()
+
+    expect(useEditorStore.getState().pendingDepositBreak).toBeNull()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    // And confirming afterwards cannot put the undone slide back.
+    useEditorStore.getState().confirmDepositBreak()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    expect(withSlide.slides.length).toBe(deck.slides.length + 1)
+  })
+
+  it('also catches a change of content kind, which is not a structural command', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+
+    const committed = useEditorStore
+      .getState()
+      .run('kind', (current) => setContentKind(current, { slideId, nodeId: nodeIds[1], kind: 'titled-card' }))
+
+    expect(committed).toBe(false)
+    expect(useEditorStore.getState().pendingDepositBreak).not.toBeNull()
+  })
+
+  it('lets harmless edits through untouched', () => {
+    const { deck } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+
+    const committed = useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+
+    expect(committed).toBe(true)
+    expect(useEditorStore.getState().pendingDepositBreak).toBeNull()
+    expect(depositIsOpen(useEditorStore.getState().presentation as Presentation)).toBe(true)
   })
 })

@@ -147,6 +147,24 @@ export function withImagePanel<T extends ZoneContent>(content: T, image: ImagePa
 }
 
 /**
+ * The same panel with a deposit number, or without one.
+ *
+ * Absent rather than `null` or `0`, so a panel that is not part of an image
+ * deposit is byte-identical to one written before deposits existed — the same
+ * reason `imageContext` is optional on the document. What the number *means* is
+ * `domain/imageDeposit.ts`; this is only how it is written and taken away, and
+ * it lives here because `cloneContentWithNewIds` has to take it away too.
+ */
+export function withDepositIndex(panel: ImagePanel, index: number | null): ImagePanel {
+  if (index === null) {
+    if (panel.depositIndex === undefined) return panel
+    const { depositIndex: _dropped, ...rest } = panel
+    return rest
+  }
+  return panel.depositIndex === index ? panel : { ...panel, depositIndex: index }
+}
+
+/**
  * Where a caption may hang, per content kind.
  *
  * A titled image card has its header along the top edge already, so a caption

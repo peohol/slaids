@@ -99,7 +99,10 @@ import { ShortcutsModal } from './ShortcutsModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
 import { TextToolbar } from './TextToolbar'
+import { depositIsWaiting } from '../../domain/imageDeposit'
 import { ImageBriefModal } from './ImageBriefModal'
+import { ImageDepositIntroModal } from './ImageDepositIntroModal'
+import { ImageDepositModal } from './ImageDepositModal'
 import { ThemeModal } from './ThemeModal'
 import { PresentView } from '../present/PresentView'
 import { DRAG_ACTIVATION, SurfacePointerSensor } from './dragActivation'
@@ -156,6 +159,12 @@ const WHEEL_STEP_DEADZONE = 4
  */
 const WHEEL_STEP_COOLDOWN_MS = 350
 
+/**
+ * Where the deck's picture errand is: explaining itself, handing over the
+ * brief, taking the files back, or nowhere — the ordinary editor.
+ */
+type ImageStep = null | 'intro' | 'brief' | 'deposit'
+
 export function EditorView({
   presentationId,
   onClose,
@@ -175,6 +184,9 @@ export function EditorView({
   const toggleMode = useEditorStore((state) => state.toggleMode)
   const run = useEditorStore((state) => state.run)
   const runStructural = useEditorStore((state) => state.runStructural)
+  const depositBreak = useEditorStore((state) => state.pendingDepositBreak)
+  const confirmDepositBreak = useEditorStore((state) => state.confirmDepositBreak)
+  const cancelDepositBreak = useEditorStore((state) => state.cancelDepositBreak)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
 
@@ -187,7 +199,15 @@ export function EditorView({
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
-  const [imageContextOpen, setImageContextOpen] = useState(false)
+  /**
+   * Where the deck's picture errand is on screen, as one value.
+   *
+   * A deck waiting for its pictures walks one path — it explains itself, hands
+   * over the brief, then takes the files — and the steps replace each other
+   * rather than stack. Three booleans would allow two of them at once, which is
+   * a state with no meaning; `null` is the ordinary editor.
+   */
+  const [imageStep, setImageStep] = useState<ImageStep>(null)
   /**
    * The image dialog, and whether it still has a question to ask.
    *
@@ -284,6 +304,16 @@ export function EditorView({
         if (cancelled) return
         setPresentation(loaded)
         setLoading(false)
+        /*
+         * A deck that is waiting for its pictures says so as it opens.
+         *
+         * Here rather than in an effect on the document, because this is the
+         * act of opening — the one moment the question belongs to. Declining is
+         * not a decision, so the deck asks again next time it is opened, and it
+         * stops asking the moment the pictures are in, which is the only thing
+         * that actually settles it.
+         */
+        if (depositIsWaiting(loaded)) setImageStep('intro')
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -294,6 +324,21 @@ export function EditorView({
       cancelled = true
     }
   }, [presentationId, setLoadError, setLoading, setPresentation])
+
+  /**
+   * How many pictures the deck is still waiting for, or 0.
+   *
+   * `depositIsWaiting` rather than «has a deposit»: a deck whose zones have all
+   * been filled by hand is finished, and offering to fill them again would be
+   * offering to redo somebody's work.
+   */
+  const depositCount = useMemo(
+    () =>
+      presentation && depositIsWaiting(presentation)
+        ? (presentation.imageDeposit?.expectedCount ?? 0)
+        : 0,
+    [presentation],
+  )
 
   useEffect(() => {
     const controller = startAutosave(repository)
@@ -1505,7 +1550,7 @@ export function EditorView({
       onToggleSandbox: () => setSandboxOpen((open) => !open),
       onPresent: () => setPresenting(true),
       onOpenTheme: () => setThemeOpen(true),
-      onOpenImageBrief: () => setImageContextOpen(true),
+      onOpenImageBrief: () => setImageStep('brief'),
       onOptimizeImages: () => setOptimizeScope({ kind: 'all' }),
       onToggleShare: toggleShare,
     },
@@ -1696,7 +1741,20 @@ export function EditorView({
         onApplyTemplate={createSlideFromTemplate}
       />
       <ThemeModal open={themeOpen} onOpenChange={setThemeOpen} />
-      {imageContextOpen && <ImageBriefModal onClose={() => setImageContextOpen(false)} />}
+      {imageStep === 'intro' && depositCount > 0 && (
+        <ImageDepositIntroModal
+          expectedCount={depositCount}
+          onGenerate={() => setImageStep('brief')}
+          onEdit={() => setImageStep(null)}
+        />
+      )}
+      {imageStep === 'brief' && (
+        <ImageBriefModal
+          onClose={() => setImageStep(null)}
+          onDeposit={() => setImageStep('deposit')}
+        />
+      )}
+      {imageStep === 'deposit' && <ImageDepositModal onClose={() => setImageStep(null)} />}
       <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {imageOpen && (
         <ImageUploadModal
@@ -1753,6 +1811,15 @@ export function EditorView({
           onChange={(event) => setRenameValue(event.target.value)}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={depositBreak !== null}
+        title="Avslutte den automatiske bildeinnsettingen?"
+        message="Denne endringen fjerner en av bildeplassene presentasjonen venter på. Da kan ikke bildene lenger legges inn samlet, og du må sette inn hvert bilde selv. Det kan ikke gjøres om."
+        confirmLabel="Fortsett likevel"
+        onConfirm={confirmDepositBreak}
+        onCancel={cancelDepositBreak}
+      />
 
       <ConfirmDialog
         open={removingTitle}

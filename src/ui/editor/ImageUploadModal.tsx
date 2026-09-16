@@ -36,6 +36,7 @@
 import { useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
+import { IMAGE_FILE_ACCEPT } from '../../domain/imageBytes'
 import { describeError } from '../../domain/result'
 import { domFitCheckers } from '../../state/measure'
 import { createImage, imagePanelOf } from '../../domain/content'
@@ -47,8 +48,6 @@ import { notify } from '../../state/toast'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
 import { acceptsInlineImage, fittingImageWidthPercent } from './SlaidsImageExtension'
-
-const ACCEPTED = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,.svg'
 
 type Placement = 'inline' | 'zone'
 
@@ -189,7 +188,7 @@ export function ImageUploadModal({
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPTED}
+        accept={IMAGE_FILE_ACCEPT}
         style={{ display: 'none' }}
         data-testid="image-input"
         onChange={(event) => {

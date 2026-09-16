@@ -25,6 +25,7 @@ import {
   type PlannedImage,
 } from '../imagePlan'
 import { findContentSlide, touch } from '../presentation'
+import { openImageDeposit } from './imageDeposit'
 import { docToPlainText, titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { Presentation } from '../types'
@@ -176,8 +177,18 @@ export function syncImagePlaceholders(
     }
   }
 
+  /*
+   * The deposit numbers are stamped from the same pass, and that is the whole
+   * reason they can be trusted: «Sett inn bilde 3 her», «BILDE 3 AV 7» in the
+   * brief and the file called `3.png` are one numbering, written once. A deck
+   * whose deposit is already completed or abandoned is left alone — see
+   * `openImageDeposit`.
+   */
+  const stamped = openImageDeposit(current)
+
   // `setImageCaption` touches the document on every write it makes, so a
   // changed deck is already saved. An unchanged one comes back identical, and
   // the caller decides whether anything else it did is worth a save.
+  if (stamped !== current) return ok(changed ? stamped : touch(stamped))
   return ok(changed ? current : presentation)
 }

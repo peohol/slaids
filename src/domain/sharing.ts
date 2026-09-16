@@ -24,6 +24,7 @@
 
 import { z } from 'zod'
 import { slideAssetIds } from './commands/assets'
+import { withoutDepositNumbers } from './imageDeposit'
 import { migratePresentation } from './migrations'
 import { splitReferences } from './references'
 import { err, ok, type Result } from './result'
@@ -86,21 +87,28 @@ const PLACEHOLDER_ID = 'shared'
  * That default is the whole guarantee now that no zone carries editorial text
  * of its own — the working material lives beside the slides rather than inside
  * them, so publishing the slides cannot publish it.
+ *
+ * The one thing on a slide that is *not* the audience's is the deposit number
+ * an unfilled picture panel carries while the deck waits for its files. It is
+ * internal bookkeeping about work in progress, so the slides are stripped of it
+ * on the way out — by the same function that writes it, so «never published»
+ * is a property of one traversal rather than a promise two files make.
  */
 export function buildSharedSnapshot(
   presentation: Presentation,
   publishedAt: string = new Date().toISOString(),
 ): SharedPresentationSnapshot {
-  const shownAssetIds = slideAssetIds(presentation.slides)
+  const published = withoutDepositNumbers(presentation)
+  const shownAssetIds = slideAssetIds(published.slides)
   const snapshot: SharedPresentationSnapshot = {
     format: SHARED_SNAPSHOT_FORMAT,
     snapshotVersion: SHARED_SNAPSHOT_VERSION,
     schemaVersion: presentation.schemaVersion,
-    title: presentation.title,
-    theme: presentation.theme,
-    slides: presentation.slides,
-    references: splitReferences(presentation).used,
-    assets: presentation.assets.filter((asset) => shownAssetIds.has(asset.id)),
+    title: published.title,
+    theme: published.theme,
+    slides: published.slides,
+    references: splitReferences(published).used,
+    assets: published.assets.filter((asset) => shownAssetIds.has(asset.id)),
     publishedAt,
   }
   // The same defensive round-trip the repository does before a write: what

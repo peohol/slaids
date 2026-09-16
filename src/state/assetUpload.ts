@@ -103,6 +103,36 @@ export async function storeUploadedFile(
   return ok({ ref, reused: false, ...(report ? { report } : {}) })
 }
 
+/**
+ * Take back files this session stored for a write that never happened.
+ *
+ * `storeUploadedFile` writes the bytes before anything points at them, which is
+ * right for the ordinary case — one file, placed the moment it is stored — and
+ * wrong for a batch that can still be refused halfway. A file that was stored
+ * and never registered in the document is reachable by nothing: the deck does
+ * not list it, so it is neither shown, exported nor counted, and
+ * `deleteOrphanAssets` will not reclaim it either, because that only clears
+ * rows whose *presentation* is gone. So the caller that stored it takes it
+ * back.
+ *
+ * Only ids for files this call actually wrote may be passed. A file that was
+ * reused (`UploadedAsset.reused`) was already the deck's before the batch
+ * started, and deleting it would take a picture off a slide.
+ *
+ * Best effort by design: the bytes are already unreachable, so a failure here
+ * leaves storage slightly fuller and nothing else. Reporting it would be asking
+ * the user to act on something they cannot see and did not do.
+ */
+export async function discardUploadedAssets(assetIds: readonly string[]): Promise<void> {
+  for (const id of assetIds) {
+    try {
+      await repository.deleteAsset(id)
+    } catch {
+      // See above: unreachable bytes, nothing for the user to do.
+    }
+  }
+}
+
 /** What the sanitiser dropped, as one sentence, or `null` when it dropped nothing. */
 export function describeSanitizing(report: SvgSanitizeReport | undefined): string | null {
   if (!report) return null

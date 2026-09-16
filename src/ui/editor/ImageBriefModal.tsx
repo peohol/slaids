@@ -18,11 +18,19 @@
  * What is wrong with the plan is listed under it rather than hidden behind a
  * validation step: a brief whose pictures no longer match the zones is exactly
  * the brief somebody is about to paste.
+ *
+ * Under the brief the same pictures are listed a second time, numbered — and
+ * that is not a duplicate of the text above it but the *other* half of the
+ * errand. The generated text is what an image generator reads; the list is what
+ * the person reads, to check that number 3 is the picture they think it is
+ * before they go and make seven files called `3.png`. Both are built from
+ * `resolveImagePlan`, so neither can say something the other does not.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_IMAGE_CONTEXT_CHARS } from '../../domain/constants'
 import { setImageContext, syncImagePlaceholders } from '../../domain/commands'
+import { depositIsWaiting } from '../../domain/imageDeposit'
 import { checkImagePlan, composeImageBrief, resolveImagePlan } from '../../domain/imagePlan'
 import { COPIED_FEEDBACK_MS, copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
@@ -32,7 +40,18 @@ import { useEditorStore } from '../../state/store'
 const PLACEHOLDER =
   'Beskriv det visuelle uttrykket som skal være felles for alle bildene i dekket: fotografisk eller illustrert, realismegrad, lyssetting, fargeholdning, komposisjonsprinsipper og hva som konsekvent skal unngås. Ikke beskriv motivene — de hører hjemme i bildeplanen, ett motiv per bildesone.'
 
-export function ImageBriefModal({ onClose }: { onClose: () => void }) {
+export function ImageBriefModal({
+  onClose,
+  onDeposit,
+}: {
+  onClose: () => void
+  /**
+   * Go on to the deposit. Offered only while the deck is actually waiting for
+   * files: a brief is worth reading at any time, but «bildene er klare» has
+   * nowhere to lead once the pictures are in the zones.
+   */
+  onDeposit?: () => void
+}) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
   const [copied, setCopied] = useState(false)
@@ -69,6 +88,7 @@ export function ImageBriefModal({ onClose }: { onClose: () => void }) {
 
   if (!presentation) return null
   const context = presentation.imageContext ?? ''
+  const ready = Boolean(onDeposit) && depositIsWaiting(presentation)
 
   const copy = async (): Promise<void> => {
     if (!brief) return
@@ -106,7 +126,21 @@ export function ImageBriefModal({ onClose }: { onClose: () => void }) {
           >
             <Icon name="copy" size={15} /> {copied ? 'Kopiert' : 'Kopier briefen'}
           </button>
-          <button type="button" className="btn btn--primary" onClick={onClose}>
+          {ready && (
+            <button
+              type="button"
+              className="btn btn--primary"
+              data-testid="image-brief-modal-deposit"
+              onClick={onDeposit}
+            >
+              Bildene er klare
+            </button>
+          )}
+          <button
+            type="button"
+            className={ready ? 'btn' : 'btn btn--primary'}
+            onClick={onClose}
+          >
             Lukk
           </button>
         </>
@@ -151,6 +185,38 @@ export function ImageBriefModal({ onClose }: { onClose: () => void }) {
         <p className="hint" data-testid="image-brief-modal-empty">
           Dekket har ingen planlagte bilder ennå. Lag en bildesone og legg bildet inn i bildeplanen,
           så genereres briefen her.
+        </p>
+      )}
+
+      <h3 className="inspector__heading">Bildene som skal lages</h3>
+      {images.length === 0 ? (
+        <p className="hint">Ingen bilder er planlagt ennå.</p>
+      ) : (
+        <ol className="deposit-list" data-testid="image-brief-modal-list">
+          {images.map((image) => (
+            <li key={`${image.plan.slideId}:${image.plan.nodeId}`} className="deposit-row">
+              <span className="deposit-row__mark" aria-hidden="true">
+                {image.number}
+              </span>
+              <span className="deposit-row__text">
+                <strong>
+                  Bilde {image.number} · {image.aspectRatio} ({image.orientation})
+                </strong>
+                <span className="hint">{image.plan.subject}</span>
+                <span className="hint">På sliden «{image.slideLabel}»</span>
+              </span>
+              {image.filled && (
+                <span className="deposit-row__file hint">Bildet ligger allerede i sonen</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {ready && (
+        <p className="hint" data-testid="image-brief-modal-next">
+          Slik gjør du det: kopier briefen, lim den inn der du lager bilder, og lagre bildene som{' '}
+          <code>1</code>, <code>2</code>, <code>3</code> … opp til {images.length} — med den
+          filendelsen de får. Trykk så «Bildene er klare».
         </p>
       )}
 

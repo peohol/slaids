@@ -505,7 +505,10 @@ konteksten som et redigerbart felt, og den genererte briefen under den med
 kopier-knappen. Kopier-knappen kopierer *briefen*, ikke feltet over den — det er
 ærendet dialogen finnes for. Kontrollene listes under briefen, fordi en brief
 som ikke lenger stemmer med sonene er nettopp den briefen noen er i ferd med å
-lime inn.
+lime inn. Under briefen står de samme bildene som en nummerert liste — nummer,
+format og motiv — fordi det er den halvdelen et *menneske* leser: briefteksten er
+skrevet for en bildegenerator, listen er der for å kontrollere at «bilde 3» er
+det bildet man tror før man lager sju filer.
 
 ### Notater er fjernet
 
@@ -526,6 +529,126 @@ alle flater unntatt editorens egen knapp. Selve teksten forsvinner, fordi det
 eneste stedet igjen som kunne holdt den er en slide. Samme versjon døper om
 `imageBrief` til `imageContext`, slik at «brief» bare betyr den ene genererte
 teksten.
+
+## 7.3\. Bildedeponering
+
+Briefen er bestillingen. Deponeringen er returen: brukeren lager alle bildene et
+annet sted og legger dem inn samlet, og hver fil havner i sonen den ble bestilt
+for uten at noen må pare fil mot sone for hånd.
+
+```ts
+type ImageDepositStatus = 'pending' | 'completed' | 'abandoned'
+
+interface ImageDeposit {
+  status: ImageDepositStatus
+  expectedCount: number
+}
+
+interface ImagePanel {
+  depositIndex?: number
+}
+
+interface Presentation {
+  imageDeposit?: ImageDeposit
+}
+```
+
+**Ingen ny synlig innholdstype.** Sonene er vanlige `image`/`titled-image-card`
+hele veien. Det eneste nye på sliden er et tall på bildepanelet, som aldri
+tegnes og aldri publiseres. «Aldri publiseres» er en egenskap ved én
+gjennomgang og ikke et løfte to filer gir hver for seg: `buildSharedSnapshot`
+stripper numrene med `withoutDepositNumbers` — den samme funksjonen som skriver
+dem — på vei ut. Sandkassen strippes alltid av samme grunn: innhold parkert der
+ligger ikke på en slide og er derfor ikke med i noen deponering, så et innhold
+som ble reddet til sandkassen av nettopp den endringen som avsluttet
+deponeringen bærer ikke nummeret sitt tilbake når det plasseres igjen.
+
+**Nummeret bor på elementet, ikke i en liste ved siden av.** Et manifest på
+presentasjonsnivå ville fortsatt navngitt en sone som er borte; et tall på
+panelet forsvinner med sonen. Det er nettopp det som gjør et brutt oppsett til
+noe `depositIsOpen` kan *se* — settet av numre er ikke lenger 1‥N — uten at
+noen kommando må rapportere det selv.
+
+**Nummereringen er briefens egen.** `syncImagePlaceholders` stempler
+bildeteksten, deponeringsnummeret og briefseksjonen i én og samme gjennomgang av
+`resolveImagePlan`. «Sett inn bilde 3 her», «BILDE 3 AV 7» og `3.png` er derfor
+det samme 3 av konstruksjon, og det finnes ingen andre nummerering å holde i
+takt. Deponeringen åpnes av å skrive bildeplanen — det er ingenting en agent må
+skru på i tillegg — og `plan_deck_images`/`get_image_brief` rapporterer
+tilstanden i `deposit`.
+
+**Filnavnet er hele protokollen.** `1.png`, `2.jpg`, `3.webp`: et tall, et punktum,
+en støttet filendelse, ingenting annet. Det er den ene instruksen som overlever
+å bli båret mellom to programmer av et menneske. `01.png`, `bilde1.png`, `1a.png`
+og `1.txt` avvises med en begrunnelse i stedet for å gjettes på — ledende null
+trimmes ikke, fordi `01.png` og `1.png` i samme mappe er to filer til ett bilde
+— og to filer som krever samme nummer merkes *begge*, fordi å velge mellom to av
+noens bilder ikke er Slaids sin oppgave. `reviewDepositFiles` er den ene regelen,
+og den er både det som gråer ut «Fullfør» og det `completeImageDeposit` avviser
+på, så knappen kan ikke være aktiv for et sett skrivingen ville nektet.
+
+**Deponeringen er én skriving.** Filene lagres først, og deretter settes hele
+settet inn i ett kall. Et dekk som tok tre av fem bilder er nøyaktig den
+tilstanden denne arbeidsflyten finnes for å unngå. Skrivingen går utenom
+angrehistorikken, av samme grunn som bildeoptimalisereren gjør det: filene er
+allerede lagret, og en Ctrl+Z tilbake til «ingen bilder» ville vært en angring
+inn i en tilstand dekkets egne filer ikke lenger passer.
+
+«Alle eller ingen» gjelder også lagringen, og det er ikke gratis: bytene
+skrives før noe peker på dem, så et sett som stopper halvveis ville etterlatt
+filer dekket ikke lister — unåbare, og ikke noe `deleteOrphanAssets` rydder,
+siden den bare tar rader hvis *presentasjon* er borte. Derfor huskes hver fil
+kallet selv skriver, og med mindre dokumentet blir skrevet tas de alle tilbake
+(`discardUploadedAssets`) før dialogen kan brukes igjen. En fil som ble
+*gjenbrukt* telles aldri med: den var dekkets fra før, og å slette den ville
+tatt et bilde av en slide.
+
+**Dekket kan flytte seg under opplastingen.** Ctrl+Z når dokumentet også mens
+denne dialogen står åpen, og `replaceDocument` sjekker bare presentasjonens
+*id*. Derfor holdes dokumentet fullføringen ble regnet ut fra, og er det ikke
+lenger det levende dokumentet, skrives ingenting: å skrive ville lagt tilbake en
+versjon brukeren nettopp gikk bort fra, og tømt historikken på veien. Det er den
+samme regelen den tilbakeholdte strukturendringen følger — en utregning gjelder
+bare mot dokumentet den ble gjort på.
+
+**`completed` og `abandoned` er endelige.** Ingenting setter et dekk tilbake til
+`pending` — heller ikke en ny bildeplan. Begge avslutningene fjerner numrene fra
+panelene, så et ferdig dekk er et helt vanlig dekk.
+
+### Editoren, når dekket venter
+
+- Ved åpning sier en dialog hva som mangler, og tilbyr to veier: bildebriefen
+  eller editoren. Å velge editoren avslutter **ingenting** — det lukker en
+  dialog. Knappen for bildebriefen fører tilbake til flyten når som helst, så
+  lenge grunnlaget er gyldig.
+- «Bildene er klare» åpner deponeringsdialogen: dra-og-slipp eller filvelger, en
+  statusliste over hvilke numre som er på plass, hvilke som mangler og hva som er
+  feil, og «Fullfør» deaktivert til nøyaktig 1‥N er der uten feil.
+
+### Den strukturelle endringen
+
+Spørsmålet «ødelegger denne endringen deponeringen?» er ikke en egenskap ved noen
+enkelt kommando: å slette en nummerert sone, tømme den, gjøre den om til tekst,
+slette sliden den ligger på og klippe ut innholdet er fem kommandoer som ikke har
+annet til felles enn tilstanden de etterlater. Derfor stilles spørsmålet ett
+sted — i butikken, som hver eneste kommando går gjennom — og det stilles til det
+*prospektive* dokumentet: var deponeringen åpen før og ikke etter, holdes
+endringen tilbake og brukeren spørres.
+
+Bekrefter brukeren, skrives endringen og deponeringen avsluttes som **én**
+historikkoppføring: det var én beslutning, og en Ctrl+Z som tok sonen tilbake men
+lot dekket stå uten deponeringen ville angret noe ingen gjorde. Avbryter
+brukeren, er ingenting skrevet — dokumentet ble aldri byttet ut.
+
+Den tilbakeholdte endringen gjelder bare mot det dokumentet den ble regnet ut
+fra, så hver vei som bytter ut dokumentet slipper den — også angre og gjenta,
+som når dekket selv om en dialog står åpen (ett dekk, én historikk, uansett hva
+som har fokus). Å skrive en tilbakeholdt endring etterpå ville lagt tilbake et
+dokument brukeren nettopp gikk bort fra.
+
+Et pastet innhold mister nummeret sitt (`cloneContentWithNewIds`): en kopi er
+ikke dekkets bilde 3, og to soner som begge påstår 3 ville vært akkurat den
+brutte tilstanden `depositIsOpen` finnes for å nekte — nådd ved å trykke Ctrl+V.
 
 ---
 

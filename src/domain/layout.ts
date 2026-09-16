@@ -5,7 +5,7 @@
  * what makes snapshot-based undo/redo and React rendering safe.
  */
 
-import { bodyOf, withBody } from './content'
+import { bodyOf, imagePanelOf, withBody, withDepositIndex, withImagePanel } from './content'
 import { newContentId, newNodeId, newSubfieldId } from './ids'
 import { MAX_SPLIT_CHILDREN, MAX_ZONE_RATIO, MIN_SPLIT_CHILDREN, MIN_ZONE_RATIO } from './constants'
 import { areWeightsValid } from './geometry'
@@ -252,9 +252,14 @@ export function cloneSubtreeWithNewIds(node: LayoutNode): LayoutNode {
  *
  * A file reference is deliberately not renewed: a file is not duplicated by
  * being shown in two places.
+ *
+ * A picture's *deposit number* is neither renewed nor kept: it is dropped. It
+ * says «I am this deck's picture 3», and a copy is not that picture — two zones
+ * both claiming 3 would be exactly the broken state `depositIsOpen` exists to
+ * refuse, reached by pressing Ctrl+V.
  */
 export function cloneContentWithNewIds(content: ZoneContent): ZoneContent {
-  const base = structuredCloneSafe(content)
+  const base = withoutDepositNumber(structuredCloneSafe(content))
   base.id = newContentId()
   const body = bodyOf(base)
   if (!body) return base
@@ -263,6 +268,11 @@ export function cloneContentWithNewIds(content: ZoneContent): ZoneContent {
     ...body,
     subfields: body.subfields.map((field) => ({ ...field, id: newSubfieldId() })),
   })
+}
+
+function withoutDepositNumber(content: ZoneContent): ZoneContent {
+  const panel = imagePanelOf(content)
+  return panel ? withImagePanel(content, withDepositIndex(panel, null)) : content
 }
 
 function structuredCloneSafe<T>(value: T): T {

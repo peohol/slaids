@@ -34,6 +34,37 @@ function raster(mimeType: string): ProbedFormat {
   return { mimeType, isVector: false }
 }
 
+/**
+ * The names the formats above go by, keyed by the type the sniffer reports.
+ *
+ * File names decide nothing about what a file *is* — that is the whole point of
+ * this module — but they are still what a person types, drags and sorts by, so
+ * the two places that have to talk about them (the picker's `accept` hint and
+ * the image deposit's `1.png`, `2.jpg`, … rule) read one list rather than each
+ * keeping their own. The first extension of each is the canonical one.
+ */
+export const IMAGE_FILE_EXTENSIONS: Readonly<Record<string, readonly string[]>> = {
+  'image/png': ['png'],
+  'image/gif': ['gif'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/webp': ['webp'],
+  'image/avif': ['avif'],
+  [SVG_MIME_TYPE]: ['svg'],
+}
+
+/** Every extension a picture may arrive under, lowercase, without the dot. */
+export const IMAGE_FILE_EXTENSION_LIST: readonly string[] = Object.values(
+  IMAGE_FILE_EXTENSIONS,
+).flat()
+
+/**
+ * What a file input may say it accepts.
+ *
+ * The MIME types plus `.svg`, because a browser that cannot guess a type from
+ * the extension would otherwise grey out the one format Slaids stores as text.
+ */
+export const IMAGE_FILE_ACCEPT: string = [...Object.keys(IMAGE_FILE_EXTENSIONS), '.svg'].join(',')
+
 /* ------------------------------------------------------------------ *
  * Byte helpers, shared with the structural validator
  * ------------------------------------------------------------------ */
