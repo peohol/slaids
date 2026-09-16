@@ -41,10 +41,12 @@ import {
   IMAGE_USAGE_RULE,
   IMPLICIT_CONTAINER_RULE,
   NAMED_UNITS,
+  NATIVE_COMPOSITION_RULE,
   NEGATIVE_SPACE_RULE,
   PARALLEL_RULE,
   QUOTE_RULE,
   RASTER_POLICY,
+  REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
   SEMANTIC_DECOMPOSITION,
   SEMANTIC_UNITS,
@@ -53,6 +55,7 @@ import {
   SPLIT_RULE,
   TEXT_RHYTHM_RULE,
   VECTOR_POLICY,
+  VISUAL_QA_RULE,
   VISUAL_SUBJECTS,
 } from '../../agent/design'
 import { MCP_INSTRUCTIONS } from './instructions'
@@ -66,6 +69,7 @@ const agentSurface = (): string => `${MCP_INSTRUCTIONS}\n${toolProse()}`
 
 /** Every normative sentence, wherever it is meant to live. */
 const NORMATIVE = [
+  NATIVE_COMPOSITION_RULE,
   SEMANTIC_DECOMPOSITION,
   SIMPLEST_TREE,
   SINGLE_CONTAINER_RULE,
@@ -84,6 +88,8 @@ const NORMATIVE = [
   IMAGE_USAGE_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_BRIEF_RULE,
+  REFERENCE_SYSTEM_RULE,
+  VISUAL_QA_RULE,
   ...IMAGE_NOTE_POLICY,
   ...VECTOR_POLICY,
   ...RASTER_POLICY,
@@ -183,6 +189,24 @@ describe('det agenten vet før første kall', () => {
       expect(MCP_INSTRUCTIONS).not.toContain(detail)
       expect(toolProse()).toContain(detail)
     }
+  })
+})
+
+describe('native komposisjon først', () => {
+  it('sier at sonetreet og Slaids sine egne innholdstyper er komposisjonen, før agenten bygger noe', () => {
+    // The regression this exists for: a deck that was structurally valid but
+    // where almost every content slide was one large SVG standing in for the
+    // zone tree, the heading, the cards and the body text all at once.
+    expect(MCP_INSTRUCTIONS).toContain(NATIVE_COMPOSITION_RULE)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/sonetre/i)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/slideoverskrift/i)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/kort og korttitler/i)
+  })
+
+  it('sier eksplisitt at SVG/raster er innhold i en sone, ikke en alternativ slide-motor', () => {
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/fyller bare den visuelle rollen/i)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/aldri.*omgå sonetreet/i)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/alternativ slide-motor/i)
   })
 })
 
@@ -302,6 +326,42 @@ describe('raster og vektor', () => {
     expect(guide).not.toMatch(/dersom flere rasterbilder skal genereres/i)
   })
 
+  it('forbyr create_svg_asset-kontrakten å gjenskape slideoverskrift, tekst, kort eller hele layouten', () => {
+    // The anti-pattern from p_ssk8ao0znyp, named on the contract of the call
+    // that actually creates the file — not only in prose an agent never opens.
+    const policy = VECTOR_POLICY.join(' ')
+    expect(policy).toMatch(/aldri erstatte selve sliden/i)
+    expect(policy).toMatch(/slideoverskriften/i)
+    expect(policy).toMatch(/en vanlig tekstblokk/i)
+    expect(policy).toMatch(/et kort eller en korttittel/i)
+    expect(policy).toMatch(/litteraturlister/i)
+    expect(policy).toMatch(/teksttunge infografikker/i)
+
+    const svgTool = mcpTools().find((tool) => tool.name.endsWith('create_svg_asset'))
+    for (const rule of VECTOR_POLICY) expect(svgTool?.description).toContain(rule)
+  })
+
+  it('tillater ekte diagrametiketter i SVG, men ikke løpende brødtekst eller upassede citations', () => {
+    const policy = VECTOR_POLICY.join(' ')
+    expect(policy).toMatch(/akseetiketter, diagramnoder, kartetiketter/i)
+    expect(policy).toMatch(/aldri løpende brødtekst eller faktapåstander/i)
+  })
+
+  it('gjør illustrasjonsbilder generelt til raster, ikke bare fotografiske eller biologiske motiver', () => {
+    // Section C: the rule has to name illustration subjects broadly — a
+    // building, a product, a historical scene — not only the photographic or
+    // organic motifs the earlier wording singled out.
+    const raster = RASTER_POLICY.join(' ')
+    expect(raster).toMatch(/mennesker, dyr, natur, bygninger/i)
+    expect(raster).toMatch(/produkter, historiske scener/i)
+    expect(raster).toMatch(/en enkel vektortegning er ikke en akseptabel erstatning/i)
+    expect(raster).toMatch(/uansett om motivet er et menneske, et bygg, et produkt/i)
+
+    // And SVG stays legitimate for the diagrammatic cases it always covered.
+    const vector = VECTOR_POLICY.join(' ')
+    expect(vector).toMatch(/grafer, plott, ekte diagrammer, flytskjemaer/i)
+  })
+
   it('gir agenten hele planen for et bilde den ikke kan lage selv', () => {
     // Reserve the zone, write the prompt into it, and give the deck one shared
     // brief. Every step has to be reachable, or «plan the picture instead of
@@ -361,6 +421,43 @@ describe('regelen mot å falle tilbake til container + overskrift + tekst', () =
 
   it('sier at én container er et lovlig valg, så regelen ikke blir et forbud', () => {
     expect(SINGLE_CONTAINER_RULE).toMatch(/legitimt valg/i)
+  })
+})
+
+describe('kilder går gjennom referansesystemet', () => {
+  it('gjør Slaids sitt referansesystem til normalveien, før agenten skriver en kildeslide', () => {
+    // Section D, and the direct answer to p_ssk8ao0znyp: 0 references, a
+    // hand-drawn «Kilder og forbehold» SVG instead.
+    expect(MCP_INSTRUCTIONS).toContain(REFERENCE_SYSTEM_RULE)
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/referansesystem/i)
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/citations/i)
+  })
+
+  it('forbyr en manuell bibliografi-slide, med unntak for en uttrykkelig ønsket faglig slide', () => {
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/ikke opprett en egen slide bare for å ramse opp kilder/i)
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/brukeren uttrykkelig har bedt om/i)
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/selve bibliografien hjemme i referansesystemet/i)
+  })
+
+  it('sier at en faktapåstand med citation-behov aldri hører hjemme som tekst i en SVG', () => {
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/aldri bakes inn som tekst i en SVG/i)
+  })
+})
+
+describe('visuell QA er en del av ferdigkontrollen', () => {
+  it('krever rendring og inspeksjon i tillegg til strukturell validering', () => {
+    // Section E, and the second half of the regression: the deck validated
+    // structurally end to end while text inside its self-authored SVGs was
+    // clipped without anything noticing.
+    expect(MCP_INSTRUCTIONS).toContain(VISUAL_QA_RULE)
+    expect(VISUAL_QA_RULE).toMatch(/ikke tilstrekkelig/i)
+    expect(VISUAL_QA_RULE).toMatch(/render representative slides/i)
+  })
+
+  it('peker spesielt på egenprodusert SVG med interne etiketter eller tekst', () => {
+    expect(VISUAL_QA_RULE).toMatch(/egenprodusert SVG/i)
+    expect(VISUAL_QA_RULE).toMatch(/intern beskjæring/i)
+    expect(VISUAL_QA_RULE).toMatch(/uleselige etiketter/i)
   })
 })
 

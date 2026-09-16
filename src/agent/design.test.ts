@@ -39,7 +39,11 @@ import {
   IMAGE_USAGE_RULE,
   IMPLICIT_CONTAINER_RULE,
   NAMED_UNITS,
+  NATIVE_COMPOSITION_RULE,
+  REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
+  VECTOR_POLICY,
+  VISUAL_QA_RULE,
 } from './design'
 import { runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
@@ -583,5 +587,137 @@ describe('reglene som gjør den svake formen dyrere å velge', () => {
     // And the self-check names the pattern as it actually appeared: a heading
     // and a paragraph, with no bullet list in sight.
     expect(REPEATED_FALLBACK_RULE).toMatch(/gjennomsiktig container med overskrift/i)
+  })
+})
+
+/*
+ * PR #72 produced a second, worse failure on the same subject: `p_ssk8ao0znyp`
+ * came back with 19 slides and 18 SVG assets, where almost every content slide
+ * was one large SVG drawing the heading, the cards, the body text and the
+ * illustrations at once, the last slide was a hand-drawn bibliography instead
+ * of a references page, and there were zero registered references despite
+ * factual claims throughout. Every slide was structurally valid.
+ *
+ * These tests protect the corrected contract against exactly that shape:
+ * native composition stays reachable and is the thing an agent is told to
+ * build with before it draws anything, a diagrammatic SVG can still occupy
+ * one zone without displacing its native siblings, and the reference system —
+ * not an authored bibliography — is the reachable, working path for sources.
+ */
+describe('p_ssk8ao0znyp: native komposisjon, ikke SVG som slide-motor', () => {
+  it('gir agenten native komposisjon-regelen før den har bygget noe', () => {
+    expect(MCP_INSTRUCTIONS).toContain(NATIVE_COMPOSITION_RULE)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/sonetre/i)
+    expect(NATIVE_COMPOSITION_RULE).toMatch(/alternativ slide-motor/i)
+  })
+
+  it('forbyr på create_svg_asset-kontrakten nettopp det p_ssk8ao0znyp gjorde: hele slider, titler, kort og litteraturlister som SVG', () => {
+    const svgTool = mcpTools().find((tool) => tool.name.endsWith('create_svg_asset'))
+    for (const rule of VECTOR_POLICY) expect(svgTool?.description).toContain(rule)
+    expect(VECTOR_POLICY.join(' ')).toMatch(/aldri erstatte selve sliden/i)
+    expect(VECTOR_POLICY.join(' ')).toMatch(/litteraturlister/i)
+  })
+
+  it('lar en anatomislide holde en skjematisk SVG i én sone uten at søskensonene slutter å være native', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    // Two zones stay ordinary titled cards — the anatomical description a
+    // reader scans — and only the third gets a schematic figure. This is the
+    // «anatomy» solution from the regression brief: several native cards, and
+    // a diagrammatic SVG confined to the one zone that needs it.
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: slide.columnIds[0],
+      kind: 'titled-card',
+      title: [{ text: 'Kraniekapasitet' }],
+    })
+    await ok(context, 'set_zone_text', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: slide.columnIds[0],
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Om lag 900 cm³ hos Homo erectus.' }] }],
+    })
+
+    const diagram = '<svg viewBox="0 0 100 60"><circle cx="50" cy="30" r="20" fill="#888"/></svg>'
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'kraniediagram',
+      svgMarkup: diagram,
+    })
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: slide.columnIds[1],
+      kind: 'image',
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: slide.columnIds[1],
+      assetId: asset.assetId,
+    })
+
+    const all = await zones(context, slide)
+    // The card with text is untouched by the SVG placed next to it — the
+    // observed failure collapsed all three of these into one drawing.
+    expect(zoneOf(all, slide.columnIds[0]).contentKind).toBe('titled-card')
+    expect(zoneOf(all, slide.columnIds[1]).contentKind).toBe('image')
+    expect(zoneOf(all, slide.columnIds[1]).image?.assetId).toBe(asset.assetId)
+  })
+
+  it('gjør referansesystemet, ikke en tegnet bibliografi, til veien for kilder', async () => {
+    const context = freshContext()
+    const deck = await ok<PresentationView>(context, 'create_presentation', {
+      title: 'Menneskets evolusjon',
+    })
+    const slideId = deck.slides[1].slideId
+
+    const added = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      expectedRevision: deck.revision,
+      title: 'Lucy: The Beginnings of Humankind',
+      authors: 'Johanson, D. & Edey, M.',
+      year: '1981',
+    })
+
+    // The claim is cited from ordinary Slaids text — never authored as a
+    // second, hand-drawn document the way the observed deck's last slide was.
+    const titled = await ok<{ presentationId: string }>(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      expectedRevision: (
+        await ok<PresentationView>(context, 'get_presentation', {
+          presentationId: deck.presentationId,
+        })
+      ).revision,
+      slideId,
+      spans: [{ text: 'Australopithecus afarensis ' }, { citation: [added.reference.id] }],
+    })
+    expect(titled.presentationId).toBe(deck.presentationId)
+
+    const withReference = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    // The whole workflow the guide asks for is reachable and worked: a
+    // registered reference, a citation pointing at it, and no SVG asset —
+    // p_ssk8ao0znyp had 18 SVG assets and 0 registered references.
+    expect(withReference.referenceCount).toBe(1)
+    expect((await ok<{ assets: unknown[] }>(context, 'list_assets', {
+      presentationId: deck.presentationId,
+    })).assets).toHaveLength(0)
+
+    // And the contract itself forbids the shortcut this deck took instead.
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/ikke opprett en egen slide bare for å ramse opp kilder/i)
+    expect(REFERENCE_SYSTEM_RULE).toMatch(/aldri bakes inn som tekst i en SVG/i)
+  })
+
+  it('krever visuell inspeksjon av egenprodusert SVG, som en strukturelt gyldig SVG-tekstbeskjæring aldri ville blitt fanget uten', () => {
+    // p_ssk8ao0znyp validated structurally end to end while SVG text was
+    // clipped inside the asset. There is no fragile structural validator for
+    // this — the contract has to say rendering and looking is required.
+    expect(MCP_INSTRUCTIONS).toContain(VISUAL_QA_RULE)
+    expect(VISUAL_QA_RULE).toMatch(/egenprodusert SVG/i)
+    expect(VISUAL_QA_RULE).toMatch(/ikke tilstrekkelig/i)
   })
 })

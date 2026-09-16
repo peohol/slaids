@@ -31,13 +31,16 @@ import {
   COLOR_SEMANTICS_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_USAGE_RULE,
+  NATIVE_COMPOSITION_RULE,
   PARALLEL_RULE,
   QUOTE_RULE,
+  REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
   SEMANTIC_DECOMPOSITION,
   SIMPLEST_TREE,
   SINGLE_CONTAINER_RULE,
   TEXT_RHYTHM_RULE,
+  VISUAL_QA_RULE,
 } from '../../agent/design'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { AGENT_API_VERSION } from '../../routing'
@@ -62,6 +65,9 @@ Slik henger en presentasjon sammen:
 - Layouten er et tre. En sone er enten delt (den har barn, aldri innhold) eller et blad (den har innhold, aldri barn). Du deler en sone i 2–10 barn med vekter langs x eller y.
 - Hvor liten en sone kan bli avhenger av hva som står i den. En tom sone, en sone satt til «negative-space» og en sone som holder et notat har ingen minstestørrelse – ingen av dem tegner noe på sliden. De tre betyr likevel tre forskjellige ting: et hull som ikke er fylt, bevisst luft som er et lovlig designgrep, og redaksjonell tekst parkert i en sone som skal få annet innhold senere. Kort, beholdere og bilder har hver sine minstemål, og når du leser en slide får du oppgitt hvilke innholdstyper som faktisk får plass i hver sone. Det er én fast avstand mellom alt synlig innhold, og den håndteres av Slaids – du regner ikke ut marger selv.
 
+Native komposisjon først:
+- **${NATIVE_COMPOSITION_RULE}**
+
 Design før geometri:
 - **Dekomponer innholdet semantisk først.** ${SEMANTIC_DECOMPOSITION} Velg aldri først «to kolonner», «tre kort» eller et annet vilkårlig layout og press deretter stoffet inn. ${SIMPLEST_TREE}
 - **Skriv for publikum, ikke for arbeidsprosessen.** ${AUDIENCE_CONTENT_RULE}
@@ -72,10 +78,12 @@ Design før geometri:
 - **Farge skal bære mening.** ${COLOR_SEMANTICS_RULE}
 - **Bruk asymmetri når innholdet har hierarki.** Et hovedpoeng, en viktig figur eller en oppsummering kan få større flate enn støttende materiale. Nested splits er gode når én del faktisk har en egen intern struktur; ikke nest soner uten semantisk grunn.
 - **Soner er makrokomposisjon; subfelter er intern struktur.** Lag egne soner når deler skal ha selvstendig visuell rolle, ulik størrelse eller sammenlignes på tvers. Hold delene i samme kort/container når de til sammen er ett semantisk objekt. Verktøyet som setter innholdstype forklarer hvilken type hver rolle ber om.
-- **Planlegg visuelt innhold aktivt.** ${IMAGE_USAGE_RULE}
+- **Planlegg visuelt innhold aktivt, og bare der sonen faktisk trenger det.** ${IMAGE_USAGE_RULE}
 - **Sjekk deg selv underveis.** ${REPEATED_FALLBACK_RULE}
-- **Bilder: vektor der vektor hører hjemme.** ${IMAGE_POLICY_SUMMARY} Verktøyene som lagrer filene sier resten.
+- **Bilder: illustrasjon → raster, diagrammatisk figur → vektor.** ${IMAGE_POLICY_SUMMARY} Verktøyene som lagrer filene sier resten.
+- **Kilder går gjennom referansesystemet, ikke gjennom en egen slide.** ${REFERENCE_SYSTEM_RULE}
 - **Fit er redaksjonell tilbakemelding.** Hvis innhold ikke får plass, kort ned og prioriter først. Sjekk deretter grouping, vekter og trestruktur. Del sliden hvis den egentlig gjør flere kommunikative jobber. Ikke prøv å bevare all kildetekst ved å gjøre layouten stadig tettere.
+- **Strukturell validering er ikke sluttkontrollen.** ${VISUAL_QA_RULE}
 
 Nyttige startmønstre – bare når innholdsrelasjonen faktisk passer:
 - hovedpoeng + visuell støtte → to soner, ofte asymmetriske;
@@ -89,15 +97,19 @@ Nyttige startmønstre – bare når innholdsrelasjonen faktisk passer:
 
 Slik arbeider du:
 1. Inspiser før du skriver. Inspeksjonen gir deg id-ene til slider og soner, rektangelet hver sone faktisk får, teksten som ligger der, og om den får plass.
-2. Formuler hva sliden skal kommunisere, dekomponer stoffet i semantiske enheter, still bildespørsmålet for denne sliden, klassifiser relasjonene mellom enhetene, og bygg deretter sonetreet og velg innholdstyper – innholdstypen er et valg du tar før du skriver teksten, ikke etter.
-3. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
-4. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
+2. Formuler hva sliden skal kommunisere, og dekomponer stoffet i semantiske enheter.
+3. Uttrykk enhetene med Slaids sitt sonetre og native innholdstyper – sonetreet, overskriften, teksten og kortene *er* komposisjonen. Innholdstypen er et valg du tar før du skriver teksten, ikke etter.
+4. Avgjør hvilke soner som faktisk trenger visuelt innhold, og for hver av dem: er behovet et illustrasjonsbilde eller en diagrammatisk figur? Illustrasjon blir raster (bildenotat hvis du mangler generator); diagrammatisk figur blir SVG, og fyller bare sin egen sone.
+5. Legg til kilder og citations via referansesystemet der faktapåstander trenger dem.
+6. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
+7. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
+8. Før du er ferdig: render og inspiser representative slides visuelt, spesielt der du selv har laget en SVG.
 
 Reglene som avgjør om et kall lykkes:
 - **Alt må få plass.** En endring som ville skjult innhold blir avvist før den lagres, med feilkoden CONTENT_DOES_NOT_FIT og hvor mange piksler som ble til overs. Svaret er å korte ned teksten, dele sonen annerledes eller gi den mer plass – ikke å prøve på nytt.
 - **Skriv mot det du leste.** Hver lesing svarer med en revisjon. Send den med på neste endring, så får du CONFLICT i stedet for å overskrive noen som skrev i mellomtiden. Da leser du på nytt før du prøver igjen.
 - **Du sender aldri editorens interne JSON.** Tekst er navngitte blokker med spans; en sitering er en referanse-id, ikke et tall du skriver selv.
-- **Slaids lager ikke bilder.** Denne serveren genererer ingen bilder. Et rasterbilde må du ha ferdig – fra ditt eget miljø – og laste opp, og en figur skriver du selv som SVG-markup. Begge blir helt vanlige filer du deretter plasserer i en sone. Mangler du en bildegenerator, er svaret et bildenotat i sonen bildet skal ha, ikke en hjemmelaget erstatning; verktøyene som lager innhold og skriver bildebriefen sier hvordan.
+- **Slaids lager ikke bilder.** Denne serveren genererer ingen bilder. Et rasterbilde må du ha ferdig – fra ditt eget miljø – og laste opp, og en diagrammatisk figur skriver du selv som SVG-markup til sonen den hører hjemme i, aldri som en hel slide. Begge blir helt vanlige filer du deretter plasserer i en sone. Mangler du en bildegenerator, er svaret et bildenotat i sonen bildet skal ha, ikke en hjemmelaget erstatning; verktøyene som lager innhold og skriver bildebriefen sier hvordan.
 
 Feil er svar, ikke unntak. Når et verktøy har kjørt og Slaids sier nei – CONTENT_DOES_NOT_FIT, CONFLICT, noe som ikke finnes, et scope du mangler – kommer det tilbake som et resultat med isError og en maskinlesbar kode i structuredContent.error. Les koden og detaljene: de sier hva som skal endres. Et kall som aldri var gyldig – et verktøy som ikke finnes, eller argumenter som ikke passer verktøyets skjema – kommer som en JSON-RPC-feil i stedet, med den samme koden i data.
 

@@ -8,6 +8,25 @@ Utgangspunktet er enkelt:
 
 En gyldig slide er ikke nødvendigvis en god slide. Slaids kan kontrollere geometri og fit; agenten må selv kontrollere pedagogikk, relevans, rytme og visuell prioritering.
 
+## Designhierarkiet
+
+Rekkefølgen under er ikke tilfeldig: hvert nivå forutsetter at nivået over er avgjort.
+
+1. **Semantikk** – hva består sliden faktisk av, og hvilke enheter og relasjoner finnes i stoffet?
+2. **Slaids-native komposisjon** – sonetreet, slide-overskriften, teksten og kortene *er* sliden. Se «Native komposisjon først» rett under.
+3. **Visuelt behov** – trenger en sone bilde eller figur, og er det i så fall et illustrasjonsbilde eller en diagrammatisk figur?
+4. **Riktig medietype** – illustrasjon → raster (eller et bildenotat); diagrammatisk figur → SVG, og bare i den ene sonen den fyller.
+5. **Citations/referanser** – faktapåstander som trenger en kilde bruker referansesystemet, aldri en egen kildeslide eller tekst inne i en SVG.
+6. **Render/QA** – strukturell validering er ikke sluttkontrollen; representative slides rendres og inspiseres visuelt før dekket er ferdig.
+
+## Native komposisjon først
+
+> **Slidegeometri er alltid Slaids sitt sonetre. Overskrift er Slaids-overskrift, brødtekst er Slaids-tekst, kort og korttitler er Slaids sine egne innholdstyper. Bilde og SVG fyller bare den visuelle rollen til sonen de ligger i – de er aldri en alternativ slide-motor.**
+
+En tidligere feilslått presentasjon («Menneskets evolusjon», `p_ssk8ao0znyp`) viste hva som skjer når denne regelen mangler: nesten hver innholdsslide ble tegnet ferdig som én stor SVG – tittel, kort, brødtekst, layout, illustrasjoner og bildetekster allerede tegnet inn i markupen. Presentasjonen var strukturelt gyldig og likevel dårligere enn en tidligere versjon der Slaids-soner, kort og tekst faktisk utgjorde sliden. En SVG eller et rasterbilde skal derfor aldri brukes til å omgå sonetreet eller gjenskape en innholdstype Slaids allerede har.
+
+Anti-mønsteret å kjenne igjen: én 1400×700 SVG med tre tegnede kort, overskrifter, avsnitt og illustrasjoner, plassert som eneste innhold på sliden.
+
 ## 1. Alt publikum ser skal handle om temaet
 
 Publikumsflaten er ikke et sted for kommentarer om hvordan presentasjonen ble laget. Tekst som forklarer «designgrep», «layoutvalg», Slaids, agentens arbeidsprosess eller testhensikten hører ikke hjemme på en vanlig faglig slide. Det kan finnes i en presentasjon bare når brukeren uttrykkelig har bedt om en presentasjon om selve design- eller arbeidsprosessen.
@@ -178,9 +197,13 @@ Let konkret etter:
 
 ### Raster vs. SVG
 
-Bruk SVG til grafer, diagrammer, flytskjemaer, enkel ikonografi og geometriske forklaringsfigurer. SVG skal forbli SVG.
+Skillet er **illustrasjon vs. diagram**, ikke «fotografisk vs. resten».
 
-Fotografiske, naturtro, kunstneriske og visuelt komplekse motiver skal være rasterbilder fra en egnet bildegenerator. Ikke etterlign fotografiske eller organiske motiver med hjemmelaget SVG og rasteriser dem etterpå.
+SVG hører hjemme der poenget er struktur: grafer, plott, ekte diagrammer, flytskjemaer, kart der vektor passer, geometriske forklaringsfigurer, enkel ikonografi og enkle skjematiske illustrasjoner. SVG skal forbli SVG.
+
+Illustrasjonsbilder er normalvalget rasterbilder – det gjelder generelt, ikke bare fotografiske eller biologiske motiver: mennesker, dyr, natur, bygninger, arkitektur, miljøer og interiører, mat, gjenstander, produkter, historiske scener, rekonstruerte situasjoner og andre motiver som skal illustrere rikt eller stemningsbærende. En enkel, hjemmelaget SVG-tegning er ikke en akseptabel erstatning for et slikt bilde, uansett motiv. Ikke etterlign et illustrasjonsbilde med SVG og rasteriser det etterpå.
+
+SVG skal heller aldri brukes til å gjenskape det Slaids allerede har som egen innholdstype: en hel slide, slideoverskriften, en vanlig tekstblokk, et kort, en korttittel eller et layoutgrid – heller ikke en litteraturliste eller en teksttung infografikk som i praksis erstatter Slaids-innhold. Tekst inne i en SVG skal normalt bare være korte etiketter som er en del av selve figuren (akseetiketter, diagramnoder, kartetiketter, navn på deler i en skjematisk figur), aldri løpende brødtekst eller faktapåstander som burde hatt en citation.
 
 ### Når bildegenerator mangler
 
@@ -240,7 +263,15 @@ Like roller bør ha en gjenkjennelig visuell grammatikk, men det betyr ikke at a
 
 Typografi, kortform, spacing og hierarki bør være mer konsistente enn selve fargene.
 
-## 9. Fit er redaksjonell tilbakemelding
+## 9. Kilder går gjennom referansesystemet
+
+Når en faktapåstand støttes av en ekstern kilde, registrer kilden i Slaids sitt innebygde referansesystem og la tekstblokken bruke en citation som peker på den. Slaids sine avledede referansesider genererer selve kildelisten – agenten skriver aldri et nummer eller en bibliografi for hånd.
+
+Ikke opprett en egen slide bare for å ramse opp kilder eller referanser. Unntaket er en faglig slide brukeren uttrykkelig har bedt om, som diskuterer f.eks. evidenskvalitet eller metodiske begrensninger; selv da hører selve bibliografien hjemme i referansesystemet, ikke skrevet eller tegnet som en liste på sliden.
+
+En konsekvens av dette: en faktapåstand som trenger en citation skal aldri bakes inn som tekst i en SVG. Det er nettopp den veien som omgår citation-systemet, og validatoren kan ikke lese SVG-tekst som en referanse.
+
+## 10. Fit er redaksjonell tilbakemelding
 
 Når noe ikke får plass:
 
@@ -253,7 +284,7 @@ Når noe ikke får plass:
 
 Ikke løs overflow ved å gjøre skriften stadig mindre eller ved å lage ekstremt smale soner.
 
-## 10. Visuell konsistens uten layoutmonotoni
+## 11. Visuell konsistens uten layoutmonotoni
 
 Repeter den samme visuelle grammatikken for like semantiske roller:
 
@@ -265,7 +296,7 @@ Repeter den samme visuelle grammatikken for like semantiske roller:
 
 Varier geometrien når innholdsrelasjonen endres. Et godt dekk trenger ikke at hver slide ser ulik ut, men det skal heller ikke falle tilbake til samme layout bare fordi den er enkel å produsere.
 
-## 11. Anti-mønstre
+## 12. Anti-mønstre
 
 Unngå aktivt:
 
@@ -275,7 +306,9 @@ Unngå aktivt:
 - store synlige kort med svært lite tekst og unødvendig mye tom høyde når en enkel vertikal trim ville gitt bedre balanse;
 - å bruke negativt rom for å demonstrere at presentasjonen har negativt rom;
 - å droppe relevante bilder fordi agenten mangler rastergenerator;
-- å tegne mennesker, dyr eller andre organiske motiver som hjemmelaget SVG;
+- å tegne en hel slide, en slideoverskrift, kort eller korttitler som SVG i stedet for å bruke Slaids sine egne innholdstyper;
+- å tegne mennesker, dyr, bygninger eller andre illustrasjonsmotiver som hjemmelaget SVG i stedet for et rasterbilde eller et bildenotat;
+- å tegne en litteraturliste eller kildeoversikt som SVG i stedet for å bruke referansesystemet;
 - å bruke bilder som ren fyllmasse;
 - én stor container + punktliste som generelt standardsvar;
 - gjennomsiktig container + overskrift + tekst som generelt standardsvar;
@@ -283,24 +316,25 @@ Unngå aktivt:
 - flere navngivbare konsepter i én punktliste når de burde være peers;
 - nested splits uten faktisk hierarki;
 - asymmetri uten semantisk grunn;
-- tekst lagt inn bare for å fylle tom plass.
+- tekst lagt inn bare for å fylle tom plass;
+- å levere en presentasjon som bare er strukturelt validert, uten at representative slides – særlig med egenprodusert SVG – faktisk er rendret og sett på.
 
-## 12. Arbeidsflyt
+## 13. Arbeidsflyt
 
 For hver slide:
 
 1. Formuler én kommunikativ oppgave.
 2. Kontroller at alt planlagt publikumsinnhold faktisk handler om denne oppgaven.
 3. Dekomponer stoffet i semantiske enheter.
-4. Still bildespørsmålet for denne sliden: vil et bilde, en figur eller et visuelt utsnitt forklare noe bedre enn mer tekst?
-5. Klassifiser relasjonen mellom enhetene.
-6. Bygg det enkleste sonetreet som gjør relasjonen synlig.
-7. Velg innholdstype og vekter etter semantisk rolle — før teksten skrives, ikke etter.
-8. Skriv kort tekst; bruk avsnitt eller linjeskift når en romslig flate har flere tydelige delpoenger.
-9. Bruk quote bare når et ekte sitat fortjener det.
-10. Bruk negativt rom bare når du kan forklare den konkrete kompositoriske gevinsten; særlig for å trimme høyden på synlige kort med lite innhold.
-11. Hvis et relevant rasterbilde mangler, reserver sonen med bildenotat i stedet for å droppe bildet.
-12. Inspiser, render representative slides og valider dekket.
+4. Uttrykk enhetene som Slaids-soner og native innholdstyper – sonetreet, overskriften, tekst og kort er komposisjonen, ikke en SVG.
+5. Still bildespørsmålet for hver sone som trenger visuelt innhold: er behovet et illustrasjonsbilde eller en diagrammatisk figur?
+6. Illustrasjonsbilde → raster (bildenotat hvis rastergenerator mangler). Diagrammatisk figur → SVG, avgrenset til den ene sonen den fyller.
+7. Klassifiser relasjonen mellom enhetene og bygg det enkleste sonetreet som gjør relasjonen synlig.
+8. Velg innholdstype og vekter etter semantisk rolle — før teksten skrives, ikke etter.
+9. Skriv kort tekst; bruk avsnitt eller linjeskift når en romslig flate har flere tydelige delpoenger, og bruk citations der en faktapåstand trenger en kilde.
+10. Bruk quote bare når et ekte sitat fortjener det.
+11. Bruk negativt rom bare når du kan forklare den konkrete kompositoriske gevinsten; særlig for å trimme høyden på synlige kort med lite innhold.
+12. Render representative slides og inspiser dem visuelt – spesielt slides med egenprodusert SVG – før dekket anses ferdig. Strukturell validering er nødvendig, men ikke tilstrekkelig.
 
 Den viktigste testen er fortsatt:
 

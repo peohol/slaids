@@ -3723,9 +3723,11 @@ Typiske bruksområder:
 - piler og relasjoner;
 - tidslinjer;
 - molekyl-/farmakologiske prinsippskisser;
-- enkle anatomiske illustrasjoner;
+- enkle anatomiske forklaringsfigurer;
 - graflignende forklaringsfigurer;
-- andre vektorillustrasjoner.
+- andre skjematiske vektorfigurer der poenget er struktur, ikke naturtro gjengivelse.
+
+SVG er ikke en generell erstatning for illustrasjonsbilder eller for Slaids' egne innholdstyper (slide, overskrift, tekstblokk, kort); den kvalitetsregelen bor i `src/agent/design.ts` (`VECTOR_POLICY`, `RASTER_POLICY`, `NATIVE_COMPOSITION_RULE`) og gjentas ikke her.
 
 SVG skal ikke få en egen parallell presentasjonsmodell. Etter opprettelse er det et vanlig Slaids-asset med `isVector = true`.
 
