@@ -31,6 +31,19 @@
  * would help» is cheapest to answer no when nothing names the pictures worth
  * looking for. Hence `CARD_FRAMING_RULE` and `IMPLICIT_CONTAINER_RULE` on the
  * one side, and named subjects and picture roles on the other.
+ *
+ * A later deck on the same subject failed in the opposite direction: given a
+ * looser vector policy, an agent that had just been told to plan pictures drew
+ * each slide — heading, cards, paragraphs, illustrations and all — as one large
+ * SVG, and drew its bibliography the same way. Nothing was invalid; the tree
+ * Slaids can inspect had almost nothing in it, because the slide was a picture
+ * of a slide rather than one. `NATIVE_COMPOSITION_RULE` exists because a rule
+ * that only tightens *which* motifs get to be SVG does not stop an agent from
+ * using SVG to skip the zone tree altogether — that has to be said as its own,
+ * prior rule. `REFERENCE_SYSTEM_RULE` exists for the same reason on the
+ * bibliography: Slaids already had a citation system nothing pointed the agent
+ * at, so it built one from scratch, out of exactly the material a citation
+ * cannot fit inside — the SVG text a validator does not read.
  */
 
 /**
@@ -59,6 +72,22 @@ export const SEMANTIC_DECOMPOSITION = `Før du velger geometri: finn ut hvilke s
   0,
   -1,
 ).join(', ')} og ${SEMANTIC_UNITS[SEMANTIC_UNITS.length - 1]}. Uttrykk deretter relasjonen mellom enhetene visuelt.`
+
+/**
+ * The rule a model has to have before it draws anything at all.
+ *
+ * Every other rule in this module assumes the agent is building with Slaids'
+ * own zone tree and content kinds. This is the one that says so directly,
+ * because the failure it answers was not a bad choice of motif — it was
+ * building the slide *outside* the tree that a raster or an SVG file is
+ * supposed to fill one zone of. Stated first and before `SEMANTIC_DECOMPOSITION`
+ * would put it before the agent has any material to decompose; stated here,
+ * right after, it is the answer to the question decomposition produces —
+ * *express these units with*, and the answer is Slaids' own tree, not markup
+ * that reimplements one.
+ */
+export const NATIVE_COMPOSITION_RULE =
+  'Slidegeometrien er alltid Slaids sitt sonetre. Slideoverskriften er Slaids sin slide-tittel, brødtekst er Slaids-tekst, og kort og korttitler er Slaids sine egne innholdstyper; farger, grupperinger og sammenligninger bygges med Slaids sine egne mekanismer – splitter, vekter, kort og fargevalg – ikke ved å tegne dem opp. Et bilde eller en SVG fyller bare den visuelle rollen til sonen den ligger i. En SVG skal aldri brukes for å omgå sonetreet eller gjenskape noe Slaids allerede har som egen innholdstype – det gjelder slideoverskriften, vanlige tekstblokker, kort, korttitler og hele layoutgrid. Anti-mønsteret er én stor SVG som tegner flere kort, overskrifter, avsnitt og illustrasjoner som eneste innhold på en slide: det er en alternativ slide-motor, ikke en figur i en sone.'
 
 /**
  * What «simplest» means here.
@@ -249,19 +278,22 @@ export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: 
  * halves below carry the rest, each on the tool that stores or plans that kind.
  */
 export const IMAGE_POLICY_SUMMARY =
-  'Vektor og raster er ikke samme verktøy. Grafer, plott, diagrammer, flytskjemaer, enkel ikonografi og geometriske illustrasjoner skal være SVG, og skal forbli SVG. Fotografiske, naturtro, kunstneriske eller visuelt komplekse motiver skal være rasterbilder fra en egnet bildegenerator; har du ingen, planlegger du bildet i stedet for å improvisere en erstatning.'
+  'Vektor og raster er ikke samme verktøy, og SVG er aldri en alternativ slide-motor. Ikoner, grafer, plott, diagrammer, flytskjemaer, kart der vektor passer og enkle skjematiske forklaringsfigurer skal være SVG, og skal forbli SVG. Illustrasjonsbilder er normalvalget rasterbilder – mennesker, dyr, natur, bygninger, miljøer, gjenstander, historiske scener og andre motiver som først og fremst skal illustrere, ikke diagrammatisere – fra en egnet bildegenerator; har du ingen, planlegger du bildet med et bildenotat i stedet for å improvisere en SVG-erstatning.'
 
 /** The vector half, on the tool that writes markup. */
 export const VECTOR_POLICY: readonly string[] = [
-  'Bruk SVG til grafikk som faktisk bør være vektor: grafer, plott, diagrammer, flytskjemaer, enkel ikonografi og geometriske illustrasjoner.',
+  'Bruk SVG til grafikk som faktisk bør være vektor: grafer, plott, ekte diagrammer, flytskjemaer, kart der vektor er hensiktsmessig, geometriske forklaringsfigurer, enkel ikonografi og enkle skjematiske illustrasjoner der poenget er struktur, ikke naturtro gjengivelse.',
   'SVG skal beholdes som SVG. Ikke rasteriser en SVG bare for å gjøre den om til «et bilde».',
-  'Ikke etterlign fotografiske, naturtro eller organiske motiver med hjemmelaget SVG.',
+  'Ikke etterlign fotografiske, naturtro eller organiske motiver med hjemmelaget SVG, og ikke bruk SVG som en generell erstatning for illustrasjonsbilder.',
+  'En SVG skal aldri erstatte selve sliden, slideoverskriften, en vanlig tekstblokk, et kort eller en korttittel, eller tegne opp et layoutgrid Slaids selv kan bygge. Det gjelder også litteraturlister og teksttunge infografikker som i praksis erstatter Slaids-innhold – anti-mønsteret er én stor SVG med flere tegnede kort, overskrifter, avsnitt og illustrasjoner som eneste innhold på en slide.',
+  'Tekst inne i en SVG skal normalt bare være korte etiketter som er en integrert del av selve figuren – akseetiketter, diagramnoder, kartetiketter eller navn på deler i en skjematisk figur – aldri løpende brødtekst eller faktapåstander som burde hatt en citation.',
 ]
 
 /** The raster half, on the tool that takes a finished file. */
 export const RASTER_POLICY: readonly string[] = [
+  'Illustrasjonsbilder er normalvalget rasterbilder, ikke SVG: mennesker, dyr, natur, bygninger, arkitektur, miljøer og interiører, mat, gjenstander, produkter, historiske scener, rekonstruerte situasjoner og andre motiver som skal illustrere rikt eller stemningsbærende, ikke diagrammatisere.',
   'Fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner skal normalt være rasterbilder laget av en egnet bildegenerator.',
-  'Ikke lever en hjemmelaget, rasterisert SVG i stedet for et slikt bilde.',
+  'Ikke lever en hjemmelaget, rasterisert SVG i stedet for et slikt bilde. En enkel vektortegning er ikke en akseptabel erstatning for et illustrasjonsbilde, uansett om motivet er et menneske, et bygg, et produkt, en historisk scene eller et annet konkret motiv.',
   'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig – og legg igjen et bildenotat i sonen bildet skal ha, så brukeren kan lage filen selv og sette den inn i den geometrien du planla.',
 ]
 
@@ -300,6 +332,40 @@ export const IMAGE_NOTE_POLICY: readonly string[] = [
  */
 export const IMAGE_BRIEF_RULE =
   'Skriv dekkets felles bildebrief før de enkelte bildepromptene: den beskriver hvordan bildene skal se ut – uttrykk, realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås – og aldri hva et enkelt bilde skal vise. Motivene hører hjemme i notatet i den enkelte sonen.'
+
+/* ------------------------------------------------------------------ *
+ * Sources: the reference system, not an authored bibliography slide
+ * ------------------------------------------------------------------ */
+
+/**
+ * The normal route for a fact that needs a source.
+ *
+ * The observed deck cited nothing through Slaids and instead drew its own
+ * «sources and caveats» slide as a single SVG. That is two failures at once —
+ * a bibliography authored by hand instead of derived, and factual claims
+ * pushed into the one medium `validate_presentation` cannot read as text — so
+ * this says both: the citation system is the default, and prose that needs a
+ * source is exactly the prose that must never end up inside SVG markup.
+ */
+export const REFERENCE_SYSTEM_RULE =
+  'Når eksterne kilder brukes til å støtte faktapåstander, registrer dem i Slaids sitt innebygde referansesystem og la de aktuelle tekstblokkene bruke citations som peker på dem – Slaids sine avledede referansesider genererer selve listen. Ikke opprett en egen slide bare for å ramse opp kilder eller en bibliografi; det er en manuell erstatning for noe Slaids allerede genererer. Unntaket er en faglig slide brukeren uttrykkelig har bedt om, som diskuterer f.eks. evidenskvalitet eller metodiske begrensninger – selv da hører selve bibliografien hjemme i referansesystemet, ikke skrevet eller tegnet som en liste på sliden. Faktapåstander som trenger en citation skal derfor aldri bakes inn som tekst i en SVG: det er nettopp den veien som omgår citation-systemet.'
+
+/* ------------------------------------------------------------------ *
+ * Rendering as real visual QA
+ * ------------------------------------------------------------------ */
+
+/**
+ * What structural validity does not cover.
+ *
+ * The observed deck was structurally valid end to end: every slide passed
+ * `validate_presentation`, and text inside its self-authored SVGs was still
+ * clipped, uninspected, because a validator only knows the picture's bounding
+ * box fit — never what the picture drew inside it. So «valid» cannot be the
+ * finishing line; rendering and looking has to be a stated step, not an
+ * optional nicety left to whichever agent happens to think of it.
+ */
+export const VISUAL_QA_RULE =
+  'Strukturell validering er nødvendig, men ikke tilstrekkelig. Før du anser presentasjonen ferdig, render representative slides og inspiser dem visuelt. Slides med egenprodusert SVG – særlig SVG med interne etiketter eller tekst – skal inspiseres etter at filen er plassert i sonen: intern beskjæring, tekst som havner utenfor synlig område, uleselige etiketter og feil cropping er nettopp det en validator ikke kan se, fordi den bare vet at selve bildeboksen fikk plass. Rett opp det du finner før du leverer.'
 
 /** Where the same thinking is written out at length, for a reader. */
 export const DESIGN_DOCS_PATH = 'docs/AGENT_PRESENTATION_DESIGN.md'
