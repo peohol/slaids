@@ -676,6 +676,46 @@ vei ut igjen:
 - Sone-id-en agenten plasserer i finner den med `inspect_slide`, som beskriver
   sonene med geometry engine-ens egne mål – ikke ved å få utlevert dokumentet.
 
+### Planlagte bilder og bildedeponering
+
+Siden Slaids ikke lager bilder, finnes det en arbeidsflyt for å bestille dem et
+annet sted og få dem inn igjen samlet.
+
+| Operasjon                                | Hva den gjør                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
+| `get_image_brief`                        | den genererte, ferdige bestillingen, kontrollene og deponeringsstatusen |
+
+Agenten reserverer en sone ved å gi den innholdstypen `image` eller
+`titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids
+nummererer bildene i dekkets rekkefølge, måler aspect ratio fra sonens faktiske
+geometri, skriver plassholderteksten «Sett inn bilde 3 her» i sonen og genererer
+den samlede briefen. Aspect ratio skrives aldri i fritekst av agenten.
+
+Det samme kallet åpner **bildedeponeringen**, og da ser brukeren dette:
+
+1. Presentasjonen åpnes, og en dialog forteller at den har *N* bildeplasser som
+   kan fylles automatisk. Enten «Generer og legg inn bilder», eller «Gå til
+   editoren» – det siste avslutter ingenting, og knappen for bildebriefen fører
+   tilbake hit når som helst.
+2. Bildebriefen kopieres med én knapp og limes inn der bildene lages. Under den
+   står de samme bildene som en nummerert liste med format og motiv.
+3. Bildene lagres som **`1`, `2`, `3` … opp til *N***, med den filendelsen de
+   får: `1.png`, `2.jpg`, `3.webp`. Formatene kan gjerne blandes. `01.png`,
+   `bilde1.png` og `1a.png` godtas ikke, og to filer med samme nummer meldes som
+   en konflikt – ingenting gjettes.
+4. «Bildene er klare» åpner deponeringen: filene dras inn eller velges, en
+   statusliste viser hva som er på plass, hva som mangler og hva som er feil, og
+   «Fullfør» er deaktivert til nøyaktig 1…*N* er der uten feil.
+5. Alle filene lastes opp, hvert bilde havner i den sonen det ble bestilt for,
+   og plassholderteksten forsvinner.
+
+Endrer brukeren strukturen slik at koblingen brytes – sletter en av de
+nummererte bildesonene, tømmer den eller gjør den om til tekst – advarer appen
+om at den automatiske innsettingen avsluttes for godt. Bekreftes det, blir dekket
+et helt vanlig dekk; avbrytes det, skjer ingenting. En ferdig eller avsluttet
+deponering kan aldri startes på nytt.
+
 Noen ting til er verdt å vite om hvordan laget oppfører seg:
 
 - **Agenten styrer temaet, ikke bare innholdet.** `get_presentation` bærer

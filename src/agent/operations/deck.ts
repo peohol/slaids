@@ -23,6 +23,7 @@ import {
   setImagePlan,
   setPresentationTitle,
 } from '../../domain/commands'
+import type { ImageDeposit } from '../../domain/imageDeposit'
 import { checkImagePlan, composeImageBrief, resolveImagePlan } from '../../domain/imagePlan'
 import {
   bodyOf,
@@ -449,6 +450,16 @@ export interface ImageBriefView {
    * no stored copy, so it cannot be stale.
    */
   brief: string | null
+  /**
+   * Whether the user can hand the finished files back in one go, and how many
+   * the deck is expecting.
+   *
+   * Opened by writing the plan — there is nothing for an agent to switch on —
+   * and reported here so an agent can tell the user what will happen when they
+   * open the deck: a numbered set of picture zones that fills itself from files
+   * called `1.png`, `2.jpg`, … See `domain/imageDeposit.ts`.
+   */
+  deposit: ImageDeposit | null
 }
 
 function imageBriefView(presentation: Presentation): ImageBriefView {
@@ -473,6 +484,7 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
     })),
     issues: checkImagePlan(presentation),
     brief: composeImageBrief(presentation),
+    deposit: presentation.imageDeposit ? { ...presentation.imageDeposit } : null,
   }
 }
 

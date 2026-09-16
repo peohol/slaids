@@ -9,6 +9,7 @@
  */
 
 import type { IdeaRow } from './ideas'
+import type { ImageDeposit } from './imageDeposit'
 import type { PlannedImage } from './imagePlan'
 import type { InteractiveStyleContract } from './constants'
 
@@ -155,6 +156,21 @@ export interface ImagePanel {
   assetId: string | null
   focus: { x: number; y: number }
   caption: ImageCaption | null
+  /**
+   * Which number in the deck's image deposit this panel is waiting for.
+   *
+   * Internal metadata, never drawn and never published: it is how a file named
+   * `3.png` finds the one zone that was ordered as picture 3, without that
+   * mapping depending on where the zone sits today. The panel is the element,
+   * so the number lives on the element rather than in a list beside it — a
+   * zone that is deleted, emptied or turned into text takes its number with
+   * it, which is exactly what makes a broken deposit detectable.
+   *
+   * Absent on every panel that is not part of an open deposit, and stripped
+   * from all of them the moment the deposit is completed or abandoned. See
+   * `domain/imageDeposit.ts`.
+   */
+  depositIndex?: number
 }
 
 /**
@@ -405,6 +421,12 @@ export type { Idea, IdeaCategory, IdeaRow } from './ideas'
  */
 export type { PlannedImage } from './imagePlan'
 
+/**
+ * The state of the deck's image deposit: see `domain/imageDeposit.ts`, which
+ * owns the rules about when it may be opened, broken and closed.
+ */
+export type { ImageDeposit } from './imageDeposit'
+
 /** Asset metadata. Binary data lives in the asset store, never in the JSON. */
 export interface AssetRef {
   id: string
@@ -473,6 +495,19 @@ export interface Presentation extends DeckSource {
    * optional: adding the field wrote nothing into a document that exists.
    */
   imagePlan?: PlannedImage[]
+  /**
+   * Where the deck is in handing its planned pictures over to a person.
+   *
+   * The plan says what the pictures are; this says whether Slaids is still
+   * expecting the files. `pending` is a deck whose picture zones carry deposit
+   * numbers and can be filled in one go from a folder of `1.png`, `2.jpg`, …;
+   * `completed` and `abandoned` are both final, and neither can become
+   * `pending` again — see `domain/imageDeposit.ts`.
+   *
+   * Absent means the deck never had one, which is not the same as `abandoned`:
+   * a deck that never planned pictures has nothing to abandon.
+   */
+  imageDeposit?: ImageDeposit
   sandbox: SandboxItem[]
   ideas: IdeaRow[]
   assets: AssetRef[]

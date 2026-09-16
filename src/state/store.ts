@@ -7,7 +7,8 @@
  */
 
 import { create } from 'zustand'
-import type { StructuralOutcome } from '../domain/commands'
+import { abandonImageDeposit, type StructuralOutcome } from '../domain/commands'
+import { depositIsOpen } from '../domain/imageDeposit'
 import { describeError, type Result } from '../domain/result'
 import {
   firstChildIdOf,
@@ -35,6 +36,12 @@ const NON_LAYOUT_FIELD_IDS: ReadonlySet<string> = new Set([
   SECTION_TITLE_NODE_ID,
   SECTION_SUBTITLE_NODE_ID,
 ])
+
+/** The held change, and what to call it in the history once it is committed. */
+export interface PendingDepositBreak {
+  presentation: Presentation
+  label: string
+}
 
 interface HistoryEntry {
   presentation: Presentation
@@ -75,6 +82,25 @@ interface EditorStore {
 
   saveStatus: SaveStatus
   lastSavedAt: string | null
+
+  /**
+   * A change that is finished except for one question: it would end the deck's
+   * automatic image deposit, and the user has not said whether that is all
+   * right.
+   *
+   * Held here rather than refused in each command, because "this edit breaks
+   * the deposit" is not a property of any one edit. Deleting a numbered zone,
+   * emptying it, converting it to text, deleting the slide it is on and cutting
+   * its content are five commands with nothing in common except the state they
+   * leave behind, and the store is the one place every one of them passes
+   * through. So the document is computed, held, and committed only if the user
+   * says yes — which is also what makes cancelling free: nothing was written.
+   */
+  pendingDepositBreak: PendingDepositBreak | null
+  /** Commit the held change and give up the deposit, for good. */
+  confirmDepositBreak: () => void
+  /** Throw the held change away. The deck is exactly as it was. */
+  cancelDepositBreak: () => void
 
   setPresentation: (presentation: Presentation | null) => void
   setLoading: (loading: boolean) => void
@@ -137,6 +163,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   lastChangeAt: 0,
   coalesceStartedAt: 0,
 
+  pendingDepositBreak: null,
+
   saveStatus: 'saved',
   lastSavedAt: null,
 
@@ -155,6 +183,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       lastChangeAt: 0,
       coalesceStartedAt: 0,
       saveStatus: 'saved',
+      // A question about the deck that is being put away is not a question
+      // about the one being opened.
+      pendingDepositBreak: null,
     })
   },
 
@@ -173,6 +204,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return false
     }
     if (result.value === current) return true
+    if (holdDepositBreak(set, current, result.value, label)) return false
     commit(set, state, result.value, label)
     return true
   },
@@ -187,6 +219,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return false
     }
     const { presentation, movedToSandbox, discarded } = result.value
+    if (holdDepositBreak(set, current, presentation, label)) return false
     if (presentation !== current) commit(set, state, presentation, label)
     if (movedToSandbox.length > 0) {
       notify.warning(
@@ -203,6 +236,28 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     return true
   },
 
+  confirmDepositBreak: () => {
+    const state = get()
+    const held = state.pendingDepositBreak
+    if (!held || !state.presentation) return
+    /*
+     * One history entry for the edit and the abandonment together. They are one
+     * decision — the user was asked about exactly this pairing — so a Ctrl+Z
+     * that took the zone back but left the deck without its deposit would undo
+     * something nobody did.
+     */
+    const given = abandonImageDeposit(held.presentation)
+    if (!given.ok) {
+      notify.error(describeError(given.error))
+      set({ pendingDepositBreak: null })
+      return
+    }
+    set({ pendingDepositBreak: null })
+    commit(set, get(), given.value, held.label)
+  },
+
+  cancelDepositBreak: () => set({ pendingDepositBreak: null }),
+
   replaceDocument: (presentation) => {
     const state = get()
     if (!state.presentation || state.presentation.id !== presentation.id) return
@@ -213,6 +268,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       lastLabel: null,
       lastChangeAt: 0,
       coalesceStartedAt: 0,
+      pendingDepositBreak: null,
       saveStatus: 'dirty',
       ...reconcileSelection(presentation, state),
     })
@@ -383,6 +439,29 @@ function commit(
     saveStatus: 'dirty',
     ...reconcileSelection(next, state),
   })
+}
+
+/**
+ * Hold a change back when it would end the deck's image deposit.
+ *
+ * Asked of the *prospective* document rather than of the command that produced
+ * it: the question is only ever "are the numbered zones still 1‥N afterwards",
+ * and that has one answer however the deck got there. A deck with no open
+ * deposit is never held, so this costs a cheap predicate on the commands of
+ * decks that have nothing to lose.
+ *
+ * `true` means the caller must not commit — the dialog is up.
+ */
+function holdDepositBreak(
+  set: SetState,
+  current: Presentation,
+  next: Presentation,
+  label: string,
+): boolean {
+  if (next === current) return false
+  if (!depositIsOpen(current) || depositIsOpen(next)) return false
+  set({ pendingDepositBreak: { presentation: next, label } })
+  return true
 }
 
 /**

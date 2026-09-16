@@ -229,6 +229,24 @@ Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect rat
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
 
+### Bildedeponering: brukeren legger inn alle bildene på én gang
+
+Det samme kallet åpner **bildedeponeringen**. Hver planlagte bildesone får det nummeret briefen bruker lagret internt på seg, og presentasjonen merkes som «venter på bilder» (`pending`). Agenten trenger ikke gjøre noe mer — svaret fra `plan_deck_images` og `get_image_brief` viser tilstanden i feltet `deposit`.
+
+Brukeren møter dette slik:
+
+1. Presentasjonen åpnes, og en dialog forklarer at den har *N* bildeplasser som kan fylles automatisk. To valg: **«Generer og legg inn bilder»** eller **«Gå til editoren»**. Å velge editoren avslutter ingenting — knappen for bildebriefen øverst i editoren fører tilbake hit når som helst.
+2. Bildebriefen vises, med én knapp som kopierer hele briefen og en nummerert liste over bildene som skal lages: nummer, format og motiv, slik at «bilde 3» kan kontrolleres før filene lages.
+3. Brukeren lager bildene et annet sted og lagrer dem som `1`, `2`, `3` … opp til *N*, med den filendelsen de får. Formatene kan gjerne være forskjellige: `1.png`, `2.jpg`, `3.webp`. Navn som `01.png`, `bilde1.png` og `1a.png` avvises med en begrunnelse — de blir aldri gjettet på — og to filer med samme nummer meldes som konflikt.
+4. «Bildene er klare» åpner deponeringsdialogen. Filene dras inn eller velges, og en statusliste viser hvilke numre som er på plass, hvilke som mangler og hva som eventuelt er feil. **«Fullfør»** er deaktivert til nøyaktig 1…*N* er der uten feil.
+5. Når deponeringen fullføres, lastes alle filene opp, hvert bilde havner i sonen det ble bestilt for, plassholderteksten forsvinner, og statusen settes til `completed`.
+
+Sonene er vanlige bildeelementer hele veien; deponeringsnummeret er intern metadata på bildepanelet og vises aldri for publikum.
+
+Endrer brukeren strukturen slik at koblingen brytes — sletter en nummerert bildesone, tømmer den eller gjør den om til tekst — advarer appen om at den automatiske innsettingen avsluttes for godt. Bekreftes det, settes statusen til `abandoned`, numrene fjernes, og dekket oppfører seg som et vanlig dekk. Avbrytes det, skjer ingenting i det hele tatt. `completed` og `abandoned` er endelige: ingenting setter et dekk tilbake til `pending`, heller ikke en ny bildeplan.
+
+Reglene bor i `src/domain/imageDeposit.ts` og `src/domain/commands/imageDeposit.ts`, og er dekket av tester.
+
 ### Felles bildekontekst vs. motiv
 
 To forskjellige ting, og de må holdes fra hverandre:
