@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/agent/v1.ts": {
-      "includeFiles": "node_modules/@sparticuz/chromium/bin/**",
+      "excludeFiles": "node_modules/@sparticuz/chromium/bin/**",
       "maxDuration": 60
     }
   },
