@@ -268,23 +268,45 @@ export interface ImagePlanIssue {
 }
 
 /**
- * Words that claim a *format* rather than describe a motif.
+ * Expressions that claim a *format* rather than describe a motif.
  *
- * Deliberately narrow. «landskap» is a subject and says nothing about the
- * rectangle; «landskapsformat» is a claim about the rectangle. A lexicon that
- * matched the first would flag every photograph of a valley in a tall zone and
- * teach an agent to write vaguer prompts, which is the opposite of the point.
+ * Deliberately narrow, and narrower than it first was. «landskap» is a subject
+ * and says nothing about the rectangle; «landskapsformat» is a claim about it.
+ *
+ * The first version matched the bare adjectives too — `stående`, `liggende`,
+ * `kvadratisk` — and in Norwegian those describe the *subject* at least as
+ * often as the frame: «stående helfigur av Homo erectus», «liggende skjelett»,
+ * «kvadratisk steinplate». A wide zone would then have flagged the standing
+ * figure as a format error and told the agent to rewrite the motif or re-plan
+ * the zones — exactly backwards, and precisely the kind of false positive that
+ * teaches an agent to write vaguer prompts.
+ *
+ * So an adjective only counts when it is attached to a word that means the
+ * picture's own shape: format, bildeformat, utsnitt, orientering, sideforhold.
+ * The compounds (`portrettformat`, `høyformat`, `landskapsformat`,
+ * `bredformat`, `kvadratformat`, `widescreen`) are unambiguous on their own.
+ *
+ * `panorama` stays bare, and the difference is not a judgement call: it is not
+ * a property a subject can have. A figure can stand and a skeleton can lie, but
+ * nothing *is* a panorama — the word names the shape of the field of view
+ * itself.
  */
+const FORMAT_NOUNS = '(?:bilde)?format|utsnitt|orientering|sideforhold'
+
 const ORIENTATION_TERMS: readonly { pattern: RegExp; orientation: ImageOrientation }[] = [
   { pattern: /\bpanorama\w*/i, orientation: 'liggende' },
-  { pattern: /\bliggende\b/i, orientation: 'liggende' },
+  { pattern: new RegExp(`\\bliggende\\s+(?:${FORMAT_NOUNS})\\b`, 'i'), orientation: 'liggende' },
   { pattern: /\blandskapsformat\b/i, orientation: 'liggende' },
   { pattern: /\bbredformat\b/i, orientation: 'liggende' },
   { pattern: /\bwidescreen\b/i, orientation: 'liggende' },
-  { pattern: /\bstående\b/i, orientation: 'stående' },
+  { pattern: new RegExp(`\\bstående\\s+(?:${FORMAT_NOUNS})\\b`, 'i'), orientation: 'stående' },
   { pattern: /\bportrettformat\b/i, orientation: 'stående' },
   { pattern: /\bhøyformat\b/i, orientation: 'stående' },
-  { pattern: /\bkvadratisk\w*/i, orientation: 'nær kvadratisk' },
+  {
+    pattern: new RegExp(`\\bkvadratisk\\w*\\s+(?:${FORMAT_NOUNS})\\b`, 'i'),
+    orientation: 'nær kvadratisk',
+  },
+  { pattern: /\bkvadratformat\b/i, orientation: 'nær kvadratisk' },
 ]
 
 const WRITTEN_RATIO = /\b(\d{1,2})\s*[:∶]\s*(\d{1,2})\b/g

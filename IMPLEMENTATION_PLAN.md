@@ -479,7 +479,7 @@ ingen av delene kan svare på alene:
 | --- | --- |
 | `ZONE_GONE` | En oppføring peker på en sone som ikke finnes lenger, eller ikke er en bildesone. |
 | `ZONE_NOT_PLANNED` | En bildesone venter på en fil uten at noen oppføring beskriver den. |
-| `ASPECT_MISMATCH` | Motivet beskriver et annet format enn sonen har — i ord eller som et forholdstall skrevet inn i teksten. |
+| `ASPECT_MISMATCH` | Beskrivelsen oppgir et annet format enn sonen har — som et uttrykkelig formatuttrykk eller som et forholdstall skrevet inn i teksten. Positur og fasong («stående helfigur», «liggende skjelett», «kvadratisk steinplate») beskriver motivet og telles ikke. |
 | `NEAR_DUPLICATE` | To oppføringer beskriver i praksis samme motiv. |
 | `PLACEHOLDER_STALE` | Nummeret på sliden og nummeret i briefen har kommet fra hverandre. |
 | `MISSING_CONTEXT` | Det planlegges bilder uten felles bildekontekst. |

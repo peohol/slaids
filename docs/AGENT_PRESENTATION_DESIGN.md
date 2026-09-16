@@ -300,7 +300,7 @@ Slaids sjekker planen mot dekket og melder fra om:
 
 - en bildeoppføring som peker på en sone som ikke finnes lenger, eller ikke er en bildesone;
 - en bildesone som venter på en fil uten at noen oppføring beskriver den;
-- et motiv som beskriver et annet format enn sonen faktisk har — enten i ord («panorama», «stående») eller som et forholdstall skrevet inn i teksten;
+- en beskrivelse som oppgir et annet format enn sonen faktisk har — enten som et uttrykkelig formatuttrykk («panorama», «stående utsnitt», «liggende format», «portrettformat») eller som et forholdstall skrevet inn i teksten. Positur og fasong er ikke formatpåstander: «stående helfigur» og «kvadratisk steinplate» beskriver motivet, og telles ikke;
 - to oppføringer som i praksis beskriver samme motiv;
 - en plassholdertekst på sliden som ikke lenger sier det samme nummeret som briefen — det skjer når slides flyttes etter at planen ble skrevet, og rettes ved å skrive bildeplanen på nytt;
 - planlagte bilder uten felles bildekontekst;

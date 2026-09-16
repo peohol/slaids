@@ -61,6 +61,25 @@ function threeColumns(): { deck: Presentation; slideId: string; nodeIds: string[
   return { deck, slideId: deck.slides[1].id, nodeIds: leaves.map((leaf) => leaf.id) }
 }
 
+interface OneZone {
+  deck: Presentation
+  slideId: string
+  nodeId: string
+}
+
+/** One zone filling the whole main area: the widest rectangle a slide has. */
+function wideZone(): OneZone {
+  const leaf = createLeaf(createImage())
+  const deck = deckWith(leaf)
+  return { deck, slideId: deck.slides[1].id, nodeId: leaf.id }
+}
+
+/** One of three columns: the upright rectangle a row of peers makes. */
+function uprightZone(): OneZone {
+  const { deck, slideId, nodeIds } = threeColumns()
+  return { deck, slideId, nodeId: nodeIds[0] }
+}
+
 function entry(slideId: string, nodeId: string, subject: string): PlannedImage {
   return {
     slideId,
@@ -492,6 +511,55 @@ describe('kontrollene', () => {
     const mismatch = checkImagePlan(written).find((issue) => issue.code === 'ASPECT_MISMATCH')
     expect(mismatch?.number).toBe(1)
     expect(mismatch?.message).toMatch(/liggende/i)
+  })
+
+  it('leser ikke en positur eller en fasong som en formatpåstand', () => {
+    // «stående», «liggende» and «kvadratisk» describe the *subject* at least as
+    // often as the frame in Norwegian. Reading them as format claims turned a
+    // standing figure in a wide zone into an error and told the agent to
+    // rewrite the motif — backwards, and the kind of false positive that
+    // teaches an agent to write vaguer prompts.
+    const wide = wideZone()
+    const upright = uprightZone()
+    const cases: [OneZone, string, string][] = [
+      [wide, 'Stående helfigur av Homo erectus på savannen.', 'Motivet midt i bildet.'],
+      [upright, 'Liggende skjelett i utgravningsfeltet.', 'Sett ovenfra.'],
+      [upright, 'Kvadratisk steinplate med hulemalerier.', 'Motivet fyller flaten.'],
+    ]
+    for (const [zone, subject, composition] of cases) {
+      const written = planned(zone.deck, [
+        { ...entry(zone.slideId, zone.nodeId, subject), composition },
+      ])
+      // The zone really is the shape the adjective would have contradicted.
+      expect(resolveImagePlan(written)[0].orientation, subject).not.toBe(
+        subject.startsWith('Stående') ? 'stående' : 'liggende',
+      )
+      expect(
+        checkImagePlan(written).filter((issue) => issue.code === 'ASPECT_MISMATCH'),
+        subject,
+      ).toEqual([])
+    }
+  })
+
+  it('leser fortsatt et uttrykkelig format som en formatpåstand', () => {
+    // The adjective counts when it is attached to a word that means the
+    // picture's own shape. That is the claim the check exists for.
+    const wide = wideZone()
+    const upright = uprightZone()
+    const cases: [OneZone, string][] = [
+      [wide, 'Stående utsnitt, hodet i øvre tredjedel.'],
+      [wide, 'Portrettformat, hele figuren synlig.'],
+      [upright, 'Liggende format, horisonten i nedre tredjedel.'],
+      [upright, 'Bredformat over hele scenen.'],
+      [upright, 'Kvadratisk utsnitt av flaten.'],
+    ]
+    for (const [zone, composition] of cases) {
+      const written = planned(zone.deck, [
+        { ...entry(zone.slideId, zone.nodeId, 'Et entydig motiv.'), composition },
+      ])
+      const mismatch = checkImagePlan(written).find((issue) => issue.code === 'ASPECT_MISMATCH')
+      expect(mismatch, composition).toBeDefined()
+    }
   })
 
   it('finner et forholdstall som er skrevet inn i teksten og ikke stemmer', () => {
