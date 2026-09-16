@@ -17,9 +17,11 @@
  * What Slaids owns is the part that keeps it robust rather than merely working
  * on one machine:
  *
- *  - **finding an executable.** Four candidates, in order of how specific they
- *    are, so a deployment can override and a serverless deployment needs no
- *    configuration at all. Nothing is downloaded at runtime.
+ *  - **finding an executable.** An explicit executable wins. The normal npm
+ *    package is used when its local Chromium files are present (development and
+ *    tests). Vercel deliberately excludes those large files from the function
+ *    bundle and falls back to one immutable, versioned Chromium pack downloaded
+ *    into `/tmp` on the first cold invocation.
  *  - **reusing it.** One browser per warm instance, re-launched when the
  *    previous one is gone. A serverless function that launched Chromium per
  *    request would spend most of its life launching Chromium.
@@ -44,14 +46,26 @@ import { pngPixelSize } from './rasterize'
  *
  * `SLAIDS_CHROMIUM_EXECUTABLE` is the override a deployment or a test sets, and
  * it comes first so it is actually an override. `@sparticuz/chromium` is the
- * serverless answer — a Chromium build shipped inside the dependency and
- * inflated into the function's own `/tmp`, which is what makes this work on
- * Vercel with no extra configuration and no runtime download. The Playwright
+ * serverless answer. Locally its own `bin/` directory is used; in the Vercel
+ * function that directory is intentionally excluded, so the same library
+ * downloads the pinned pack below and inflates it into `/tmp`. The Playwright
  * variable is next because this repository's e2e suite already uses it for a
  * pre-installed browser, and the well-known paths are the ordinary developer
  * machine.
  */
 export const CHROMIUM_EXECUTABLE_VAR = 'SLAIDS_CHROMIUM_EXECUTABLE'
+
+/**
+ * The exact browser payload production may download on a cold start.
+ *
+ * Keep this immutable and versioned. `browserVersions.test.ts` guards the npm
+ * package/driver pairing; `chromiumRemote.test.ts` additionally guards that the
+ * remote payload names the exact same `@sparticuz/chromium` version. The x64
+ * asset is intentional: the ordinary `@sparticuz/chromium` package itself only
+ * ships x64, which is the architecture this deployment has already been using.
+ */
+export const SERVERLESS_CHROMIUM_PACK_URL =
+  'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar'
 
 const SYSTEM_CHROMIUM_PATHS = [
   '/usr/bin/chromium',
@@ -302,32 +316,42 @@ export async function resolveExecutable(
   }
 
   throw new PreviewBrowserUnavailableError(
-    `Fant ingen Chromium å rendre med. Sett ${CHROMIUM_EXECUTABLE_VAR} til en Chromium-binær, eller installer @sparticuz/chromium (som er en vanlig avhengighet og normalt gjør dette unødvendig).`,
+    `Fant ingen Chromium å rendre med. Sett ${CHROMIUM_EXECUTABLE_VAR} til en Chromium-binær, eller sørg for at den serverless Chromium-pakken kan lastes.`,
   )
 }
 
 /**
- * The bundled serverless build, inflated on first use.
+ * Resolve the serverless browser without making every deployment carry it.
  *
- * Memoised because inflating tens of megabytes into `/tmp` is not something to
- * do per request, and swallowed on failure because this is a *candidate*: a
- * machine the build does not support should fall through to the next one rather
- * than fail the whole resolution.
+ * Development and CI still install the ordinary package, whose local `bin/`
+ * directory makes the first attempt succeed with no network. The Vercel
+ * function explicitly excludes that directory to keep Function Storage small;
+ * there the first attempt fails harmlessly and the second asks the same library
+ * to download the immutable release pack into `/tmp`. `executablePath()` itself
+ * reuses `/tmp/chromium` on warm starts, while the rasterizer also keeps the
+ * launched browser alive, so neither download nor inflation happens per request.
+ *
+ * There is deliberately no additional module-level cache here. A transient
+ * failed download must not poison the whole warm instance: a later preview may
+ * retry. Successful warm starts are already cached by Chromium's `/tmp` path.
  */
-let serverlessResolved: Promise<ResolvedExecutable | null> | null = null
+async function serverlessExecutable(): Promise<ResolvedExecutable | null> {
+  const local = await serverlessCandidate()
+  if (local) return local
+  return serverlessCandidate(SERVERLESS_CHROMIUM_PACK_URL)
+}
 
-function serverlessExecutable(): Promise<ResolvedExecutable | null> {
-  if (!serverlessResolved) {
-    serverlessResolved = serverlessChromium
-      .executablePath()
-      .then(async (path) =>
-        path && (await isExecutable(path))
-          ? { executablePath: path, args: [...serverlessChromium.args] }
-          : null,
-      )
-      .catch(() => null)
+async function serverlessCandidate(input?: string): Promise<ResolvedExecutable | null> {
+  try {
+    const path = input
+      ? await serverlessChromium.executablePath(input)
+      : await serverlessChromium.executablePath()
+    return path && (await isExecutable(path))
+      ? { executablePath: path, args: [...serverlessChromium.args] }
+      : null
+  } catch {
+    return null
   }
-  return serverlessResolved
 }
 
 async function isExecutable(path: string): Promise<boolean> {
