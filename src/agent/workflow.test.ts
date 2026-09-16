@@ -292,7 +292,7 @@ describe('å bygge en presentasjon uten React', () => {
       slideId: added.slideId,
       nodeId: firstZone(inspection),
       blocks: [
-        { type: 'heading', spans: [{ text: 'Kort fortalt' }] },
+        { type: 'accent', spans: [{ text: 'Kort fortalt' }] },
         { type: 'bullets', items: [[{ text: 'Binder reseptoren' }], [{ text: 'Halveringstid 6 t' }]] },
       ],
     })
@@ -308,7 +308,7 @@ describe('å bygge en presentasjon uten React', () => {
     // the editor's own JSON.
     const zone = after.zones.find((entry) => entry.nodeId === firstZone(inspection))
     expect(zone?.subfields?.[0].blocks).toEqual([
-      { type: 'heading', spans: [{ text: 'Kort fortalt' }] },
+      { type: 'accent', spans: [{ text: 'Kort fortalt' }] },
       { type: 'bullets', items: [[{ text: 'Binder reseptoren' }], [{ text: 'Halveringstid 6 t' }]] },
     ])
     expect(zone?.fits).toBe(true)
@@ -578,7 +578,7 @@ describe('layout', () => {
     expect(sliver?.empty).toBe(true)
     // Only the kinds that draw nothing, in the domain's own order: air and a
     // note. Neither has a floor, so neither can be too small for the sliver.
-    expect(sliver?.availableContentKinds).toEqual(['negative-space', 'note'])
+    expect(sliver?.availableContentKinds).toEqual(['negative-space'])
 
     await ok(context, 'set_zone_card', {
       presentationId: deck.presentationId,
@@ -1462,7 +1462,7 @@ describe('bilder inne i teksten', () => {
       title: 'Kilden',
     })
     const blocks: TextBlock[] = [
-      { type: 'heading', spans: [{ text: 'Funn' }] },
+      { type: 'accent', spans: [{ text: 'Funn' }] },
       {
         type: 'paragraph',
         spans: [{ text: 'Slik ser det ut', italic: true }, { citation: [reference.id] }],

@@ -7,10 +7,19 @@
  * should not be a breaking change in the agent contract.
  *
  * So this module is the seam. It defines a small block format an agent writes —
- * paragraphs, one heading level, bullet and numbered lists, quotes, bold and
+ * paragraphs, one accent level, bullet and numbered lists, quotes, bold and
  * italic, and citations that carry reference ids rather than numbers — and it
  * translates in both directions: into `RichDoc` on the way in, and back out in
  * `inspect_slide`, so an agent can read what it wrote.
+ *
+ * The block an agent calls `accent` is stored as a ProseMirror heading, and the
+ * two names are deliberately different. Inside a zone the block is a
+ * subheading, a highlighted point, an internal division — never the heading of
+ * the thing it sits in, which is the card's own title. An agent offered a
+ * «heading» inside a text field uses it as one, and then the card it is in
+ * needs no title and the deck loses its framing; see `ACCENT_RULE`. Renaming
+ * the stored node would be a migration that changes nothing anybody reads, so
+ * the rename is exactly where the misunderstanding was: in the contract.
  *
  * Deliberately **not** Markdown. A Markdown parser is a second, informal
  * grammar with its own edge cases (what is `*` here? is this a list?), and its
@@ -157,14 +166,18 @@ const imageBlockSchema = z.strictObject({
 const textBlockSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('paragraph'), spans: spansSchema, align: alignSchema.optional() }),
   z.strictObject({
-    type: z.literal('heading'),
+    type: z
+      .literal('accent')
+      .describe(
+        'En aksent: underoverskrift, fremhevet poeng eller intern oppdeling i sonen. Ikke kortets hovedoverskrift – den er korttittelen på et `titled-card`.',
+      ),
     spans: spansSchema,
     align: alignSchema.optional(),
     color: z
       .string()
       .regex(HEX_COLOR)
       .optional()
-      .describe('Fargen på overskriftspillen, som #rrggbb. Utelatt gir standardfargen.'),
+      .describe('Fargen på aksentpillen, som #rrggbb. Utelatt gir standardfargen.'),
   }),
   z.strictObject({ type: z.literal('quote'), spans: spansSchema }),
   z.strictObject({
@@ -249,7 +262,7 @@ function blockToNode(block: TextBlock, assets: AssetLookup): RichNode {
   switch (block.type) {
     case 'paragraph':
       return paragraph(block.spans, block.align)
-    case 'heading': {
+    case 'accent': {
       const color = block.color ? normalizeHex(block.color) : null
       return {
         type: 'heading',
@@ -451,7 +464,7 @@ function blockOf(node: RichNode): InspectedBlock[] {
       const color = typeof node.attrs?.color === 'string' ? normalizeHex(node.attrs.color) : null
       return [
         {
-          type: 'heading',
+          type: 'accent',
           spans: spansOf(node),
           ...(align ? { align } : {}),
           ...(color ? { color } : {}),

@@ -212,8 +212,16 @@ export function TextToolbar({
     },
     ...scriptButtons(editor),
     {
+      /*
+       * «Aksent», not «Overskrift». The stored node is still a heading — it has
+       * always been one and renaming it would be a migration for nothing — but
+       * what it *is* in a slide is an accent: a subheading, a highlighted point,
+       * an internal division inside a card. A card's own main heading is its
+       * card title, and a button here called «Overskrift» is what taught
+       * authors and agents alike to write one instead of the other.
+       */
       id: 'heading',
-      label: 'Overskrift',
+      label: 'Aksent',
       icon: 'heading',
       isActive: () => editor.isActive('heading'),
       run: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
@@ -296,8 +304,8 @@ export function TextToolbar({
 
   const headingActive = editor.isActive('heading')
   /*
-   * A heading with no colour of its own is not "the default hex": it is a
-   * heading that follows the cover. The picker therefore shows the resolved
+   * An accent with no colour of its own is not "the default hex": it is an
+   * accent that follows the cover. The picker therefore shows the resolved
    * colour but marks "Standard" as the choice in force, and picking Standard
    * again clears the attribute rather than writing today's colour into the
    * document — which is what keeps it following the cover tomorrow.
@@ -339,7 +347,7 @@ export function TextToolbar({
 
       {headingActive && (
         <ColorPickerButton
-          label="Overskriftsfarge"
+          label="Aksentfarge"
           value={explicitHeadingColor ?? defaultPillColor}
           testId="heading-color"
           inherited={{

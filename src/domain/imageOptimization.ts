@@ -257,9 +257,7 @@ function inlineBoxes(
       // a card title is the same; nothing inline can stand in either.
       break
     case 'negative-space':
-    case 'note':
-      // Air holds no documents at all and a note holds plain text, so neither
-      // has anything to walk.
+      // Air holds no documents at all, so there is nothing to walk.
       break
   }
   return out

@@ -28,14 +28,17 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  ACCENT_RULE,
   AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
   CARD_FRAMING_RULE,
   COLOR_SEMANTICS_RULE,
   CONTENT_KIND_RULE,
+  DECK_SELF_CHECK,
   DESIGN_DOCS_PATH,
   IMAGE_BRIEF_RULE,
-  IMAGE_NOTE_POLICY,
+  IMAGE_PLACEHOLDER_POLICY,
+  IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_ROLES,
   IMAGE_USAGE_RULE,
@@ -44,19 +47,21 @@ import {
   NATIVE_COMPOSITION_RULE,
   NEGATIVE_SPACE_RULE,
   PARALLEL_RULE,
+  PRIMARY_TEXT_RULE,
   QUOTE_RULE,
   RASTER_POLICY,
   REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
+  SELF_CHECK_STOP,
   SEMANTIC_DECOMPOSITION,
   SEMANTIC_UNITS,
   SIMPLEST_TREE,
-  SINGLE_CONTAINER_RULE,
   SPLIT_RULE,
   TEXT_RHYTHM_RULE,
   VECTOR_POLICY,
   VISUAL_QA_RULE,
   VISUAL_SUBJECTS,
+  ZONE_SELF_CHECK,
 } from '../../agent/design'
 import { MCP_INSTRUCTIONS } from './instructions'
 import { mcpTools } from './tools'
@@ -72,7 +77,8 @@ const NORMATIVE = [
   NATIVE_COMPOSITION_RULE,
   SEMANTIC_DECOMPOSITION,
   SIMPLEST_TREE,
-  SINGLE_CONTAINER_RULE,
+  PRIMARY_TEXT_RULE,
+  ACCENT_RULE,
   CARD_FRAMING_RULE,
   AUDIENCE_CONTENT_RULE,
   BULLET_RULE,
@@ -88,9 +94,13 @@ const NORMATIVE = [
   IMAGE_USAGE_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_BRIEF_RULE,
+  IMAGE_PLAN_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
-  ...IMAGE_NOTE_POLICY,
+  SELF_CHECK_STOP,
+  ...ZONE_SELF_CHECK,
+  ...DECK_SELF_CHECK,
+  ...IMAGE_PLACEHOLDER_POLICY,
   ...VECTOR_POLICY,
   ...RASTER_POLICY,
 ]
@@ -118,7 +128,6 @@ describe('det agenten vet før første kall', () => {
     expect(BULLET_RULE).toMatch(/underordnede utsagn/i)
     expect(BULLET_RULE).toMatch(/navngivbare konsepter|kategorier|faser|sammenligningsenheter/i)
     expect(MCP_INSTRUCTIONS).toContain(BULLET_RULE)
-    expect(MCP_INSTRUCTIONS).toContain(SINGLE_CONTAINER_RULE)
   })
 
   it('holder sitater til ekte ordlyd og bruker avsnitt når høyden tillater det', () => {
@@ -163,7 +172,7 @@ describe('det agenten vet før første kall', () => {
     for (const subject of VISUAL_SUBJECTS) expect(MCP_INSTRUCTIONS).toContain(subject)
     for (const role of IMAGE_ROLES) expect(MCP_INSTRUCTIONS).toContain(role)
     expect(IMAGE_USAGE_RULE).toMatch(/skal du ikke droppe relevante bilder/i)
-    expect(IMAGE_USAGE_RULE).toMatch(/bildenotat/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/bildeplan/i)
   })
 
   it('sier at et visuelt konkret dekk uten et eneste planlagt bilde normalt er feil', () => {
@@ -182,7 +191,8 @@ describe('det agenten vet før første kall', () => {
       IMPLICIT_CONTAINER_RULE,
       SPLIT_RULE,
       IMAGE_BRIEF_RULE,
-      ...IMAGE_NOTE_POLICY,
+      IMAGE_PLAN_RULE,
+      ...IMAGE_PLACEHOLDER_POLICY,
       ...VECTOR_POLICY,
       ...RASTER_POLICY,
     ]) {
@@ -229,8 +239,10 @@ describe('navngitte, parallelle enheter får en ramme', () => {
     expect(CARD_FRAMING_RULE).toMatch(/titled-image-card/)
     expect(CARD_FRAMING_RULE).toMatch(/når enheten bæres av tekst/i)
     expect(CARD_FRAMING_RULE).toMatch(/når det er bildet som bærer den/i)
-    // Both unframed kinds answer the same question, so both are bounded here.
-    expect(CARD_FRAMING_RULE).toMatch(/`container` og et bart `image`/)
+    // The unframed picture kind is bounded here, and the transparent container
+    // is ruled out for a named unit outright.
+    expect(CARD_FRAMING_RULE).toMatch(/et bart `image`/i)
+    expect(CARD_FRAMING_RULE).toMatch(/`container` er aldri svaret på en navngitt enhet/i)
 
     // And the kind the rule names has to be one the agent can actually ask for.
     const card = mcpTools().find((tool) => tool.name.endsWith('set_zone_card'))
@@ -252,11 +264,11 @@ describe('navngitte, parallelle enheter får en ramme', () => {
 
   it('avgrenser de rammeløse typene til det de faktisk er for', () => {
     // Still legal — the rule is about what the unframed kinds are *for*, not a
-    // ban. Both of them, now that a named peer can be a picture.
-    expect(CARD_FRAMING_RULE).toMatch(/én samlet idé eller ett bilde som står alene/i)
-    expect(CARD_FRAMING_RULE).toMatch(/ikke der den er ett navngitt medlem blant flere/i)
-    expect(CARD_FRAMING_RULE).toMatch(/verken standardvalget/i)
-    expect(SINGLE_CONTAINER_RULE).toMatch(/én samlet idé/i)
+    // ban. A bare picture is the one that keeps a legitimate use for a named
+    // subject; a container does not, because it is support text.
+    expect(CARD_FRAMING_RULE).toMatch(/der bildet står alene og bærer sitt eget budskap/i)
+    expect(CARD_FRAMING_RULE).toMatch(/ikke der det er ett navngitt medlem blant flere/i)
+    expect(CARD_FRAMING_RULE).toMatch(/ikke en måte å slippe å navngi enhetene på/i)
   })
 
   it('sier på verktøyet som skriver tekst at beholderen er et uvalgt utgangspunkt', () => {
@@ -317,12 +329,12 @@ describe('raster og vektor', () => {
     // The trigger, on the surface an agent actually reads. It lived only in the
     // guide, which meant the rule that decides *whether* to write a brief was
     // reachable only from the contract of the call that writes one.
-    expect(IMAGE_USAGE_RULE).toMatch(/minst ett generert rasterbilde/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/minst ett rasterbilde er planlagt/i)
     expect(IMAGE_USAGE_RULE).toMatch(/også om det bare er ett/i)
     expect(agentSurface()).not.toMatch(/dersom flere rasterbilder skal genereres/i)
 
     const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
-    expect(guide).toMatch(/minst ett generert rasterbilde planlegges/i)
+    expect(guide).toMatch(/minst ett rasterbilde planlegges/i)
     expect(guide).not.toMatch(/dersom flere rasterbilder skal genereres/i)
   })
 
@@ -363,23 +375,67 @@ describe('raster og vektor', () => {
   })
 
   it('gir agenten hele planen for et bilde den ikke kan lage selv', () => {
-    // Reserve the zone, write the prompt into it, and give the deck one shared
-    // brief. Every step has to be reachable, or «plan the picture instead of
-    // dropping it» is advice with no procedure behind it.
+    // Decide whether the slide needs a picture, shape the zone to the motif,
+    // reserve a real picture zone, and put the motif in the deck's plan. Every
+    // step has to be reachable, or «plan the picture instead of dropping it» is
+    // advice with no procedure behind it.
     const surface = agentSurface()
-    for (const rule of IMAGE_NOTE_POLICY) expect(surface).toContain(rule)
+    for (const rule of IMAGE_PLACEHOLDER_POLICY) expect(surface).toContain(rule)
     expect(surface).toContain(IMAGE_BRIEF_RULE)
-    expect(IMAGE_NOTE_POLICY.join(' ')).toMatch(/image-prompt/)
-    expect(IMAGE_NOTE_POLICY.join(' ')).toMatch(/reservedImageKinds/)
+    expect(surface).toContain(IMAGE_PLAN_RULE)
   })
 
-  it('sier at reservasjonen måles mot bildetypen som faktisk er planlagt', () => {
+  it('planlegger sonens format mot motivet, ikke motivet mot sonen', () => {
+    // The failure this replaced: wide prompts written for near-square zones,
+    // because the shape was described in prose instead of measured.
+    const policy = IMAGE_PLACEHOLDER_POLICY.join(' ')
+    expect(policy).toMatch(/passer ikke sonens format til motivet/i)
+    expect(policy).toMatch(/planlegges på nytt/i)
+    expect(policy).toMatch(/ikke motivet presses inn i feil rektangel/i)
+  })
+
+  it('reserverer en ekte bildesone, og måler den mot bildetypen som er planlagt', () => {
     // A `titled-image-card` carries a header above the picture and needs more
     // room than a bare `image`, so «the reservation holds» is not one answer.
-    const policy = IMAGE_NOTE_POLICY.join(' ')
-    expect(policy).toMatch(/titled-image-card/)
-    expect(policy).toMatch(/trenger mer plass enn et bart `image`/i)
-    expect(policy).toMatch(/tom liste/i)
+    const policy = IMAGE_PLACEHOLDER_POLICY.join(' ')
+    expect(policy).toMatch(/`image` eller `titled-image-card` uten fil/i)
+    expect(policy).toMatch(/reservedImageKinds/)
+    expect(policy).toMatch(/for liten til noe bilde/i)
+  })
+
+  it('lar Slaids stemple plassholderteksten, i stedet for at agenten skriver den', () => {
+    // The caption and the brief have to say the same number, and the only way
+    // to guarantee that is for one call to produce both.
+    const policy = IMAGE_PLACEHOLDER_POLICY.join(' ')
+    expect(policy).toMatch(/Sett inn bilde 1 her/)
+    expect(policy).toMatch(/Ikke skriv slike plassholdere for hånd/i)
+  })
+
+  it('sier at agenten ikke skriver den samlede briefen, antallet eller formatene selv', () => {
+    // Everything derived is Slaids'. An aspect ratio an agent states in prose is
+    // exactly what makes brief and zone disagree.
+    expect(IMAGE_PLAN_RULE).toMatch(/Slaids teller bildene/i)
+    expect(IMAGE_PLAN_RULE).toMatch(/måler aspect ratio fra hver sones faktiske geometri/i)
+    expect(IMAGE_PLAN_RULE).toMatch(/verken skrive antall, nummer, formater/i)
+    expect(IMAGE_BRIEF_RULE).toMatch(/aldri hva et enkelt bilde skal vise/i)
+    expect(IMAGE_BRIEF_RULE).toMatch(/aldri oppgir aspect ratio i fritekst|aldri aspect ratio i fritekst|du oppgir aldri aspect ratio i fritekst/i)
+  })
+
+  it('gir kontrollene et sluttpunkt, så de ikke blir en åpen forbedringssløyfe', () => {
+    for (const question of [...ZONE_SELF_CHECK, ...DECK_SELF_CHECK]) {
+      expect(MCP_INSTRUCTIONS).toContain(question)
+    }
+    expect(MCP_INSTRUCTIONS).toContain(SELF_CHECK_STOP)
+    expect(SELF_CHECK_STOP).toMatch(/ikke en åpen sløyfe/i)
+    // The four zone questions, in the order the repairs get more expensive.
+    expect(ZONE_SELF_CHECK[0]).toMatch(/`container` eller `untitled-card`.*`titled-card`/i)
+    expect(ZONE_SELF_CHECK[1]).toMatch(/aksent.*hovedoverskrift/i)
+    expect(ZONE_SELF_CHECK[2]).toMatch(/flere mindre soner/i)
+    expect(ZONE_SELF_CHECK[3]).toMatch(/subfelter og aksenter/i)
+    // And the deck pass has to cover the picture plan, not just the text.
+    expect(DECK_SELF_CHECK.join(' ')).toMatch(/bildeplanen/i)
+    expect(DECK_SELF_CHECK.join(' ')).toMatch(/formatet på sonen/i)
+    expect(DECK_SELF_CHECK.join(' ')).toMatch(/nesten samme motiv/i)
   })
 })
 
@@ -406,7 +462,7 @@ describe('regelen mot å falle tilbake til container + overskrift + tekst', () =
     // in a transparent container, slide after slide — the same fallback with
     // the list taken out, which a rule naming only «container + punktliste»
     // does not catch.
-    expect(REPEATED_FALLBACK_RULE).toMatch(/gjennomsiktig container/i)
+    expect(REPEATED_FALLBACK_RULE).toMatch(/én stor tekstsone/i)
     expect(REPEATED_FALLBACK_RULE).toMatch(/overskrift/i)
     expect(REPEATED_FALLBACK_RULE).toMatch(/tekst eller punktliste/i)
     expect(MCP_INSTRUCTIONS).toContain(REPEATED_FALLBACK_RULE)
@@ -416,11 +472,41 @@ describe('regelen mot å falle tilbake til container + overskrift + tekst', () =
     // A prohibition an agent cannot act on is a prohibition it ignores: the
     // self-check has to point back at decomposition and framing.
     expect(REPEATED_FALLBACK_RULE).toMatch(/dekomponer/i)
-    expect(REPEATED_FALLBACK_RULE).toMatch(/ramme/i)
+    expect(REPEATED_FALLBACK_RULE).toMatch(/korttittel/i)
   })
 
-  it('sier at én container er et lovlig valg, så regelen ikke blir et forbud', () => {
-    expect(SINGLE_CONTAINER_RULE).toMatch(/legitimt valg/i)
+  it('gjør kort med tittel til standardvalget, og container til et sekundært format', () => {
+    // The default said as a default. The rule this replaced listed three kinds
+    // and left the choice open, and an open choice with one cheap answer is not
+    // a choice: the cheap answer is whatever a zone becomes when text is
+    // written into it.
+    expect(MCP_INSTRUCTIONS).toContain(PRIMARY_TEXT_RULE)
+    expect(PRIMARY_TEXT_RULE).toMatch(/som hovedregel være `titled-card`/i)
+    expect(PRIMARY_TEXT_RULE).toMatch(/`untitled-card` er unntaket/i)
+    expect(PRIMARY_TEXT_RULE).toMatch(/`container` er nesten aldri riktig for primært tekstinnhold/i)
+    expect(PRIMARY_TEXT_RULE).toMatch(/sekundært format/i)
+    expect(PRIMARY_TEXT_RULE).toMatch(/fotnotepregede felt/i)
+    // And the escape hatch is closed: choosing otherwise needs a reason.
+    expect(PRIMARY_TEXT_RULE).toMatch(/skal du kunne si hvorfor/i)
+  })
+
+  it('kaller den fremhevede tekstblokken en aksent, ikke kortets overskrift', () => {
+    // The word was the bug: an agent offered a «heading» inside a text field
+    // uses it as the heading of the thing, and then the card needs no title.
+    expect(MCP_INSTRUCTIONS).toContain(ACCENT_RULE)
+    expect(ACCENT_RULE).toMatch(/aksent/i)
+    expect(ACCENT_RULE).toMatch(/underoverskrift/i)
+    expect(ACCENT_RULE).toMatch(/ikke kortets hovedoverskrift/i)
+    expect(ACCENT_RULE).toMatch(/korttittelen/i)
+  })
+
+  it('tilbyr blokken som `accent` i selve tekstformatet, ikke som `heading`', () => {
+    // The contract is where the misunderstanding lived, so the rename is there
+    // — the stored ProseMirror node is still a heading and needs no migration.
+    const text = mcpTools().find((tool) => tool.name.endsWith('set_zone_text'))
+    const blocks = JSON.stringify(text?.inputSchema ?? {})
+    expect(blocks).toContain('"accent"')
+    expect(blocks).not.toContain('"heading"')
   })
 })
 
@@ -458,6 +544,51 @@ describe('visuell QA er en del av ferdigkontrollen', () => {
     expect(VISUAL_QA_RULE).toMatch(/egenprodusert SVG/i)
     expect(VISUAL_QA_RULE).toMatch(/intern beskjæring/i)
     expect(VISUAL_QA_RULE).toMatch(/uleselige etiketter/i)
+  })
+})
+
+describe('den gamle notat-/bildeprompt-flyten er borte fra alt agenten og leseren får', () => {
+  /**
+   * The vocabulary of the workflow this replaced.
+   *
+   * Asserted as an absence rather than left to review, because a retired
+   * mechanism that survives in prose is worse than one that was never removed:
+   * the code refuses the call, and the agent spends a round discovering it.
+   */
+  const RETIRED = [
+    /bildenotat/i,
+    /notePurpose/,
+    /noteText/,
+    /image-prompt/,
+    /\bnotat(et|er|ene)?\b/i,
+    /set_image_brief\b/,
+  ]
+
+  it('nevner den ikke på agentflaten', () => {
+    const surface = agentSurface()
+    for (const pattern of RETIRED) {
+      expect(surface, `${pattern} står fortsatt i agentflaten`).not.toMatch(pattern)
+    }
+  })
+
+  it('nevner den ikke i designguiden', () => {
+    const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
+    for (const pattern of RETIRED) {
+      expect(guide, `${pattern} står fortsatt i ${DESIGN_DOCS_PATH}`).not.toMatch(pattern)
+    }
+  })
+
+  it('beskriver i stedet den nye flyten, begge steder', () => {
+    const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
+    const surface = agentSurface()
+    for (const text of [guide, surface]) {
+      expect(text).toMatch(/bildeplan/i)
+      expect(text).toMatch(/Sett inn bilde 1 her/)
+      expect(text).toMatch(/felles bildekontekst/i)
+    }
+    // And the guide shows the generated template, so a reader can recognise it.
+    expect(guide).toContain('Lag nøyaktig [ANTALL] separate bilder til én presentasjon.')
+    expect(guide).toMatch(/Malen bor i `src\/domain\/imagePlan\.ts`/)
   })
 })
 

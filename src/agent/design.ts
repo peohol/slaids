@@ -44,6 +44,29 @@
  * bibliography: Slaids already had a citation system nothing pointed the agent
  * at, so it built one from scratch, out of exactly the material a citation
  * cannot fit inside — the SVG text a validator does not read.
+ *
+ * The version after that failed twice more, and both failures were about a
+ * default rather than a missing rule.
+ *
+ *  - **Text.** «A container is a legitimate choice» left the agent a sentence
+ *    to quote every time a slide was hard to decompose, and the deck came back
+ *    as one big transparent field per slide. So the default is stated the other
+ *    way round now: primary text content is a `titled-card` unless there is a
+ *    reason it is not — `PRIMARY_TEXT_RULE` — and a container is named for what
+ *    it is actually good at, which is small supporting text that must *not*
+ *    read as a unit of its own.
+ *  - **Pictures.** The note workflow asked an agent to park a prompt in a zone
+ *    and write a separate «shared style» brief, and the two drifted apart: wide
+ *    prompts for near-square zones, motifs described in one place and shape in
+ *    another, and a brief nobody could paste anywhere. Notes are gone. A picture
+ *    is planned as a real picture zone plus an entry in `domain/imagePlan.ts`,
+ *    the aspect ratio is measured off the zone rather than described, and the
+ *    deck's one brief is generated from the plan — see `IMAGE_PLACEHOLDER_POLICY`
+ *    and `IMAGE_BRIEF_RULE`.
+ *
+ * `ZONE_SELF_CHECK` and `DECK_SELF_CHECK` are the other half of that, and they
+ * end deliberately: a checklist with no stopping point is a revision loop, and
+ * an agent in one never delivers.
  */
 
 /**
@@ -100,9 +123,35 @@ export const NATIVE_COMPOSITION_RULE =
 export const SIMPLEST_TREE =
   'Bygg det enkleste sonetreet som gjør de viktige semantiske relasjonene visuelt eksplisitte.'
 
-/** When one container is the right answer, and when it is the lazy one. */
-export const SINGLE_CONTAINER_RULE =
-  'Én stor tekstcontainer er et legitimt valg når sliden faktisk er én samlet idé som ikke trenger synlig innramming, men den er ikke standardløsningen, og den er aldri svaret på at stoffet var vanskelig å dekomponere.'
+/**
+ * The default for primary text, said as a default rather than as a preference.
+ *
+ * The rule this replaces listed three kinds and left the choice open, and an
+ * open choice with one cheap answer is not a choice: the cheap answer is
+ * whatever a zone becomes when text is written into it, which is a container.
+ * So the order is fixed here — a framed card with a title is what primary text
+ * *is*, and the other two kinds are each named by the narrow case they answer.
+ *
+ * «Primary text» is the deliberate limit: the material the audience is there to
+ * read. A running head, a source line, a unit label, a caveat under a figure is
+ * not primary text, and that is exactly what a container is for.
+ */
+export const PRIMARY_TEXT_RULE =
+  'Primært tekstinnhold skal som hovedregel være `titled-card`: et kort med en kort korttittel som sier hva innholdet er. Korttittelen er kortets hovedoverskrift, og den gir publikum noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. `untitled-card` er unntaket, og bare der selve utsagnet er budskapet og en tittel ville vært støy – ett tall, én formulering, ett sitat. `container` er nesten aldri riktig for primært tekstinnhold: den er et tydelig sekundært format for små støttefelt, bildeforklaringer, fotnotepregede felt, kildehenvisninger og annet som bevisst ikke skal fremstå som en selvstendig enhet. Velger du `container` eller `untitled-card` til hovedinnholdet på en slide, skal du kunne si hvorfor en korttittel ville gjort sliden dårligere.'
+
+/**
+ * What the rich-text accent is, and what it is not.
+ *
+ * The stored node is still a heading — it is the same ProseMirror node it
+ * always was, and renaming it would be a migration for nothing. What was wrong
+ * was the *word*: an agent told it had a «heading» available inside a text
+ * field uses it as the heading of the thing, and then the card it sits in needs
+ * no title, and the deck loses its framing all over again. Calling it an accent
+ * puts it where it belongs — one level below the card title — and makes the
+ * card title the only heading a card has.
+ */
+export const ACCENT_RULE =
+  'Inne i et tekstfelt er den fremhevede tekstblokken en *aksent*: en underoverskrift, et fremhevet poeng eller en intern oppdeling av et kort. Den er ikke kortets hovedoverskrift. Kortets hovedoverskrift er korttittelen på et `titled-card`, og et kort som trenger en overskrift skal ha korttittel – ikke en aksent som later som den er én. Bruk aksenter til å dele opp et kort som rommer flere navngitte delpoenger, og til å løfte frem det ene som bærer resten.'
 
 /**
  * The units that arrive with a name of their own.
@@ -145,7 +194,7 @@ export const CARD_FRAMING_RULE = `Består sliden av flere navngitte, parallelle 
   -1,
 ).join(', ')} eller ${
   NAMED_UNITS[NAMED_UNITS.length - 1]
-} – skal hver enhet normalt rammes inn med enhetens navn som korttittel: \`titled-card\` når enheten bæres av tekst, og \`titled-image-card\` når det er bildet som bærer den. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. Korttittelen står på én linje og brytes ikke: får det fulle navnet ikke plass, kort ned tittelen og la den fulle formen stå i teksten – en avvist korttittel er aldri en grunn til å droppe rammen. De rammeløse typene svarer på det motsatte: \`container\` og et bart \`image\` hører hjemme der sonen er én samlet idé eller ett bilde som står alene, ikke der den er ett navngitt medlem blant flere, og er verken standardvalget eller en måte å slippe å navngi enhetene på.`
+} – skal hver enhet normalt rammes inn med enhetens navn som korttittel: \`titled-card\` når enheten bæres av tekst, og \`titled-image-card\` når det er bildet som bærer den. Da ser publikum at enhetene er likeverdige, og navnet blir noe å skanne etter i stedet for en setningsstart inne i en tekstblokk. Korttittelen står på én linje og brytes ikke: får det fulle navnet ikke plass, kort ned tittelen og la den fulle formen stå i teksten – en avvist korttittel er aldri en grunn til å droppe rammen. Et bart \`image\` hører hjemme der bildet står alene og bærer sitt eget budskap, ikke der det er ett navngitt medlem blant flere. \`container\` er aldri svaret på en navngitt enhet: den er det sekundære formatet for støttetekst, ikke en måte å slippe å navngi enhetene på.`
 
 /** Audience-visible content belongs to the subject, never to the authoring process. */
 export const AUDIENCE_CONTENT_RULE =
@@ -180,7 +229,7 @@ export const COLOR_SEMANTICS_RULE =
  * is the thing being caught.
  */
 export const REPEATED_FALLBACK_RULE =
-  'Ender flere slides på rad som «én gjennomsiktig container med overskrift og tekst eller punktliste», har du sannsynligvis oversett semantisk struktur: dekomponer de slidene på nytt, og gi de navngitte enhetene hver sin ramme. Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon.'
+  'Ender flere slides på rad som «én stor tekstsone med overskrift og tekst eller punktliste», har du sannsynligvis oversett semantisk struktur: dekomponer de slidene på nytt, del innholdet i mindre enheter, og gi hver enhet sin egen korttittel. Én udelt tekstsone som hele slidens innhold er sjelden riktig svar mer enn én eller to ganger i et dekk. Dette er en kvalitetsregel, ikke et krav om kunstig layoutvariasjon.'
 
 /**
  * The default nobody chose.
@@ -193,7 +242,7 @@ export const REPEATED_FALLBACK_RULE =
  * on the call that applies the default.
  */
 export const IMPLICIT_CONTAINER_RULE =
-  'Beholderen du får når du skriver tekst i en tom sone er utgangspunktet Slaids må velge for å ha et sted å legge teksten – den er ikke et designvalg du har tatt. Skal sonen være én av flere navngitte, parallelle enheter, sett innholdstypen først og skriv teksten etterpå. Gjør du ikke det, ender dekket som en rekke gjennomsiktige containere ingen har bestemt seg for.'
+  'Beholderen du får når du skriver tekst i en tom sone er utgangspunktet Slaids må velge for å ha et sted å legge teksten – den er ikke et designvalg du har tatt, og den er ikke standardformatet for primært tekstinnhold. Sett innholdstypen først og skriv teksten etterpå. Gjør du ikke det, ender dekket som en rekke gjennomsiktige containere ingen har bestemt seg for.'
 
 /**
  * Which content kind a semantic role asks for.
@@ -202,7 +251,7 @@ export const IMPLICIT_CONTAINER_RULE =
  * the choice is actually made — instead of taking up room in the instructions.
  */
 export const CONTENT_KIND_RULE =
-  'Velg innholdstype etter semantisk rolle, ikke etter hvor mye tekst sonen har. Korttittelen på et `titled-card` eller et `titled-image-card` er navnet på enheten kortet viser, og skal være kort nok til å skannes. `untitled-card` passer der innholdet selv er budskapet og en etikett bare ville vært støy. `container` passer deler som hører sammen uten å være selvstendige objekter, og som ikke trenger synlig innramming. `image` er bildet som står alene og bærer sitt eget budskap; `titled-image-card` er det samme bildet som ett navngitt medlem i en serie eller katalog. `note` er redaksjonell tekst som aldri vises for publikum, og er måten en sone reserveres til et bilde som lages et annet sted.'
+  'Velg innholdstype etter semantisk rolle, ikke etter hvor mye tekst sonen har. `titled-card` er hovedvalget for primært tekstinnhold: korttittelen er navnet på enheten kortet viser, er kortets hovedoverskrift og skal være kort nok til å skannes. `untitled-card` er unntaket, der innholdet selv er budskapet og en etikett bare ville vært støy. `container` er det sekundære formatet: små støttefelt, fotnotepregede felt og deler som bevisst ikke skal fremstå som selvstendige enheter. `image` er bildet som står alene og bærer sitt eget budskap; `titled-image-card` er det samme bildet som ett navngitt medlem i en serie eller katalog. Begge bildetypene kan opprettes tomme og venter da på filen – det er slik en bildesone planlegges.'
 
 /**
  * Air, which is a composition decision and not a spacer.
@@ -269,7 +318,7 @@ export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: 
   -1,
 ).join(', ')} og ${
   IMAGE_ROLES[IMAGE_ROLES.length - 1]
-}. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: reserver sonen, skriv bildenotatet med en konkret prompt, og gi dekket én felles bildebrief så snart minst ett generert rasterbilde er planlagt – også om det bare er ett.`
+}. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: planlegg dem. Lag bildesonen, legg bildet inn i dekkets bildeplan, og skriv dekkets felles bildekontekst så snart minst ett rasterbilde er planlagt – også om det bare er ett.`
 
 /**
  * The short form, for the agent that has not yet decided it needs a picture.
@@ -278,7 +327,7 @@ export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: 
  * halves below carry the rest, each on the tool that stores or plans that kind.
  */
 export const IMAGE_POLICY_SUMMARY =
-  'Vektor og raster er ikke samme verktøy, og SVG er aldri en alternativ slide-motor. Ikoner, grafer, plott, diagrammer, flytskjemaer, kart der vektor passer og enkle skjematiske forklaringsfigurer skal være SVG, og skal forbli SVG. Illustrasjonsbilder er normalvalget rasterbilder – mennesker, dyr, natur, bygninger, miljøer, gjenstander, historiske scener og andre motiver som først og fremst skal illustrere, ikke diagrammatisere – fra en egnet bildegenerator; har du ingen, planlegger du bildet med et bildenotat i stedet for å improvisere en SVG-erstatning.'
+  'Vektor og raster er ikke samme verktøy, og SVG er aldri en alternativ slide-motor. Ikoner, grafer, plott, diagrammer, flytskjemaer, kart der vektor passer og enkle skjematiske forklaringsfigurer skal være SVG, og skal forbli SVG. Illustrasjonsbilder er normalvalget rasterbilder – mennesker, dyr, natur, bygninger, miljøer, gjenstander, historiske scener og andre motiver som først og fremst skal illustrere, ikke diagrammatisere – fra en egnet bildegenerator; har du ingen, planlegger du bildesonen og bildeplanen i stedet for å improvisere en SVG-erstatning.'
 
 /** The vector half, on the tool that writes markup. */
 export const VECTOR_POLICY: readonly string[] = [
@@ -294,44 +343,61 @@ export const RASTER_POLICY: readonly string[] = [
   'Illustrasjonsbilder er normalvalget rasterbilder, ikke SVG: mennesker, dyr, natur, bygninger, arkitektur, miljøer og interiører, mat, gjenstander, produkter, historiske scener, rekonstruerte situasjoner og andre motiver som skal illustrere rikt eller stemningsbærende, ikke diagrammatisere.',
   'Fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner skal normalt være rasterbilder laget av en egnet bildegenerator.',
   'Ikke lever en hjemmelaget, rasterisert SVG i stedet for et slikt bilde. En enkel vektortegning er ikke en akseptabel erstatning for et illustrasjonsbilde, uansett om motivet er et menneske, et bygg, et produkt, en historisk scene eller et annet konkret motiv.',
-  'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig – og legg igjen et bildenotat i sonen bildet skal ha, så brukeren kan lage filen selv og sette den inn i den geometrien du planla.',
+  'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig – og reserver bildesonen og legg bildet inn i bildeplanen, så brukeren kan lage filen selv og sette den inn i den geometrien du planla.',
 ]
 
 /* ------------------------------------------------------------------ *
- * Planning a picture that will be made somewhere else
+ * Planning the pictures that will be made somewhere else
  * ------------------------------------------------------------------ */
 
 /**
- * How an agent reserves a picture's place without pretending to have made it.
+ * How an agent plans a picture without pretending to have made one.
  *
- * The concrete answer to the last line of `RASTER_POLICY`. Saying «I have no
- * image model» is honest but leaves the deck with a hole; this is what to do
- * instead, and it rides on `set_zone_card` — the call that creates a note —
- * rather than in the instructions, because it is only actionable once the
- * agent is already choosing what a particular zone holds.
+ * The concrete answer to the last line of `RASTER_POLICY`. What this replaces
+ * was a note parked in the zone with a prompt in it, and it failed in a way
+ * worth naming: the note drew nothing and had no minimum size, so the zone kept
+ * shrinking under it; the prompt described a shape in prose while the zone had
+ * a shape of its own; and the deck's «brief» was a style paragraph the author
+ * could not paste anywhere on its own.
  *
- * The two halves that make it work are the two things an agent would otherwise
- * get wrong: the zone has to be big enough for the *picture*, not for the note
- * (a note has no minimum size at all), and the style belongs in the deck's one
- * brief rather than repeated in every prompt.
+ * So the reservation is now a real picture zone — `image` or
+ * `titled-image-card` with no file in it — which has a picture's minimum size
+ * and a picture's rectangle, and everything about *what* the picture shows goes
+ * into the deck's image plan, addressed by that zone. The shape is never
+ * described: it is measured off the zone and printed into the brief.
  */
-export const IMAGE_NOTE_POLICY: readonly string[] = [
-  'Et notat med `notePurpose: "image-prompt"` reserverer geometrien til et bilde som skal lages et annet sted: komponer sliden ferdig, lag sonen bildet skal ha, og skriv prompten i notatet.',
-  'Opprett et slikt notat i en sone der `image` faktisk er en tillatt innholdstype – notatet selv har ingen minstestørrelse, men bildet som skal overta sonen har det.',
-  'Når notatet ligger der, svarer inspeksjonen med `reservedImageKinds`: listen over bildetypene sonen faktisk kan bli. Et `titled-image-card` trenger mer plass enn et bart `image` fordi det har en tittellinje over bildet, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. En tom liste betyr at reservasjonen er blitt for liten til noe bilde i det hele tatt.',
-  'Skriv motivet, de viktige objektene, handlingen, nødvendig faglig presisjon, komposisjonen, kameravinkelen når den betyr noe, hvilken del av bildet som skal bære tyngden, ønsket format eller orientering tilpasset sonens rektangel, nødvendig negativ plass, og hva som ikke skal forekomme i akkurat dette bildet.',
-  'Ikke gjenta dekkets felles bildebrief i hvert notat: den ligger allerede i konteksten der bildet lages, og notatet beskriver motivet.',
+export const IMAGE_PLACEHOLDER_POLICY: readonly string[] = [
+  'Avgjør først om sliden trenger bilde i det hele tatt, og hva bildet skal gjøre. Planlegg deretter sonetreet slik at bildesonen faktisk passer motivet: et stående motiv trenger en høy sone, en vid scene en bred sone. Passer ikke sonens format til motivet, skal sonene planlegges på nytt – ikke motivet presses inn i feil rektangel.',
+  'Reserver sonen ved å sette innholdstypen til `image` eller `titled-image-card` uten fil. Sonen venter da på bildet, har en bildesones minstestørrelse, og `reservedImageKinds` i inspeksjonen sier hvilke bildetyper rektangelet faktisk rommer. En tom liste betyr at sonen er blitt for liten til noe bilde.',
+  'Bruk `titled-image-card` når bildet er ett navngitt medlem i en serie eller katalog, og `image` når bildet står alene og bærer sitt eget budskap.',
+  'Selve motivet skriver du ikke inn i sonen. Det hører hjemme i dekkets bildeplan, én oppføring per bildesone, og planen er det den samlede bildebriefen genereres fra.',
+  'Når bildeplanen skrives, får hver ufylte bildesone automatisk en plassholder-bildetekst – «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre – som følger nummereringen i briefen. Bildeteksten forsvinner av seg selv når filen legges inn. Ikke skriv slike plassholdere for hånd.',
 ]
 
 /**
- * The deck's shared visual premise, on the tool that writes it.
+ * The deck's shared visual context, on the tool that writes it.
  *
- * One brief per presentation, written before the individual prompts, because
- * its whole purpose is that the pictures come back looking like one deck rather
- * than like several.
+ * Narrower than the brief it feeds: this is the part that is true of every
+ * picture in the deck, and nothing else. The individual motifs live in the
+ * plan, and the reason to keep them apart is mechanical rather than stylistic —
+ * a context that describes one picture overrides the entry for that picture
+ * when the two are concatenated, which is a failure `checkImagePlan` looks for
+ * by name.
  */
 export const IMAGE_BRIEF_RULE =
-  'Skriv dekkets felles bildebrief før de enkelte bildepromptene: den beskriver hvordan bildene skal se ut – uttrykk, realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås – og aldri hva et enkelt bilde skal vise. Motivene hører hjemme i notatet i den enkelte sonen.'
+  'Den felles bildekonteksten beskriver hvordan bildene i dekket skal se ut – uttrykk, realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås – og aldri hva et enkelt bilde skal vise. Skriv den før eller sammen med bildeplanen. Den blir seksjonen «FELLES BILDEKONTEKST» i dekkets ene samlede bildebrief; motivene kommer fra bildeplanen, og formatene måles av Slaids ut fra sonene. Du skriver aldri den samlede briefen selv, og du oppgir aldri aspect ratio i fritekst.'
+
+/**
+ * What the generated brief guarantees, and therefore what is left to check.
+ *
+ * On the tool that writes the plan. The count, the numbering, the aspect ratios
+ * and the separate-images instruction are Slaids' own — an agent that restates
+ * them in prose is adding a second, weaker copy. What is genuinely the agent's
+ * is the part no template can derive: whether two motifs are actually different
+ * things, and whether the shape a motif needs is the shape the zone has.
+ */
+export const IMAGE_PLAN_RULE =
+  'Bildeplanen har én oppføring per bildesone som venter på en fil, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet. Slaids teller bildene, nummererer dem i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri og setter sammen den samlede briefen – så du skal verken skrive antall, nummer, formater eller regler om separate bilder inn i teksten din. Motiv og komposisjon er påkrevd i hver oppføring: motivet er det som skiller to bilder fra hverandre, og komposisjonen er det sonens format kontrolleres mot. Faglige krav og «unngå» er valgfrie, og briefen utelater dem når de er tomme. Skriv motivene slik at to bilder som skal vise forskjellige ting faktisk beskrives forskjellig, og slik at komposisjonen passer sonens format. Har du flyttet slides etter at planen ble skrevet, skriv den på nytt: nummereringen følger dekket, og plassholderteksten i sonene settes samtidig. Les kontrollene i svaret og rett det de peker på; er listen tom, er bildeplanen ferdig.'
 
 /* ------------------------------------------------------------------ *
  * Sources: the reference system, not an authored bibliography slide
@@ -366,6 +432,48 @@ export const REFERENCE_SYSTEM_RULE =
  */
 export const VISUAL_QA_RULE =
   'Strukturell validering er nødvendig, men ikke tilstrekkelig. Før du anser presentasjonen ferdig, render representative slides og inspiser dem visuelt. Slides med egenprodusert SVG – særlig SVG med interne etiketter eller tekst – skal inspiseres etter at filen er plassert i sonen: intern beskjæring, tekst som havner utenfor synlig område, uleselige etiketter og feil cropping er nettopp det en validator ikke kan se, fordi den bare vet at selve bildeboksen fikk plass. Rett opp det du finner før du leverer.'
+
+/* ------------------------------------------------------------------ *
+ * The two self-checks, and where they stop
+ * ------------------------------------------------------------------ */
+
+/**
+ * Four questions per text zone, asked while the zone is still cheap to change.
+ *
+ * A checklist rather than another rule, because the rules are already stated
+ * and the failure was never that the agent disagreed with them — it was that
+ * nothing made it look back at what it had just written. Each question names
+ * one concrete defect and its repair, in the order the repairs get more
+ * expensive: change the kind, move the heading, split the zone, divide the
+ * inside.
+ */
+export const ZONE_SELF_CHECK: readonly string[] = [
+  'Har jeg brukt `container` eller `untitled-card` der dette egentlig burde vært et `titled-card`?',
+  'Har jeg brukt en aksent som om den var kortets hovedoverskrift, der korttittelen skulle båret navnet?',
+  'Kunne dette tekstinnholdet vært fordelt på flere mindre soner med hver sin korttittel?',
+  'Hvis ikke: kunne sonen likevel fått bedre intern oppdeling med subfelter og aksenter?',
+]
+
+/**
+ * The pass over the finished draft, and the sentence that ends it.
+ *
+ * The last line is load-bearing. A quality checklist with no stopping point is
+ * a revision loop, and an agent in one keeps improving a deck nobody has
+ * received — so «stop when these are answered» is part of the check rather
+ * than advice around it.
+ */
+export const DECK_SELF_CHECK: readonly string[] = [
+  'Har semantisk like elementer fått lik visuell behandling gjennom hele presentasjonen?',
+  'Passer fargevalgene til temaene og strukturen, og bærer de mening i stedet for å være dekorasjon?',
+  'Har flere slides falt tilbake til det samme standardmønsteret uten god grunn?',
+  'Er bildeplanen i samsvar med sonene: én oppføring per bildesone som venter på en fil, og ingen sone uten oppføring?',
+  'Stemmer hvert planlagt motiv med formatet på sonen det skal ligge i?',
+  'Er to planlagte bilder blitt så like at de i praksis beskriver nesten samme motiv?',
+]
+
+/** The stopping point, said once and on purpose. */
+export const SELF_CHECK_STOP =
+  'Når kontrollpunktene er besvart og det du fant er rettet, er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.'
 
 /** Where the same thinking is written out at length, for a reader. */
 export const DESIGN_DOCS_PATH = 'docs/AGENT_PRESENTATION_DESIGN.md'

@@ -35,11 +35,11 @@ const at = (width: number, height: number): Rect => ({ x: 0, y: 0, width, height
  * The kinds that draw nothing on a slide, and therefore have no floor.
  *
  * Written out rather than derived from the minimums, because that is the
- * claim: these two are the kinds the domain says draw nothing, and the tests
- * below check that the arithmetic agrees. Deriving it would make the assertion
- * true by construction and test nothing at all.
+ * claim: this is the kind the domain says draws nothing, and the tests below
+ * check that the arithmetic agrees. Deriving it would make the assertion true
+ * by construction and test nothing at all.
  */
-const SIZELESS_KINDS: ZoneContentKind[] = ['negative-space', 'note']
+const SIZELESS_KINDS: ZoneContentKind[] = ['negative-space']
 
 /** Every kind that draws something on the slide. */
 const DRAWING_KINDS = ZONE_CONTENT_KINDS.filter((kind) => !SIZELESS_KINDS.includes(kind))
@@ -68,7 +68,7 @@ describe('typene som ikke tegner noe har ingen minstestørrelse', () => {
   )
 })
 
-describe('en tom sone, negativt rom og et notat er tre ting, ikke tre størrelser', () => {
+describe('en tom sone og negativt rom er to ting, ikke to størrelser', () => {
   it('har alle null minstemål, fordi ingen av dem tegner noe', () => {
     expect(minimumSizeForContent(null)).toEqual({ width: 0, height: 0 })
     for (const kind of SIZELESS_KINDS) {

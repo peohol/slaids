@@ -379,7 +379,7 @@ describe('en ekstern agent går hele veien, over MCP og med et OAuth-token', () 
         slideId: firstSlideId,
         nodeId: textZone,
         blocks: [
-          { type: 'heading', spans: [{ text: 'Semantiske operasjoner' }] },
+          { type: 'accent', spans: [{ text: 'Semantiske operasjoner' }] },
           {
             type: 'bullets',
             items: [
@@ -418,7 +418,7 @@ describe('en ekstern agent går hele veien, over MCP og med et OAuth-token', () 
         slideId: firstSlideId,
       })
       expect(zoneOf(withContent, textZone).subfields?.[0].blocks).toEqual([
-        { type: 'heading', spans: [{ text: 'Semantiske operasjoner' }] },
+        { type: 'accent', spans: [{ text: 'Semantiske operasjoner' }] },
         {
           type: 'bullets',
           items: [

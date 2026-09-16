@@ -18,7 +18,7 @@ import { presentationRevision } from '../domain/revision'
 import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from '../domain/constants'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
-import { containerWithDoc, createImage, createNote, createUntitledCard } from '../domain/content'
+import { containerWithDoc, createImage, createUntitledCard } from '../domain/content'
 import { unknownAssetIds, usedAssetIds } from '../domain/commands'
 import { newAssetId, newTemplateId } from '../domain/ids'
 import { decodeBase64, realImageBase64 } from '../domain/testImages'
@@ -426,23 +426,29 @@ describe('.slaids backup', () => {
     expect(await target.getAsset(assetRef.id)).not.toBeNull()
   })
 
-  it('carries editorial text nobody presents: the notes and the image brief', async () => {
-    // Both live outside the visible deck — a note inside a zone, the brief on
-    // the presentation — so neither is covered by "the slides came through".
-    // A `.slaids` archive is how a deck moves between libraries, and an author
-    // who exported their work expects the prompts to move with it.
+  it('carries editorial text nobody presents: the image context and the image plan', async () => {
+    // Both live outside the visible deck — beside the slides rather than inside
+    // them — so neither is covered by "the slides came through". A `.slaids`
+    // archive is how a deck moves between libraries, and an author who exported
+    // their work expects the picture planning to move with it.
     const source = freshRepository()
     const base = samplePresentation()
+    const slide = contentAt(base, 1)
+    const zone = createLeaf(createImage())
     const presentation: Presentation = {
       ...base,
-      imageBrief: 'Dempet jordfargepalett, naturlig dagslys, ingen tekst i bildene.',
-      slides: [
-        sectionAt(base, 0),
+      imageContext: 'Dempet jordfargepalett, naturlig dagslys, ingen tekst i bildene.',
+      imagePlan: [
         {
-          ...contentAt(base, 1),
-          root: createLeaf(createNote('Halvfigur, motivet i venstre tredjedel.', 'image-prompt')),
+          slideId: slide.id,
+          nodeId: zone.id,
+          subject: 'Halvfigur av en voksen Homo erectus i et åpent landskap.',
+          composition: 'Motivet i venstre tredjedel, blikket mot høyre.',
+          requirements: 'Riktige kroppsproporsjoner for arten.',
+          avoid: 'Moderne klær og redskaper.',
         },
       ],
+      slides: [sectionAt(base, 0), { ...slide, root: zone }],
     }
     await source.savePresentation(presentation)
 
@@ -454,17 +460,8 @@ describe('.slaids backup', () => {
     expect(report.errors).toEqual([])
 
     const restored = await target.loadPresentation(presentation.id)
-    expect(restored.imageBrief).toBe(presentation.imageBrief)
-    const slide = restored.slides[1]
-    if (slide.kind !== 'content') throw new Error('Slide 1 skulle vært en innholdsslide')
-    expect(slide.root).toMatchObject({
-      kind: 'leaf',
-      content: {
-        kind: 'note',
-        text: 'Halvfigur, motivet i venstre tredjedel.',
-        purpose: 'image-prompt',
-      },
-    })
+    expect(restored.imageContext).toBe(presentation.imageContext)
+    expect(restored.imagePlan).toEqual(presentation.imagePlan)
   })
 
   it('imports a clashing presentation as a copy instead of overwriting', async () => {

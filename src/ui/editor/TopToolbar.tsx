@@ -224,7 +224,7 @@ export function TopToolbar(props: TopToolbarProps) {
             <Icon name="palette" size={15} />
           </button>
         </Tooltip>
-        <Tooltip label="Bildebrief: felles visuelt uttrykk for bildene du får laget">
+        <Tooltip label="Bildebrief: én samlet bestilling for alle bildene i dekket">
           <button
             type="button"
             className="btn btn--sm btn--icon"

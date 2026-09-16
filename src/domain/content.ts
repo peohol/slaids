@@ -11,8 +11,6 @@ import type {
   CardBody,
   ContainerContent,
   NegativeSpaceContent,
-  NoteContent,
-  NotePurpose,
   ImageCaption,
   ImageContent,
   ImagePanel,
@@ -39,17 +37,6 @@ export const CENTRED_FOCUS = { x: 0.5, y: 0.5 } as const
  */
 export function createNegativeSpace(): NegativeSpaceContent {
   return { id: newContentId(), kind: 'negative-space' }
-}
-
-/**
- * A note: editorial text that belongs to this zone and is never presented.
- *
- * Created empty and «general» — a note nobody has written yet is not yet about
- * anything. An agent reserving the rectangle a picture will occupy says so by
- * asking for `'image-prompt'`; see `NoteContent`.
- */
-export function createNote(text = '', purpose: NotePurpose = 'general'): NoteContent {
-  return { id: newContentId(), kind: 'note', text, purpose }
 }
 
 export function createSubfield(doc: RichDoc = emptyDoc()): Subfield {
@@ -188,8 +175,6 @@ export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
   switch (kind) {
     case 'negative-space':
       return createNegativeSpace()
-    case 'note':
-      return createNote()
     case 'container':
       return createContainer()
     case 'untitled-card':
@@ -203,14 +188,23 @@ export function createContentOfKind(kind: ZoneContentKind): ZoneContent {
   }
 }
 
+/**
+ * What each kind is called, in the order they are offered.
+ *
+ * The order is a statement, not an accident: `titled-card` is first because it
+ * is what primary text content normally is, and `container` sits after the two
+ * framed cards because it is the secondary format — a transparent field for
+ * small supporting or footnote-like text, not the default a zone falls into.
+ * Air is last: it is the considered choice, and the only one left in a zone too
+ * small for the rest.
+ */
 export const CONTENT_KIND_LABELS: Record<ZoneContentKind, string> = {
-  'negative-space': 'Negativt rom',
-  note: 'Notat',
-  container: 'Beholder',
-  'untitled-card': 'Kort uten tittel',
   'titled-card': 'Kort med tittel',
+  'untitled-card': 'Kort uten tittel',
+  container: 'Beholder',
   image: 'Bilde',
   'titled-image-card': 'Kort med tittel og bilde',
+  'negative-space': 'Negativt rom',
 }
 
 /**
@@ -241,25 +235,8 @@ export const TITLED_CONTENT_KINDS: readonly ZoneContentKind[] = ZONE_CONTENT_KIN
   hasCardTitle(createContentOfKind(kind)),
 )
 
-/**
- * What each purpose is called, in the one place every surface reads it from.
- *
- * `'general'` is simply what a note is called, so its label is the content
- * kind's own — «Notat» in the picker and «Notat» on the button that opens it,
- * rather than two words for the same thing.
- */
-export const NOTE_PURPOSE_LABELS: Record<NotePurpose, string> = {
-  general: CONTENT_KIND_LABELS.note,
-  'image-prompt': 'Bildeprompt',
-}
-
-/** What this note's own affordance is called: its purpose, spelled out. */
-export function noteLabel(content: NoteContent): string {
-  return NOTE_PURPOSE_LABELS[content.purpose]
-}
-
 export function contentLabel(content: ZoneContent): string {
-  return content.kind === 'note' ? noteLabel(content) : CONTENT_KIND_LABELS[content.kind]
+  return CONTENT_KIND_LABELS[content.kind]
 }
 
 export function hasCardBody(
@@ -346,38 +323,22 @@ export function contentDocs(content: ZoneContent): RichDoc[] {
 /**
  * Whether this content carries nothing anybody would miss.
  *
- * Every document it draws is empty, it points at no file, and — for a note —
- * nobody has written anything in it. What it is *for* is the conversions that
- * cannot keep what they are given: air has no payload by definition, and a
- * note holds plain editorial text that has no place on a slide, so turning
- * content into either is only lossless when there was nothing there to lose.
- * See `convertContentKind`.
+ * Every document it draws is empty and it points at no file. What it is *for*
+ * is the one conversion that cannot keep what it is given: air has no payload
+ * by definition, so turning content into it is only lossless when there was
+ * nothing there to lose. See `convertContentKind`.
  */
 export function contentIsEmpty(content: ZoneContent): boolean {
   if (imagePanelOf(content)?.assetId) return false
-  if (content.kind === 'note' && content.text.trim().length > 0) return false
   return contentDocs(content).every(isDocEmpty)
 }
-
-/**
- * The kinds that cannot take a conversion's payload with them.
- *
- * Neither of them has anywhere to put rich text: air has no payload at all,
- * and a note's payload is plain editorial prose that is never presented, so
- * folding a card's paragraphs into it would both destroy them and quietly
- * reclassify them as something the audience never sees.
- */
-const PAYLOADLESS_KINDS: readonly ZoneContentKind[] = ['negative-space', 'note']
 
 /**
  * Why this zone cannot become that kind, or `null` when it can.
  *
  * Every other conversion carries everything across (see `convertContentKind`),
- * so this answers for exactly the ones that cannot — in both directions:
- *
- *  - **into** air or a note, which have nowhere to put what a card was showing;
- *  - **out of** a note, whose text is editorial working material and must not
- *    become slide content that an audience would then read.
+ * so this answers for exactly the one that cannot: air has no payload at all,
+ * and folding a card's paragraphs into it would destroy them.
  *
  * Rather than deleting the work without saying so, the answer is «empty it
  * first» — «Tøm sone» parks it in the sandbox, and the emptied zone converts
@@ -390,13 +351,8 @@ export function contentConversionRefusal(
   kind: ZoneContentKind,
 ): string | null {
   if (!content || content.kind === kind || contentIsEmpty(content)) return null
-  if (content.kind === 'note') {
-    return 'Notatet er redaksjonell tekst og kan ikke bli innhold på sliden. Tøm sonen først — notatet havner i sandkassen.'
-  }
-  if (!PAYLOADLESS_KINDS.includes(kind)) return null
-  return kind === 'note'
-    ? 'Et notat har ikke plass til innholdet som ligger her. Tøm sonen først — innholdet havner i sandkassen.'
-    : 'Negativt rom har ikke noe innhold. Tøm sonen først — innholdet havner i sandkassen.'
+  if (kind !== 'negative-space') return null
+  return 'Negativt rom har ikke noe innhold. Tøm sonen først — innholdet havner i sandkassen.'
 }
 
 /** Reference ids used by this content, in document order. */

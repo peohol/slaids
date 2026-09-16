@@ -13,11 +13,9 @@ import {
   createCaption,
   createCardBody,
   createContainer,
-  createContentOfKind,
   createImage,
   createTitledCard,
   createNegativeSpace,
-  createNote,
   createTitledImageCard,
   createUntitledCard,
   hasCardTitle,
@@ -32,9 +30,11 @@ import {
 import { areWeightsValid, resolveOptions } from '../geometry'
 import { zoneKindRefusal } from '../contentSize'
 import { findLeaf, findNode, replaceNode } from '../layout'
+import { isPlaceholderCaption } from '../imagePlan'
 import {
   CITATION_NODE,
   collectDocAssetIds,
+  docToPlainText,
   emptyDoc,
   imageNode,
   isDocEmpty,
@@ -44,7 +44,6 @@ import { contentSlide, geometryFor, rectForNode } from './internal'
 import { touch, withSlide } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
-import { MAX_NOTE_CHARS } from '../constants'
 import { hasAsset } from './assets'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
@@ -54,7 +53,6 @@ import type {
   CardBody,
   ImageCaption,
   ImagePanel,
-  NotePurpose,
   Presentation,
   RichDoc,
   RichNode,
@@ -170,7 +168,16 @@ function updateImagePanel(
   )
 }
 
-/** Point a picture panel at a file, or clear it. Never changes the crop. */
+/**
+ * Point a picture panel at a file, or clear it. Never changes the crop.
+ *
+ * The one thing it does besides that is take back a placeholder caption. A zone
+ * planned for a picture carries «Sett inn bilde 3 her» until the picture
+ * arrives; the instruction has been carried out the moment it does, and leaving
+ * it there would print it over the finished deck. A caption the author wrote is
+ * left alone — see `isPlaceholderCaption`, which is the same test the plan
+ * writes placeholders by, so nothing else can be mistaken for one.
+ */
 export function setImageAsset(
   presentation: Presentation,
   input: { assetId: string | null } & ZoneContentTarget,
@@ -178,9 +185,18 @@ export function setImageAsset(
   if (input.assetId !== null && !hasAsset(presentation, input.assetId)) {
     return err('ASSET_NOT_FOUND', 'Presentasjonen har ingen fil med den id-en.')
   }
-  return updateImagePanel(presentation, input, (panel) =>
-    ok(panel.assetId === input.assetId ? panel : { ...panel, assetId: input.assetId }),
-  )
+  return updateImagePanel(presentation, input, (panel) => {
+    if (panel.assetId === input.assetId) return ok(panel)
+    const placeholderGone =
+      input.assetId !== null &&
+      panel.caption !== null &&
+      isPlaceholderCaption(docToPlainText(panel.caption.doc))
+    return ok({
+      ...panel,
+      assetId: input.assetId,
+      ...(placeholderGone ? { caption: null } : {}),
+    })
+  })
 }
 
 /**
@@ -455,22 +471,14 @@ export function setCardColor(
  * paragraph is not a caption, and a conversion that quietly ate it would be
  * the one thing this function promises never to do.
  *
- * Two kinds stand outside that story, in both directions: air has no payload
- * at all, and a note's payload is editorial prose that must never become
- * something an audience reads. `setContentKind` only reaches those branches
- * once it has established there is nothing to carry — see the refusal there
- * and `contentConversionRefusal`.
+ * One kind stands outside that story: air has no payload at all.
+ * `setContentKind` only reaches that branch once it has established there is
+ * nothing to carry — see the refusal there and `contentConversionRefusal`.
  */
 export function convertContentKind(content: ZoneContent, kind: ZoneContentKind): ZoneContent {
   if (content.kind === kind) return content
 
   if (kind === 'negative-space') return createNegativeSpace()
-  // A note keeps the purpose it is being created with, not one carried from
-  // content that had none: this branch is only ever reached for an empty zone.
-  if (kind === 'note') return createNote()
-  // Out of a note, likewise: there is nothing to carry, so the target is made
-  // fresh rather than fed the note's own text.
-  if (content.kind === 'note') return createContentOfKind(kind)
 
   const title = hasCardTitle(content) ? content.title : null
   const headerColor = hasCardTitle(content) ? content.headerColor : null
@@ -644,41 +652,6 @@ function titleAsHeading(title: RichDoc): RichNode | null {
   return { type: 'heading', attrs: { level: 1 }, content: inline }
 }
 
-/* ------------------------------------------------------------------ *
- * Notes
- * ------------------------------------------------------------------ */
-
-/**
- * Write a note's text, or change what it is for.
- *
- * Goes through `updateZoneContent` like every other content command, so an
- * agent and the editor's modal write the same way — and so the command answers
- * `TARGET_EMPTY`, `NODE_NOT_LEAF` and the rest in the vocabulary a caller
- * already knows. The fit gate runs and can never refuse: a note draws nothing,
- * so `estimateFit` reports no parts and no overflow for it.
- *
- * The bound is the schema's own, asked here so a refusal names the number
- * instead of a document failing validation on the way to disk.
- */
-export function setNoteText(
-  presentation: Presentation,
-  input: { text?: string; purpose?: NotePurpose } & ZoneContentTarget,
-): Result<Presentation> {
-  if (input.text !== undefined && input.text.length > MAX_NOTE_CHARS) {
-    return err('INVALID_ARGUMENT', `Et notat kan ikke være lengre enn ${MAX_NOTE_CHARS} tegn.`, {
-      maxChars: MAX_NOTE_CHARS,
-      received: input.text.length,
-    })
-  }
-  return updateZoneContent(presentation, input, (content) => {
-    if (content.kind !== 'note') return err('INVALID_CONTENT', 'Sonen har ikke et notat.')
-    const text = input.text ?? content.text
-    const purpose = input.purpose ?? content.purpose
-    if (text === content.text && purpose === content.purpose) return ok(content)
-    return ok({ ...content, text, purpose })
-  })
-}
-
 /**
  * Converting between content kinds changes the chrome around the text: a titled
  * card spends `CARD_HEADER_HEIGHT + CARD_PADDING * 2` of the zone that a
@@ -692,11 +665,10 @@ export function setNoteText(
  *    card however short its text is — the header and the padding are drawn
  *    whatever it says. That is `ZONE_TOO_SMALL`, and the fix is a bigger zone.
  *  - **Is there anything this conversion would throw away?** Only negative
- *    space and notes can, and they lose everything: air has no payload by
- *    definition, and a note holds editorial prose that has no place on a slide
- *    — in either direction. Rather than silently deleting the work, the command
- *    refuses and names the gesture that keeps it — «Tøm sone» parks the content
- *    in the sandbox, and the emptied zone converts freely.
+ *    space can, and it loses everything: air has no payload by definition.
+ *    Rather than silently deleting the work, the command refuses and names the
+ *    gesture that keeps it — «Tøm sone» parks the content in the sandbox, and
+ *    the emptied zone converts freely.
  */
 export function setContentKind(
   presentation: Presentation,

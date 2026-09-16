@@ -37,7 +37,7 @@ function roundTrip(blocks: TextBlock[]): unknown {
 describe('blokker', () => {
   it('overlever veien inn og ut igjen', () => {
     const blocks: TextBlock[] = [
-      { type: 'heading', spans: [{ text: 'Overskrift' }], color: '#204060' },
+      { type: 'accent', spans: [{ text: 'Overskrift' }], color: '#204060' },
       { type: 'paragraph', spans: [{ text: 'Et avsnitt.' }], align: 'center' },
       { type: 'quote', spans: [{ text: 'Et sitat.' }] },
       { type: 'bullets', items: [[{ text: 'Første' }], [{ text: 'Andre' }]] },
@@ -201,7 +201,7 @@ describe('bilder inne i teksten', () => {
 
   it('står side om side med citations og formattert tekst', () => {
     const blocks: TextBlock[] = [
-      { type: 'heading', spans: [{ text: 'Funn' }] },
+      { type: 'accent', spans: [{ text: 'Funn' }] },
       {
         type: 'paragraph',
         spans: [{ text: 'Målingen', bold: true }, { text: ' viser dette' }, { citation: ['r1'] }],
@@ -326,8 +326,8 @@ describe('skjemaet', () => {
   })
 
   it('avviser en farge som ikke er hex', () => {
-    expect(rejects([{ type: 'heading', spans: [], color: 'red' }])).toBe(true)
-    expect(rejects([{ type: 'heading', spans: [], color: '#abc' }])).toBe(false)
+    expect(rejects([{ type: 'accent', spans: [], color: 'red' }])).toBe(true)
+    expect(rejects([{ type: 'accent', spans: [], color: '#abc' }])).toBe(false)
   })
 
   it('lar en overskrift på en slide bare være tekst og citations', () => {

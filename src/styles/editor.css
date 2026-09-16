@@ -1630,77 +1630,7 @@
 }
 
 /* ----------------------------------------------------------------- *
- * The handle on a note zone — editor chrome, never composition
- * ----------------------------------------------------------------- */
-
-/*
- * A note draws nothing on the slide, so this is drawn *over* the zone rather
- * than laid out in it: absolutely positioned, so it occupies no space the
- * content flow could be measured against, and centred so a zone of any shape
- * shows it in the same place.
- *
- * The zone is a container, and the label folds away below the width the button
- * needs for it. That is the whole answer to «a very small note zone»: a note
- * has no minimum size and this must never become one, so in a sliver the icon
- * stands alone instead of the button forcing the zone wider.
- */
-.zone-content--note {
-  container-type: inline-size;
-  position: relative;
-}
-
-.zone-note {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  padding: 4px;
-}
-
-.zone-note__button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 6px 12px;
-  border: 2px dashed rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  background: rgba(20, 20, 24, 0.45);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.zone-note__button:hover {
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(20, 20, 24, 0.65);
-}
-
-.zone-note__label {
-  white-space: nowrap;
-}
-
-/* Zone mode: the handle says what the zone holds, and lets the press through. */
-.zone-note__button--inert {
-  pointer-events: none;
-}
-
-@container (max-width: 140px) {
-  .zone-note__button {
-    padding: 6px;
-  }
-
-  .zone-note__label {
-    display: none;
-  }
-}
-
-/* ----------------------------------------------------------------- *
- * Notat og bildebrief: plain editorial text in a dialog
+ * Bildebrief: plain editorial text in a dialog
  * ----------------------------------------------------------------- */
 
 .editorial-text {
@@ -1720,10 +1650,15 @@
   outline: none;
 }
 
-.editorial-text__tools {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
+/*
+ * The generated half of the brief: read-only, and shorter than the field above
+ * it. It is there to be recognised and copied, not written in, so it shows a
+ * screenful rather than pushing the field that *is* editable off the dialog.
+ */
+.editorial-text--generated {
+  min-height: 220px;
+  font-size: 13px;
+  white-space: pre;
 }
 
 /*

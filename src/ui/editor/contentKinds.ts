@@ -15,30 +15,29 @@
  * and then fails on click is worse than one that was never offered.
  */
 
-import { CONTENT_KIND_LABELS } from '../../domain/content'
+import { CONTENT_KIND_LABELS, ZONE_CONTENT_KINDS } from '../../domain/content'
 import { zoneKindRefusal } from '../../domain/contentSize'
 import { themeMetrics } from '../../domain/metrics'
 import type { PresentationTheme, Rect, ZoneContent, ZoneContentKind } from '../../domain/types'
 import type { IconName } from '../components/Icon'
 
 export const CONTENT_KIND_ICONS: Record<ZoneContentKind, IconName> = {
-  container: 'container',
-  'untitled-card': 'card',
   'titled-card': 'card-titled',
+  'untitled-card': 'card',
+  container: 'container',
   image: 'image',
   'titled-image-card': 'card-image',
-  /* Last in the row on purpose: the kinds that draw something are what an
-     author reaches for first, and deliberate air is the considered choice at
-     the end of the list — and the only one left in a zone too small for the
-     rest. */
   'negative-space': 'negative-space',
-  /* Beside air, and after it: a note draws nothing either, but it is editorial
-     work parked in a zone rather than a finished compositional choice. */
-  note: 'note',
 }
 
-/** The kinds, in the order they are offered everywhere. */
-export const CONTENT_KINDS = Object.keys(CONTENT_KIND_ICONS) as ZoneContentKind[]
+/**
+ * The kinds, in the order they are offered everywhere.
+ *
+ * The domain's order, not this layer's: `CONTENT_KIND_LABELS` says which kind
+ * leads, and a picker that ordered them for itself would be a second opinion
+ * about which content kind is the normal one.
+ */
+export const CONTENT_KINDS = ZONE_CONTENT_KINDS
 
 export function contentKindLabel(kind: ZoneContentKind): string {
   return CONTENT_KIND_LABELS[kind]

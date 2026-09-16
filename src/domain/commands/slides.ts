@@ -28,7 +28,7 @@ import {
   guardFit,
   subtreeOverflow,
 } from './fitGuard'
-import { FIT_TOLERANCE, MAX_IMAGE_BRIEF_CHARS } from '../constants'
+import { FIT_TOLERANCE, MAX_IMAGE_CONTEXT_CHARS } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import type { StructuralOptions } from './types'
 import {
@@ -458,7 +458,7 @@ export function setPresentationTitle(
  * Nothing on any slide changes, so no fit gate and no geometry is involved: the
  * brief is editorial metadata about how this deck's pictures should look, read
  * by the author and by an agent writing prompts, and drawn nowhere. See
- * `Presentation.imageBrief`.
+ * `Presentation.imageContext`.
  *
  * A brief that is blank is *removed* rather than stored as an empty string, so
  * "this deck has no brief" has one representation — which is what keeps a deck
@@ -473,32 +473,32 @@ export function setPresentationTitle(
  * the last one ends, so `«Dempet »` came back as `«Dempet»` and the next letter
  * landed against the previous word. A trailing newline is the same story for a
  * paragraph break. Emptiness is therefore a question this command *asks* of the
- * value, never an edit it makes to it — see `imageBrief.test.ts`, which types a
+ * value, never an edit it makes to it — see `imageContext.test.ts`, which types a
  * sentence one character at a time the way the component does.
  */
-export function setImageBrief(
+export function setImageContext(
   presentation: Presentation,
   brief: string | null,
 ): Result<Presentation> {
-  if (brief !== null && brief.length > MAX_IMAGE_BRIEF_CHARS) {
+  if (brief !== null && brief.length > MAX_IMAGE_CONTEXT_CHARS) {
     return err(
       'INVALID_ARGUMENT',
-      `Bildebriefen kan ikke være lengre enn ${MAX_IMAGE_BRIEF_CHARS} tegn.`,
-      { maxChars: MAX_IMAGE_BRIEF_CHARS, received: brief.length },
+      `Bildebriefen kan ikke være lengre enn ${MAX_IMAGE_CONTEXT_CHARS} tegn.`,
+      { maxChars: MAX_IMAGE_CONTEXT_CHARS, received: brief.length },
     )
   }
   const value = brief ?? ''
-  const current = presentation.imageBrief ?? ''
+  const current = presentation.imageContext ?? ''
   if (value === current) return ok(presentation)
   /* Nothing but air is no brief — but that is a reading of the value, and the
      one case where discarding it costs nothing, because there is nothing in it
      to lose. A field the author is still filling in has a character in it. */
   if (value.trim() === '') {
     if (current === '') return ok(presentation)
-    const { imageBrief: _removed, ...rest } = presentation
+    const { imageContext: _removed, ...rest } = presentation
     return ok(touch(rest))
   }
-  return ok(touch({ ...presentation, imageBrief: value }))
+  return ok(touch({ ...presentation, imageContext: value }))
 }
 
 /**

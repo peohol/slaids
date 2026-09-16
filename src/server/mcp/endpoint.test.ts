@@ -109,7 +109,7 @@ describe('en hel arbeidsflyt over MCP', () => {
       slideId,
       nodeId: leftZone,
       blocks: [
-        { type: 'heading', spans: [{ text: 'Hovedpunkter' }] },
+        { type: 'accent', spans: [{ text: 'Hovedpunkter' }] },
         { type: 'bullets', items: [[{ text: 'Omsetningen økte.' }], [{ text: 'Kostnadene falt.' }]] },
       ],
     })

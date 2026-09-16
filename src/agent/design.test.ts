@@ -45,10 +45,16 @@ import {
   VECTOR_POLICY,
   VISUAL_QA_RULE,
 } from './design'
+import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from '../domain/constants'
 import { runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
-import type { ContentSlideInspection, PresentationView, ZoneInspection } from './operations/deck'
+import type {
+  ContentSlideInspection,
+  ImageBriefView,
+  PresentationView,
+  ZoneInspection,
+} from './operations/deck'
 import type { ZoneChange } from './operations/layout'
 import type { AgentContext, AgentError, AgentResult } from './types'
 
@@ -79,8 +85,20 @@ const SPECIES = [
   },
 ]
 
-const BRIEF =
+const CONTEXT =
   'Fotorealistiske vitenskapelige rekonstruksjoner, naturlig dagslys, dempet jordfargepalett, ingen tekst eller rammer.'
+
+/** One plan entry, so the tests say what differs rather than repeating a shape. */
+function planned(slideId: string, nodeId: string, subject: string) {
+  return {
+    slideId,
+    nodeId,
+    subject,
+    composition: 'Motivet sentrert, rolig bakgrunn.',
+    requirements: 'Anatomisk korrekte proporsjoner for arten.',
+    avoid: 'Moderne klær, redskaper og bygninger.',
+  }
+}
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
@@ -167,6 +185,22 @@ function zoneOf(all: ZoneInspection[], nodeId: string): ZoneInspection {
   return zone
 }
 
+/** A picture zone's caption as plain text, or `null` when it has none. */
+function captionOf(zone: ZoneInspection): string | null {
+  const spans = zone.image?.caption?.spans
+  if (!spans) return null
+  return spans.map((span) => ('text' in span ? span.text : '')).join('')
+}
+
+/**
+ * A stand-in file, so the tests are about the zone rather than about pixels.
+ *
+ * Vector here only because a test needs bytes it can write down; the policy an
+ * agent reads says a species reconstruction is a raster picture, and the path
+ * these tests walk is the same one a raster file takes.
+ */
+const FILE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
+
 /** The weak form, built the way it was built: split, then write. */
 async function writeSpeciesAsText(context: AgentContext, slide: Slide & { columnIds: string[] }) {
   for (const [index, species] of SPECIES.entries()) {
@@ -175,7 +209,7 @@ async function writeSpeciesAsText(context: AgentContext, slide: Slide & { column
       slideId: slide.slideId,
       nodeId: slide.columnIds[index],
       blocks: [
-        { type: 'heading', spans: [{ text: species.name }] },
+        { type: 'accent', spans: [{ text: species.name }] },
         { type: 'paragraph', spans: [{ text: species.text }] },
       ],
     })
@@ -206,16 +240,17 @@ describe('mønsteret dekket falt tilbake til', () => {
 
     // The self-check asks the agent to notice a pattern across its own deck.
     // That is only possible if the pattern is in what it reads back: the kind
-    // every zone ended up as, whether any zone is reserved for a picture, and
-    // whether the deck has a brief. All three, from the ordinary read calls.
-    const deck = await ok<PresentationView>(context, 'get_presentation', {
+    // every zone ended up as, and whether any picture was planned at all. Both,
+    // from the ordinary read calls.
+    const leaves = (await zones(context, slide)).filter((zone) => zone.kind === 'leaf')
+    expect(leaves.every((zone) => zone.contentKind === 'container')).toBe(true)
+
+    const pictures = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: slide.presentationId,
     })
-    const leaves = (await zones(context, slide)).filter((zone) => zone.kind === 'leaf')
-
-    expect(leaves.every((zone) => zone.contentKind === 'container')).toBe(true)
-    expect(leaves.some((zone) => zone.notePurpose === 'image-prompt')).toBe(false)
-    expect(deck.imageBrief).toBeNull()
+    expect(pictures.imageCount).toBe(0)
+    expect(pictures.brief).toBeNull()
+    expect(pictures.imageContext).toBeNull()
   })
 })
 
@@ -298,33 +333,198 @@ describe('formen reglene ber om, på det samme stoffet', () => {
     })
     const pictureZone = stacked.childNodeIds[0]
 
-    // Before the note: the zone advertises that a picture could live here.
-    expect(zoneOf(await zones(context, slide), pictureZone).availableContentKinds).toContain(
-      'image',
-    )
-
+    // The reservation is a real picture zone waiting for its file — not a note
+    // that draws nothing. That is what gives it a picture's minimum size.
     await ok(context, 'set_zone_card', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
       nodeId: pictureZone,
-      kind: 'note',
-      notePurpose: 'image-prompt',
-      noteText:
-        'Vitenskapelig rekonstruksjon av Australopithecus afarensis i helfigur, oppreist gange tydelig, nøytral bakgrunn.',
+      kind: 'image',
     })
 
-    // After the note: `availableContentKinds` can no longer answer — a note with
-    // text in it offers nothing but `note` until the zone is cleared — so the
-    // reservation would be unverifiable without this.
     const reserved = zoneOf(await zones(context, slide), pictureZone)
-    expect(reserved.notePurpose).toBe('image-prompt')
-    expect(reserved.availableContentKinds).toEqual(['note'])
+    expect(reserved.contentKind).toBe('image')
+    expect(reserved.image?.assetId).toBeNull()
     // Both picture kinds, because this zone is roomy enough for the framed one
     // too — which is the reservation a named member of a series needs.
     expect(reserved.reservedImageKinds).toEqual(['image', 'titled-image-card'])
   })
 
-  it('tar imot dekkets felles bildebrief selv om bare ett rasterbilde er planlagt', async () => {
+  it('stempler plassholderteksten i sonen når bildeplanen skrives', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    for (const nodeId of slide.columnIds.slice(0, 2)) {
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId,
+        kind: 'image',
+      })
+    }
+
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [
+        planned(slide.slideId, slide.columnIds[1], `Rekonstruksjon av ${SPECIES[1].name} i helfigur.`),
+        planned(slide.slideId, slide.columnIds[0], `Rekonstruksjon av ${SPECIES[0].name} i helfigur.`),
+      ],
+    })
+
+    // The numbering follows the deck, not the order the entries were sent in:
+    // «bilde 1» has to be the first one you meet going through the slides, or
+    // the placeholder on the slide and the brief mean different pictures.
+    expect(brief.images.map((image) => image.nodeId)).toEqual([
+      slide.columnIds[0],
+      slide.columnIds[1],
+    ])
+    const all = await zones(context, slide)
+    expect(captionOf(zoneOf(all, slide.columnIds[0]))).toBe('Sett inn bilde 1 her')
+    expect(captionOf(zoneOf(all, slide.columnIds[1]))).toBe('Sett inn bilde 2 her')
+  })
+
+  it('tar bort plassholderen igjen når filen kommer', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    const column = slide.columnIds[0]
+
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      kind: 'image',
+    })
+    await ok(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [planned(slide.slideId, column, 'Rekonstruksjon av Homo erectus i helfigur.')],
+    })
+    expect(captionOf(zoneOf(await zones(context, slide), column))).toBe('Sett inn bilde 1 her')
+
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'rekonstruksjon',
+      svgMarkup: '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>',
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      assetId: asset.assetId,
+    })
+
+    // The instruction has been carried out, so it stops being printed over the
+    // finished deck.
+    const zone = zoneOf(await zones(context, slide), column)
+    expect(zone.image?.assetId).toBe(asset.assetId)
+    expect(zone.image?.caption).toBeUndefined()
+  })
+
+  it('genererer én samlet brief med antall, format og motiv per bilde', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    for (const nodeId of slide.columnIds) {
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId,
+        kind: 'image',
+      })
+    }
+    await ok(context, 'set_image_context', {
+      presentationId: slide.presentationId,
+      context: CONTEXT,
+    })
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: SPECIES.map((species, index) =>
+        planned(
+          slide.slideId,
+          slide.columnIds[index],
+          `Vitenskapelig rekonstruksjon av ${species.name}: ${species.text}`,
+        ),
+      ),
+    })
+
+    expect(brief.imageCount).toBe(3)
+    expect(brief.issues).toEqual([])
+    const text = brief.brief ?? ''
+    expect(text).toContain('Lag nøyaktig 3 separate bilder')
+    expect(text).toContain(CONTEXT)
+    for (const [index, species] of SPECIES.entries()) {
+      expect(text).toContain(`BILDE ${index + 1} AV 3`)
+      expect(text).toContain(species.name)
+      // The shape is measured off the zone, never described: three columns of
+      // one slide are the same rectangle, so all three say the same ratio.
+      expect(text).toContain(`Aspect ratio: ${brief.images[index].aspectRatio}`)
+    }
+    // Three narrow columns are upright, which is precisely what a prose
+    // description of «a reconstruction» would not have said.
+    expect(new Set(brief.images.map((image) => image.orientation))).toEqual(new Set(['stående']))
+  })
+
+  it('melder fra når et motiv beskriver et annet format enn sonen faktisk har', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    const column = slide.columnIds[0]
+
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      kind: 'image',
+    })
+    await ok(context, 'set_image_context', {
+      presentationId: slide.presentationId,
+      context: CONTEXT,
+    })
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [
+        {
+          ...planned(slide.slideId, column, 'Bredt panorama over den øst-afrikanske riftdalen.'),
+          composition: 'Liggende utsnitt, horisonten i nedre tredjedel.',
+        },
+      ],
+    })
+
+    // This is the regression: a wide prompt written for a near-upright zone.
+    // The zone's own geometry is what the brief prints, so the two disagree —
+    // and the check says so rather than leaving it to be discovered in the
+    // generated picture.
+    const mismatch = brief.issues.find((issue) => issue.code === 'ASPECT_MISMATCH')
+    expect(mismatch?.message).toMatch(/liggende/i)
+    expect(mismatch?.nodeId).toBe(column)
+  })
+
+  it.each(PLANNED_IMAGE_FIELDS)(
+    'avviser et blankt «%s» på agentflaten nøyaktig når feltet er påkrevd',
+    async (field) => {
+      // The third boundary held to the same derived rule. `imagePlan.test.ts`
+      // pins the domain command and the persisted schema; this is the one an
+      // agent actually meets, and it has to refuse in the same round rather
+      // than letting the call through to be refused a layer down.
+      const context = freshContext()
+      const slide = await slideWithThreeZones(context)
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId: slide.columnIds[0],
+        kind: 'image',
+      })
+
+      const images = [
+        { ...planned(slide.slideId, slide.columnIds[0], 'Et motiv.'), [field]: '   ' },
+      ]
+      const result = await runOperation(context, 'plan_deck_images', {
+        presentationId: slide.presentationId,
+        images,
+      })
+      expect(result.ok, field).toBe(!REQUIRED_PLANNED_IMAGE_FIELDS.includes(field))
+    },
+  )
+
+  it('tar imot dekkets felles bildekontekst selv om bare ett rasterbilde er planlagt', async () => {
     const context = freshContext()
     const slide = await slideWithThreeZones(context)
 
@@ -332,31 +532,27 @@ describe('formen reglene ber om, på det samme stoffet', () => {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
       nodeId: slide.columnIds[0],
-      kind: 'note',
-      notePurpose: 'image-prompt',
-      noteText: 'Rekonstruksjon av Homo erectus, halvfigur, sidelys.',
+      kind: 'image',
     })
-    await ok(context, 'set_image_brief', { presentationId: slide.presentationId, brief: BRIEF })
+    await ok(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [planned(slide.slideId, slide.columnIds[0], 'Rekonstruksjon av Homo erectus, halvfigur.')],
+    })
+    await ok(context, 'set_image_context', {
+      presentationId: slide.presentationId,
+      context: CONTEXT,
+    })
 
     // One planned picture is enough for the deck to have a premise, and the
-    // brief comes back beside the slides rather than from a second call.
+    // context comes back beside the slides rather than from a second call.
     const deck = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: slide.presentationId,
     })
-    expect(deck.imageBrief).toBe(BRIEF)
+    expect(deck.imageContext).toBe(CONTEXT)
   })
 })
 
 describe('den navngitte serien der bildet bærer enheten', () => {
-  /**
-   * A stand-in file, so the test is about the zone rather than about pixels.
-   *
-   * Vector here only because a test needs bytes it can write down; the policy
-   * an agent reads says a species reconstruction is a raster picture, and the
-   * path this test walks is the same one a raster file takes.
-   */
-  const FILE = '<svg viewBox="0 0 120 60"><rect width="120" height="60" fill="#0af"/></svg>'
-
   it('lar de tre artene bli titled image cards med artsnavnet i tittelen', async () => {
     const context = freshContext()
     const slide = await slideWithThreeZones(context)
@@ -406,40 +602,37 @@ describe('den navngitte serien der bildet bærer enheten', () => {
     const slide = await slideWithThreeZones(context)
     const column = slide.columnIds[0]
 
-    // No generator: reserve the zone with the prompt, and check that what is
-    // reserved is the framed kind the series needs — not merely «a picture».
-    await ok(context, 'set_zone_card', {
-      presentationId: slide.presentationId,
-      slideId: slide.slideId,
-      nodeId: column,
-      kind: 'note',
-      notePurpose: 'image-prompt',
-      noteText: `Vitenskapelig rekonstruksjon av ${SPECIES[0].name}, helfigur, nøytral bakgrunn.`,
-    })
-    await ok(context, 'set_image_brief', { presentationId: slide.presentationId, brief: BRIEF })
-
-    expect(zoneOf(await zones(context, slide), column).reservedImageKinds).toContain(
-      'titled-image-card',
-    )
-
-    // And the hand-over works: the prompt goes to the sandbox, the zone becomes
-    // the card the reservation promised, and the file lands inside it.
-    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
-      presentationId: slide.presentationId,
-      name: 'afarensis',
-      svgMarkup: FILE,
-    })
-    await ok(context, 'clear_zone', {
-      presentationId: slide.presentationId,
-      slideId: slide.slideId,
-      nodeId: column,
-    })
+    // No generator: reserve the framed kind the series needs, so the zone that
+    // waits is the zone the finished picture lands in — and put the motif in
+    // the deck's plan rather than in the zone.
     await ok(context, 'set_zone_card', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
       nodeId: column,
       kind: 'titled-image-card',
       title: [{ text: SPECIES[0].label }],
+    })
+    await ok(context, 'set_image_context', {
+      presentationId: slide.presentationId,
+      context: CONTEXT,
+    })
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [
+        planned(slide.slideId, column, `Vitenskapelig rekonstruksjon av ${SPECIES[0].name}, helfigur.`),
+      ],
+    })
+    expect(brief.imageCount).toBe(1)
+    expect(zoneOf(await zones(context, slide), column).reservedImageKinds).toContain(
+      'titled-image-card',
+    )
+
+    // And the hand-over works: the file lands in the card that was already
+    // waiting, the card title survives, and the placeholder goes away.
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'afarensis',
+      svgMarkup: FILE,
     })
     await ok(context, 'set_zone_asset', {
       presentationId: slide.presentationId,
@@ -451,12 +644,16 @@ describe('den navngitte serien der bildet bærer enheten', () => {
     const zone = zoneOf(await zones(context, slide), column)
     expect(zone.contentKind).toBe('titled-image-card')
     expect(zone.image?.assetId).toBe(asset.assetId)
+    expect(zone.image?.caption).toBeUndefined()
+    expect(zone.cardTitle?.map((span) => ('text' in span ? span.text : ''))).toEqual([
+      SPECIES[0].label,
+    ])
     expect(zone.fits).toBe(true)
   })
 })
 
 describe('reservasjonen sier fra når den ikke lenger holder', () => {
-  it('svarer false når sonen er blitt for liten til et bilde', async () => {
+  it('lar seg ikke krympe under bildets minstemål, slik et notat lot seg', async () => {
     const context = freshContext()
     const slide = await slideWithThreeZones(context)
 
@@ -468,28 +665,28 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       axis: 'y',
       weights: [3, 2],
     })
-    const pictureZone = stacked.childNodeIds[0]
     await ok(context, 'set_zone_card', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
-      nodeId: pictureZone,
-      kind: 'note',
-      notePurpose: 'image-prompt',
-      noteText: 'Rekonstruksjon av Homo neanderthalensis, portrett.',
+      nodeId: stacked.childNodeIds[0],
+      kind: 'image',
     })
 
-    // A note has no minimum size, so nothing refuses this — which is exactly
-    // why the reservation has to be able to say that it broke.
-    await ok(context, 'adjust_split', {
+    // This is the whole reason the reservation is a real picture zone. The note
+    // it replaces drew nothing and had no minimum size, so a later re-weighting
+    // shrank it below a picture's floor with nothing refusing — and the
+    // reservation was silently broken. A waiting picture zone has a picture's
+    // floor, so the same call is refused before anything is written.
+    const refused = await fails(context, 'adjust_split', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
       nodeId: column,
       weights: [1, 10],
     })
-
-    const reserved = zoneOf(await zones(context, slide), pictureZone)
-    expect(reserved.notePurpose).toBe('image-prompt')
-    expect(reserved.reservedImageKinds).toEqual([])
+    expect(refused.code).toBe('ZONE_TOO_SMALL')
+    expect(
+      zoneOf(await zones(context, slide), stacked.childNodeIds[0]).reservedImageKinds,
+    ).toContain('image')
   })
 
   it('skiller den bare bildetypen fra den innrammede, som trenger mer plass', async () => {
@@ -513,20 +710,12 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
       nodeId: pictureZone,
-      kind: 'note',
-      notePurpose: 'image-prompt',
-      noteText: 'Utsnitt av hodeskalle, sett fra siden.',
+      kind: 'image',
     })
 
-    const reserved = zoneOf(await zones(context, slide), pictureZone)
-    expect(reserved.reservedImageKinds).toEqual(['image'])
+    expect(zoneOf(await zones(context, slide), pictureZone).reservedImageKinds).toEqual(['image'])
 
     // And the list is the truth: the kind it left out really is refused.
-    await ok(context, 'clear_zone', {
-      presentationId: slide.presentationId,
-      slideId: slide.slideId,
-      nodeId: pictureZone,
-    })
     const refused = await fails(context, 'set_zone_card', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
@@ -534,30 +723,73 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       kind: 'titled-image-card',
     })
     expect(refused.code).toBe('ZONE_TOO_SMALL')
+  })
+
+  it('spør ikke om reservasjonen i en sone som allerede har fått filen sin', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    const column = slide.columnIds[0]
+
     await ok(context, 'set_zone_card', {
       presentationId: slide.presentationId,
       slideId: slide.slideId,
-      nodeId: pictureZone,
+      nodeId: column,
       kind: 'image',
     })
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: slide.presentationId,
+      name: 'ferdig',
+      svgMarkup: FILE,
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: column,
+      assetId: asset.assetId,
+    })
+
+    // The question only exists while something is being waited for.
+    expect(zoneOf(await zones(context, slide), column).reservedImageKinds).toBeUndefined()
   })
 
-  it('spør ikke om bildet i et notat som ikke reserverer noe', async () => {
+  it('melder fra om en bildesone som venter uten at noe i planen beskriver den', async () => {
     const context = freshContext()
     const slide = await slideWithThreeZones(context)
 
-    await ok(context, 'set_zone_card', {
+    for (const nodeId of slide.columnIds.slice(0, 2)) {
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId,
+        kind: 'image',
+      })
+    }
+    await ok(context, 'set_image_context', {
       presentationId: slide.presentationId,
-      slideId: slide.slideId,
-      nodeId: slide.columnIds[0],
-      kind: 'note',
-      notePurpose: 'general',
-      noteText: 'Sjekk dateringen mot nyere funn før framføring.',
+      context: CONTEXT,
+    })
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [planned(slide.slideId, slide.columnIds[0], 'Rekonstruksjon av Homo erectus.')],
     })
 
-    const zone = zoneOf(await zones(context, slide), slide.columnIds[0])
-    expect(zone.notePurpose).toBe('general')
-    expect(zone.reservedImageKinds).toBeUndefined()
+    // «As many entries as placeholders» is the check that keeps a brief from
+    // quietly being one picture short of the deck.
+    const unplanned = brief.issues.find((issue) => issue.code === 'ZONE_NOT_PLANNED')
+    expect(unplanned?.nodeId).toBe(slide.columnIds[1])
+  })
+
+  it('avviser en bildeoppføring som peker på en tekstsone', async () => {
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+
+    // An entry for a zone that is not a picture is not a deck with a problem in
+    // it — it is a call that meant a different zone, so nothing is written.
+    const refused = await fails(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [planned(slide.slideId, slide.columnIds[0], 'Rekonstruksjon av Homo erectus.')],
+    })
+    expect(refused.code).toBe('INVALID_CONTENT')
   })
 })
 
@@ -586,7 +818,7 @@ describe('reglene som gjør den svake formen dyrere å velge', () => {
 
     // And the self-check names the pattern as it actually appeared: a heading
     // and a paragraph, with no bullet list in sight.
-    expect(REPEATED_FALLBACK_RULE).toMatch(/gjennomsiktig container med overskrift/i)
+    expect(REPEATED_FALLBACK_RULE).toMatch(/én stor tekstsone med overskrift/i)
   })
 })
 
