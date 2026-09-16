@@ -410,22 +410,22 @@
 }
 
 /*
- * The marker is drawn by the item, not by the browser, and it is drawn out of
- * flow — which is the whole point: a marker is not a glyph of the sentence, so
- * it must not be part of what alignment measures. A native marker is one or
- * the other and neither works here. An `inside` marker joins the line and is
- * counted, so a centred line comes out pushed to the right by half the
- * marker's width; an `outside` marker is not counted but hangs at a fixed
- * offset from the item's own edge, so the moment alignment moves the text away
- * from that edge — which is exactly what centring does — the marker stays
- * behind and the gap grows with the line.
+ * The marker is drawn by the item, not by the browser, and the reason is the
+ * gap beside it: the browser's own markers carry one width for a bullet and
+ * quite another for a number, so a bulleted list read looser than a numbered
+ * one standing right under it. Here there is a single gap, and both use it.
  *
- * Positioned against the paragraph instead, it tracks the first line's own
- * start edge, wherever alignment has put it, and costs that line no width at
- * all: `left: 0` is the start of the paragraph's first fragment, the
- * translation lifts the marker clear of it whatever it is as wide as, and the
- * margin is the one gap between marker and word — the same gap for a bullet
- * and for a number, which the browser's own markers are not.
+ * Where the marker sits is the other half. Left to hang in the gutter at a
+ * fixed offset from the item's own edge — which is what an `outside` marker
+ * does — it stays behind the moment alignment moves the text away from that
+ * edge, and the gap grows with the line. So it hangs against the *paragraph*
+ * instead: `left: 0` is the start of the paragraph's first fragment, and the
+ * translation lifts the marker clear of it however wide it is, so it follows
+ * the first line's own start edge wherever the line begins, and wrapped lines
+ * keep their hanging indent under the first word.
+ *
+ * An aligned item overrides that and takes the marker back into the line, so
+ * that centring measures marker and words together and centres the pair.
  *
  * `display: inline` is what makes that first fragment the first *line* rather
  * than the whole block; `:only-child` keeps it off a multi-paragraph item
@@ -446,11 +446,12 @@
   content: '\2022';
   position: absolute;
   left: 0;
+  /* The one gap, on whichever side the marker ends up being placed from. */
   margin-left: -0.32em;
+  margin-right: 0.32em;
   transform: translateX(-100%);
-  white-space: pre;
   /* A marker points at the words; it is not one of them. */
-  opacity: 0.75;
+  opacity: 0.5;
 }
 
 .rich-doc :is(ol, .rd-ol) > :is(li, .rd-li):has(> p:only-child) > p::before {
@@ -458,21 +459,19 @@
 }
 
 /*
- * The same 0.75 for the browser's own marker on a multi-paragraph item, as a
+ * The same 0.5 for the browser's own marker on a multi-paragraph item, as a
  * colour rather than an opacity: `::marker` takes `color` and does not take
  * `opacity`, and this is the one way to say it that both paths agree on.
  */
 .rich-doc :is(li, .rd-li)::marker {
-  color: color-mix(in srgb, currentColor 75%, transparent);
+  color: color-mix(in srgb, currentColor 50%, transparent);
 }
 
 /*
  * Alignment is the item's to apply: the paragraph above is an inline box, and
  * `text-align` does nothing on one of those, so the stored value is read here
  * — from the same inline style both renderers write — and applied to the block
- * that actually lays the lines out. Every line is then aligned on its own
- * words alone, the first one included, because the marker beside it is out of
- * flow and measures nothing.
+ * that actually lays the lines out.
  */
 .rich-doc :is(li, .rd-li):has(> [style*='text-align: center']),
 .rich-doc :is(li, .rd-li):has(> [style*='text-align:center']) {
@@ -482,6 +481,23 @@
 .rich-doc :is(li, .rd-li):has(> [style*='text-align: right']),
 .rich-doc :is(li, .rd-li):has(> [style*='text-align:right']) {
   text-align: right;
+}
+
+/*
+ * An aligned item carries its marker in the line rather than hanging it
+ * outside, so that what is centred is the bullet and the words together
+ * rather than the words alone — the marker is part of the shape the item
+ * makes, and an item centred without it sits visibly off to one side of the
+ * bullet. Only the first line carries the marker, so the lines below it are
+ * centred on their own words, as any centred paragraph's are.
+ */
+.rich-doc :is(li, .rd-li):has(> p:only-child):has(> [style*='text-align: center']) > p::before,
+.rich-doc :is(li, .rd-li):has(> p:only-child):has(> [style*='text-align:center']) > p::before,
+.rich-doc :is(li, .rd-li):has(> p:only-child):has(> [style*='text-align: right']) > p::before,
+.rich-doc :is(li, .rd-li):has(> p:only-child):has(> [style*='text-align:right']) > p::before {
+  position: static;
+  margin-left: 0;
+  transform: none;
 }
 
 /*
