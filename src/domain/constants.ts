@@ -468,6 +468,21 @@ export function plannedImageFieldIsBlank(value: string): boolean {
 }
 
 /**
+ * What each field is, in one short phrase, for a refusal that has to name one.
+ *
+ * A `Record` over every field rather than only the required ones, and that is
+ * the point: adding a field to `PLANNED_IMAGE_FIELDS` is a type error here
+ * until it is named, so a refusal can never end up with nothing to say about a
+ * field somebody later made required.
+ */
+export const PLANNED_IMAGE_FIELD_LABELS: Record<PlannedImageField, string> = {
+  subject: 'et motiv',
+  composition: 'komposisjon og utsnitt',
+  requirements: 'faglige krav',
+  avoid: 'hva som skal unngås',
+}
+
+/**
  * The most pictures one deck may plan.
  *
  * A bound rather than a design rule: the brief is one message an author pastes

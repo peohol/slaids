@@ -31,7 +31,10 @@ import {
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
   PLANNED_IMAGE_FIELDS,
+  PLANNED_IMAGE_FIELD_LABELS,
+  REQUIRED_PLANNED_IMAGE_FIELDS,
   plannedImageFieldIsBlank,
+  type PlannedImageField,
 } from './constants'
 import { computeSlideGeometry } from './geometry'
 import { panelFrame } from './imageOptimization'
@@ -518,6 +521,21 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * The generated brief
  * ------------------------------------------------------------------ */
 
+/**
+ * The heading each field gets in the brief, and the order they are printed in.
+ *
+ * A `Record` over `PLANNED_IMAGE_FIELDS` rather than four lines in the template,
+ * so the brief prints exactly the fields a plan entry has: a field added to the
+ * entry is a type error here until it has a heading, and cannot be silently
+ * left out of the message an author pastes.
+ */
+export const PLANNED_IMAGE_SECTION_HEADINGS: Record<PlannedImageField, string> = {
+  subject: 'Motiv',
+  composition: 'Komposisjon og utsnitt',
+  requirements: 'Faglige krav',
+  avoid: 'Unngå i akkurat dette bildet',
+}
+
 /** What the brief says where the author has written nothing. */
 const MISSING_CONTEXT_TEXT =
   '(Ingen felles bildekontekst er skrevet for dette dekket ennå.)'
@@ -548,19 +566,18 @@ export function composeImageBrief(presentation: Presentation): string | null {
    * A heading over «(ikke beskrevet)» is worse than no heading: it is an
    * instruction to an image generator to render nothing in particular, and it
    * reads to the author as a defect in the brief rather than as a gap in the
-   * plan. The motif is never absent — `plannedImagesRefusal` refuses an entry
-   * without one — and a missing composition is reported by `checkImagePlan`
-   * rather than printed.
+   * plan. Nothing required can be absent: `REQUIRED_PLANNED_IMAGE_FIELDS` is
+   * refused blank by the command that writes a plan and by the schema that
+   * stores one, so what this can omit is only ever a field that was optional.
    */
   const sections = images.map((image) =>
     [
       `BILDE ${image.number} AV ${count}`,
       `Skal brukes på slide: ${image.slideLabel}`,
       `Aspect ratio: ${image.aspectRatio} (${image.orientation})`,
-      ...section('Motiv', image.plan.subject),
-      ...section('Komposisjon og utsnitt', image.plan.composition),
-      ...section('Faglige krav', image.plan.requirements),
-      ...section('Unngå i akkurat dette bildet', image.plan.avoid),
+      ...PLANNED_IMAGE_FIELDS.flatMap((field) =>
+        section(PLANNED_IMAGE_SECTION_HEADINGS[field], image.plan[field]),
+      ),
     ].join('\n'),
   )
 
@@ -626,11 +643,13 @@ export function plannedImagesRefusal(entries: readonly PlannedImage[]): string |
     const key = imageZoneKey(entry.slideId, entry.nodeId)
     if (seen.has(key)) return 'To bildeoppføringer peker på den samme sonen.'
     seen.add(key)
-    if (plannedImageFieldIsBlank(entry.subject)) {
-      return 'En bildeoppføring må beskrive et motiv. Uten motiv er det ingenting å generere.'
-    }
-    if (plannedImageFieldIsBlank(entry.composition)) {
-      return 'En bildeoppføring må beskrive komposisjon og utsnitt. Uten den kan ikke motivet kontrolleres mot sonens format.'
+    /* Derived, not restated: which fields are required is
+       `REQUIRED_PLANNED_IMAGE_FIELDS`, and the same list is what the agent's
+       input schema and the persisted document's schema ask. A field added to
+       or removed from it changes all three at once. */
+    for (const field of REQUIRED_PLANNED_IMAGE_FIELDS) {
+      if (!plannedImageFieldIsBlank(entry[field])) continue
+      return `En bildeoppføring må ha ${PLANNED_IMAGE_FIELD_LABELS[field]}. Feltet «${field}» er tomt.`
     }
     for (const name of PLANNED_IMAGE_FIELDS) {
       if (entry[name].length > MAX_PLANNED_IMAGE_FIELD_CHARS) {

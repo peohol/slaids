@@ -413,14 +413,20 @@ spesielt å unngå» i hver eneste oppføring, og briefen skriver derfor bare de
 seksjonene som faktisk sier noe: en overskrift over «(ikke beskrevet)» er en
 instruks om å tegne ingenting spesielt.
 
-Regelen håndheves to steder, og begge er systemgrenser: `setImagePlan` (som
-`plan_deck_images` sitt skjema avviser tidligere, med feltnavnet) og
-`plannedImageSchema` ved persistens. Den siste er ikke defensiv duplisering
-mellom interne lag — et `.slaids`-arkiv er en fil et menneske kan redigere, så
-uten den kunne et importert dokument bære en plan den vanlige skriveveien aldri
-ville tillatt. Blanke felt (bare mellomrom) er tomme felt begge steder.
-`checkImagePlan` har derfor ingenting å si om saken: en ufullstendig oppføring
-kan ikke oppstå, og en tom kontrolliste betyr fortsatt ferdig.
+Regelen håndheves tre steder, og ingen av dem gjentar den: `plan_deck_images`
+sitt skjema, `setImagePlan`, og `plannedImageSchema` ved persistens leser alle
+`REQUIRED_PLANNED_IMAGE_FIELDS` og avleder påkrevd/valgfritt fra den. Det er
+poenget — et felt som flyttes inn i eller ut av listen endrer alle tre grensene
+samtidig, i stedet for to av dem og en kommentar. Briefens seksjoner er avledet
+på samme måte, fra `PLANNED_IMAGE_SECTION_HEADINGS`, så et nytt felt i en
+oppføring ikke kan bli stille utelatt fra teksten forfatteren limer inn.
+
+Persistensgrensen er ikke defensiv duplisering mellom interne lag — et
+`.slaids`-arkiv er en fil et menneske kan redigere, så uten den kunne et
+importert dokument bære en plan den vanlige skriveveien aldri ville tillatt.
+Blanke felt (bare mellomrom) er tomme felt alle tre steder. `checkImagePlan` har
+derfor ingenting å si om saken: en ufullstendig oppføring kan ikke oppstå, og en
+tom kontrolliste betyr fortsatt ferdig.
 
 ### Den felles bildekonteksten
 

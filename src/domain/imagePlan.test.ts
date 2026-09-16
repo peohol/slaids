@@ -26,7 +26,7 @@ import { createImage, createTitledImageCard } from './content'
 import { createLeaf, createSplit } from './layout'
 import { createPresentation } from './presentation'
 import { titleDoc, docToPlainText } from './richdoc'
-import { REQUIRED_PLANNED_IMAGE_FIELDS } from './constants'
+import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from './constants'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
 import {
@@ -37,6 +37,7 @@ import {
   orientationOf,
   placeholderCaption,
   resolveImagePlan,
+  PLANNED_IMAGE_SECTION_HEADINGS,
   type PlannedImage,
 } from './imagePlan'
 import type { LayoutNode, Presentation } from './types'
@@ -232,30 +233,24 @@ describe('bildeplanen mot dekket', () => {
     if (!missing.ok) expect(missing.error.code).toBe('NODE_NOT_FOUND')
   })
 
-  it.each(REQUIRED_PLANNED_IMAGE_FIELDS)('avviser en oppføring uten %s', (field) => {
-    // Motif and composition are the two an entry cannot be without: the first
-    // is what makes it *this* picture, the second is what the zone's shape is
-    // checked against. Whitespace is not a value — a field of spaces produces
-    // exactly the unusable brief a blank one does.
-    const { deck, slideId, nodeIds } = threeColumns()
-    for (const blank of ['', '   ', '\n\t']) {
-      const refused = setImagePlan(deck, [
-        { ...entry(slideId, nodeIds[0], 'Et motiv.'), [field]: blank },
-      ])
-      expect(refused.ok, `${field}: ${JSON.stringify(blank)}`).toBe(false)
-      if (!refused.ok) expect(refused.error.code).toBe('INVALID_ARGUMENT')
-    }
-  })
-
-  it('godtar at de to valgfrie feltene er tomme', () => {
-    // The other two are legitimately empty. Demanding them would produce
-    // «ingenting spesielt å unngå» in every entry.
-    const { deck, slideId, nodeIds } = threeColumns()
-    const written = setImagePlan(deck, [
-      { ...entry(slideId, nodeIds[0], 'Et motiv.'), requirements: '', avoid: '   ' },
-    ])
-    expect(written.ok).toBe(true)
-  })
+  it.each(PLANNED_IMAGE_FIELDS)(
+    'avviser et blankt «%s» nøyaktig når feltet er påkrevd',
+    (field) => {
+      // The general rule, not today's two field names: a blank value is refused
+      // if and only if the field is in `REQUIRED_PLANNED_IMAGE_FIELDS`. Moving a
+      // field into or out of that list changes what this test expects, which is
+      // the only way a test can protect a rule rather than a snapshot of it.
+      const required = REQUIRED_PLANNED_IMAGE_FIELDS.includes(field)
+      const { deck, slideId, nodeIds } = threeColumns()
+      for (const blank of ['', '   ', '\n\t']) {
+        const written = setImagePlan(deck, [
+          { ...entry(slideId, nodeIds[0], 'Et motiv.'), [field]: blank },
+        ])
+        expect(written.ok, `${field}: ${JSON.stringify(blank)}`).toBe(!required)
+        if (!written.ok) expect(written.error.code).toBe('INVALID_ARGUMENT')
+      }
+    },
+  )
 
   it('avviser to oppføringer på den samme sonen', () => {
     const { deck, slideId, nodeIds } = threeColumns()
@@ -435,22 +430,24 @@ describe('den samlede briefen', () => {
   })
 
   it('skriver bare de seksjonene som faktisk sier noe', () => {
-    const { deck, slideId, nodeIds } = threeColumns()
-    const written = planned(deck, [
-      {
-        ...entry(slideId, nodeIds[0], 'Nærbilde av en bearbeidet flintøks.'),
-        requirements: '',
-        avoid: '',
-      },
-    ])
-    const brief = composeImageBrief(written) ?? ''
+    // Derived from the same rule: every optional field is blanked, and the
+    // brief must then print the required headings and none of the optional
+    // ones. A heading over «(ikke beskrevet)» is an instruction to render
+    // nothing in particular, and reads to the author as a defect in the brief.
+    const optional = PLANNED_IMAGE_FIELDS.filter(
+      (field) => !REQUIRED_PLANNED_IMAGE_FIELDS.includes(field),
+    )
+    expect(optional.length).toBeGreaterThan(0)
 
-    // A heading over «(ikke beskrevet)» is an instruction to render nothing in
-    // particular, and reads to the author as a defect in the brief.
-    expect(brief).toContain('Motiv:')
-    expect(brief).toContain('Komposisjon og utsnitt:')
-    expect(brief).not.toContain('Faglige krav:')
-    expect(brief).not.toContain('Unngå i akkurat dette bildet:')
+    const { deck, slideId, nodeIds } = threeColumns()
+    const blanked = { ...entry(slideId, nodeIds[0], 'Nærbilde av en bearbeidet flintøks.') }
+    for (const field of optional) blanked[field] = ''
+    const brief = composeImageBrief(planned(deck, [blanked])) ?? ''
+
+    for (const field of PLANNED_IMAGE_FIELDS) {
+      const heading = `${PLANNED_IMAGE_SECTION_HEADINGS[field]}:`
+      expect(brief.includes(heading), heading).toBe(!optional.includes(field))
+    }
     expect(brief).not.toContain('ikke beskrevet')
   })
 
@@ -627,13 +624,14 @@ describe('planen er dokumentdata, ikke publikumsdata', () => {
     expect(validatePresentation(written).ok).toBe(true)
   })
 
-  it.each(REQUIRED_PLANNED_IMAGE_FIELDS)(
-    'avvises ved persistensgrensen når %s er blank i et lagret dokument',
+  it.each(PLANNED_IMAGE_FIELDS)(
+    'avvises ved persistensgrensen for et blankt «%s» nøyaktig når feltet er påkrevd',
     (field) => {
-      // The other system boundary. A `.slaids` archive is a file a person can
-      // edit, so the schema has to refuse what the command refuses — otherwise
-      // an imported deck could carry a plan the normal write path would never
-      // have produced, and generate a brief with a picture that shows nothing.
+      // The other system boundary, held to the same derived rule. A `.slaids`
+      // archive is a file a person can edit, so the schema has to refuse what
+      // the command refuses — otherwise an imported deck could carry a plan the
+      // normal write path would never have produced.
+      const required = REQUIRED_PLANNED_IMAGE_FIELDS.includes(field)
       const { deck, slideId, nodeIds } = threeColumns()
       const written = planned(deck, [entry(slideId, nodeIds[0], 'Homo erectus i helfigur.')])
       for (const blank of ['', '   ']) {
@@ -642,16 +640,8 @@ describe('planen er dokumentdata, ikke publikumsdata', () => {
           imagePlan: [{ ...written.imagePlan![0], [field]: blank }],
         }
         const result = validatePresentation(JSON.parse(JSON.stringify(tampered)))
-        expect(result.ok, `${field}: ${JSON.stringify(blank)}`).toBe(false)
+        expect(result.ok, `${field}: ${JSON.stringify(blank)}`).toBe(!required)
       }
     },
   )
-
-  it('godtar et lagret dokument der bare de valgfrie feltene er tomme', () => {
-    const { deck, slideId, nodeIds } = threeColumns()
-    const written = planned(deck, [
-      { ...entry(slideId, nodeIds[0], 'Homo erectus i helfigur.'), requirements: '', avoid: '' },
-    ])
-    expect(validatePresentation(JSON.parse(JSON.stringify(written))).ok).toBe(true)
-  })
 })

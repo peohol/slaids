@@ -37,7 +37,9 @@ import {
   MAX_IMAGE_CONTEXT_CHARS,
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
+  REQUIRED_PLANNED_IMAGE_FIELDS,
   plannedImageFieldIsBlank,
+  type PlannedImageField,
   type InteractiveStyleContract,
 } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
@@ -474,20 +476,40 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
   }
 }
 
-const plannedImageField = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
-
 /**
- * A field an entry cannot be without.
+ * What an agent may write into one field of a plan entry.
  *
- * Which ones those are is the domain's (`REQUIRED_PLANNED_IMAGE_FIELDS`), and
- * the blank test is the domain's too, so an agent is refused by the schema for
- * exactly what the command would have refused it for — one round earlier, and
- * with the field named.
+ * Whether a field is required is *derived* from `REQUIRED_PLANNED_IMAGE_FIELDS`
+ * rather than decided here, and so is the word the description opens with. That
+ * is the whole point: the same list is read by the domain command that writes a
+ * plan and by the schema that stores one, so a field added to or removed from
+ * it changes all three boundaries at once instead of two of them and a comment.
+ *
+ * The prose is this layer's, because it is written for an agent rather than for
+ * a validator — but it is keyed by field in a `Record` over every field, so a
+ * new field is a type error here until somebody describes it.
  */
-const requiredPlannedImageField = plannedImageField.refine(
-  (value) => !plannedImageFieldIsBlank(value),
-  { message: 'Feltet kan ikke være tomt' },
-)
+const PLANNED_IMAGE_FIELD_PROSE: Record<PlannedImageField, string> = {
+  subject:
+    'Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre.',
+  composition:
+    'Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Uten den kan ikke motivet kontrolleres mot sonens format. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',
+  requirements:
+    'Faglige krav: det som må fremstilles korrekt for at bildet skal kunne brukes. Tom utelates fra briefen.',
+  avoid:
+    'Hva som ikke skal forekomme i akkurat dette bildet – aldri dekkets felles kontekst. Tom utelates fra briefen.',
+}
+
+function plannedImageField(name: PlannedImageField) {
+  const bounded = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
+  const required = REQUIRED_PLANNED_IMAGE_FIELDS.includes(name)
+  const field = required
+    ? bounded.refine((value) => !plannedImageFieldIsBlank(value), {
+        message: 'Feltet kan ikke være tomt',
+      })
+    : bounded
+  return field.describe(`${required ? 'Påkrevd.' : 'Valgfri.'} ${PLANNED_IMAGE_FIELD_PROSE[name]}`)
+}
 
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
@@ -506,18 +528,10 @@ export const planDeckImages = defineOperation({
           nodeId: nodeIdSchema.describe(
             'Sonen bildet skal ligge i. Den må allerede være `image` eller `titled-image-card`.',
           ),
-          subject: requiredPlannedImageField.describe(
-            'Påkrevd. Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre.',
-          ),
-          composition: requiredPlannedImageField.describe(
-            'Påkrevd. Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Uten den kan ikke motivet kontrolleres mot sonens format. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',
-          ),
-          requirements: plannedImageField.describe(
-            'Valgfri. Faglige krav: det som må fremstilles korrekt for at bildet skal kunne brukes. Utelatt eller tom utelates fra briefen.',
-          ),
-          avoid: plannedImageField.describe(
-            'Valgfri. Hva som ikke skal forekomme i akkurat dette bildet – aldri dekkets felles kontekst. Utelatt eller tom utelates fra briefen.',
-          ),
+          subject: plannedImageField('subject'),
+          composition: plannedImageField('composition'),
+          requirements: plannedImageField('requirements'),
+          avoid: plannedImageField('avoid'),
         }),
       )
       .max(MAX_PLANNED_IMAGES)

@@ -45,6 +45,7 @@ import {
   VECTOR_POLICY,
   VISUAL_QA_RULE,
 } from './design'
+import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from '../domain/constants'
 import { runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
@@ -495,6 +496,33 @@ describe('formen reglene ber om, på det samme stoffet', () => {
     expect(mismatch?.message).toMatch(/liggende/i)
     expect(mismatch?.nodeId).toBe(column)
   })
+
+  it.each(PLANNED_IMAGE_FIELDS)(
+    'avviser et blankt «%s» på agentflaten nøyaktig når feltet er påkrevd',
+    async (field) => {
+      // The third boundary held to the same derived rule. `imagePlan.test.ts`
+      // pins the domain command and the persisted schema; this is the one an
+      // agent actually meets, and it has to refuse in the same round rather
+      // than letting the call through to be refused a layer down.
+      const context = freshContext()
+      const slide = await slideWithThreeZones(context)
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId: slide.columnIds[0],
+        kind: 'image',
+      })
+
+      const images = [
+        { ...planned(slide.slideId, slide.columnIds[0], 'Et motiv.'), [field]: '   ' },
+      ]
+      const result = await runOperation(context, 'plan_deck_images', {
+        presentationId: slide.presentationId,
+        images,
+      })
+      expect(result.ok, field).toBe(!REQUIRED_PLANNED_IMAGE_FIELDS.includes(field))
+    },
+  )
 
   it('tar imot dekkets felles bildekontekst selv om bare ett rasterbilde er planlagt', async () => {
     const context = freshContext()
