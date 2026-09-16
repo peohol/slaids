@@ -28,6 +28,28 @@ test.describe('rich text', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('kaller den fremhevede tekstblokken en aksent, ikke en overskrift', async ({ page }) => {
+    // The word is what was wrong. A button called «Overskrift» inside a text
+    // field teaches an author to write one there instead of giving the card a
+    // card title, which is the card's actual main heading. The stored node is
+    // still a ProseMirror heading — the rename is in the product, not the
+    // document.
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Aksent')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').first().click()
+
+    const accent = page.getByTestId('format-heading')
+    await expect(accent).toHaveAttribute('aria-label', 'Aksent')
+    await accent.click()
+    await expect(stage(page).locator('.subfield h1')).toHaveCount(1)
+
+    // The colour control beside it is the accent's, and says so.
+    await expect(page.getByTestId('heading-color')).toHaveAttribute('aria-label', /Aksentfarge/)
+    expect(guard.errors).toEqual([])
+  })
+
   test('normalises pasted HTML instead of importing foreign styling', async ({ page }) => {
     await createPresentation(page, 'Innliming')
     const zones = await zoneRects(page)

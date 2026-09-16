@@ -17,7 +17,6 @@ import {
   bodyOf,
   CAPTION_POSITION_LABELS,
   captionPositionsFor,
-  contentLabel,
   imagePanelOf,
 } from '../../domain/content'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
@@ -42,21 +41,12 @@ export function Inspector({
   actions,
   onAddContent,
   onOptimizeImage,
-  onOpenNote,
 }: {
   slide: ContentSlide
   actions: ZoneAction[]
   onAddContent: (nodeId: string, kind: ZoneContentKind) => void
   /** Shrink the file behind this zone's picture; see `ImageOptimizeModal`. */
   onOptimizeImage: (nodeId: string) => void
-  /**
-   * Open the note in this zone.
-   *
-   * Here as well as on the zone itself, because the handle drawn on a note zone
-   * is inert in zone mode — a press there selects the zone — and this is the
-   * panel that is on screen when it is.
-   */
-  onOpenNote: (nodeId: string) => void
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
@@ -234,26 +224,6 @@ export function Inspector({
                 </button>
               </Tooltip>
             ))}
-          </div>
-        </section>
-      )}
-
-      {content?.kind === 'note' && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">{contentLabel(content)}</h2>
-          <p className="hint">
-            Redaksjonell tekst som hører til denne sonen. Den vises aldri for publikum, og
-            sonen beholder plassen sin i sonetreet.
-          </p>
-          <div className="inspector__actions">
-            <button
-              type="button"
-              className="btn btn--sm"
-              data-testid="inspector-open-note"
-              onClick={() => onOpenNote(selectedNodeId)}
-            >
-              <Icon name="note" size={14} /> Åpne
-            </button>
           </div>
         </section>
       )}

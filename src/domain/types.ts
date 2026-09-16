@@ -9,7 +9,8 @@
  */
 
 import type { IdeaRow } from './ideas'
-import type { InteractiveStyleContract, NotePurpose } from './constants'
+import type { PlannedImage } from './imagePlan'
+import type { InteractiveStyleContract } from './constants'
 
 export type NodeId = string
 
@@ -176,57 +177,6 @@ export interface NegativeSpaceContent {
   kind: 'negative-space'
 }
 
-/**
- * Editorial text that belongs to a zone and is never shown to an audience.
- *
- * A note is the author's own working material in the place it is about:
- * most often the prompt for a picture that will be generated elsewhere and
- * dropped into this very zone afterwards. The zone keeps its place in the
- * tree, so the composition is finished before the picture exists — and when
- * the picture arrives it takes exactly the rectangle that was planned for it.
- *
- * Two consequences, and both are the definition rather than an implementation
- * detail:
- *
- *  - **It draws nothing outside the editor.** Presentation mode, the player, a
- *    published deck, an audience-facing preview and an export all draw a note
- *    zone as bare ground: no text, no icon, no border, no background. The
- *    editor draws an affordance that opens it, and that affordance is editor
- *    chrome — it is not part of the composition and never measured as content.
- *  - **It is not negative space.** Air is a decision that this part of the
- *    composition stays blank; a note is editorial work parked in a zone that is
- *    expected to hold something else later. They are told apart by `kind`
- *    everywhere, never by what a zone happens to draw — all three of the
- *    kinds that draw nothing (an empty leaf, air, a note) mean different
- *    things.
- *
- * `text` is plain text, deliberately. Everything a note carries is meant to be
- * selected and pasted into somebody else's text box, where formatting would be
- * lost anyway; rich text here would be a second document model to migrate,
- * validate and render for no reader.
- */
-export interface NoteContent {
-  id: string
-  kind: 'note'
-  text: string
-  /**
-   * What this note is for, and therefore what the editor calls it.
-   *
-   * `'image-prompt'` is the one the whole workflow around notes exists for: the
-   * zone is the rectangle a picture is going to occupy, and the note is the
-   * prompt that will produce it. Marking it is what lets the editor say
-   * «Bildeprompt» rather than «Notat», and what lets an agent that comes back
-   * to a deck tell the placeholders it left from an ordinary remark.
-   *
-   * Required rather than optional, unlike `Subfield.verticalAlign`: a note is a
-   * new kind of content, so there is no stored note from before the property
-   * existed and no "nobody has chosen" state to tell apart from a choice.
-   */
-  purpose: NotePurpose
-}
-
-export type { NotePurpose } from './constants'
-
 export interface UntitledCardContent {
   id: string
   kind: 'untitled-card'
@@ -274,7 +224,6 @@ export interface TitledImageCardContent {
 
 export type ZoneContent =
   | NegativeSpaceContent
-  | NoteContent
   | ContainerContent
   | UntitledCardContent
   | TitledCardContent
@@ -450,6 +399,12 @@ export interface SandboxItem {
  */
 export type { Idea, IdeaCategory, IdeaRow } from './ideas'
 
+/**
+ * One planned picture: see `domain/imagePlan.ts`, which owns the rules about
+ * what the entries mean and how they become a brief.
+ */
+export type { PlannedImage } from './imagePlan'
+
 /** Asset metadata. Binary data lives in the asset store, never in the JSON. */
 export interface AssetRef {
   id: string
@@ -492,19 +447,32 @@ export interface Presentation extends DeckSource {
   title: string
   folderId: string | null
   /**
-   * The visual premise every image prompt in this deck is written against.
+   * The visual premise every picture in this deck shares.
    *
    * One piece of editorial text for the whole presentation — how the pictures
-   * should look, not what they should show — meant to be pasted once at the
-   * start of a chat and left standing while the individual prompts follow. It
-   * is never drawn on a slide and never published: like the sandbox and the
-   * ideas list, it is the working copy's, not the audience's.
+   * should look, not what they should show — which becomes the «FELLES
+   * BILDEKONTEKST» section of the deck's one generated image brief. It is
+   * never drawn on a slide and never published: like the sandbox and the ideas
+   * list, it is the working copy's, not the audience's.
    *
    * Absent means the deck has none. Stored as "missing" rather than as an empty
    * string so that adding the field wrote nothing into a single existing
    * document — the same reason `AssetRef.contentHash` is optional.
    */
-  imageBrief?: string
+  imageContext?: string
+  /**
+   * What each planned picture in this deck is supposed to show.
+   *
+   * The structured half of the image workflow: `imageContext` is the one shared
+   * context, this is one entry per reserved picture zone, and the copy-paste
+   * brief the author hands an image generator is composed from the two plus
+   * the zones' own geometry — see `domain/imagePlan.ts`. Nothing here is drawn
+   * and nothing here is published.
+   *
+   * Absent means nothing has been planned, for the same reason `imageContext` is
+   * optional: adding the field wrote nothing into a document that exists.
+   */
+  imagePlan?: PlannedImage[]
   sandbox: SandboxItem[]
   ideas: IdeaRow[]
   assets: AssetRef[]

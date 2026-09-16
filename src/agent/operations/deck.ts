@@ -15,13 +15,15 @@
  */
 
 import { z } from 'zod'
-import { IMAGE_BRIEF_RULE } from '../design'
+import { IMAGE_BRIEF_RULE, IMAGE_PLAN_RULE } from '../design'
 import {
   createDeck,
   fitContextFor,
-  setImageBrief,
+  setImageContext,
+  setImagePlan,
   setPresentationTitle,
 } from '../../domain/commands'
+import { checkImagePlan, composeImageBrief, resolveImagePlan } from '../../domain/imagePlan'
 import {
   bodyOf,
   contentAssetIds,
@@ -32,9 +34,10 @@ import {
 } from '../../domain/content'
 import {
   DEFAULT_VERTICAL_ALIGN,
-  MAX_IMAGE_BRIEF_CHARS,
+  MAX_IMAGE_CONTEXT_CHARS,
+  MAX_PLANNED_IMAGES,
+  MAX_PLANNED_IMAGE_FIELD_CHARS,
   type InteractiveStyleContract,
-  type NotePurpose,
 } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
 import { availableContentKinds, contentKindFitsRect } from '../../domain/contentSize'
@@ -62,6 +65,7 @@ import { ok } from '../../domain/result'
 import {
   defineOperation,
   expectedRevisionSchema,
+  nodeIdSchema,
   presentationIdSchema,
   slideIdSchema,
 } from '../operation'
@@ -180,16 +184,17 @@ export interface PresentationView {
    */
   theme: ThemeView
   /**
-   * The deck's shared visual premise for its pictures, or `null` when it has
-   * none — see `set_image_brief`.
+   * The deck's shared visual context for its pictures, or `null` when it has
+   * none — see `set_image_context`.
    *
    * Here rather than in an operation of its own, for the same reason the theme
-   * is: it is one small thing that applies to the whole deck, and every image
-   * prompt written for a slide depends on it. An agent that has read the
+   * is: it is one small thing that applies to the whole deck, and every picture
+   * planned for a slide is made against it. An agent that has read the
    * presentation should not need a second call to know what its pictures are
-   * supposed to look like.
+   * supposed to look like. The brief itself is generated rather than stored, so
+   * it has its own read (`get_image_brief`) and is not duplicated here.
    */
-  imageBrief: string | null
+  imageContext: string | null
   slideCount: number
   assetCount: number
   referenceCount: number
@@ -239,7 +244,7 @@ export function presentationView(presentation: Presentation): PresentationView {
     updatedAt: presentation.updatedAt,
     revision: presentationRevision(presentation),
     theme: themeView(presentation.theme),
-    imageBrief: presentation.imageBrief ?? null,
+    imageContext: presentation.imageContext ?? null,
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
     referenceCount: presentation.references.length,
@@ -364,31 +369,166 @@ export const setPresentationTitleOperation = defineOperation({
 })
 
 /* ------------------------------------------------------------------ *
- * set_image_brief
+ * The pictures: the shared context, the plan, and the generated brief
  * ------------------------------------------------------------------ */
 
-export const setImageBriefOperation = defineOperation({
-  name: 'set_image_brief',
+export const setImageContextOperation = defineOperation({
+  name: 'set_image_context',
   summary:
-    'Sett dekkets felles bildebrief: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum – den er premissen hver enkelt bildeprompt skrives mot, og det brukeren limer inn først i samtalen der bildene lages. Les den tilbake med get_presentation. ' +
+    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Den blir seksjonen «FELLES BILDEKONTEKST» i den samlede bildebriefen get_image_brief genererer – du skriver aldri den samlede briefen selv. ' +
     IMAGE_BRIEF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
     expectedRevision: expectedRevisionSchema,
-    brief: z
+    context: z
       .string()
-      .max(MAX_IMAGE_BRIEF_CHARS)
+      .max(MAX_IMAGE_CONTEXT_CHARS)
       .nullable()
-      .describe('Selve briefen. `null` eller bare mellomrom fjerner den.'),
+      .describe('Selve konteksten. `null` eller bare mellomrom fjerner den.'),
   }),
   run(context, input): Promise<AgentResult<PresentationView>> {
     return mutatePresentation(context, input, (presentation) => {
-      const written = setImageBrief(presentation, input.brief)
+      const written = setImageContext(presentation, input.context)
       if (!written.ok) return written
       return ok({ presentation: written.value, value: presentationView(written.value) })
     })
+  },
+})
+
+/** One planned picture as an agent reads it back: what it says, and what Slaids measured. */
+export interface PlannedImageView {
+  /** 1‥N in deck order. The number the zone's placeholder caption says. */
+  number: number
+  slideId: string
+  nodeId: string
+  /** What the slide is called, so a reader can find the zone. */
+  slideLabel: string
+  /** Measured from the zone, never from the text. See `domain/imagePlan.ts`. */
+  aspectRatio: string
+  orientation: string
+  /** Whether the file has arrived. A filled zone keeps its number. */
+  filled: boolean
+  subject: string
+  composition: string
+  requirements: string
+  avoid: string
+}
+
+/**
+ * The deck's pictures in full: the plan, the checks, and the brief itself.
+ *
+ * One view for both the reading operation and the writing one, so an agent that
+ * has just written a plan sees exactly what it would have got by reading it
+ * back — including the numbering, which is derived and therefore not something
+ * the write could have reported from its own input.
+ */
+export interface ImageBriefView {
+  presentationId: string
+  revision: string
+  /** The shared visual context, or `null` when the deck has none. */
+  imageContext: string | null
+  imageCount: number
+  images: PlannedImageView[]
+  /**
+   * What is wrong with the plan, in the deck's own terms.
+   *
+   * An empty list is the finishing line for the picture work — see
+   * `IMAGE_PLAN_RULE`. Everything in it names a slide or a picture and says
+   * what to change.
+   */
+  issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
+  /**
+   * The finished brief, ready to paste, or `null` when nothing is planned.
+   *
+   * Generated from the plan and the zones every time it is asked for; there is
+   * no stored copy, so it cannot be stale.
+   */
+  brief: string | null
+}
+
+function imageBriefView(presentation: Presentation): ImageBriefView {
+  const images = resolveImagePlan(presentation)
+  return {
+    presentationId: presentation.id,
+    revision: presentationRevision(presentation),
+    imageContext: presentation.imageContext ?? null,
+    imageCount: images.length,
+    images: images.map((image) => ({
+      number: image.number,
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+      slideLabel: image.slideLabel,
+      aspectRatio: image.aspectRatio,
+      orientation: image.orientation,
+      filled: image.filled,
+      subject: image.plan.subject,
+      composition: image.plan.composition,
+      requirements: image.plan.requirements,
+      avoid: image.plan.avoid,
+    })),
+    issues: checkImagePlan(presentation),
+    brief: composeImageBrief(presentation),
+  }
+}
+
+const plannedImageField = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
+
+export const planDeckImages = defineOperation({
+  name: 'plan_deck_images',
+  summary:
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. ' +
+    IMAGE_PLAN_RULE,
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    images: z
+      .array(
+        z.strictObject({
+          slideId: slideIdSchema,
+          nodeId: nodeIdSchema.describe(
+            'Sonen bildet skal ligge i. Den må allerede være `image` eller `titled-image-card`.',
+          ),
+          subject: plannedImageField.describe(
+            'Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre.',
+          ),
+          composition: plannedImageField.describe(
+            'Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',
+          ),
+          requirements: plannedImageField.describe(
+            'Faglige krav: det som må fremstilles korrekt for at bildet skal kunne brukes.',
+          ),
+          avoid: plannedImageField.describe(
+            'Hva som ikke skal forekomme i akkurat dette bildet. Ikke dekkets felles kontekst.',
+          ),
+        }),
+      )
+      .max(MAX_PLANNED_IMAGES)
+      .describe('Hele bildeplanen. Rekkefølgen her betyr ingenting – nummereringen følger dekket.'),
+  }),
+  run(context, input): Promise<AgentResult<ImageBriefView>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const written = setImagePlan(presentation, input.images, structuralOptions(context))
+      if (!written.ok) return written
+      return ok({ presentation: written.value, value: imageBriefView(written.value) })
+    })
+  },
+})
+
+export const getImageBrief = defineOperation({
+  name: 'get_image_brief',
+  summary:
+    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også kontrollene mot sonene – en tom `issues`-liste betyr at bildeplanen er ferdig.',
+  mutates: false,
+  scopes: ['presentations:read'],
+  input: z.strictObject({ presentationId: presentationIdSchema }),
+  async run(context, input): Promise<AgentResult<ImageBriefView>> {
+    const loaded = await loadPresentation(context, input.presentationId)
+    if (!loaded.ok) return loaded
+    return ok(imageBriefView(loaded.value))
   },
 })
 
@@ -445,29 +585,23 @@ export interface ZoneInspection {
   cardTitleAlign?: TextAlign
   /** Picture kinds only: the file, the crop and the caption over it. */
   image?: InspectedImage
-  /** Notes only: the editorial text in this zone, and what it is for. */
-  noteText?: string
-  notePurpose?: NotePurpose
   /**
-   * `image-prompt` notes only: which picture kinds the reserved rectangle could
-   * actually become, once the note is cleared.
+   * Picture kinds only: whether the rectangle is big enough for each picture
+   * kind, once its file arrives.
    *
-   * A note draws nothing and therefore has no minimum size, which is what makes
-   * it usable as a reservation at all — and also what makes the reservation
-   * silently breakable: a later split or a changed ratio can shrink the zone
-   * below a picture's minimum without anything refusing, and
-   * `availableContentKinds` cannot say so, because a note with text in it
-   * offers nothing but `note` until the zone is cleared. So the question the
-   * reservation exists to answer is asked here directly, of the same rule the
-   * conversion will be refused by.
+   * `availableContentKinds` answers what this zone could be *converted* to,
+   * which for a zone that is already a picture always includes the kind it is —
+   * that is what keeps a cramped legacy zone repairable. This asks the other
+   * question, the one a reservation exists for: is the rectangle actually big
+   * enough for a picture at all? A later split or a changed ratio can shrink a
+   * waiting picture zone below a picture's minimum, and nothing refuses,
+   * because nothing is being written.
    *
    * A list rather than a yes or no, because the two picture kinds are not the
    * same reservation: a `titled-image-card` carries a header above the picture
    * and therefore needs a text zone's width and that header's height on top of
-   * a picture's minimum. A rectangle can hold a bare `image` and refuse the
-   * card — so an agent that planned a named member of a series has to be able
-   * to see which of the two it actually reserved. Empty means the zone has
-   * become too small for any picture at all.
+   * a picture's minimum. Empty means the zone has become too small for any
+   * picture at all.
    */
   reservedImageKinds?: ZoneContentKind[]
   /**
@@ -559,18 +693,6 @@ export interface ContentInspection {
   /** Picture kinds only: the file, the crop and the caption over it. */
   image?: InspectedImage
   /**
-   * Notes only: the editorial text in this zone, and what it is for.
-   *
-   * Two flat fields rather than a nested object, the way a card's title is two
-   * — `note` alone is already taken, by the sentence a sandbox item carries
-   * saying what displaced it, and one word meaning two things across two
-   * readings of the same vocabulary is how an agent ends up reading the wrong
-   * one. The text is the same string that goes back in, so an agent can come
-   * back to a deck it built, read the prompt it left in a zone and refine it.
-   */
-  noteText?: string
-  notePurpose?: NotePurpose
-  /**
    * The subfield layout: which way the fields run and how they share the room.
    *
    * Reported even for a single field, because that is the layout a later
@@ -614,9 +736,6 @@ export function inspectContent(content: ZoneContent): ContentInspection {
               : {}),
           },
         }
-      : {}),
-    ...(content.kind === 'note'
-      ? { noteText: content.text, notePurpose: content.purpose }
       : {}),
     ...(body ? { subfieldAxis: body.axis, subfieldWeights: [...body.weights] } : {}),
     subfields:
@@ -736,6 +855,7 @@ function collectZones(
   }
 
   const content = node.content
+  const waitingPanel = imagePanelOf(content)
   // The same checker the commands run under, so "does it fit" has one answer.
   const fit = (context.fits ?? estimateFit)(content, rect, fitContext)
   out.push({
@@ -745,9 +865,10 @@ function collectZones(
     empty: false,
     availableContentKinds: kinds,
     ...inspectContent(content),
-    // See `ZoneInspection.reservedImageKinds`: only a reservation has a question
-    // to answer here, and each picture kind's own minimum answers it.
-    ...(content.kind === 'note' && content.purpose === 'image-prompt'
+    // See `ZoneInspection.reservedImageKinds`: only a zone that is waiting for a
+    // file has a question to answer here, and each picture kind's own minimum
+    // answers it.
+    ...(waitingPanel && !waitingPanel.assetId
       ? {
           reservedImageKinds: IMAGE_CONTENT_KINDS.filter((kind) =>
             contentKindFitsRect(kind, rect, tokens),
@@ -764,6 +885,8 @@ export const deckOperations = [
   getPresentation,
   createPresentationOperation,
   setPresentationTitleOperation,
-  setImageBriefOperation,
+  setImageContextOperation,
+  planDeckImages,
+  getImageBrief,
   inspectSlide,
 ]

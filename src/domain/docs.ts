@@ -30,10 +30,8 @@ export type DocTransform = (doc: RichDoc) => RichDoc
 
 export function mapContentDocs(content: ZoneContent, transform: DocTransform): ZoneContent {
   switch (content.kind) {
-    // Air draws no text at all, and a note's text is plain editorial prose
-    // rather than a rich-text document — neither has anything to map.
+    // Air draws no text at all, so there is nothing to map.
     case 'negative-space':
-    case 'note':
       return content
     case 'container':
     case 'untitled-card': {

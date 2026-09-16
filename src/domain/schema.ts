@@ -10,10 +10,10 @@ import { z } from 'zod'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from './metrics'
 import {
   INTERACTIVE_STYLE_CONTRACTS,
-  MAX_IMAGE_BRIEF_CHARS,
-  MAX_NOTE_CHARS,
+  MAX_IMAGE_CONTEXT_CHARS,
+  MAX_PLANNED_IMAGES,
+  MAX_PLANNED_IMAGE_FIELD_CHARS,
   MAX_SPLIT_CHILDREN,
-  NOTE_PURPOSES,
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
@@ -23,7 +23,7 @@ import { quantizeStoredRatios } from './ratios'
 import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactive'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 15
+export const CURRENT_SCHEMA_VERSION = 16
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -96,17 +96,6 @@ export const zoneContentSchema = z.discriminatedUnion('kind', [
   z.object({
     id: z.string().min(1),
     kind: z.literal('negative-space'),
-  }),
-  /* Editorial text that belongs to a zone and is never presented. Plain text
-     rather than a rich document — see `NoteContent` — and bounded, because it
-     rides inside the presentation on every save exactly as a miniapp's source
-     does. Adding this member needs no migration either: no document that
-     exists changes shape. */
-  z.object({
-    id: z.string().min(1),
-    kind: z.literal('note'),
-    text: z.string().max(MAX_NOTE_CHARS),
-    purpose: z.enum(NOTE_PURPOSES),
   }),
   z.object({
     id: z.string().min(1),
@@ -274,15 +263,35 @@ export const assetRefSchema = z.object({
   contentHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 })
 
+/**
+ * One planned picture: the zone it is for, and the four things the brief says
+ * about it. See `domain/imagePlan.ts`.
+ */
+export const plannedImageSchema = z.object({
+  slideId: z.string().min(1),
+  nodeId: z.string().min(1),
+  subject: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
+  composition: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
+  requirements: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
+  avoid: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
+})
+
 export const presentationSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
   id: z.string().min(1),
   title: z.string(),
   folderId: z.string().nullable(),
-  /* Optional, and no schema version bump: a document without it is a deck
-     nobody has written a brief for, not an older kind of document — the same
-     reason `AssetRef.contentHash` is optional. See `Presentation.imageBrief`. */
-  imageBrief: z.string().max(MAX_IMAGE_BRIEF_CHARS).optional(),
+  /* Optional: a document without it is a deck nobody has written a shared
+     image context for, not an older kind of document — the same reason
+     `AssetRef.contentHash` is optional. See `Presentation.imageContext`. */
+  imageContext: z.string().max(MAX_IMAGE_CONTEXT_CHARS).optional(),
+  /* Optional for the same reason, and bounded for the reason every editorial
+     field on the document is: it rides inside the presentation on every save.
+     Whether an entry still points at a picture zone is *not* asked here —
+     that is a question about the slides, and `checkImagePlan` answers it, so a
+     deck whose tree was re-split stays openable and reports the mismatch
+     instead of failing validation. */
+  imagePlan: z.array(plannedImageSchema).max(MAX_PLANNED_IMAGES).optional(),
   theme: themeSchema,
   /* At least one slide, and the first one is a section. The refinement is the
      runtime half of `DeckSlides`: it is the only place a stored document is

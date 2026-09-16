@@ -61,15 +61,6 @@ export function minimumSizeForKind(
     case 'negative-space':
       // Air. Nothing is drawn, so nothing can be hidden, so there is no floor.
       return { ...NO_MINIMUM }
-    case 'note':
-      /*
-       * A note draws nothing either: the affordance that opens it is editor
-       * chrome, not composition, so it is never measured and never decides how
-       * small a zone may be. The rectangle a note occupies is chosen for what
-       * comes *after* it — usually a picture — and that kind's own minimum is
-       * what answers then, on the call that converts.
-       */
-      return { ...NO_MINIMUM }
     case 'container':
       // A transparent card: the text stands directly on the slide, with no
       // chrome of its own around it.
@@ -93,13 +84,11 @@ export function minimumSizeForKind(
 /**
  * The smallest rect a leaf may occupy, given what it holds.
  *
- * An empty leaf, a negative-space leaf and a note leaf all answer «no
- * minimum», and for the same reason: none of them draws anything a small
- * rectangle could hide. They remain three different things — a hole the editor
- * offers a picker in and an agent reads as `empty: true`, composition the
- * author chose, and editorial text parked where something else will go — but
- * «how small may this be» is a question about what is drawn, and none of them
- * draws.
+ * An empty leaf and a negative-space leaf both answer «no minimum», and for the
+ * same reason: neither draws anything a small rectangle could hide. They remain
+ * two different things — a hole the editor offers a picker in and an agent
+ * reads as `empty: true`, and composition the author chose — but «how small may
+ * this be» is a question about what is drawn, and neither of them draws.
  */
 export function minimumSizeForContent(
   content: ZoneContent | null,
@@ -177,10 +166,9 @@ export function contentKindRefusal(
  *  2. **Is the rectangle big enough for that kind?** `contentKindRefusal`.
  *     `rect` is `null` where there is no zone to measure — nothing selected —
  *     and then this question is simply not asked.
- *  3. **Would the conversion throw something away?** Only air and notes can,
- *     and they throw away everything — neither has anywhere to put what a card
- *     was showing, and a note's own text has no place on a slide — so a zone
- *     with something in it has to be emptied first, in either direction.
+ *  3. **Would the conversion throw something away?** Only air can, and it
+ *     throws away everything — it has nowhere to put what a card was showing —
+ *     so a zone with something in it has to be emptied first.
  *
  * `content` is what the zone holds *today*, and `null` for an empty zone —
  * which reduces this to the size question, exactly as placing fresh content

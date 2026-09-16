@@ -8,8 +8,6 @@ function textOf(content: ZoneContent): string {
   switch (content.kind) {
     case 'negative-space':
       return ''
-    case 'note':
-      return content.text
     case 'container':
     case 'untitled-card':
       return content.body.subfields.map((field) => docToPlainText(field.doc)).join('\n')

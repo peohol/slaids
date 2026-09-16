@@ -1,86 +1,90 @@
 /**
- * Bildebrief: the deck's shared visual premise for its pictures.
+ * The deck's shared visual context for its pictures.
  *
  * One optional string on the presentation, which is exactly why it is worth
  * checking: an optional field that is written as `''` the first time anybody
- * looks at it is not optional, and a document that has never had a brief must
- * come out of a save byte-identical to the one that went in.
+ * looks at it is not optional, and a document that has never had one must come
+ * out of a save byte-identical to the one that went in.
+ *
+ * It is the *context*, not the brief. «Brief» means the one generated,
+ * copy-paste message an author hands an image generator, which is composed from
+ * this plus the image plan — see `imagePlan.ts`.
  */
 
 import { describe, expect, it } from 'vitest'
-import { MAX_IMAGE_BRIEF_CHARS } from './constants'
-import { setImageBrief } from './commands'
+import { MAX_IMAGE_CONTEXT_CHARS } from './constants'
+import { setImageContext } from './commands'
 import { migratePresentation } from './migrations'
 import { createPresentation, duplicatePresentationDocument } from './presentation'
 import { validatePresentation } from './schema'
 
-const BRIEF =
+const CONTEXT =
   'Fotorealistiske vitenskapelige rekonstruksjoner, naturlig dagslys, dempet jordfargepalett, ingen tekst eller rammer.'
 
-describe('setImageBrief', () => {
-  it('skriver briefen og leser den tilbake', () => {
-    const written = setImageBrief(createPresentation({ title: 'Evolusjon' }), BRIEF)
+describe('setImageContext', () => {
+  it('skriver konteksten og leser den tilbake', () => {
+    const written = setImageContext(createPresentation({ title: 'Evolusjon' }), CONTEXT)
     expect(written.ok).toBe(true)
-    if (written.ok) expect(written.value.imageBrief).toBe(BRIEF)
+    if (written.ok) expect(written.value.imageContext).toBe(CONTEXT)
   })
 
   it('lagrer nøyaktig det den fikk, uten å normalisere noe', () => {
     // Deliberately not trimmed: see the note on the command. Whitespace around
-    // a brief is harmless, and rewriting the value is not — the editor's field
+    // a context is harmless, and rewriting the value is not — the editor's field
     // is controlled by what is stored, so every normalisation is a keystroke
     // the author loses.
-    const padded = `  ${BRIEF}\n`
-    const written = setImageBrief(createPresentation({ title: 'x' }), padded)
+    const padded = `  ${CONTEXT}\n`
+    const written = setImageContext(createPresentation({ title: 'x' }), padded)
     expect(written.ok).toBe(true)
-    if (written.ok) expect(written.value.imageBrief).toBe(padded)
+    if (written.ok) expect(written.value.imageContext).toBe(padded)
   })
 
-  it('skriver ingenting inn i en presentasjon som ikke har en brief', () => {
+  it('skriver ingenting inn i en presentasjon som ikke har en kontekst', () => {
     // The reason the field is optional at all: opening the dialog and closing
     // it again, or any other write of nothing, must leave the document alone.
-    const base = createPresentation({ title: 'Uten brief' })
-    expect('imageBrief' in base).toBe(false)
-    // Air is not a brief, so none of these writes anything — and the one
+    const base = createPresentation({ title: 'Uten kontekst' })
+    expect('imageContext' in base).toBe(false)
+    // Air is not a context, so none of these writes anything — and the one
     // keystroke this costs is a leading space in an empty field, which is the
     // one place there is genuinely nothing to lose.
     for (const nothing of ['', ' ', '   ', '\n', null] as const) {
-      const written = setImageBrief(base, nothing)
+      const written = setImageContext(base, nothing)
       expect(written.ok, JSON.stringify(nothing)).toBe(true)
       if (!written.ok) continue
       expect(written.value, JSON.stringify(nothing)).toBe(base)
-      expect('imageBrief' in written.value).toBe(false)
+      expect('imageContext' in written.value).toBe(false)
     }
   })
 
-  it('fjerner briefen når forfatteren tømmer feltet helt', () => {
-    const base = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+  it('fjerner konteksten når forfatteren tømmer feltet helt', () => {
+    const base = setImageContext(createPresentation({ title: 'x' }), CONTEXT)
     expect(base.ok).toBe(true)
     if (!base.ok) return
     for (const emptied of ['', '  '] as const) {
-      const cleared = setImageBrief(base.value, emptied)
+      const cleared = setImageContext(base.value, emptied)
       expect(cleared.ok, JSON.stringify(emptied)).toBe(true)
-      if (cleared.ok) expect('imageBrief' in cleared.value).toBe(false)
+      if (cleared.ok) expect('imageContext' in cleared.value).toBe(false)
     }
   })
 
-  it('fjerner feltet igjen når briefen tømmes', () => {
-    const base = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+  it('fjerner feltet igjen når konteksten tømmes', () => {
+    const base = setImageContext(createPresentation({ title: 'x' }), CONTEXT)
     expect(base.ok).toBe(true)
     if (!base.ok) return
-    const cleared = setImageBrief(base.value, null)
+    const cleared = setImageContext(base.value, null)
     expect(cleared.ok).toBe(true)
-    if (cleared.ok) expect('imageBrief' in cleared.value).toBe(false)
+    if (cleared.ok) expect('imageContext' in cleared.value).toBe(false)
   })
 
-  it('avviser en brief som er lengre enn grensen, og sier hvor grensen går', () => {
-    const refused = setImageBrief(
+  it('avviser en kontekst som er lengre enn grensen, og sier hvor grensen går', () => {
+    const refused = setImageContext(
       createPresentation({ title: 'x' }),
-      'x'.repeat(MAX_IMAGE_BRIEF_CHARS + 1),
+      'x'.repeat(MAX_IMAGE_CONTEXT_CHARS + 1),
     )
     expect(refused.ok).toBe(false)
     if (!refused.ok) {
       expect(refused.error.code).toBe('INVALID_ARGUMENT')
-      expect(refused.error.details).toMatchObject({ maxChars: MAX_IMAGE_BRIEF_CHARS })
+      expect(refused.error.details).toMatchObject({ maxChars: MAX_IMAGE_CONTEXT_CHARS })
     }
   })
 })
@@ -101,61 +105,61 @@ describe('feltet skrives aldri om under markøren', () => {
     let presentation = createPresentation({ title: 'Skriver' })
     let shown = ''
     for (const character of text) {
-      const written = setImageBrief(presentation, shown + character)
+      const written = setImageContext(presentation, shown + character)
       expect(written.ok, `avvist etter «${shown}»`).toBe(true)
       if (!written.ok) return shown
       presentation = written.value
-      shown = presentation.imageBrief ?? ''
+      shown = presentation.imageContext ?? ''
     }
     return shown
   }
 
   it('lar forfatteren skrive en helt vanlig setning, mellomrom og alt', () => {
-    expect(typed(BRIEF)).toBe(BRIEF)
+    expect(typed(CONTEXT)).toBe(CONTEXT)
   })
 
-  it('lar linjeskift stå, så briefen kan ha avsnitt', () => {
+  it('lar linjeskift stå, så konteksten kan ha avsnitt', () => {
     const paragraphs = 'Naturlig dagslys.\n\nIngen tekst i bildene.'
     expect(typed(paragraphs)).toBe(paragraphs)
   })
 
   it('beholder et avsluttende mellomrom, som er halve veien til neste ord', () => {
-    const written = setImageBrief(createPresentation({ title: 'x' }), 'Dempet ')
+    const written = setImageContext(createPresentation({ title: 'x' }), 'Dempet ')
     expect(written.ok).toBe(true)
-    if (written.ok) expect(written.value.imageBrief).toBe('Dempet ')
+    if (written.ok) expect(written.value.imageContext).toBe('Dempet ')
   })
 })
 
-describe('briefen overlever lagring, import og duplisering', () => {
+describe('konteksten overlever lagring, import og duplisering', () => {
   it('valideres som en del av dokumentet', () => {
-    const written = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+    const written = setImageContext(createPresentation({ title: 'x' }), CONTEXT)
     expect(written.ok).toBe(true)
     if (!written.ok) return
     const validated = validatePresentation(JSON.parse(JSON.stringify(written.value)))
     expect(validated.issues).toEqual([])
-    expect(validated.value?.imageBrief).toBe(BRIEF)
+    expect(validated.value?.imageContext).toBe(CONTEXT)
   })
 
   it('leses uendret gjennom migrasjonskjeden', () => {
-    const written = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+    const written = setImageContext(createPresentation({ title: 'x' }), CONTEXT)
     expect(written.ok).toBe(true)
     if (!written.ok) return
     const imported = migratePresentation(JSON.parse(JSON.stringify(written.value)))
     expect(imported.ok).toBe(true)
-    if (imported.ok) expect(imported.value.imageBrief).toBe(BRIEF)
+    if (imported.ok) expect(imported.value.imageContext).toBe(CONTEXT)
   })
 
-  it('gir et dokument uten brief ingen brief når det åpnes', () => {
+  it('gir et dokument uten kontekst ingen kontekst når det åpnes', () => {
     const base = createPresentation({ title: 'Gammel' })
     const imported = migratePresentation(JSON.parse(JSON.stringify(base)))
     expect(imported.ok).toBe(true)
-    if (imported.ok) expect(imported.value.imageBrief).toBeUndefined()
+    if (imported.ok) expect(imported.value.imageContext).toBeUndefined()
   })
 
   it('følger med kopien, fordi den hører til dekket og ikke til én slide', () => {
-    const written = setImageBrief(createPresentation({ title: 'x' }), BRIEF)
+    const written = setImageContext(createPresentation({ title: 'x' }), CONTEXT)
     expect(written.ok).toBe(true)
     if (!written.ok) return
-    expect(duplicatePresentationDocument(written.value).presentation.imageBrief).toBe(BRIEF)
+    expect(duplicatePresentationDocument(written.value).presentation.imageContext).toBe(CONTEXT)
   })
 })

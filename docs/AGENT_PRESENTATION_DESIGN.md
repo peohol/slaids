@@ -15,7 +15,7 @@ Rekkefølgen under er ikke tilfeldig: hvert nivå forutsetter at nivået over er
 1. **Semantikk** – hva består sliden faktisk av, og hvilke enheter og relasjoner finnes i stoffet?
 2. **Slaids-native komposisjon** – sonetreet, slide-overskriften, teksten og kortene *er* sliden. Se «Native komposisjon først» rett under.
 3. **Visuelt behov** – trenger en sone bilde eller figur, og er det i så fall et illustrasjonsbilde eller en diagrammatisk figur?
-4. **Riktig medietype** – illustrasjon → raster (eller et bildenotat); diagrammatisk figur → SVG, og bare i den ene sonen den fyller.
+4. **Riktig medietype** – illustrasjon → raster, planlagt som en ekte bildesone pluss en oppføring i bildeplanen; diagrammatisk figur → SVG, og bare i den ene sonen den fyller.
 5. **Citations/referanser** – faktapåstander som trenger en kilde bruker referansesystemet, aldri en egen kildeslide eller tekst inne i en SVG.
 6. **Render/QA** – strukturell validering er ikke sluttkontrollen; representative slides rendres og inspiseres visuelt før dekket er ferdig.
 
@@ -57,11 +57,11 @@ Før agenten deler en sone, skal den spørre hva sliden faktisk består av. Let 
 
 Disse er ikke slide-maler, men semantiske enheter. Når flere navngivbare enheter finnes, bør relasjonen mellom dem normalt kunne ses i geometrien.
 
-### Container og punktliste
+### Én stor tekstsone og punktlisten
 
-Én stor container er riktig når sliden faktisk er én sammenhengende idé. Den er ikke et standardsvar.
+Én udelt tekstsone som hele slidens innhold er sjelden riktig svar mer enn én eller to ganger i et dekk, og aldri svaret på at stoffet var vanskelig å dekomponere.
 
-Dette gjelder like mye uten punktliste. «Gjennomsiktig container + overskrift + ett avsnitt», gjentatt slide etter slide, er det samme standardsvaret med listen tatt ut.
+Dette gjelder like mye uten punktliste. «Én stor tekstsone + overskrift + ett avsnitt», gjentatt slide etter slide, er det samme standardsvaret med listen tatt ut. Ender flere slides på rad slik, er det oftest fordi innholdet skulle vært delt i mindre enheter med hver sin korttittel.
 
 En punktliste er egnet når punktene er underordnede utsagn om samme objekt eller påstand. Dersom punktene egentlig er flere kategorier, faser, aktører eller sammenligningsenheter, bør de normalt få egne soner eller kort.
 
@@ -98,6 +98,10 @@ Bruk subfelter når delene sammen utgjør ett semantisk objekt og bør oppfattes
 
 ## 4. Velg innholdstype etter rolle
 
+> **Primært tekstinnhold er som hovedregel et `titled-card`.** `untitled-card` er unntaket, og `container` er det sekundære formatet for støttetekst.
+
+Velger du `container` eller `untitled-card` til hovedinnholdet på en slide, skal du kunne si hvorfor en korttittel ville gjort sliden dårligere.
+
 ### Titled card og titled image card
 
 Hovedregelen for navngitte, parallelle enheter er at de rammes inn med navnet som korttittel. Hvilken av de to typene det blir, avgjøres av hva som bærer enheten: **titled card** når det er tekst, **titled image card** når det er bildet.
@@ -121,15 +125,21 @@ Korttittelen står på én linje og brytes ikke. Får det fulle navnet ikke plas
 
 ### Untitled card
 
-Bruk når selve innholdet er budskapet og en ekstra etikett bare ville vært støy.
+Unntaket, ikke et alternativ på lik linje: bruk det der selve utsagnet er budskapet og en tittel bare ville vært støy — ett tall, én formulering, ett sitat.
 
 ### Container
 
-Bruk når sonen faktisk er én samlet idé uten behov for synlig innramming. En container er gjennomsiktig og rammer ingenting inn, og det er nettopp poenget med den — men det gjør den også til den innholdstypen en sone får når ingen velger.
+En container er gjennomsiktig og rammer ingenting inn. Det er et **sekundært format**, ikke standardvalget for primært tekstinnhold: små støttefelt, bildeforklaringer, fotnotepregede felt, kildehenvisninger og annet som bevisst ikke skal fremstå som en selvstendig enhet.
 
-Skriver du tekst i en tom sone, blir den en container. Det er utgangspunktet Slaids må velge for å ha et sted å legge teksten, ikke et designvalg. Skal sonen være én av flere navngitte enheter, settes innholdstypen før teksten skrives.
+Skriver du tekst i en tom sone, blir den en container. Det er utgangspunktet Slaids må velge for å ha et sted å legge teksten, ikke et designvalg. Innholdstypen settes før teksten skrives.
 
 En container er derfor aldri svaret på at stoffet var vanskelig å dekomponere.
+
+### Aksent er ikke korttittel
+
+Inne i et tekstfelt finnes en fremhevet tekstblokk. I agentkontrakten heter den `accent`, og i editoren heter knappen «Aksent». Den er en **underoverskrift**: et fremhevet poeng, eller en intern oppdeling av et kort som rommer flere delpoenger.
+
+Kortets hovedoverskrift er **korttittelen** på et `titled-card`. Et kort som trenger en overskrift, skal ha korttittel — ikke en aksent som later som den er én. Den underliggende editor-noden er fortsatt en `heading`; det er navnet i produktet og i agentkontrakten som er rettet, fordi det var navnet som fikk både forfattere og agenter til å skrive det ene i stedet for det andre.
 
 ### Image
 
@@ -205,19 +215,97 @@ Illustrasjonsbilder er normalvalget rasterbilder – det gjelder generelt, ikke 
 
 SVG skal heller aldri brukes til å gjenskape det Slaids allerede har som egen innholdstype: en hel slide, slideoverskriften, en vanlig tekstblokk, et kort, en korttittel eller et layoutgrid – heller ikke en litteraturliste eller en teksttung infografikk som i praksis erstatter Slaids-innhold. Tekst inne i en SVG skal normalt bare være korte etiketter som er en del av selve figuren (akseetiketter, diagramnoder, kartetiketter, navn på deler i en skjematisk figur), aldri løpende brødtekst eller faktapåstander som burde hatt en citation.
 
-### Når bildegenerator mangler
+### Bildearbeidsflyten
 
-Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Agenten skal planlegge dem:
+Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Rekkefølgen er alltid den samme, også når filene skal lages et annet sted:
 
-1. bestem bildets faglige rolle;
-2. reserver en sone der et bilde faktisk får plass;
-3. legg inn et bildenotat (`notePurpose: "image-prompt"`) i sonen;
-4. skriv en konkret prompt tilpasset sonens aspektforhold og komposisjon;
-5. bruk én felles bildebrief for dekket dersom minst ett generert rasterbilde planlegges.
+1. **Trenger sliden bilde i det hele tatt?** Bestem bildets faglige rolle først.
+2. **Planlegg sonetreet slik at bildesonen passer motivet.** Et stående motiv trenger en høy sone; en vid scene trenger en bred sone. Passer ikke sonens format til motivet, skal sonene planlegges på nytt — motivet skal ikke presses inn i feil rektangel.
+3. **Reserver sonen som en ekte bildesone:** sett innholdstypen til `image` eller `titled-image-card` uten fil. Sonen venter da på bildet, og har en bildesones minstemål. Inspeksjonen svarer med `reservedImageKinds`: bildetypene rektangelet faktisk rommer. Et titled image card trenger mer plass enn et bart bilde, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. Tom liste betyr at sonen må få mer plass.
+4. **Legg bildet inn i dekkets bildeplan** — én oppføring per bildesone, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet.
+5. **Skriv dekkets felles bildekontekst** så snart minst ett rasterbilde planlegges — også om det bare er ett.
 
-Et notat tegner ingenting og har derfor ingen minstestørrelse. Reservasjonen kan altså bli for liten uten at noe protesterer, og en sone som holder et notat med tekst i tilbyr ingen andre innholdstyper før den tømmes. Derfor svarer inspeksjonen med `reservedImageKinds` for bildenotater: bildetypene sonen faktisk kan bli. Et titled image card trenger mer plass enn et bart bilde, så planlegger du et navngitt medlem i en serie, er det den typen som må stå i listen. Tom liste betyr at sonen må få mer plass før noe bilde kan settes inn.
+Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
 
-Bildenotatet er et fremtidig bilde, ikke negativt rom.
+Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
+
+### Felles bildekontekst vs. motiv
+
+To forskjellige ting, og de må holdes fra hverandre:
+
+- **Felles bildekontekst** er det som er sant om alle bildene i dekket: uttrykk, realismegrad, lyssetting, kontrast, tidsperiode, miljø, bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås.
+- **Motivet** er hva ett bestemt bilde viser, og hører hjemme i bildeplanens oppføring for den sonen.
+
+Beskriver konteksten ett enkelt motiv, overstyrer den oppføringen for det bildet når de to settes sammen — og det er en av kontrollene Slaids faktisk melder fra om.
+
+### Den samlede bildebriefen
+
+Briefen er **generert**, ikke skrevet. Den er én sammenhengende tekst brukeren limer rett inn der bildene lages, og formatet er dette:
+
+```
+Lag nøyaktig [ANTALL] separate bilder til én presentasjon.
+
+VIKTIGE REGLER FOR LEVERANSEN
+Hvert nummer nedenfor er én selvstendig bildefil.
+Ikke kombiner flere nummer i samme bilde.
+Ikke lag collage, kontaktark, storyboard, diptyk, split-screen,
+før/etter-paneler eller ett bredt bilde som viser flere av motivene samtidig,
+med mindre dette uttrykkelig står i beskrivelsen av akkurat det bildet.
+Bilde 1 skal bare vise motivet til bilde 1, bilde 2 bare motivet til bilde 2 osv.
+
+Aspect ratio for hvert bilde er spesifisert eksplisitt.
+Følg dette forholdet så nøyaktig som bildegeneratoren tillater.
+Ikke gjør et stående eller nær-kvadratisk bilde liggende bare fordi motivet
+også kunne vært fremstilt i landskapsformat.
+
+Ingen tekst, etiketter, rammer eller infografikkelementer i bildene
+med mindre dette eksplisitt er bedt om for det aktuelle bildet.
+
+FELLES BILDEKONTEKST
+[Den felles bildekonteksten, ordrett.]
+
+BILDE 1 AV [ANTALL]
+Skal brukes på slide: [SLIDETITTEL]
+Aspect ratio: 4:5 (stående)
+
+Motiv:
+[...]
+
+Komposisjon og utsnitt:
+[...]
+
+Faglige krav:
+[...]
+
+Unngå i akkurat dette bildet:
+[...]
+
+[fortsett til bilde N]
+
+FØR GENERERING
+Kontroller at det er nøyaktig [ANTALL] separate bilder i listen,
+at hvert bilde har ett eksplisitt aspect ratio,
+at hvert nummer beskriver ett entydig motiv,
+og at motivene ikke utilsiktet er slått sammen eller gjort til varianter
+av det samme bildet.
+
+Generer deretter alle [ANTALL] bildene som separate bilder.
+```
+
+Malen bor i `src/domain/imagePlan.ts` og er dekket av tester. Utdraget over er en gjengivelse for lesere, ikke en andre normativ kilde: endres formatet, endres det der.
+
+### Kontrollene før briefen er ferdig
+
+Slaids sjekker planen mot dekket og melder fra om:
+
+- en bildeoppføring som peker på en sone som ikke finnes lenger, eller ikke er en bildesone;
+- en bildesone som venter på en fil uten at noen oppføring beskriver den;
+- et motiv som beskriver et annet format enn sonen faktisk har — enten i ord («panorama», «stående») eller som et forholdstall skrevet inn i teksten;
+- to oppføringer som i praksis beskriver samme motiv;
+- planlagte bilder uten felles bildekontekst;
+- en felles bildekontekst som gjentar motivet til ett enkelt bilde.
+
+En tom liste er sluttpunktet for bildearbeidet. Det er ingen åpen forbedringssløyfe etter det.
 
 ## 7. Komposisjoner som ofte fungerer
 
@@ -306,12 +394,16 @@ Unngå aktivt:
 - store synlige kort med svært lite tekst og unødvendig mye tom høyde når en enkel vertikal trim ville gitt bedre balanse;
 - å bruke negativt rom for å demonstrere at presentasjonen har negativt rom;
 - å droppe relevante bilder fordi agenten mangler rastergenerator;
+- å skrive en bred, liggende bildeprompt til en nær kvadratisk eller stående sone;
+- å oppgi aspect ratio i fritekst i stedet for å la sonen bestemme den;
+- å skrive den samlede bildebriefen for hånd i stedet for å la den genereres fra bildeplanen;
+- å bruke en aksent som om den var kortets hovedoverskrift, der korttittelen skulle båret navnet;
 - å tegne en hel slide, en slideoverskrift, kort eller korttitler som SVG i stedet for å bruke Slaids sine egne innholdstyper;
-- å tegne mennesker, dyr, bygninger eller andre illustrasjonsmotiver som hjemmelaget SVG i stedet for et rasterbilde eller et bildenotat;
+- å tegne mennesker, dyr, bygninger eller andre illustrasjonsmotiver som hjemmelaget SVG i stedet for et rasterbilde eller en planlagt bildesone;
 - å tegne en litteraturliste eller kildeoversikt som SVG i stedet for å bruke referansesystemet;
 - å bruke bilder som ren fyllmasse;
-- én stor container + punktliste som generelt standardsvar;
-- gjennomsiktig container + overskrift + tekst som generelt standardsvar;
+- én stor tekstsone + punktliste som generelt standardsvar;
+- gjennomsiktig container brukt som format for primært tekstinnhold;
 - navngitte, parallelle enheter uten synlig innramming, der korttittelen kunne båret navnet — også når enheten bæres av et bilde;
 - flere navngivbare konsepter i én punktliste når de burde være peers;
 - nested splits uten faktisk hierarki;
@@ -328,13 +420,33 @@ For hver slide:
 3. Dekomponer stoffet i semantiske enheter.
 4. Uttrykk enhetene som Slaids-soner og native innholdstyper – sonetreet, overskriften, tekst og kort er komposisjonen, ikke en SVG.
 5. Still bildespørsmålet for hver sone som trenger visuelt innhold: er behovet et illustrasjonsbilde eller en diagrammatisk figur?
-6. Illustrasjonsbilde → raster (bildenotat hvis rastergenerator mangler). Diagrammatisk figur → SVG, avgrenset til den ene sonen den fyller.
+6. Illustrasjonsbilde → raster: lag bildesonen slik at formatet passer motivet, og legg bildet inn i bildeplanen. Diagrammatisk figur → SVG, avgrenset til den ene sonen den fyller.
 7. Klassifiser relasjonen mellom enhetene og bygg det enkleste sonetreet som gjør relasjonen synlig.
-8. Velg innholdstype og vekter etter semantisk rolle — før teksten skrives, ikke etter.
+8. Velg innholdstype og vekter etter semantisk rolle — før teksten skrives, ikke etter. Primært tekstinnhold er et `titled-card` med mindre du kan si hvorfor ikke.
 9. Skriv kort tekst; bruk avsnitt eller linjeskift når en romslig flate har flere tydelige delpoenger, og bruk citations der en faktapåstand trenger en kilde.
 10. Bruk quote bare når et ekte sitat fortjener det.
 11. Bruk negativt rom bare når du kan forklare den konkrete kompositoriske gevinsten; særlig for å trimme høyden på synlige kort med lite innhold.
 12. Render representative slides og inspiser dem visuelt – spesielt slides med egenprodusert SVG – før dekket anses ferdig. Strukturell validering er nødvendig, men ikke tilstrekkelig.
+
+### Kontrollpunkter
+
+For hver tekstsone:
+
+1. Har jeg brukt `container` eller `untitled-card` der dette egentlig burde vært et `titled-card`?
+2. Har jeg brukt en aksent som om den var kortets hovedoverskrift, der korttittelen skulle båret navnet?
+3. Kunne dette tekstinnholdet vært fordelt på flere mindre soner med hver sin korttittel?
+4. Hvis ikke: kunne sonen likevel fått bedre intern oppdeling med subfelter og aksenter?
+
+Når første hele utkast står:
+
+1. Har semantisk like elementer fått lik visuell behandling gjennom hele presentasjonen?
+2. Passer fargevalgene til temaene og strukturen, og bærer de mening i stedet for å være dekorasjon?
+3. Har flere slides falt tilbake til det samme standardmønsteret uten god grunn?
+4. Er bildeplanen i samsvar med sonene: én oppføring per bildesone som venter på en fil, og ingen sone uten oppføring?
+5. Stemmer hvert planlagt motiv med formatet på sonen det skal ligge i?
+6. Er to planlagte bilder blitt så like at de i praksis beskriver nesten samme motiv?
+
+Når kontrollpunktene er besvart og det du fant er rettet, er presentasjonen ferdig. Det er ingen åpen forbedringssløyfe etter det.
 
 Den viktigste testen er fortsatt:
 

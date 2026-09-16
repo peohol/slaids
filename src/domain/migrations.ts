@@ -597,6 +597,73 @@ const migrate14to15: MigrationFn = (data) => ({
   schemaVersion: 15,
 })
 
+/**
+ * v15 → v16: a zone no longer holds editorial text of its own.
+ *
+ * Notes are gone as a content kind. What a note *was* — a rectangle reserved
+ * for a picture that would be made somewhere else, with the prompt parked in it
+ * — is now a real picture zone waiting for its file, plus an entry in the
+ * deck's image plan. So there is nothing for a stored note to become that would
+ * be equivalent to what it was.
+ *
+ * It becomes deliberate air, and that is the conservative answer rather than a
+ * convenient one. The two alternatives are both worse:
+ *
+ *  - **Turning it into a card with the text in it** would take working material
+ *    that was never shown to anybody — a prompt, a reminder, a question to
+ *    oneself — and put it on a slide an audience reads. Editorial text becoming
+ *    audience text without the author doing anything is the one outcome a
+ *    migration must not produce.
+ *  - **Removing the zone** would reflow every sibling around it, so an old deck
+ *    would open as a composition its author never laid out.
+ *
+ * Air keeps the rectangle and its place in the tree, draws nothing, and has no
+ * minimum size — exactly what a note did on every surface but the editor's own
+ * affordance. The text itself is dropped, because the only place left that
+ * could hold it is a slide.
+ *
+ * The same version renames `imageBrief` to `imageContext`. «Brief» now means
+ * the one generated, copy-paste message an author hands an image generator
+ * (`domain/imagePlan.ts`), and the stored field is the shared visual context
+ * that heads it — one word, one meaning, and the rename is what keeps a deck
+ * written before the distinction existed from carrying the older one.
+ */
+const migrate15to16: MigrationFn = (data) => ({
+  ...renameImageBrief(data),
+  slides: asArray(data.slides).map((slide) => {
+    const row = (slide ?? {}) as Raw
+    if (row.kind !== 'content') return slide
+    return { ...row, root: retireNotes(row.root) }
+  }),
+  sandbox: asArray(data.sandbox).filter((item) => {
+    /* A parked note is the one case where dropping the item entirely is right:
+       the sandbox holds content waiting to go back into a zone, and there is no
+       zone left that takes a note. */
+    const content = ((item ?? {}) as Raw).content as Raw | undefined
+    return content?.kind !== 'note'
+  }),
+  schemaVersion: 16,
+})
+
+function renameImageBrief(data: Raw): Raw {
+  if (!('imageBrief' in data)) return data
+  const { imageBrief, ...rest } = data
+  return typeof imageBrief === 'string' && imageBrief !== ''
+    ? { ...rest, imageContext: imageBrief }
+    : rest
+}
+
+function retireNotes(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node
+  const row = node as Raw
+  if (row.kind === 'split') {
+    return { ...row, children: asArray(row.children).map(retireNotes) }
+  }
+  const content = row.content as Raw | null | undefined
+  if (!content || content.kind !== 'note') return row
+  return { ...row, content: { id: asString(content.id, 'c_note'), kind: 'negative-space' } }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -614,6 +681,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   12: migrate12to13,
   13: migrate13to14,
   14: migrate14to15,
+  15: migrate15to16,
 }
 
 /**
