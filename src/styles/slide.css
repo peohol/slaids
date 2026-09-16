@@ -374,9 +374,24 @@
   line-height: 1.3;
 }
 
+/*
+ * The indent is on both sides, and the right one is not decoration: a marker
+ * hangs into the left inset, and an equal inset on the right is what lets a
+ * centred line be centred on the column itself rather than on a box that was
+ * inset from one side only. `estimateNodeHeight` subtracts both.
+ */
 .rich-doc :is(ul, ol, .rd-ul, .rd-ol) {
   margin: 0 0 var(--slaids-block-spacing, 6px);
   padding-left: var(--slaids-list-indent, 24px);
+  padding-right: var(--slaids-list-indent, 24px);
+}
+
+.rich-doc :is(ol, .rd-ol) {
+  counter-reset: rd-list-item;
+}
+
+.rich-doc :is(ol, .rd-ol) > :is(li, .rd-li) {
+  counter-increment: rd-list-item;
 }
 
 /*
@@ -395,42 +410,59 @@
 }
 
 /*
- * A centred or right-aligned item moves its marker *inside* the line rather
- * than hanging it in the gutter outside — the item's own `text-align` then
- * centres or right-aligns marker and text as one line, and keeps doing it for
- * every wrapped line after the first, the same "ladder" a centred paragraph
- * of ordinary prose already reads as. An outside marker cannot do this: it
- * hangs at a fixed offset from the item's own edge, and an item centred by
- * shrinking around one short line comes apart the moment a second, differently
- * measured line needs the item to fill the whole column instead — the marker
- * stays where the edge is, the now-centred text does not, and the gap between
- * them grows with the wrap.
+ * The marker is drawn by the item, not by the browser, and it is drawn out of
+ * flow — which is the whole point: a marker is not a glyph of the sentence, so
+ * it must not be part of what alignment measures. A native marker is one or
+ * the other and neither works here. An `inside` marker joins the line and is
+ * counted, so a centred line comes out pushed to the right by half the
+ * marker's width; an `outside` marker is not counted but hangs at a fixed
+ * offset from the item's own edge, so the moment alignment moves the text away
+ * from that edge — which is exactly what centring does — the marker stays
+ * behind and the gap grows with the line.
  *
- * `display: inline` is what lets the marker and the paragraph share that one
- * line — a block paragraph forces the inside marker onto a line of its own,
- * above the text rather than beside it. `:only-child` keeps this off a
- * multi-paragraph item (rare — pasted or agent-built content): an inline box
- * has no margin of its own to separate it from a sibling paragraph, so a
- * second paragraph needs to stay the block it already is.
+ * Positioned against the paragraph instead, it tracks the first line's own
+ * start edge, wherever alignment has put it, and costs that line no width at
+ * all: `left: 0` is the start of the paragraph's first fragment, the
+ * translation lifts the marker clear of it whatever it is as wide as, and the
+ * margin is the one gap between marker and word — the same gap for a bullet
+ * and for a number, which the browser's own markers are not.
  *
- * A left-aligned or unaligned item keeps its outside marker and hanging
- * indent untouched: nothing here fires for it, and nothing needs to — the
- * item already fills the column captures no ambiguity a wrap could break.
+ * `display: inline` is what makes that first fragment the first *line* rather
+ * than the whole block; `:only-child` keeps it off a multi-paragraph item
+ * (rare — pasted or agent-built content), which keeps the browser's own
+ * marker and its block paragraphs, since an inline box has no margin to
+ * separate it from a sibling paragraph.
  */
-.rich-doc :is(li, .rd-li):has(> [style*='text-align: center']),
-.rich-doc :is(li, .rd-li):has(> [style*='text-align:center']),
-.rich-doc :is(li, .rd-li):has(> [style*='text-align: right']),
-.rich-doc :is(li, .rd-li):has(> [style*='text-align:right']) {
-  list-style-position: inside;
+.rich-doc :is(li, .rd-li):has(> p:only-child) {
+  list-style: none;
 }
 
-.rich-doc :is(li, .rd-li):has(> [style*='text-align: center']) > p:only-child,
-.rich-doc :is(li, .rd-li):has(> [style*='text-align:center']) > p:only-child,
-.rich-doc :is(li, .rd-li):has(> [style*='text-align: right']) > p:only-child,
-.rich-doc :is(li, .rd-li):has(> [style*='text-align:right']) > p:only-child {
+.rich-doc :is(li, .rd-li):has(> p:only-child) > p {
   display: inline;
+  position: relative;
 }
 
+.rich-doc :is(li, .rd-li):has(> p:only-child) > p::before {
+  content: '\2022';
+  position: absolute;
+  left: 0;
+  margin-left: -0.32em;
+  transform: translateX(-100%);
+  white-space: pre;
+}
+
+.rich-doc :is(ol, .rd-ol) > :is(li, .rd-li):has(> p:only-child) > p::before {
+  content: counter(rd-list-item) '.';
+}
+
+/*
+ * Alignment is the item's to apply: the paragraph above is an inline box, and
+ * `text-align` does nothing on one of those, so the stored value is read here
+ * — from the same inline style both renderers write — and applied to the block
+ * that actually lays the lines out. Every line is then aligned on its own
+ * words alone, the first one included, because the marker beside it is out of
+ * flow and measures nothing.
+ */
 .rich-doc :is(li, .rd-li):has(> [style*='text-align: center']),
 .rich-doc :is(li, .rd-li):has(> [style*='text-align:center']) {
   text-align: center;

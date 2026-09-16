@@ -304,9 +304,13 @@ function estimateNodeHeight(
     case 'bulletList':
     case 'orderedList': {
       const items = node.content ?? []
+      // Indented on both sides — see the list rule in `slide.css`: the marker
+      // hangs into the left inset and the right one keeps a centred line
+      // centred on the column rather than on a box inset from one side only.
+      const inner = width - indent * 2
       return items.reduce((total, child, i) => {
         const gap = i < items.length - 1 ? tokens.paragraphSpacing : 0
-        return total + estimateNodeHeight(child, width - indent, context) + gap
+        return total + estimateNodeHeight(child, inner, context) + gap
       }, 0)
     }
     case 'listItem': {
