@@ -33,6 +33,7 @@ import {
   renamePresentation,
 } from '../../state/libraryActions'
 import type { Folder, PresentationSummary } from '../../domain/types'
+import { copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
 import { formatBytes } from '../format'
 import { Tooltip } from '../components/Tooltip'
@@ -539,6 +540,22 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                         onClick={() => void handleDuplicate(summary.id)}
                       >
                         <Icon name="copy" size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Kopier presentasjons-ID">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        aria-label={`Kopier presentasjons-ID for ${summary.title}`}
+                        data-testid="copy-presentation-id"
+                        onClick={() => {
+                          void copyToClipboard(summary.id).then((copied) => {
+                            if (copied) notify.success('Presentasjons-ID kopiert')
+                            else notify.error('Kunne ikke kopiere presentasjons-ID.')
+                          })
+                        }}
+                      >
+                        <Icon name="code" size={15} />
                       </button>
                     </Tooltip>
                     <Tooltip label="Last ned sikkerhetskopi">
