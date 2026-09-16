@@ -15,13 +15,18 @@
  * that say it.
  */
 
-import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from '../content'
-import { depositIsFinal, depositIsOpen, depositSlots, type ImageDeposit } from '../imageDeposit'
+import {
+  depositIsFinal,
+  depositIsOpen,
+  depositSlots,
+  restampDepositNumbers,
+  withoutDepositNumbers,
+  type ImageDeposit,
+} from '../imageDeposit'
 import { resolveImagePlan, imageZoneKey } from '../imagePlan'
-import { collectLeaves, updateNode } from '../layout'
-import { mapDeckSlides, touch } from '../presentation'
+import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
-import type { ContentSlide, LayoutNode, Presentation } from '../types'
+import type { Presentation } from '../types'
 import { setImageAsset } from './content'
 import type { StructuralOptions } from './types'
 
@@ -53,7 +58,10 @@ export function openImageDeposit(presentation: Presentation): Presentation {
       image.number,
     ]),
   )
-  const stamped = restampPanels(presentation, (slideId, nodeId) => numbers.get(imageZoneKey(slideId, nodeId)) ?? null)
+  const stamped = restampDepositNumbers(
+    presentation,
+    (slideId, nodeId) => numbers.get(imageZoneKey(slideId, nodeId)) ?? null,
+  )
 
   const deposit: ImageDeposit | undefined =
     numbers.size === 0 ? undefined : { status: 'pending', expectedCount: numbers.size }
@@ -77,7 +85,7 @@ export function abandonImageDeposit(presentation: Presentation): Result<Presenta
   if (!deposit || deposit.status !== 'pending') {
     return err('INVALID_ARGUMENT', 'Presentasjonen venter ikke på bilder.')
   }
-  const stripped = restampPanels(presentation, () => null)
+  const stripped = withoutDepositNumbers(presentation)
   return ok(
     touch(withDeposit(stripped, { status: 'abandoned', expectedCount: deposit.expectedCount })),
   )
@@ -137,50 +145,8 @@ export function completeImageDeposit(
     current = written.value
   }
 
-  const stripped = restampPanels(current, () => null)
-  return ok(
-    touch(withDeposit(stripped, { status: 'completed', expectedCount: slots.length })),
-  )
-}
-
-/* ------------------------------------------------------------------ *
- * Writing the numbers
- * ------------------------------------------------------------------ */
-
-/**
- * Every picture panel in the deck given the number the callback says, or none.
- *
- * One traversal for all three writers, so «which panels carry numbers» has one
- * implementation: a panel the callback has no number for loses the one it had,
- * which is what makes stamping idempotent and stripping total.
- */
-function restampPanels(
-  presentation: Presentation,
-  numberFor: (slideId: string, nodeId: string) => number | null,
-): Presentation {
-  let changed = false
-  const slides = mapDeckSlides(presentation.slides, {
-    section: (slide) => slide,
-    interactive: (slide) => slide,
-    content: (slide): ContentSlide => {
-      let root = slide.root
-      for (const leaf of collectLeaves(slide.root)) {
-        const content = leaf.content
-        if (!content || !hasImagePanel(content)) continue
-        const panel = imagePanelOf(content)
-        if (!panel) continue
-        const next = withDepositIndex(panel, numberFor(slide.id, leaf.id))
-        if (next === panel) continue
-        changed = true
-        root = updateNode(root, leaf.id, (node): LayoutNode => ({
-          ...(node as typeof leaf),
-          content: withImagePanel(content, next),
-        }))
-      }
-      return root === slide.root ? slide : { ...slide, root }
-    },
-  })
-  return changed ? { ...presentation, slides } : presentation
+  const stripped = withoutDepositNumbers(current)
+  return ok(touch(withDeposit(stripped, { status: 'completed', expectedCount: slots.length })))
 }
 
 /** The document with a deposit, or with none. Absent means «never had one». */

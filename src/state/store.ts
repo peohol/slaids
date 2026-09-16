@@ -95,6 +95,13 @@ interface EditorStore {
    * leave behind, and the store is the one place every one of them passes
    * through. So the document is computed, held, and committed only if the user
    * says yes — which is also what makes cancelling free: nothing was written.
+   *
+   * It is only ever valid against the document it was computed from, so every
+   * path that replaces that document lets it go — including undo and redo,
+   * which reach the deck even while a dialog is up (see `EditorView`'s capture
+   * handler: one deck, one history, whatever has focus). Committing a held
+   * change afterwards would put back a document the user had just stepped away
+   * from.
    */
   pendingDepositBreak: PendingDepositBreak | null
   /** Commit the held change and give up the deposit, for good. */
@@ -289,6 +296,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       lastLabel: null,
       lastChangeAt: 0,
       coalesceStartedAt: 0,
+      // The held change was computed from the document that just went away.
+      pendingDepositBreak: null,
       ...reconcileSelection(previous.presentation, state),
     })
   },
@@ -308,6 +317,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       lastLabel: null,
       lastChangeAt: 0,
       coalesceStartedAt: 0,
+      pendingDepositBreak: null,
       ...reconcileSelection(next.presentation, state),
     })
   },

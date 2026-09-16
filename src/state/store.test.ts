@@ -475,6 +475,30 @@ describe('image deposit guard', () => {
     expect(useEditorStore.getState().presentation).toBe(deck)
   })
 
+  it('lets go of the held change when the user steps through history instead', () => {
+    const { deck, slideId, nodeIds } = pendingDeposit()
+    useEditorStore.getState().setPresentation(deck)
+    // Something to step back to, so undo has somewhere to go.
+    useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+    const withSlide = useEditorStore.getState().presentation as Presentation
+
+    useEditorStore.getState().runStructural('delete-zone', (current) =>
+      deleteLayoutNode(current, { slideId, nodeId: nodeIds[0], contentDisposition: 'delete' }),
+    )
+    expect(useEditorStore.getState().pendingDepositBreak).not.toBeNull()
+
+    // Ctrl+Z reaches the deck even while the dialog is up — one deck, one
+    // history — so the held change is about a document that is no longer here.
+    useEditorStore.getState().undo()
+
+    expect(useEditorStore.getState().pendingDepositBreak).toBeNull()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    // And confirming afterwards cannot put the undone slide back.
+    useEditorStore.getState().confirmDepositBreak()
+    expect(useEditorStore.getState().presentation).toBe(deck)
+    expect(withSlide.slides.length).toBe(deck.slides.length + 1)
+  })
+
   it('also catches a change of content kind, which is not a structural command', () => {
     const { deck, slideId, nodeIds } = pendingDeposit()
     useEditorStore.getState().setPresentation(deck)

@@ -555,7 +555,13 @@ interface Presentation {
 
 **Ingen ny synlig innholdstype.** Sonene er vanlige `image`/`titled-image-card`
 hele veien. Det eneste nye på sliden er et tall på bildepanelet, som aldri
-tegnes og aldri publiseres.
+tegnes og aldri publiseres. «Aldri publiseres» er en egenskap ved én
+gjennomgang og ikke et løfte to filer gir hver for seg: `buildSharedSnapshot`
+stripper numrene med `withoutDepositNumbers` — den samme funksjonen som skriver
+dem — på vei ut. Sandkassen strippes alltid av samme grunn: innhold parkert der
+ligger ikke på en slide og er derfor ikke med i noen deponering, så et innhold
+som ble reddet til sandkassen av nettopp den endringen som avsluttet
+deponeringen bærer ikke nummeret sitt tilbake når det plasseres igjen.
 
 **Nummeret bor på elementet, ikke i en liste ved siden av.** Et manifest på
 presentasjonsnivå ville fortsatt navngitt en sone som er borte; et tall på
@@ -616,6 +622,12 @@ Bekrefter brukeren, skrives endringen og deponeringen avsluttes som **én**
 historikkoppføring: det var én beslutning, og en Ctrl+Z som tok sonen tilbake men
 lot dekket stå uten deponeringen ville angret noe ingen gjorde. Avbryter
 brukeren, er ingenting skrevet — dokumentet ble aldri byttet ut.
+
+Den tilbakeholdte endringen gjelder bare mot det dokumentet den ble regnet ut
+fra, så hver vei som bytter ut dokumentet slipper den — også angre og gjenta,
+som når dekket selv om en dialog står åpen (ett dekk, én historikk, uansett hva
+som har fokus). Å skrive en tilbakeholdt endring etterpå ville lagt tilbake et
+dokument brukeren nettopp gikk bort fra.
 
 Et pastet innhold mister nummeret sitt (`cloneContentWithNewIds`): en kopi er
 ikke dekkets bilde 3, og to soner som begge påstår 3 ville vært akkurat den

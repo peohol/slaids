@@ -32,11 +32,12 @@
  * which is why `openImageDeposit` asks before it stamps.
  */
 
-import { imagePanelOf } from './content'
+import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from './content'
+import { mapDeckSlides } from './deckSlides'
 import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { imageZoneKey, resolveImagePlan } from './imagePlan'
-import { collectLeaves } from './layout'
-import type { Presentation } from './types'
+import { collectLeaves, updateNode } from './layout'
+import type { ContentSlide, LayoutNode, Presentation, SandboxItem } from './types'
 
 export type ImageDepositStatus = 'pending' | 'completed' | 'abandoned'
 
@@ -272,4 +273,69 @@ export function reviewDepositFiles(
       missing.length === 0 &&
       files.every((file) => file.problem === null),
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Writing and taking back the numbers
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every picture panel in the deck given the number the callback says, or none.
+ *
+ * One traversal for everything that writes or takes back a number — opening a
+ * deposit, closing one, giving up on one, and publishing a deck — so «which
+ * panels carry numbers» has one implementation. A panel the callback has no
+ * number for loses the one it had, which is what makes stamping idempotent and
+ * stripping total.
+ *
+ * **The sandbox is always stripped.** Content parked there is not on a slide,
+ * so it is not part of any deposit — and a zone whose content was rescued to
+ * the sandbox by the very edit that ended the deposit would otherwise carry the
+ * number back onto a slide when it was placed again. `depositSlots` never looks
+ * there either, so the two agree.
+ *
+ * Returns the very same presentation when nothing changed, so a caller can tell
+ * whether there is anything to save.
+ */
+export function restampDepositNumbers(
+  presentation: Presentation,
+  numberFor: (slideId: string, nodeId: string) => number | null,
+): Presentation {
+  let changed = false
+
+  const slides = mapDeckSlides(presentation.slides, {
+    section: (slide) => slide,
+    interactive: (slide) => slide,
+    content: (slide): ContentSlide => {
+      let root = slide.root
+      for (const leaf of collectLeaves(slide.root)) {
+        const content = leaf.content
+        if (!content || !hasImagePanel(content)) continue
+        const next = withDepositIndex(content.image, numberFor(slide.id, leaf.id))
+        if (next === content.image) continue
+        changed = true
+        root = updateNode(root, leaf.id, (node): LayoutNode => ({
+          ...(node as typeof leaf),
+          content: withImagePanel(content, next),
+        }))
+      }
+      return root === slide.root ? slide : { ...slide, root }
+    },
+  })
+
+  const sandbox = presentation.sandbox.map((item): SandboxItem => {
+    const panel = imagePanelOf(item.content)
+    if (!panel) return item
+    const next = withDepositIndex(panel, null)
+    if (next === panel) return item
+    changed = true
+    return { ...item, content: withImagePanel(item.content, next) }
+  })
+
+  return changed ? { ...presentation, slides, sandbox } : presentation
+}
+
+/** The deck with no deposit numbers anywhere: what publishing and closing leave. */
+export function withoutDepositNumbers(presentation: Presentation): Presentation {
+  return restampDepositNumbers(presentation, () => null)
 }

@@ -25,6 +25,8 @@ import {
 } from './commands/imageDeposit'
 import { setContentKind, setImageAsset } from './commands/content'
 import { deleteLayoutNode } from './commands/layout'
+import { placeSandboxItem } from './commands/sandbox'
+import { buildSharedSnapshot } from './sharing'
 import { registerAsset } from './commands/assets'
 import { createImage } from './content'
 import { createLeaf, createSplit } from './layout'
@@ -336,6 +338,46 @@ describe('fullføring', () => {
         { index: 1, assetId: 'a_2' },
       ]).ok,
     ).toBe(false)
+  })
+})
+
+describe('numrene er interne', () => {
+  it('publiseres aldri i et delt snapshot', () => {
+    const { deck } = pendingDeck()
+    // The numbers are on the panels being published — this is the one thing on
+    // a slide that is not the audience's.
+    expect(depositSlots(deck)).toHaveLength(3)
+    const snapshot = buildSharedSnapshot(deck)
+    expect(JSON.stringify(snapshot)).not.toContain('depositIndex')
+    expect(JSON.stringify(snapshot)).not.toContain('imageDeposit')
+  })
+
+  it('følger ikke med innhold som er parkert i sandkassen', () => {
+    const { deck, slideId, nodeIds } = pendingDeck()
+    const rescued = deleteLayoutNode(deck, {
+      slideId,
+      nodeId: nodeIds[0],
+      contentDisposition: 'sandbox',
+    })
+    if (!rescued.ok) throw new Error(rescued.error.message)
+
+    const given = abandonImageDeposit(rescued.value.presentation)
+    if (!given.ok) throw new Error(given.error.message)
+    expect(given.value.sandbox).toHaveLength(1)
+    expect(JSON.stringify(given.value.sandbox)).not.toContain('depositIndex')
+
+    // So putting it back does not carry a number onto a deck that has none.
+    const slide = given.value.slides[1]
+    if (slide.kind !== 'content') throw new Error('Forventet en innholdsslide')
+    const target = slide.root.kind === 'split' ? slide.root.children[0].id : slide.root.id
+    const placed = placeSandboxItem(given.value, {
+      itemId: given.value.sandbox[0].id,
+      slideId,
+      nodeId: target,
+      replace: true,
+    })
+    if (!placed.ok) throw new Error(placed.error.message)
+    expect(depositSlots(placed.value.presentation)).toEqual([])
   })
 })
 
