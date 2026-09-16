@@ -433,6 +433,41 @@ export const MAX_IMAGE_CONTEXT_CHARS = 8000
 export const MAX_PLANNED_IMAGE_FIELD_CHARS = 2000
 
 /**
+ * The text fields of a planned picture, in the order the brief prints them.
+ */
+export const PLANNED_IMAGE_FIELDS = ['subject', 'composition', 'requirements', 'avoid'] as const
+
+export type PlannedImageField = (typeof PLANNED_IMAGE_FIELDS)[number]
+
+/**
+ * The two a planned picture cannot be without, and why exactly these two.
+ *
+ * The motif is what the entry *is*: it is the field that has to differ between
+ * two pictures, and an entry without one numbers a picture with nothing to
+ * show. The composition is what the zone's shape is checked against — without
+ * it `ASPECT_MISMATCH` has nothing to read, so the plan cannot be checked
+ * against the deck at all, which is the one thing that model exists to do.
+ *
+ * The other two are legitimately empty. Demanding them would produce «ingenting
+ * spesielt å unngå» in every entry, which is filler that makes the brief longer
+ * and says less.
+ *
+ * Here rather than in `imagePlan.ts` because three surfaces enforce it and one
+ * of them is the persisted document's schema, which everything else loads
+ * before `imagePlan.ts` exists. See `plannedImagesRefusal`, `plannedImageSchema`
+ * and `plan_deck_images`.
+ */
+export const REQUIRED_PLANNED_IMAGE_FIELDS: readonly PlannedImageField[] = [
+  'subject',
+  'composition',
+]
+
+/** Whether a required field actually says something. Whitespace is not something. */
+export function plannedImageFieldIsBlank(value: string): boolean {
+  return value.trim() === ''
+}
+
+/**
  * The most pictures one deck may plan.
  *
  * A bound rather than a design rule: the brief is one message an author pastes

@@ -37,6 +37,7 @@ import {
   MAX_IMAGE_CONTEXT_CHARS,
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
+  plannedImageFieldIsBlank,
   type InteractiveStyleContract,
 } from '../../domain/constants'
 import { estimateFit } from '../../domain/fit'
@@ -475,6 +476,19 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
 
 const plannedImageField = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
 
+/**
+ * A field an entry cannot be without.
+ *
+ * Which ones those are is the domain's (`REQUIRED_PLANNED_IMAGE_FIELDS`), and
+ * the blank test is the domain's too, so an agent is refused by the schema for
+ * exactly what the command would have refused it for — one round earlier, and
+ * with the field named.
+ */
+const requiredPlannedImageField = plannedImageField.refine(
+  (value) => !plannedImageFieldIsBlank(value),
+  { message: 'Feltet kan ikke være tomt' },
+)
+
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
@@ -492,17 +506,17 @@ export const planDeckImages = defineOperation({
           nodeId: nodeIdSchema.describe(
             'Sonen bildet skal ligge i. Den må allerede være `image` eller `titled-image-card`.',
           ),
-          subject: plannedImageField.min(1).describe(
-            'Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre, og det eneste som er påkrevd.',
+          subject: requiredPlannedImageField.describe(
+            'Påkrevd. Hva bildet viser, konkret og entydig. Det ene feltet som må skille dette bildet fra de andre.',
           ),
-          composition: plannedImageField.describe(
-            'Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',
+          composition: requiredPlannedImageField.describe(
+            'Påkrevd. Komposisjon og utsnitt: hvor motivet er, kameravinkel, helfigur eller nærbilde, nødvendig negativ plass. Uten den kan ikke motivet kontrolleres mot sonens format. Ikke oppgi format eller aspect ratio – Slaids måler det fra sonen.',
           ),
           requirements: plannedImageField.describe(
-            'Faglige krav: det som må fremstilles korrekt for at bildet skal kunne brukes.',
+            'Valgfri. Faglige krav: det som må fremstilles korrekt for at bildet skal kunne brukes. Utelatt eller tom utelates fra briefen.',
           ),
           avoid: plannedImageField.describe(
-            'Hva som ikke skal forekomme i akkurat dette bildet. Ikke dekkets felles kontekst.',
+            'Valgfri. Hva som ikke skal forekomme i akkurat dette bildet – aldri dekkets felles kontekst. Utelatt eller tom utelates fra briefen.',
           ),
         }),
       )

@@ -26,6 +26,7 @@ import { createImage, createTitledImageCard } from './content'
 import { createLeaf, createSplit } from './layout'
 import { createPresentation } from './presentation'
 import { titleDoc, docToPlainText } from './richdoc'
+import { REQUIRED_PLANNED_IMAGE_FIELDS } from './constants'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
 import {
@@ -212,11 +213,29 @@ describe('bildeplanen mot dekket', () => {
     if (!missing.ok) expect(missing.error.code).toBe('NODE_NOT_FOUND')
   })
 
-  it('avviser en oppføring uten motiv, som ikke er en oppføring', () => {
+  it.each(REQUIRED_PLANNED_IMAGE_FIELDS)('avviser en oppføring uten %s', (field) => {
+    // Motif and composition are the two an entry cannot be without: the first
+    // is what makes it *this* picture, the second is what the zone's shape is
+    // checked against. Whitespace is not a value — a field of spaces produces
+    // exactly the unusable brief a blank one does.
     const { deck, slideId, nodeIds } = threeColumns()
-    const blank = setImagePlan(deck, [{ ...entry(slideId, nodeIds[0], ''), subject: '   ' }])
-    expect(blank.ok).toBe(false)
-    if (!blank.ok) expect(blank.error.code).toBe('INVALID_ARGUMENT')
+    for (const blank of ['', '   ', '\n\t']) {
+      const refused = setImagePlan(deck, [
+        { ...entry(slideId, nodeIds[0], 'Et motiv.'), [field]: blank },
+      ])
+      expect(refused.ok, `${field}: ${JSON.stringify(blank)}`).toBe(false)
+      if (!refused.ok) expect(refused.error.code).toBe('INVALID_ARGUMENT')
+    }
+  })
+
+  it('godtar at de to valgfrie feltene er tomme', () => {
+    // The other two are legitimately empty. Demanding them would produce
+    // «ingenting spesielt å unngå» in every entry.
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = setImagePlan(deck, [
+      { ...entry(slideId, nodeIds[0], 'Et motiv.'), requirements: '', avoid: '   ' },
+    ])
+    expect(written.ok).toBe(true)
   })
 
   it('avviser to oppføringer på den samme sonen', () => {
@@ -416,18 +435,6 @@ describe('den samlede briefen', () => {
     expect(brief).not.toContain('ikke beskrevet')
   })
 
-  it('melder fra om en oppføring uten komposisjon i stedet for å skrive et tomt avsnitt', () => {
-    const { deck, slideId, nodeIds } = threeColumns()
-    const written = planned(deck, [
-      { ...entry(slideId, nodeIds[0], 'Nærbilde av en flintøks.'), composition: '' },
-    ])
-    // The composition is what has to match the zone's shape, so an entry
-    // without one cannot be checked against its zone at all — and a plan that
-    // cannot be checked must not report itself finished.
-    const incomplete = checkImagePlan(written).find((issue) => issue.code === 'INCOMPLETE_ENTRY')
-    expect(incomplete?.number).toBe(1)
-  })
-
   it('er null når dekket ikke planlegger bilder', () => {
     const { deck } = threeColumns()
     expect(composeImageBrief(deck)).toBeNull()
@@ -550,5 +557,33 @@ describe('planen er dokumentdata, ikke publikumsdata', () => {
     const { deck, slideId, nodeIds } = threeColumns()
     const written = planned(deck, [entry(slideId, nodeIds[0], 'Homo erectus i helfigur.')])
     expect(validatePresentation(written).ok).toBe(true)
+  })
+
+  it.each(REQUIRED_PLANNED_IMAGE_FIELDS)(
+    'avvises ved persistensgrensen når %s er blank i et lagret dokument',
+    (field) => {
+      // The other system boundary. A `.slaids` archive is a file a person can
+      // edit, so the schema has to refuse what the command refuses — otherwise
+      // an imported deck could carry a plan the normal write path would never
+      // have produced, and generate a brief with a picture that shows nothing.
+      const { deck, slideId, nodeIds } = threeColumns()
+      const written = planned(deck, [entry(slideId, nodeIds[0], 'Homo erectus i helfigur.')])
+      for (const blank of ['', '   ']) {
+        const tampered: Presentation = {
+          ...written,
+          imagePlan: [{ ...written.imagePlan![0], [field]: blank }],
+        }
+        const result = validatePresentation(JSON.parse(JSON.stringify(tampered)))
+        expect(result.ok, `${field}: ${JSON.stringify(blank)}`).toBe(false)
+      }
+    },
+  )
+
+  it('godtar et lagret dokument der bare de valgfrie feltene er tomme', () => {
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = planned(deck, [
+      { ...entry(slideId, nodeIds[0], 'Homo erectus i helfigur.'), requirements: '', avoid: '' },
+    ])
+    expect(validatePresentation(JSON.parse(JSON.stringify(written))).ok).toBe(true)
   })
 })

@@ -27,7 +27,12 @@
  * plan lives beside the slides, exactly as the sandbox and the ideas list do.
  */
 
-import { MAX_PLANNED_IMAGES, MAX_PLANNED_IMAGE_FIELD_CHARS } from './constants'
+import {
+  MAX_PLANNED_IMAGES,
+  MAX_PLANNED_IMAGE_FIELD_CHARS,
+  PLANNED_IMAGE_FIELDS,
+  plannedImageFieldIsBlank,
+} from './constants'
 import { computeSlideGeometry } from './geometry'
 import { panelFrame } from './imageOptimization'
 import { collectLeaves } from './layout'
@@ -55,18 +60,15 @@ import type { Presentation, Size, ZoneContent } from './types'
 export interface PlannedImage {
   slideId: string
   nodeId: string
-  /** What the picture shows. The one field that must differ between pictures. */
+  /** What the picture shows. Required: the one field that must differ between pictures. */
   subject: string
-  /** Framing, crop, camera angle, necessary negative space. */
+  /** Framing, crop, camera angle, necessary negative space. Required. */
   composition: string
   /** What has to be depicted correctly for the picture to be usable. */
   requirements: string
   /** What must not appear in *this* picture. Never the deck's shared context. */
   avoid: string
 }
-
-/** The text fields of a plan entry, in the order the brief prints them. */
-export const PLANNED_IMAGE_FIELDS = ['subject', 'composition', 'requirements', 'avoid'] as const
 
 /* ------------------------------------------------------------------ *
  * Aspect ratios
@@ -247,8 +249,6 @@ export type ImagePlanIssueCode =
   | 'ZONE_NOT_PLANNED'
   /** The prompt claims a shape the zone does not have. */
   | 'ASPECT_MISMATCH'
-  /** An entry is missing a section the brief needs in order to be usable. */
-  | 'INCOMPLETE_ENTRY'
   /** The number on the slide and the number in the brief have come apart. */
   | 'PLACEHOLDER_STALE'
   /** Two entries describe what amounts to the same picture. */
@@ -337,15 +337,6 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
 
   for (const image of resolved) {
     issues.push(...aspectIssues(image))
-    if (image.plan.composition.trim() === '') {
-      issues.push({
-        code: 'INCOMPLETE_ENTRY',
-        message: `Bilde ${image.number} har ingen komposisjon. Komposisjonen er det som må passe sonens format, så uten den kan ikke briefen kontrolleres mot sonen.`,
-        number: image.number,
-        slideId: image.plan.slideId,
-        nodeId: image.plan.nodeId,
-      })
-    }
     const stale = placeholderIssue(image)
     if (stale) issues.push(stale)
   }
@@ -613,11 +604,11 @@ export function plannedImagesRefusal(entries: readonly PlannedImage[]): string |
     const key = imageZoneKey(entry.slideId, entry.nodeId)
     if (seen.has(key)) return 'To bildeoppføringer peker på den samme sonen.'
     seen.add(key)
-    /* The motif is what the entry *is*: it is the one field that has to differ
-       between two pictures, and a brief that numbers a picture with nothing to
-       show is a brief that produces whatever the generator felt like. */
-    if (entry.subject.trim() === '') {
+    if (plannedImageFieldIsBlank(entry.subject)) {
       return 'En bildeoppføring må beskrive et motiv. Uten motiv er det ingenting å generere.'
+    }
+    if (plannedImageFieldIsBlank(entry.composition)) {
+      return 'En bildeoppføring må beskrive komposisjon og utsnitt. Uten den kan ikke motivet kontrolleres mot sonens format.'
     }
     for (const name of PLANNED_IMAGE_FIELDS) {
       if (entry[name].length > MAX_PLANNED_IMAGE_FIELD_CHARS) {

@@ -398,13 +398,29 @@ idempotent kall som bringer et hvilket som helst dekk i orden igjen. Editorens
 bildebrief-dialog kjører det når den åpnes, så forfatteren aldri ser et utdatert
 nummer; agenten skriver bildeplanen på nytt.
 
-En oppføring **må** ha et motiv: det er det ene feltet som skiller to bilder fra
-hverandre, og en brief som nummererer et bilde uten noe å vise er en brief som
-produserer hva som helst. Kommandoen avviser en tom `subject`. De tre andre
-feltene er valgfrie, og briefen skriver bare de seksjonene som faktisk sier noe
-— en overskrift over «(ikke beskrevet)» er en instruks om å tegne ingenting
-spesielt. Mangler komposisjonen, sier `INCOMPLETE_ENTRY` fra, fordi det er den
-som må passe sonens format.
+**To av de fire feltene er påkrevd**, og hvilke to er én regel
+(`REQUIRED_PLANNED_IMAGE_FIELDS`) som tre flater leser:
+
+- **`subject`** er det oppføringen *er*. Det er feltet som må skille to bilder
+  fra hverandre, og en brief som nummererer et bilde uten noe å vise er en brief
+  som produserer hva som helst.
+- **`composition`** er det sonens format kontrolleres mot. Uten den har
+  `ASPECT_MISMATCH` ingenting å lese, og planen kan ikke kontrolleres mot dekket
+  i det hele tatt — som er det hele modellen finnes for.
+
+`requirements` og `avoid` er valgfrie. Å kreve dem ville produsert «ingenting
+spesielt å unngå» i hver eneste oppføring, og briefen skriver derfor bare de
+seksjonene som faktisk sier noe: en overskrift over «(ikke beskrevet)» er en
+instruks om å tegne ingenting spesielt.
+
+Regelen håndheves to steder, og begge er systemgrenser: `setImagePlan` (som
+`plan_deck_images` sitt skjema avviser tidligere, med feltnavnet) og
+`plannedImageSchema` ved persistens. Den siste er ikke defensiv duplisering
+mellom interne lag — et `.slaids`-arkiv er en fil et menneske kan redigere, så
+uten den kunne et importert dokument bære en plan den vanlige skriveveien aldri
+ville tillatt. Blanke felt (bare mellomrom) er tomme felt begge steder.
+`checkImagePlan` har derfor ingenting å si om saken: en ufullstendig oppføring
+kan ikke oppstå, og en tom kontrolliste betyr fortsatt ferdig.
 
 ### Den felles bildekonteksten
 
@@ -465,7 +481,6 @@ ingen av delene kan svare på alene:
 | `ZONE_NOT_PLANNED` | En bildesone venter på en fil uten at noen oppføring beskriver den. |
 | `ASPECT_MISMATCH` | Motivet beskriver et annet format enn sonen har — i ord eller som et forholdstall skrevet inn i teksten. |
 | `NEAR_DUPLICATE` | To oppføringer beskriver i praksis samme motiv. |
-| `INCOMPLETE_ENTRY` | En oppføring mangler komposisjonen, som er det som må passe sonens format. |
 | `PLACEHOLDER_STALE` | Nummeret på sliden og nummeret i briefen har kommet fra hverandre. |
 | `MISSING_CONTEXT` | Det planlegges bilder uten felles bildekontekst. |
 | `CONTEXT_OVERREACH` | Den felles konteksten gjentar motivet til ett enkelt bilde og overstyrer det. |

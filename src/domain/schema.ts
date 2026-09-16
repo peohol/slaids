@@ -13,6 +13,9 @@ import {
   MAX_IMAGE_CONTEXT_CHARS,
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
+  PLANNED_IMAGE_FIELDS,
+  REQUIRED_PLANNED_IMAGE_FIELDS,
+  plannedImageFieldIsBlank,
   MAX_SPLIT_CHILDREN,
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
@@ -266,14 +269,33 @@ export const assetRefSchema = z.object({
 /**
  * One planned picture: the zone it is for, and the four things the brief says
  * about it. See `domain/imagePlan.ts`.
+ *
+ * The motif and the composition are required *here* as well as on the command
+ * that writes them, and that is not defensive duplication between internal
+ * layers: this is the other system boundary. A `.slaids` archive is a file a
+ * person can edit, so without it a document could arrive carrying a plan the
+ * normal write path would have refused — and generate a brief with a picture
+ * that shows nothing. Which fields those are is `REQUIRED_PLANNED_IMAGE_FIELDS`,
+ * asked rather than restated, so the two cannot come to disagree.
  */
+const requiredPlanField = z
+  .string()
+  .max(MAX_PLANNED_IMAGE_FIELD_CHARS)
+  .refine((value) => !plannedImageFieldIsBlank(value), { message: 'Feltet kan ikke være tomt' })
+
+const optionalPlanField = z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS)
+
+function planField(name: (typeof PLANNED_IMAGE_FIELDS)[number]) {
+  return REQUIRED_PLANNED_IMAGE_FIELDS.includes(name) ? requiredPlanField : optionalPlanField
+}
+
 export const plannedImageSchema = z.object({
   slideId: z.string().min(1),
   nodeId: z.string().min(1),
-  subject: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
-  composition: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
-  requirements: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
-  avoid: z.string().max(MAX_PLANNED_IMAGE_FIELD_CHARS),
+  subject: planField('subject'),
+  composition: planField('composition'),
+  requirements: planField('requirements'),
+  avoid: planField('avoid'),
 })
 
 export const presentationSchema = z.object({
