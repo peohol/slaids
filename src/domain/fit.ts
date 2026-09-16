@@ -284,10 +284,11 @@ function estimateNodeHeight(
     }
     case 'bulletList':
     case 'orderedList': {
-      return (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width - indent, context),
-        0,
-      )
+      const items = node.content ?? []
+      return items.reduce((total, child, i) => {
+        const gap = i < items.length - 1 ? tokens.paragraphSpacing : 0
+        return total + estimateNodeHeight(child, width - indent, context) + gap
+      }, 0)
     }
     case 'listItem': {
       return (node.content ?? []).reduce(

@@ -379,31 +379,48 @@
   padding-left: var(--slaids-list-indent, 24px);
 }
 
+/*
+ * As much air between two list items as between two paragraphs — the same
+ * token, so the two read as the same kind of pause. `:last-child` below zeroes
+ * it again for the same reason a paragraph's last-child margin is zeroed: the
+ * bottom margin is a distance between two things, and a last item has nothing
+ * below it to be distant from.
+ */
 .rich-doc :is(li, .rd-li) {
-  margin: 0 0 2px;
+  margin: 0 0 var(--slaids-paragraph-spacing, 10px);
 }
 
+/*
+ * Inline, not block: a marker is only ever measured against the item's own
+ * text, never against the paragraph's. Left as a block, the paragraph's own
+ * stored alignment centred or right-aligned *itself* independently of the
+ * item, which is fine for one line but comes apart the moment the line wraps
+ * — the item cannot shrink around text that no longer fits on one line, so it
+ * fills the column while the paragraph goes on centring each wrapped line
+ * inside it, stranding the marker at the far edge with a gap that grows with
+ * the item. `text-align` has no effect on an inline box, so this reads the
+ * stored alignment (still written, for the `:has()` selectors below) but
+ * never acts on it — alignment is the item's decision, made once below, and
+ * every line — the first and every wrapped one after it — sits exactly the
+ * hanging indent from the marker instead.
+ */
 .rich-doc :is(li, .rd-li) > p {
+  display: inline;
   margin: 0;
 }
 
 /*
  * An aligned list item moves as one — marker and text together.
  *
- * Aligning the paragraph inside the item is not enough, and looks broken: a
- * marker is placed against its item's content edge rather than against the line
- * of words inside it, so centring the paragraph slid the text into the middle
- * of the column and left every bullet behind at the far left. Shrinking the
- * item around its own text and pushing it there with automatic margins moves
- * the box the marker is measured from, so the bullet travels with the words it
- * belongs to — the same answer a heading pill and a picture get, both of which
- * are also blocks narrower than the column they stand in.
+ * Shrinking the item around its own text and pushing it there with automatic
+ * margins moves the box the marker is measured from, so the bullet travels
+ * with the words it belongs to — the same answer a heading pill and a picture
+ * get, both of which are also blocks narrower than the column they stand in.
  *
  * The list keeps its indent, and that is what keeps this inside the rule that
  * nothing a zone holds is painted outside it: an item too long to shrink fills
- * the column, and its marker has the padding to hang in. It also very nearly
- * cancels the offset the padding introduces, since a marker hangs about one
- * indent to the left of the text it belongs to.
+ * the column exactly as an unaligned item does, and its marker has the
+ * padding to hang in with the same hanging indent either way.
  */
 .rich-doc :is(li, .rd-li):has(> [style*='text-align: center']),
 .rich-doc :is(li, .rd-li):has(> [style*='text-align:center']) {
