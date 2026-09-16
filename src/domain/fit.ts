@@ -246,6 +246,28 @@ function countDocChars(doc: RichDoc, context: EstimateContext): number {
 }
 
 /**
+ * A paragraph's own text height, without the spacing below it.
+ *
+ * Split out of the `paragraph` case so a list item's sole paragraph — the
+ * only child the stylesheet strips the paragraph's own margin from, since
+ * `.rich-doc :is(li, .rd-li) > p:only-child` zeroes it and the item's own
+ * margin (`estimateNodeHeight`'s `bulletList`/`orderedList` case) supplies the
+ * gap instead — can be measured the same way the renderer draws it, rather
+ * than adding a `paragraphSpacing` the page never draws.
+ */
+function estimateParagraphTextHeight(
+  node: RichNode,
+  width: number,
+  context: EstimateContext,
+): number {
+  const { metrics, tokens } = context
+  const chars = countChars(node, context)
+  const size = tokens.bodyFontSize
+  const lines = Math.ceil(chars / charsPerLine(width, size, metrics.body)) || 1
+  return lines * size * BODY_LINE_HEIGHT
+}
+
+/**
  * How much of a field's height one block takes.
  *
  * `fieldHeight` is the height of the block's containing block — the field it
@@ -270,10 +292,7 @@ function estimateNodeHeight(
       return lines * size * BODY_LINE_HEIGHT + tokens.headingSpacing
     }
     case 'paragraph': {
-      const chars = countChars(node, context)
-      const size = tokens.bodyFontSize
-      const lines = Math.ceil(chars / charsPerLine(width, size, metrics.body)) || 1
-      return lines * size * BODY_LINE_HEIGHT + tokens.paragraphSpacing
+      return estimateParagraphTextHeight(node, width, context) + tokens.paragraphSpacing
     }
     case 'blockquote': {
       const inner = (node.content ?? []).reduce(
@@ -284,16 +303,28 @@ function estimateNodeHeight(
     }
     case 'bulletList':
     case 'orderedList': {
-      return (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width - indent, context),
-        0,
-      )
+      const items = node.content ?? []
+      // Indented on both sides — see the list rule in `slide.css`: the marker
+      // hangs into the left inset and the right one keeps a centred line
+      // centred on the column rather than on a box inset from one side only.
+      const inner = width - indent * 2
+      return items.reduce((total, child, i) => {
+        const gap = i < items.length - 1 ? tokens.paragraphSpacing : 0
+        return total + estimateNodeHeight(child, inner, context) + gap
+      }, 0)
     }
     case 'listItem': {
-      return (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width, context),
-        0,
-      )
+      const children = node.content ?? []
+      // Mirrors `.rich-doc :is(li, .rd-li) > p:only-child`: a lone paragraph's
+      // own margin is zeroed in favour of the item's, so its contribution here
+      // is text only — the item-level gap added by `bulletList`/`orderedList`
+      // is the one and only spacing between two items. A multi-paragraph item
+      // (rare — pasted or agent-built content) keeps each paragraph's own
+      // rendered margin, which the stylesheet does not strip.
+      if (children.length === 1 && children[0].type === 'paragraph') {
+        return estimateParagraphTextHeight(children[0], width, context)
+      }
+      return children.reduce((total, child) => total + estimateNodeHeight(child, width, context), 0)
     }
     case 'codeBlock': {
       const chars = countChars(node, context)
