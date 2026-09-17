@@ -24,7 +24,13 @@ import {
   setPresentationTitle,
 } from '../../domain/commands'
 import type { ImageDeposit } from '../../domain/imageDeposit'
-import { checkImagePlan, composeImageBrief, resolveImagePlan } from '../../domain/imagePlan'
+import {
+  checkImagePlan,
+  composeImageBrief,
+  composeImageGenerationContract,
+  resolveImagePlan,
+  type ImageGenerationContract,
+} from '../../domain/imagePlan'
 import {
   bodyOf,
   contentAssetIds,
@@ -444,12 +450,29 @@ export interface ImageBriefView {
    */
   issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
   /**
-   * The finished brief, ready to paste, or `null` when nothing is planned.
+   * The finished brief, ready to print and paste, or `null` when nothing is
+   * planned.
    *
    * Generated from the plan and the zones every time it is asked for; there is
    * no stored copy, so it cannot be stale.
+   *
+   * It is the *human-readable* representation of the plan above, and that is a
+   * contract rather than a description: it is one message, so an agent handing
+   * it to an image generator as a single prompt asks for one picture — which is
+   * exactly the collage a deck of eight planned pictures came back as. What
+   * drives automatic generation is `images`, one entry at a time, and
+   * `generation` says so with this deck's own count in it.
    */
   brief: string | null
+  /**
+   * What a finished set of files has to be, when the pictures are generated
+   * rather than pasted. `null` exactly when `brief` is.
+   *
+   * See `ImageGenerationContract`: it adds the one thing the entries cannot say
+   * about themselves — how many of them make a delivery — so an agent can check
+   * what it produced before the files reach the deposit.
+   */
+  generation: ImageGenerationContract | null
   /**
    * Whether the user can hand the finished files back in one go, and how many
    * the deck is expecting.
@@ -484,6 +507,7 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
     })),
     issues: checkImagePlan(presentation),
     brief: composeImageBrief(presentation),
+    generation: composeImageGenerationContract(presentation),
     deposit: presentation.imageDeposit ? { ...presentation.imageDeposit } : null,
   }
 }
@@ -526,7 +550,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -561,7 +585,7 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også kontrollene mot sonene – en tom `issues`-liste betyr at bildeplanen er ferdig.',
+    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at bildeplanen er ferdig.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
