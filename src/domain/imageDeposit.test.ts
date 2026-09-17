@@ -38,11 +38,15 @@ import {
   depositImages,
   depositIsOpen,
   depositIsWaiting,
-  depositIndexFromFileName,
   depositSlots,
+  reviewDeposit,
   reviewDepositFiles,
 } from './imageDeposit'
-import { resolveImagePlan } from './imagePlan'
+import {
+  composeImageGenerationManifest,
+  type GeneratedImageRecord,
+} from './imageGeneration'
+import { imageFileNumber, resolveImagePlan } from './imagePlan'
 import type { AssetRef, PlannedImage, Presentation } from './types'
 
 const CONTEXT = 'Fotorealistiske rekonstruksjoner, naturlig dagslys, ingen tekst i bildene.'
@@ -206,28 +210,28 @@ describe('når deponeringen er gyldig', () => {
 
 describe('filnavnene', () => {
   it('godtar et rent tall med en støttet filendelse', () => {
-    expect(depositIndexFromFileName('1.png')).toBe(1)
-    expect(depositIndexFromFileName('2.JPG')).toBe(2)
-    expect(depositIndexFromFileName('12.webp')).toBe(12)
-    expect(depositIndexFromFileName('3.svg')).toBe(3)
+    expect(imageFileNumber('1.png')).toBe(1)
+    expect(imageFileNumber('2.JPG')).toBe(2)
+    expect(imageFileNumber('12.webp')).toBe(12)
+    expect(imageFileNumber('3.svg')).toBe(3)
   })
 
   it('avviser alt annet enn et rent tall', () => {
     // Leading zeros are refused rather than trimmed: `01.png` and `1.png` in
     // one folder are two files for one picture, and a rule that took both would
     // have to guess which one was meant.
-    expect(depositIndexFromFileName('01.png')).toBeNull()
-    expect(depositIndexFromFileName('bilde1.png')).toBeNull()
-    expect(depositIndexFromFileName('1a.png')).toBeNull()
-    expect(depositIndexFromFileName('1')).toBeNull()
-    expect(depositIndexFromFileName('1.txt')).toBeNull()
-    expect(depositIndexFromFileName('1.png.png')).toBeNull()
-    expect(depositIndexFromFileName('0.png')).toBeNull()
-    expect(depositIndexFromFileName('')).toBeNull()
+    expect(imageFileNumber('01.png')).toBeNull()
+    expect(imageFileNumber('bilde1.png')).toBeNull()
+    expect(imageFileNumber('1a.png')).toBeNull()
+    expect(imageFileNumber('1')).toBeNull()
+    expect(imageFileNumber('1.txt')).toBeNull()
+    expect(imageFileNumber('1.png.png')).toBeNull()
+    expect(imageFileNumber('0.png')).toBeNull()
+    expect(imageFileNumber('')).toBeNull()
   })
 
   it('leser bare siste ledd når nettleseren leverer en mappesti', () => {
-    expect(depositIndexFromFileName('bilder/2.png')).toBe(2)
+    expect(imageFileNumber('bilder/2.png')).toBe(2)
   })
 })
 
@@ -262,6 +266,89 @@ describe('gjennomgangen av de valgte filene', () => {
     expect(reviewDepositFiles(['1.png', '2.jpg', '3.webp', 'notat.txt'], 3).ready).toBe(false)
     expect(reviewDepositFiles([], 3).ready).toBe(false)
     expect(reviewDepositFiles([], 0).ready).toBe(false)
+  })
+})
+
+describe('de to flytene: manuell opplasting og agentgenererte bilder', () => {
+  /** The manifest an agent would hand over, with the bindings it recorded. */
+  function manifest(
+    deck: Presentation,
+    bind: (image: ReturnType<typeof resolveImagePlan>[number]) => Partial<GeneratedImageRecord> = () => ({}),
+  ): string {
+    return composeImageGenerationManifest({
+      presentationId: deck.id,
+      images: resolveImagePlan(deck).map((image) => ({
+        imagePlanItemId: image.id,
+        number: image.number,
+        slideId: image.plan.slideId,
+        nodeId: image.plan.nodeId,
+        fileName: `${image.fileNameStem}.png`,
+        ...bind(image),
+      })),
+    })
+  }
+
+  it('lar manuell opplasting uten metadata fungere som før', () => {
+    // The file name *is* the binding when a person made it, and there is nothing
+    // to cross-check it against. Demanding a manifest here would break the flow
+    // the deposit was built for.
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(deck, ['1.png', '2.jpg', '3.webp'], null)
+    expect(review.source).toBe('manual')
+    expect(review.binding).toEqual([])
+    expect(review.ready).toBe(true)
+  })
+
+  it('kontrollerer koblingen når agentens manifest følger med', () => {
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], manifest(deck))
+    expect(review.source).toBe('agent')
+    expect(review.binding).toEqual([])
+    expect(review.ready).toBe(true)
+  })
+
+  it('stopper deponeringen når manifestet og planen er uenige', () => {
+    // Well-formed files, the right count, the right names — and one picture
+    // bound to the wrong entry. This is the delivery the old dialog accepted.
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(
+      deck,
+      ['1.png', '2.png', '3.png'],
+      manifest(deck, (image) => (image.number === 2 ? { number: 3 } : {})),
+    )
+    expect(review.missing).toEqual([])
+    expect(review.files.every((file) => file.problem === null)).toBe(true)
+    expect(review.binding.length).toBeGreaterThan(0)
+    expect(review.ready).toBe(false)
+  })
+
+  it('behandler et uleselig manifest som en ukjent kobling, ikke som ingen kobling', () => {
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], '{ ikke json')
+    expect(review.source).toBe('agent')
+    expect(review.binding).toHaveLength(1)
+    expect(review.ready).toBe(false)
+  })
+
+  it('stopper et manifest som hører til et annet dekk', () => {
+    const { deck } = pendingDeck()
+    const other = composeImageGenerationManifest({
+      ...JSON.parse(manifest(deck)),
+      presentationId: 'p_et_annet_dekk',
+    })
+    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], other)
+    expect(review.binding.map((issue) => issue.code)).toEqual(['WRONG_PRESENTATION'])
+    expect(review.ready).toBe(false)
+  })
+
+  it('melder en fil som er levert uten å høre til noe generert bilde', () => {
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png', '4.png'], manifest(deck))
+    // `4.png` is out of range as a name *and* unaccounted for as a binding, and
+    // both are said: the two answers are «remove it» and «it was never made».
+    expect(review.files.map((file) => file.problem)).toContain('RANGE')
+    expect(review.binding.map((issue) => issue.code)).toContain('FILE_UNACCOUNTED')
+    expect(review.ready).toBe(false)
   })
 })
 

@@ -27,6 +27,12 @@ import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import { setRepositoryOverride } from '../../persistence/activeRepository'
 import { depositIsOpen } from '../../domain/imageDeposit'
+import {
+  composeImageGenerationManifest,
+  IMAGE_MANIFEST_FILE_NAME,
+  type GeneratedImageRecord,
+} from '../../domain/imageGeneration'
+import { resolveImagePlan } from '../../domain/imagePlan'
 import type { Presentation } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { ImageBriefModal } from './ImageBriefModal'
@@ -131,6 +137,48 @@ function pick(names: readonly string[]): void {
   })
 }
 
+/**
+ * Hand the dialog pictures *and* a manifest, and let the read settle.
+ *
+ * The manifest is read asynchronously — it is a file on disk — so the dialog is
+ * deliberately not ready until it has been. Flushing here is what lets a test
+ * assert the state after the read rather than during it.
+ */
+async function pickText(names: readonly string[], manifest: string): Promise<void> {
+  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
+  const files = [
+    ...names.map((name) => new File([new Uint8Array([1, 2, 3])], name)),
+    new File([manifest], IMAGE_MANIFEST_FILE_NAME, { type: 'application/json' }),
+  ]
+  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/** The same, with the manifest derived from the deck's own plan and then bent. */
+async function pickWithManifest(
+  deck: Presentation,
+  bend: (record: GeneratedImageRecord) => GeneratedImageRecord,
+): Promise<void> {
+  const images = resolveImagePlan(deck).map((image) =>
+    bend({
+      imagePlanItemId: image.id,
+      number: image.number,
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+      fileName: `${image.fileNameStem}.png`,
+    }),
+  )
+  await pickText(
+    images.map((image) => image.fileName),
+    composeImageGenerationManifest({ presentationId: deck.id, images }),
+  )
+}
+
 describe('ImageDepositIntroModal', () => {
   it('tilbyr begge veiene videre, og sier hvor mange bilder det gjelder', () => {
     const choices: string[] = []
@@ -223,6 +271,50 @@ describe('ImageDepositModal', () => {
     const problems = find('[data-testid="image-deposit-problems"]')
     expect(problems.textContent).toContain('samme nummeret')
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('2 av 3 på plass')
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+  })
+
+  it('kontrollerer koblingen når agentens manifest følger med filene', async () => {
+    // The manifest is the agent flow's binding, and the dialog's job is to
+    // check it rather than trust the file names: nine pictures named by arrival
+    // are nine well-formed names for the wrong pictures.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (image) => image)
+    expect(find('[data-testid="image-deposit-manifest"]').textContent).toContain(
+      'slaids-bilder.json',
+    )
+    expect(document.querySelector('[data-testid="image-deposit-binding"]')).toBeNull()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('stopper deponeringen når manifestet og bildeplanen er uenige', async () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    // Three well-formed files, the right count, the right names — and picture 2
+    // bound to the wrong entry. This is the delivery the dialog used to accept.
+    await pickWithManifest(deck, (image) =>
+      image.number === 2 ? { ...image, number: 3 } : image,
+    )
+
+    const binding = find('[data-testid="image-deposit-binding"]')
+    expect(binding.children.length).toBeGreaterThan(0)
+    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+  })
+
+  it('behandler et uleselig manifest som en ukjent kobling', async () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickText(['1.png', '2.png', '3.png'], '{ ikke json')
+    expect(find('[data-testid="image-deposit-binding"]').children).toHaveLength(1)
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
   })
 

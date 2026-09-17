@@ -51,6 +51,7 @@ import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
 import type {
   ContentSlideInspection,
+  GeneratedImagesView,
   ImageBriefView,
   PresentationView,
   ZoneInspection,
@@ -118,6 +119,55 @@ function planned(slideId: string, nodeId: string, subject: string) {
     requirements: 'Anatomisk korrekte proporsjoner for arten.',
     avoid: 'Moderne klær, redskaper og bygninger.',
   }
+}
+
+/**
+ * A deck with `count` picture slides, one reserved zone each, already planned.
+ *
+ * One slide per picture so the numbering is deck order and nothing about the
+ * tree can make a second ordering plausible — and shared between the tests
+ * about the count and the tests about the binding, because both are about the
+ * same delivery and a second builder would let them drift apart.
+ */
+async function plannedPictureDeck(
+  context: AgentContext,
+  count: number,
+): Promise<ImageBriefView> {
+  const deck = await ok<PresentationView>(context, 'create_presentation', {
+    title: 'Menneskets evolusjon',
+  })
+  const slideIds = [deck.slides[1].slideId]
+  while (slideIds.length < count) {
+    const added = await ok<SlidePlacement>(context, 'add_slide', {
+      presentationId: deck.presentationId,
+      title: `Bilde ${slideIds.length + 1}`,
+    })
+    slideIds.push(added.slideId)
+  }
+
+  const zoneIds: string[] = []
+  for (const slideId of slideIds) {
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: inspected.rootNodeId,
+      kind: 'image',
+    })
+    zoneIds.push(inspected.rootNodeId)
+  }
+  await ok(context, 'set_image_context', {
+    presentationId: deck.presentationId,
+    context: CONTEXT,
+  })
+
+  return ok<ImageBriefView>(context, 'plan_deck_images', {
+    presentationId: deck.presentationId,
+    images: slideIds.map((slideId, index) => planned(slideId, zoneIds[index], MOTIFS[index])),
+  })
 }
 
 let counter = 0
@@ -806,41 +856,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     // nothing the deposit could place. What the answer has to say, before any
     // prose is read, is a number: eight entries, eight files.
     const context = freshContext()
-    const deck = await ok<PresentationView>(context, 'create_presentation', {
-      title: 'Menneskets evolusjon',
-    })
-    const slideIds = [deck.slides[1].slideId]
-    while (slideIds.length < MOTIFS.length) {
-      const added = await ok<SlidePlacement>(context, 'add_slide', {
-        presentationId: deck.presentationId,
-        title: `Bilde ${slideIds.length + 1}`,
-      })
-      slideIds.push(added.slideId)
-    }
-
-    const zoneIds: string[] = []
-    for (const slideId of slideIds) {
-      const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
-        presentationId: deck.presentationId,
-        slideId,
-      })
-      await ok(context, 'set_zone_card', {
-        presentationId: deck.presentationId,
-        slideId,
-        nodeId: inspected.rootNodeId,
-        kind: 'image',
-      })
-      zoneIds.push(inspected.rootNodeId)
-    }
-    await ok(context, 'set_image_context', {
-      presentationId: deck.presentationId,
-      context: CONTEXT,
-    })
-
-    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
-      presentationId: deck.presentationId,
-      images: slideIds.map((slideId, index) => planned(slideId, zoneIds[index], MOTIFS[index])),
-    })
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
 
     expect(brief.issues).toEqual([])
     expect(brief.imageCount).toBe(8)
@@ -862,6 +878,125 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     // The brief is still generated, and still says the same eight.
     expect(brief.brief).toContain('Lag nøyaktig 8 separate bilder')
     expect(brief.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
+  })
+
+  it('gir hver oppføring en stabil id, og et filnavn som kommer fra planen', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    // The identity every generated file is bound to. Nine pictures generated in
+    // a different order than they were planned is the failure this replaces,
+    // and `number` alone could not have caught it.
+    const ids = brief.images.map((image) => image.imagePlanItemId)
+    expect(new Set(ids).size).toBe(brief.imageCount)
+    for (const id of ids) expect(id).toMatch(/^imgplan_[0-9a-f]{16}$/)
+    // The file name is the entry's own number, stated by the entry rather than
+    // counted out while the files are being saved.
+    expect(brief.images.map((image) => image.fileName)).toEqual(
+      brief.images.map((image) => `${image.number}.<filendelse>`),
+    )
+    // And reading the same deck back gives the same ids.
+    const again = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(again.images.map((image) => image.imagePlanItemId)).toEqual(ids)
+  })
+
+  it('godkjenner bilder som er generert i en annen rekkefølge enn planen', async () => {
+    // The whole point: a generator that answered out of order is fine, as long
+    // as every file went back to the entry it was generated from.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const scrambled = [2, 7, 0, 5, 1, 4, 3, 6].map((position) => brief.images[position])
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: scrambled.map((image) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: image.number,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${image.number}.png`,
+      })),
+    })
+
+    expect(verified.ok).toBe(true)
+    expect(verified.issues).toEqual([])
+    // A manifest only exists once the binding checks out: one produced beside a
+    // conflict would be exactly the false reassurance this call removes.
+    expect(verified.manifestFileName).toBe('slaids-bilder.json')
+    expect(JSON.parse(verified.manifest ?? '{}')).toMatchObject({
+      presentationId: brief.presentationId,
+    })
+  })
+
+  it('stopper bilder som er nummerert etter genereringsrekkefølgen', async () => {
+    // The observed failure, written out: the files were named `1`‥`8` by the
+    // order they came back in. Every name is well-formed, the count is right,
+    // and most pictures are for the wrong slide.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const arrival = [2, 7, 0, 5, 1, 4, 3, 6].map((position) => brief.images[position])
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: arrival.map((image, index) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: index + 1,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${index + 1}.png`,
+      })),
+    })
+
+    expect(verified.ok).toBe(false)
+    expect(verified.issues.map((issue) => issue.code)).toContain('NUMBER_MISMATCH')
+    expect(verified.manifest).toBeNull()
+    // And the answer says what the bindings should have been, so a fix does not
+    // need a second read.
+    expect(verified.expected.map((item) => item.imagePlanItemId)).toEqual(
+      brief.images.map((image) => image.imagePlanItemId),
+    )
+  })
+
+  it('melder et manglende bilde i stedet for å telle riktig', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: brief.images.slice(0, 7).map((image) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: image.number,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${image.number}.png`,
+      })),
+    })
+
+    expect(verified.ok).toBe(false)
+    const missing = verified.issues.filter((issue) => issue.code === 'MISSING_ITEM')
+    expect(missing.map((issue) => issue.number)).toEqual([8])
+  })
+
+  it('avviser en bildeplan-id som ikke har formen Slaids lager', async () => {
+    // An argument error rather than a finding: an id an agent invented is a
+    // call that means nothing, not a delivery with a problem in it.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 1)
+    const refused = await fails(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: [
+        {
+          imagePlanItemId: 'bilde-1',
+          number: 1,
+          slideId: brief.images[0].slideId,
+          nodeId: brief.images[0].nodeId,
+          fileName: '1.png',
+        },
+      ],
+    })
+    expect(refused.code).toBe('INVALID_INPUT')
   })
 
   it('avviser en bildeoppføring som peker på en tekstsone', async () => {

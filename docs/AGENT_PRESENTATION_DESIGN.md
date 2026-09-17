@@ -235,10 +235,29 @@ Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede brief
 
 Svaret fra `plan_deck_images` og `get_image_brief` har to halvdeler av den samme planen, og de har hver sin jobb:
 
-- **`images`** er den strukturerte listen, én oppføring per bilde. Den er den autoritative kilden når bildene faktisk skal genereres: ett element = én selvstendig bildegenerering = én bildefil. Planlegger Slaids åtte bilder, skal bildegeneratoren kalles åtte ganger — bilde 1 alene fra oppføring 1, bilde 2 alene fra oppføring 2, og slik videre. Instruksen for ett bilde bygges av den ene oppføringens egne felter (`number`, `slideId`, `nodeId`, `slideLabel`, `aspectRatio`, `orientation`, `subject`, `composition`, `requirements`, `avoid`) sammen med dekkets felles `imageContext`. Formatet er `aspectRatio` fra den samme oppføringen, så to bilder med ulikt format aldri havner på samme lerret.
+- **`images`** er den strukturerte listen, én oppføring per bilde. Den er den autoritative kilden når bildene faktisk skal genereres: ett element = én selvstendig bildegenerering = én bildefil. Planlegger Slaids åtte bilder, skal bildegeneratoren kalles åtte ganger — bilde 1 alene fra oppføring 1, bilde 2 alene fra oppføring 2, og slik videre. Instruksen for ett bilde bygges av den ene oppføringens egne felter (`imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`, `slideLabel`, `aspectRatio`, `orientation`, `subject`, `composition`, `requirements`, `avoid`) sammen med dekkets felles `imageContext`. Formatet er `aspectRatio` fra den samme oppføringen, så to bilder med ulikt format aldri havner på samme lerret.
 - **`brief`** er den menneskelesbare representasjonen av nøyaktig den samme planen: den skrives ut i samtalen, kopieres manuelt, brukes som dokumentasjon og eventuelt som overordnet kontekst. Den er ikke én bildegenereringsprompt. Den skal ikke sendes til bildegeneratoren som én samlet genereringsjobb når flere bilder er planlagt, og den skal ikke parses tilbake til enkeltbilder — informasjonen ligger allerede strukturert i `images`.
 
 Dette er ikke en smakssak. En plan på åtte bilder ble sendt videre som én jobb, og det som kom tilbake var ett storyboard: åtte motiv på ett lerret, én fil, ingen nummerering, og ingenting bildedeponeringen kunne plassere.
+
+### Genereringsrekkefølge er aldri identitet
+
+Den andre feilen var ikke et steg gjort galt — hvert genereringskall var riktig. Slaids planla ni bilder i slide-orden, bildegeneratoren produserte dem i rekkefølgen 1, 3, 9, 6, 5, 8, 2, 4, 7, og filene ble navngitt `1`‥`9` **etter rekkefølgen de kom tilbake i**. Sju av ni bilder havnet på en slide de aldri var laget for, og ingenting i flyten kunne se forskjell på det og en vellykket leveranse: planen var riktig, antallet var riktig, filnavnene var velformede.
+
+Derfor har hver bildeoppføring en egen, stabil id — `imagePlanItemId`, på formen `imgplan_…` — som følger bildet fra bildeplan til generering til fil til deponering. Nummeret er hva *filen* heter; id-en er hva bildet *er*.
+
+Arbeidsflyten er eksplisitt sekvensiell, og rekkefølgen på stegene er selve mekanismen. For hver oppføring, i stigende `number`:
+
+1. Les bare denne oppføringen, sammen med dekkets felles bildekontekst.
+2. Kall bildegeneratoren nøyaktig én gang for denne oppføringen.
+3. Knytt filen som kommer tilbake til den samme `imagePlanItemId`, med en gang.
+4. Gi filen navnet oppføringen oppgir: `<number>.<filendelse>`, der `number` er oppføringens eget nummer.
+5. Kontroller at koblingen er bevart — `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavn hører til samme oppføring.
+6. Gå først deretter videre til neste oppføring.
+
+En agent som samler alle filene først og navngir dem etterpå har ingenting igjen å knytte dem fra. Rekkefølgen bildegeneratoren produserer, returnerer eller *viser* bildene i er ikke en identitetskilde: «det første bildet som kom tilbake» er aldri bilde 1, og et bilde skal aldri nummereres etter når det ble ferdig.
+
+**Sluttkontrollen er et kall, ikke en huskeregel.** Når alle filene er ferdige, og før de leveres eller deponeres, oppgir agenten én kobling per fil til `verify_image_handoff` — `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavn — og Slaids kontrollerer at alle planlagte id-er finnes nøyaktig én gang, at ingen id er ukjent eller gjentatt, at hvert nummer forekommer én gang, at hver id peker på den sonen planen sier, og at filnavnet stemmer med oppføringens nummer. Er svaret ikke `ok`, skal bildene ikke deponeres: de bildene det gjelder genereres enkeltvis på nytt. Er det `ok`, følger `slaids-bilder.json` med, og den legges ved siden av bildefilene — det er slik koblingen overlever turen gjennom en nedlastingsmappe, og deponeringen kontrollerer den på nytt i nettleseren.
 
 **Antallet kontrolleres før deponering.** Feltet `generation` i det samme svaret sier hva en ferdig leveranse er, avledet av den samme planen briefen bygges av:
 
@@ -247,13 +266,15 @@ Dette er ikke en smakssak. En plan på åtte bilder ble sendt videre som én job
 | `expectedFileCount` | antall separate bildefiler planen krever — alltid én per oppføring |
 | `rule` | regelen med dekkets eget tall i seg |
 | `perImageInstruction` | hvor instruksen for ett bilde kommer fra |
+| `perImageSteps` | løkken, ett nummerert steg om gangen |
+| `orderIsNotIdentity` | hvorfor genereringsrekkefølgen ikke kan brukes som nummer |
 | `fileNamePattern`, `fileExtensions` | `<nummer>.<filendelse>`, med deponeringens egne filendelser |
 | `beforeDeposit` | de kontrollerbare linjene før filene leveres |
 | `briefRole` | hva den samlede briefen er, så den ikke forveksles med én prompt |
 
 Er antallet, nummereringen eller formatet feil, er bildegenereringen ikke ferdig: de manglende bildene genereres enkeltvis på nytt før deponering. Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiv det inneholder.
 
-Nummereringen bevares hele veien — planlagt bilde 1 blir fil `1`, bilde 2 blir fil `2` — fordi bildedeponeringen under kobler nummererte filer til riktige bildeplassholdere.
+Nummereringen bevares hele veien — planlagt bilde 1 blir fil `1`, bilde 2 blir fil `2` — fordi bildedeponeringen under kobler nummererte filer til riktige bildeplassholdere. Filnavnet kommer alltid fra oppføringens `number`, aldri fra en teller over de ferdige filene.
 
 ### Bildedeponering: brukeren legger inn alle bildene på én gang
 
@@ -264,7 +285,8 @@ Brukeren møter dette slik:
 1. Presentasjonen åpnes, og en dialog forklarer at den har *N* bildeplasser som kan fylles automatisk. To valg: **«Generer og legg inn bilder»** eller **«Gå til editoren»**. Å velge editoren avslutter ingenting — knappen for bildebriefen øverst i editoren fører tilbake hit når som helst.
 2. Bildebriefen vises med en nummerert liste over bildene som skal lages: nummer, format og motiv. Kopi-knappen finnes fortsatt for klienter og arbeidsflyter som trenger manuell overlevering.
 3. Bildene kan genereres direkte av vertsklienten eller produseres et annet sted. Når bildefilene er tilgjengelige, lagres de som `1`, `2`, `3` … opp til *N*, med den filendelsen de får. Formatene kan gjerne være forskjellige: `1.png`, `2.jpg`, `3.webp`. Navn som `01.png`, `bilde1.png` og `1a.png` avvises med en begrunnelse — de blir aldri gjettet på — og to filer med samme nummer meldes som konflikt.
-4. «Bildene er klare» åpner deponeringsdialogen. Filene dras inn eller velges, og en statusliste viser hvilke numre som er på plass, hvilke som mangler og hva som eventuelt er feil. **«Fullfør»** er deaktivert til nøyaktig 1…*N* er der uten feil.
+   Er bildene agentgenererte, legges `slaids-bilder.json` ved siden av dem. Da er ikke filnavnet alt Slaids har å gå etter: hver kobling kontrolleres mot bildeplanen, og en konflikt stopper hele deponeringen med en begrunnelse per bilde. Et manifest som ikke kan leses regnes som ukjent kobling, ikke som ingen kobling. Manuell opplasting uten manifest fungerer som før — der er nummeret i filnavnet autoritativt, fordi et menneske som lagrer «bilde 3» som `3.png` har laget koblingen selv.
+4. «Bildene er klare» åpner deponeringsdialogen. Filene dras inn eller velges, og en statusliste viser hvilke numre som er på plass, hvilke som mangler og hva som eventuelt er feil. **«Fullfør»** er deaktivert til nøyaktig 1…*N* er der uten feil, og uten koblingskonflikter.
 5. Når deponeringen fullføres, lastes alle filene opp, hvert bilde havner i sonen det ble bestilt for, plassholderteksten forsvinner, og statusen settes til `completed`.
 
 Sonene er vanlige bildeelementer hele veien; deponeringsnummeret er intern metadata på bildepanelet og vises aldri for publikum.
@@ -305,10 +327,21 @@ også kunne vært fremstilt i landskapsformat.
 Ingen tekst, etiketter, rammer eller infografikkelementer i bildene
 med mindre dette eksplisitt er bedt om for det aktuelle bildet.
 
+ETT BILDE OM GANGEN, OG REKKEFØLGEN ER IKKE IDENTITET
+Generer bildene enkeltvis, ett kall per nummer nedenfor.
+Rekkefølgen bildene blir ferdige i, og rekkefølgen de vises i,
+sier ingenting om hvilket nummer de hører til.
+Bruk aldri «det første bildet som kom tilbake» som bilde 1.
+Hvert bilde hører til den oppføringen det ble generert fra – identifisert
+av «Bildeplan-ID» – og filen skal ha filnavnet den oppføringen oppgir,
+uansett når i samtalen bildet ble laget.
+
 FELLES BILDEKONTEKST
 [Den felles bildekonteksten, ordrett.]
 
 BILDE 1 AV [ANTALL]
+Bildeplan-ID: imgplan_[DIGEST]
+Filnavn: 1.<filendelse>
 Skal brukes på slide: [SLIDETITTEL]
 Aspect ratio: 4:5 (stående)
 
@@ -333,7 +366,12 @@ at hvert nummer beskriver ett entydig motiv,
 og at motivene ikke utilsiktet er slått sammen eller gjort til varianter
 av det samme bildet.
 
-Generer deretter alle [ANTALL] bildene som separate bilder.
+Generer deretter alle [ANTALL] bildene enkeltvis, ett kall per oppføring.
+
+ETTER GENERERING
+Kontroller for hver ferdige fil at den hører til den oppføringen den ble
+generert fra: samme Bildeplan-ID, samme nummer og filnavnet oppføringen
+oppgir. Stemmer ikke koblingen, skal bildene ikke leveres videre.
 ```
 
 Malen bor i `src/domain/imagePlan.ts` og er dekket av tester. Utdraget over er en gjengivelse for lesere, ikke en andre normativ kilde: endres formatet, endres det der.
@@ -347,6 +385,7 @@ Slaids sjekker planen mot dekket og melder fra om:
 - en beskrivelse som oppgir et annet format enn sonen faktisk har — enten som et uttrykkelig formatuttrykk («panorama», «stående utsnitt», «liggende format», «portrettformat») eller som et forholdstall skrevet inn i teksten. Positur og fasong er ikke formatpåstander: «stående helfigur» og «kvadratisk steinplate» beskriver motivet, og telles ikke;
 - to oppføringer som i praksis beskriver samme motiv;
 - en plassholdertekst på sliden som ikke lenger sier det samme nummeret som briefen — det skjer når slides flyttes etter at planen ble skrevet, og rettes ved å skrive bildeplanen på nytt;
+- en bildeplanoppføring som har endret seg etter at bildet ble generert — koblingskontrollen skiller det fra en ukjent id, fordi svaret er forskjellig: det ene er «lag dette bildet på nytt», det andre er «disse filene hører ikke til dette dekket»;
 - planlagte bilder uten felles bildekontekst;
 - en felles bildekontekst som gjentar motivet til ett enkelt bilde.
 
@@ -442,6 +481,8 @@ Unngå aktivt:
 - å skrive en bred, liggende bildeprompt til en nær kvadratisk eller stående sone;
 - å oppgi aspect ratio i fritekst i stedet for å la sonen bestemme den;
 - å skrive den samlede bildebriefen for hånd i stedet for å la den genereres fra bildeplanen;
+- å navngi bildefilene etter rekkefølgen bildegeneratoren ble ferdig med dem, i stedet for etter oppføringens eget nummer;
+- å levere eller deponere bildene uten å ha kontrollert koblingen mellom hver fil og bildeplanoppføringen den ble generert fra;
 - å bruke en aksent som om den var kortets hovedoverskrift, der korttittelen skulle båret navnet;
 - å tegne en hel slide, en slideoverskrift, kort eller korttitler som SVG i stedet for å bruke Slaids sine egne innholdstyper;
 - å tegne mennesker, dyr, bygninger eller andre illustrasjonsmotiver som hjemmelaget SVG i stedet for et rasterbilde eller en planlagt bildesone;

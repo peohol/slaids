@@ -24,8 +24,16 @@
  *  - **The file name is the whole protocol.** `1.png`, `2.jpg`, `3.webp` — a
  *    number, a dot, an extension, nothing else. It is the one instruction that
  *    survives being carried between two programs by a person, and it is checked
- *    here rather than guessed at: `01.png` and `bilde1.png` are refused with a
- *    reason, never silently matched to something.
+ *    rather than guessed at: `01.png` and `bilde1.png` are refused with a
+ *    reason, never silently matched to something. The rule itself is
+ *    `imageFileNumber`, beside the rule that writes the name.
+ *
+ * The file name is enough when a *person* made the pictures, because a person
+ * saving «bilde 7» saves it as `7.png`. It is not enough when an agent did:
+ * generation order is not the plan's order, and a file named by arrival is a
+ * file named after the wrong picture. So an agent-driven delivery also carries
+ * an explicit binding — `imageGeneration.ts` — and `reviewDeposit` refuses the
+ * whole set when that binding and the plan disagree.
  *
  * `pending` is the only state in which any of this is live. `completed` and
  * `abandoned` are both final — nothing here can put a deck back into `pending`,
@@ -34,8 +42,13 @@
 
 import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from './content'
 import { mapDeckSlides } from './deckSlides'
-import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
-import { imageZoneKey, resolveImagePlan } from './imagePlan'
+import {
+  checkGeneratedImages,
+  manifestPresentationIssue,
+  parseImageGenerationManifest,
+  type ImageBindingIssue,
+} from './imageGeneration'
+import { imageFileNumber, imageZoneKey, resolveImagePlan } from './imagePlan'
 import { collectLeaves, updateNode } from './layout'
 import type { ContentSlide, LayoutNode, Presentation, SandboxItem } from './types'
 
@@ -198,25 +211,6 @@ export interface DepositFileVerdict {
   problem: DepositFileProblem | null
 }
 
-/**
- * The number a deposited file is for, or `null`.
- *
- * Strict on purpose. A leading zero is refused rather than trimmed, because
- * `01.png` and `1.png` in the same folder are two files for one picture, and a
- * rule that accepted both would have to guess which. Anything before or after
- * the digits is refused for the same reason: `bilde1.png` looks like a match
- * and is a file named after something else.
- */
-export function depositIndexFromFileName(fileName: string): number | null {
-  // Some browsers hand over a path when a folder is dropped. The name is the
-  // last segment of it, and the segments before it say nothing about the order.
-  const base = fileName.split(/[\\/]/).pop() ?? ''
-  const match = /^([1-9][0-9]*)\.([A-Za-z0-9]+)$/.exec(base)
-  if (!match) return null
-  if (!IMAGE_FILE_EXTENSION_LIST.includes(match[2].toLowerCase())) return null
-  return Number(match[1])
-}
-
 /** What the deposit screen shows about the files picked so far. */
 export interface DepositReview {
   /** One verdict per file, in the order they were picked. */
@@ -225,18 +219,37 @@ export interface DepositReview {
   present: number[]
   /** Numbers 1‥N with nothing for them yet. */
   missing: number[]
-  /** Exactly 1‥N, each once, and nothing rejected. */
+  /**
+   * Where the numbering came from, which decides what «correct» even means.
+   *
+   * `'manual'` — a person named the files. The number in the name is the only
+   * binding there is, and it is authoritative.
+   * `'agent'` — a manifest came with the files, so every binding is stated and
+   * checked against the plan. The name still has to agree with it.
+   */
+  source: 'manual' | 'agent'
+  /**
+   * Everything wrong with an agent delivery's bindings. Always empty for a
+   * manual upload, because there is nothing there to be wrong.
+   */
+  binding: ImageBindingIssue[]
+  /** Exactly 1‥N, each once, nothing rejected, and no binding in conflict. */
   ready: boolean
 }
 
 /**
- * Judge a set of picked files against the brief that asked for them.
+ * Judge a set of picked file *names* against the brief that asked for them.
  *
- * Total and pure — names in, verdicts out — so the same rule is what the dialog
- * greys the button with and what the tests state. It never picks a winner
+ * Total and pure — names in, verdicts out — so the same rule is what the tests
+ * state and what `reviewDeposit` builds its verdict on. It never picks a winner
  * between two files claiming one number: the dialog says both are in conflict
  * and the person removes one, because the alternative is Slaids choosing which
  * of their pictures to use.
+ *
+ * The manual flow in full, and the whole of it: a name is the only binding a
+ * person gives, so `source` is `'manual'` and there is nothing to cross-check.
+ * `reviewDeposit` is what the dialog asks, because it is the one that knows
+ * about the other flow.
  */
 export function reviewDepositFiles(
   fileNames: readonly string[],
@@ -244,13 +257,13 @@ export function reviewDepositFiles(
 ): DepositReview {
   const claimed = new Map<number, number>()
   for (const name of fileNames) {
-    const index = depositIndexFromFileName(name)
+    const index = imageFileNumber(name)
     if (index === null || index < 1 || index > expectedCount) continue
     claimed.set(index, (claimed.get(index) ?? 0) + 1)
   }
 
   const files: DepositFileVerdict[] = fileNames.map((name) => {
-    const index = depositIndexFromFileName(name)
+    const index = imageFileNumber(name)
     if (index === null) return { name, index: null, problem: 'NAME' }
     if (index < 1 || index > expectedCount) return { name, index, problem: 'RANGE' }
     if ((claimed.get(index) ?? 0) > 1) return { name, index, problem: 'DUPLICATE' }
@@ -268,11 +281,60 @@ export function reviewDepositFiles(
     files,
     present,
     missing,
+    source: 'manual',
+    binding: [],
     ready:
       expectedCount > 0 &&
       missing.length === 0 &&
       files.every((file) => file.problem === null),
   }
+}
+
+/**
+ * The whole verdict on a deposit: the names, and the binding when there is one.
+ *
+ * One entry point, so the two flows cannot be told apart anywhere but here. The
+ * dialog hands over what it has — the image files it was given, and the text of
+ * the manifest file if one came with them — and gets back a single `ready`.
+ * Deciding that in the dialog instead would put the rule that keeps pictures off
+ * the wrong slides in a React component, where the tests are not.
+ *
+ * A manifest changes what the review *is*, not just what it warns about: with
+ * one, the bindings are checked against the deck's own plan and a mismatch
+ * refuses the whole set. Without one, this is exactly the manual upload it has
+ * always been — the number in the file name is the binding, because a person who
+ * saves «bilde 3» as `3.png` has made it.
+ *
+ * A manifest that cannot be read is *not* a deposit without a manifest. It is an
+ * agent delivery whose binding is unknown, and falling back to the file names
+ * there would be the original failure with an extra step in front of it.
+ */
+export function reviewDeposit(
+  presentation: Presentation,
+  fileNames: readonly string[],
+  manifestText: string | null,
+): DepositReview {
+  const names = reviewDepositFiles(fileNames, depositSlots(presentation).length)
+  if (manifestText === null) return names
+  const binding = bindingOf(presentation, manifestText, fileNames)
+  return { ...names, source: 'agent', binding, ready: names.ready && binding.length === 0 }
+}
+
+/** Everything wrong with an agent delivery's bindings, manifest included. */
+function bindingOf(
+  presentation: Presentation,
+  manifestText: string,
+  fileNames: readonly string[],
+): ImageBindingIssue[] {
+  const parsed = parseImageGenerationManifest(manifestText)
+  if (!parsed.ok) {
+    return [{ code: 'MANIFEST_UNREADABLE', message: parsed.error.message }]
+  }
+  /* Asked before the bindings are: a manifest for another deck reports every id
+     as unknown, and that list says nothing about what actually went wrong. */
+  const wrongDeck = manifestPresentationIssue(presentation, parsed.value)
+  if (wrongDeck) return [wrongDeck]
+  return checkGeneratedImages(presentation, parsed.value.images, fileNames)
 }
 
 /* ------------------------------------------------------------------ *

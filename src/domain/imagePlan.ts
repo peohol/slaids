@@ -36,6 +36,7 @@ import {
   plannedImageFieldIsBlank,
   type PlannedImageField,
 } from './constants'
+import { stableDigest } from './digest'
 import { computeSlideGeometry } from './geometry'
 import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { panelFrame } from './imageOptimization'
@@ -48,11 +49,12 @@ import type { Presentation, Size, ZoneContent } from './types'
 /**
  * One picture somebody is going to make, and the zone it is being made for.
  *
- * Addressed by slide and zone rather than by an id of its own: the zone *is*
- * the picture's identity here — it is what decides the shape, what carries the
- * placeholder the author reads, and what the finished file eventually lands in
- * — so a separate id would be a second name for one thing and a way for the
- * two to disagree.
+ * Stored addressed by slide and zone, and by nothing else: the zone *is* what
+ * decides the shape, what carries the placeholder the author reads, and what
+ * the finished file eventually lands in, so a second *stored* name for it would
+ * be one more thing to keep in step. The entry's public identity —
+ * `imagePlanItemId`, the name a generated file is bound to — is therefore
+ * derived from the entry rather than stored beside it. See `imagePlanItemId`.
  *
  * The four text fields are the four sections of a picture's entry in the brief.
  * They are separate rather than one blob because each one is checked, shown and
@@ -72,6 +74,115 @@ export interface PlannedImage {
   requirements: string
   /** What must not appear in *this* picture. Never the deck's shared context. */
   avoid: string
+}
+
+/* ------------------------------------------------------------------ *
+ * The stable identity of one plan entry
+ * ------------------------------------------------------------------ */
+
+/** The prefix every plan-entry id carries, so an id is recognisable on sight. */
+export const IMAGE_PLAN_ITEM_ID_PREFIX = 'imgplan_'
+
+/**
+ * What a plan entry's id is derived from, and therefore what it identifies.
+ *
+ * Written out as a type rather than as five positional arguments because the
+ * list *is* the contract: these five facts are what the id means, and a caller
+ * that had to remember their order could bind a file to the wrong picture by
+ * swapping two strings.
+ */
+export interface ImagePlanItemIdentity {
+  presentationId: string
+  slideId: string
+  nodeId: string
+  /** 1‥N in deck order — the number the placeholder, the brief and the file say. */
+  number: number
+  /** The motif, normalised. What the picture was actually generated from. */
+  subject: string
+}
+
+/**
+ * The stable identity of one planned picture: `imgplan_<digest>`.
+ *
+ * This exists because of a specific failure, and the failure was not a bug in
+ * any one line of code: Slaids planned nine pictures in slide order, the image
+ * generator produced them in the order 1, 3, 9, 6, 5, 8, 2, 4, 7, and the files
+ * were then named `1`‥`9` **by the order they came back in**. Most pictures
+ * landed on the wrong slide, and every single step of the flow looked like it
+ * had succeeded — because generation order had been allowed to stand in for
+ * identity, and nothing downstream held anything better to compare it against.
+ *
+ * So the entry gets a name of its own, and it is *derived* rather than minted:
+ *
+ *  - **Derived, so it needs no storage and cannot drift.** A stored random id
+ *    would have to be migrated into every existing document, kept in step by
+ *    every command that rewrites a plan, and could still end up naming an entry
+ *    that has since been rewritten. A digest over the five facts that make the
+ *    entry what it is answers «is this still the same planned picture?» by
+ *    construction.
+ *  - **Over exactly these five facts**, so a file generated for one picture can
+ *    never be accepted for another: the deck it was planned in, the zone it is
+ *    for, the number it carries, and the motif it was generated from. Change
+ *    any of them and the id changes, which is precisely the event a deposit has
+ *    to refuse rather than absorb.
+ *
+ * The motif is normalised the way this module normalises motifs everywhere
+ * else, so fixing a capital letter or a double space is not a new picture.
+ */
+export function imagePlanItemId(identity: ImagePlanItemIdentity): string {
+  return (
+    IMAGE_PLAN_ITEM_ID_PREFIX +
+    stableDigest([
+      identity.presentationId,
+      identity.slideId,
+      identity.nodeId,
+      identity.number,
+      normalize(identity.subject),
+    ])
+  )
+}
+
+const IMAGE_PLAN_ITEM_ID_PATTERN = new RegExp(`^${IMAGE_PLAN_ITEM_ID_PREFIX}[0-9a-f]{16}$`)
+
+/** Whether a string is shaped like a plan-entry id at all. Checked at boundaries. */
+export function isImagePlanItemId(value: string): boolean {
+  return IMAGE_PLAN_ITEM_ID_PATTERN.test(value)
+}
+
+/**
+ * The file name one planned picture's file must carry, without its extension.
+ *
+ * The number, and nothing else — but read off the plan entry rather than
+ * counted out while files are being saved. That is the whole distinction the
+ * observed failure turned on: `${planItem.number}` and `${index + 1}` produce
+ * the same string for a generator that answers in order, and a different one
+ * for every generator that does not.
+ */
+export function imageFileNameStem(number: number): string {
+  return String(number)
+}
+
+/**
+ * The number a finished file claims, read back out of its name, or `null`.
+ *
+ * The other direction of `imageFileNameStem`, and here beside it so the pair
+ * cannot come apart: one rule writes the name, one rule reads it, and they are
+ * the same rule.
+ *
+ * Strict on purpose. A leading zero is refused rather than trimmed, because
+ * `01.png` and `1.png` in the same folder are two files for one picture, and a
+ * rule that accepted both would have to guess which. Anything before or after
+ * the digits is refused for the same reason: `bilde1.png` looks like a match
+ * and is a file named after something else.
+ */
+export function imageFileNumber(fileName: string): number | null {
+  // Some browsers hand over a path when a folder is dropped. The name is the
+  // last segment of it, and the segments before it say nothing about the order.
+  const base = fileName.split(/[\\/]/).pop() ?? ''
+  const match = /^([1-9][0-9]*)\.([A-Za-z0-9]+)$/.exec(base)
+  if (!match) return null
+  if (!IMAGE_FILE_EXTENSION_LIST.includes(match[2].toLowerCase())) return null
+  return Number(match[1])
 }
 
 /* ------------------------------------------------------------------ *
@@ -148,8 +259,15 @@ export function isPlaceholderCaption(text: string): boolean {
 }
 
 export interface ResolvedPlannedImage {
+  /**
+   * The entry's stable identity: what a generated file is bound to, all the way
+   * from the brief to the deposit. Derived — see `imagePlanItemId`.
+   */
+  id: string
   /** 1‥N in deck order. The number the placeholder caption says. */
   number: number
+  /** What the finished file is called, without its extension. The number. */
+  fileNameStem: string
   plan: PlannedImage
   /** What the slide is called, so the author can find the zone again. */
   slideLabel: string
@@ -199,8 +317,17 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
       if (!rect) continue
       const frame = panelFrame(leaf.content, rect, tokens.cardHeaderHeight)
       const aspect = frame.height > 0 ? frame.width / frame.height : 1
+      const number = resolved.length + 1
       resolved.push({
-        number: resolved.length + 1,
+        id: imagePlanItemId({
+          presentationId: presentation.id,
+          slideId: slide.id,
+          nodeId: leaf.id,
+          number,
+          subject: entry.subject,
+        }),
+        number,
+        fileNameStem: imageFileNameStem(number),
         plan: entry,
         slideLabel: slideLabel(slide.title, index),
         frame,
@@ -574,6 +701,12 @@ export function composeImageBrief(presentation: Presentation): string | null {
   const sections = images.map((image) =>
     [
       `BILDE ${image.number} AV ${count}`,
+      /* The id and the file name are printed per picture, not only handed over
+         in the structured half, because the brief is what an agent and a person
+         actually read while the pictures are being made — and «which entry is
+         this file for?» is the question the whole flow turns on. */
+      `Bildeplan-ID: ${image.id}`,
+      `Filnavn: ${image.fileNameStem}.<filendelse>`,
       `Skal brukes på slide: ${image.slideLabel}`,
       `Aspect ratio: ${image.aspectRatio} (${image.orientation})`,
       ...PLANNED_IMAGE_FIELDS.flatMap((field) =>
@@ -601,6 +734,15 @@ export function composeImageBrief(presentation: Presentation): string | null {
     'Ingen tekst, etiketter, rammer eller infografikkelementer i bildene',
     'med mindre dette eksplisitt er bedt om for det aktuelle bildet.',
     '',
+    'ETT BILDE OM GANGEN, OG REKKEFØLGEN ER IKKE IDENTITET',
+    'Generer bildene enkeltvis, ett kall per nummer nedenfor.',
+    'Rekkefølgen bildene blir ferdige i, og rekkefølgen de vises i,',
+    'sier ingenting om hvilket nummer de hører til.',
+    'Bruk aldri «det første bildet som kom tilbake» som bilde 1.',
+    'Hvert bilde hører til den oppføringen det ble generert fra – identifisert',
+    'av «Bildeplan-ID» – og filen skal ha filnavnet den oppføringen oppgir,',
+    'uansett når i samtalen bildet ble laget.',
+    '',
     'FELLES BILDEKONTEKST',
     context,
     '',
@@ -613,7 +755,12 @@ export function composeImageBrief(presentation: Presentation): string | null {
     'og at motivene ikke utilsiktet er slått sammen eller gjort til varianter',
     'av det samme bildet.',
     '',
-    `Generer deretter alle ${count} bildene som separate bilder.`,
+    `Generer deretter alle ${count} bildene enkeltvis, ett kall per oppføring.`,
+    '',
+    'ETTER GENERERING',
+    'Kontroller for hver ferdige fil at den hører til den oppføringen den ble',
+    'generert fra: samme Bildeplan-ID, samme nummer og filnavnet oppføringen',
+    'oppgir. Stemmer ikke koblingen, skal bildene ikke leveres videre.',
   ].join('\n')
 }
 
@@ -661,6 +808,20 @@ export interface ImageGenerationContract {
   rule: string
   /** Where the instruction for one file comes from, and where it does not. */
   perImageInstruction: string
+  /**
+   * The loop, one numbered step at a time.
+   *
+   * Stated as steps rather than as a paragraph because the failure it answers
+   * is a *sequencing* failure: an agent that holds the whole plan, fires every
+   * generation call, and then names the returned files in the order they
+   * arrived has done every individual step correctly and still put most
+   * pictures on the wrong slide. A numbered loop is the one form that makes
+   * «bind the file before generating the next one» something an agent can be
+   * seen to have skipped.
+   */
+  perImageSteps: readonly string[]
+  /** Why generation order can never stand in for a picture's identity. */
+  orderIsNotIdentity: string
   /** What a finished file is called, so its number survives the trip back. */
   fileNamePattern: string
   /** The extensions a deposited file may carry. The deposit's own list, not a copy. */
@@ -688,9 +849,11 @@ export function composeImageGenerationContract(
       count === 1
         ? 'Lag nøyaktig ett bilde: den ene oppføringen i bildeplanen er én selvstendig bildegenerering og én bildefil.'
         : `Lag nøyaktig ${count} separate bilder: hver oppføring i bildeplanen er én selvstendig bildegenerering og én bildefil. Bildegeneratoren skal kalles ${count} ganger – én gang per oppføring, aldri én gang for hele planen.`,
-    perImageInstruction: `Instruksen for ett bilde er den ene oppføringens egne felter – nummer, slide, aspect ratio, orientering, ${PLANNED_IMAGE_FIELDS.map(
+    perImageInstruction: `Instruksen for ett bilde er den ene oppføringens egne felter – \`imagePlanItemId\`, nummer, slide, aspect ratio, orientering, ${PLANNED_IMAGE_FIELDS.map(
       (field) => PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
     ).join(', ')} – sammen med dekkets felles bildekontekst. Aspect ratio hentes fra den samme oppføringen, slik at to bilder med ulikt format ikke havner på samme lerret.`,
+    perImageSteps: PER_IMAGE_STEPS,
+    orderIsNotIdentity: ORDER_IS_NOT_IDENTITY,
     fileNamePattern: '<nummer>.<filendelse>',
     fileExtensions: IMAGE_FILE_EXTENSION_LIST,
     beforeDeposit: deliveryChecks(count),
@@ -698,6 +861,37 @@ export function composeImageGenerationContract(
       'Den samlede briefen er den menneskelesbare representasjonen av nøyaktig den samme planen – til utskrift i samtalen, manuell kopiering, dokumentasjon og eventuelt overordnet kontekst. Den er ikke én bildegenereringsprompt, og den skal ikke parses tilbake til enkeltbilder: den strukturerte planen inneholder allerede det som trengs per bilde.',
   }
 }
+
+/**
+ * Why a picture's place in the queue says nothing about which picture it is.
+ *
+ * The sentence exists because the opposite assumption is the cheapest one
+ * available, it is almost always right, and when it is wrong it is wrong
+ * silently: a generator handed nine motifs answered in the order 1, 3, 9, 6, 5,
+ * 8, 2, 4, 7, the files were named by arrival, and seven of nine pictures
+ * landed on a slide they were never made for.
+ */
+const ORDER_IS_NOT_IDENTITY =
+  'Rekkefølgen bildegeneratoren produserer, returnerer eller viser bildene i er ikke en identitetskilde. Et bilde er identifisert av `imagePlanItemId` til oppføringen det ble generert fra, aldri av hvilken plass det fikk i køen, i svaret eller i grensesnittet. «Det første bildet som kom tilbake» er derfor aldri bilde 1, og et bilde skal aldri nummereres etter når det ble ferdig.'
+
+/**
+ * The loop, one step at a time.
+ *
+ * Every step is an action with an observable result, and they are ordered so
+ * that the binding is written down *before* the next generation call exists to
+ * confuse it with. That ordering is the whole mechanism: an agent that only
+ * collects files and names them afterwards has no record left of which prompt
+ * produced which file, and no amount of care at the end can recover one.
+ */
+const PER_IMAGE_STEPS: readonly string[] = [
+  'Velg neste oppføring i `images`, i stigende `number`.',
+  'Les bare denne oppføringens egne felter, sammen med dekkets felles bildekontekst. Ikke send hele planen eller den samlede briefen som én kontekst.',
+  'Kall bildegeneratoren nøyaktig én gang for denne oppføringen.',
+  'Knytt filen som kommer tilbake til den samme `imagePlanItemId` med en gang, før neste oppføring genereres.',
+  'Gi filen navnet oppføringen oppgir – `<number>.<filendelse>` – der `number` er oppføringens eget nummer, ikke et løpenummer for genereringen.',
+  'Kontroller at koblingen er bevart: `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavn hører til samme oppføring.',
+  'Gå først deretter videre til neste oppføring.',
+]
 
 /**
  * What separates a finished delivery from a plausible-looking one.
@@ -711,6 +905,9 @@ function deliveryChecks(count: number): readonly string[] {
   return [
     `Det finnes nøyaktig ${count} separate bildefiler – én per planlagt bilde.`,
     `Numrene 1‥${count} forekommer én gang hver: ingen hull, ingen duplikater.`,
+    'Hver `imagePlanItemId` i planen er brukt nøyaktig én gang, og ingen fil bærer en id som ikke finnes i planen.',
+    'Hver fil er knyttet til den oppføringen den ble generert fra: samme `imagePlanItemId`, og den oppføringens `number`, `slideId` og `nodeId`.',
+    'Filnavnet er oppføringens eget nummer, ikke bildets plass i genereringsrekkefølgen.',
     'Hver fil viser motivet til sitt eget nummer, og har det aspect ratio oppføringen oppgir.',
     'Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiver det inneholder.',
     'Stemmer ikke antallet, er bildegenereringen ikke ferdig: generer de manglende bildene enkeltvis før deponering, i stedet for å gå videre.',

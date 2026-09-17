@@ -38,6 +38,7 @@ import {
   DESIGN_DOCS_PATH,
   IMAGE_BRIEF_RULE,
   IMAGE_GENERATION_RULE,
+  IMAGE_HANDOFF_RULE,
   IMAGE_PLACEHOLDER_POLICY,
   IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
@@ -100,6 +101,7 @@ const NORMATIVE = [
   IMAGE_BRIEF_RULE,
   IMAGE_PLAN_RULE,
   IMAGE_GENERATION_RULE,
+  IMAGE_HANDOFF_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
   SELF_CHECK_STOP,
@@ -197,6 +199,7 @@ describe('det agenten vet før første kall', () => {
       SPLIT_RULE,
       IMAGE_BRIEF_RULE,
       IMAGE_PLAN_RULE,
+      IMAGE_HANDOFF_RULE,
       ...IMAGE_PLACEHOLDER_POLICY,
       ...VECTOR_POLICY,
       ...RASTER_POLICY,
@@ -448,6 +451,40 @@ describe('raster og vektor', () => {
     // zones rather than failing.
     expect(IMAGE_GENERATION_RULE).toMatch(/planlagt bilde 1 blir fil `1`/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/med filendelsen til formatet/i)
+  })
+
+  it('sier at genereringsrekkefølgen aldri er en identitetskilde', () => {
+    // The second observed failure, and the one a count could not see: nine
+    // pictures generated in the order 1, 3, 9, 6, 5, 8, 2, 4, 7, named by
+    // arrival, seven of them on the wrong slide. The rule has to name the
+    // identity that replaces the order.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Genereringsrekkefølgen er aldri en identitetskilde/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/«det første bildet som kom tilbake» er aldri bilde 1/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri nummereres etter når det ble ferdig/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri fra en teller over de ferdige filene/i)
+  })
+
+  it('gjør arbeidsflyten eksplisitt sekvensiell, én oppføring av gangen', () => {
+    // Order matters in the loop itself: the binding is written down before the
+    // next generation call exists to confuse it with. An agent that collects
+    // every file first has nothing left to bind them from.
+    expect(IMAGE_GENERATION_RULE).toMatch(/stigende `number`/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/fullfør én av gangen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/knytt filen som kommer tilbake til den samme `imagePlanItemId`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/gå først deretter videre til neste oppføring/i)
+  })
+
+  it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {
+    // On the tool that performs it, because it is only writable once there are
+    // files to write about — and because the whole value of the check is that
+    // somebody other than the model does it.
+    expect(toolProse()).toContain(IMAGE_HANDOFF_RULE)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/før de leveres eller deponeres/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/kopieres ordrett fra `images`/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/den utledes ikke fra rekkefølgen/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/nøyaktig én gang/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`ok` false.*skal bildene ikke deponeres/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`manifest`.*`manifestFileName`/)
   })
 
   it('bruker den strukturerte oppføringen som kilde, ikke den samlede briefen', () => {

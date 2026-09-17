@@ -40,6 +40,12 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/ett kall per oppføring i `images`/i)
     expect(MCP_INSTRUCTIONS).toMatch(/generation\.expectedFileCount.*før bildene deponeres/i)
     expect(MCP_INSTRUCTIONS).toMatch(/alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert/i)
+    // One entry finished at a time, and the count is not the only thing
+    // checked: the second failure was nine correct pictures named in the order
+    // they came back, which a count cannot see.
+    expect(MCP_INSTRUCTIONS).toMatch(/én oppføring ferdigstilt av gangen/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/hver fil er knyttet til den `imagePlanItemId` den ble generert fra/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/koblingen mellom hver fil og bildeplanoppføringen/i)
     // And the retired instruction — hand the brief over as the generation
     // prompt — is asserted gone rather than left to review.
     expect(MCP_INSTRUCTIONS).not.toMatch(/briefen som bildegenereringsinstruks/i)
