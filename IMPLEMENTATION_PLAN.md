@@ -675,7 +675,7 @@ Derfor to separate tall og én sannhetskilde:
 
 Det holdt ikke å la kontrollen svare. Første forsøk lot bare
 `verify_image_handoff` kjenne utfallet, og da var sekvensen inkonsistent: planen
-ble skrevet, N filer generert, kontrollen svarte `generation-verified` og
+ble skrevet, N filer generert, kontrollen svarte «ferdig» og
 `complete: true` — og neste `get_image_brief` på *nøyaktig samme dekk* svarte
 `awaiting-generation` og ba om N nye genereringskall, fordi sonene fortsatt var
 tomme. Det er den samme duplikatgenereringen regelen forbyr, ett kall senere.
@@ -705,7 +705,7 @@ ut.
 | `no-planned-images` | ✔ | Dekket planlegger ingen bilder, og ingen bildesone venter. |
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
-| `generation-verified` | ✔ | Koblingskontrollen svarte `ok`: alt planlagt er laget og koblet. |
+| `generation-verified` | ✔ | Koblingskontrollen svarte `ok`, og ingenting Slaids kan se er utestående: hver planlagt sone har fått sin fil. |
 | `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. |
 | `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
