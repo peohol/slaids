@@ -219,7 +219,18 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    * against the files' own bytes.
    */
   const needsConfirmation = review.assurance === 'unchecked'
-  const [acknowledged, setAcknowledged] = useState(false)
+  /*
+   * *Which* delivery was confirmed, not merely that something was.
+   *
+   * A boolean here outlived the set it was given for: tick the box, then swap
+   * one picture for another under the same name, and «Fullfør» came back within
+   * reach for a set nobody had looked at. The key is derived from the manifest
+   * and the files' own bytes (`DepositReview.deliveryKey`), so changing the
+   * delivery unticks the box by itself and picking the same files again in
+   * another order does not.
+   */
+  const [acknowledgedFor, setAcknowledgedFor] = useState<string | null>(null)
+  const acknowledged = acknowledgedFor === review.deliveryKey
   const confirmed = !needsConfirmation || acknowledged
 
   /**
@@ -442,7 +453,9 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
             type="checkbox"
             checked={acknowledged}
             disabled={busy}
-            onChange={(event) => setAcknowledged(event.target.checked)}
+            onChange={(event) =>
+              setAcknowledgedFor(event.target.checked ? review.deliveryKey : null)
+            }
           />{' '}
           Jeg har sett gjennom bildene og bekrefter at hvert nummer viser det motivet det skal.
         </label>

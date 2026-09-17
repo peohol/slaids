@@ -42,6 +42,7 @@
 
 import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from './content'
 import { mapDeckSlides } from './deckSlides'
+import { stableDigest } from './digest'
 import {
   checkGeneratedImages,
   imageBindingCheck,
@@ -246,6 +247,21 @@ export interface DepositReview {
    */
   binding: ImageBindingIssue[]
   /**
+   * The identity of *this* delivery: what a person would be confirming.
+   *
+   * Derived from what actually decides the outcome — the manifest, and every
+   * delivered file's name together with the digest of its bytes — so it changes
+   * when the set changes materially and not when React renders again or the
+   * files are picked in another order.
+   *
+   * It exists because a confirmation is about a set, not about a dialog. An
+   * `'unchecked'` delivery asks the person to look at the pictures; if that
+   * answer outlived a file being swapped for another one under the same name,
+   * «Fullfør» would be reachable for a set nobody had looked at. A caller that
+   * asks for the confirmation remembers *which* key was confirmed and compares.
+   */
+  deliveryKey: string
+  /**
    * Exactly 1‥N, each once, nothing rejected, and no binding in conflict.
    *
    * Deliberately true for an `'unchecked'` delivery: nothing is wrong with it
@@ -303,6 +319,10 @@ export function reviewDepositFiles(
     missing,
     assurance: 'manual',
     binding: [],
+    deliveryKey: deliveryKeyOf(
+      fileNames.map((fileName) => ({ fileName })),
+      null,
+    ),
     ready:
       expectedCount > 0 &&
       missing.length === 0 &&
@@ -334,10 +354,15 @@ export function reviewDeposit(
   delivered: readonly DeliveredImageFile[],
   manifestText: string | null,
 ): DepositReview {
-  const names = reviewDepositFiles(
-    delivered.map((file) => file.fileName),
-    depositSlots(presentation).length,
-  )
+  const names = {
+    ...reviewDepositFiles(
+      delivered.map((file) => file.fileName),
+      depositSlots(presentation).length,
+    ),
+    // Recomputed with what this entry point actually holds: the bytes and the
+    // manifest, which are what a person would be confirming.
+    deliveryKey: deliveryKeyOf(delivered, manifestText),
+  }
   if (manifestText === null) return names
 
   const parsed = parseImageGenerationManifest(manifestText)
@@ -361,6 +386,26 @@ export function reviewDeposit(
     binding,
     ready: names.ready && binding.length === 0,
   }
+}
+
+/**
+ * The identity of a delivery, for a confirmation that has to be about one.
+ *
+ * Sorted by name, because the order somebody happened to pick the files in is
+ * not part of what gets inserted. The digest of each file's bytes *is*: a
+ * different picture under the same name is a different delivery, and that is
+ * precisely the change a stale confirmation would wave through.
+ */
+function deliveryKeyOf(
+  delivered: readonly DeliveredImageFile[],
+  manifestText: string | null,
+): string {
+  return stableDigest([
+    manifestText,
+    [...delivered]
+      .map((file) => [file.fileName, file.contentHash ?? null] as const)
+      .sort((a, b) => a[0].localeCompare(b[0])),
+  ])
 }
 
 /** A manifest that could not even be read against: nothing lands, nothing is claimed. */

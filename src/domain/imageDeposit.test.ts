@@ -582,3 +582,77 @@ describe('den enveis døren', () => {
     expect(abandonImageDeposit(done.value).ok).toBe(false)
   })
 })
+
+describe('identiteten til leveransen en bekreftelse gjelder', () => {
+  const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
+
+  async function files(
+    names: readonly string[],
+    bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
+  ): Promise<DeliveredImageFile[]> {
+    return Promise.all(
+      names.map(async (fileName, index) => ({
+        fileName,
+        contentHash: await hashBytes(bytesFor(index)),
+      })),
+    )
+  }
+
+  async function bareManifest(deck: Presentation): Promise<string> {
+    return composeImageGenerationManifest({
+      presentationId: deck.id,
+      images: resolveImagePlan(deck).map((image) => ({
+        imagePlanItemId: image.id,
+        number: image.number,
+        slideId: image.plan.slideId,
+        nodeId: image.plan.nodeId,
+        fileName: `${image.fileNameStem}.png`,
+      })),
+    })
+  }
+
+  it('endrer seg når en fil byttes til et annet bilde under samme navn', async () => {
+    // The change a confirmation must not survive. Same names, same manifest,
+    // same count — a different picture behind `2.png`.
+    const { deck } = pendingDeck()
+    const manifest = await bareManifest(deck)
+    const names = ['1.png', '2.png', '3.png']
+
+    const before = reviewDeposit(deck, await files(names), manifest)
+    const after = reviewDeposit(
+      deck,
+      await files(names, (index) => (index === 1 ? realImages.webpLossless() : PICTURES[index]())),
+      manifest,
+    )
+    expect(after.deliveryKey).not.toBe(before.deliveryKey)
+  })
+
+  it('endrer seg når settet eller manifestet endres', async () => {
+    const { deck } = pendingDeck()
+    const manifest = await bareManifest(deck)
+    const full = await files(['1.png', '2.png', '3.png'])
+    const base = reviewDeposit(deck, full, manifest).deliveryKey
+
+    // One file removed, one file added, and a different manifest: three
+    // different deliveries, three different keys.
+    expect(reviewDeposit(deck, full.slice(0, 2), manifest).deliveryKey).not.toBe(base)
+    expect(
+      reviewDeposit(deck, [...full, { fileName: '4.png', contentHash: 'a'.repeat(64) }], manifest)
+        .deliveryKey,
+    ).not.toBe(base)
+    expect(reviewDeposit(deck, full, `${manifest} `).deliveryKey).not.toBe(base)
+  })
+
+  it('er upåvirket av rekkefølgen filene ble plukket i', async () => {
+    // The other half of the rule: an irrelevant change must not cost somebody
+    // their confirmation, or the dialog teaches people to tick the box blind.
+    const { deck } = pendingDeck()
+    const manifest = await bareManifest(deck)
+    const full = await files(['1.png', '2.png', '3.png'])
+
+    const reordered = [full[2], full[0], full[1]]
+    expect(reviewDeposit(deck, reordered, manifest).deliveryKey).toBe(
+      reviewDeposit(deck, full, manifest).deliveryKey,
+    )
+  })
+})

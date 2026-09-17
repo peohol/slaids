@@ -710,7 +710,8 @@ byttet innhold under uendrede navn blir avvist. Et avtrykk som stemmer sier
 hvilken fil som hører til hvilken bildeplass — det sier ingenting om hva bildet
 viser. Kan vertsklienten ikke lese bytene, er leveransen *uverifisert*: den blir
 ikke avvist, men den blir ikke kalt kontrollert heller, og deponeringen ber
-brukeren bekrefte manuelt.
+brukeren bekrefte manuelt — for det konkrete settet, så en bekreftelse ikke
+overlever at et bilde byttes ut etterpå.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |

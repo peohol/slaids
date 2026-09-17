@@ -397,6 +397,65 @@ describe('ImageDepositModal', () => {
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
   })
 
+  it('mister bekreftelsen når leveransen endres etter at den ble gitt', async () => {
+    // The sequence a boolean survived: confirm an unverified set, then swap one
+    // picture for another under the same name. The set is complete again, still
+    // unverified, and nobody has looked at the picture that is now in it — so
+    // «Fullfør» has to be out of reach until it is confirmed again.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+
+    // Swap `2.png`: the dialog adds rather than replaces, so the old one goes
+    // first — exactly what a person does when one picture came back wrong.
+    act(() => find<HTMLElement>('[aria-label="Fjern 2.png"]').click())
+    await settle()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+
+    pickFiles([picked(realImages.webpLossless(), '2.png', 'image/png')])
+    await settle()
+
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
+      'unchecked',
+    )
+    // Complete again, and still refused: the box unticked itself with the set.
+    expect(box().checked).toBe(false)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('beholder bekreftelsen når ingenting materielt er endret', async () => {
+    // The other half: re-picking the same bytes under the same names is the same
+    // delivery, and a dialog that demanded a new tick for it would teach people
+    // to tick without looking.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+
+    // Remove one file and put the very same bytes back under the same name.
+    act(() => find<HTMLElement>('[aria-label="Fjern 3.png"]').click())
+    await settle()
+    pickFiles([picked(PICTURES[2](), '3.png', 'image/png')])
+    await settle()
+
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(box().checked).toBe(true)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
   it('behandler et uleselig manifest som en ukjent kobling', async () => {
     const deck = pendingDeck()
     useEditorStore.getState().setPresentation(deck)

@@ -416,4 +416,59 @@ test.describe('bildedeponering med manifest', () => {
     await expect(stage(page).locator('img.image-panel__img')).toHaveCount(3)
     expect(guard.errors).toEqual([])
   })
+
+  test('mister bekreftelsen når et bilde byttes ut etterpå', async ({ page }) => {
+    // A confirmation is about a set, not about a dialog. Swapping one picture
+    // for another under the same name leaves the set complete and unverified,
+    // with nobody having looked at what is now in it.
+    const guard = watchForErrors(page)
+    const deck = pendingDeck()
+    await page.goto('/')
+    await page.getByTestId('import-input').setInputFiles({
+      name: 'venter.slaids',
+      mimeType: 'application/zip',
+      buffer: archiveOf(deck),
+    })
+    await page.getByTestId('open-presentation').first().click()
+    await page.getByTestId('image-deposit-intro-generate').click()
+    await page.getByTestId('image-brief-modal-deposit').click()
+
+    const bare = JSON.parse(manifestFor(deck, (index) => DELIVERY[index].bytes)) as {
+      images: Record<string, unknown>[]
+    }
+    for (const image of bare.images) delete image.contentHash
+    const manifest = JSON.stringify(bare)
+    await page
+      .getByTestId('image-deposit-input')
+      .setInputFiles(filesFor(manifest, (index) => DELIVERY[index].bytes))
+
+    const finish = page.getByTestId('image-deposit-finish')
+    const box = page.getByTestId('image-deposit-acknowledge').locator('input')
+    await box.check()
+    await expect(finish).toBeEnabled()
+
+    // Take `2.jpg` back out and put a different picture in under the same name.
+    await page.getByRole('button', { name: 'Fjern 2.jpg' }).click()
+    await expect(finish).toBeDisabled()
+    await page.getByTestId('image-deposit-input').setInputFiles([
+      {
+        name: '2.jpg',
+        mimeType: 'image/jpeg',
+        buffer: Buffer.from(realImages.webpLossless()),
+      },
+    ])
+
+    // Complete again, still unverified, and the box has unticked itself.
+    await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
+    await expect(page.getByTestId('image-deposit-assurance')).toHaveAttribute(
+      'data-assurance',
+      'unchecked',
+    )
+    await expect(box).not.toBeChecked()
+    await expect(finish).toBeDisabled()
+
+    await box.check()
+    await expect(finish).toBeEnabled()
+    expect(guard.errors).toEqual([])
+  })
 })

@@ -849,6 +849,17 @@ nummer viser det motivet det skal. Manuell opplasting krever ingen slik
 bekreftelse — den som navnga filene laget koblingen selv, og å kreve et
 avkrysningsfelt for det ville vært en regresjon forkledd som grundighet.
 
+**Bekreftelsen gjelder ett sett, ikke dialogens levetid.** Den ble først lagret
+som en boolean, og en boolean overlevde settet den ble gitt for: kryss av, bytt
+så ut ett bilde med et annet under samme filnavn, og settet er komplett og
+uverifisert igjen mens «Fullfør» fortsatt er aktiv for et bilde ingen har sett
+på. Derfor bærer `DepositReview` en `deliveryKey` — avledet av manifestet og av
+hver leverte fils navn sammen med avtrykket av bytene — og dialogen husker
+*hvilken* nøkkel som ble bekreftet. Endres leveransen materielt, krysses boksen
+av seg selv; plukkes de samme filene i en annen rekkefølge, gjør den det ikke.
+En bekreftelse som kostet brukeren en ny avkrysning for ingenting er hvordan man
+lærer folk å krysse av uten å se.
+
 Ingen av nivåene sier noe om hva bildet *viser*. Dialogen holder de to fra
 hverandre i ordlyden, fordi et avtrykk som stemmer er lett å lese som en
 godkjenning av motivet.
