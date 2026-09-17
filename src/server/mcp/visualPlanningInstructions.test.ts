@@ -297,6 +297,22 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
       )
+      /*
+       * And the rule's own opening must not say the opposite either. «Så snart
+       * dekket har planlagte rasterbilder, er neste steg bildegenereringen» is
+       * false in exactly the two stages this test is about: a deck can have
+       * planned pictures *and* be `plan-needs-repair`, or `plan-outdated` with
+       * unknown provenance, where the plan has to be put right first.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /hva som er neste handling, sier alltid `workflow\.nextAction` og `workflow\.stage`/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Er stadiet `plan-needs-repair` eller `plan-outdated`, skal planen først bringes i orden/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /så snart dekket har planlagte rasterbilder, er neste steg bildegenereringen/i,
+      )
       // Both retired attachments are asserted gone.
       expect(MCP_INSTRUCTIONS).not.toMatch(
         /er den tom, gjenstår det ingenting for deg\. Da gjør du dette i tur/i,
