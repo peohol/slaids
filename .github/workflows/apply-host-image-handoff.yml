@@ -1,0 +1,104 @@
+name: Apply host image handoff instruction fix
+
+on:
+  push:
+    branches:
+      - fix/host-image-handoff-instructions
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/host-image-handoff-instructions
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply targeted instruction changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_exact(
+              'src/agent/design.ts',
+              'Slaids-agent-API-et lager ikke rasterbilder; det er et bevisst arkitekturvalg, ikke en manglende funksjon som skal oppdages. Ikke undersøk om Slaids eller vertsklienten «har en bildegenerator» før du planlegger. Rasterflyten er alltid: reserver ekte bildesoner, skriv bildeplan og felles bildekontekst, og la Slaids generere den samlede bildebriefen. Dette er standardflyten, ikke en fallback eller nødløsning. Når vertsklienten allerede har et separat, innebygd bildegenereringsverktøy og brukeren har bedt om at bildene skal genereres, hent den ferdige briefen og send den direkte videre i samme samtale uten at brukeren kopierer og limer. Hvis klienten ikke kan gjøre denne overleveringen direkte, er den samme briefen fortsatt normal leveranse til stedet rasterfilene produseres. Direkte overlevering av briefen automatiserer bare starten på bildegenereringen; uten en filbro tilbake til Slaids går de ferdige filene fortsatt via bildedeponeringen. Ikke bytt til en hjemmelaget erstatning eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.',
+              'Slaids-agent-API-et lager ikke rasterbilder; det er et bevisst arkitekturvalg, ikke en manglende funksjon som skal oppdages. Ikke undersøk om Slaids eller vertsklienten «har en bildegenerator» før du planlegger. Rasterflyten er alltid: reserver ekte bildesoner, skriv bildeplan og felles bildekontekst, og la Slaids generere den samlede bildebriefen. Dette er standardflyten, ikke en fallback eller nødløsning. Når brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – og vertsklienten har et separat, innebygd bildegenereringsverktøy, er neste handling etter en gyldig ferdig brief obligatorisk: skriv den returnerte briefen ut i samme samtale, og kall deretter umiddelbart vertsklientens bildegenereringsverktøy med briefen som bildegenereringsinstruks. At briefen finnes i verktøyresponsen er ikke en overlevering, og at briefen bare er skrevet ut i samtalen betyr ikke at genereringen er startet; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Ikke avslutt oppgaven, kall presentasjonen ferdig eller la validering eller preview være siste steg før dette kallet er gjort. Hvis klienten ikke kan gjøre denne overleveringen direkte, er den samme briefen fortsatt normal leveranse til stedet rasterfilene produseres. Direkte overlevering av briefen automatiserer bare starten på bildegenereringen; uten en filbro tilbake til Slaids går de ferdige filene fortsatt via bildedeponeringen. Ikke bytt til en hjemmelaget erstatning eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.'
+          )
+
+          replace_exact(
+              'src/agent/design.ts',
+              'Når kontrollpunktene er besvart og det du fant er rettet, er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.',
+              'Når kontrollpunktene er besvart, det du fant er rettet og eventuelle obligatoriske overleveringer i rasterflyten er startet, er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.'
+          )
+
+          replace_exact(
+              'src/server/mcp/instructions.ts',
+              'Når planen er ferdig, hent den genererte bildebriefen.',
+              'Når planen er ferdig, hent den genererte bildebriefen og følg rasterflytens obligatoriske vertsklient-handoff før du avslutter.'
+          )
+
+          replace_exact(
+              'docs/AGENT_PRESENTATION_DESIGN.md',
+              'Når Slaids brukes fra en vertsklient som ChatGPT og brukeren har bedt om bildegenerering, kan klienten sende denne ferdige briefen direkte til sitt innebygde bildegenereringsverktøy i samme samtale. Brukeren skal ikke måtte kopiere og lime briefen bare for å starte genereringen. Hvis klienten ikke kan gjøre denne overleveringen direkte, brukes nøyaktig den samme briefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering av briefen automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.',
+              'Når Slaids brukes fra en vertsklient som ChatGPT, og brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – skal klienten, dersom den har et innebygd bildegenereringsverktøy, gjøre overleveringen med en gang Slaids har returnert en gyldig ferdig brief: skriv den returnerte briefen ut i samme samtale og kall deretter umiddelbart bildegenereringsverktøyet med briefen som instruks. Det er ikke nok at briefen ligger i verktøyresponsen, og det er ikke nok at den bare er skrevet i samtalen; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Agenten skal ikke avslutte oppgaven, kalle presentasjonen ferdig eller la validering/preview være siste steg før dette kallet er gjort. Hvis klienten ikke kan gjøre denne overleveringen direkte, brukes nøyaktig den samme briefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering av briefen automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.'
+          )
+
+          replace_exact(
+              'docs/AGENT_PRESENTATION_DESIGN.md',
+              'Det samme kallet åpner **bildedeponeringen**. Hver planlagte bildesone får det nummeret briefen bruker lagret internt på seg, og presentasjonen merkes som «venter på bilder» (`pending`). Agenten trenger ikke gjøre noe mer — svaret fra `plan_deck_images` og `get_image_brief` viser tilstanden i feltet `deposit`.',
+              'Det samme kallet åpner **bildedeponeringen**. Hver planlagte bildesone får det nummeret briefen bruker lagret internt på seg, og presentasjonen merkes som «venter på bilder» (`pending`). Ingen flere Slaids-kall kreves for å åpne eller holde deponeringen klar; svaret fra `plan_deck_images` og `get_image_brief` viser tilstanden i feltet `deposit`. Dette er likevel ikke et stoppunkt for vertsklienten: når rasterflyten krever direkte handoff, skal briefen skrives ut i samtalen og bildegenereringen faktisk startes før oppgaven kan avsluttes.'
+          )
+
+          replace_exact(
+              'IMPLEMENTATION_PLAN.md',
+              'Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom\npresentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er\nalltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles\nbildekontekst, og Slaids genererer den samlede briefen. En vertsklient som\nChatGPT kan sende briefen direkte til sitt innebygde bildeverktøy i samme\nsamtale når brukeren har bedt om generering. Hvis direkte overlevering ikke\nfinnes, brukes den samme briefen der bildene produseres; det er ikke en fallback.\nDenne direkte overleveringen gjelder briefen, ikke filreturen: uten en filbro\ntilbake til Slaids går de ferdige bildefilene fortsatt gjennom bildedeponeringen\ni 7.3.',
+              'Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom\npresentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er\nalltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles\nbildekontekst, og Slaids genererer den samlede briefen. Når brukerbestillingen\nforutsetter rasterbilder for å være oppfylt — også formuleringer som «med\nbilder», «bruk bilder» eller «bilder i hvert steg» — og vertsklienten har et\ninnebygd bildegenereringsverktøy, skal klienten skrive den returnerte briefen ut\ni samme samtale og umiddelbart starte bildegenereringen med den. Verken en brief\nsom bare finnes i verktøyresponsen eller en brief som bare er skrevet ut, er en\nfullført handoff; genereringen er først startet når bildegenereringsverktøyet\nfaktisk er kalt, og oppgaven skal ikke avsluttes før det har skjedd. Hvis direkte\noverlevering ikke finnes, brukes den samme briefen der bildene produseres; det er\nikke en fallback. Denne direkte overleveringen gjelder briefen og starten på\ngenereringen, ikke filreturen: uten en filbro tilbake til Slaids går de ferdige\nbildefilene fortsatt gjennom bildedeponeringen i 7.3.'
+          )
+
+          replace_exact(
+              'README.md',
+              'Slaids-agent-API-et genererer ikke rasterfiler. Standardflyten er at agenten\nreserverer bildesoner, skriver bildeplan og felles bildekontekst, og Slaids\ngenererer den samlede bildebriefen. En vertsklient som ChatGPT kan sende briefen\ndirekte til innebygd bildegenerering i samme samtale. Hvis klienten ikke kan\nsende briefen direkte, kan den fortsatt kopieres manuelt. Uten en egen filbro\ntilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen.',
+              'Slaids-agent-API-et genererer ikke rasterfiler. Standardflyten er at agenten\nreserverer bildesoner, skriver bildeplan og felles bildekontekst, og Slaids\ngenererer den samlede bildebriefen. Når brukerbestillingen forutsetter\nrasterbilder og vertsklienten har innebygd bildegenerering, skal klienten skrive\nden returnerte briefen ut i samme samtale og starte bildegenereringen umiddelbart;\nverktøyresponsen alene er ikke handoff. Hvis klienten ikke kan sende briefen\ndirekte, kan den fortsatt kopieres manuelt. Uten en egen filbro tilbake til\nSlaids går de ferdige bildefilene fortsatt via bildedeponeringen.'
+          )
+
+          replace_exact(
+              'src/server/mcp/visualPlanningInstructions.test.ts',
+              "  it('treats raster planning as the fixed standard and hands the brief to the host generator', () => {\n    expect(MCP_INSTRUCTIONS).toMatch(/Rasterflyten er fast, ikke en fallback/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/send den direkte videre i samme samtale/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/uten at brukeren kopierer og limer/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)\n    expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)\n  })",
+              "  it('treats raster planning as fixed and makes host generation an observable next action', () => {\n    expect(MCP_INSTRUCTIONS).toMatch(/Rasterflyten er fast, ikke en fallback/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/med bilder.*bruk bilder.*bilder i hvert steg/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/skriv den returnerte briefen ut i samme samtale/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/kall deretter umiddelbart.*bildegenereringsverktøyet/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/briefen finnes i verktøyresponsen er ikke en overlevering/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/først startet når bildegenereringsverktøyet faktisk er kalt/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/ikke avslutt oppgaven.*presentasjonen ferdig.*validering eller preview/i)\n    expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)\n    expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)\n  })"
+          )
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Commit targeted changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/agent/design.ts src/server/mcp/instructions.ts src/server/mcp/visualPlanningInstructions.test.ts docs/AGENT_PRESENTATION_DESIGN.md IMPLEMENTATION_PLAN.md README.md
+          git diff --cached --check
+          git commit -m "fix: require host image generation handoff"
+          git push origin HEAD:fix/host-image-handoff-instructions
