@@ -14,9 +14,23 @@
  *
  * The checks themselves live in `domain/validation.ts`, so the editor can ask
  * the same questions and get the same answers.
+ *
+ * Both reports carry a second list. `issues` is what is *wrong* — a broken
+ * invariant, and `valid` is whether there are any. `advice` is what is legal
+ * and probably not meant (see `domain/designAdvice.ts`), and it deliberately
+ * does not touch `valid`: a composition an agent chose on purpose must not
+ * leave it with a deck that can never come back clean, and a defect it did not
+ * choose must not be invisible because the document happens to parse. Advice is
+ * a finding, so it is answered before delivery — the self-check in
+ * `agent/design.ts` asks the same question of every text zone.
  */
 
 import { z } from 'zod'
+import {
+  findPresentationAdvice,
+  findSlideAdvice,
+  type DesignAdvice,
+} from '../../domain/designAdvice'
 import { findPresentationIssues, findSlideIssues, type InvariantIssue } from '../../domain/validation'
 import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
@@ -29,14 +43,17 @@ export interface ValidationReport {
   /** The reading this report describes, usable as `expectedRevision`. */
   revision: string
   slideId?: string
+  /** Whether the document breaks nothing. Design advice does not make it false. */
   valid: boolean
   issues: InvariantIssue[]
+  /** Legal, but probably not what was meant. Answer these before delivering. */
+  advice: DesignAdvice[]
 }
 
 export const validateSlideOperation = defineOperation({
   name: 'validate_slide',
   summary:
-    'Sjekk én slide mot domenets regler: struktur, geometri, innhold som ikke får plass, manglende filer og ugyldige referanser. Endrer ingenting.',
+    'Sjekk én slide mot domenets regler: struktur, geometri, innhold som ikke får plass, manglende filer og ugyldige referanser. Svaret har i tillegg `advice`: komposisjonsmønstre som er lovlige, men sjelden det du mente. De gjør ikke sliden ugyldig, og skal likevel besvares før levering. Endrer ingenting.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema, slideId: slideIdSchema }),
@@ -62,6 +79,7 @@ export const validateSlideOperation = defineOperation({
       slideId: slide.id,
       valid: issues.length === 0,
       issues,
+      advice: findSlideAdvice(slide),
     })
   },
 })
@@ -69,7 +87,7 @@ export const validateSlideOperation = defineOperation({
 export const validatePresentationOperation = defineOperation({
   name: 'validate_presentation',
   summary:
-    'Sjekk hele presentasjonen: lagret form, alle slides og innholdet som ligger i sandkassen. Endrer ingenting.',
+    'Sjekk hele presentasjonen: lagret form, alle slides og innholdet som ligger i sandkassen. Svaret har i tillegg `advice`: komposisjonsmønstre som er lovlige, men sjelden det du mente. De gjør ikke presentasjonen ugyldig, og skal likevel besvares før levering. Endrer ingenting.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
@@ -83,6 +101,7 @@ export const validatePresentationOperation = defineOperation({
       revision: presentationRevision(loaded.value),
       valid: issues.length === 0,
       issues,
+      advice: findPresentationAdvice(loaded.value),
     })
   },
 })

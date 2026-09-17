@@ -16,6 +16,17 @@ import type { RichDoc, RichNode, TextAlign, TitleDoc } from './types'
 export const CITATION_NODE = 'citation'
 export const IMAGE_NODE = 'slaidsImage'
 
+/**
+ * The stored node behind what the agent contract calls an accent.
+ *
+ * It is a ProseMirror heading and stays one — renaming the node would be a
+ * migration that changes nothing anybody reads. The name that mattered was the
+ * one in the contract (see `agent/text.ts`), and this constant is what keeps
+ * the two ends of that seam — the translation in and out, and the check that
+ * finds an accent standing in for a card title — naming the same node.
+ */
+export const ACCENT_NODE = 'heading'
+
 export function emptyDoc(): RichDoc {
   return { type: 'doc', content: [{ type: 'paragraph' }] }
 }

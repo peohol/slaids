@@ -57,6 +57,7 @@ import {
   INLINE_IMAGE_MIN_WIDTH_PERCENT,
 } from '../domain/constants'
 import {
+  ACCENT_NODE,
   CITATION_NODE,
   IMAGE_NODE,
   citationIdsOf,
@@ -265,7 +266,7 @@ function blockToNode(block: TextBlock, assets: AssetLookup): RichNode {
     case 'accent': {
       const color = block.color ? normalizeHex(block.color) : null
       return {
-        type: 'heading',
+        type: ACCENT_NODE,
         attrs: {
           level: 1,
           ...(block.align ? { textAlign: block.align } : {}),
@@ -458,7 +459,7 @@ function blockOf(node: RichNode): InspectedBlock[] {
       const align = alignOf(node)
       return [{ type: 'paragraph', spans: spansOf(node), ...(align ? { align } : {}) }]
     }
-    case 'heading': {
+    case ACCENT_NODE: {
       if (!isPlainInline(node)) return [unsupported(node)]
       const align = alignOf(node)
       const color = typeof node.attrs?.color === 'string' ? normalizeHex(node.attrs.color) : null
