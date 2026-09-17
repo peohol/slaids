@@ -117,7 +117,28 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /Filene lagres ikke: åpner du et `awaiting-deposit`-dekk uten å ha dem/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/Meld aldri et dekk ferdig uten å si at bildesonene står tomme/i)
+      /*
+       * What is left is not one sentence. `awaiting-deposit` covers a deck with
+       * empty zones *and* a deck whose zones still show the previous pictures,
+       * and `generation-verified` has no empty zone at all — so a rule that
+       * always said «the picture zones are empty» would have the agent tell the
+       * user something untrue in two of the states this PR just made
+       * load-bearing.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Meld aldri et dekk ferdig uten å si hva som faktisk gjenstår/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /andre viser fortsatt bildet fra forrige bestilling/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /I `generation-verified` er ingen sone tom, og da skal du ikke påstå at noen er det/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/Gjenta dekkets egen tilstand, ikke en fast setning/i)
+      // The unconditional version is asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Meld aldri et dekk ferdig uten å si at bildesonene står tomme/i,
+      )
       // And the retired definition is asserted gone rather than left to review:
       // the rule and the stages must not give the model two answers to «what
       // does a passing check leave me in».

@@ -744,6 +744,45 @@ describe('det dekket ikke kan vite om en fil', () => {
   })
 })
 
+describe('hva statusen sier at det er igjen', () => {
+  /*
+   * «What is left» is not one sentence, and the standing rule used to make it
+   * one: «never report a deck finished without saying the picture zones are
+   * empty». That is true of one `awaiting-deposit` deck and false of two other
+   * ordinary states — so an agent obeying both the rule and the status would
+   * have told the user something untrue about the very distinction this flow
+   * made load-bearing.
+   */
+  it('sier tomme soner når de er tomme', () => {
+    const status = composeImageWorkflowStatus(verified(awaiting(3)))
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.nextAction).toMatch(/3 bildesoner står tomme/i)
+    expect(status.nextAction).not.toMatch(/viser fortsatt bildet fra den forrige bestillingen/i)
+  })
+
+  it('sier forrige bilde når det er det som står der', () => {
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    const rewritten = setImageContext(deck, 'Kullstift, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+
+    const status = composeImageWorkflowStatus(verified(rewritten.value))
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.nextAction).toMatch(/2 bildesoner viser fortsatt bildet fra den forrige bestillingen/i)
+    // And it does not claim they are empty, because they are not.
+    expect(status.nextAction).not.toMatch(/bildesoner står tomme/i)
+  })
+
+  it('påstår ikke at noe er tomt når alt er på plass', () => {
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('generation-verified')
+    expect(status.nextAction).not.toMatch(/tom/i)
+    expect(status.nextAction).toMatch(/hver bildesone har fått en fil/i)
+  })
+})
+
 describe('et verifisert dekk som åpnes i en ny samtale', () => {
   /*
    * The stored check outlives the conversation that ran it, and the files do

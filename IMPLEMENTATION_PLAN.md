@@ -804,7 +804,11 @@ med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem 
 og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
 filen. `forbiddenClosings` er dessuten tom når `complete` er true, så ingenting
 står i veien for å lage dem på nytt. Det ene som aldri er lov, er å melde dekket
-ferdig til brukeren mens bildesonene står tomme.
+ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
+tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
+bildet fra forrige bestilling, mens ingen sone er tom i `generation-verified`.
+Statusen sier hvilket av delene dekket har, og agenten gjentar den i stedet for en
+fast setning.
 
 #### Hvorfor `plan-outdated` finnes
 

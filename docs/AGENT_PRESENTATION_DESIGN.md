@@ -252,7 +252,7 @@ Når bildeplanen foreligger og resten av presentasjonsarbeidet er ferdig, er rek
 
 **`generation-verified` sier ikke at filen i sonen er den kontrollerte filen.** Det sier at genereringen er kontrollert og at ingenting dekket kan se er utestående. Slaids ser aldri et bilde, så et bilde byttet for hånd etterpå er ikke til å skille fra det som ble deponert — se derfor gjennom bildene i tillegg, hver gang.
 
-**Og den er ikke et bevis på at du kan levere filene.** Koblingene overlever en reload; bildefilene gjør ikke det, for Slaids lagrer aldri en generert fil. Åpner du et dekk der `workflow.stage` er `awaiting-deposit` og du ikke har filene fra den forrige samtalen, si det til brukeren og lag bildene på nytt for de samme oppføringene. Forbudet mot å lage et godkjent bilde om igjen gjelder bare så lenge du har filen. Det ene som aldri er lov, er å melde dekket ferdig mens bildesonene står tomme.
+**Og den er ikke et bevis på at du kan levere filene.** Koblingene overlever en reload; bildefilene gjør ikke det, for Slaids lagrer aldri en generert fil. Åpner du et dekk der `workflow.stage` er `awaiting-deposit` og du ikke har filene fra den forrige samtalen, si det til brukeren og lag bildene på nytt for de samme oppføringene. Forbudet mot å lage et godkjent bilde om igjen gjelder bare så lenge du har filen. Det ene som aldri er lov, er å melde dekket ferdig uten å si hva som faktisk gjenstår — og si det slik det er: i `awaiting-deposit` står noen soner tomme, andre viser fortsatt bildet fra forrige bestilling, og `nextAction` sier hvilket av delene dette dekket har. I `generation-verified` er ingen sone tom, og da skal du ikke påstå at noen er det.
 
 To stadier er ikke ferdige selv om ingenting åpenbart mangler:
 
