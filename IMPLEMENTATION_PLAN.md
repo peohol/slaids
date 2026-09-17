@@ -4274,6 +4274,30 @@ De skal kunne rapportere blant annet:
 
 Et vellykket mutasjonskall erstatter ikke validering av helheten. En agent skal kunne be om en eksplisitt sluttkontroll etter at en presentasjon er bygget.
 
+#### Anmerkninger er ikke feil
+
+Begge operasjonene svarer med to lister. `issues` er brudd på invariants, og
+`valid` sier om det finnes noen. `advice` er komposisjonsmønstre som er lovlige,
+men sjelden det som var ment — og de gjør aldri `valid` falsk.
+
+Skillet er med vilje, og går begge veier. En agent som bevisst har valgt et
+mønster skal ikke sitte igjen med et dekk som aldri kan bli rent; et mønster den
+ikke valgte skal ikke være usynlig bare fordi dokumentet er gyldig. En
+anmerkning er derfor et funn: den navngir én struktur, sier hva den vanlige
+reparasjonen er, og sier når det å beholde den er et reelt valg.
+
+Anmerkningene er strukturelle, aldri språklige. De ser hvor en blokk står, hva
+slags blokk det er og hva som omgir den — ikke hva teksten betyr. Den første er
+`ACCENT_AS_CARD_TITLE`: et `untitled-card` der kortets eneste aksent står øverst
+med brødtekst under gjør aksenten til en hjemmelaget korttittel, og det er
+`titled-card` som har et sted for den overskriften. «Under» leses langs
+`body.axis`, den samme aksen rendereren legger subfeltene langs: stablede felter
+er én leserekkefølge, mens felter ved siden av hverandre er parallelle, og da er
+ingenting i det ene feltet over noe i det neste. Reglene den håndhever står i
+`src/agent/design.ts` (`PRIMARY_TEXT_RULE`, `ACCENT_RULE`); selve kontrollen står
+i `src/domain/designAdvice.ts`, atskilt fra `src/domain/validation.ts` nettopp
+fordi den ikke svarer på om dokumentet er ødelagt.
+
 ### Visuell feedback
 
 Strukturell validering er nødvendig, men ikke tilstrekkelig for gode slides.
