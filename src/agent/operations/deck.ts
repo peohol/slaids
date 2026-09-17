@@ -672,14 +672,16 @@ export interface GeneratedImagesView {
    */
   manifest: string | null
   /**
-   * Where the raster flow stands, with this check's own answer folded in.
+   * Where the raster flow stands once this check's answer is part of the deck.
    *
-   * The one place in the surface that can report `stage: 'generation-verified'`,
-   * because it is the only call that holds the records: a filled picture zone
-   * is the *deposit*, which is the user's step in a browser, so an agent that
-   * waited for zones to fill would wait for something it cannot do. `ok` here
-   * means every planned entry has exactly one file bound to it — which is what
-   * finishing the generation actually is.
+   * A passing check is stored, so what it reports here is what every later read
+   * reports too. `ok` means every planned entry has exactly one file bound to
+   * it — which is what finishing the *generation* is, and all this call can
+   * settle. Whether the pictures are in the deck is a separate question the
+   * deposit answers, so a passing check normally lands on `awaiting-deposit`
+   * rather than `generation-verified`: the files reach Slaids through the
+   * user's browser, and an agent that waited for the zones to fill would be
+   * waiting for something it cannot do.
    */
   workflow: ImageWorkflowStatus
 }
@@ -719,7 +721,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget – da er `workflow.stage` `generation-verified` også før filene er lagt inn. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget: `workflow.stage` blir `awaiting-deposit` så lenge filene ikke er lagt inn i sonene, og `generation-verified` når de er det. Å legge dem inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],

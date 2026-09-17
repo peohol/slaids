@@ -345,7 +345,14 @@ export const presentationSchema = z.object({
      reason `imagePlan` is not: that is a question about the plan, and
      `checkGeneratedImages` answers it — so a deck whose motifs were rewritten
      stays openable and reports the mismatch instead of failing validation. */
-  generatedImages: z.array(generatedImageRecordSchema).max(MAX_PLANNED_IMAGES).optional(),
+  generatedImages: z
+    /* Twice the plan's own bound: a deck may carry one binding per planned
+       picture *and* the binding each of them replaced, for as long as the
+       replaced picture is still the one sitting in the zone. See
+       `recordGeneratedImages`. */
+    .array(generatedImageRecordSchema)
+    .max(MAX_PLANNED_IMAGES * 2)
+    .optional(),
   theme: themeSchema,
   /* At least one slide, and the first one is a section. The refinement is the
      runtime half of `DeckSlides`: it is the only place a stored document is

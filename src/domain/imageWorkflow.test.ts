@@ -127,9 +127,9 @@ function verified(deck: Presentation): Presentation {
 }
 
 /** The same deck with the file for one entry deposited into its zone. */
-function withFile(deck: Presentation, index: number): Presentation {
+function withFile(deck: Presentation, index: number, prefix = 'a'): Presentation {
   const image = resolveImagePlan(deck)[index]
-  const id = `a${index + 1}`
+  const id = `${prefix}${index + 1}`
   const registered = registerAsset(deck, {
     id,
     name: `${image.fileNameStem}.png`,
@@ -304,6 +304,38 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(status.remainingSteps).toEqual([])
   })
 
+  it('kaller ikke en erstatning deponert fordi den gamle filen fyller sonen', () => {
+    /*
+     * The narrow case, without the detour through an emptied plan: the pictures
+     * are made again for a rewritten order, the check passes, and the zones
+     * still hold the *previous* pictures. Every planned zone has a file, so the
+     * count says nothing is missing — and it is wrong. Replacing the records
+     * with the new delivery is what used to lose that, and it made the status
+     * report the replacements as «lagt inn i dekket».
+     */
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    expect(composeImageWorkflowStatus(deck).stage).toBe('generation-verified')
+
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    // Same zones, new orders: the replacements are made and checked.
+    let remade = verified(rewritten.value)
+
+    const status = composeImageWorkflowStatus(remade)
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.complete).toBe(true)
+    // Nothing is *missing* from the deck, and the pictures are still not right.
+    expect(status.awaitingFileCount).toBe(0)
+    expect(status.nextAction).toMatch(/2 bildesoner viser fortsatt bildet fra den forrige bestillingen/i)
+    expect(staleGeneratedImages(remade)).toHaveLength(2)
+
+    // The deck can only call it done once the new files are actually in.
+    for (const index of [0, 1]) remade = withFile(remade, index, 'ny')
+    expect(staleGeneratedImages(remade)).toEqual([])
+    expect(composeImageWorkflowStatus(remade).stage).toBe('generation-verified')
+  })
+
   it('kan ikke gjøres ferdig ved å tømme bildeplanen når bestillingen er endret', () => {
     /*
      * The laundering path, end to end: plan, generate, verify, deposit, rewrite
@@ -319,28 +351,46 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
 
     const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast, ingen farge.')
     if (!rewritten.ok) throw new Error(rewritten.error.message)
+    // The plan still lists those zones, so a replacement is on order and the
+    // status says to make it.
     const changed = composeImageWorkflowStatus(rewritten.value)
     expect(changed.stage).toBe('plan-outdated')
     expect(changed.complete).toBe(false)
-    expect(changed.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
+    expect(changed.nextAction).toMatch(/erstatningene er ikke laget ennå/i)
 
     // Emptying the plan keeps the bindings, because their pictures are still in
-    // the deck — so the deck cannot forget why it was stale.
+    // the deck — so the deck cannot forget why it was stale. Now nothing is on
+    // order for those zones, and the status says that plainly.
     const emptied = planned(rewritten.value, [])
     expect(emptied.generatedImages).toHaveLength(3)
     expect(staleGeneratedImages(emptied)).toHaveLength(3)
     const laundered = composeImageWorkflowStatus(emptied)
     expect(laundered.stage).toBe('plan-outdated')
     expect(laundered.complete).toBe(false)
+    expect(laundered.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
+    expect(laundered.nextAction).toMatch(/ingenting er bestilt i stedet/i)
 
-    // The way out is to order those pictures again and make them.
+    // The way out is to order those pictures again and make them — but making
+    // them is not the same as them being in the deck. The zones still show the
+    // previous pictures at this point, and the status must say so instead of
+    // counting a filled zone as a delivered replacement.
     const zones = resolveImagePlan(deck).map((image) => image.plan)
     const replanned = planned(emptied, zones)
-    const remade = verified(replanned)
+    let remade = verified(replanned)
+    const made = composeImageWorkflowStatus(remade)
+    expect(made.stage).toBe('awaiting-deposit')
+    expect(made.complete).toBe(true)
+    expect(made.nextAction).toMatch(/viser fortsatt bildet fra den forrige bestillingen/i)
+    expect(staleGeneratedImages(remade)).toHaveLength(3)
+
+    // Only once the new files actually replace the old ones is the deck done,
+    // and putting a file in a zone is the moment the superseded binding stops
+    // being about anything.
+    for (const index of [0, 1, 2]) remade = withFile(remade, index, `b${index}`)
+    expect(staleGeneratedImages(remade)).toEqual([])
     const done = composeImageWorkflowStatus(remade)
     expect(done.stage).toBe('generation-verified')
     expect(done.complete).toBe(true)
-    expect(staleGeneratedImages(remade)).toEqual([])
   })
 
   it('lar bildet forsvinne fra sonen gjøre koblingen irrelevant', () => {
@@ -500,7 +550,7 @@ describe('et verifisert dekk som åpnes i en ny samtale', () => {
     expect(status.nextAction).toMatch(/er dette en senere samtale og filene ikke er tilgjengelige/i)
     expect(status.nextAction).toMatch(/generere bildene på nytt/i)
     // And it may not be reported as a finished deck while the zones are empty.
-    expect(status.nextAction).toMatch(/aldri dekket ferdig til brukeren uten å si at bildesonene er tomme/i)
+    expect(status.nextAction).toMatch(/aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass/i)
   })
 
   it('kan generere på nytt og bli verifisert igjen mot samme plan', () => {

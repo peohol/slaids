@@ -47,7 +47,7 @@ import {
   plannedGeneratedImages,
   staleGeneratedImages,
 } from './imageGeneration'
-import { checkImagePlan, resolveImagePlan } from './imagePlan'
+import { checkImagePlan, imageZoneKey, resolveImagePlan } from './imagePlan'
 import type { Presentation } from './types'
 
 /**
@@ -237,26 +237,54 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
   }
 
   /*
-   * Before every finished branch, and before the plan is even consulted for
-   * being empty: a picture in the deck that was made for an order the deck has
-   * since rewritten. It has to come first because the obvious repair for the
-   * stage below it — «rewrite the plan with only the zones that still wait» —
-   * is an empty plan on a fully deposited deck, and an empty plan used to make
-   * this state disappear. The bindings survive that rewrite now, so the
-   * mismatch cannot be laundered into a finished deck by deleting the evidence.
+   * A picture in the deck that was made for an order the deck has since
+   * rewritten, split by whether anything is being done about it.
+   *
+   * *Superseded* means its zone is planned again: a replacement is on order, so
+   * the question is only whether that replacement has been made and delivered.
+   * *Unaddressed* means nothing is: the picture is simply wrong for the deck it
+   * is in, and no amount of generating elsewhere fixes it.
+   *
+   * The split is what keeps two different failures from sharing an answer. An
+   * unaddressed one must stop the flow — and must survive an emptied plan, or
+   * «rewrite the plan with only the zones that still wait» becomes a way to
+   * delete the evidence. A superseded one must not stop it, because the agent
+   * is already doing the only thing that helps; it just must not be mistaken
+   * for a delivered picture, which is exactly what it was when the replacement
+   * records overwrote it.
    */
+  const plannedZones = new Set(
+    images.map((image) => imageZoneKey(image.plan.slideId, image.plan.nodeId)),
+  )
   const stale = staleGeneratedImages(presentation)
-  if (stale.length > 0) {
-    const numbers = stale.map((record) => record.number).join(', ')
+  const superseded = stale.filter((record) =>
+    plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
+  )
+  const unaddressed = stale.filter(
+    (record) => !plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
+  )
+  const verified = imageGenerationIsVerified(presentation)
+
+  if (unaddressed.length > 0) {
+    const numbers = unaddressed.map((record) => record.number).join(', ')
     return status(
       'plan-outdated',
       false,
-      `${stale.length === 1 ? 'Ett bilde' : `${stale.length} bilder`} i dekket ble laget for en bestilling som siden er endret – bilde ${numbers}. Motivet eller den felles bildekonteksten er skrevet om etter at filen kom, så filen i sonen svarer ikke på bestillingen som står nå. Det er ikke rettet ved å tømme bildeplanen: legg de sonene inn i bildeplanen igjen, generer bildene enkeltvis, og kjør koblingskontrollen. Skal et av de gamle bildene likevel stå, må det være brukerens valg – si hva som ikke stemmer, i stedet for å melde dekket ferdig.`,
+      `${unaddressed.length === 1 ? 'Ett bilde' : `${unaddressed.length} bilder`} i dekket ble laget for en bestilling som siden er endret – bilde ${numbers} – og ingenting er bestilt i stedet. Motivet eller den felles bildekonteksten er skrevet om etter at filen kom, så filen i sonen svarer ikke på bestillingen som står nå. Det er ikke rettet ved å tømme bildeplanen: legg de sonene inn i bildeplanen igjen, generer bildene enkeltvis, og kjør koblingskontrollen. Skal et av de gamle bildene likevel stå, må det være brukerens valg – si hva som ikke stemmer, i stedet for å melde dekket ferdig.`,
       [
         'Legg de berørte bildesonene inn i bildeplanen igjen, med bestillingen som gjelder nå.',
         'Generer de bildene enkeltvis, og kjør koblingskontrollen på hele den nye planen.',
         'Kan et gammelt bilde bli stående, er det brukerens avgjørelse – legg den frem, ikke avgjør den selv.',
       ],
+    )
+  }
+
+  if (superseded.length > 0 && !verified) {
+    return status(
+      'plan-outdated',
+      false,
+      `${superseded.length} av bildesonene holder fortsatt bildet fra den forrige bestillingen, og erstatningene er ikke laget ennå. Generer oppføringene i planen enkeltvis og kjør koblingskontrollen; først når de nye filene er lagt inn i sonene, er bildene i dekket de som er bestilt.`,
+      generationSteps(Math.max(counts.awaitingFileCount, superseded.length)),
     )
   }
 
@@ -268,8 +296,16 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     )
   }
 
-  if (imageGenerationIsVerified(presentation)) {
-    if (counts.awaitingFileCount === 0) {
+  if (verified) {
+    /*
+     * Delivered means two things, and a filled zone only answers one of them.
+     * A zone whose picture is still the superseded one *has* a file, so the
+     * count says nothing is missing — and the replacement it is waiting for has
+     * been made and checked. Both are true, and «the pictures are in the deck»
+     * is not.
+     */
+    const outstanding = counts.awaitingFileCount + superseded.length
+    if (outstanding === 0) {
       return status(
         'generation-verified',
         true,
@@ -277,9 +313,10 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       )
     }
     /*
-     * Verified, and the files are not here. Complete, because generating them
-     * was the agent's work and it is done — but the stage says what is pending,
-     * and the action has to work for a session that does not hold the files.
+     * Verified, and the files are not in the deck. Complete, because generating
+     * them was the agent's work and it is done — but the stage says what is
+     * pending, and the action has to work for a session that does not hold the
+     * files.
      *
      * That last part is the failure this wording answers. The check is stored,
      * so it outlives the conversation that ran it: a later session can open
@@ -287,12 +324,19 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
      * chat produced. A record is proof that files were made once; it is not
      * proof that anybody can still deliver them. So making them again is
      * explicitly allowed here, and reporting the deck as finished while its
-     * picture zones are empty is explicitly not.
+     * picture zones are empty — or still showing the previous picture — is
+     * explicitly not.
      */
     return status(
       'awaiting-deposit',
       true,
-      `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, så genereringsoppgaven er gjort. Filene ligger ikke i dekket: ${counts.awaitingFileCount} bildesoner står tomme, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildesonene er tomme.`,
+      `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, så genereringsoppgaven er gjort. Filene ligger ikke i dekket: ${
+        superseded.length > 0
+          ? `${superseded.length} bildesoner viser fortsatt bildet fra den forrige bestillingen${
+              counts.awaitingFileCount > 0 ? `, og ${counts.awaitingFileCount} står tomme` : ''
+            }`
+          : `${counts.awaitingFileCount} bildesoner står tomme`
+      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.`,
     )
   }
 

@@ -706,7 +706,7 @@ ut.
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
 | `generation-verified` | ✔ | Koblingskontrollen svarte `ok`: alt planlagt er laget og koblet. |
-| `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene har ikke kommet inn i dekket ennå. |
+| `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. |
 | `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
 Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
@@ -734,7 +734,28 @@ beholder den andre så lenge bildet fortsatt ligger i sonen. En `PLAN_CHANGED`
 kan derfor ikke forsvinne ved at planen tømmes; den krever at bildene lages om,
 eller at brukeren uttrykkelig velger å beholde dem.
 
-**Den er ikke et bevis på at noen kan levere filene.** Koblingene overlever en
+**Den er ikke et bevis på at filene er lagt inn.** En kobling sier at bildet ble
+laget, ikke at det er bildet som ligger i sonen. Etter en omskrevet bestilling
+er reparasjonen å generere erstatningene — og i det øyeblikket holder sonene
+fortsatt de *gamle* filene, samtidig som hver planlagt sone har en fil. Å la de
+nye koblingene erstatte de gamle gjorde da dekket blindt for nettopp det, og
+statusen meldte erstatningene som «lagt inn i dekket». Derfor beholder
+`recordGeneratedImages` koblingen den erstatter, så lenge det gamle bildet
+fortsatt er det som står i sonen, og statusen skiller:
+
+- **superseded** — sonen er planlagt igjen, altså er en erstatning bestilt. Er
+  den laget og kontrollert, er dette `awaiting-deposit`; er den ikke laget ennå,
+  er det `plan-outdated` med beskjed om å generere.
+- **unaddressed** — ingen bestilling dekker sonen. Det stopper flyten, og det er
+  dette som må overleve en tømt bildeplan.
+
+Koblingen slutter å gjelde i det bildet i sonen faktisk byttes:
+`dropSupersededBinding` kalles fra både `setImageAsset` og `setZoneContent`, som
+er de to veiene et bilde kan komme inn i en sone. Det er det ene tidspunktet
+dekket kan vite det, siden ingenting på panelet husker hvilken bestilling filen
+kom fra.
+
+**Den er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
 reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
 senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang
 til bildene den forrige samtalen laget. Derfor er `awaiting-deposit` sitt eget

@@ -248,7 +248,9 @@ Når bildeplanen foreligger og resten av presentasjonsarbeidet er ferdig, er rek
 
 **Svaret blir stående.** Koblingene lagres på dekket, så en senere `get_image_brief` sier det samme som kontrollen gjorde — ellers ville kontrollen svart «ferdig» og neste lesning bedt om alle bildene på nytt. Lagringen er ikke et flagg: koblingene kontrolleres mot planen dekket har *nå*, hver gang. Skriver du om et motiv eller den felles bildekonteksten etterpå, får oppføringen en ny `imagePlanItemId`, kontrollen faller bort av seg selv, og de bildene skal lages om.
 
-**Men en lagret kontroll er ikke et bevis på at du kan levere filene.** Koblingene overlever en reload; bildefilene gjør ikke det, for Slaids lagrer aldri en generert fil. Åpner du et dekk der `workflow.stage` er `awaiting-deposit` og du ikke har filene fra den forrige samtalen, si det til brukeren og lag bildene på nytt for de samme oppføringene. Forbudet mot å lage et godkjent bilde om igjen gjelder bare så lenge du har filen. Det ene som aldri er lov, er å melde dekket ferdig mens bildesonene står tomme.
+**En lagret kontroll er ikke et bevis på at bildet ligger i sonen.** Den sier at bildet ble laget. Genererer du erstatninger for en omskrevet bestilling, holder sonene fortsatt de gamle filene i det øyeblikket kontrollen går gjennom — hver sone har en fil, og ingen av dem er den nye. Da er stadiet `awaiting-deposit`, ikke `generation-verified`, og det blir først `generation-verified` når de nye filene faktisk er lagt inn.
+
+**Og den er ikke et bevis på at du kan levere filene.** Koblingene overlever en reload; bildefilene gjør ikke det, for Slaids lagrer aldri en generert fil. Åpner du et dekk der `workflow.stage` er `awaiting-deposit` og du ikke har filene fra den forrige samtalen, si det til brukeren og lag bildene på nytt for de samme oppføringene. Forbudet mot å lage et godkjent bilde om igjen gjelder bare så lenge du har filen. Det ene som aldri er lov, er å melde dekket ferdig mens bildesonene står tomme.
 
 To stadier er ikke ferdige selv om ingenting åpenbart mangler:
 

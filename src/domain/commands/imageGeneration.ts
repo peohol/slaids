@@ -46,7 +46,26 @@ export function recordGeneratedImages(
     return err('INVALID_ARGUMENT', issues[0].message, { issues })
   }
 
-  const stored = records.map(normalizeRecord)
+  /*
+   * The bindings this delivery supersedes are kept beside it, and that is the
+   * difference between «these pictures were made» and «these pictures are in
+   * the deck».
+   *
+   * The case is the repair path: a zone holds a picture made for an order that
+   * was rewritten, the replacement is generated, and the check passes. Replacing
+   * the records outright made the deck forget that the *old* picture is still
+   * the one in the zone — and since every planned zone had a file, the status
+   * reported the replacements as delivered. They have not been: Slaids cannot
+   * see a file, so the only thing that knows is the binding it is about to
+   * throw away. `setImageAsset` drops it when a new file actually lands there.
+   */
+  const written = records.map(normalizeRecord)
+  const ids = new Set(written.map((record) => record.imagePlanItemId))
+  const superseded = staleGeneratedImages(presentation).filter(
+    (record) => !ids.has(record.imagePlanItemId),
+  )
+  const stored = [...byNumber(written), ...byNumber(superseded)]
+
   // A call that changed nothing writes nothing — the same contract
   // `setImagePlan` keeps, so re-running the check on an unchanged delivery does
   // not move `updatedAt` under an editor that is autosaving.
@@ -54,6 +73,42 @@ export function recordGeneratedImages(
     return ok(presentation)
   }
   return ok(touch({ ...presentation, generatedImages: stored }))
+}
+
+/**
+ * The binding a zone's *previous* picture was made from, dropped.
+ *
+ * Called when a file lands in a zone. Whatever a superseded binding said about
+ * that zone stopped being true the moment its picture was replaced — and since
+ * nothing on the panel records which order the file in it came from, this is
+ * the one moment the deck can know. A binding the plan still orders is left
+ * alone: that one is the delivery, not something it replaced.
+ */
+export function dropSupersededBinding(
+  presentation: Presentation,
+  slideId: string,
+  nodeId: string,
+): Presentation {
+  const records = presentation.generatedImages ?? []
+  if (records.length === 0) return presentation
+  const planned = new Set(plannedGeneratedImages(presentation).map((record) => record.imagePlanItemId))
+  const kept = records.filter(
+    (record) =>
+      planned.has(record.imagePlanItemId) ||
+      record.slideId !== slideId ||
+      record.nodeId !== nodeId,
+  )
+  if (kept.length === records.length) return presentation
+  if (kept.length === 0) {
+    const { generatedImages: _dropped, ...rest } = presentation
+    return rest as Presentation
+  }
+  return { ...presentation, generatedImages: kept }
+}
+
+/** Arrival order is not identity, here either. */
+function byNumber(records: readonly GeneratedImageRecord[]): GeneratedImageRecord[] {
+  return [...records].sort((left, right) => left.number - right.number)
 }
 
 /**
@@ -84,9 +139,7 @@ export function pruneGeneratedImages(presentation: Presentation): Presentation {
       (record) => record.imagePlanItemId,
     ),
   )
-  const kept = records
-    .filter((record) => keep.has(record.imagePlanItemId))
-    .sort((left, right) => left.number - right.number)
+  const kept = byNumber(records.filter((record) => keep.has(record.imagePlanItemId)))
   if (kept.length === records.length) return presentation
   if (kept.length === 0) {
     const { generatedImages: _dropped, ...rest } = presentation

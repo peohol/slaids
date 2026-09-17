@@ -1297,22 +1297,31 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     }))
   }
 
-  /** One entry's file, deposited into that entry's own zone. */
+  /**
+   * One entry's file, deposited into that entry's own zone.
+   *
+   * `bytes` so a *replacement* is a different file: the deposit that matters in
+   * the stale case puts a new picture where an old one is, and two uploads of
+   * identical bytes are deduplicated into the asset that is already there.
+   */
   async function deposit(
     context: AgentContext,
     presentationId: string,
     image: ImageBriefView['images'][number],
+    bytes: Uint8Array = realImages.png(),
   ): Promise<void> {
     const stored = await ok<{ assetId: string }>(context, 'upload_asset', {
       presentationId,
       name: `${image.number}.png`,
-      content: { encoding: 'bytes', data: realImages.png() },
+      content: { encoding: 'bytes', data: bytes },
     })
     await ok(context, 'set_zone_asset', {
       presentationId,
       slideId: image.slideId,
       nodeId: image.nodeId,
       assetId: stored.assetId,
+      replace: true,
+      replacedDisposition: 'delete',
     })
   }
 
@@ -1581,9 +1590,10 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     })
     expect(changed.workflow.stage).toBe('plan-outdated')
     expect(changed.workflow.complete).toBe(false)
-    expect(changed.workflow.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
+    expect(changed.workflow.nextAction).toMatch(/erstatningene er ikke laget ennå/i)
 
-    // Follow it literally: empty the plan. The deck must not forget why.
+    // Follow the repair literally: empty the plan. The deck must not forget why
+    // it was stale, and with nothing on order it says so plainly.
     const emptied = await ok<ImageBriefView>(context, 'plan_deck_images', {
       presentationId: brief.presentationId,
       images: [],
@@ -1591,8 +1601,11 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(emptied.imageCount).toBe(0)
     expect(emptied.workflow.stage).toBe('plan-outdated')
     expect(emptied.workflow.complete).toBe(false)
+    expect(emptied.workflow.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
 
-    // The way out orders those pictures again and makes them.
+    // The way out orders those pictures again and makes them — and making them
+    // is still not the same as them being in the deck: the zones show the old
+    // pictures until the new files are put in.
     const replanned = await ok<ImageBriefView>(context, 'plan_deck_images', {
       presentationId: brief.presentationId,
       images: changed.images.map((image) =>
@@ -1604,8 +1617,29 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
       images: generated(replanned),
     })
     expect(remade.ok).toBe(true)
-    expect(remade.workflow.stage).toBe('generation-verified')
-    expect(remade.workflow.complete).toBe(true)
+    expect(remade.workflow.stage).toBe('awaiting-deposit')
+    expect(remade.workflow.nextAction).toMatch(/viser fortsatt bildet fra den forrige bestillingen/i)
+
+    for (const image of replanned.images) {
+      await deposit(context, brief.presentationId, image, realImages.jpeg())
+    }
+    const delivered2 = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(delivered2.workflow.stage).toBe('generation-verified')
+    expect(delivered2.workflow.complete).toBe(true)
+  })
+
+  it('beskriver `awaiting-deposit` i kontrakten koblingskontrollen selv bærer', async () => {
+    // The tool summary is part of what the model reads before it calls. It said
+    // a passing check lands on `generation-verified` «also before the files are
+    // in» — the opposite of what the stages now mean, and this PR is about not
+    // giving an agent two definitions of the same thing.
+    const verify = mcpTools().find((tool) => tool.name.endsWith('verify_image_handoff'))
+    expect(verify).toBeDefined()
+    expect(verify?.description).toMatch(/`awaiting-deposit` så lenge filene ikke er lagt inn/i)
+    expect(verify?.description).toMatch(/`generation-verified` når de er det/i)
+    expect(verify?.description).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {
