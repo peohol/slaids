@@ -684,11 +684,10 @@ export function composeImageGenerationContract(
   if (count === 0) return null
   return {
     expectedFileCount: count,
-    rule: `Lag nøyaktig ${count} separate bilder: hver oppføring i bildeplanen er én selvstendig bildegenerering og én bildefil. ${
+    rule:
       count === 1
-        ? 'Planen har ett bilde, så det skal genereres ett bilde.'
-        : `Planen har ${count} bilder, så bildegeneratoren skal kalles ${count} ganger – én gang per oppføring, aldri én gang for hele planen.`
-    }`,
+        ? 'Lag nøyaktig ett bilde: den ene oppføringen i bildeplanen er én selvstendig bildegenerering og én bildefil.'
+        : `Lag nøyaktig ${count} separate bilder: hver oppføring i bildeplanen er én selvstendig bildegenerering og én bildefil. Bildegeneratoren skal kalles ${count} ganger – én gang per oppføring, aldri én gang for hele planen.`,
     perImageInstruction: `Instruksen for ett bilde er den ene oppføringens egne felter – nummer, slide, aspect ratio, orientering, ${PLANNED_IMAGE_FIELDS.map(
       (field) => PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
     ).join(', ')} – sammen med dekkets felles bildekontekst. Aspect ratio hentes fra den samme oppføringen, slik at to bilder med ulikt format ikke havner på samme lerret.`,

@@ -476,9 +476,10 @@ Motivene hører hjemme i bildeplanen.
 
 ### Den samlede briefen genereres
 
-`composeImageBrief` setter sammen én tekst som vertsklienten kan sende direkte
-til bildegenereringen, eller som kan kopieres dit når direkte overlevering ikke
-finnes. Alt som kan telles eller måles er avledet:
+`composeImageBrief` setter sammen én tekst som skrives ut i samtalen og kan
+kopieres dit bildene lages. Den er den menneskelesbare halvdelen av planen; den
+strukturerte listen er den som utføres, se «Planen er N genereringsjobber»
+under. Alt som kan telles eller måles er avledet:
 
 - **antallet** er lengden på listen, aldri et tall noen har skrevet;
 - **nummereringen** er listens egen rekkefølge, i dekkets rekkefølge, som er den
@@ -493,6 +494,45 @@ finnes. Alt som kan telles eller måles er avledet:
 Malen bor i `src/domain/imagePlan.ts` og er dekket av tester.
 `docs/AGENT_PRESENTATION_DESIGN.md` gjengir den for lesere, men er ikke en andre
 normativ kilde.
+
+### Planen er N genereringsjobber
+
+Svaret bærer to halvdeler av den samme planen, og de har hver sin jobb. Den
+strukturerte listen — én oppføring per bildesone — er den autoritative kilden
+når bildene genereres: **ett element = én selvstendig bildegenerering = én
+bildefil**. Den samlede briefen er den menneskelesbare representasjonen av
+nøyaktig den samme planen, og skal ikke sendes til en bildegenerator som én
+samlet genereringsjobb når flere bilder er planlagt.
+
+Skillet er ikke redaksjonelt. Én lang tekst med en nummerert liste i seg er én
+melding, og en bildegenerator som får én melding lager ett bilde: en plan på
+åtte bilder kom tilbake som ett storyboard — åtte motiv på ett lerret, én fil,
+ingen nummerering, og ingenting bildedeponeringen kunne plassere. Ingenting i
+flyten kunne se forskjell på det og en vellykket leveranse.
+
+`composeImageGenerationContract` er det som gjør forskjellen synlig, og er
+avledet av den samme løste planen briefen bygges av, så de to kan ikke bli
+uenige om antallet:
+
+- **`expectedFileCount`** er antall separate bildefiler planen krever — alltid
+  én per oppføring, og det samme tallet deponeringen åpnes med;
+- **`rule`** har dekkets eget tall i seg, ikke en «N» som skal substitueres;
+- **`perImageInstruction`** sier at instruksen for ett bilde er den ene
+  oppføringens egne felter pluss dekkets felles bildekontekst, med `aspectRatio`
+  fra den samme oppføringen;
+- **`fileNamePattern`** og **`fileExtensions`** er deponeringens eget
+  filnavnprotokoll, ikke en kopi av det;
+- **`beforeDeposit`** er de kontrollerbare linjene: nøyaktig N filer, numrene
+  1‥N én gang hver, riktig format per fil, og at ett collage-, storyboard-,
+  kontaktark-, split-screen- eller infografikkbilde aldri teller som flere
+  bilder;
+- **`briefRole`** sier hva den samlede briefen er, så den ikke forveksles med én
+  genereringsprompt.
+
+Stemmer antallet ikke, er bildegenereringen ikke ferdig: de manglende bildene
+genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
+planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
+dem som utgjør en ferdig leveranse.
 
 ### Kontrollene
 

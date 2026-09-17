@@ -23,11 +23,28 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/hent den genererte bildebriefen på nytt fra den endelige presentasjonstilstanden/i)
     expect(MCP_INSTRUCTIONS).toMatch(/skriv den returnerte briefen ut i samme samtale/i)
     expect(MCP_INSTRUCTIONS).toMatch(/kall deretter umiddelbart.*bildegenereringsverktøyet/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/ett kall per planlagt bilde/i)
     expect(MCP_INSTRUCTIONS).toMatch(/briefen finnes i verktøyresponsen er ikke en overlevering/i)
     expect(MCP_INSTRUCTIONS).toMatch(/først startet når bildegenereringsverktøyet faktisk er kalt/i)
     expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*ny fersk sluttbrief.*på nytt/i)
     expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)
     expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
+  })
+
+  it('hands the generator one planned picture at a time, never the whole brief as one job', () => {
+    // The regression: eight planned pictures, one composed brief, and a host
+    // client that sent the brief on as a single image-generation job. One
+    // storyboard came back. The instructions must not read as advice to do
+    // that — the brief is printed in the conversation, and the generation runs
+    // per entry.
+    expect(MCP_INSTRUCTIONS).toMatch(/ett kall per oppføring i `images`/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/generation\.expectedFileCount.*før bildene deponeres/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert/i)
+    // And the retired instruction — hand the brief over as the generation
+    // prompt — is asserted gone rather than left to review.
+    expect(MCP_INSTRUCTIONS).not.toMatch(/briefen som bildegenereringsinstruks/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/med briefen som instruks/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/bildegenereringsverktøyet med briefen/i)
   })
 
   it('forces explicit reassessment of a visually concrete deck with zero raster images', () => {

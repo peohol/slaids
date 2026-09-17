@@ -56,6 +56,7 @@ import type {
   ZoneInspection,
 } from './operations/deck'
 import type { ZoneChange } from './operations/layout'
+import type { SlidePlacement } from './operations/slides'
 import type { AgentContext, AgentError, AgentResult } from './types'
 
 /**
@@ -87,6 +88,25 @@ const SPECIES = [
 
 const CONTEXT =
   'Fotorealistiske vitenskapelige rekonstruksjoner, naturlig dagslys, dempet jordfargepalett, ingen tekst eller rammer.'
+
+/**
+ * Eight motifs that are actually eight different pictures.
+ *
+ * The deck that produced the multi-picture failure had a plan this size, and a
+ * test of it has to pass the deck's own checks: entries that merely count
+ * upwards share every significant word and come back as `NEAR_DUPLICATE`, which
+ * would make the test about the duplicate rule instead of about the count.
+ */
+const MOTIFS = [
+  'Savannelandskap med spredte akasier i tidlig morgenlys.',
+  'Fotavtrykk bevart i vulkansk aske, sett ovenfra.',
+  'En håndkile av flint, holdt mellom to fingre.',
+  'Leirbål omgitt av brente knokler og kullrester.',
+  'Hulemaleri av okse på ujevn kalksteinsvegg.',
+  'Spydspiss av bein, festet til et skaft med senetråd.',
+  'Isbre som møter en gresslette under lav sol.',
+  'Kranium i utstillingsmonter, belyst forfra.',
+]
 
 /** One plan entry, so the tests say what differs rather than repeating a shape. */
 function planned(slideId: string, nodeId: string, subject: string) {
@@ -777,6 +797,71 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     // quietly being one picture short of the deck.
     const unplanned = brief.issues.find((issue) => issue.code === 'ZONE_NOT_PLANNED')
     expect(unplanned?.nodeId).toBe(slide.columnIds[1])
+  })
+
+  it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', async () => {
+    // The observed failure: eight pictures were planned correctly, the answer
+    // carried both halves of the plan, and the whole brief went to the image
+    // generator as one job. One storyboard came back — eight motifs, one file,
+    // nothing the deposit could place. What the answer has to say, before any
+    // prose is read, is a number: eight entries, eight files.
+    const context = freshContext()
+    const deck = await ok<PresentationView>(context, 'create_presentation', {
+      title: 'Menneskets evolusjon',
+    })
+    const slideIds = [deck.slides[1].slideId]
+    while (slideIds.length < MOTIFS.length) {
+      const added = await ok<SlidePlacement>(context, 'add_slide', {
+        presentationId: deck.presentationId,
+        title: `Bilde ${slideIds.length + 1}`,
+      })
+      slideIds.push(added.slideId)
+    }
+
+    const zoneIds: string[] = []
+    for (const slideId of slideIds) {
+      const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+      await ok(context, 'set_zone_card', {
+        presentationId: deck.presentationId,
+        slideId,
+        nodeId: inspected.rootNodeId,
+        kind: 'image',
+      })
+      zoneIds.push(inspected.rootNodeId)
+    }
+    await ok(context, 'set_image_context', {
+      presentationId: deck.presentationId,
+      context: CONTEXT,
+    })
+
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: deck.presentationId,
+      images: slideIds.map((slideId, index) => planned(slideId, zoneIds[index], MOTIFS[index])),
+    })
+
+    expect(brief.issues).toEqual([])
+    expect(brief.imageCount).toBe(8)
+    // One job per entry, numbered 1‥8 in deck order: this is the list an agent
+    // executes, one call at a time.
+    expect(brief.images).toHaveLength(8)
+    expect(brief.images.map((image) => image.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    for (const image of brief.images) {
+      expect(image.aspectRatio).toMatch(/^\d+:\d+$/)
+      expect(image.subject).not.toBe('')
+    }
+
+    // And the count is stated separately from the prose, against the same plan
+    // the brief is composed from, so «are we finished» is a comparison.
+    expect(brief.generation?.expectedFileCount).toBe(brief.imageCount)
+    expect(brief.generation?.rule).toMatch(/kalles 8 ganger/i)
+    expect(brief.deposit).toEqual({ status: 'pending', expectedCount: 8 })
+
+    // The brief is still generated, and still says the same eight.
+    expect(brief.brief).toContain('Lag nøyaktig 8 separate bilder')
+    expect(brief.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
   })
 
   it('avviser en bildeoppføring som peker på en tekstsone', async () => {

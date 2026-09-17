@@ -27,12 +27,15 @@ import { createLeaf, createSplit } from './layout'
 import { createPresentation } from './presentation'
 import { titleDoc, docToPlainText } from './richdoc'
 import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from './constants'
+import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
+import { reviewDepositFiles } from './imageDeposit'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
 import {
   aspectRatioLabel,
   checkImagePlan,
   composeImageBrief,
+  composeImageGenerationContract,
   isPlaceholderCaption,
   orientationOf,
   placeholderCaption,
@@ -79,6 +82,34 @@ function wideZone(): OneZone {
 function uprightZone(): OneZone {
   const { deck, slideId, nodeIds } = threeColumns()
   return { deck, slideId, nodeId: nodeIds[0] }
+}
+
+/**
+ * A deck of `count` slides, each one full-slide picture zone.
+ *
+ * The many-picture case, and the one the generation contract exists for: a plan
+ * big enough that the composed brief stops looking like an order for several
+ * files and starts looking like one long prompt.
+ */
+function deckOfPictures(count: number): {
+  deck: Presentation
+  zones: { slideId: string; nodeId: string }[]
+} {
+  const base = createPresentation({ title: 'Menneskets evolusjon' })
+  const template = contentAt(base, 1)
+  const slides = Array.from({ length: count }, (_, index) => {
+    const leaf = createLeaf(createImage())
+    return {
+      ...template,
+      id: `bildeslide-${index + 1}`,
+      title: titleDoc(`Bilde ${index + 1}`),
+      root: leaf,
+    }
+  })
+  return {
+    deck: { ...base, imageContext: CONTEXT, slides: [sectionAt(base, 0), ...slides] },
+    zones: slides.map((slide) => ({ slideId: slide.id, nodeId: slide.root.id })),
+  }
 }
 
 function entry(slideId: string, nodeId: string, subject: string): PlannedImage {
@@ -454,6 +485,125 @@ describe('den samlede briefen', () => {
   it('er null når dekket ikke planlegger bilder', () => {
     const { deck } = threeColumns()
     expect(composeImageBrief(deck)).toBeNull()
+  })
+})
+
+describe('bildeplanen som genereringskontrakt', () => {
+  /** The plan, written across `count` one-picture slides. */
+  function contractFor(count: number) {
+    const { deck, zones } = deckOfPictures(count)
+    const written = planned(
+      deck,
+      zones.map((zone, index) =>
+        entry(zone.slideId, zone.nodeId, `Rekonstruksjon nummer ${index + 1}, et eget motiv.`),
+      ),
+    )
+    const contract = composeImageGenerationContract(written)
+    if (!contract) throw new Error('Forventet en genereringskontrakt')
+    return { written, contract }
+  }
+
+  it('beskriver ett bilde som én genereringsjobb', () => {
+    const { contract } = contractFor(1)
+    expect(contract.expectedFileCount).toBe(1)
+    expect(contract.rule).toContain('Lag nøyaktig ett bilde')
+    expect(contract.rule).toMatch(/én selvstendig bildegenerering og én bildefil/i)
+    // One picture is one job, and the rule does not start counting calls at it.
+    expect(contract.rule).not.toMatch(/ganger/i)
+  })
+
+  it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', () => {
+    // The observed failure, stated as a number: eight entries came back as one
+    // storyboard because nothing in the answer said «eight calls» in a form
+    // that was not prose to be skimmed.
+    const { written, contract } = contractFor(8)
+    expect(contract.expectedFileCount).toBe(8)
+    expect(contract.rule).toContain('Lag nøyaktig 8 separate bilder')
+    expect(contract.rule).toMatch(/kalles 8 ganger/i)
+    expect(contract.rule).toMatch(/aldri én gang for hele planen/i)
+    // The entries are the jobs: one per file, numbered 1‥8 in deck order.
+    expect(resolveImagePlan(written).map((image) => image.number)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ])
+  })
+
+  it('teller nøyaktig like mange filer som planen har oppføringer', () => {
+    // Derived from one array in one module, so the contract and the brief
+    // cannot disagree about how many pictures a finished delivery has.
+    for (const count of [1, 2, 8, 12]) {
+      const { written, contract } = contractFor(count)
+      expect(contract.expectedFileCount).toBe(count)
+      expect(contract.expectedFileCount).toBe(resolveImagePlan(written).length)
+      expect(contract.beforeDeposit.join(' ')).toContain(`nøyaktig ${count} separate bildefiler`)
+      expect(contract.beforeDeposit.join(' ')).toContain(`Numrene 1‥${count}`)
+    }
+  })
+
+  it('sier at ett samlet bilde aldri teller som flere, uansett hvor mange motiv det har', () => {
+    // A generator handed the whole brief still answers, and the answer still
+    // looks like a success — so the check has to be about the files.
+    const checks = contractFor(8).contract.beforeDeposit.join(' ')
+    expect(checks).toMatch(/collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde/i)
+    expect(checks).toMatch(/teller aldri som flere bilder/i)
+    expect(checks).toMatch(/generer de manglende bildene enkeltvis før deponering/i)
+  })
+
+  it('henter instruksen for ett bilde fra oppføringen, ikke fra den samlede briefen', () => {
+    const { contract } = contractFor(3)
+    for (const field of PLANNED_IMAGE_FIELDS) {
+      expect(contract.perImageInstruction).toContain(
+        PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
+      )
+    }
+    expect(contract.perImageInstruction).toMatch(/aspect ratio hentes fra den samme oppføringen/i)
+    expect(contract.briefRole).toMatch(/menneskelesbare representasjonen/i)
+    expect(contract.briefRole).toMatch(/ikke én bildegenereringsprompt/i)
+    expect(contract.briefRole).toMatch(/ikke parses tilbake til enkeltbilder/i)
+  })
+
+  it('navngir filene med bildets eget nummer, med deponeringens egne filendelser', () => {
+    // The numbering is what ties «bilde 3» to the zone it was ordered for, so
+    // it has to survive the trip back as the file's own name.
+    const { contract } = contractFor(8)
+    expect(contract.fileNamePattern).toBe('<nummer>.<filendelse>')
+    expect(contract.fileExtensions).toBe(IMAGE_FILE_EXTENSION_LIST)
+    expect(contract.fileExtensions).toContain('png')
+  })
+
+  it('er det samme tallet deponeringen slipper filer inn mot', () => {
+    // The count is not advice: the deposit already refuses anything but 1‥N,
+    // so one storyboard handed back as `1.png` is one file and one file is not
+    // eight pictures. What the contract adds is that the executing agent can
+    // see that before it gets there.
+    const { written, contract } = contractFor(8)
+    expect(written.imageDeposit?.expectedCount).toBe(contract.expectedFileCount)
+
+    const collage = reviewDepositFiles(['1.png'], contract.expectedFileCount)
+    expect(collage.ready).toBe(false)
+    expect(collage.missing).toEqual([2, 3, 4, 5, 6, 7, 8])
+
+    const complete = Array.from(
+      { length: contract.expectedFileCount },
+      (_, index) => `${index + 1}.png`,
+    )
+    expect(reviewDepositFiles(complete, contract.expectedFileCount).ready).toBe(true)
+  })
+
+  it('genererer fortsatt den samlede briefen ved siden av kontrakten', () => {
+    // The brief is not replaced by this: it is still the message a person
+    // reads, pastes and keeps, and it still counts the same pictures.
+    const { written, contract } = contractFor(8)
+    const brief = composeImageBrief(written) ?? ''
+    expect(brief).toContain('Lag nøyaktig 8 separate bilder')
+    expect(brief).toContain('Hvert nummer nedenfor er én selvstendig bildefil.')
+    expect(brief).toMatch(/collage, kontaktark, storyboard/)
+    expect(brief.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(contract.expectedFileCount)
+  })
+
+  it('er null nøyaktig når briefen er det', () => {
+    const { deck } = deckOfPictures(3)
+    expect(composeImageBrief(deck)).toBeNull()
+    expect(composeImageGenerationContract(deck)).toBeNull()
   })
 })
 

@@ -227,9 +227,33 @@ Rasterbilder følger én standardflyt uansett hvor filene senere produseres. Age
 
 Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
 
-Når Slaids brukes fra en vertsklient som ChatGPT, og brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – skal rastergenereringen skje fra en sluttbrief, ikke fra den første gyldige briefen under planleggingen. Fullfør først citations, øvrige innholdsendringer, validering og reparasjoner og den visuelle QA-en som kan endre bildesonene. Når bildesonene deretter er stabile, hent den genererte briefen på nytt fra den endelige presentasjonstilstanden. Dersom klienten har et innebygd bildegenereringsverktøy, skal den da gjøre overleveringen umiddelbart: skriv den ferske sluttbriefen ut i samme samtale og kall bildegenereringsverktøyet med briefen som instruks. Det er ikke nok at briefen ligger i verktøyresponsen, og det er ikke nok at den bare er skrevet i samtalen; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Agenten skal ikke avslutte oppgaven eller kalle presentasjonen ferdig før dette kallet er gjort. Hvis bildeplanen endres etter handoff, må en ny sluttbrief hentes og bildegenereringen startes på nytt. Hvis klienten ikke kan gjøre overleveringen direkte, brukes nøyaktig den samme sluttbriefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.
+Når Slaids brukes fra en vertsklient som ChatGPT, og brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – skal rastergenereringen skje fra en sluttbrief, ikke fra den første gyldige briefen under planleggingen. Fullfør først citations, øvrige innholdsendringer, validering og reparasjoner og den visuelle QA-en som kan endre bildesonene. Når bildesonene deretter er stabile, hent den genererte briefen på nytt fra den endelige presentasjonstilstanden. Dersom klienten har et innebygd bildegenereringsverktøy, skal den da gjøre overleveringen umiddelbart: skriv den ferske sluttbriefen ut i samme samtale og kall bildegenereringsverktøyet én gang per planlagt bilde, slik neste avsnitt beskriver. Det er ikke nok at briefen ligger i verktøyresponsen, og det er ikke nok at den bare er skrevet i samtalen; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Agenten skal ikke avslutte oppgaven eller kalle presentasjonen ferdig før alle kallene er gjort og antallet ferdige bildefiler er kontrollert. Hvis bildeplanen endres etter handoff, må en ny sluttbrief hentes og bildegenereringen startes på nytt. Hvis klienten ikke kan gjøre overleveringen direkte, brukes nøyaktig den samme sluttbriefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
+
+### Ett planlagt bilde er én bildegenerering
+
+Svaret fra `plan_deck_images` og `get_image_brief` har to halvdeler av den samme planen, og de har hver sin jobb:
+
+- **`images`** er den strukturerte listen, én oppføring per bilde. Den er den autoritative kilden når bildene faktisk skal genereres: ett element = én selvstendig bildegenerering = én bildefil. Planlegger Slaids åtte bilder, skal bildegeneratoren kalles åtte ganger — bilde 1 alene fra oppføring 1, bilde 2 alene fra oppføring 2, og slik videre. Instruksen for ett bilde bygges av den ene oppføringens egne felter (`number`, `slideId`, `nodeId`, `slideLabel`, `aspectRatio`, `orientation`, `subject`, `composition`, `requirements`, `avoid`) sammen med dekkets felles `imageContext`. Formatet er `aspectRatio` fra den samme oppføringen, så to bilder med ulikt format aldri havner på samme lerret.
+- **`brief`** er den menneskelesbare representasjonen av nøyaktig den samme planen: den skrives ut i samtalen, kopieres manuelt, brukes som dokumentasjon og eventuelt som overordnet kontekst. Den er ikke én bildegenereringsprompt. Den skal ikke sendes til bildegeneratoren som én samlet genereringsjobb når flere bilder er planlagt, og den skal ikke parses tilbake til enkeltbilder — informasjonen ligger allerede strukturert i `images`.
+
+Dette er ikke en smakssak. En plan på åtte bilder ble sendt videre som én jobb, og det som kom tilbake var ett storyboard: åtte motiv på ett lerret, én fil, ingen nummerering, og ingenting bildedeponeringen kunne plassere.
+
+**Antallet kontrolleres før deponering.** Feltet `generation` i det samme svaret sier hva en ferdig leveranse er, avledet av den samme planen briefen bygges av:
+
+| felt | hva det er |
+| --- | --- |
+| `expectedFileCount` | antall separate bildefiler planen krever — alltid én per oppføring |
+| `rule` | regelen med dekkets eget tall i seg |
+| `perImageInstruction` | hvor instruksen for ett bilde kommer fra |
+| `fileNamePattern`, `fileExtensions` | `<nummer>.<filendelse>`, med deponeringens egne filendelser |
+| `beforeDeposit` | de kontrollerbare linjene før filene leveres |
+| `briefRole` | hva den samlede briefen er, så den ikke forveksles med én prompt |
+
+Er antallet, nummereringen eller formatet feil, er bildegenereringen ikke ferdig: de manglende bildene genereres enkeltvis på nytt før deponering. Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiv det inneholder.
+
+Nummereringen bevares hele veien — planlagt bilde 1 blir fil `1`, bilde 2 blir fil `2` — fordi bildedeponeringen under kobler nummererte filer til riktige bildeplassholdere.
 
 ### Bildedeponering: brukeren legger inn alle bildene på én gang
 
@@ -260,7 +284,7 @@ Beskriver konteksten ett enkelt motiv, overstyrer den oppføringen for det bilde
 
 ### Den samlede bildebriefen
 
-Briefen er **generert**, ikke skrevet. Den er én sammenhengende tekst som vertsklienten kan sende direkte til bildegenereringen, eller som kan kopieres til stedet bildene lages når direkte overlevering ikke finnes. Formatet er dette:
+Briefen er **generert**, ikke skrevet. Den er én sammenhengende tekst som skrives ut i samtalen og kan kopieres til stedet bildene lages. Den er den menneskelesbare halvdelen av planen; `images` er den som utføres. Formatet er dette:
 
 ```
 Lag nøyaktig [ANTALL] separate bilder til én presentasjon.
