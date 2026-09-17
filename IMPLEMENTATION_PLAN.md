@@ -318,16 +318,22 @@ presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
 bildekontekst, og Slaids genererer den samlede briefen. Når brukerbestillingen
 forutsetter rasterbilder for å være oppfylt — også formuleringer som «med
-bilder», «bruk bilder» eller «bilder i hvert steg» — og vertsklienten har et
-innebygd bildegenereringsverktøy, skal klienten skrive den returnerte briefen ut
-i samme samtale og umiddelbart starte bildegenereringen med den. Verken en brief
-som bare finnes i verktøyresponsen eller en brief som bare er skrevet ut, er en
-fullført handoff; genereringen er først startet når bildegenereringsverktøyet
-faktisk er kalt, og oppgaven skal ikke avsluttes før det har skjedd. Hvis direkte
-overlevering ikke finnes, brukes den samme briefen der bildene produseres; det er
-ikke en fallback. Denne direkte overleveringen gjelder briefen og starten på
-genereringen, ikke filreturen: uten en filbro tilbake til Slaids går de ferdige
-bildefilene fortsatt gjennom bildedeponeringen i 7.3.
+bilder», «bruk bilder» eller «bilder i hvert steg» — skal bildegenereringen
+startes fra en fersk sluttbrief etter at citations, øvrige innholdsendringer,
+validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
+brief hentet tidligere i arbeidsflyten er foreløpig og skal ikke sendes til
+generatoren. Når bildesonene er stabile, henter klienten briefen på nytt fra den
+endelige presentasjonstilstanden. Har vertsklienten innebygd bildegenerering,
+skal den skrive denne sluttbriefen ut i samme samtale og umiddelbart starte
+bildegenereringen med den. Verken en brief som bare finnes i verktøyresponsen
+eller en brief som bare er skrevet ut, er en fullført handoff; genereringen er
+først startet når bildegenereringsverktøyet faktisk er kalt, og oppgaven skal
+ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må sluttbriefen
+hentes på nytt og genereringen gjentas. Hvis direkte overlevering ikke finnes,
+brukes den samme sluttbriefen der bildene produseres; det er ikke en fallback.
+Denne direkte overleveringen gjelder briefen og starten på genereringen, ikke
+filreturen: uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt
+gjennom bildedeponeringen i 7.3.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er

@@ -681,11 +681,14 @@ vei ut igjen:
 Slaids-agent-API-et genererer ikke rasterfiler. Standardflyten er at agenten
 reserverer bildesoner, skriver bildeplan og felles bildekontekst, og Slaids
 genererer den samlede bildebriefen. Når brukerbestillingen forutsetter
-rasterbilder og vertsklienten har innebygd bildegenerering, skal klienten skrive
-den returnerte briefen ut i samme samtale og starte bildegenereringen umiddelbart;
-verktøyresponsen alene er ikke handoff. Hvis klienten ikke kan sende briefen
-direkte, kan den fortsatt kopieres manuelt. Uten en egen filbro tilbake til
-Slaids går de ferdige bildefilene fortsatt via bildedeponeringen.
+rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
+ferdig validert og bildesonene er stabile; klienten henter da en fersk sluttbrief
+fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
+bildegenerering, skal den skrive sluttbriefen ut i samme samtale og starte
+bildegenereringen umiddelbart; verktøyresponsen alene er ikke handoff. Hvis
+klienten ikke kan sende briefen direkte, kan den fortsatt kopieres manuelt. Uten
+en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
+bildedeponeringen.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
