@@ -584,7 +584,7 @@ Når første hele utkast står:
 5. Stemmer hvert planlagt motiv med formatet på sonen det skal ligge i?
 6. Er to planlagte bilder blitt så like at de i praksis beskriver nesten samme motiv?
 
-Når kontrollpunktene er besvart, det du fant er rettet og rasterflyten er gjennomført – `workflow.complete` er true – er presentasjonen ferdig. Det er ingen åpen forbedringssløyfe etter det.
+Når kontrollpunktene er besvart, det du fant er rettet og `workflow.complete` er true, er *ditt* arbeid ferdig: ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe. Men `complete` sier at agenten er ferdig, ikke at dekket er det, og de to faller bare sammen i `no-planned-images` og `generation-verified`. Er stadiet `awaiting-deposit`, har du gjort ditt, mens bildene fortsatt mangler i dekket – da skal du ikke si at presentasjonen er ferdig, men si hva som gjenstår og hvem som gjør det, slik `nextAction` beskriver. Det er ingen åpen forbedringssløyfe etter det.
 
 Den viktigste testen er fortsatt:
 

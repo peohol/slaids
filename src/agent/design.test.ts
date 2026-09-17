@@ -42,6 +42,7 @@ import {
   NATIVE_COMPOSITION_RULE,
   REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
+  SELF_CHECK_STOP,
   VECTOR_POLICY,
   VISUAL_QA_RULE,
 } from './design'
@@ -1364,6 +1365,34 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(closings).toContain('Presentasjonen er opprettet')
     expect(closings).toContain('Bildene er ikke satt inn ennå')
     expect(closings).toContain('Bildeplanen er klar')
+  })
+
+  it('lar agenten stoppe uten å kalle dekket ferdig', async () => {
+    /*
+     * The acceptance state of this whole change, checked against the stop rule
+     * that governs it: the handoff is verified and nothing is deposited, so the
+     * agent has nothing left — and the deck plainly does. `complete` may end the
+     * agent's loop; it must not be read as «the presentation is finished».
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+
+    expect(verified.workflow.stage).toBe('awaiting-deposit')
+    expect(verified.workflow.complete).toBe(true)
+    expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
+    // Every picture zone is still empty, and the action says whose step that is.
+    expect(verified.workflow.nextAction).toMatch(/bildesoner står tomme/i)
+    expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
+    // The stop rule the agent reads alongside it does not turn that into
+    // «finished», and names this very stage.
+    expect(SELF_CHECK_STOP).toMatch(/`complete` sier at agenten er ferdig, ikke at dekket er det/i)
+    expect(SELF_CHECK_STOP).toMatch(
+      /Er stadiet `awaiting-deposit`.*ikke si at presentasjonen er ferdig/i,
+    )
   })
 
   it('gir samme svar når briefen leses på nytt', async () => {

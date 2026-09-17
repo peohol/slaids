@@ -560,7 +560,7 @@ export const DECK_SELF_CHECK: readonly string[] = [
 
 /** The stopping point, said once and on purpose. */
 export const SELF_CHECK_STOP =
-  'Når kontrollpunktene er besvart, det du fant er rettet og rasterflyten er gjennomført – `workflow.complete` er true – er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.'
+  'Når kontrollpunktene er besvart, det du fant er rettet og `workflow.complete` er true, er **ditt** arbeid ferdig: ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe. Men `complete` sier at agenten er ferdig, ikke at dekket er det, og de to faller bare sammen i `no-planned-images` og `generation-verified`. Er stadiet `awaiting-deposit`, har du gjort ditt, mens bildene fortsatt mangler i dekket – da skal du ikke si at presentasjonen er ferdig, men si hva som gjenstår og hvem som gjør det, slik `nextAction` beskriver.'
 
 /** Where the same thinking is written out at length, for a reader. */
 export const DESIGN_DOCS_PATH = 'docs/AGENT_PRESENTATION_DESIGN.md'

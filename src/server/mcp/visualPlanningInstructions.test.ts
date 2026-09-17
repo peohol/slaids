@@ -223,10 +223,37 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(/den skal vente, ikke utgå/i)
     })
 
+    it('skiller agentens arbeid fra at dekket er ferdig', () => {
+      /*
+       * `complete: true` means the *agent* has nothing left, and the acceptance
+       * state of this whole PR — handoff verified, nothing deposited — is
+       * `awaiting-deposit` with `complete: true` and every picture zone still
+       * empty. A stop rule that translated any `complete: true` into «the
+       * presentation is finished» would therefore contradict, in the same
+       * instructions, the rule that says never to report a deck finished
+       * without saying what is missing.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.complete` er true, er \*\*ditt\*\* arbeid ferdig/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete` sier at agenten er ferdig, ikke at dekket er det/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /faller bare sammen i `no-planned-images` og `generation-verified`/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Er stadiet `awaiting-deposit`.*skal du ikke si at presentasjonen er ferdig/i,
+      )
+      // The unconditional translation is asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /rasterflyten er gjennomført – `workflow\.complete` er true – er presentasjonen ferdig/i,
+      )
+    })
+
     it('slutter aldri med at en tom kontrolliste er ferdig arbeid', () => {
       expect(MCP_INSTRUCTIONS).not.toMatch(/er listen tom, er bildeplanen ferdig/i)
       expect(SELF_CHECK_STOP).toMatch(/`workflow\.complete` er true/i)
       expect(SELF_CHECK_STOP).not.toMatch(/overleveringer i rasterflyten er startet/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/er true – er presentasjonen ferdig/i)
     })
   })
 })
