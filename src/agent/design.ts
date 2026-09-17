@@ -318,7 +318,7 @@ export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: 
   -1,
 ).join(', ')} og ${
   IMAGE_ROLES[IMAGE_ROLES.length - 1]
-}. Mangler du en rastergenerator, skal du ikke droppe relevante bilder: planlegg dem. Lag bildesonen, legg bildet inn i dekkets bildeplan, og skriv dekkets felles bildekontekst så snart minst ett rasterbilde er planlagt – også om det bare er ett.`
+}. Relevante rasterbilder skal planlegges som ekte bildesoner og legges inn i dekkets bildeplan; skriv dekkets felles bildekontekst så snart minst ett rasterbilde er planlagt – også om det bare er ett.`
 
 /**
  * The short form, for the agent that has not yet decided it needs a picture.
@@ -327,7 +327,11 @@ export const IMAGE_USAGE_RULE = `Still bildespørsmålet på hver enkelt slide: 
  * halves below carry the rest, each on the tool that stores or plans that kind.
  */
 export const IMAGE_POLICY_SUMMARY =
-  'Vektor og raster er ikke samme verktøy, og SVG er aldri en alternativ slide-motor. Ikoner, grafer, plott, diagrammer, flytskjemaer, kart der vektor passer og enkle skjematiske forklaringsfigurer skal være SVG, og skal forbli SVG. Illustrasjonsbilder er normalvalget rasterbilder – mennesker, dyr, natur, bygninger, miljøer, gjenstander, historiske scener og andre motiver som først og fremst skal illustrere, ikke diagrammatisere – fra en egnet bildegenerator; har du ingen, planlegger du bildesonen og bildeplanen i stedet for å improvisere en SVG-erstatning.'
+  'Vektor og raster er ikke samme verktøy, og SVG er aldri en alternativ slide-motor. Ikoner, grafer, plott, diagrammer, flytskjemaer, kart der vektor passer og enkle skjematiske forklaringsfigurer skal være SVG, og skal forbli SVG. Illustrasjonsbilder er normalvalget rasterbilder – mennesker, dyr, natur, bygninger, miljøer, gjenstander, historiske scener og andre motiver som først og fremst skal illustrere, ikke diagrammatisere – og skal ikke erstattes av SVG bare fordi SVG kan produseres direkte.'
+
+/** The fixed raster planning and client hand-off contract. */
+export const RASTER_WORKFLOW_RULE =
+  'Slaids-agent-API-et lager ikke rasterbilder; det er et bevisst arkitekturvalg, ikke en manglende funksjon som skal oppdages. Ikke undersøk om Slaids eller vertsklienten «har en bildegenerator» før du planlegger. Rasterflyten er alltid: reserver ekte bildesoner, skriv bildeplan og felles bildekontekst, og la Slaids generere den samlede bildebriefen. Dette er standardflyten, ikke en fallback eller nødløsning. Når vertsklienten allerede har et separat, innebygd bildegenereringsverktøy og brukeren har bedt om at bildene skal genereres, hent den ferdige briefen og send den direkte videre i samme samtale uten at brukeren kopierer og limer. Hvis klienten ikke kan gjøre denne overleveringen direkte, er den samme briefen fortsatt normal leveranse til stedet rasterfilene produseres. Ikke bytt til en hjemmelaget erstatning eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.'
 
 /** The vector half, on the tool that writes markup. */
 export const VECTOR_POLICY: readonly string[] = [
@@ -343,7 +347,7 @@ export const RASTER_POLICY: readonly string[] = [
   'Illustrasjonsbilder er normalvalget rasterbilder, ikke SVG: mennesker, dyr, natur, bygninger, arkitektur, miljøer og interiører, mat, gjenstander, produkter, historiske scener, rekonstruerte situasjoner og andre motiver som skal illustrere rikt eller stemningsbærende, ikke diagrammatisere.',
   'Fotografiske, naturtro, kunstneriske eller visuelt komplekse illustrasjoner skal normalt være rasterbilder laget av en egnet bildegenerator.',
   'Ikke lever en hjemmelaget, rasterisert SVG i stedet for et slikt bilde. En enkel vektortegning er ikke en akseptabel erstatning for et illustrasjonsbilde, uansett om motivet er et menneske, et bygg, et produkt, en historisk scene eller et annet konkret motiv.',
-  'Har du ingen generativ bildemodell tilgjengelig, si tydelig fra om begrensningen i stedet for å lage en dårligere erstatning og fremstille den som likeverdig – og reserver bildesonen og legg bildet inn i bildeplanen, så brukeren kan lage filen selv og sette den inn i den geometrien du planla.',
+  'Hvor rasterfilen senere produseres endrer ikke medievalget: et planlagt rastermotiv skal fortsatt være raster og skal ikke erstattes av en hjemmelaget SVG eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.',
 ]
 
 /* ------------------------------------------------------------------ *

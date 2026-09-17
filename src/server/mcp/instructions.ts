@@ -37,6 +37,7 @@ import {
   PARALLEL_RULE,
   PRIMARY_TEXT_RULE,
   QUOTE_RULE,
+  RASTER_WORKFLOW_RULE,
   REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
   SELF_CHECK_STOP,
@@ -88,6 +89,7 @@ Design før geometri:
 - **Et diagram er ikke en erstatning for et konkret motiv.** Et SVG-diagram om en person, et sted, et bygg, en gjenstand eller en historisk scene oppfyller ikke bildebehovet når utseendet, materialiteten, miljøet eller gjenkjennelsen er pedagogisk viktig. Diagrammet kan supplere bildet når relasjoner også må forklares, men skal ikke erstatte rasterbildet bare fordi SVG kan produseres direkte i samme arbeidsflyt.
 - **Sjekk deg selv underveis.** ${REPEATED_FALLBACK_RULE}
 - **Bilder: illustrasjon → raster, diagrammatisk figur → vektor.** ${IMAGE_POLICY_SUMMARY} Verktøyene som lagrer filene sier resten.
+- **Rasterflyten er fast, ikke en fallback.** ${RASTER_WORKFLOW_RULE}
 - **Kilder går gjennom referansesystemet, ikke gjennom en egen slide.** ${REFERENCE_SYSTEM_RULE}
 - **Fit er redaksjonell tilbakemelding.** Hvis innhold ikke får plass, kort ned og prioriter først. Sjekk deretter grouping, vekter og trestruktur. Del sliden hvis den egentlig gjør flere kommunikative jobber. Ikke prøv å bevare all kildetekst ved å gjøre layouten stadig tettere.
 - **Strukturell validering er ikke sluttkontrollen.** ${VISUAL_QA_RULE}
@@ -106,7 +108,7 @@ Slik arbeider du:
 1. Inspiser før du skriver. Inspeksjonen gir deg id-ene til slider og soner, rektangelet hver sone faktisk får, teksten som ligger der, og om den får plass.
 2. Formuler hva sliden skal kommunisere, og dekomponer stoffet i semantiske enheter.
 3. Uttrykk enhetene med Slaids sitt sonetre og native innholdstyper – sonetreet, overskriften, teksten og kortene *er* komposisjonen. Innholdstypen er et valg du tar før du skriver teksten, ikke etter.
-4. Før du lager den første visuelle filen, gjør ett samlet visuelt pass over hele dekket. Identifiser konkrete visuelle ankerpunkter og bestem medietype for hvert av dem ut fra pedagogisk rolle: raster når publikum trenger å se personen, stedet, bygget, gjenstanden, miljøet eller scenen; SVG når publikum trenger å se relasjonen, strukturen, sekvensen, målingen eller flyten. Deretter avgjør du hvilke soner som trenger visuelt innhold. Diagrammatisk figur blir SVG og fyller bare sin egen sone. Illustrasjon blir et rasterbilde: lag bildesonen først, slik at sonens format passer motivet, og legg bildet inn i dekkets bildeplan. Mangler du en bildegenerator, er planen svaret – ikke en hjemmelaget erstatning eller et abstrakt diagram som later som det dekker samme behov.
+4. Før du lager den første visuelle filen, gjør ett samlet visuelt pass over hele dekket. Identifiser konkrete visuelle ankerpunkter og bestem medietype for hvert av dem ut fra pedagogisk rolle: raster når publikum trenger å se personen, stedet, bygget, gjenstanden, miljøet eller scenen; SVG når publikum trenger å se relasjonen, strukturen, sekvensen, målingen eller flyten. Deretter avgjør du hvilke soner som trenger visuelt innhold. Diagrammatisk figur blir SVG og fyller bare sin egen sone. Illustrasjon blir et rasterbilde: lag bildesonen først, slik at sonens format passer motivet, legg bildet inn i dekkets bildeplan og skriv felles bildekontekst. Når planen er ferdig, hent den genererte bildebriefen.
 5. Legg til kilder og citations via referansesystemet der faktapåstander trenger dem.
 6. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
 7. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
@@ -116,8 +118,8 @@ Reglene som avgjør om et kall lykkes:
 - **Alt må få plass.** En endring som ville skjult innhold blir avvist før den lagres, med feilkoden CONTENT_DOES_NOT_FIT og hvor mange piksler som ble til overs. Svaret er å korte ned teksten, dele sonen annerledes eller gi den mer plass – ikke å prøve på nytt.
 - **Skriv mot det du leste.** Hver lesing svarer med en revisjon. Send den med på neste endring, så får du CONFLICT i stedet for å overskrive noen som skrev i mellomtiden. Da leser du på nytt før du prøver igjen.
 - **Du sender aldri editorens interne JSON.** Tekst er navngitte blokker med spans; en sitering er en referanse-id, ikke et tall du skriver selv.
-- **Slaids lager ikke bilder.** Denne serveren genererer ingen bilder. Et rasterbilde må du ha ferdig – fra ditt eget miljø – og laste opp, og en diagrammatisk figur skriver du selv som SVG-markup til sonen den hører hjemme i, aldri som en hel slide. Begge blir helt vanlige filer du deretter plasserer i en sone. Mangler du en bildegenerator, er svaret en planlagt bildesone og en bildeplan, ikke en hjemmelaget erstatning; verktøyene som setter innholdstype og skriver bildeplanen sier hvordan.
-- **Den samlede bildebriefen skriver du ikke selv.** Slaids teller bildene, nummererer dem, måler aspect ratio fra hver sones geometri og setter sammen den ene teksten brukeren limer inn der bildene lages. Du skriver den felles bildekonteksten og motivene; alt det andre er avledet, og en aspect ratio du oppgir i fritekst er nettopp det som gjør brief og sone uenige.
+- **Rasterfiler er vanlige assets.** Selve rasterfilen produseres utenfor Slaids-agent-API-et og legges deretter i den reserverte sonen. En diagrammatisk figur skriver du selv som SVG-markup til sonen den hører hjemme i, aldri som en hel slide.
+- **Den samlede bildebriefen skriver du ikke selv.** Slaids teller bildene, nummererer dem, måler aspect ratio fra hver sones geometri og setter sammen den ene teksten som brukes til bildegenereringen. Du skriver den felles bildekonteksten og motivene; alt det andre er avledet, og en aspect ratio du oppgir i fritekst er nettopp det som gjør brief og sone uenige.
 
 Kontrollpunkter før du leverer:
 - For hver tekstsone du lager: ${ZONE_SELF_CHECK.join(' ')}

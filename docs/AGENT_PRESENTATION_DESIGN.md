@@ -217,7 +217,7 @@ SVG skal heller aldri brukes til å gjenskape det Slaids allerede har som egen i
 
 ### Bildearbeidsflyten
 
-Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Rekkefølgen er alltid den samme, også når filene skal lages et annet sted:
+Rasterbilder følger én standardflyt uansett hvor filene senere produseres. Agenten skal ikke først undersøke om Slaids eller vertsklienten har en bildegenerator; planleggingen er den samme:
 
 1. **Trenger sliden bilde i det hele tatt?** Bestem bildets faglige rolle først.
 2. **Planlegg sonetreet slik at bildesonen passer motivet.** Et stående motiv trenger en høy sone; en vid scene trenger en bred sone. Passer ikke sonens format til motivet, skal sonene planlegges på nytt — motivet skal ikke presses inn i feil rektangel.
@@ -226,6 +226,8 @@ Manglende bildegenerator er ikke en grunn til å droppe relevante bilder. Rekkef
 5. **Skriv dekkets felles bildekontekst** så snart minst ett rasterbilde planlegges — også om det bare er ett.
 
 Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
+
+Når Slaids brukes fra en vertsklient som ChatGPT og brukeren har bedt om bildegenerering, kan klienten sende denne ferdige briefen direkte til sitt innebygde bildegenereringsverktøy i samme samtale. Brukeren skal ikke måtte kopiere og lime briefen bare for å starte genereringen. Hvis klienten ikke kan gjøre denne overleveringen direkte, brukes nøyaktig den samme briefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback.
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
 
@@ -236,8 +238,8 @@ Det samme kallet åpner **bildedeponeringen**. Hver planlagte bildesone får det
 Brukeren møter dette slik:
 
 1. Presentasjonen åpnes, og en dialog forklarer at den har *N* bildeplasser som kan fylles automatisk. To valg: **«Generer og legg inn bilder»** eller **«Gå til editoren»**. Å velge editoren avslutter ingenting — knappen for bildebriefen øverst i editoren fører tilbake hit når som helst.
-2. Bildebriefen vises, med én knapp som kopierer hele briefen og en nummerert liste over bildene som skal lages: nummer, format og motiv, slik at «bilde 3» kan kontrolleres før filene lages.
-3. Brukeren lager bildene et annet sted og lagrer dem som `1`, `2`, `3` … opp til *N*, med den filendelsen de får. Formatene kan gjerne være forskjellige: `1.png`, `2.jpg`, `3.webp`. Navn som `01.png`, `bilde1.png` og `1a.png` avvises med en begrunnelse — de blir aldri gjettet på — og to filer med samme nummer meldes som konflikt.
+2. Bildebriefen vises med en nummerert liste over bildene som skal lages: nummer, format og motiv. Kopi-knappen finnes fortsatt for klienter og arbeidsflyter som trenger manuell overlevering.
+3. Bildene kan genereres direkte av vertsklienten eller produseres et annet sted. Når bildefilene er tilgjengelige, lagres de som `1`, `2`, `3` … opp til *N*, med den filendelsen de får. Formatene kan gjerne være forskjellige: `1.png`, `2.jpg`, `3.webp`. Navn som `01.png`, `bilde1.png` og `1a.png` avvises med en begrunnelse — de blir aldri gjettet på — og to filer med samme nummer meldes som konflikt.
 4. «Bildene er klare» åpner deponeringsdialogen. Filene dras inn eller velges, og en statusliste viser hvilke numre som er på plass, hvilke som mangler og hva som eventuelt er feil. **«Fullfør»** er deaktivert til nøyaktig 1…*N* er der uten feil.
 5. Når deponeringen fullføres, lastes alle filene opp, hvert bilde havner i sonen det ble bestilt for, plassholderteksten forsvinner, og statusen settes til `completed`.
 
@@ -258,7 +260,7 @@ Beskriver konteksten ett enkelt motiv, overstyrer den oppføringen for det bilde
 
 ### Den samlede bildebriefen
 
-Briefen er **generert**, ikke skrevet. Den er én sammenhengende tekst brukeren limer rett inn der bildene lages, og formatet er dette:
+Briefen er **generert**, ikke skrevet. Den er én sammenhengende tekst som vertsklienten kan sende direkte til bildegenereringen, eller som kan kopieres til stedet bildene lages når direkte overlevering ikke finnes. Formatet er dette:
 
 ```
 Lag nøyaktig [ANTALL] separate bilder til én presentasjon.
@@ -412,7 +414,7 @@ Unngå aktivt:
 - negativt rom mellom sideordnede kort når det bare gjør kortene smalere;
 - store synlige kort med svært lite tekst og unødvendig mye tom høyde når en enkel vertikal trim ville gitt bedre balanse;
 - å bruke negativt rom for å demonstrere at presentasjonen har negativt rom;
-- å droppe relevante bilder fordi agenten mangler rastergenerator;
+- å behandle bildeplan og bildebrief som en fallback fordi rasterfilen produseres utenfor Slaids;
 - å skrive en bred, liggende bildeprompt til en nær kvadratisk eller stående sone;
 - å oppgi aspect ratio i fritekst i stedet for å la sonen bestemme den;
 - å skrive den samlede bildebriefen for hånd i stedet for å la den genereres fra bildeplanen;

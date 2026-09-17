@@ -50,6 +50,7 @@ import {
   PRIMARY_TEXT_RULE,
   QUOTE_RULE,
   RASTER_POLICY,
+  RASTER_WORKFLOW_RULE,
   REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
   SELF_CHECK_STOP,
@@ -93,6 +94,7 @@ const NORMATIVE = [
   SPLIT_RULE,
   IMAGE_USAGE_RULE,
   IMAGE_POLICY_SUMMARY,
+  RASTER_WORKFLOW_RULE,
   IMAGE_BRIEF_RULE,
   IMAGE_PLAN_RULE,
   REFERENCE_SYSTEM_RULE,
@@ -171,7 +173,7 @@ describe('det agenten vet før første kall', () => {
     // open question about «relevant visual content» is cheapest to answer no.
     for (const subject of VISUAL_SUBJECTS) expect(MCP_INSTRUCTIONS).toContain(subject)
     for (const role of IMAGE_ROLES) expect(MCP_INSTRUCTIONS).toContain(role)
-    expect(IMAGE_USAGE_RULE).toMatch(/skal du ikke droppe relevante bilder/i)
+    expect(IMAGE_USAGE_RULE).toMatch(/Relevante rasterbilder skal planlegges/i)
     expect(IMAGE_USAGE_RULE).toMatch(/bildeplan/i)
   })
 
@@ -316,12 +318,18 @@ describe('raster og vektor', () => {
     expect(surface).toMatch(/bildegenerator/)
   })
 
-  it('ber agenten si fra når den mangler en bildegenerator, i stedet for å improvisere', () => {
-    expect(RASTER_POLICY.join(' ')).toMatch(/si tydelig fra om begrensningen/i)
+  it('gjør rasterplanen til standard i stedet for availability-fallback', () => {
+    const surface = agentSurface()
+    expect(surface).toContain(RASTER_WORKFLOW_RULE)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/standardflyten/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/ikke en fallback eller nødløsning/i)
+    expect(surface).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
+    expect(RASTER_POLICY.join(' ')).not.toMatch(/si tydelig fra om begrensningen/i)
   })
 
-  it('sier at denne serveren ikke lager bilder, uten å love at det aldri skjer', () => {
-    expect(MCP_INSTRUCTIONS).toMatch(/lager ikke bilder/i)
+  it('sier at Slaids-agent-API-et ikke lager rasterbilder, uten å love at det aldri skjer', () => {
+    expect(MCP_INSTRUCTIONS).toContain(RASTER_WORKFLOW_RULE)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/lager ikke rasterbilder/i)
     expect(agentSurface()).not.toMatch(/kommer ikke til å|aldri kommer til/i)
   })
 

@@ -12,7 +12,14 @@ describe('visual media planning instructions', () => {
   it('does not let an easy SVG replace a useful concrete image', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/et diagram er ikke en erstatning for et konkret motiv/i)
     expect(MCP_INSTRUCTIONS).toMatch(/skal ikke erstatte rasterbildet bare fordi SVG kan produseres direkte/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/ikke en hjemmelaget erstatning eller et abstrakt diagram/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/hjemmelaget erstatning eller et abstrakt diagram/i)
+  })
+
+  it('treats raster planning as the fixed standard and hands the brief to the host generator', () => {
+    expect(MCP_INSTRUCTIONS).toMatch(/Rasterflyten er fast, ikke en fallback/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/send den direkte videre i samme samtale/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/uten at brukeren kopierer og limer/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
   })
 
   it('forces explicit reassessment of a visually concrete deck with zero raster images', () => {
