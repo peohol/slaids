@@ -1383,14 +1383,19 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
 
     expect(verified.ok).toBe(true)
     expect(verified.check).toBe('file-checked')
-    expect(verified.workflow.stage).toBe('generation-verified')
+    expect(verified.workflow.stage).toBe('awaiting-deposit')
     expect(verified.workflow.complete).toBe(true)
     // Slaids still has none of the files, and says so — it is just not the
     // stop criterion, and it is never called «generation calls remaining».
     expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
     expect(verified.workflow.depositedImageCount).toBe(0)
-    expect(verified.workflow.nextAction).toMatch(/genereringsoppgaven er ferdig/i)
+    expect(verified.workflow.nextAction).toMatch(/genereringsoppgaven er gjort/i)
     expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
+    // And it works for a session that does not hold the files: the deck keeps
+    // the check, never the pictures, so a later conversation is told to say so
+    // and make them again rather than to report a deck with empty zones done.
+    expect(verified.workflow.nextAction).toMatch(/generere bildene på nytt/i)
+    expect(verified.workflow.nextAction).toMatch(/aldri dekket ferdig til brukeren/i)
     // Nothing left to do, and in particular nothing left to generate: the
     // earlier model would have asked for eight more pictures here.
     expect(verified.workflow.remainingSteps).toEqual([])
@@ -1423,12 +1428,12 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
       presentationId: brief.presentationId,
       images: generated(brief),
     })
-    expect(verified.workflow.stage).toBe('generation-verified')
+    expect(verified.workflow.stage).toBe('awaiting-deposit')
 
     const reread = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
     })
-    expect(reread.workflow.stage).toBe('generation-verified')
+    expect(reread.workflow.stage).toBe('awaiting-deposit')
     expect(reread.workflow.complete).toBe(true)
     expect(reread.workflow.remainingSteps).toEqual([])
     expect(reread.workflow.nextAction).not.toMatch(/kall deretter bildegeneratoren/i)
@@ -1502,7 +1507,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     })
     expect(verified.ok).toBe(true)
     expect(verified.issues).toEqual([])
-    expect(verified.workflow.stage).toBe('generation-verified')
+    expect(verified.workflow.stage).toBe('awaiting-deposit')
     expect(verified.workflow.complete).toBe(true)
   })
 
@@ -1542,6 +1547,65 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(stale.ok).toBe(false)
     expect(stale.issues.map((issue) => issue.code)).toContain('PLAN_CHANGED')
     expect(stale.workflow.complete).toBe(false)
+  })
+
+  it('kan ikke gjøres ferdig ved å tømme bildeplanen etter en endret bestilling', async () => {
+    /*
+     * The laundering path, through the real operations. Plan, verify, deposit,
+     * rewrite the shared context — and then do exactly what the status names as
+     * the repair. «Rewrite the plan with only the zones that still wait» is an
+     * empty plan on a fully deposited deck, and emptying it used to delete the
+     * bindings and report `complete: true` with pictures made for orders the
+     * deck no longer had. The repair must not be the bug.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 2)
+    await ok(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+    for (const image of brief.images) await deposit(context, brief.presentationId, image)
+
+    const delivered = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(delivered.workflow.stage).toBe('generation-verified')
+    expect(delivered.workflow.complete).toBe(true)
+
+    await ok(context, 'set_image_context', {
+      presentationId: brief.presentationId,
+      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
+    })
+    const changed = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(changed.workflow.stage).toBe('plan-outdated')
+    expect(changed.workflow.complete).toBe(false)
+    expect(changed.workflow.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
+
+    // Follow it literally: empty the plan. The deck must not forget why.
+    const emptied = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: brief.presentationId,
+      images: [],
+    })
+    expect(emptied.imageCount).toBe(0)
+    expect(emptied.workflow.stage).toBe('plan-outdated')
+    expect(emptied.workflow.complete).toBe(false)
+
+    // The way out orders those pictures again and makes them.
+    const replanned = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: brief.presentationId,
+      images: changed.images.map((image) =>
+        planned(image.slideId, image.nodeId, MOTIFS[image.number - 1]),
+      ),
+    })
+    const remade = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(replanned),
+    })
+    expect(remade.ok).toBe(true)
+    expect(remade.workflow.stage).toBe('generation-verified')
+    expect(remade.workflow.complete).toBe(true)
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {

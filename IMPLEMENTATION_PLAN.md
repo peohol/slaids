@@ -706,7 +706,8 @@ ut.
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
 | `generation-verified` | ✔ | Koblingskontrollen svarte `ok`: alt planlagt er laget og koblet. |
-| `plan-outdated` | ✗ | En planlagt sone har alt en fil som ingen kontrollert kobling gjør rede for. |
+| `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene har ikke kommet inn i dekket ennå. |
+| `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
 Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
 et dekk med reserverte bildesoner og ingen bildeplan planlegger null bilder, og
@@ -715,12 +716,45 @@ aldri beskrive dem — lest som en leveranse. Samme rekkefølge gjør at et dekk
 planfeil ikke kan bli `complete` selv om hver sone har fil, i tråd med statusens
 eget `completionCriteria` om at `issues` skal være tom.
 
+#### To sannheter en lagret kontroll ikke er
+
+Persistensen løste at kontrollen var et faktum om ett kall, men den innførte to
+nye overdrivelser, og begge er rettet.
+
+**Den kan ikke slettes bort.** Reparasjonen statusen navnga i `plan-outdated` —
+«skriv planen på nytt med bare sonene som fortsatt venter» — er en *tom* plan på
+et fullt deponert dekk. `setImagePlan([])` prunet så koblingene, og resultatet
+var `no-planned-images` og `complete: true` med de gamle bildene stående under
+den nye bestillingen: reparasjonsveien gjeninnførte akkurat feilen den skulle
+forhindre. Dekket hadde informasjonen hele tiden, og nå brukes den.
+`staleGeneratedImages` skiller «ingen kjent proveniens» (en fil i en sone uten
+noen kobling — en manuell opplasting, et eldre dekk) fra «samme sone har en
+lagret kobling hvis oppføring siden er skrevet om», og `pruneGeneratedImages`
+beholder den andre så lenge bildet fortsatt ligger i sonen. En `PLAN_CHANGED`
+kan derfor ikke forsvinne ved at planen tømmes; den krever at bildene lages om,
+eller at brukeren uttrykkelig velger å beholde dem.
+
+**Den er ikke et bevis på at noen kan levere filene.** Koblingene overlever en
+reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
+senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang
+til bildene den forrige samtalen laget. Derfor er `awaiting-deposit` sitt eget
+stadium: genereringen *var* agentens arbeid og er gjort, men handlingen må
+fungere for en økt som ikke har filene. Statusen sier begge veier — lever dem
+med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem —
+og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
+filen. `forbiddenClosings` er dessuten tom når `complete` er true, så ingenting
+står i veien for å lage dem på nytt. Det ene som aldri er lov, er å melde dekket
+ferdig til brukeren mens bildesonene står tomme.
+
+#### Hvorfor `plan-outdated` finnes
+
 `plan-outdated` gjør to jobber, og begge kommer av at bildeplanens kontrakt er
 «én oppføring per bildesone som *venter* på en fil».
 
-Den ene er ærlighet om proveniens: en fil i en sone er ikke bevis for at den ble
-laget for bestillingen planen bærer nå, og ingenting på panelet husker hvilken
-bestilling filen kom fra. Den andre er en selvmotsigelse den fjerner. Tidligere
+Den ene er ærlighet om proveniens: en fil i en sone er ikke i seg selv bevis for
+at den ble laget for bestillingen planen bærer nå, og ingenting på panelet
+husker hvilken bestilling filen kom fra — men de lagrede koblingene gjør det når
+de finnes, og et `PLAN_CHANGED` der er nettopp den påstanden. Den andre er en selvmotsigelse den fjerner. Tidligere
 brukte `awaiting-generation` `awaitingFileCount` som antall bilder å generere,
 mens `images` fortsatt listet alle oppføringene og `checkGeneratedImages`
 forventer én record per *planlagt* oppføring: med tre oppføringer der én sone
@@ -735,7 +769,9 @@ kontrollen forventer.
 
 - **`complete`** er feltet en agent forgrener på, og det gjelder *agentens*
   arbeid: deponeringen er brukerens steg, og å vente på den er aldri agentens
-  jobb.
+  jobb. `awaiting-deposit` er derfor `complete: true` — men stadienavnet sier
+  hva som gjenstår, og `nextAction` er skrevet for å kunne utføres også av en
+  økt som ikke har bildefilene.
 - **`nextAction`** navngir neste handling med dekkets eget tall i seg;
   **`remainingSteps`** er stegene som er igjen, i rekkefølge, og peker på
   `generation.perImageSteps` i stedet for å kopiere løkken. Begge er tomme når

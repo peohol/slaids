@@ -72,6 +72,8 @@ import {
   generatedImageRecordSchema,
   type GeneratedImageRecord,
 } from './imageBinding'
+import { imagePanelOf } from './content'
+import { collectLeaves } from './layout'
 import { imageFileNumber, imageZoneKey, resolveImagePlan } from './imagePlan'
 import { err, ok, type Result } from './result'
 import type { Presentation } from './types'
@@ -186,6 +188,64 @@ export function expectedGeneratedImages(
     slideId: image.plan.slideId,
     nodeId: image.plan.nodeId,
   }))
+}
+
+/**
+ * Every picture zone in the deck that currently holds a file, by zone.
+ *
+ * Read off the slides rather than out of a list, for the same reason
+ * `depositSlots` is: the slides are where a zone can stop existing, and a list
+ * beside them would keep naming one that is gone.
+ */
+function filledImageZones(presentation: Presentation): Set<string> {
+  const filled = new Set<string>()
+  for (const slide of presentation.slides) {
+    if (slide.kind !== 'content') continue
+    for (const leaf of collectLeaves(slide.root)) {
+      const panel = leaf.content ? imagePanelOf(leaf.content) : null
+      if (panel?.assetId) filled.add(imageZoneKey(slide.id, leaf.id))
+    }
+  }
+  return filled
+}
+
+/**
+ * The bindings that say a picture in the deck was made for an order the deck no
+ * longer has.
+ *
+ * The distinction this exists to keep: a picture zone with a file in it and *no*
+ * record is a file of unknown provenance — a manual upload, an older deck,
+ * something a person put there — and there is nothing to say about it. A zone
+ * with a file and a record whose entry has since been rewritten is different in
+ * kind: the deck knows that picture was ordered differently than it is ordered
+ * now.
+ *
+ * That difference is why this is derived rather than inferred from «the plan no
+ * longer lists this zone». An entry's `imagePlanItemId` covers its whole order,
+ * so rewriting a motif or the shared context is enough to make a record stale —
+ * and *emptying the plan does not make it any less true*. Keeping these records
+ * through a plan rewrite is what stops «rewrite the plan without the zones that
+ * are done» from being a way to launder a mismatch into a finished deck, which
+ * is exactly what it was before this existed.
+ */
+export function staleGeneratedImages(presentation: Presentation): GeneratedImageRecord[] {
+  const records = presentation.generatedImages ?? []
+  if (records.length === 0) return []
+  const planned = new Set(resolveImagePlan(presentation).map((image) => image.id))
+  const filled = filledImageZones(presentation)
+  return records.filter(
+    (record) =>
+      !planned.has(record.imagePlanItemId) &&
+      filled.has(imageZoneKey(record.slideId, record.nodeId)),
+  )
+}
+
+/** The bindings that answer for the plan the deck holds now. */
+export function plannedGeneratedImages(presentation: Presentation): GeneratedImageRecord[] {
+  const records = presentation.generatedImages ?? []
+  if (records.length === 0) return []
+  const planned = new Set(resolveImagePlan(presentation).map((image) => image.id))
+  return records.filter((record) => planned.has(record.imagePlanItemId))
 }
 
 /* ------------------------------------------------------------------ *

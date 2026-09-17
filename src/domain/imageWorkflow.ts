@@ -42,23 +42,30 @@
  * made for an order the deck no longer has cannot report itself as done.
  */
 
-import { checkGeneratedImages } from './imageGeneration'
+import {
+  checkGeneratedImages,
+  plannedGeneratedImages,
+  staleGeneratedImages,
+} from './imageGeneration'
 import { checkImagePlan, resolveImagePlan } from './imagePlan'
 import type { Presentation } from './types'
 
 /**
  * The raster flow's position, in the deck's own terms.
  *
- * Two of the five are finished, for different reasons: `no-planned-images`
- * because there is nothing to make, and `generation-verified` because the
- * bindings say everything planned *was* made. The other three are stages an
- * agent must never end a turn in.
+ * Three are finished for the agent, for different reasons: `no-planned-images`
+ * because there is nothing to make, `generation-verified` because everything
+ * planned was made *and* is in the deck, and `awaiting-deposit` because
+ * everything planned was made and the files have not arrived — which is the
+ * user's step, not the agent's. The other three are stages an agent must never
+ * end a turn in.
  */
 export type ImageWorkflowStage =
   | 'no-planned-images'
   | 'plan-needs-repair'
   | 'awaiting-generation'
   | 'generation-verified'
+  | 'awaiting-deposit'
   | 'plan-outdated'
 
 /** How far the deck's raster flow has got, derived rather than remembered. */
@@ -145,7 +152,7 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
   'Ikke avslutt med «Bildene er ikke satt inn ennå». Det er en beskrivelse av arbeid som gjenstår, og arbeidet er ditt.',
   'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
   'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe etter briefen, eller en konkret teknisk blokkering du navngir.',
-  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids. Er koblingen alt kontrollert, er bildet laget – det som gjenstår er deponeringen, og den er brukerens steg.',
+  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er koblingen alt kontrollert, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
 ]
 
 /** The generation half of what is left, with this deck's own count in it. */
@@ -167,7 +174,14 @@ function generationSteps(awaiting: number): readonly string[] {
  * anything having to remember to clear it.
  */
 export function imageGenerationIsVerified(presentation: Presentation): boolean {
-  const records = presentation.generatedImages ?? []
+  /*
+   * Only the records that answer for the plan the deck holds now. A record left
+   * over from a rewritten order is not a flaw in this delivery — it is its own
+   * finding (`staleGeneratedImages`, reported as `plan-outdated`), and folding
+   * it in here would let one stale picture elsewhere in the deck make a
+   * correctly delivered plan look unverified.
+   */
+  const records = plannedGeneratedImages(presentation)
   if (records.length === 0) return false
   return checkGeneratedImages(presentation, records).length === 0
 }
@@ -222,6 +236,30 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     )
   }
 
+  /*
+   * Before every finished branch, and before the plan is even consulted for
+   * being empty: a picture in the deck that was made for an order the deck has
+   * since rewritten. It has to come first because the obvious repair for the
+   * stage below it — «rewrite the plan with only the zones that still wait» —
+   * is an empty plan on a fully deposited deck, and an empty plan used to make
+   * this state disappear. The bindings survive that rewrite now, so the
+   * mismatch cannot be laundered into a finished deck by deleting the evidence.
+   */
+  const stale = staleGeneratedImages(presentation)
+  if (stale.length > 0) {
+    const numbers = stale.map((record) => record.number).join(', ')
+    return status(
+      'plan-outdated',
+      false,
+      `${stale.length === 1 ? 'Ett bilde' : `${stale.length} bilder`} i dekket ble laget for en bestilling som siden er endret – bilde ${numbers}. Motivet eller den felles bildekonteksten er skrevet om etter at filen kom, så filen i sonen svarer ikke på bestillingen som står nå. Det er ikke rettet ved å tømme bildeplanen: legg de sonene inn i bildeplanen igjen, generer bildene enkeltvis, og kjør koblingskontrollen. Skal et av de gamle bildene likevel stå, må det være brukerens valg – si hva som ikke stemmer, i stedet for å melde dekket ferdig.`,
+      [
+        'Legg de berørte bildesonene inn i bildeplanen igjen, med bestillingen som gjelder nå.',
+        'Generer de bildene enkeltvis, og kjør koblingskontrollen på hele den nye planen.',
+        'Kan et gammelt bilde bli stående, er det brukerens avgjørelse – legg den frem, ikke avgjør den selv.',
+      ],
+    )
+  }
+
   if (images.length === 0) {
     return status(
       'no-planned-images',
@@ -231,14 +269,30 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
   }
 
   if (imageGenerationIsVerified(presentation)) {
+    if (counts.awaitingFileCount === 0) {
+      return status(
+        'generation-verified',
+        true,
+        `Alle ${images.length} planlagte bilder er generert, kontrollert mot sin egen oppføring og lagt inn i dekket. Rasterflyten er ferdig.`,
+      )
+    }
+    /*
+     * Verified, and the files are not here. Complete, because generating them
+     * was the agent's work and it is done — but the stage says what is pending,
+     * and the action has to work for a session that does not hold the files.
+     *
+     * That last part is the failure this wording answers. The check is stored,
+     * so it outlives the conversation that ran it: a later session can open
+     * this deck, read «done», and have no access to the pictures a previous
+     * chat produced. A record is proof that files were made once; it is not
+     * proof that anybody can still deliver them. So making them again is
+     * explicitly allowed here, and reporting the deck as finished while its
+     * picture zones are empty is explicitly not.
+     */
     return status(
-      'generation-verified',
+      'awaiting-deposit',
       true,
-      `Koblingskontrollen har godkjent at alle ${images.length} planlagte bilder er generert og knyttet til sin egen oppføring, og svaret står på dekket. Genereringsoppgaven er ferdig.${
-        counts.awaitingFileCount > 0
-          ? ` De ${counts.awaitingFileCount} filene som ennå ikke ligger i dekket, kommer inn gjennom bildedeponeringen – det er brukerens steg. Lever filene med manifestet og si hva brukeren skal gjøre.`
-          : ''
-      }`,
+      `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, så genereringsoppgaven er gjort. Filene ligger ikke i dekket: ${counts.awaitingFileCount} bildesoner står tomme, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildesonene er tomme.`,
     )
   }
 
@@ -246,11 +300,10 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     return status(
       'plan-outdated',
       false,
-      `${deposited} av ${images.length} planlagte bildesoner har alt en fil, uten at noen kontrollert kobling gjør rede for dem. Planen beskriver dermed ikke lenger det den påstår. Skriv bildeplanen på nytt med bare de sonene som fortsatt venter på et bilde, og generer deretter dem. En fil i en sone er ikke bevis for at den ble laget for bestillingen som står nå: er motivet eller den felles bildekonteksten endret etter at filen kom, skal det bildet lages om.`,
+      `${deposited} av ${images.length} planlagte bildesoner har alt en fil, uten at noen kontrollert kobling gjør rede for dem. Planen beskriver dermed ikke lenger det den påstår. Skriv bildeplanen på nytt med bare de sonene som fortsatt venter på et bilde, og generer deretter dem. En fil i en sone er ikke bevis for at den ble laget for bestillingen som står nå.`,
       [
         'Skriv bildeplanen på nytt med bare de bildesonene som fortsatt venter på en fil.',
         'Generer deretter de oppføringene, enkeltvis, og kjør koblingskontrollen på hele den nye planen.',
-        'Er en sones bestilling endret etter at filen kom, lag det bildet om og ta sonen med i den nye planen.',
       ],
     )
   }

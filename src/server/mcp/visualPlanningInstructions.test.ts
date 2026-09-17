@@ -105,12 +105,19 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `generation-verified`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
       // And the answer is a fact about the deck, not about one response: the
       // regression was `verify_image_handoff` saying «done» and the very next
       // read asking for every picture again.
       expect(MCP_INSTRUCTIONS).toMatch(/også ved senere lesninger, fordi svaret lagres på dekket/i)
       expect(MCP_INSTRUCTIONS).toMatch(/faller kontrollen bort av seg selv/i)
+      // The check is stored and the files are not, so a later session that does
+      // not hold them must be able to act rather than report a deck with empty
+      // picture zones as finished.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Filene lagres ikke: åpner du et `awaiting-deposit`-dekk uten å ha dem/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/Meld aldri et dekk ferdig uten å si at bildesonene står tomme/i)
       expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
       expect(MCP_INSTRUCTIONS).toMatch(
         /skal ikke genereres om igjen fordi sonen står tom/i,

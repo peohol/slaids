@@ -17,7 +17,12 @@
  * pictures nobody ordered.
  */
 
-import { checkGeneratedImages, type GeneratedImageRecord } from '../imageGeneration'
+import {
+  checkGeneratedImages,
+  plannedGeneratedImages,
+  staleGeneratedImages,
+  type GeneratedImageRecord,
+} from '../imageGeneration'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
 import type { Presentation } from '../types'
@@ -52,20 +57,35 @@ export function recordGeneratedImages(
 }
 
 /**
- * The records that still point at a planned picture.
+ * The records worth keeping after the plan has been rewritten.
  *
- * Called when the plan is written. A record whose id no longer resolves is a
- * binding to an order the deck has given up — inert, because the check would
- * reject it anyway, but keeping it would leave the document carrying claims
- * about pictures nobody asked for. Ordered by the entry's own number rather
- * than by however the delivery arrived, for the same reason every other part of
- * this flow is: arrival order is not identity.
+ * Two kinds survive, and the second is the point. A record whose entry is still
+ * planned answers for a picture on order. A record whose entry is gone but
+ * whose *zone still holds the file it was bound to* answers for a picture
+ * sitting in the deck — and if its order was rewritten, that record is the only
+ * thing that knows the picture no longer matches.
+ *
+ * Dropping that second kind is what made the repair a laundering path: the
+ * status told an agent to rewrite the plan with only the zones that still
+ * waited, a fully deposited deck has none, and the empty plan then deleted the
+ * evidence and reported the deck finished with the old pictures in place. So
+ * the prune only throws away records nothing can be said about any more — the
+ * zone is gone, or its picture has been taken out.
+ *
+ * Ordered by the entry's own number rather than by however the delivery
+ * arrived, for the same reason every other part of this flow is: arrival order
+ * is not identity.
  */
-export function pruneGeneratedImages(presentation: Presentation, plannedIds: ReadonlySet<string>): Presentation {
+export function pruneGeneratedImages(presentation: Presentation): Presentation {
   const records = presentation.generatedImages ?? []
   if (records.length === 0) return presentation
+  const keep = new Set(
+    [...plannedGeneratedImages(presentation), ...staleGeneratedImages(presentation)].map(
+      (record) => record.imagePlanItemId,
+    ),
+  )
   const kept = records
-    .filter((record) => plannedIds.has(record.imagePlanItemId))
+    .filter((record) => keep.has(record.imagePlanItemId))
     .sort((left, right) => left.number - right.number)
   if (kept.length === records.length) return presentation
   if (kept.length === 0) {

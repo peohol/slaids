@@ -82,11 +82,12 @@ export function setImagePlan(
     plan.length === 0 ? stripPlan(presentation) : { ...presentation, imagePlan: plan }
   /* A new plan is a new set of orders, and an order's id covers all of it — so
      a binding written for the plan that was here may no longer point at
-     anything. Dropped now rather than left to expire silently: the records are
-     what says the pictures were made, and a document that keeps claims about
-     pictures nobody ordered is a document that has to be re-read to be
-     understood. An unchanged rewrite keeps them, because the ids are the same. */
-  const withPlan = pruneGeneratedImages(written, new Set(resolveImagePlan(written).map((image) => image.id)))
+     anything. What is dropped is only what nothing can be said about any more:
+     a binding whose zone is gone, or whose picture has been taken out. One
+     whose picture is still sitting in the deck is kept even when the plan no
+     longer orders it, because that record is the only thing that knows the
+     picture was made for a different order — see `pruneGeneratedImages`. */
+  const withPlan = pruneGeneratedImages(written)
 
   const stamped = syncImagePlaceholders(withPlan, options)
   if (!stamped.ok) return stamped

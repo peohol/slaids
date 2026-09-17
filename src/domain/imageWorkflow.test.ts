@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { registerAsset } from './commands/assets'
-import { setImageAsset } from './commands/content'
+import { setContentKind, setImageAsset } from './commands/content'
 import { recordGeneratedImages } from './commands/imageGeneration'
 import { setImagePlan } from './commands/imagePlan'
 import { setImageContext } from './commands/slides'
@@ -28,7 +28,11 @@ import { createImage } from './content'
 import { createLeaf, createSplit } from './layout'
 import { createPresentation } from './presentation'
 import { titleDoc } from './richdoc'
-import { checkGeneratedImages, type GeneratedImageRecord } from './imageGeneration'
+import {
+  checkGeneratedImages,
+  staleGeneratedImages,
+  type GeneratedImageRecord,
+} from './imageGeneration'
 import { checkImagePlan, resolveImagePlan, type PlannedImage } from './imagePlan'
 import { composeImageWorkflowStatus, imageGenerationIsVerified } from './imageWorkflow'
 import { validatePresentation } from './schema'
@@ -189,13 +193,13 @@ describe('genereringen er kontrollert, ikke observert', () => {
     // deposit. Every zone is still empty here, and the generation task is done.
     const deck = verified(awaiting(3))
     const status = composeImageWorkflowStatus(deck)
-    expect(status.stage).toBe('generation-verified')
+    expect(status.stage).toBe('awaiting-deposit')
     expect(status.complete).toBe(true)
     expect(status.awaitingFileCount).toBe(3)
     expect(status.depositedImageCount).toBe(0)
     expect(status.remainingSteps).toEqual([])
     expect(status.forbiddenClosings).toEqual([])
-    expect(status.nextAction).toMatch(/genereringsoppgaven er ferdig/i)
+    expect(status.nextAction).toMatch(/genereringsoppgaven er gjort/i)
     expect(status.nextAction).toMatch(/brukerens steg/i)
   })
 
@@ -207,6 +211,7 @@ describe('genereringen er kontrollert, ikke observert', () => {
     const first = composeImageWorkflowStatus(deck)
     const second = composeImageWorkflowStatus(deck)
     expect(second).toEqual(first)
+    expect(second.stage).toBe('awaiting-deposit')
     expect(second.complete).toBe(true)
     expect(second.remainingSteps.join(' ')).not.toMatch(/generer/i)
     // And it survives the trip through storage, because it is stored: the
@@ -285,6 +290,81 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(status.remainingSteps.join(' ')).toMatch(/bare de bildesonene som fortsatt venter/i)
   })
 
+  it('er ferdig når et kontrollert sett faktisk er lagt inn i dekket', () => {
+    // The end of the happy path, and it must not nag: the plan still lists the
+    // zones, each one has its file, and the bindings account for all of them
+    // against the orders in force.
+    let deck = verified(awaiting(3))
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('generation-verified')
+    expect(status.complete).toBe(true)
+    expect(status.awaitingFileCount).toBe(0)
+    expect(status.depositedImageCount).toBe(3)
+    expect(status.remainingSteps).toEqual([])
+  })
+
+  it('kan ikke gjøres ferdig ved å tømme bildeplanen når bestillingen er endret', () => {
+    /*
+     * The laundering path, end to end: plan, generate, verify, deposit, rewrite
+     * the shared context — and then follow the repair the status used to name.
+     * «Rewrite the plan with only the zones that still wait» is an empty plan on
+     * a fully deposited deck, the empty plan deleted the bindings, and the deck
+     * reported `complete: true` with pictures made for orders it no longer had.
+     * The evidence has to survive the rewrite, or the repair is the bug.
+     */
+    let deck = verified(awaiting(3))
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    expect(composeImageWorkflowStatus(deck).complete).toBe(true)
+
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    const changed = composeImageWorkflowStatus(rewritten.value)
+    expect(changed.stage).toBe('plan-outdated')
+    expect(changed.complete).toBe(false)
+    expect(changed.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
+
+    // Emptying the plan keeps the bindings, because their pictures are still in
+    // the deck — so the deck cannot forget why it was stale.
+    const emptied = planned(rewritten.value, [])
+    expect(emptied.generatedImages).toHaveLength(3)
+    expect(staleGeneratedImages(emptied)).toHaveLength(3)
+    const laundered = composeImageWorkflowStatus(emptied)
+    expect(laundered.stage).toBe('plan-outdated')
+    expect(laundered.complete).toBe(false)
+
+    // The way out is to order those pictures again and make them.
+    const zones = resolveImagePlan(deck).map((image) => image.plan)
+    const replanned = planned(emptied, zones)
+    const remade = verified(replanned)
+    const done = composeImageWorkflowStatus(remade)
+    expect(done.stage).toBe('generation-verified')
+    expect(done.complete).toBe(true)
+    expect(staleGeneratedImages(remade)).toEqual([])
+  })
+
+  it('lar bildet forsvinne fra sonen gjøre koblingen irrelevant', () => {
+    // The other honest way out: the picture is taken out of the zone, so there
+    // is no longer anything in the deck for the binding to be wrong about.
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    const rewritten = setImageContext(deck, 'Kullstift, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    expect(staleGeneratedImages(rewritten.value)).toHaveLength(2)
+
+    const first = resolveImagePlan(deck)[0].plan
+    const cleared = setContentKind(rewritten.value, {
+      slideId: first.slideId,
+      nodeId: first.nodeId,
+      kind: 'untitled-card',
+    })
+    if (!cleared.ok) throw new Error(cleared.error.message)
+    // One zone no longer holds a picture, so its binding says nothing — and the
+    // plan rewrite is what drops it.
+    expect(staleGeneratedImages(cleared.value)).toHaveLength(1)
+    expect(planned(cleared.value, []).generatedImages).toHaveLength(1)
+  })
+
   it('lar ikke en fil i sonen gjøre en ny bestilling ferdig', () => {
     // Every planned zone holds a file and nothing waits — but a file in a zone
     // is not provenance, and no checked binding accounts for these.
@@ -333,7 +413,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(delivered).toHaveLength(status.awaitingFileCount)
     expect(checkGeneratedImages(replanned, delivered)).toEqual([])
     const done = composeImageWorkflowStatus(verified(replanned))
-    expect(done.stage).toBe('generation-verified')
+    expect(done.stage).toBe('awaiting-deposit')
     expect(done.complete).toBe(true)
   })
 })
@@ -393,6 +473,42 @@ describe('planens egne kontroller gjelder foran alle ferdig-grener', () => {
     expect(status.nextAction).toMatch(/issues/)
     expect(status.nextAction).toMatch(/fortsett deretter i samme samtale/i)
     expect(status.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
+  })
+})
+
+describe('et verifisert dekk som åpnes i en ny samtale', () => {
+  /*
+   * The stored check outlives the conversation that ran it, and the files do
+   * not: Slaids keeps the bindings, never the pictures. So a later session can
+   * open a verified, undeposited deck with no access to what an earlier chat
+   * produced — and a status that said «finished, hand over the files» while
+   * forbidding regeneration would leave that session with nothing it could do.
+   */
+  it('har en gjennomførbar neste handling, og forbyr ikke å lage bildene på nytt', () => {
+    const deck = verified(awaiting(3))
+    const reopened = validatePresentation(JSON.parse(JSON.stringify(deck)))
+    expect(reopened.issues).toEqual([])
+    const stored = reopened.value
+    if (!stored) throw new Error('Forventet et gyldig dokument')
+
+    const status = composeImageWorkflowStatus(stored)
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.awaitingFileCount).toBe(3)
+    // Nothing forbids making them again — `forbiddenClosings` is empty here,
+    // and the action says so in words for the session that does not hold them.
+    expect(status.forbiddenClosings).toEqual([])
+    expect(status.nextAction).toMatch(/er dette en senere samtale og filene ikke er tilgjengelige/i)
+    expect(status.nextAction).toMatch(/generere bildene på nytt/i)
+    // And it may not be reported as a finished deck while the zones are empty.
+    expect(status.nextAction).toMatch(/aldri dekket ferdig til brukeren uten å si at bildesonene er tomme/i)
+  })
+
+  it('kan generere på nytt og bli verifisert igjen mot samme plan', () => {
+    // The executable path, executed: the same orders, made again, checked again.
+    const deck = verified(awaiting(2))
+    const again = verified(deck)
+    expect(imageGenerationIsVerified(again)).toBe(true)
+    expect(composeImageWorkflowStatus(again).stage).toBe('awaiting-deposit')
   })
 })
 
