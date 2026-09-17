@@ -320,6 +320,9 @@ bildekontekst, og Slaids genererer den samlede briefen. En vertsklient som
 ChatGPT kan sende briefen direkte til sitt innebygde bildeverktøy i samme
 samtale når brukeren har bedt om generering. Hvis direkte overlevering ikke
 finnes, brukes den samme briefen der bildene produseres; det er ikke en fallback.
+Denne direkte overleveringen gjelder briefen, ikke filreturen: uten en filbro
+tilbake til Slaids går de ferdige bildefilene fortsatt gjennom bildedeponeringen
+i 7.3.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -536,8 +539,10 @@ teksten.
 
 ## 7.3\. Bildedeponering
 
-Briefen er bestillingen. En vertsklient kan sende den direkte til bildegenerering; når filene er produsert, er deponeringen returen: brukeren legger bildene inn samlet, og hver fil havner i sonen den ble bestilt
-for uten at noen må pare fil mot sone for hånd.
+Briefen er bestillingen. En vertsklient kan sende den direkte til
+bildegenerering. Når filene er produsert, er deponeringen returen: brukeren
+legger bildene inn samlet, og hver fil havner i sonen den ble bestilt for uten at
+noen må pare fil mot sone for hånd.
 
 ```ts
 type ImageDepositStatus = 'pending' | 'completed' | 'abandoned'

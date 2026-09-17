@@ -323,6 +323,7 @@ describe('raster og vektor', () => {
     expect(surface).toContain(RASTER_WORKFLOW_RULE)
     expect(RASTER_WORKFLOW_RULE).toMatch(/standardflyten/i)
     expect(RASTER_WORKFLOW_RULE).toMatch(/ikke en fallback eller nødløsning/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/filbro.*bildedeponeringen/i)
     expect(surface).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
     expect(RASTER_POLICY.join(' ')).not.toMatch(/si tydelig fra om begrensningen/i)
   })
