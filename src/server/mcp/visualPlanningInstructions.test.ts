@@ -166,14 +166,31 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
     })
 
-    it('holder bildeplanen til de sonene som faktisk venter', () => {
-      // The contradiction this closes: the status asked for two pictures while
-      // `images` listed three and the binding check expected three records.
-      expect(MCP_INSTRUCTIONS).toMatch(
+    it('skiller de to `plan-outdated`-tilfellene, som krever motsatt handling', () => {
+      /*
+       * The rule used to say one thing about a planned zone that already has a
+       * picture: rewrite the plan without it. That is right for a file nothing
+       * accounts for, and exactly wrong for one the deck knows was made for an
+       * order it has since rewritten — there the zone stays in the plan and the
+       * replacement gets made. A rule that gave only the first answer could
+       * send an agent to empty the plan at the very moment it should generate.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(/sier `workflow` `plan-outdated`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/to tilfeller som krever motsatt handling/i)
+      // Superseded: keep the zone, generate the replacement — and the whole
+      // plan, because the check expects one file per planned entry.
+      expect(MCP_INSTRUCTIONS).toMatch(/koblingskontrollen svarer `PLAN_CHANGED`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/skal sonen bli stående i planen og erstatningen genereres/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/også for soner som alt har et bilde/i)
+      // Unknown provenance: rewrite the plan with only what still waits.
+      expect(MCP_INSTRUCTIONS).toMatch(/ingen kobling som gjør rede for filen, er proveniensen ukjent/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/bare sonene som fortsatt venter/i)
+      // And the deck decides which, not the agent's guess.
+      expect(MCP_INSTRUCTIONS).toMatch(/Følg `nextAction`, ikke gjetningen/i)
+      // The one-answer version is asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
         /Bildeplanen skal beskrive nøyaktig de bildesonene som venter på en fil/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/sier `workflow` `plan-outdated`/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/i stedet for å generere mot en liste dekket selv er uenig med/i)
     })
 
     it('utløses av planlagte bildesoner, ikke bare av ordet «bilder»', () => {

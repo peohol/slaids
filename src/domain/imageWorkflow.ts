@@ -207,9 +207,16 @@ function generationSteps(awaiting: number): readonly string[] {
  * nothing to receive.
  */
 function depositNote(presentation: Presentation): string {
-  return presentation.imageDeposit?.status === 'pending'
-    ? ''
-    : ' Skriv bildeplanen på nytt før filene leveres, slik at Slaids åpner bildedeponeringen for dem – uten den har brukeren ingen steg å legge dem inn i.'
+  const status = presentation.imageDeposit?.status
+  if (status === 'pending') return ''
+  /* Abandoned is somebody's answer, not a state of the deck, so it never
+     reopens — and telling an agent to rewrite the plan until it does would be
+     an instruction the system refuses to carry out. The way in is the ordinary
+     one, a zone at a time. */
+  if (status === 'abandoned') {
+    return ' Bildedeponeringen er forlatt for dette dekket og åpner ikke igjen, uansett hvor mange ganger bildeplanen skrives. Bildene settes inn én sone om gangen i stedet – si det til brukeren i stedet for å vise til deponeringen.'
+  }
+  return ' Skriv bildeplanen på nytt før filene leveres, slik at Slaids åpner bildedeponeringen for dem – uten den har brukeren ingen steg å legge dem inn i.'
 }
 
 /**

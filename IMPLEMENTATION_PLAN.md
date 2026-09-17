@@ -1113,9 +1113,16 @@ versjon brukeren nettopp gikk bort fra, og tømt historikken på veien. Det er d
 samme regelen den tilbakeholdte strukturendringen følger — en utregning gjelder
 bare mot dokumentet den ble gjort på.
 
-**`completed` og `abandoned` er endelige.** Ingenting setter et dekk tilbake til
-`pending` — heller ikke en ny bildeplan. Begge avslutningene fjerner numrene fra
-panelene, så et ferdig dekk er et helt vanlig dekk.
+**`abandoned` er endelig; `completed` avslutter en runde.** Begge avslutningene
+fjerner numrene fra panelene, så et ferdig dekk er et helt vanlig dekk. Men et
+dekk kan bestille bilder på nytt — skriv om et motiv eller den felles
+bildekonteksten, og planen ber om bilder dekket ikke har — og da åpner en
+`completed` deponering igjen for den nye runden. Betingelsen er reell:
+`awaitsPictures` spør om dekket har planlagte soner som mangler fil eller holder
+et bilde fra en tidligere bestilling, så et ferdig dekk som ikke har bestilt noe
+nytt blir liggende. `abandoned` åpner aldri: der har noen sagt nei til den
+automatiske flyten, og det er et svar og ikke en tilstand ved dekket. Se §7.2,
+som er der hele livssyklusen står.
 
 ### Editoren, når dekket venter
 

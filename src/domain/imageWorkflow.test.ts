@@ -661,6 +661,45 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     expect(composeImageWorkflowStatus(deck).stage).toBe('generation-verified')
   })
 
+  it('ber aldri en forlatt deponering om å åpne seg', () => {
+    /*
+     * `abandoned` never reopens — it is somebody's answer, not a state of the
+     * deck. Telling an agent to rewrite the plan «so Slaids opens the deposit»
+     * would therefore be an instruction the system refuses to carry out, and an
+     * agent that followed it would loop. The way in is the ordinary one.
+     */
+    const deck = verified(awaiting(2))
+    const abandoned: Presentation = {
+      ...deck,
+      imageDeposit: { status: 'abandoned', expectedCount: 2 },
+    }
+    const status = composeImageWorkflowStatus(abandoned)
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.complete).toBe(true)
+    expect(status.nextAction).toMatch(/Bildedeponeringen er forlatt for dette dekket/i)
+    expect(status.nextAction).toMatch(/én sone om gangen/i)
+    expect(status.nextAction).not.toMatch(/Skriv bildeplanen på nytt før filene leveres/i)
+  })
+
+  it('gir en gjennomførbar vei videre når en forlatt deponering får en ny bestilling', () => {
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    deck = { ...deck, imageDeposit: { status: 'abandoned', expectedCount: 2 } }
+
+    const rewritten = setImageContext(deck, 'Kullstift, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    expect(rewritten.value.imageDeposit?.status).toBe('abandoned')
+    expect(composeImageWorkflowStatus(rewritten.value).stage).toBe('plan-outdated')
+
+    // Generate the replacements, and the action names something that can
+    // actually be done rather than a deposit that is designed to stay shut.
+    const remade = composeImageWorkflowStatus(verified(rewritten.value))
+    expect(remade.stage).toBe('awaiting-deposit')
+    expect(remade.complete).toBe(true)
+    expect(remade.nextAction).toMatch(/én sone om gangen/i)
+    expect(remade.nextAction).not.toMatch(/Skriv bildeplanen på nytt før filene leveres/i)
+  })
+
   it('lar en forlatt deponering være forlatt', () => {
     // Somebody said no to the automatic flow, and a rewritten order does not
     // overrule that: the pictures go in by hand.
