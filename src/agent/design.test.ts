@@ -1406,11 +1406,34 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verified.workflow.remainingSteps.join(' ')).toMatch(
       /har du bildefilene fra genereringen/i,
     )
-    expect(SELF_CHECK_STOP).toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\* arbeid ferdig/i)
+    expect(SELF_CHECK_STOP).toMatch(
+      /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
+    )
     expect(SELF_CHECK_STOP).toMatch(/ikke `complete` alene/i)
     expect(SELF_CHECK_STOP).toMatch(
       /har du bildefilene fra genereringen.*ikke si at presentasjonen er ferdig/i,
     )
+
+    /*
+     * And the ordinary case — this conversation has the files — must be able to
+     * end here. Handing them over is not a change to the document, so nothing
+     * the agent does empties this list: the deck moves on when the *user*
+     * deposits the files. A stop rule that waited for an empty list would
+     * therefore be a rule to wait for a browser action the agent cannot
+     * perform, which is the boundary this whole status exists to hold.
+     */
+    expect(verified.workflow.remainingSteps).not.toEqual([])
+    const afterHandoff = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(afterHandoff.workflow.stage).toBe('awaiting-deposit')
+    expect(afterHandoff.workflow.remainingSteps).toEqual(verified.workflow.remainingSteps)
+    expect(SELF_CHECK_STOP).toMatch(
+      /du velger den grenen som gjelder denne samtalen, utfører den, og avslutter når \*\*den\*\* er gjort/i,
+    )
+    expect(SELF_CHECK_STOP).toMatch(/ikke når listen blir tom/i)
+    expect(SELF_CHECK_STOP).toMatch(/ikke vente på at brukeren deponerer dem/i)
+    expect(SELF_CHECK_STOP).not.toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\*/i)
   })
 
   it('gir samme svar når briefen leses på nytt', async () => {

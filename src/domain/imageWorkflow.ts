@@ -127,6 +127,14 @@ export interface ImageWorkflowStatus {
    * named, each with the condition that selects it. An empty list there would
    * have said «nothing to do» to the half of the readers who owe eight
    * pictures.
+   *
+   * Which is why the stop is «you did the step that applies to you», never «the
+   * list went empty». In `awaiting-deposit` it does not go empty from anything
+   * the agent does: handing the files over is not a change to the document, and
+   * the deck only moves on when the *user* deposits them. A rule that waited for
+   * the list to empty would be a rule to wait for a browser action the agent
+   * cannot perform — the failure this whole status exists to prevent, arrived at
+   * from the other side.
    */
   remainingSteps: readonly string[]
   /** Everything that has to be true before the task may be called finished. */

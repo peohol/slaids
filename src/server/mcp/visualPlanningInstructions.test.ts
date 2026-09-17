@@ -94,7 +94,20 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
-      expect(MCP_INSTRUCTIONS).toMatch(/Avslutt først når `workflow\.remainingSteps` er tom/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Avslutt først når du har gjort det `workflow\.remainingSteps` krever av deg/i,
+      )
+      /*
+       * And never «stop when the list is empty». In `awaiting-deposit` it does
+       * not go empty from anything the agent does — handing the files over is
+       * not a change to the document — so that rule would be a rule to wait for
+       * the user's deposit, which is the architecture boundary this whole flow
+       * is about.
+       */
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Avslutt først når `workflow\.remainingSteps` er tom/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/listen blir ikke tom av det du gjør/i)
     })
 
     it('gjør koblingskontrollen, ikke fylte bildesoner, til genereringens stoppkriterium', () => {
@@ -234,7 +247,7 @@ describe('visual media planning instructions', () => {
        * that tell it to generate the pictures again.
        */
       expect(MCP_INSTRUCTIONS).toMatch(
-        /`workflow\.remainingSteps` er tom, er \*\*ditt\*\* arbeid ferdig/i,
+        /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
         /Det er `remainingSteps` som avgjør det, ikke `complete` alene/i,
@@ -259,9 +272,28 @@ describe('visual media planning instructions', () => {
       )
     })
 
+    it('lar generereringssekvensen henge på `complete: false`, ikke på en tom liste', () => {
+      /*
+       * The enumeration — print the brief, start generating, one call per entry
+       * — belongs to a deck that still owes pictures. A sentence about the empty
+       * list placed just before it turned «Da gjør du dette i tur» into «when
+       * nothing is left, generate the pictures», which is the exact opposite in
+       * the two stages where the list *is* empty.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Er `complete` false, gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /er den tom, gjenstår det ingenting for deg\. Da gjør du dette i tur/i,
+      )
+    })
+
     it('slutter aldri med at en tom kontrolliste er ferdig arbeid', () => {
       expect(MCP_INSTRUCTIONS).not.toMatch(/er listen tom, er bildeplanen ferdig/i)
-      expect(SELF_CHECK_STOP).toMatch(/`workflow\.remainingSteps` er tom/i)
+      expect(SELF_CHECK_STOP).toMatch(
+        /du har gjort det `workflow\.remainingSteps` krever av deg/i,
+      )
+      expect(SELF_CHECK_STOP).not.toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\*/i)
       expect(SELF_CHECK_STOP).not.toMatch(/overleveringer i rasterflyten er startet/i)
       expect(SELF_CHECK_STOP).not.toMatch(/er true – er presentasjonen ferdig/i)
       expect(SELF_CHECK_STOP).not.toMatch(/`complete` sier at agenten er ferdig/i)

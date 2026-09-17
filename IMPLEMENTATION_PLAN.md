@@ -849,7 +849,12 @@ kontrollen forventer.
   et kontrollert dekk uten dem — så begge stegene står, hver med betingelsen som
   velger det. En tom liste der ville sagt «ingenting å gjøre» til den halvparten
   som skylder alle bildene. Tom er den bare i `no-planned-images` og
-  `generation-verified`.
+  `generation-verified`. Stoppen er derfor «du har gjort det steget som gjelder
+  deg», aldri «listen ble tom»: i `awaiting-deposit` blir den ikke tom av noe
+  agenten gjør — å levere filene er ingen endring av dokumentet, og dekket går
+  videre først når *brukeren* deponerer dem. En regel som ventet på en tom liste
+  ville vært en regel om å vente på en nettleserhandling agenten ikke kan
+  utføre, altså den samme feilen sett fra motsatt kant.
 - **`completionCriteria`** er hva fullført krever, og de to siste linjene er de
   som koster noe å få riktig: beviset for at bildene finnes er
   koblingskontrollen, og deponeringen er uttrykkelig ikke en del av kriteriet.
