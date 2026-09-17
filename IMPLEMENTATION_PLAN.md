@@ -755,6 +755,29 @@ er de to veiene et bilde kan komme inn i en sone. Det er det ene tidspunktet
 dekket kan vite det, siden ingenting på panelet husker hvilken bestilling filen
 kom fra.
 
+Og siden en re-planlagt sone faktisk skal få et nytt bilde, kan en **fullført
+deponering åpnes igjen**: `openImageDeposit` slipper til når dekket har
+planlagte soner som mangler fil eller holder et bilde fra en tidligere
+bestilling. Det gamle «ingenting kan sette den tilbake til `pending`» beskyttet
+mot at et *ferdig* dekk åpnet seg uten grunn — ikke mot et dekk som har nye
+bilder på vei. En `abandoned` deponering er fortsatt endelig: der har noen sagt
+nei til den automatiske flyten.
+
+#### Hva dekket aldri kan vite om en fil
+
+`generation-verified` betyr at genereringen er kontrollert og at ingenting
+dekket kan se er utestående. Det betyr **ikke** at hver sone holder nettopp sin
+kontrollerte fil, og det kan det ikke: Slaids ser aldri et bilde, og
+`assetHash.ts` slår fast at en registrert innholdshash er rådgivende og aldri
+bærende — det er derfor deduplisering avgjør på de lagrede bytene og ikke på
+hashen. Et bilde byttet for hånd etterpå er ikke til å skille fra det som ble
+deponert.
+
+Identitet blir bevist ett sted: i deponeringsdialogen, som sammenligner
+manifestets avtrykk mot bytene i filen den fikk før noe settes inn. Det er en
+egenskap ved den leveransen, ikke ved dokumentet etterpå. Derfor sier hvert
+terminalt stadium at bildene fortsatt skal ses gjennom.
+
 **Den er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
 reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
 senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang

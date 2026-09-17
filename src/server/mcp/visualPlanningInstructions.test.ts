@@ -118,6 +118,16 @@ describe('visual media planning instructions', () => {
         /Filene lagres ikke: åpner du et `awaiting-deposit`-dekk uten å ha dem/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/Meld aldri et dekk ferdig uten å si at bildesonene står tomme/i)
+      // And the retired definition is asserted gone rather than left to review:
+      // the rule and the stages must not give the model two answers to «what
+      // does a passing check leave me in».
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /stadiet er `awaiting-deposit` så lenge bildene ikke er på plass i sonene/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /sier `generation-verified` også ved senere lesninger/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
       expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
       expect(MCP_INSTRUCTIONS).toMatch(
         /skal ikke genereres om igjen fordi sonen står tom/i,

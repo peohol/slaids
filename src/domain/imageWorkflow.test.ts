@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest'
 import { registerAsset } from './commands/assets'
 import { setContentKind, setImageAsset } from './commands/content'
 import { recordGeneratedImages } from './commands/imageGeneration'
+import { completeImageDeposit } from './commands/imageDeposit'
 import { setImagePlan } from './commands/imagePlan'
 import { setImageContext } from './commands/slides'
 import { createImage } from './content'
@@ -33,6 +34,7 @@ import {
   staleGeneratedImages,
   type GeneratedImageRecord,
 } from './imageGeneration'
+import { depositSlots } from './imageDeposit'
 import { checkImagePlan, resolveImagePlan, type PlannedImage } from './imagePlan'
 import { composeImageWorkflowStatus, imageGenerationIsVerified } from './imageWorkflow'
 import { validatePresentation } from './schema'
@@ -523,6 +525,120 @@ describe('planens egne kontroller gjelder foran alle ferdig-grener', () => {
     expect(status.nextAction).toMatch(/issues/)
     expect(status.nextAction).toMatch(/fortsett deretter i samme samtale/i)
     expect(status.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
+  })
+})
+
+describe('erstatninger gjennom den virkelige deponeringen', () => {
+  /*
+   * The lifecycle this PR describes has to be reachable through the mechanism a
+   * person actually uses, not only through `setImageAsset` in a test. It was
+   * not: `completeImageDeposit` closes the deposit for good, and
+   * `openImageDeposit` refused to reopen one — so a finished deck whose motifs
+   * were rewritten asked for new pictures that no deposit would ever take.
+   */
+
+  /** Every numbered slot filled in one go, the way the deposit dialog does it. */
+  function depositAll(deck: Presentation, prefix: string): Presentation {
+    const slots = depositSlots(deck)
+    expect(slots.length).toBeGreaterThan(0)
+    let current = deck
+    const placements = slots.map((slot) => {
+      const id = `${prefix}${slot.index}`
+      const registered = registerAsset(current, {
+        id,
+        name: `${slot.index}.png`,
+        mimeType: 'image/png',
+        byteSize: 10,
+        width: 1600,
+        height: 900,
+        isVector: false,
+      })
+      if (!registered.ok) throw new Error(registered.error.message)
+      current = registered.value
+      return { index: slot.index, assetId: id }
+    })
+    const done = completeImageDeposit(current, placements)
+    if (!done.ok) throw new Error(done.error.message)
+    return done.value
+  }
+
+  it('kan ta imot erstatninger etter at første deponering er fullført', () => {
+    let deck = verified(awaiting(2))
+    expect(deck.imageDeposit?.status).toBe('pending')
+
+    deck = depositAll(deck, 'first-')
+    expect(deck.imageDeposit?.status).toBe('completed')
+    expect(composeImageWorkflowStatus(deck).stage).toBe('generation-verified')
+
+    // The order changes, and the same zones are planned again.
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    deck = planned(rewritten.value, [...(rewritten.value.imagePlan ?? [])])
+    expect(composeImageWorkflowStatus(deck).stage).toBe('plan-outdated')
+    // A finished deposit that is asked for new pictures opens again — without
+    // this the workflow asks for replacements nothing can receive.
+    expect(deck.imageDeposit?.status).toBe('pending')
+    expect(depositSlots(deck)).toHaveLength(2)
+
+    deck = verified(deck)
+    expect(composeImageWorkflowStatus(deck).stage).toBe('awaiting-deposit')
+
+    deck = depositAll(deck, 'second-')
+    expect(deck.imageDeposit?.status).toBe('completed')
+    const done = composeImageWorkflowStatus(deck)
+    expect(done.stage).toBe('generation-verified')
+    expect(done.complete).toBe(true)
+  })
+
+  it('åpner ikke en fullført deponering på nytt uten grunn', () => {
+    // The promise the old rule protected, kept: a finished deck stays finished.
+    let deck = depositAll(verified(awaiting(2)), 'first-')
+    deck = planned(deck, [...(deck.imagePlan ?? [])])
+    expect(deck.imageDeposit?.status).toBe('completed')
+    expect(composeImageWorkflowStatus(deck).stage).toBe('generation-verified')
+  })
+
+  it('lar en forlatt deponering være forlatt', () => {
+    // Somebody said no to the automatic flow, and a rewritten order does not
+    // overrule that: the pictures go in by hand.
+    const deck = verified(awaiting(2))
+    const abandoned: Presentation = {
+      ...deck,
+      imageDeposit: { status: 'abandoned', expectedCount: 2 },
+    }
+    const rewritten = setImageContext(abandoned, 'Kullstift, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    const replanned = planned(rewritten.value, [...(rewritten.value.imagePlan ?? [])])
+    expect(replanned.imageDeposit?.status).toBe('abandoned')
+  })
+})
+
+describe('det dekket ikke kan vite om en fil', () => {
+  /*
+   * Stated as a test because it is a limit, not an oversight, and because a
+   * reader who finds `generation-verified` on a deck whose picture was swapped
+   * by hand should find the reason here rather than conclude the check is
+   * broken.
+   *
+   * Slaids never sees a picture. A recorded content hash is advisory by
+   * construction — `assetHash.ts` says so, and deduplication decides on the
+   * stored bytes for exactly that reason — so nothing in the document can prove
+   * that the file in a zone is the file a binding describes. The one place
+   * identity *is* proved is the deposit dialog, which compares the manifest's
+   * digest against the bytes it was handed before inserting anything; that is a
+   * property of the delivery it performed, not of the document afterwards.
+   */
+  it('påstår ikke at filen i sonen er den kontrollerte filen', () => {
+    let deck = verified(awaiting(2))
+    for (const index of [0, 1]) deck = withFile(deck, index, 'unrelated')
+
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('generation-verified')
+    // What it says is what it can say: the generation was checked, every zone
+    // has a file, and looking at the pictures is still the agent's job.
+    expect(status.nextAction).toMatch(/Slaids ser aldri selve bildet/i)
+    expect(status.nextAction).toMatch(/se gjennom bildene i tillegg/i)
+    expect(status.nextAction).not.toMatch(/lagt inn i dekket/i)
   })
 })
 

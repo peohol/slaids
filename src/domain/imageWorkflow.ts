@@ -114,6 +114,31 @@ export interface ImageWorkflowStatus {
   forbiddenClosings: readonly string[]
 }
 
+/*
+ * What no stage here asserts, stated once so nothing downstream reads more into
+ * one than it says.
+ *
+ * **Slaids never sees a picture.** It knows which orders were placed, which
+ * bindings a generating agent wrote down and checked, and whether a zone holds
+ * *a* file. It cannot know that the file in a zone is the file a binding
+ * describes: the reference lives in the document and the bytes live in the
+ * store, and `assetHash.ts` is explicit that a recorded content hash is
+ * advisory and never load-bearing — which is why deduplication decides on the
+ * stored bytes rather than on the hash.
+ *
+ * So `generation-verified` means the generation was checked and nothing the
+ * deck can see is outstanding. It does not mean each zone holds its own
+ * verified file, and it never could: a picture swapped by hand afterwards is
+ * indistinguishable from the one that was deposited. The one place identity is
+ * genuinely proved is the deposit dialog, which compares the manifest's digest
+ * against the bytes of the file it was handed before inserting anything — and
+ * that proof is about the delivery it performed, not a property the document
+ * carries afterwards.
+ *
+ * This matters for what an agent is told: «looked at the pictures» is always
+ * still the agent's job, and every terminal stage says so.
+ */
+
 /**
  * What finishing means for a deck that plans pictures.
  *
@@ -309,7 +334,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       return status(
         'generation-verified',
         true,
-        `Alle ${images.length} planlagte bilder er generert, kontrollert mot sin egen oppføring og lagt inn i dekket. Rasterflyten er ferdig.`,
+        `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, og hver bildesone har fått en fil uten at noe i dekket motsier bestillingen. Rasterflyten er ferdig. Slaids ser aldri selve bildet, så dette er så langt dekket kan svare: se gjennom bildene i tillegg.`,
       )
     }
     /*
