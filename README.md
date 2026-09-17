@@ -678,8 +678,12 @@ vei ut igjen:
 
 ### Planlagte bilder og bildedeponering
 
-Siden Slaids ikke lager bilder, finnes det en arbeidsflyt for å bestille dem et
-annet sted og få dem inn igjen samlet.
+Slaids-agent-API-et genererer ikke rasterfiler. Standardflyten er at agenten
+reserverer bildesoner, skriver bildeplan og felles bildekontekst, og Slaids
+genererer den samlede bildebriefen. En vertsklient som ChatGPT kan sende briefen
+direkte til innebygd bildegenerering i samme samtale. Kopiering av briefen og
+bildedeponeringen er fortsatt en gyldig filoverføringsvei når direkte overlevering
+ikke finnes.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |

@@ -313,10 +313,13 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 
 ## 7.2\. Bildekontekst, bildeplan og samlet bildebrief
 
-Slaids genererer ikke bilder, og vanlig Slaids/MCP har ikke tilgang til en
-generativ bildemodell. Arbeidsflyten for genererte rasterbilder er derfor:
-agenten planlegger bildene, brukeren lager dem i en samtale med en assistent som
-har bildeverktøy, og setter dem inn i sonene som allerede står klare.
+Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
+presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
+alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
+bildekontekst, og Slaids genererer den samlede briefen. En vertsklient som
+ChatGPT kan sende briefen direkte til sitt innebygde bildeverktøy i samme
+samtale når brukeren har bedt om generering. Hvis direkte overlevering ikke
+finnes, brukes den samme briefen der bildene produseres; det er ikke en fallback.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -459,8 +462,9 @@ Motivene hører hjemme i bildeplanen.
 
 ### Den samlede briefen genereres
 
-`composeImageBrief` setter sammen én tekst brukeren limer rett inn der bildene
-lages. Alt som kan telles eller måles er avledet:
+`composeImageBrief` setter sammen én tekst som vertsklienten kan sende direkte
+til bildegenereringen, eller som kan kopieres dit når direkte overlevering ikke
+finnes. Alt som kan telles eller måles er avledet:
 
 - **antallet** er lengden på listen, aldri et tall noen har skrevet;
 - **nummereringen** er listens egen rekkefølge, i dekkets rekkefølge, som er den
@@ -532,8 +536,7 @@ teksten.
 
 ## 7.3\. Bildedeponering
 
-Briefen er bestillingen. Deponeringen er returen: brukeren lager alle bildene et
-annet sted og legger dem inn samlet, og hver fil havner i sonen den ble bestilt
+Briefen er bestillingen. En vertsklient kan sende den direkte til bildegenerering; når filene er produsert, er deponeringen returen: brukeren legger bildene inn samlet, og hver fil havner i sonen den ble bestilt
 for uten at noen må pare fil mot sone for hånd.
 
 ```ts
