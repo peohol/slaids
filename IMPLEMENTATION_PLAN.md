@@ -316,13 +316,18 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
 presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
-bildekontekst, og Slaids genererer den samlede briefen. En vertsklient som
-ChatGPT kan sende briefen direkte til sitt innebygde bildeverktøy i samme
-samtale når brukeren har bedt om generering. Hvis direkte overlevering ikke
-finnes, brukes den samme briefen der bildene produseres; det er ikke en fallback.
-Denne direkte overleveringen gjelder briefen, ikke filreturen: uten en filbro
-tilbake til Slaids går de ferdige bildefilene fortsatt gjennom bildedeponeringen
-i 7.3.
+bildekontekst, og Slaids genererer den samlede briefen. Når brukerbestillingen
+forutsetter rasterbilder for å være oppfylt — også formuleringer som «med
+bilder», «bruk bilder» eller «bilder i hvert steg» — og vertsklienten har et
+innebygd bildegenereringsverktøy, skal klienten skrive den returnerte briefen ut
+i samme samtale og umiddelbart starte bildegenereringen med den. Verken en brief
+som bare finnes i verktøyresponsen eller en brief som bare er skrevet ut, er en
+fullført handoff; genereringen er først startet når bildegenereringsverktøyet
+faktisk er kalt, og oppgaven skal ikke avsluttes før det har skjedd. Hvis direkte
+overlevering ikke finnes, brukes den samme briefen der bildene produseres; det er
+ikke en fallback. Denne direkte overleveringen gjelder briefen og starten på
+genereringen, ikke filreturen: uten en filbro tilbake til Slaids går de ferdige
+bildefilene fortsatt gjennom bildedeponeringen i 7.3.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
