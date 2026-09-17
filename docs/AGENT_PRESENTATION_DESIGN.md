@@ -235,16 +235,23 @@ Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede brief
 
 Den observerte feilen var ikke et bilde som ble feil. Det var en samtale som tok slutt. Brukeren bad om et illustrert foredrag, agenten bygget dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og avsluttet med «presentasjonen er opprettet, bildene er ikke satt inn ennå». Ingenting var ugyldig, og ingen regel var brutt — alle reglene om bildegenerering sto i svaret agenten nettopp hadde lest, som prosa å ha lest.
 
-Derfor svarer `plan_deck_images` og `get_image_brief` med `workflow`: hvor rasterflyten står, avledet av dekket selv.
+Derfor svarer `plan_deck_images`, `get_image_brief` og `verify_image_handoff` med `workflow`: hvor rasterflyten står, avledet av dekket selv.
 
-- `workflow.complete` er **feltet som avgjør om oppgaven kan avsluttes**. Den er false så lenge en bildeoppføring venter på en fil, uansett hvor komplett slidene ser ut.
-- `workflow.pendingImageCount` er hvor mange genereringskall som gjenstår, og `workflow.nextAction` sier hva som skal gjøres nå, med dekkets eget tall i seg.
-- `workflow.remainingSteps` er stegene som er igjen; `workflow.completionCriteria` er hva fullført krever.
-- `workflow.forbiddenClosings` navngir avslutningene som er gale mens `complete` er false: «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er klar», og å be om en ny brukerbeskjed for å starte genereringen. Alle tre er sanne setninger om et halvferdig dekk — det er nettopp derfor de ble valgt.
+- `workflow.complete` er **feltet som avgjør om oppgaven kan avsluttes**, og det gjelder agentens arbeid.
+- `workflow.nextAction` sier hva som skal gjøres nå, med dekkets eget tall i seg; `workflow.remainingSteps` er stegene som er igjen.
+- `workflow.completionCriteria` er hva fullført krever.
+- `workflow.forbiddenClosings` navngir avslutningene som er gale mens `complete` er false: «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er klar», å be om en ny brukerbeskjed, og å generere et godkjent bilde om igjen fordi sonen fortsatt står tom. De tre første er sanne setninger om et halvferdig dekk — det er nettopp derfor de ble valgt.
 
-Når bildeplanen foreligger og resten av presentasjonsarbeidet er ferdig, er rekkefølgen fast og skjer i **samme samtale** – uten å vente på en ny brukerbeskjed: skriv ut den ferdige bildebriefen, start bildegenereringen umiddelbart, generer bildene enkeltvis med ett kall per bildeoppføring, koble hvert ferdig bilde til riktig oppføring før det neste genereres, og fortsett til hvert planlagt bilde har sin egen fil. Rekkefølgen bildene returneres i er irrelevant; oppføringens eget nummer, `imagePlanItemId`, motiv og aspect ratio er fasit.
+Når bildeplanen foreligger og resten av presentasjonsarbeidet er ferdig, er rekkefølgen fast og skjer i **samme samtale** – uten å vente på en ny brukerbeskjed: skriv ut den ferdige bildebriefen, start bildegenereringen umiddelbart, generer bildene enkeltvis med ett kall per bildeoppføring, koble hvert ferdig bilde til riktig oppføring før det neste genereres, og fortsett til hvert planlagt bilde er laget. Rekkefølgen bildene returneres i er irrelevant; oppføringens eget nummer, `imagePlanItemId`, motiv og aspect ratio er fasit.
 
-Det finnes to gyldige stopp, og ingen andre: brukeren har uttrykkelig bedt om å stoppe etter briefen, eller det foreligger en konkret teknisk blokkering som navngis — hvilket kall, hvilken feil, hvilket bilde. En plan kontrollene er uenige med er ikke et slikt stopp: den rettes, og så fortsetter den samme flyten.
+**Stoppkriteriet for bildegenereringen er koblingskontrollen, ikke fylte bildesoner.** Slaids ser aldri en generert bildefil: bildene lages i vertsklienten, og uten en filbro kommer de inn gjennom brukerens deponering i nettleseren. En fylt bildesone svarer derfor på «har filen kommet inn», aldri på «ble bildet laget» — og en agent som venter på fylte soner venter på noe den ikke kan gjøre selv. Når `verify_image_handoff` svarer `ok` for alle planlagte oppføringer, er genereringsoppgaven ferdig (`stage: generation-verified`), og `awaitingFileCount` forteller bare hvor mange filer Slaids ennå mangler. Et bilde som alt er generert og godkjent skal aldri lages om igjen fordi sonen står tom.
+
+To stadier er ikke ferdige selv om ingenting åpenbart mangler:
+
+- **`plan-needs-repair`** — `checkImagePlan` har funn. Kontrollene leses før enhver ferdig-gren, så reserverte bildesoner uten bildeplan, eller planfeil i et dekk der hver sone har fil, kan ikke rapporteres som en leveranse. Feilen rettes, og så fortsetter den samme flyten.
+- **`plan-outdated`** — hver planlagt sone har alt en fil, så planen beskriver ingenting som venter. En fil i en sone er ikke bevis for at den ble laget for bestillingen som står nå: et omskrevet motiv eller en omskrevet felles bildekontekst gir oppføringen en ny `imagePlanItemId`. Skriv planen på nytt uten oppføringene som er ferdige, eller generer på nytt de bildene bestillingen er endret for — koblingskontrollen svarer `PLAN_CHANGED` for nettopp dem.
+
+Det finnes to gyldige stopp, og ingen andre: brukeren har uttrykkelig bedt om å stoppe etter briefen, eller det foreligger en konkret teknisk blokkering som navngis — hvilket kall, hvilken feil, hvilket bilde.
 
 ### Ett planlagt bilde er én bildegenerering
 

@@ -668,6 +668,17 @@ export interface GeneratedImagesView {
    * out would be exactly the false reassurance this operation exists to remove.
    */
   manifest: string | null
+  /**
+   * Where the raster flow stands, with this check's own answer folded in.
+   *
+   * The one place in the surface that can report `stage: 'generation-verified'`,
+   * because it is the only call that holds the records: a filled picture zone
+   * is the *deposit*, which is the user's step in a browser, so an agent that
+   * waited for zones to fill would wait for something it cannot do. `ok` here
+   * means every planned entry has exactly one file bound to it — which is what
+   * finishing the generation actually is.
+   */
+  workflow: ImageWorkflowStatus
 }
 
 /**
@@ -766,6 +777,9 @@ export const verifyImageHandoff = defineOperation({
               images: [...input.images],
             })
           : null,
+      workflow: composeImageWorkflowStatus(presentation, {
+        generationVerified: issues.length === 0,
+      }),
     })
   },
 })

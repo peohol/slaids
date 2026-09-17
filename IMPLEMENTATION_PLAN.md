@@ -637,43 +637,85 @@ dem som utgjør en ferdig leveranse, og hvordan én av dem utføres.
 ### Bildeplanen er et mellomsteg: `workflow`
 
 Kontrakten over sier hvordan bildene lages. Den sier ikke om de er laget, og det
-var nettopp det som manglet. En agent bad om å lage et illustrert foredrag bygget
-dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og avsluttet
-samtalen med «presentasjonen er opprettet, bildene er ikke satt inn ennå». Alle
-reglene om bildegenerering lå i det svaret, som prosa. Det som ikke lå der, var
-det ene som betydde noe: at arbeidet ikke var over.
+var nettopp det som manglet. En agent bedt om å lage et illustrert foredrag
+bygget dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og
+avsluttet samtalen med «presentasjonen er opprettet, bildene er ikke satt inn
+ennå». Alle reglene om bildegenerering lå i det svaret, som prosa. Det som ikke
+lå der, var det ene som betydde noe: at arbeidet ikke var over.
 
 En regel til ville ikke hjulpet — reglene fantes. Derfor er tilstanden **avledet
 av dekket** og returnert ved siden av planen, av `composeImageWorkflowStatus`, i
-svaret fra både `plan_deck_images` og `get_image_brief`:
+svaret fra `plan_deck_images`, `get_image_brief` og `verify_image_handoff`.
 
-- **`stage`** er hvor flyten står: `no-planned-images`, `plan-needs-repair`,
-  `awaiting-generation`, `partially-generated` eller `complete`;
-- **`complete`** er feltet en agent forgrener på. Den er false nøyaktig så lenge
-  en oppføring venter på en fil, slik at «kan jeg stoppe her?» blir et oppslag i
-  stedet for en vurdering av prosa;
-- **`plannedImageCount`**, **`filledImageCount`** og **`pendingImageCount`** er
-  det samme tallet sett fra tre sider; `pendingImageCount` er antall
-  genereringskall som gjenstår;
-- **`nextAction`** navngir neste handling med dekkets eget tall i seg, ikke en
-  «N» som skal substitueres;
-- **`remainingSteps`** er stegene som er igjen, i rekkefølge, og peker på
-  `generation.perImageSteps` i stedet for å kopiere løkken;
-- **`completionCriteria`** er hva fullført faktisk krever: presentasjon opprettet
-  eller oppdatert, struktur og innhold på plass, bildeplan skrevet med tomme
-  kontroller, briefen skrevet ut i samtalen, alle planlagte bilder generert i
-  samme samtale som like mange separate filer, og hver fil koblet til den
-  `imagePlanItemId` den ble generert fra;
+#### Hva dekket kan se, og hva det ikke kan
+
+Det avgjørende er å ikke besvare spørsmålet med det feil faktumet. **Slaids ser
+aldri en generert bildefil.** Bildene lages i vertsklienten, og uten en filbro
+kommer de inn gjennom *brukerens* deponering i nettleseren — det er derfor
+`verify_image_handoff` er en lesning og ikke en port. «Denne sonen har en fil»
+er altså et faktum om deponeringen, ikke om genereringen, og det å bruke det som
+begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
+generert og korrekt verifisert mens dekket fortsatt har 0 `assetId`, og et
+stoppkriterium bygget på fylte soner blir uoppnåelig i nøyaktig den
+arbeidsflyten det ble skrevet for — og ber i praksis om at bildene genereres om
+igjen.
+
+Derfor to separate tall og én sannhetskilde:
+
+- **`plannedImageCount`**, **`depositedImageCount`** og **`awaitingFileCount`**
+  sier det Slaids kan observere, med de ordene: hvor mange oppføringer planen
+  har, hvor mange soner som holder en fil, og hvor mange som står tomme.
+  `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
+  skylder.
+- **Om selve genereringen er ferdig, svarer `checkGeneratedImages` på.** `ok`
+  der betyr at hver planlagte oppføring har nøyaktig én fil knyttet til seg, og
+  det er definisjonen på at genereringen er utført. Statusen tar det derfor som
+  et argument (`ImageWorkflowInput.generationVerified`) fra operasjonen som
+  kjører kontrollen, og utleder det aldri fra en fylt sone.
+
+#### Stegene
+
+| `stage` | `complete` | Hva det betyr |
+| --- | --- | --- |
+| `no-planned-images` | ✔ | Dekket planlegger ingen bilder, og ingen bildesone venter. |
+| `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
+| `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
+| `generation-verified` | ✔ | Koblingskontrollen svarte `ok`: alt planlagt er laget og koblet. |
+| `plan-outdated` | ✗ | Hver planlagt sone har alt en fil, så planen beskriver ingenting som venter. |
+
+Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
+et dekk med reserverte bildesoner og ingen bildeplan planlegger null bilder, og
+rapportert som ferdig ville den billigste feilen som finnes — reservere sonene og
+aldri beskrive dem — lest som en leveranse. Samme rekkefølge gjør at et dekk med
+planfeil ikke kan bli `complete` selv om hver sone har fil, i tråd med statusens
+eget `completionCriteria` om at `issues` skal være tom.
+
+`plan-outdated` er den andre siden av samme ærlighet: en fil i en sone er ikke
+bevis for at den ble laget for den bestillingen planen bærer *nå*. Et omskrevet
+motiv eller en omskrevet felles bildekontekst gir oppføringen en ny
+`imagePlanItemId`, og ingenting på panelet husker hvilken bestilling filen kom
+fra. Enten har planen oppføringer som ikke venter på noe lenger og skal skrives
+på nytt uten dem, eller bestillingene er endret under filene og de bildene skal
+lages om — og da er det `PLAN_CHANGED` fra koblingskontrollen som sier det,
+ikke en fylt sone som skjuler det.
+
+#### Feltene agenten leser
+
+- **`complete`** er feltet en agent forgrener på, og det gjelder *agentens*
+  arbeid: deponeringen er brukerens steg, og å vente på den er aldri agentens
+  jobb.
+- **`nextAction`** navngir neste handling med dekkets eget tall i seg;
+  **`remainingSteps`** er stegene som er igjen, i rekkefølge, og peker på
+  `generation.perImageSteps` i stedet for å kopiere løkken. Begge er tomme når
+  `complete` er true.
+- **`completionCriteria`** er hva fullført krever, og de to siste linjene er de
+  som koster noe å få riktig: beviset for at bildene finnes er
+  koblingskontrollen, og deponeringen er uttrykkelig ikke en del av kriteriet.
 - **`forbiddenClosings`** navngir avslutningene som er gale mens `complete` er
   false — «presentasjonen er opprettet», «bildene er ikke satt inn ennå»,
-  «bildeplanen er klar», og å be om en ny brukerbeskjed for å starte
-  genereringen. Alle tre er sanne setninger om et halvferdig dekk, og det er
-  nettopp derfor de ble valgt.
-
-`remainingSteps` og `forbiddenClosings` er tomme når `complete` er true: dette er
-en påstand om dette dekket, ikke en stående advarsel. En plan kontrollene er
-uenige med havner i `plan-needs-repair`, som er et steg på vei til den samme
-bildegenereringen — aldri en grunn til å levere dekket tilbake.
+  «bildeplanen er klar», å be om en ny brukerbeskjed, og å generere et godkjent
+  bilde om igjen fordi sonen fortsatt står tom. De tre første er sanne setninger
+  om et halvferdig dekk, og det er nettopp derfor de ble valgt.
 
 De to listene bor i `domain/imagePlan.ts` sammen med statusen som rapporterer
 dem, og `agent/design.ts` importerer dem inn i agentinstruksen. Det er poenget:

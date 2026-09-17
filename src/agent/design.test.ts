@@ -1275,13 +1275,30 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
    * just read, as prose to have read.
    *
    * What was missing was not a rule. It was a fact in the answer: that the work
-   * was not over. So the plan operation now reports where the raster flow
-   * stands, and these tests are the three moments that matter — the plan is
-   * written, half the pictures exist, and all of them do.
+   * was not over. So the plan operation reports where the raster flow stands.
+   *
+   * The lifecycle that reporting has to respect is the whole difficulty. Slaids
+   * never sees a generated file — the pictures are made in the host client, and
+   * without a file bridge they arrive through the *user's* deposit in a browser
+   * — so a filled picture zone answers «has the file arrived», never «was the
+   * picture made». Asserted below in both directions: verified generation with
+   * every zone still empty is finished, and filled zones on their own are not.
    */
 
-  /** One entry's file, generated and placed in that entry's own zone. */
-  async function deliver(
+  /** What a host client holds after generating every planned picture. */
+  function generated(brief: ImageBriefView) {
+    return brief.images.map((image, index) => ({
+      imagePlanItemId: image.imagePlanItemId,
+      number: image.number,
+      slideId: image.slideId,
+      nodeId: image.nodeId,
+      fileName: `${image.number}.png`,
+      contentHash: (index + 1).toString(16).padStart(2, '0').repeat(32),
+    }))
+  }
+
+  /** One entry's file, deposited into that entry's own zone. */
+  async function deposit(
     context: AgentContext,
     presentationId: string,
     image: ImageBriefView['images'][number],
@@ -1309,8 +1326,8 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.stage).toBe('awaiting-generation')
     expect(brief.workflow.complete).toBe(false)
     expect(brief.workflow.plannedImageCount).toBe(8)
-    expect(brief.workflow.pendingImageCount).toBe(8)
-    expect(brief.workflow.filledImageCount).toBe(0)
+    expect(brief.workflow.awaitingFileCount).toBe(8)
+    expect(brief.workflow.depositedImageCount).toBe(0)
   })
 
   it('navngir bildegenereringen som neste handling, i samme samtale', async () => {
@@ -1322,7 +1339,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     // With this deck's own count in it, so «how many calls» is not inferred
     // from the prose the brief happens to contain.
     expect(brief.workflow.nextAction).toContain('8 ganger')
-    expect(brief.workflow.pendingImageCount).toBe(brief.generation?.expectedFileCount)
+    expect(brief.workflow.awaitingFileCount).toBe(brief.generation?.expectedFileCount)
     // And the steps left point at the loop rather than restating it.
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.perImageSteps/)
@@ -1351,31 +1368,103 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(again.workflow).toEqual(brief.workflow)
   })
 
-  it('teller ned når bildene kommer, og er ferdig først når alle er på plass', async () => {
+  it('er ferdig når koblingskontrollen godkjenner settet, uten at noe er deponert', async () => {
+    // The acceptance flow, end to end and without cheating: the pictures are
+    // generated outside Slaids, the bindings are verified, and *no*
+    // `set_zone_asset` is called. The generation task has to have a reachable
+    // finishing line here — the deposit is the user's step, in a browser.
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
-    // The pictures are generated one at a time and bound to their own entry —
-    // and the deck says how far that has got, after each one.
-    for (const [index, image] of brief.images.entries()) {
-      await deliver(context, brief.presentationId, image)
-      const state = await ok<ImageBriefView>(context, 'get_image_brief', {
-        presentationId: brief.presentationId,
-      })
-      const delivered = index + 1
-      expect(state.workflow.filledImageCount).toBe(delivered)
-      expect(state.workflow.pendingImageCount).toBe(MOTIFS.length - delivered)
-      if (delivered < MOTIFS.length) {
-        expect(state.workflow.complete).toBe(false)
-        expect(state.workflow.stage).toBe('partially-generated')
-        expect(state.workflow.nextAction).toContain(`${delivered} av ${MOTIFS.length}`)
-      } else {
-        expect(state.workflow.complete).toBe(true)
-        expect(state.workflow.stage).toBe('complete')
-        expect(state.workflow.remainingSteps).toEqual([])
-        expect(state.workflow.forbiddenClosings).toEqual([])
-      }
-    }
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+
+    expect(verified.ok).toBe(true)
+    expect(verified.check).toBe('file-checked')
+    expect(verified.workflow.stage).toBe('generation-verified')
+    expect(verified.workflow.complete).toBe(true)
+    // Slaids still has none of the files, and says so — it is just not the
+    // stop criterion, and it is never called «generation calls remaining».
+    expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
+    expect(verified.workflow.depositedImageCount).toBe(0)
+    expect(verified.workflow.nextAction).toMatch(/genereringsoppgaven er ferdig/i)
+    expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
+    // Nothing left to do, and in particular nothing left to generate: the
+    // earlier model would have asked for eight more pictures here.
+    expect(verified.workflow.remainingSteps).toEqual([])
+    expect(verified.workflow.forbiddenClosings).toEqual([])
+  })
+
+  it('er ikke ferdig når koblingskontrollen avviser settet', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    // One picture short: the check names it, and the flow is unfinished.
+    const short = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief).slice(0, -1),
+    })
+    expect(short.ok).toBe(false)
+    expect(short.issues.map((issue) => issue.code)).toContain('MISSING_ITEM')
+    expect(short.workflow.stage).toBe('awaiting-generation')
+    expect(short.workflow.complete).toBe(false)
+  })
+
+  it('lar en deponert fil rapporteres uten å bli tatt for bevis på generering', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    await deposit(context, brief.presentationId, brief.images[0])
+    const state = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    // Counted, and counted as what it is: a file Slaids has, not a picture it
+    // knows was made.
+    expect(state.workflow.depositedImageCount).toBe(1)
+    expect(state.workflow.awaitingFileCount).toBe(MOTIFS.length - 1)
+    expect(state.workflow.stage).toBe('awaiting-generation')
+    expect(state.workflow.complete).toBe(false)
+    expect(state.workflow.nextAction).toContain(`1 av ${MOTIFS.length}`)
+  })
+
+  it('lar ikke gamle filer i sonene gjøre en omskrevet bestilling ferdig', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 2)
+    for (const image of brief.images) await deposit(context, brief.presentationId, image)
+
+    // Every planned zone now holds a file, and nothing waits — but the plan
+    // still describes those zones, so it is stale rather than delivered.
+    const filled = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(filled.workflow.awaitingFileCount).toBe(0)
+    expect(filled.workflow.stage).toBe('plan-outdated')
+    expect(filled.workflow.complete).toBe(false)
+
+    // Rewrite the shared context and every order changes identity. The files in
+    // the zones were made for orders the deck no longer has, and the binding
+    // check — not the filled zones — is what says so.
+    await ok(context, 'set_image_context', {
+      presentationId: brief.presentationId,
+      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
+    })
+    const rewritten = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(rewritten.images.map((image) => image.imagePlanItemId)).not.toEqual(
+      brief.images.map((image) => image.imagePlanItemId),
+    )
+    expect(rewritten.workflow.complete).toBe(false)
+
+    const stale = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+    expect(stale.ok).toBe(false)
+    expect(stale.issues.map((issue) => issue.code)).toContain('PLAN_CHANGED')
+    expect(stale.workflow.complete).toBe(false)
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {
@@ -1407,7 +1496,29 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/enkeltvis/i)
   })
 
-  it('har ingenting utestående før noe er planlagt', async () => {
+  it('kaller ikke reserverte bildesoner uten bildeplan for ferdig', async () => {
+    // Reserve the zones and never describe them, and the deck plans zero
+    // pictures. «Nothing to do» would read as a delivery, so the plan's own
+    // checks gate every finished branch.
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    await ok(context, 'set_zone_card', {
+      presentationId: slide.presentationId,
+      slideId: slide.slideId,
+      nodeId: slide.columnIds[0],
+      kind: 'image',
+    })
+
+    const empty = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: slide.presentationId,
+    })
+    expect(empty.imageCount).toBe(0)
+    expect(empty.issues.map((issue) => issue.code)).toContain('ZONE_NOT_PLANNED')
+    expect(empty.workflow.stage).toBe('plan-needs-repair')
+    expect(empty.workflow.complete).toBe(false)
+  })
+
+  it('har ingenting utestående før noe er reservert eller planlagt', async () => {
     const context = freshContext()
     const deck = await ok<PresentationView>(context, 'create_presentation', {
       title: 'Menneskets evolusjon',

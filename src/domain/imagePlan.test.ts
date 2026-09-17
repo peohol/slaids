@@ -31,6 +31,7 @@ import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { reviewDepositFiles } from './imageDeposit'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
+import { checkGeneratedImages, type GeneratedImageRecord } from './imageGeneration'
 import {
   aspectRatioLabel,
   checkImagePlan,
@@ -664,9 +665,13 @@ describe('hvor bildearbeidet står', () => {
    * Every rule about generating pictures was in that answer as prose. What was
    * not in it was the one fact that mattered: the work was not over.
    *
-   * So the state is derived from the deck, and the assertions below are the
-   * three questions an agent has at exactly that moment — may I stop, how much
-   * is left, and what do I do now.
+   * The second failure was the first fix getting the *lifecycle* wrong. A
+   * filled picture zone is the user's deposit, not the agent's generation, so a
+   * status that counted filled zones told an agent that had generated and
+   * verified every picture that eight generation calls were still owed — an
+   * unreachable stop criterion in the one flow this is for, and an invitation
+   * to generate everything twice. Hence a separate count for each, and the
+   * binding check as the only answer to «are the pictures made».
    */
 
   /**
@@ -683,7 +688,7 @@ describe('hvor bildearbeidet står', () => {
     'En gravlegging med røde okerpigmenter.',
     'Et landskap med innlandsis og tundravegetasjon.',
     'To jegere som bærer et spyd over skulderen.',
-    'En leirboplåss med røyk mellom skinntelt.',
+    'En leirboplass med røyk mellom skinntelt.',
     'En håndfull korn i et slitt trekar.',
     'Fotsporene i vulkansk aske ved Laetoli.',
     'Et kranium på et laboratoriebord med målestokk.',
@@ -699,7 +704,7 @@ describe('hvor bildearbeidet står', () => {
     )
   }
 
-  /** The same deck with the file for one entry delivered into its zone. */
+  /** The same deck with the file for one entry deposited into its zone. */
   function withFile(deck: Presentation, index: number): Presentation {
     const image = resolveImagePlan(deck)[index]
     const id = `a${index + 1}`
@@ -722,13 +727,25 @@ describe('hvor bildearbeidet står', () => {
     return filled.value
   }
 
+  /** The records a host client would hold after generating every planned picture. */
+  function records(deck: Presentation): GeneratedImageRecord[] {
+    return resolveImagePlan(deck).map((image, index) => ({
+      imagePlanItemId: image.id,
+      number: image.number,
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+      fileName: `${image.fileNameStem}.png`,
+      contentHash: (index + 1).toString(16).padStart(2, '0').repeat(32),
+    }))
+  }
+
   it('sier at en fersk bildeplan ikke er ferdig arbeid', () => {
     const status = composeImageWorkflowStatus(awaiting(8))
     expect(status.stage).toBe('awaiting-generation')
     expect(status.complete).toBe(false)
-    expect(status.pendingImageCount).toBe(8)
-    expect(status.filledImageCount).toBe(0)
     expect(status.plannedImageCount).toBe(8)
+    expect(status.awaitingFileCount).toBe(8)
+    expect(status.depositedImageCount).toBe(0)
   })
 
   it('navngir bildegenereringen som neste handling, med dekkets eget antall', () => {
@@ -748,40 +765,120 @@ describe('hvor bildearbeidet står', () => {
     expect(closings).toMatch(/ny brukerbeskjed/i)
   })
 
-  it('krever bildene generert og koblet før oppgaven er fullført', () => {
+  it('krever bildene generert og koblingen kontrollert før oppgaven er fullført', () => {
     const criteria = composeImageWorkflowStatus(awaiting(3)).completionCriteria.join(' ')
     expect(criteria).toMatch(/skrevet ut i samtalen/i)
     expect(criteria).toMatch(/generert i samme samtale/i)
-    expect(criteria).toMatch(/imagePlanItemId/)
+    expect(criteria).toMatch(/koblingskontrollen svarer `ok`/i)
+    // And the deposit is explicitly not part of it: it is the user's step, so
+    // requiring it would make the criterion unreachable for the agent.
+    expect(criteria).toMatch(/Fylte bildesoner er derfor aldri stoppkriteriet/i)
   })
 
-  it('teller ned mens bildene kommer inn, uten å kalle seg ferdig', () => {
+  /* ---------------------------------------------------------------- *
+   * Generation is answered by the binding check, never by a filled zone
+   * ---------------------------------------------------------------- */
+
+  it('er ferdig når koblingskontrollen bekrefter settet, uten at noe er deponert', () => {
+    // The flow this whole feature is for: the pictures are made in the host
+    // client and verified, and the files reach Slaids later through the user's
+    // deposit. Every zone is still empty here, and the generation task is done.
+    const deck = awaiting(3)
+    const verified = checkGeneratedImages(deck, records(deck))
+    expect(verified).toEqual([])
+
+    const status = composeImageWorkflowStatus(deck, { generationVerified: true })
+    expect(status.stage).toBe('generation-verified')
+    expect(status.complete).toBe(true)
+    // The count of files Slaids is missing is still reported — it is just not
+    // the stop criterion, and it is not called «generation calls remaining».
+    expect(status.awaitingFileCount).toBe(3)
+    expect(status.depositedImageCount).toBe(0)
+    expect(status.remainingSteps).toEqual([])
+    expect(status.nextAction).toMatch(/genereringsoppgaven er ferdig/i)
+    expect(status.nextAction).toMatch(/brukerens steg/i)
+  })
+
+  it('ber aldri om nye genereringskall for en sone som bare venter på deponering', () => {
+    // The loop the earlier model would have produced: verified pictures, empty
+    // zones, and a status insisting three generation calls were owed.
+    const status = composeImageWorkflowStatus(awaiting(3), { generationVerified: true })
+    expect(status.remainingSteps.join(' ')).not.toMatch(/generer/i)
+    expect(status.forbiddenClosings).toEqual([])
+    // The prohibition against regenerating is stated where it is needed: while
+    // the work is unfinished.
+    expect(
+      composeImageWorkflowStatus(awaiting(3)).forbiddenClosings.join(' '),
+    ).toMatch(/Ikke generer et bilde om igjen fordi bildesonen ennå er tom/i)
+  })
+
+  it('er ikke ferdig av seg selv mens filene mangler og ingenting er kontrollert', () => {
     let deck = awaiting(3)
     deck = withFile(deck, 0)
     const half = composeImageWorkflowStatus(deck)
-    expect(half.stage).toBe('partially-generated')
+    expect(half.stage).toBe('awaiting-generation')
     expect(half.complete).toBe(false)
-    expect(half.filledImageCount).toBe(1)
-    expect(half.pendingImageCount).toBe(2)
+    expect(half.depositedImageCount).toBe(1)
+    expect(half.awaitingFileCount).toBe(2)
     expect(half.nextAction).toContain('1 av 3')
-
-    deck = withFile(deck, 1)
-    expect(composeImageWorkflowStatus(deck).pendingImageCount).toBe(1)
-    expect(composeImageWorkflowStatus(deck).complete).toBe(false)
+    expect(half.nextAction).toContain('2 ganger')
   })
 
-  it('er ferdig først når hver oppføring har sin fil', () => {
+  /* ---------------------------------------------------------------- *
+   * What a filled zone does and does not prove
+   * ---------------------------------------------------------------- */
+
+  it('lar ikke en fil i sonen gjøre en ny bestilling ferdig', () => {
+    // Every planned zone holds a file, so nothing waits — but a file in a zone
+    // is not provenance. Rewrite the shared context and every entry's
+    // `imagePlanItemId` changes: the pictures in the deck were made for orders
+    // the deck no longer has, and the binding check says so.
+    let deck = awaiting(3)
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const before = resolveImagePlan(deck).map((image) => image.id)
+
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    const after = resolveImagePlan(rewritten.value).map((image) => image.id)
+    expect(after).not.toEqual(before)
+
+    const status = composeImageWorkflowStatus(rewritten.value)
+    expect(status.complete).toBe(false)
+    expect(status.stage).toBe('plan-outdated')
+    expect(status.nextAction).toMatch(/ikke bevis for at den ble laget for bestillingen som står nå/i)
+    expect(status.remainingSteps.join(' ')).toMatch(/generer bildet på nytt/i)
+    // And the authoritative statement is the binding check's: the old files are
+    // bound to entries the deck no longer has.
+    const stale = checkGeneratedImages(rewritten.value, records(deck))
+    expect(stale.map((issue) => issue.code)).toContain('PLAN_CHANGED')
+  })
+
+  it('ber om opprydding når planen bare beskriver soner som alt har fil', () => {
     let deck = awaiting(3)
     for (const index of [0, 1, 2]) deck = withFile(deck, index)
     const status = composeImageWorkflowStatus(deck)
-    expect(status.stage).toBe('complete')
+    expect(status.stage).toBe('plan-outdated')
+    expect(status.complete).toBe(false)
+    expect(status.awaitingFileCount).toBe(0)
+    expect(status.depositedImageCount).toBe(3)
+    expect(status.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt uten oppføringene/i)
+  })
+
+  it('er ferdig når planen er ryddet og ingenting venter', () => {
+    let deck = awaiting(3)
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const cleaned = setImagePlan(deck, [])
+    if (!cleaned.ok) throw new Error(cleaned.error.message)
+    const status = composeImageWorkflowStatus(cleaned.value)
+    expect(status.stage).toBe('no-planned-images')
     expect(status.complete).toBe(true)
-    expect(status.pendingImageCount).toBe(0)
-    // Nothing is forbidden and nothing is left once the work is actually done:
-    // the status is a statement about this deck, not a standing warning.
     expect(status.forbiddenClosings).toEqual([])
     expect(status.remainingSteps).toEqual([])
   })
+
+  /* ---------------------------------------------------------------- *
+   * The plan's own checks gate every finished branch
+   * ---------------------------------------------------------------- */
 
   it('sender agenten gjennom reparasjonen, ikke ut av flyten', () => {
     // A plan the checks disagree with is still a plan that ends in pictures.
@@ -797,9 +894,42 @@ describe('hvor bildearbeidet står', () => {
     expect(status.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
   })
 
-  it('har ingenting utestående når dekket ikke planlegger bilder', () => {
-    const { deck } = deckOfPictures(3)
+  it('kaller ikke en reservert bildesone uten bildeplan for ferdig', () => {
+    // The cheapest mistake available — reserve the zones, never describe them —
+    // plans zero pictures. Reported as «nothing to do», it would read as a
+    // delivery, so the plan's own checks are consulted first.
+    const { deck, slideId, nodeIds } = threeColumns()
+    expect(resolveImagePlan(deck)).toHaveLength(0)
+    expect(checkImagePlan(deck).map((issue) => issue.code)).toContain('ZONE_NOT_PLANNED')
+
     const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('plan-needs-repair')
+    expect(status.complete).toBe(false)
+    expect(status.plannedImageCount).toBe(0)
+    // And the zones really are the ones waiting.
+    expect(nodeIds).toHaveLength(3)
+    expect(slideId).toBe(deck.slides[1].id)
+  })
+
+  it('kaller ikke et dekk med planfeil ferdig selv om hver sone har fil', () => {
+    // `issues` non-empty must beat every finished branch, including the one
+    // where nothing waits: the status publishes «tomme kontroller» as part of
+    // its own stop criterion, so it cannot contradict it.
+    let deck = awaiting(3)
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const broken = setImageContext(deck, null)
+    if (!broken.ok) throw new Error(broken.error.message)
+    expect(checkImagePlan(broken.value).map((issue) => issue.code)).toContain('MISSING_CONTEXT')
+
+    const status = composeImageWorkflowStatus(broken.value)
+    expect(status.stage).toBe('plan-needs-repair')
+    expect(status.complete).toBe(false)
+    expect(status.awaitingFileCount).toBe(0)
+  })
+
+  it('har ingenting utestående når dekket verken planlegger eller venter på bilder', () => {
+    const base = createPresentation({ title: 'Menneskets evolusjon' })
+    const status = composeImageWorkflowStatus(base)
     expect(status.stage).toBe('no-planned-images')
     expect(status.complete).toBe(true)
     expect(status.plannedImageCount).toBe(0)

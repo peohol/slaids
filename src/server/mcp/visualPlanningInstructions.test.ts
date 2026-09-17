@@ -90,12 +90,33 @@ describe('visual media planning instructions', () => {
 
     it('gjør dekkets egen status til stoppkriteriet', () => {
       // The decision is a field, not an impression: an agent that only reads
-      // structure sees `complete: false` and a pending count that is not zero.
+      // structure sees `complete: false`.
       expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
-      expect(MCP_INSTRUCTIONS).toMatch(/`pendingImageCount` som ikke er 0/i)
       expect(MCP_INSTRUCTIONS).toMatch(/avslutt først når `workflow\.complete` er true/i)
+    })
+
+    it('gjør koblingskontrollen, ikke fylte bildesoner, til genereringens stoppkriterium', () => {
+      // The lifecycle the first version of this got wrong: Slaids never sees a
+      // generated file, so a filled zone answers «has the file arrived», never
+      // «was the picture made». An agent told to wait for filled zones waits
+      // for a browser action it cannot perform — and regenerates.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `generation-verified`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /skal ikke genereres om igjen fordi sonen står tom/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/brukerens steg i nettleseren med mindre klienten har en\s+filbro/i)
+      // And the rule itself says the count is what Slaids is missing, never a
+      // debt of pictures the agent still owes.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`awaitingFileCount` er hva Slaids mangler, aldri hvor mange bilder du skylder/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(/pendingImageCount/)
     })
 
     it('navngir den obligatoriske rekkefølgen etter planen', () => {
