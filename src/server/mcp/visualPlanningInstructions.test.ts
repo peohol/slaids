@@ -94,7 +94,7 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
-      expect(MCP_INSTRUCTIONS).toMatch(/avslutt først når `workflow\.complete` er true/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/Avslutt først når `workflow\.remainingSteps` er tom/i)
     })
 
     it('gjør koblingskontrollen, ikke fylte bildesoner, til genereringens stoppkriterium', () => {
@@ -223,37 +223,48 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(/den skal vente, ikke utgå/i)
     })
 
-    it('skiller agentens arbeid fra at dekket er ferdig', () => {
+    it('lar ikke `complete` alene avslutte arbeidet', () => {
       /*
-       * `complete: true` means the *agent* has nothing left, and the acceptance
-       * state of this whole PR — handoff verified, nothing deposited — is
-       * `awaiting-deposit` with `complete: true` and every picture zone still
-       * empty. A stop rule that translated any `complete: true` into «the
-       * presentation is finished» would therefore contradict, in the same
-       * instructions, the rule that says never to report a deck finished
-       * without saying what is missing.
+       * `complete` answers for the document — the plan is covered by a current,
+       * verified generation — and the bindings are stored while the files are
+       * not. So the same true field is read by two readers who owe opposite
+       * work: the conversation that holds the pictures, and a later one that
+       * opens the deck with none of them. A stop rule keyed on `complete`
+       * alone told the second one it was finished, in the same instructions
+       * that tell it to generate the pictures again.
        */
-      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.complete` er true, er \*\*ditt\*\* arbeid ferdig/i)
       expect(MCP_INSTRUCTIONS).toMatch(
-        /`complete` sier at agenten er ferdig, ikke at dekket er det/i,
+        /`workflow\.remainingSteps` er tom, er \*\*ditt\*\* arbeid ferdig/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
-        /faller bare sammen i `no-planned-images` og `generation-verified`/i,
+        /Det er `remainingSteps` som avgjør det, ikke `complete` alene/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/`complete` er en påstand om dokumentet/i)
+      // Both readers are named, each with the condition that selects them.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /har du bildefilene fra genereringen.*skal du ikke si at presentasjonen er ferdig/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Er stadiet `awaiting-deposit`.*skal du ikke si at presentasjonen er ferdig/i,
+        /Har du dem ikke.*da gjenstår det agentarbeid, og du genererer de samme oppføringene på nytt/i,
       )
-      // The unconditional translation is asserted gone.
+      // The two translations that read `complete` as a finishing line are gone.
       expect(MCP_INSTRUCTIONS).not.toMatch(
         /rasterflyten er gjennomført – `workflow\.complete` er true – er presentasjonen ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /`workflow\.complete` er true, er \*\*ditt\*\* arbeid ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /avslutt først når `workflow\.complete` er true/i,
       )
     })
 
     it('slutter aldri med at en tom kontrolliste er ferdig arbeid', () => {
       expect(MCP_INSTRUCTIONS).not.toMatch(/er listen tom, er bildeplanen ferdig/i)
-      expect(SELF_CHECK_STOP).toMatch(/`workflow\.complete` er true/i)
+      expect(SELF_CHECK_STOP).toMatch(/`workflow\.remainingSteps` er tom/i)
       expect(SELF_CHECK_STOP).not.toMatch(/overleveringer i rasterflyten er startet/i)
       expect(SELF_CHECK_STOP).not.toMatch(/er true – er presentasjonen ferdig/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/`complete` sier at agenten er ferdig/i)
     })
   })
 })

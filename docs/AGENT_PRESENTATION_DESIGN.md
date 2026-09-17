@@ -237,8 +237,8 @@ Den observerte feilen var ikke et bilde som ble feil. Det var en samtale som tok
 
 Derfor svarer `plan_deck_images`, `get_image_brief` og `verify_image_handoff` med `workflow`: hvor rasterflyten står, avledet av dekket selv.
 
-- `workflow.complete` er **feltet som avgjør om oppgaven kan avsluttes**, og det gjelder agentens arbeid.
-- `workflow.nextAction` sier hva som skal gjøres nå, med dekkets eget tall i seg; `workflow.remainingSteps` er stegene som er igjen.
+- `workflow.complete` er en påstand om **dokumentet**: bildeplanen som gjelder nå er dekket av en gyldig, gjeldende genereringskontroll. `false` betyr at oppgaven ikke er ferdig, uansett hvor komplett slidene ser ut. `true` er ikke i seg selv lov til å stoppe — kontrollen lagres på dekket, bildefilene gjør ikke det, så en senere samtale kan lese den samme sanne påstanden uten å ha filene. Det agenten skylder, står i `workflow.remainingSteps`, og det er den en stopp avgjøres på.
+- `workflow.nextAction` sier hva som skal gjøres nå, med dekkets eget tall i seg; `workflow.remainingSteps` er det som fortsatt gjenstår for agenten. I `awaiting-deposit` er den ikke tom, og stegene er betinget av noe bare den som leser dem kan se: har du bildefilene, lever dem med manifestet; har du dem ikke, generer de samme oppføringene på nytt og kontroller koblingen igjen.
 - `workflow.completionCriteria` er hva fullført krever.
 - `workflow.forbiddenClosings` navngir avslutningene som er gale mens `complete` er false: «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er klar», å be om en ny brukerbeskjed, og å generere et godkjent bilde om igjen fordi sonen fortsatt står tom. De tre første er sanne setninger om et halvferdig dekk — det er nettopp derfor de ble valgt.
 
@@ -584,7 +584,7 @@ Når første hele utkast står:
 5. Stemmer hvert planlagt motiv med formatet på sonen det skal ligge i?
 6. Er to planlagte bilder blitt så like at de i praksis beskriver nesten samme motiv?
 
-Når kontrollpunktene er besvart, det du fant er rettet og `workflow.complete` er true, er *ditt* arbeid ferdig: ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe. Men `complete` sier at agenten er ferdig, ikke at dekket er det, og de to faller bare sammen i `no-planned-images` og `generation-verified`. Er stadiet `awaiting-deposit`, har du gjort ditt, mens bildene fortsatt mangler i dekket – da skal du ikke si at presentasjonen er ferdig, men si hva som gjenstår og hvem som gjør det, slik `nextAction` beskriver. Det er ingen åpen forbedringssløyfe etter det.
+Når kontrollpunktene er besvart, det du fant er rettet og `workflow.remainingSteps` er tom, er *ditt* arbeid ferdig: ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe. Det er `remainingSteps` som avgjør det, ikke `complete` alene: `complete` svarer for dokumentet, og kontrollen lagres på dekket mens bildefilene ikke gjør det. I `no-planned-images` og `generation-verified` er listen tom, og da er både du og dekket ferdig. I `awaiting-deposit` er den ikke tom: har du bildefilene, lever dem med manifestet og si hva brukeren skal gjøre – da har du gjort ditt, mens bildene fortsatt mangler i dekket, og da skal du ikke si at presentasjonen er ferdig. Har du dem ikke, fordi dekket er åpnet i en senere samtale, er den lagrede kontrollen ingen leveranse du kan gjøre: da gjenstår det agentarbeid, og du genererer de samme oppføringene på nytt og kontrollerer koblingen igjen før du avslutter. Uansett hvilken av de to: si hva som gjenstår og hvem som gjør det, slik `nextAction` beskriver. Det er ingen åpen forbedringssløyfe etter det.
 
 Den viktigste testen er fortsatt:
 

@@ -190,6 +190,19 @@ afterEach(async () => {
   while (databases.length > 0) await databases.pop()?.delete()
 })
 
+/**
+ * A later conversation over the same stored deck.
+ *
+ * The deck persists and the chat does not, so this is the reader the stored
+ * verification is *not* about: a new session on the same database, holding none
+ * of the picture files the previous one generated.
+ */
+function laterConversation(): AgentContext {
+  const database = databases[databases.length - 1]
+  if (!database) throw new Error('Forventet en database fra freshContext')
+  return { repository: new DexieSlaidsRepository(database) }
+}
+
 async function ok<T>(
   context: AgentContext,
   name: string,
@@ -1388,10 +1401,15 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verified.workflow.nextAction).toMatch(/bildesoner står tomme/i)
     expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
     // The stop rule the agent reads alongside it does not turn that into
-    // «finished», and names this very stage.
-    expect(SELF_CHECK_STOP).toMatch(/`complete` sier at agenten er ferdig, ikke at dekket er det/i)
+    // «finished», and it is keyed on what is left for the agent rather than on
+    // `complete`, which answers for the document.
+    expect(verified.workflow.remainingSteps.join(' ')).toMatch(
+      /har du bildefilene fra genereringen/i,
+    )
+    expect(SELF_CHECK_STOP).toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\* arbeid ferdig/i)
+    expect(SELF_CHECK_STOP).toMatch(/ikke `complete` alene/i)
     expect(SELF_CHECK_STOP).toMatch(
-      /Er stadiet `awaiting-deposit`.*ikke si at presentasjonen er ferdig/i,
+      /har du bildefilene fra genereringen.*ikke si at presentasjonen er ferdig/i,
     )
   })
 
@@ -1434,10 +1452,66 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     // and make them again rather than to report a deck with empty zones done.
     expect(verified.workflow.nextAction).toMatch(/generere bildene på nytt/i)
     expect(verified.workflow.nextAction).toMatch(/aldri dekket ferdig til brukeren/i)
-    // Nothing left to do, and in particular nothing left to generate: the
-    // earlier model would have asked for eight more pictures here.
-    expect(verified.workflow.remainingSteps).toEqual([])
+    // Nothing left to generate for *this* conversation, which holds the files:
+    // the earlier model would have asked for eight more pictures here. What is
+    // left is the handover, and the branch for a session that does not have
+    // them — never an unconditional demand.
+    expect(verified.workflow.remainingSteps.join(' ')).toMatch(
+      /lever dem med manifestet/i,
+    )
+    expect(verified.workflow.remainingSteps.join(' ')).not.toMatch(
+      /^Generer de \d+ bildene/im,
+    )
     expect(verified.workflow.forbiddenClosings).toEqual([])
+  })
+
+  it('lar ikke en lagret kontroll være en leveranse en senere samtale kan gjøre', async () => {
+    /*
+     * The two halves of this feature read together, by the reader they are both
+     * about. `verify_image_handoff` writes its result to the deck, so the
+     * answer survives the conversation — but the picture files were made in the
+     * host client and do not. A later session therefore opens a deck that is
+     * `awaiting-deposit` with `complete: true`, which is true of the document,
+     * while it owes every picture and has nothing to hand over.
+     *
+     * Asserted apart, both halves passed. Together they used to say «your work
+     * is done» and «generate them again» in the same answer, and an empty step
+     * list settled it. What is left for the agent is now `remainingSteps`, with
+     * the condition that selects each case — and the one it prescribes here is
+     * performable, not advice.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+
+    const later = laterConversation()
+    const reopened = await ok<ImageBriefView>(later, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(reopened.workflow.stage).toBe('awaiting-deposit')
+    expect(reopened.workflow.complete).toBe(true)
+
+    // The model-facing stop contract, run for this reader: work is owed, and
+    // `complete` is not what decides it.
+    expect(SELF_CHECK_STOP).toMatch(/Det er `remainingSteps` som avgjør det, ikke `complete` alene/i)
+    expect(SELF_CHECK_STOP).not.toMatch(/Er stadiet `awaiting-deposit`, har du gjort ditt/i)
+    expect(reopened.workflow.remainingSteps).not.toEqual([])
+    const owed = reopened.workflow.remainingSteps.join(' ')
+    expect(owed).toMatch(/har du dem ikke/i)
+    expect(owed).toMatch(new RegExp(`generer de ${MOTIFS.length} oppføringene på nytt`, 'i'))
+    expect(owed).toMatch(/kjør koblingskontrollen igjen/i)
+
+    // And doing it gets this conversation out: the same entries, generated
+    // again, pass the check against the plan the deck still carries.
+    const again = await ok<GeneratedImagesView>(later, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(reopened),
+    })
+    expect(again.ok).toBe(true)
+    expect(again.workflow.stage).toBe('awaiting-deposit')
   })
 
   it('er ikke ferdig når koblingskontrollen avviser settet', async () => {
@@ -1473,7 +1547,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     })
     expect(reread.workflow.stage).toBe('awaiting-deposit')
     expect(reread.workflow.complete).toBe(true)
-    expect(reread.workflow.remainingSteps).toEqual([])
+    expect(reread.workflow.remainingSteps.join(' ')).not.toMatch(/^Generer de \d+ bildene/im)
     expect(reread.workflow.nextAction).not.toMatch(/kall deretter bildegeneratoren/i)
     // Nothing was deposited, and the deck says so without treating it as work.
     expect(reread.workflow.awaitingFileCount).toBe(MOTIFS.length)

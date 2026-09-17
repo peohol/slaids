@@ -53,12 +53,13 @@ import type { Presentation } from './types'
 /**
  * The raster flow's position, in the deck's own terms.
  *
- * Three are finished for the agent, for different reasons: `no-planned-images`
- * because there is nothing to make, `generation-verified` because everything
- * planned was made *and* is in the deck, and `awaiting-deposit` because
- * everything planned was made and the files have not arrived — which is the
- * user's step, not the agent's. The other three are stages an agent must never
- * end a turn in.
+ * Two are finished outright: `no-planned-images` because there is nothing to
+ * make, and `generation-verified` because everything planned was made *and* is
+ * in the deck. `awaiting-deposit` is the one that is finished *conditionally* —
+ * everything planned was made, and whether anything is left for the agent
+ * depends on something the deck cannot see: whether this conversation still
+ * holds the files. The other three are stages an agent must never end a turn
+ * in.
  */
 export type ImageWorkflowStage =
   | 'no-planned-images'
@@ -72,12 +73,22 @@ export type ImageWorkflowStage =
 export interface ImageWorkflowStatus {
   stage: ImageWorkflowStage
   /**
-   * Whether the raster flow has anything left in it *for the agent*.
+   * Whether the plan the deck carries now is covered by a current, verified
+   * generation.
    *
-   * The single field to branch on. False means the task is not finished, no
-   * matter how complete the slides look — see `completionCriteria`. It is not a
-   * statement about the deposit: the files reaching Slaids is the user's step,
-   * and waiting for it is never the agent's work.
+   * A statement about the *document*, and only that. False means the task is
+   * not finished, no matter how complete the slides look — see
+   * `completionCriteria` — and it is never a statement about the deposit: the
+   * files reaching Slaids is the user's step, and waiting for it is never the
+   * agent's work.
+   *
+   * True is not by itself a licence to stop, and that asymmetry is the point.
+   * The bindings are stored on the document and the pictures are not, so a
+   * verified deck says the files were made *once*, by whoever held that
+   * conversation. A later session can open the same deck, read the same true
+   * fact, and have no access to a single one of those files — and it owes the
+   * pictures again. What is left for the agent is therefore `remainingSteps`,
+   * which is empty only when nothing is owed by anybody.
    */
   complete: boolean
   plannedImageCount: number
@@ -106,7 +117,17 @@ export interface ImageWorkflowStatus {
   awaitingFileCount: number
   /** What happens next, named as an action rather than as a state. */
   nextAction: string
-  /** The steps between here and a finished task, in order. Empty when complete. */
+  /**
+   * What the agent still owes, in order. Empty means nothing is left for it.
+   *
+   * This is the field a stop decides on, because it is the only one that can
+   * carry a condition. In `awaiting-deposit` the deck cannot know which of two
+   * situations the reader is in — holding the files it generated, or opening a
+   * verified deck in a later conversation without them — so both steps are
+   * named, each with the condition that selects it. An empty list there would
+   * have said «nothing to do» to the half of the readers who owe eight
+   * pictures.
+   */
   remainingSteps: readonly string[]
   /** Everything that has to be true before the task may be called finished. */
   completionCriteria: readonly string[]
@@ -187,6 +208,30 @@ function generationSteps(awaiting: number): readonly string[] {
     `Generer de ${awaiting} bildene, enkeltvis: ett kall per oppføring i \`images\`, i stigende \`number\`, etter \`generation.perImageSteps\`.`,
     'Kjør koblingskontrollen på alle planlagte oppføringer, mot `generation.beforeDeposit`. Den er stoppkriteriet for bildegenereringen, og svaret blir stående på dekket.',
     'Svarer kontrollen `ok`, er genereringsoppgaven ferdig. Lever bildene med manifestet; å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
+  ]
+}
+
+/**
+ * What is left once the pictures have been made and checked, which is a
+ * question the deck cannot finish answering.
+ *
+ * The check is stored on the document; the files are not. So a verified deck
+ * with empty zones means one of two things, and they need opposite work: the
+ * conversation that made the pictures still holds them and has only to hand
+ * them over, or a later one opened the deck, reads the same verification, and
+ * has nothing to hand over at all. Slaids cannot tell those apart — the host's
+ * file state is not a property of the document — so both are named with the
+ * condition that selects them, rather than one being guessed at.
+ *
+ * Saying neither was the failure this replaces: an empty step list in a stage
+ * whose own action says «generate them again» told the second reader that its
+ * work was done.
+ */
+function depositSteps(planned: number): readonly string[] {
+  return [
+    'Har du bildefilene fra genereringen: lever dem med manifestet, og si hva brukeren skal gjøre for å legge dem inn.',
+    `Har du dem ikke – kontrollen er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er den lagrede kontrollen ingen leveranse du kan gjøre: si det, generer de ${planned} oppføringene på nytt, enkeltvis, og kjør koblingskontrollen igjen.`,
+    'Uansett hvilken av de to: si hva som gjenstår og hvem som gjør det, i stedet for å melde presentasjonen ferdig.',
   ]
 }
 
@@ -273,7 +318,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     complete,
     ...counts,
     nextAction,
-    remainingSteps: complete ? [] : remainingSteps,
+    remainingSteps,
     completionCriteria: IMAGE_WORKFLOW_COMPLETION_CRITERIA,
     forbiddenClosings: complete ? [] : IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
   })
@@ -399,9 +444,10 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
               counts.awaitingFileCount > 0 ? `, og ${counts.awaitingFileCount} står tomme` : ''
             }`
           : `${counts.awaitingFileCount} bildesoner står tomme`
-      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
+      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er den lagrede kontrollen ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
         presentation,
       )}`,
+      depositSteps(images.length),
     )
   }
 

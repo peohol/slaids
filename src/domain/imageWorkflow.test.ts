@@ -199,10 +199,16 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(status.complete).toBe(true)
     expect(status.awaitingFileCount).toBe(3)
     expect(status.depositedImageCount).toBe(0)
-    expect(status.remainingSteps).toEqual([])
     expect(status.forbiddenClosings).toEqual([])
     expect(status.nextAction).toMatch(/genereringsoppgaven er gjort/i)
     expect(status.nextAction).toMatch(/brukerens steg/i)
+    // Complete, and not empty-handed: `complete` answers for the document, and
+    // what is left for the *agent* depends on something the deck cannot see —
+    // whether this conversation still holds the files. Both cases are named
+    // with the condition that selects them.
+    expect(status.remainingSteps).not.toEqual([])
+    expect(status.remainingSteps.join(' ')).toMatch(/har du bildefilene fra genereringen/i)
+    expect(status.remainingSteps.join(' ')).toMatch(/har du dem ikke/i)
   })
 
   it('blir stående på dekket, så en ny lesing ikke ber om bildene på nytt', () => {
@@ -215,7 +221,10 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(second).toEqual(first)
     expect(second.stage).toBe('awaiting-deposit')
     expect(second.complete).toBe(true)
-    expect(second.remainingSteps.join(' ')).not.toMatch(/generer/i)
+    // Regeneration is named, but only as the branch for a reader who does not
+    // have the files — never as this stage's own demand.
+    expect(second.remainingSteps.join(' ')).not.toMatch(/^Generer de \d+ bildene/im)
+    expect(second.nextAction).toMatch(/genereringsoppgaven er gjort/i)
     // And it survives the trip through storage, because it is stored: the
     // bindings are validated by the same schema the manifest file is read
     // through, so a stored one and a delivered one cannot be different shapes.
@@ -225,6 +234,45 @@ describe('genereringen er kontrollert, ikke observert', () => {
     if (!stored) throw new Error('Forventet et gyldig dokument')
     expect(stored.generatedImages).toEqual(deck.generatedImages)
     expect(composeImageWorkflowStatus(stored)).toEqual(first)
+  })
+
+  it('gjør ikke en lagret kontroll til en leveranse en senere samtale kan gjøre', () => {
+    /*
+     * The two halves of this feature, read together by the reader they are
+     * both about. The bindings are stored on the document; the pictures were
+     * made in a host conversation and are not. So a deck reopened later is
+     * `awaiting-deposit` with `complete: true` — a true statement about the
+     * document — while the reader holding it owes three pictures and has
+     * nothing to hand over.
+     *
+     * Tested apart, each half passed: one asserted that a verified deck stops
+     * asking for pictures, the other that its action tells a session without
+     * the files to make them again. Together they said «you are done» and
+     * «generate them again» in the same answer, and the empty step list
+     * decided it. So the steps carry both cases with the condition that
+     * selects them, and neither reader is told the other one's answer.
+     */
+    const reopened = validatePresentation(JSON.parse(JSON.stringify(verified(awaiting(3)))))
+    expect(reopened.issues).toEqual([])
+    const stored = reopened.value
+    if (!stored) throw new Error('Forventet et gyldig dokument')
+
+    const status = composeImageWorkflowStatus(stored)
+    expect(status.stage).toBe('awaiting-deposit')
+    expect(status.complete).toBe(true)
+    // What is left is not nothing, and it is not unconditional either.
+    expect(status.remainingSteps).toHaveLength(3)
+    const [holding, without] = status.remainingSteps
+    expect(holding).toMatch(/har du bildefilene fra genereringen/i)
+    expect(holding).toMatch(/lever dem med manifestet/i)
+    expect(without).toMatch(/har du dem ikke/i)
+    expect(without).toMatch(/ingen leveranse du kan gjøre/i)
+    expect(without).toMatch(/generer de 3 oppføringene på nytt/i)
+    expect(without).toMatch(/kjør koblingskontrollen igjen/i)
+    // And the count it asks for is the plan's own, so the check it sends the
+    // agent back into is the one that can answer `ok`.
+    expect(status.plannedImageCount).toBe(3)
+    expect(status.nextAction).toMatch(/`remainingSteps` sier hvilket av de to som gjelder her/i)
   })
 
   it('lagrer ingenting når koblingen ikke holder', () => {

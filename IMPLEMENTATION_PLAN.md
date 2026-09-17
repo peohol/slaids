@@ -803,7 +803,8 @@ fungere for en økt som ikke har filene. Statusen sier begge veier — lever dem
 med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem —
 og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
 filen. `forbiddenClosings` er dessuten tom når `complete` er true, så ingenting
-står i veien for å lage dem på nytt. Det ene som aldri er lov, er å melde dekket
+står i veien for å lage dem på nytt — og `remainingSteps` er ikke tom der, så
+den som ikke har filene blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
 ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
 tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
 bildet fra forrige bestilling, mens ingen sone er tom i `generation-verified`.
@@ -831,15 +832,24 @@ kontrollen forventer.
 
 #### Feltene agenten leser
 
-- **`complete`** er feltet en agent forgrener på, og det gjelder *agentens*
-  arbeid: deponeringen er brukerens steg, og å vente på den er aldri agentens
-  jobb. `awaiting-deposit` er derfor `complete: true` — men stadienavnet sier
-  hva som gjenstår, og `nextAction` er skrevet for å kunne utføres også av en
-  økt som ikke har bildefilene.
+- **`complete`** er en påstand om *dokumentet*: bildeplanen som gjelder nå er
+  dekket av en gyldig, gjeldende genereringskontroll. Deponeringen er brukerens
+  steg, og å vente på den er aldri agentens jobb, så `awaiting-deposit` er
+  `complete: true`. Men true er ikke i seg selv lov til å stoppe, og
+  asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
+  det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
+  holdt den samtalen. En senere økt kan lese den samme sanne påstanden uten å ha
+  en eneste av filene — og skylder bildene på nytt.
 - **`nextAction`** navngir neste handling med dekkets eget tall i seg;
-  **`remainingSteps`** er stegene som er igjen, i rekkefølge, og peker på
-  `generation.perImageSteps` i stedet for å kopiere løkken. Begge er tomme når
-  `complete` er true.
+  **`remainingSteps`** er det agenten fortsatt skylder, i rekkefølge, og peker
+  på `generation.perImageSteps` i stedet for å kopiere løkken. Det er
+  `remainingSteps` en stopp avgjøres på, fordi det er det eneste feltet som kan
+  bære en betingelse: i `awaiting-deposit` kan dekket ikke vite hvilken av to
+  lesere det svarer — den som har filene den nettopp laget, eller den som åpner
+  et kontrollert dekk uten dem — så begge stegene står, hver med betingelsen som
+  velger det. En tom liste der ville sagt «ingenting å gjøre» til den halvparten
+  som skylder alle bildene. Tom er den bare i `no-planned-images` og
+  `generation-verified`.
 - **`completionCriteria`** er hva fullført krever, og de to siste linjene er de
   som koster noe å få riktig: beviset for at bildene finnes er
   koblingskontrollen, og deponeringen er uttrykkelig ikke en del av kriteriet.
