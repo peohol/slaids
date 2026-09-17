@@ -4058,7 +4058,10 @@ Anmerkningene er strukturelle, aldri språklige. De ser hvor en blokk står, hva
 slags blokk det er og hva som omgir den — ikke hva teksten betyr. Den første er
 `ACCENT_AS_CARD_TITLE`: et `untitled-card` der kortets eneste aksent står øverst
 med brødtekst under gjør aksenten til en hjemmelaget korttittel, og det er
-`titled-card` som har et sted for den overskriften. Reglene den håndhever står i
+`titled-card` som har et sted for den overskriften. «Under» leses langs
+`body.axis`, den samme aksen rendereren legger subfeltene langs: stablede felter
+er én leserekkefølge, mens felter ved siden av hverandre er parallelle, og da er
+ingenting i det ene feltet over noe i det neste. Reglene den håndhever står i
 `src/agent/design.ts` (`PRIMARY_TEXT_RULE`, `ACCENT_RULE`); selve kontrollen står
 i `src/domain/designAdvice.ts`, atskilt fra `src/domain/validation.ts` nettopp
 fordi den ikke svarer på om dokumentet er ødelagt.

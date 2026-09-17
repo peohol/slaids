@@ -25,7 +25,7 @@
 import { bodyOf } from './content'
 import { collectLeaves } from './layout'
 import { ACCENT_NODE, isDocEmpty } from './richdoc'
-import type { NodeId, Presentation, RichDoc, RichNode, Slide, ZoneContent } from './types'
+import type { CardBody, NodeId, Presentation, RichDoc, RichNode, Slide, ZoneContent } from './types'
 
 export type AdviceCode =
   /** An accent at the top of an `untitled-card` is standing in for a card title. */
@@ -63,6 +63,27 @@ function drawnBlocks(doc: RichDoc | null | undefined): RichNode[] {
 }
 
 /**
+ * The card's blocks grouped into the runs a reader actually reads in order.
+ *
+ * `body.axis` is what decides this, and it is the same axis the renderer lays
+ * the fields out along: `y` stacks them, so the card reads straight through
+ * from the first field to the last and is one run; `x` puts them side by side,
+ * and then nothing in the left field is *above* anything in the right one, so
+ * each field is its own run.
+ *
+ * It matters because an accent heads what follows it, and «follows» is a
+ * statement about reading order. Asked across a horizontal card's fields, a
+ * key figure accented in one column and its explanation in the next — two
+ * parallel things, by construction — would read as a heading with body text
+ * under it, and the advice would push a deliberate composition towards a
+ * `titled-card` it was never meant to be.
+ */
+function readingRuns(body: CardBody): RichNode[][] {
+  const runs = body.subfields.map((field) => drawnBlocks(field.doc))
+  return body.axis === 'x' ? runs : [runs.flat()]
+}
+
+/**
  * Whether a card is using a leading accent as the card title it does not have.
  *
  * Three conditions, and all three are load-bearing:
@@ -71,27 +92,26 @@ function drawnBlocks(doc: RichDoc | null | undefined): RichNode[] {
  *    a heading to live, and a `container` is the secondary format for support
  *    text that is deliberately not a unit of its own — neither is the observed
  *    failure, and flagging them would be the over-correction.
- *  - The accent is the first thing drawn in the card, and there is something
- *    after it. An accent with nothing under it *is* the card's whole message,
- *    which is precisely the case `untitled-card` exists for; an accent further
- *    down is a highlighted point inside prose, which is what an accent is for.
+ *  - The accent opens a run the reader reads in order, and there is something
+ *    after it in that same run. An accent with nothing under it *is* the card's
+ *    whole message, which is precisely the case `untitled-card` exists for; an
+ *    accent further down is a highlighted point inside prose, which is what an
+ *    accent is for. Which blocks count as «after it» is `readingRuns`, because
+ *    that is the question `body.axis` answers.
  *  - It is the card's only accent. A card divided by several accents is a card
  *    with several named sub-points — the internal division `ACCENT_RULE`
  *    describes — and no single one of them is pretending to be the card's
  *    heading.
- *
- * Read across the subfields in order rather than per field, because the fields
- * are one card: an accent at the top of the first field heads everything the
- * card draws, whichever field the prose under it happens to sit in.
  */
 export function accentUsedAsCardTitle(content: ZoneContent): boolean {
   if (content.kind !== 'untitled-card') return false
   const body = bodyOf(content)
   if (!body) return false
 
-  const blocks = body.subfields.flatMap((field) => drawnBlocks(field.doc))
-  if (blocks.length < 2 || blocks[0].type !== ACCENT_NODE) return false
-  return blocks.filter((node) => node.type === ACCENT_NODE).length === 1
+  const runs = readingRuns(body)
+  const accents = runs.flat().filter((node) => node.type === ACCENT_NODE).length
+  if (accents !== 1) return false
+  return runs.some((run) => run.length > 1 && run[0].type === ACCENT_NODE)
 }
 
 /** Everything worth saying about one slide's composition. */

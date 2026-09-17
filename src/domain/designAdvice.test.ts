@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { createPresentation } from './presentation'
 import { accentUsedAsCardTitle, findPresentationAdvice, findSlideAdvice } from './designAdvice'
 import { contentAt, sectionAt } from './testDecks'
-import type { CardBody, ContentSlide, Presentation, RichNode, ZoneContent } from './types'
+import type { Axis, CardBody, ContentSlide, Presentation, RichNode, ZoneContent } from './types'
 
 function accent(text: string): RichNode {
   return { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text }] }
@@ -30,10 +30,10 @@ function quote(text: string): RichNode {
   return { type: 'blockquote', content: [paragraph(text)] }
 }
 
-/** One field per argument, in the order the card draws them. */
-function body(...fields: RichNode[][]): CardBody {
+/** One field per argument, laid out along `axis` the way the renderer does. */
+function body(axis: Axis, fields: RichNode[][]): CardBody {
   return {
-    axis: 'y',
+    axis,
     weights: fields.map(() => 1),
     subfields: fields.map((blocks, index) => ({
       id: `f${index + 1}`,
@@ -42,8 +42,14 @@ function body(...fields: RichNode[][]): CardBody {
   }
 }
 
+/** Fields stacked over each other: the card reads straight through. */
 function untitledCard(...fields: RichNode[][]): ZoneContent {
-  return { id: 'c1', kind: 'untitled-card', backgroundColor: '#ffffff', body: body(...fields) }
+  return { id: 'c1', kind: 'untitled-card', backgroundColor: '#ffffff', body: body('y', fields) }
+}
+
+/** The same fields side by side, which is a different thing to read. */
+function untitledRow(...fields: RichNode[][]): ZoneContent {
+  return { id: 'c1', kind: 'untitled-card', backgroundColor: '#ffffff', body: body('x', fields) }
 }
 
 function titledCard(title: string, ...fields: RichNode[][]): ZoneContent {
@@ -52,12 +58,12 @@ function titledCard(title: string, ...fields: RichNode[][]): ZoneContent {
     kind: 'titled-card',
     headerColor: null,
     title: { type: 'doc', content: [paragraph(title)] },
-    body: body(...fields),
+    body: body('y', fields),
   }
 }
 
 function container(...fields: RichNode[][]): ZoneContent {
-  return { id: 'c1', kind: 'container', body: body(...fields) }
+  return { id: 'c1', kind: 'container', body: body('y', fields) }
 }
 
 /** The deck's one content slide, with this content filling its single zone. */
@@ -99,6 +105,14 @@ describe('aksent brukt som korttittel', () => {
     expect(codesFor(untitledCard([accent('Første bosetning')], [paragraph('Da innlandsisen …')]))).toEqual([
       'ACCENT_AS_CARD_TITLE',
     ])
+  })
+
+  it('flagger aksent med brødtekst under seg i samme kolonne, også i et kort med kolonner', () => {
+    const content = untitledRow(
+      [accent('Første bosetning'), paragraph('Da innlandsisen …')],
+      [paragraph('Funnene er få og spredte.')],
+    )
+    expect(codesFor(content)).toEqual(['ACCENT_AS_CARD_TITLE'])
   })
 
   it('bryr seg ikke om tomme avsnitt foran aksenten', () => {
@@ -143,6 +157,16 @@ describe('det som ikke skal flagges', () => {
 
   it('lar et kort uten tittel uten aksent i det hele tatt være i fred', () => {
     expect(codesFor(untitledCard([paragraph('Ett kort utsagn som er hele budskapet.')]))).toEqual([])
+  })
+
+  it('lar side-om-side-felter være i fred: et nøkkeltall til venstre forklart til høyre', () => {
+    // Subfeltaksen er den samme aksen rendereren legger feltene langs. Står de
+    // ved siden av hverandre, er ingenting i venstre felt *over* noe i høyre,
+    // og aksenten er da et parallelt poeng — ikke en overskrift for teksten.
+    const fields: RichNode[][] = [[accent('47 %')], [paragraph('Andel som flyttet nordover.')]]
+    expect(codesFor(untitledRow(...fields))).toEqual([])
+    // De samme feltene stablet over hverandre leses derimot i rekkefølge.
+    expect(codesFor(untitledCard(...fields))).toEqual(['ACCENT_AS_CARD_TITLE'])
   })
 
   it('lar en aksent lenger nede i teksten være i fred', () => {
