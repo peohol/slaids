@@ -518,6 +518,49 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
   })
 })
 
+describe('det første steget er det stadiet faktisk krever', () => {
+  /*
+   * `complete: false` is three different jobs, and the model-facing rule used to
+   * read it as one: «generate the pictures». It is also `plan-needs-repair` and
+   * both `plan-outdated` variants, where generating first is the mistake — a
+   * brief written from an invalid plan, or pictures made for a plan that still
+   * has to be rewritten. So the first step of each unfinished stage is asserted
+   * to be the work that stage actually needs, and the rule points at this list
+   * rather than at the boolean.
+   */
+  it('reparerer planen før noe genereres', () => {
+    let deck = awaiting(3)
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const broken = setImageContext(deck, null)
+    if (!broken.ok) throw new Error(broken.error.message)
+
+    const status = composeImageWorkflowStatus(broken.value)
+    expect(status.stage).toBe('plan-needs-repair')
+    expect(status.complete).toBe(false)
+    expect(status.remainingSteps[0]).toMatch(/Rett det `issues` peker på/i)
+    expect(status.remainingSteps[0]).not.toMatch(/generer/i)
+    expect(status.nextAction).toMatch(/Rett først det `issues` peker på/i)
+  })
+
+  it('skriver planen om før noe genereres når proveniensen er ukjent', () => {
+    const deck = withFile(awaiting(3), 0)
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('plan-outdated')
+    expect(status.complete).toBe(false)
+    expect(status.remainingSteps[0]).toMatch(/Skriv bildeplanen på nytt/i)
+    expect(status.remainingSteps[0]).not.toMatch(/generer/i)
+  })
+
+  it('går til brief og ett kall per oppføring når planen faktisk venter på bilder', () => {
+    const status = composeImageWorkflowStatus(awaiting(3))
+    expect(status.stage).toBe('awaiting-generation')
+    expect(status.complete).toBe(false)
+    expect(status.remainingSteps[0]).toMatch(/sluttbriefen.*skriv den ut i samtalen/i)
+    expect(status.remainingSteps[1]).toMatch(/ett kall per oppføring/i)
+    expect(status.remainingSteps[1]).toContain('de 3 bildene')
+  })
+})
+
 describe('planens egne kontroller gjelder foran alle ferdig-grener', () => {
   it('kaller ikke en reservert bildesone uten bildeplan for ferdig', () => {
     // The cheapest mistake available — reserve the zones, never describe them —

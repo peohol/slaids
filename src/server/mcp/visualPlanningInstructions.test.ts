@@ -272,19 +272,37 @@ describe('visual media planning instructions', () => {
       )
     })
 
-    it('lar generereringssekvensen henge på `complete: false`, ikke på en tom liste', () => {
+    it('henger genereringssekvensen på stadiet som krever den, ikke på `complete: false`', () => {
       /*
        * The enumeration — print the brief, start generating, one call per entry
-       * — belongs to a deck that still owes pictures. A sentence about the empty
-       * list placed just before it turned «Da gjør du dette i tur» into «when
-       * nothing is left, generate the pictures», which is the exact opposite in
-       * the two stages where the list *is* empty.
+       * — belongs to a deck that owes pictures *now*. Two earlier versions
+       * attached it to the wrong thing. A sentence about the empty list placed
+       * just before it turned «Da gjør du dette i tur» into «when nothing is
+       * left, generate», the opposite of the two stages where the list is
+       * empty. Keying it on `complete: false` was wrong the other way:
+       * `plan-needs-repair` and both `plan-outdated` variants are also
+       * `complete: false`, and there the plan has to be repaired or rewritten
+       * before a brief means anything — a deck with plan issues would have been
+       * generated from an invalid plan.
        */
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Er `complete` false, gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+        /Hva som skal gjøres nå, sier alltid `nextAction` og `remainingSteps`/i,
       )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete: false` i seg selv er ikke et signal om å generere/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /stadiet kan være `plan-needs-repair` eller `plan-outdated`, og da skal planen repareres eller skrives om \*\*før\*\* noe genereres/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+      )
+      // Both retired attachments are asserted gone.
       expect(MCP_INSTRUCTIONS).not.toMatch(
         /er den tom, gjenstår det ingenting for deg\. Da gjør du dette i tur/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Er `complete` false, gjør du dette i tur/i,
       )
     })
 

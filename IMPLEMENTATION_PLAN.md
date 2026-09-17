@@ -839,7 +839,11 @@ kontrollen forventer.
   asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
   det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
   holdt den samtalen. En senere økt kan lese den samme sanne påstanden uten å ha
-  en eneste av filene — og skylder bildene på nytt.
+  en eneste av filene — og skylder bildene på nytt. Og false sier bare at
+  oppgaven ikke er ferdig, aldri at det er generering som gjenstår:
+  `plan-needs-repair` og begge `plan-outdated`-variantene er også false, og der
+  skal planen repareres eller skrives om først. Derfor henger genereringsteksten
+  i agentregelen på stadiet som krever den, ikke på boolskeverdien.
 - **`nextAction`** navngir neste handling med dekkets eget tall i seg;
   **`remainingSteps`** er det agenten fortsatt skylder, i rekkefølge, og peker
   på `generation.perImageSteps` i stedet for å kopiere løkken. Det er
