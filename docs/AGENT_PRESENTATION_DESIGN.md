@@ -227,7 +227,7 @@ Rasterbilder følger én standardflyt uansett hvor filene senere produseres. Age
 
 Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
 
-Når Slaids brukes fra en vertsklient som ChatGPT og brukeren har bedt om bildegenerering, kan klienten sende denne ferdige briefen direkte til sitt innebygde bildegenereringsverktøy i samme samtale. Brukeren skal ikke måtte kopiere og lime briefen bare for å starte genereringen. Hvis klienten ikke kan gjøre denne overleveringen direkte, brukes nøyaktig den samme briefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback.
+Når Slaids brukes fra en vertsklient som ChatGPT og brukeren har bedt om bildegenerering, kan klienten sende denne ferdige briefen direkte til sitt innebygde bildegenereringsverktøy i samme samtale. Brukeren skal ikke måtte kopiere og lime briefen bare for å starte genereringen. Hvis klienten ikke kan gjøre denne overleveringen direkte, brukes nøyaktig den samme briefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering av briefen automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
 

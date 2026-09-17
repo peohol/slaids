@@ -19,6 +19,7 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/Rasterflyten er fast, ikke en fallback/i)
     expect(MCP_INSTRUCTIONS).toMatch(/send den direkte videre i samme samtale/i)
     expect(MCP_INSTRUCTIONS).toMatch(/uten at brukeren kopierer og limer/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)
     expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
   })
 
