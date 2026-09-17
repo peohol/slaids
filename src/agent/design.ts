@@ -69,6 +69,17 @@
  * an agent in one never delivers.
  */
 
+/*
+ * The two lists below are the domain's, not this module's. They are what the
+ * deck's own `workflow` status reports back after a plan is written, and the
+ * standing instruction and that answer have to be the same list — see
+ * `IMAGE_WORKFLOW_CONTINUATION_RULE`.
+ */
+import {
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+  IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+} from '../domain/imagePlan'
+
 /**
  * The units a slide's material decomposes into.
  *
@@ -331,7 +342,7 @@ export const IMAGE_POLICY_SUMMARY =
 
 /** The fixed raster planning and client hand-off contract. */
 export const RASTER_WORKFLOW_RULE =
-  'Slaids-agent-API-et lager ikke rasterbilder; det er et bevisst arkitekturvalg, ikke en manglende funksjon som skal oppdages. Ikke undersøk om Slaids eller vertsklienten «har en bildegenerator» før du planlegger. Rasterflyten er alltid: reserver ekte bildesoner, skriv bildeplan og felles bildekontekst, og la Slaids generere den samlede bildebriefen. Dette er standardflyten, ikke en fallback eller nødløsning. Når brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – og vertsklienten har et separat, innebygd bildegenereringsverktøy, skal selve genereringen vente til presentasjonstilstanden er endelig. En brief hentet mens det fortsatt gjenstår citations, innholdsendringer, validering eller reparasjoner, eller visuell QA som kan endre bildesoner, er foreløpig og skal ikke sendes til bildegeneratoren. Etter at disse stegene er ferdige og bildesonene er stabile, hent en fersk ferdig brief fra den endelige presentasjonstilstanden. Først da er neste handling obligatorisk: skriv den returnerte briefen ut i samme samtale, og kall deretter umiddelbart vertsklientens bildegenereringsverktøy – ett kall per planlagt bilde, slik bildegenereringskontrakten under sier. At briefen finnes i verktøyresponsen er ikke en overlevering, og at briefen bare er skrevet ut i samtalen betyr ikke at genereringen er startet; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Ikke avslutt oppgaven eller kall presentasjonen ferdig før alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert, sammen med koblingen mellom hver fil og bildeplanoppføringen den ble generert fra. Ikke gjør endringer som påvirker bildeplanen etter handoff; hvis det likevel skjer, hent en ny fersk sluttbrief og start bildegenereringen på nytt. Hvis klienten ikke kan gjøre denne overleveringen direkte, er den samme sluttbriefen fortsatt normal leveranse til stedet rasterfilene produseres. Direkte overlevering av briefen automatiserer bare starten på bildegenereringen; uten en filbro tilbake til Slaids går de ferdige filene fortsatt via bildedeponeringen. Ikke bytt til en hjemmelaget erstatning eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.'
+  'Slaids-agent-API-et lager ikke rasterbilder; det er et bevisst arkitekturvalg, ikke en manglende funksjon som skal oppdages. Ikke undersøk om Slaids eller vertsklienten «har en bildegenerator» før du planlegger. Rasterflyten er alltid: reserver ekte bildesoner, skriv bildeplan og felles bildekontekst, og la Slaids generere den samlede bildebriefen. Dette er standardflyten, ikke en fallback eller nødløsning. Har dekket planlagte rasterbilder, skal de genereres – det gjelder alltid når brukerbestillingen forutsetter bilder for å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg», men planlagte bildesoner er i seg selv nok. Når vertsklienten har et separat, innebygd bildegenereringsverktøy, skal selve genereringen vente til presentasjonstilstanden er endelig – den skal vente, ikke utgå. En brief hentet mens det fortsatt gjenstår citations, innholdsendringer, validering eller reparasjoner, eller visuell QA som kan endre bildesoner, er foreløpig og skal ikke sendes til bildegeneratoren. Etter at disse stegene er ferdige og bildesonene er stabile, hent en fersk ferdig brief fra den endelige presentasjonstilstanden. Først da er neste handling obligatorisk: skriv den returnerte briefen ut i samme samtale, og kall deretter umiddelbart vertsklientens bildegenereringsverktøy – ett kall per planlagt bilde, slik bildegenereringskontrakten under sier. At briefen finnes i verktøyresponsen er ikke en overlevering, og at briefen bare er skrevet ut i samtalen betyr ikke at genereringen er startet; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Ikke avslutt oppgaven eller kall presentasjonen ferdig før alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert, sammen med koblingen mellom hver fil og bildeplanoppføringen den ble generert fra. Ikke gjør endringer som påvirker bildeplanen etter handoff; hvis det likevel skjer, hent en ny fersk sluttbrief og start bildegenereringen på nytt. Hvis klienten ikke kan gjøre denne overleveringen direkte, er den samme sluttbriefen fortsatt normal leveranse til stedet rasterfilene produseres. Direkte overlevering av briefen automatiserer bare starten på bildegenereringen; uten en filbro tilbake til Slaids går de ferdige filene fortsatt via bildedeponeringen. Ikke bytt til en hjemmelaget erstatning eller et abstrakt diagram bare fordi rasterfilen produseres utenfor Slaids.'
 
 /** The vector half, on the tool that writes markup. */
 export const VECTOR_POLICY: readonly string[] = [
@@ -401,7 +412,7 @@ export const IMAGE_BRIEF_RULE =
  * things, and whether the shape a motif needs is the shape the zone has.
  */
 export const IMAGE_PLAN_RULE =
-  'Bildeplanen har én oppføring per bildesone som venter på en fil, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet. Slaids teller bildene, nummererer dem i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri og setter sammen den samlede briefen – så du skal verken skrive antall, nummer, formater eller regler om separate bilder inn i teksten din. Motiv og komposisjon er påkrevd i hver oppføring: motivet er det som skiller to bilder fra hverandre, og komposisjonen er det sonens format kontrolleres mot. Faglige krav og «unngå» er valgfrie, og briefen utelater dem når de er tomme. Skriv motivene slik at to bilder som skal vise forskjellige ting faktisk beskrives forskjellig, og slik at komposisjonen passer sonens format. Har du flyttet slides etter at planen ble skrevet, skriv den på nytt: nummereringen følger dekket, og plassholderteksten i sonene settes samtidig. Les kontrollene i svaret og rett det de peker på; er listen tom, er bildeplanen ferdig.'
+  'Bildeplanen har én oppføring per bildesone som venter på en fil, med motiv, komposisjon og utsnitt, faglige krav, og hva som skal unngås i akkurat det bildet. Slaids teller bildene, nummererer dem i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri og setter sammen den samlede briefen – så du skal verken skrive antall, nummer, formater eller regler om separate bilder inn i teksten din. Motiv og komposisjon er påkrevd i hver oppføring: motivet er det som skiller to bilder fra hverandre, og komposisjonen er det sonens format kontrolleres mot. Faglige krav og «unngå» er valgfrie, og briefen utelater dem når de er tomme. Skriv motivene slik at to bilder som skal vise forskjellige ting faktisk beskrives forskjellig, og slik at komposisjonen passer sonens format. Har du flyttet slides etter at planen ble skrevet, skriv den på nytt: nummereringen følger dekket, og plassholderteksten i sonene settes samtidig. Les kontrollene i svaret og rett det de peker på; er listen tom, er bildeplanen klar til bildegenerering – ikke ferdig som leveranse. Svarets `workflow` sier hva som gjenstår.'
 
 /**
  * How the plan is carried out, once the pictures are actually being made.
@@ -427,6 +438,35 @@ export const IMAGE_PLAN_RULE =
  */
 export const IMAGE_GENERATION_RULE =
   'Når bildene faktisk skal genereres, er den strukturerte `images`-listen i svaret den autoritative kilden: ett element i `images` = én selvstendig bildegenerering = én bildefil. Er `imageCount` 8, skal bildegeneratoren kalles 8 ganger og resultatet være 8 separate bildefiler. Arbeid oppføringene i stigende `number`, og fullfør én av gangen: les bare den ene oppføringens felter sammen med dekkets felles `imageContext`, kall bildegeneratoren én gang for akkurat den, knytt filen som kommer tilbake til den samme `imagePlanItemId`, regn ut SHA-256 av bytene den returnerte med en gang, og gi filen oppføringens eget filnavn – og gå først deretter videre til neste oppføring. Genereringsrekkefølgen er aldri en identitetskilde: rekkefølgen bildene blir ferdige i, returneres i eller vises i sier ingenting om hvilken oppføring de hører til, «det første bildet som kom tilbake» er aldri bilde 1, og et bilde skal aldri nummereres etter når det ble ferdig. Instruksen for ett bilde bygger du av feltene på den ene oppføringen – `imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`, `slideLabel`, `aspectRatio`, `orientation`, `subject`, `composition`, `requirements`, `avoid` – sammen med dekkets felles `imageContext`, og formatet er `aspectRatio` fra den samme oppføringen, aldri et felles format for flere bilder. Den samlede `brief`-teksten er den menneskelesbare representasjonen av nøyaktig den samme planen: skriv den ut i samtalen, bruk den til manuell kopiering og som dokumentasjon, men send den aldri til bildegeneratoren som én samlet genereringsjobb når flere bilder er planlagt, og parse den aldri tilbake til enkeltbilder – informasjonen ligger allerede strukturert i `images`. Behold koblingen gjennom hele flyten: planlagt bilde 1 blir fil `1`, bilde 2 blir fil `2` og så videre, med filendelsen til formatet filen faktisk har, og filnavnet kommer alltid fra oppføringens `number` – aldri fra en teller over de ferdige filene. Kontroller antallet før deponering: det skal finnes like mange separate bildefiler som `generation.expectedFileCount`, med numrene 1‥N én gang hver og hver `imagePlanItemId` brukt nøyaktig én gang. Ett samlet collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde er aldri et gyldig svar på en plan med flere bilder, uansett hvor mange motiver det inneholder. Er antallet, nummereringen, koblingen eller formatet feil, er bildegenereringen ikke ferdig: generer de manglende bildene enkeltvis på nytt før du går videre til bildedeponeringen.'
+
+/**
+ * The rule that makes the plan a step rather than a delivery.
+ *
+ * Everything else in this flow describes how to do the work well. This one says
+ * that the work is not over, and it exists because that turned out to be the
+ * part no other rule covered: an agent asked for an illustrated talk built the
+ * deck, wrote the plan, received an answer full of instructions about
+ * generating the pictures, and closed the turn with «the presentation is
+ * created, the pictures are not inserted yet». Every individual rule had been
+ * followed. Nothing had told it that stopping there was the failure.
+ *
+ * Three things are said here that are said nowhere else. That the plan is an
+ * intermediate step, in those words. That the deck's own `workflow.complete` is
+ * what decides whether the task may be closed, so the decision is a field
+ * rather than an impression. And that the endings which describe unfinished
+ * work — all of them true sentences — are exactly the endings that are wrong,
+ * because a true description of a half-finished job is the most natural thing
+ * to write when stopping early.
+ *
+ * The criteria and the endings come from `domain/imagePlan.ts`, where the
+ * status is computed: the standing instruction and this deck's own answer must
+ * be the same list, or a delivery can satisfy one of them.
+ */
+export const IMAGE_WORKFLOW_CONTINUATION_RULE = `Bildeplanen er aldri et sluttpunkt. Bildeplanleggingen er et mellomsteg: så snart dekket har planlagte rasterbilder, er neste steg bildegenereringen – i samme samtale, uten å vente på en ny brukerbeskjed. «I samme samtale» betyr ikke før resten av presentasjonsarbeidet er ferdig: fullfør innhold, citations, validering/reparasjoner og visuell QA først, og gå deretter videre til brief og generering i den samme sammenhengende arbeidsøkten – ikke i en ny. Svaret fra bildeplanen og fra bildebriefen bærer \`workflow\` med dekkets egen status, og den avgjør om oppgaven kan avsluttes: \`complete: false\` med et \`pendingImageCount\` som ikke er 0 betyr at oppgaven ikke er ferdig, uansett hvor komplett slidene ser ut, og \`nextAction\` sier hva som skal gjøres nå. Da gjør du dette i tur: skriv ut den ferdige bildebriefen i samtalen, start bildegenereringen umiddelbart, generer bildene enkeltvis med ett kall per bildeoppføring, og fortsett til hvert planlagt bilde har sin egen fil. Slå aldri flere planlagte bilder sammen til ett bilde. Hver oppførings eget nummer, \`imagePlanItemId\`, motiv og aspect ratio er fasit; rekkefølgen bildene returneres i er irrelevant, og hvert ferdig bilde kobles til riktig oppføring før det neste genereres. Oppgaven er først fullført når alt dette er sant: ${IMAGE_WORKFLOW_COMPLETION_CRITERIA.join(
+  ' ',
+)} ${IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS.join(
+  ' ',
+)} Blir du faktisk blokkert, navngi blokkeringen konkret – hvilket kall, hvilken feil, hvilket bilde – i stedet for å levere planen som om den var leveransen.`
 
 /**
  * The last thing that happens before the files leave the agent.
@@ -520,7 +560,7 @@ export const DECK_SELF_CHECK: readonly string[] = [
 
 /** The stopping point, said once and on purpose. */
 export const SELF_CHECK_STOP =
-  'Når kontrollpunktene er besvart, det du fant er rettet og eventuelle obligatoriske overleveringer i rasterflyten er startet, er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.'
+  'Når kontrollpunktene er besvart, det du fant er rettet og rasterflyten er gjennomført – `workflow.complete` er true – er presentasjonen ferdig. Ikke start en ny forbedringsrunde uten at det er kommet en ny instruks eller et nytt funn – dette er en sluttkontroll, ikke en åpen sløyfe.'
 
 /** Where the same thinking is written out at length, for a reader. */
 export const DESIGN_DOCS_PATH = 'docs/AGENT_PRESENTATION_DESIGN.md'

@@ -46,6 +46,11 @@ import {
   VISUAL_QA_RULE,
 } from './design'
 import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from '../domain/constants'
+import {
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+  IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+} from '../domain/imagePlan'
+import { realImages } from '../domain/testImages'
 import { runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
@@ -1254,5 +1259,164 @@ describe('p_ssk8ao0znyp: native komposisjon, ikke SVG som slide-motor', () => {
     expect(MCP_INSTRUCTIONS).toContain(VISUAL_QA_RULE)
     expect(VISUAL_QA_RULE).toMatch(/egenprodusert SVG/i)
     expect(VISUAL_QA_RULE).toMatch(/ikke tilstrekkelig/i)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The turn that ended one step too early
+ * ------------------------------------------------------------------ */
+
+describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', () => {
+  /*
+   * The scenario, as it happened: «lag et illustrert foredrag med bilder». The
+   * agent created the deck, wrote the slides, wrote the image plan, and ended
+   * the turn — «the presentation is created, the pictures are not inserted
+   * yet». Every rule about generating the pictures was in the answer it had
+   * just read, as prose to have read.
+   *
+   * What was missing was not a rule. It was a fact in the answer: that the work
+   * was not over. So the plan operation now reports where the raster flow
+   * stands, and these tests are the three moments that matter — the plan is
+   * written, half the pictures exist, and all of them do.
+   */
+
+  /** One entry's file, generated and placed in that entry's own zone. */
+  async function deliver(
+    context: AgentContext,
+    presentationId: string,
+    image: ImageBriefView['images'][number],
+  ): Promise<void> {
+    const stored = await ok<{ assetId: string }>(context, 'upload_asset', {
+      presentationId,
+      name: `${image.number}.png`,
+      content: { encoding: 'bytes', data: realImages.png() },
+    })
+    await ok(context, 'set_zone_asset', {
+      presentationId,
+      slideId: image.slideId,
+      nodeId: image.nodeId,
+      assetId: stored.assetId,
+    })
+  }
+
+  it('svarer at arbeidet ikke er ferdig, i det bildeplanen er skrevet', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    // The plan itself is sound — this is not a repair case, and that is the
+    // point: a sound plan was exactly what made stopping look like finishing.
+    expect(brief.issues).toEqual([])
+    expect(brief.workflow.stage).toBe('awaiting-generation')
+    expect(brief.workflow.complete).toBe(false)
+    expect(brief.workflow.plannedImageCount).toBe(8)
+    expect(brief.workflow.pendingImageCount).toBe(8)
+    expect(brief.workflow.filledImageCount).toBe(0)
+  })
+
+  it('navngir bildegenereringen som neste handling, i samme samtale', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    expect(brief.workflow.nextAction).toMatch(/mellomsteg, ikke leveransen/i)
+    expect(brief.workflow.nextAction).toMatch(/samme samtale/i)
+    // With this deck's own count in it, so «how many calls» is not inferred
+    // from the prose the brief happens to contain.
+    expect(brief.workflow.nextAction).toContain('8 ganger')
+    expect(brief.workflow.pendingImageCount).toBe(brief.generation?.expectedFileCount)
+    // And the steps left point at the loop rather than restating it.
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.perImageSteps/)
+  })
+
+  it('forbyr avslutningene som beskriver arbeidet i stedet for å gjøre det', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    expect(brief.workflow.forbiddenClosings).toEqual(IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS)
+    expect(brief.workflow.completionCriteria).toEqual(IMAGE_WORKFLOW_COMPLETION_CRITERIA)
+    const closings = brief.workflow.forbiddenClosings.join(' ')
+    expect(closings).toContain('Presentasjonen er opprettet')
+    expect(closings).toContain('Bildene er ikke satt inn ennå')
+    expect(closings).toContain('Bildeplanen er klar')
+  })
+
+  it('gir samme svar når briefen leses på nytt', async () => {
+    // An agent that re-reads the deck cannot get a friendlier answer: the
+    // status is derived from the same deck by the same function.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const again = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(again.workflow).toEqual(brief.workflow)
+  })
+
+  it('teller ned når bildene kommer, og er ferdig først når alle er på plass', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    // The pictures are generated one at a time and bound to their own entry —
+    // and the deck says how far that has got, after each one.
+    for (const [index, image] of brief.images.entries()) {
+      await deliver(context, brief.presentationId, image)
+      const state = await ok<ImageBriefView>(context, 'get_image_brief', {
+        presentationId: brief.presentationId,
+      })
+      const delivered = index + 1
+      expect(state.workflow.filledImageCount).toBe(delivered)
+      expect(state.workflow.pendingImageCount).toBe(MOTIFS.length - delivered)
+      if (delivered < MOTIFS.length) {
+        expect(state.workflow.complete).toBe(false)
+        expect(state.workflow.stage).toBe('partially-generated')
+        expect(state.workflow.nextAction).toContain(`${delivered} av ${MOTIFS.length}`)
+      } else {
+        expect(state.workflow.complete).toBe(true)
+        expect(state.workflow.stage).toBe('complete')
+        expect(state.workflow.remainingSteps).toEqual([])
+        expect(state.workflow.forbiddenClosings).toEqual([])
+      }
+    }
+  })
+
+  it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {
+    // A plan the checks disagree with is still a plan that ends in pictures:
+    // repair first, then the same generation, never a hand-back.
+    const context = freshContext()
+    const slide = await slideWithThreeZones(context)
+    for (const nodeId of slide.columnIds.slice(0, 2)) {
+      await ok(context, 'set_zone_card', {
+        presentationId: slide.presentationId,
+        slideId: slide.slideId,
+        nodeId,
+        kind: 'image',
+      })
+    }
+    await ok(context, 'set_image_context', {
+      presentationId: slide.presentationId,
+      context: CONTEXT,
+    })
+    const brief = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: slide.presentationId,
+      images: [planned(slide.slideId, slide.columnIds[0], MOTIFS[0])],
+    })
+
+    expect(brief.issues.length).toBeGreaterThan(0)
+    expect(brief.workflow.stage).toBe('plan-needs-repair')
+    expect(brief.workflow.complete).toBe(false)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/enkeltvis/i)
+  })
+
+  it('har ingenting utestående før noe er planlagt', async () => {
+    const context = freshContext()
+    const deck = await ok<PresentationView>(context, 'create_presentation', {
+      title: 'Menneskets evolusjon',
+    })
+    const empty = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: deck.presentationId,
+    })
+    expect(empty.workflow.stage).toBe('no-planned-images')
+    expect(empty.workflow.complete).toBe(true)
+    expect(empty.brief).toBeNull()
   })
 })

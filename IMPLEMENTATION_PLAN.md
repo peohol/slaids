@@ -316,10 +316,13 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
 presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
-bildekontekst, og Slaids genererer den samlede briefen. Når brukerbestillingen
-forutsetter rasterbilder for å være oppfylt — også formuleringer som «med
-bilder», «bruk bilder» eller «bilder i hvert steg» — skal bildegenereringen
-startes fra en fersk sluttbrief etter at citations, øvrige innholdsendringer,
+bildekontekst, og Slaids genererer den samlede briefen. **Bildeplanen er et
+mellomsteg, aldri en ferdig leveranse.** Har dekket planlagte rasterbilder, skal
+de genereres — det gjelder alltid når brukerbestillingen forutsetter bilder for
+å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller
+«bilder i hvert steg», men planlagte bildesoner er i seg selv nok. Selve
+bildegenereringen startes fra en fersk sluttbrief etter at citations, øvrige
+innholdsendringer,
 validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
 brief hentet tidligere i arbeidsflyten er foreløpig og skal ikke sendes til
 generatoren. Når bildesonene er stabile, henter klienten briefen på nytt fra den
@@ -531,7 +534,7 @@ Persistensgrensen er ikke defensiv duplisering mellom interne lag — et
 importert dokument bære en plan den vanlige skriveveien aldri ville tillatt.
 Blanke felt (bare mellomrom) er tomme felt alle tre steder. `checkImagePlan` har
 derfor ingenting å si om saken: en ufullstendig oppføring kan ikke oppstå, og en
-tom kontrolliste betyr fortsatt ferdig.
+tom kontrolliste betyr fortsatt at planen er klar.
 
 ### Den felles bildekonteksten
 
@@ -631,6 +634,52 @@ genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
 planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
 dem som utgjør en ferdig leveranse, og hvordan én av dem utføres.
 
+### Bildeplanen er et mellomsteg: `workflow`
+
+Kontrakten over sier hvordan bildene lages. Den sier ikke om de er laget, og det
+var nettopp det som manglet. En agent bad om å lage et illustrert foredrag bygget
+dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og avsluttet
+samtalen med «presentasjonen er opprettet, bildene er ikke satt inn ennå». Alle
+reglene om bildegenerering lå i det svaret, som prosa. Det som ikke lå der, var
+det ene som betydde noe: at arbeidet ikke var over.
+
+En regel til ville ikke hjulpet — reglene fantes. Derfor er tilstanden **avledet
+av dekket** og returnert ved siden av planen, av `composeImageWorkflowStatus`, i
+svaret fra både `plan_deck_images` og `get_image_brief`:
+
+- **`stage`** er hvor flyten står: `no-planned-images`, `plan-needs-repair`,
+  `awaiting-generation`, `partially-generated` eller `complete`;
+- **`complete`** er feltet en agent forgrener på. Den er false nøyaktig så lenge
+  en oppføring venter på en fil, slik at «kan jeg stoppe her?» blir et oppslag i
+  stedet for en vurdering av prosa;
+- **`plannedImageCount`**, **`filledImageCount`** og **`pendingImageCount`** er
+  det samme tallet sett fra tre sider; `pendingImageCount` er antall
+  genereringskall som gjenstår;
+- **`nextAction`** navngir neste handling med dekkets eget tall i seg, ikke en
+  «N» som skal substitueres;
+- **`remainingSteps`** er stegene som er igjen, i rekkefølge, og peker på
+  `generation.perImageSteps` i stedet for å kopiere løkken;
+- **`completionCriteria`** er hva fullført faktisk krever: presentasjon opprettet
+  eller oppdatert, struktur og innhold på plass, bildeplan skrevet med tomme
+  kontroller, briefen skrevet ut i samtalen, alle planlagte bilder generert i
+  samme samtale som like mange separate filer, og hver fil koblet til den
+  `imagePlanItemId` den ble generert fra;
+- **`forbiddenClosings`** navngir avslutningene som er gale mens `complete` er
+  false — «presentasjonen er opprettet», «bildene er ikke satt inn ennå»,
+  «bildeplanen er klar», og å be om en ny brukerbeskjed for å starte
+  genereringen. Alle tre er sanne setninger om et halvferdig dekk, og det er
+  nettopp derfor de ble valgt.
+
+`remainingSteps` og `forbiddenClosings` er tomme når `complete` er true: dette er
+en påstand om dette dekket, ikke en stående advarsel. En plan kontrollene er
+uenige med havner i `plan-needs-repair`, som er et steg på vei til den samme
+bildegenereringen — aldri en grunn til å levere dekket tilbake.
+
+De to listene bor i `domain/imagePlan.ts` sammen med statusen som rapporterer
+dem, og `agent/design.ts` importerer dem inn i agentinstruksen. Det er poenget:
+den stående instruksen og dekkets eget svar er samme liste, og en leveranse kan
+ikke tilfredsstille én av dem.
+
 ### Sluttkontrollen av koblingen
 
 Antallet var ikke nok. Ni riktige bilder navngitt etter rekkefølgen de kom
@@ -723,8 +772,10 @@ Strukturelle feil — ukjent sone, en sone som ikke er en bildesone, to oppføri
 på samme sone — avvises av kommandoen i stedet, og ingenting skrives. Det er ikke
 et dekk med et problem i; det er et kall som mente en annen sone.
 
-En tom kontrolliste er sluttpunktet for bildearbeidet. Det finnes ingen åpen
-forbedringssløyfe etter det.
+En tom kontrolliste er sluttpunktet for *planarbeidet*, ikke for bildearbeidet:
+den betyr at planen er klar til bildegenerering. Hvor selve bildearbeidet står,
+svarer `workflow` på. Det finnes ingen åpen forbedringssløyfe etter at begge er
+ferdige.
 
 ### Editoren
 

@@ -227,9 +227,24 @@ Rasterbilder følger én standardflyt uansett hvor filene senere produseres. Age
 
 Slaids gjør resten: nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten i hver ufylt bildesone — «Sett inn bilde 1 her», «Sett inn bilde 2 her» og så videre — og genererer den samlede bildebriefen. Plassholderen forsvinner av seg selv når filen legges inn i sonen, så den blir aldri stående over det ferdige dekket.
 
-Når Slaids brukes fra en vertsklient som ChatGPT, og brukerbestillingen forutsetter rasterbilder for å være oppfylt – også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg» – skal rastergenereringen skje fra en sluttbrief, ikke fra den første gyldige briefen under planleggingen. Fullfør først citations, øvrige innholdsendringer, validering og reparasjoner og den visuelle QA-en som kan endre bildesonene. Når bildesonene deretter er stabile, hent den genererte briefen på nytt fra den endelige presentasjonstilstanden. Dersom klienten har et innebygd bildegenereringsverktøy, skal den da gjøre overleveringen umiddelbart: skriv den ferske sluttbriefen ut i samme samtale og kall bildegenereringsverktøyet én gang per planlagt bilde, slik neste avsnitt beskriver. Det er ikke nok at briefen ligger i verktøyresponsen, og det er ikke nok at den bare er skrevet i samtalen; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Agenten skal ikke avslutte oppgaven eller kalle presentasjonen ferdig før alle kallene er gjort og antallet ferdige bildefiler er kontrollert. Hvis bildeplanen endres etter handoff, må en ny sluttbrief hentes og bildegenereringen startes på nytt. Hvis klienten ikke kan gjøre overleveringen direkte, brukes nøyaktig den samme sluttbriefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.
+Når Slaids brukes fra en vertsklient som ChatGPT, og dekket har planlagte rasterbilder – det gjelder alltid når brukerbestillingen forutsetter bilder for å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller «bilder i hvert steg», men planlagte bildesoner er i seg selv nok – skal rastergenereringen skje fra en sluttbrief, ikke fra den første gyldige briefen under planleggingen. Fullfør først citations, øvrige innholdsendringer, validering og reparasjoner og den visuelle QA-en som kan endre bildesonene. Når bildesonene deretter er stabile, hent den genererte briefen på nytt fra den endelige presentasjonstilstanden. Dersom klienten har et innebygd bildegenereringsverktøy, skal den da gjøre overleveringen umiddelbart: skriv den ferske sluttbriefen ut i samme samtale og kall bildegenereringsverktøyet én gang per planlagt bilde, slik neste avsnitt beskriver. Det er ikke nok at briefen ligger i verktøyresponsen, og det er ikke nok at den bare er skrevet i samtalen; genereringen er først startet når bildegenereringsverktøyet faktisk er kalt. Agenten skal ikke avslutte oppgaven eller kalle presentasjonen ferdig før alle kallene er gjort og antallet ferdige bildefiler er kontrollert. Hvis bildeplanen endres etter handoff, må en ny sluttbrief hentes og bildegenereringen startes på nytt. Hvis klienten ikke kan gjøre overleveringen direkte, brukes nøyaktig den samme sluttbriefen der bildene produseres; det er fortsatt normal arbeidsflyt, ikke en fallback. Direkte overlevering automatiserer bare starten på genereringen; uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt via bildedeponeringen nedenfor.
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
+
+### Bildeplanen er et mellomsteg
+
+Den observerte feilen var ikke et bilde som ble feil. Det var en samtale som tok slutt. Brukeren bad om et illustrert foredrag, agenten bygget dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og avsluttet med «presentasjonen er opprettet, bildene er ikke satt inn ennå». Ingenting var ugyldig, og ingen regel var brutt — alle reglene om bildegenerering sto i svaret agenten nettopp hadde lest, som prosa å ha lest.
+
+Derfor svarer `plan_deck_images` og `get_image_brief` med `workflow`: hvor rasterflyten står, avledet av dekket selv.
+
+- `workflow.complete` er **feltet som avgjør om oppgaven kan avsluttes**. Den er false så lenge en bildeoppføring venter på en fil, uansett hvor komplett slidene ser ut.
+- `workflow.pendingImageCount` er hvor mange genereringskall som gjenstår, og `workflow.nextAction` sier hva som skal gjøres nå, med dekkets eget tall i seg.
+- `workflow.remainingSteps` er stegene som er igjen; `workflow.completionCriteria` er hva fullført krever.
+- `workflow.forbiddenClosings` navngir avslutningene som er gale mens `complete` er false: «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er klar», og å be om en ny brukerbeskjed for å starte genereringen. Alle tre er sanne setninger om et halvferdig dekk — det er nettopp derfor de ble valgt.
+
+Når bildeplanen foreligger og resten av presentasjonsarbeidet er ferdig, er rekkefølgen fast og skjer i **samme samtale** – uten å vente på en ny brukerbeskjed: skriv ut den ferdige bildebriefen, start bildegenereringen umiddelbart, generer bildene enkeltvis med ett kall per bildeoppføring, koble hvert ferdig bilde til riktig oppføring før det neste genereres, og fortsett til hvert planlagt bilde har sin egen fil. Rekkefølgen bildene returneres i er irrelevant; oppføringens eget nummer, `imagePlanItemId`, motiv og aspect ratio er fasit.
+
+Det finnes to gyldige stopp, og ingen andre: brukeren har uttrykkelig bedt om å stoppe etter briefen, eller det foreligger en konkret teknisk blokkering som navngis — hvilket kall, hvilken feil, hvilket bilde. En plan kontrollene er uenige med er ikke et slikt stopp: den rettes, og så fortsetter den samme flyten.
 
 ### Ett planlagt bilde er én bildegenerering
 
@@ -409,7 +424,7 @@ Slaids sjekker planen mot dekket og melder fra om:
 - planlagte bilder uten felles bildekontekst;
 - en felles bildekontekst som gjentar motivet til ett enkelt bilde.
 
-En tom liste er sluttpunktet for bildearbeidet. Det er ingen åpen forbedringssløyfe etter det.
+En tom liste betyr at *planen* er klar til bildegenerering — ikke at bildearbeidet er ferdig. Hvor bildearbeidet står, svarer `workflow` på; se «Bildeplanen er et mellomsteg» over.
 
 ## 7. Komposisjoner som ofte fungerer
 
@@ -554,7 +569,7 @@ Når første hele utkast står:
 5. Stemmer hvert planlagt motiv med formatet på sonen det skal ligge i?
 6. Er to planlagte bilder blitt så like at de i praksis beskriver nesten samme motiv?
 
-Når kontrollpunktene er besvart og det du fant er rettet, er presentasjonen ferdig. Det er ingen åpen forbedringssløyfe etter det.
+Når kontrollpunktene er besvart, det du fant er rettet og rasterflyten er gjennomført – `workflow.complete` er true – er presentasjonen ferdig. Det er ingen åpen forbedringssløyfe etter det.
 
 Den viktigste testen er fortsatt:
 

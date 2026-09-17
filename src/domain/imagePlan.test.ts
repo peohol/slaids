@@ -36,6 +36,7 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
+  composeImageWorkflowStatus,
   isPlaceholderCaption,
   orientationOf,
   placeholderCaption,
@@ -652,6 +653,156 @@ describe('bildeplanen som genereringskontrakt', () => {
     const { deck } = deckOfPictures(3)
     expect(composeImageBrief(deck)).toBeNull()
     expect(composeImageGenerationContract(deck)).toBeNull()
+  })
+})
+
+describe('hvor bildearbeidet står', () => {
+  /*
+   * The failure these pin down is not a wrong picture — it is a turn that
+   * ended. An agent wrote a plan for eight pictures, read an answer whose
+   * `issues` list was empty, and told the user the presentation was created.
+   * Every rule about generating pictures was in that answer as prose. What was
+   * not in it was the one fact that mattered: the work was not over.
+   *
+   * So the state is derived from the deck, and the assertions below are the
+   * three questions an agent has at exactly that moment — may I stop, how much
+   * is left, and what do I do now.
+   */
+
+  /**
+   * Motifs that differ from each other, because the checks say so.
+   *
+   * A plan of eight variations on one sentence is `NEAR_DUPLICATE` eight times
+   * over, and these tests are about the stage *after* the plan is sound.
+   */
+  const MOTIFS: readonly string[] = [
+    'Australopithecus afarensis i helfigur på en savanne.',
+    'Homo erectus som slakter et dyr ved en elvebredd.',
+    'Et neandertalerbarn foran en hulemaling i fakkellys.',
+    'Et steinredskap holdt frem mellom to fingre.',
+    'En gravlegging med røde okerpigmenter.',
+    'Et landskap med innlandsis og tundravegetasjon.',
+    'To jegere som bærer et spyd over skulderen.',
+    'En leirboplåss med røyk mellom skinntelt.',
+    'En håndfull korn i et slitt trekar.',
+    'Fotsporene i vulkansk aske ved Laetoli.',
+    'Et kranium på et laboratoriebord med målestokk.',
+    'En flokk villhester på en åpen steppe.',
+  ]
+
+  /** `count` planned pictures, none of them made yet. */
+  function awaiting(count: number): Presentation {
+    const { deck, zones } = deckOfPictures(count)
+    return planned(
+      deck,
+      zones.map((zone, index) => entry(zone.slideId, zone.nodeId, MOTIFS[index])),
+    )
+  }
+
+  /** The same deck with the file for one entry delivered into its zone. */
+  function withFile(deck: Presentation, index: number): Presentation {
+    const image = resolveImagePlan(deck)[index]
+    const id = `a${index + 1}`
+    const registered = registerAsset(deck, {
+      id,
+      name: `${image.fileNameStem}.png`,
+      mimeType: 'image/png',
+      byteSize: 10,
+      width: 1600,
+      height: 900,
+      isVector: false,
+    })
+    if (!registered.ok) throw new Error(registered.error.message)
+    const filled = setImageAsset(registered.value, {
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+      assetId: id,
+    })
+    if (!filled.ok) throw new Error(filled.error.message)
+    return filled.value
+  }
+
+  it('sier at en fersk bildeplan ikke er ferdig arbeid', () => {
+    const status = composeImageWorkflowStatus(awaiting(8))
+    expect(status.stage).toBe('awaiting-generation')
+    expect(status.complete).toBe(false)
+    expect(status.pendingImageCount).toBe(8)
+    expect(status.filledImageCount).toBe(0)
+    expect(status.plannedImageCount).toBe(8)
+  })
+
+  it('navngir bildegenereringen som neste handling, med dekkets eget antall', () => {
+    const status = composeImageWorkflowStatus(awaiting(8))
+    expect(status.nextAction).toMatch(/mellomsteg/i)
+    expect(status.nextAction).toMatch(/samme samtale/i)
+    expect(status.nextAction).toContain('8 ganger')
+    expect(status.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
+    expect(status.remainingSteps.join(' ')).toContain('de 8 bildene')
+  })
+
+  it('forbyr nettopp de avslutningene som beskriver halvferdig arbeid', () => {
+    const closings = composeImageWorkflowStatus(awaiting(3)).forbiddenClosings.join(' ')
+    expect(closings).toContain('Presentasjonen er opprettet')
+    expect(closings).toContain('Bildene er ikke satt inn ennå')
+    expect(closings).toContain('Bildeplanen er klar')
+    expect(closings).toMatch(/ny brukerbeskjed/i)
+  })
+
+  it('krever bildene generert og koblet før oppgaven er fullført', () => {
+    const criteria = composeImageWorkflowStatus(awaiting(3)).completionCriteria.join(' ')
+    expect(criteria).toMatch(/skrevet ut i samtalen/i)
+    expect(criteria).toMatch(/generert i samme samtale/i)
+    expect(criteria).toMatch(/imagePlanItemId/)
+  })
+
+  it('teller ned mens bildene kommer inn, uten å kalle seg ferdig', () => {
+    let deck = awaiting(3)
+    deck = withFile(deck, 0)
+    const half = composeImageWorkflowStatus(deck)
+    expect(half.stage).toBe('partially-generated')
+    expect(half.complete).toBe(false)
+    expect(half.filledImageCount).toBe(1)
+    expect(half.pendingImageCount).toBe(2)
+    expect(half.nextAction).toContain('1 av 3')
+
+    deck = withFile(deck, 1)
+    expect(composeImageWorkflowStatus(deck).pendingImageCount).toBe(1)
+    expect(composeImageWorkflowStatus(deck).complete).toBe(false)
+  })
+
+  it('er ferdig først når hver oppføring har sin fil', () => {
+    let deck = awaiting(3)
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('complete')
+    expect(status.complete).toBe(true)
+    expect(status.pendingImageCount).toBe(0)
+    // Nothing is forbidden and nothing is left once the work is actually done:
+    // the status is a statement about this deck, not a standing warning.
+    expect(status.forbiddenClosings).toEqual([])
+    expect(status.remainingSteps).toEqual([])
+  })
+
+  it('sender agenten gjennom reparasjonen, ikke ut av flyten', () => {
+    // A plan the checks disagree with is still a plan that ends in pictures.
+    const { deck, slideId, nodeIds } = threeColumns()
+    const partial = planned(deck, [entry(slideId, nodeIds[0], 'Homo erectus i helfigur.')])
+    expect(checkImagePlan(partial).length).toBeGreaterThan(0)
+
+    const status = composeImageWorkflowStatus(partial)
+    expect(status.stage).toBe('plan-needs-repair')
+    expect(status.complete).toBe(false)
+    expect(status.nextAction).toMatch(/issues/)
+    expect(status.nextAction).toMatch(/fortsett deretter i samme samtale/i)
+    expect(status.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
+  })
+
+  it('har ingenting utestående når dekket ikke planlegger bilder', () => {
+    const { deck } = deckOfPictures(3)
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('no-planned-images')
+    expect(status.complete).toBe(true)
+    expect(status.plannedImageCount).toBe(0)
   })
 })
 

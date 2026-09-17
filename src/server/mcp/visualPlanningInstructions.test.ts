@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { SELF_CHECK_STOP } from '../../agent/design'
+import {
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+  IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+} from '../../domain/imagePlan'
 import { MCP_INSTRUCTIONS } from './instructions'
 
 describe('visual media planning instructions', () => {
@@ -57,5 +62,80 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/0 planlagte rasterbilder/i)
     expect(MCP_INSTRUCTIONS).toMatch(/SVG var enklere å lage/i)
     expect(MCP_INSTRUCTIONS).toMatch(/felles bildekontekst uten noen planlagte rasterbilder/i)
+  })
+
+  describe('bildeplanen er et mellomsteg, ikke leveransen', () => {
+    /*
+     * The regression, in the plainest form it took: the user asked for an
+     * illustrated talk, the agent built the deck, wrote the image plan, and
+     * closed the turn with «the presentation is created, the pictures are not
+     * inserted yet». Nothing was invalid and nothing was skipped — the turn
+     * simply ended one step before the pictures existed.
+     *
+     * Everything asserted here is a sentence that makes that ending visible as
+     * the failure it is, rather than as a status report.
+     */
+
+    it('sier at bildeplanen aldri er et sluttpunkt', () => {
+      expect(MCP_INSTRUCTIONS).toMatch(/Bildeplanen er et mellomsteg, ikke leveransen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/Bildeplanen er aldri et sluttpunkt/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/uten å vente på en ny brukerbeskjed/i)
+      // And «same conversation» does not contradict finishing the deck first:
+      // the wait is for the deck to settle, never for another user turn.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /«I samme samtale» betyr ikke før resten av presentasjonsarbeidet er ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/samme sammenhengende arbeidsøkten – ikke i en ny/i)
+    })
+
+    it('gjør dekkets egen status til stoppkriteriet', () => {
+      // The decision is a field, not an impression: an agent that only reads
+      // structure sees `complete: false` and a pending count that is not zero.
+      expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
+      expect(MCP_INSTRUCTIONS).toMatch(/`pendingImageCount` som ikke er 0/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/avslutt først når `workflow\.complete` er true/i)
+    })
+
+    it('navngir den obligatoriske rekkefølgen etter planen', () => {
+      expect(MCP_INSTRUCTIONS).toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/Slå aldri flere planlagte bilder sammen til ett bilde/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/rekkefølgen bildene returneres i er irrelevant/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/kobles til riktig oppføring før det neste genereres/i)
+    })
+
+    it('lister fullføringskriteriene, alle seks', () => {
+      for (const criterion of IMAGE_WORKFLOW_COMPLETION_CRITERIA) {
+        expect(MCP_INSTRUCTIONS).toContain(criterion)
+      }
+    })
+
+    it('forbyr de tre avslutningene arbeidsflyten faktisk endte med', () => {
+      for (const closing of IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS) {
+        expect(MCP_INSTRUCTIONS).toContain(closing)
+      }
+      // And the only two legitimate stops are named, so «blocked» cannot be a
+      // feeling: the user said stop, or there is a failure to point at.
+      expect(MCP_INSTRUCTIONS).toMatch(/navngi blokkeringen konkret/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
+    })
+
+    it('utløses av planlagte bildesoner, ikke bare av ordet «bilder»', () => {
+      // The earlier wording made the mandate conditional on how the user had
+      // phrased the order, which is the one input an agent can talk itself out
+      // of. Planned picture zones are the trigger.
+      expect(MCP_INSTRUCTIONS).toMatch(/Har dekket planlagte rasterbilder, skal de genereres/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/planlagte bildesoner er i seg selv nok/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/den skal vente, ikke utgå/i)
+    })
+
+    it('slutter aldri med at en tom kontrolliste er ferdig arbeid', () => {
+      expect(MCP_INSTRUCTIONS).not.toMatch(/er listen tom, er bildeplanen ferdig/i)
+      expect(SELF_CHECK_STOP).toMatch(/`workflow\.complete` er true/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/overleveringer i rasterflyten er startet/i)
+    })
   })
 })

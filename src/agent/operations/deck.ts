@@ -38,9 +38,11 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
+  composeImageWorkflowStatus,
   isImagePlanItemId,
   resolveImagePlan,
   type ImageGenerationContract,
+  type ImageWorkflowStatus,
 } from '../../domain/imagePlan'
 import {
   bodyOf,
@@ -461,6 +463,16 @@ export interface PlannedImageView {
 export interface ImageBriefView {
   presentationId: string
   revision: string
+  /**
+   * Whether the picture work is finished, and what happens next if it is not.
+   *
+   * First in the answer, and deliberately: this is the field that decides
+   * whether the *task* is over, and it is read by an agent that has just
+   * written a plan and is deciding what to say to the user. Everything below is
+   * the plan itself; this is the sentence about the plan. See
+   * `ImageWorkflowStatus` for the failure it exists to make impossible.
+   */
+  workflow: ImageWorkflowStatus
   /** The shared visual context, or `null` when the deck has none. */
   imageContext: string | null
   imageCount: number
@@ -514,6 +526,7 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
   return {
     presentationId: presentation.id,
     revision: presentationRevision(presentation),
+    workflow: composeImageWorkflowStatus(presentation),
     imageContext: presentation.imageContext ?? null,
     imageCount: images.length,
     images: images.map((image) => ({
@@ -576,7 +589,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -611,7 +624,7 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at bildeplanen er ferdig.',
+    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig. Det svarer `workflow` på.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),

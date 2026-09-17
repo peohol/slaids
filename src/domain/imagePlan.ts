@@ -954,6 +954,174 @@ function deliveryChecks(count: number): readonly string[] {
 }
 
 /* ------------------------------------------------------------------ *
+ * Where the picture work stands, and what is therefore not done yet
+ * ------------------------------------------------------------------ */
+
+/**
+ * The raster flow's position, in the deck's own terms.
+ *
+ * `awaiting-generation` and `partially-generated` are the two stages an agent
+ * must never end a turn in: both mean there are entries in the plan that no
+ * file answers yet, and producing those files is the next thing that happens,
+ * in the same conversation.
+ */
+export type ImageWorkflowStage =
+  | 'no-planned-images'
+  | 'plan-needs-repair'
+  | 'awaiting-generation'
+  | 'partially-generated'
+  | 'complete'
+
+/**
+ * How far the deck's raster flow has got, derived rather than remembered.
+ *
+ * It exists because of a failure every prose rule in this flow already forbade
+ * and that happened anyway: the plan was written, the answer came back full of
+ * instructions about generating the pictures, and the agent stopped there and
+ * told the user the presentation was ready. Nothing in that answer *said* the
+ * work was unfinished — an empty `issues` list reads as a finishing line, and a
+ * paragraph of instructions is something an agent has read rather than
+ * something it is visibly in the middle of.
+ *
+ * So the state is computed from the deck and returned beside the plan. The load
+ * bearing field is `complete`: it is false exactly while entries are waiting
+ * for files, so «may I stop here?» stops being a judgement about prose and
+ * becomes a boolean the answer already carries. The rest is what that boolean
+ * costs to act on — the next action with this deck's own counts in it, the
+ * steps left, what finishing actually requires, and the endings that are wrong
+ * while it is false.
+ *
+ * Nothing here restates the plan or the generation contract. The per-image loop
+ * is `ImageGenerationContract.perImageSteps`, the delivery checks are
+ * `beforeDeposit`, and this points at them rather than copying them: the one
+ * thing neither can say about itself is whether the work is over.
+ */
+export interface ImageWorkflowStatus {
+  stage: ImageWorkflowStage
+  /**
+   * Whether the raster flow has anything left in it.
+   *
+   * The single field to branch on. False means the task is not finished, no
+   * matter how complete the slides look — see `completionCriteria`.
+   */
+  complete: boolean
+  plannedImageCount: number
+  /** Entries whose file has arrived. */
+  filledImageCount: number
+  /** Entries still waiting for a file: the number of generation calls left. */
+  pendingImageCount: number
+  /** What happens next, named as an action rather than as a state. */
+  nextAction: string
+  /** The steps between here and a finished task, in order. Empty when complete. */
+  remainingSteps: readonly string[]
+  /** Everything that has to be true before the task may be called finished. */
+  completionCriteria: readonly string[]
+  /** Endings that are wrong while `complete` is false. Empty when it is true. */
+  forbiddenClosings: readonly string[]
+}
+
+/**
+ * What finishing means for a deck that plans pictures.
+ *
+ * Exported because the same six lines are the agent's standing instruction and
+ * this deck's own status, and two copies of a definition of done is how a
+ * delivery comes to satisfy one of them.
+ */
+export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
+  'Presentasjonen er opprettet eller oppdatert.',
+  'Slidestruktur og innhold er på plass.',
+  'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
+  'Den ferske sluttbriefen er skrevet ut i samtalen.',
+  'Alle planlagte bilder er generert i samme samtale, som like mange separate bildefiler.',
+  'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, og koblingen er kontrollert.',
+]
+
+/**
+ * The four endings that were the failure, said as the failure rather than as
+ * style advice.
+ *
+ * Each one is a true sentence about a deck whose pictures have not been made,
+ * which is exactly why it was reached for: an agent describing what it has done
+ * is not obviously stopping early. Naming the sentences is the cheapest way to
+ * make the stop visible to the agent writing one.
+ */
+export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
+  'Ikke avslutt med «Presentasjonen er opprettet» når bildene fortsatt skal genereres i denne samtalen.',
+  'Ikke avslutt med «Bildene er ikke satt inn ennå». Det er en beskrivelse av arbeid som gjenstår, og arbeidet er ditt.',
+  'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
+  'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe etter briefen, eller en konkret teknisk blokkering du navngir.',
+]
+
+/** The generation half of what is left, with this deck's own count in it. */
+function generationSteps(pending: number): readonly string[] {
+  return [
+    'Hent den ferske sluttbriefen fra den endelige presentasjonstilstanden, og skriv den ut i samtalen.',
+    `Generer de ${pending} bildene som mangler, enkeltvis: ett kall per oppføring i \`images\`, i stigende \`number\`, etter \`generation.perImageSteps\`.`,
+    'Kontroller leveransen mot `generation.beforeDeposit`, og kjør koblingskontrollen før bildene deponeres.',
+  ]
+}
+
+/**
+ * The deck's raster flow, as a state rather than as a recollection.
+ *
+ * Total: every deck has one, including a deck that plans no pictures, because
+ * «nothing to do here» is an answer an agent needs as much as a count of four.
+ */
+export function composeImageWorkflowStatus(presentation: Presentation): ImageWorkflowStatus {
+  const images = resolveImagePlan(presentation)
+  const filled = images.filter((image) => image.filled).length
+  const pending = images.length - filled
+  const counts = {
+    plannedImageCount: images.length,
+    filledImageCount: filled,
+    pendingImageCount: pending,
+  }
+  const done = (stage: ImageWorkflowStage, nextAction: string): ImageWorkflowStatus => ({
+    stage,
+    complete: true,
+    ...counts,
+    nextAction,
+    remainingSteps: [],
+    completionCriteria: IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+    forbiddenClosings: [],
+  })
+
+  if (images.length === 0) {
+    return done(
+      'no-planned-images',
+      'Dekket planlegger ingen rasterbilder, så rasterflyten har ingenting utestående. Forutsetter bestillingen bilder, er det bildeplanen som mangler – ikke bildegenereringen.',
+    )
+  }
+  if (pending === 0) {
+    return done(
+      'complete',
+      'Alle planlagte bilder har fått sin fil. Rasterflyten er ferdig for dette dekket.',
+    )
+  }
+
+  /* A plan the checks disagree with is still generated from, and an agent that
+     generates first has made pictures for a plan it is about to rewrite. So the
+     repair comes first — but it is a step on the way to the same generation,
+     never a reason to hand the deck back. */
+  const needsRepair = checkImagePlan(presentation).length > 0
+  return {
+    stage: needsRepair ? 'plan-needs-repair' : filled > 0 ? 'partially-generated' : 'awaiting-generation',
+    complete: false,
+    ...counts,
+    nextAction: needsRepair
+      ? `Rett først det \`issues\` peker på og skriv bildeplanen på nytt. Fortsett deretter i samme samtale: skriv ut sluttbriefen og generer de ${pending} bildene enkeltvis.`
+      : filled > 0
+        ? `${filled} av ${images.length} planlagte bilder har fått sin fil. Fortsett i samme samtale med de ${pending} som gjenstår – ett kall per oppføring, i stigende \`number\`.`
+        : `Bildeplanen er et mellomsteg, ikke leveransen. Fortsett i samme samtale: skriv ut den ferske sluttbriefen, og kall deretter bildegeneratoren ${pending} ganger – én gang per oppføring i \`images\`, én oppføring ferdigstilt av gangen.`,
+    remainingSteps: needsRepair
+      ? ['Rett det `issues` peker på, og skriv bildeplanen på nytt.', ...generationSteps(pending)]
+      : generationSteps(pending),
+    completionCriteria: IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+    forbiddenClosings: IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Validation of the entries themselves
  * ------------------------------------------------------------------ */
 
