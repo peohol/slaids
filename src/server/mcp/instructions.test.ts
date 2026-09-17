@@ -37,6 +37,7 @@ import {
   DECK_SELF_CHECK,
   DESIGN_DOCS_PATH,
   IMAGE_BRIEF_RULE,
+  IMAGE_GENERATION_RULE,
   IMAGE_PLACEHOLDER_POLICY,
   IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
@@ -64,6 +65,7 @@ import {
   VISUAL_SUBJECTS,
   ZONE_SELF_CHECK,
 } from '../../agent/design'
+import { PLANNED_IMAGE_FIELDS } from '../../domain/constants'
 import { MCP_INSTRUCTIONS } from './instructions'
 import { mcpTools } from './tools'
 
@@ -97,6 +99,7 @@ const NORMATIVE = [
   RASTER_WORKFLOW_RULE,
   IMAGE_BRIEF_RULE,
   IMAGE_PLAN_RULE,
+  IMAGE_GENERATION_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
   SELF_CHECK_STOP,
@@ -418,6 +421,46 @@ describe('raster og vektor', () => {
     const policy = IMAGE_PLACEHOLDER_POLICY.join(' ')
     expect(policy).toMatch(/Sett inn bilde 1 her/)
     expect(policy).toMatch(/Ikke skriv slike plassholdere for hånd/i)
+  })
+
+  it('gjør hvert planlagt bilde til én selvstendig bildegenerering', () => {
+    // The observed failure: eight planned pictures, one storyboard back,
+    // because the composed brief is one message and was handed on as one job.
+    // The rule has to reach the agent, and it has to be unmistakable about
+    // which half of the answer drives generation.
+    expect(agentSurface()).toContain(IMAGE_GENERATION_RULE)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /ett element i `images` = én selvstendig bildegenerering = én bildefil/i,
+    )
+    expect(IMAGE_GENERATION_RULE).toMatch(/`imageCount` 8.*kalles 8 ganger.*8 separate bildefiler/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/send den aldri til bildegeneratoren som én samlet genereringsjobb/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/parse den aldri tilbake til enkeltbilder/i)
+    // The count is checked against the plan before the files are deposited,
+    // and one picture of many motifs never satisfies a plan of many pictures.
+    expect(IMAGE_GENERATION_RULE).toMatch(/generation\.expectedFileCount/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri et gyldig svar på en plan med flere bilder/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/generer de manglende bildene enkeltvis på nytt/i)
+  })
+
+  it('bevarer nummereringen fra planlagt bilde til bildefil', () => {
+    // The deposit matches `1.png`, `2.jpg`, … to the zones they were ordered
+    // for, so a renumbering anywhere in the flow puts pictures in the wrong
+    // zones rather than failing.
+    expect(IMAGE_GENERATION_RULE).toMatch(/planlagt bilde 1 blir fil `1`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/med filendelsen til formatet/i)
+  })
+
+  it('bruker den strukturerte oppføringen som kilde, ikke den samlede briefen', () => {
+    // Every field an entry carries is named, so nothing has to be parsed back
+    // out of the prose that the structured half already holds.
+    for (const field of ['number', 'slideId', 'nodeId', 'slideLabel', 'aspectRatio', 'orientation']) {
+      expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
+    }
+    for (const field of PLANNED_IMAGE_FIELDS) {
+      expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
+    }
+    expect(IMAGE_GENERATION_RULE).toMatch(/`imageContext`/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri et felles format for flere bilder/i)
   })
 
   it('sier at agenten ikke skriver den samlede briefen, antallet eller formatene selv', () => {

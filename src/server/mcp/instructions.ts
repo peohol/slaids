@@ -31,6 +31,7 @@ import {
   CARD_FRAMING_RULE,
   COLOR_SEMANTICS_RULE,
   DECK_SELF_CHECK,
+  IMAGE_GENERATION_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_USAGE_RULE,
   NATIVE_COMPOSITION_RULE,
@@ -90,6 +91,7 @@ Design før geometri:
 - **Sjekk deg selv underveis.** ${REPEATED_FALLBACK_RULE}
 - **Bilder: illustrasjon → raster, diagrammatisk figur → vektor.** ${IMAGE_POLICY_SUMMARY} Verktøyene som lagrer filene sier resten.
 - **Rasterflyten er fast, ikke en fallback.** ${RASTER_WORKFLOW_RULE}
+- **Ett planlagt bilde er én bildegenerering og én fil.** ${IMAGE_GENERATION_RULE}
 - **Kilder går gjennom referansesystemet, ikke gjennom en egen slide.** ${REFERENCE_SYSTEM_RULE}
 - **Fit er redaksjonell tilbakemelding.** Hvis innhold ikke får plass, kort ned og prioriter først. Sjekk deretter grouping, vekter og trestruktur. Del sliden hvis den egentlig gjør flere kommunikative jobber. Ikke prøv å bevare all kildetekst ved å gjøre layouten stadig tettere.
 - **Strukturell validering er ikke sluttkontrollen.** ${VISUAL_QA_RULE}
@@ -113,7 +115,7 @@ Slik arbeider du:
 6. Gjør én semantisk endring om gangen, med id-ene du nettopp leste.
 7. Inspiser eller valider på nytt. Ved overflow: rediger teksten først, komponer på nytt når problemet er strukturelt, og rett opp det som ble avvist.
 8. Kjør kontrollpunktene under før du leverer, og render representative slides visuelt – spesielt der du selv har laget en SVG.
-9. Når alle innholdsendringer, citations, validering/reparasjoner og visuell QA er ferdige og bildesonene er stabile, hent den genererte bildebriefen på nytt fra den endelige presentasjonstilstanden. Krever rasterflyten direkte vertsklient-handoff, skriv denne ferske briefen ut i samme samtale og start bildegenereringen umiddelbart. Ikke endre bildeplanen etterpå; skjer det likevel, gjenta sluttbrief og handoff.
+9. Når alle innholdsendringer, citations, validering/reparasjoner og visuell QA er ferdige og bildesonene er stabile, hent den genererte bildebriefen på nytt fra den endelige presentasjonstilstanden. Krever rasterflyten direkte vertsklient-handoff, skriv denne ferske briefen ut i samme samtale og start bildegenereringen umiddelbart – ett kall per oppføring i \`images\` – og kontroller antallet ferdige bildefiler mot \`generation.expectedFileCount\` før bildene deponeres. Ikke endre bildeplanen etterpå; skjer det likevel, gjenta sluttbrief og handoff.
 
 Reglene som avgjør om et kall lykkes:
 - **Alt må få plass.** En endring som ville skjult innhold blir avvist før den lagres, med feilkoden CONTENT_DOES_NOT_FIT og hvor mange piksler som ble til overs. Svaret er å korte ned teksten, dele sonen annerledes eller gi den mer plass – ikke å prøve på nytt.

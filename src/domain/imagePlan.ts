@@ -37,6 +37,7 @@ import {
   type PlannedImageField,
 } from './constants'
 import { computeSlideGeometry } from './geometry'
+import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { panelFrame } from './imageOptimization'
 import { collectLeaves } from './layout'
 import { geometryForTheme, themeMetrics } from './metrics'
@@ -619,6 +620,101 @@ export function composeImageBrief(presentation: Presentation): string | null {
 function section(heading: string, value: string): string[] {
   const text = value.trim()
   return text === '' ? [] : ['', `${heading}:`, text]
+}
+
+/* ------------------------------------------------------------------ *
+ * The same plan, stated as work rather than as a message
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a generator has to deliver, counted rather than described.
+ *
+ * The brief above is one message for a person to read, paste and keep. This is
+ * the same plan stated as work: how many files, what they are called, and what
+ * has to be true before they are handed back. Both are derived from the same
+ * resolved plan in the same module, so they cannot disagree about the count —
+ * which is the entire reason this is generated here instead of being counted
+ * again by whoever executes the plan.
+ *
+ * It exists because a numbered list inside one long message has an ordinary
+ * failure mode, and it was observed: an agent handed the whole brief to an
+ * image generator as a single prompt and got one storyboard back — eight
+ * motifs, one file, none of them placeable, and nothing in the flow that could
+ * tell that apart from success. A count the executing agent is handed
+ * *separately from the prose* turns that from something discovered after the
+ * fact into something refused before deposit.
+ *
+ * Nothing here repeats the plan: the entries, their numbers, their motifs and
+ * their aspect ratios are the resolved plan itself, and a caller executing this
+ * contract reads them from there. What this adds is only what the entries
+ * cannot say on their own — how many of them make a finished delivery.
+ */
+export interface ImageGenerationContract {
+  /**
+   * How many separate image files the plan requires. Always one per entry.
+   *
+   * The number to check a finished set of files against, and the same number
+   * `ImageDeposit.expectedCount` is opened with.
+   */
+  expectedFileCount: number
+  /** The rule, with this plan's own count in it rather than an «N» to substitute. */
+  rule: string
+  /** Where the instruction for one file comes from, and where it does not. */
+  perImageInstruction: string
+  /** What a finished file is called, so its number survives the trip back. */
+  fileNamePattern: string
+  /** The extensions a deposited file may carry. The deposit's own list, not a copy. */
+  fileExtensions: readonly string[]
+  /** What has to hold before the files are deposited. Each line is checkable. */
+  beforeDeposit: readonly string[]
+  /** What the composed brief is, so it is never mistaken for one generation prompt. */
+  briefRole: string
+}
+
+/**
+ * The deck's plan as a delivery contract, or `null` when it plans no pictures.
+ *
+ * `null` for the same reason `composeImageBrief` is: a contract for nothing is
+ * a count of zero with five rules about it.
+ */
+export function composeImageGenerationContract(
+  presentation: Presentation,
+): ImageGenerationContract | null {
+  const count = resolveImagePlan(presentation).length
+  if (count === 0) return null
+  return {
+    expectedFileCount: count,
+    rule:
+      count === 1
+        ? 'Lag nøyaktig ett bilde: den ene oppføringen i bildeplanen er én selvstendig bildegenerering og én bildefil.'
+        : `Lag nøyaktig ${count} separate bilder: hver oppføring i bildeplanen er én selvstendig bildegenerering og én bildefil. Bildegeneratoren skal kalles ${count} ganger – én gang per oppføring, aldri én gang for hele planen.`,
+    perImageInstruction: `Instruksen for ett bilde er den ene oppføringens egne felter – nummer, slide, aspect ratio, orientering, ${PLANNED_IMAGE_FIELDS.map(
+      (field) => PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
+    ).join(', ')} – sammen med dekkets felles bildekontekst. Aspect ratio hentes fra den samme oppføringen, slik at to bilder med ulikt format ikke havner på samme lerret.`,
+    fileNamePattern: '<nummer>.<filendelse>',
+    fileExtensions: IMAGE_FILE_EXTENSION_LIST,
+    beforeDeposit: deliveryChecks(count),
+    briefRole:
+      'Den samlede briefen er den menneskelesbare representasjonen av nøyaktig den samme planen – til utskrift i samtalen, manuell kopiering, dokumentasjon og eventuelt overordnet kontekst. Den er ikke én bildegenereringsprompt, og den skal ikke parses tilbake til enkeltbilder: den strukturerte planen inneholder allerede det som trengs per bilde.',
+  }
+}
+
+/**
+ * What separates a finished delivery from a plausible-looking one.
+ *
+ * Every line is a question about the files themselves rather than about the
+ * prompt that produced them, because that is the only side a caller can
+ * actually check: a generator that merged eight motifs into one picture has
+ * still answered, and the answer still looks like a success.
+ */
+function deliveryChecks(count: number): readonly string[] {
+  return [
+    `Det finnes nøyaktig ${count} separate bildefiler – én per planlagt bilde.`,
+    `Numrene 1‥${count} forekommer én gang hver: ingen hull, ingen duplikater.`,
+    'Hver fil viser motivet til sitt eget nummer, og har det aspect ratio oppføringen oppgir.',
+    'Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiver det inneholder.',
+    'Stemmer ikke antallet, er bildegenereringen ikke ferdig: generer de manglende bildene enkeltvis før deponering, i stedet for å gå videre.',
+  ]
 }
 
 /* ------------------------------------------------------------------ *

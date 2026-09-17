@@ -685,7 +685,9 @@ rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
 ferdig validert og bildesonene er stabile; klienten henter da en fersk sluttbrief
 fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
 bildegenerering, skal den skrive sluttbriefen ut i samme samtale og starte
-bildegenereringen umiddelbart; verktøyresponsen alene er ikke handoff. Hvis
+bildegenereringen umiddelbart — ett kall per planlagt bilde, og antallet ferdige
+bildefiler kontrolleres mot planen før deponering; verktøyresponsen alene er
+ikke handoff. Hvis
 klienten ikke kan sende briefen direkte, kan den fortsatt kopieres manuelt. Uten
 en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
 bildedeponeringen.
