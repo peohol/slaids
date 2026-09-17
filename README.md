@@ -717,7 +717,7 @@ overlever at et bilde byttes ut etterpå.
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
 | `get_image_brief`                        | den genererte, ferdige bestillingen, kontrollene og deponeringsstatusen |
-| `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra |
+| `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra, og lagrer koblingen på dekket når den holder |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller
 `titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids

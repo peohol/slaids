@@ -26,6 +26,7 @@ import {
 } from '../imagePlan'
 import { findContentSlide, touch } from '../presentation'
 import { openImageDeposit } from './imageDeposit'
+import { pruneGeneratedImages } from './imageGeneration'
 import { docToPlainText, titleDoc } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { Presentation } from '../types'
@@ -77,15 +78,23 @@ export function setImagePlan(
 
   const plan = entries.map(normalizeEntry)
   const same = JSON.stringify(presentation.imagePlan ?? []) === JSON.stringify(plan)
-  const withPlan: Presentation =
+  const written: Presentation =
     plan.length === 0 ? stripPlan(presentation) : { ...presentation, imagePlan: plan }
+  /* A new plan is a new set of orders, and an order's id covers all of it — so
+     a binding written for the plan that was here may no longer point at
+     anything. What is dropped is only what nothing can be said about any more:
+     a binding whose zone is gone, or whose picture has been taken out. One
+     whose picture is still sitting in the deck is kept even when the plan no
+     longer orders it, because that record is the only thing that knows the
+     picture was made for a different order — see `pruneGeneratedImages`. */
+  const withPlan = pruneGeneratedImages(written)
 
   const stamped = syncImagePlaceholders(withPlan, options)
   if (!stamped.ok) return stamped
   // A call that changed nothing writes nothing — the same contract
   // `setImageContext` keeps, and what stops a re-read of the current plan from
   // moving `updatedAt` under an editor that is autosaving.
-  if (same && stamped.value === withPlan) return ok(presentation)
+  if (same && withPlan === written && stamped.value === withPlan) return ok(presentation)
   return ok(stamped.value === withPlan ? touch(withPlan) : stamped.value)
 }
 

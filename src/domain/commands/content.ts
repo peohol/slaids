@@ -45,6 +45,7 @@ import { touch, withSlide } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
 import { hasAsset } from './assets'
+import { dropSupersededBinding } from './imageGeneration'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
 import type {
@@ -185,7 +186,7 @@ export function setImageAsset(
   if (input.assetId !== null && !hasAsset(presentation, input.assetId)) {
     return err('ASSET_NOT_FOUND', 'Presentasjonen har ingen fil med den id-en.')
   }
-  return updateImagePanel(presentation, input, (panel) => {
+  const written = updateImagePanel(presentation, input, (panel) => {
     if (panel.assetId === input.assetId) return ok(panel)
     const placeholderGone =
       input.assetId !== null &&
@@ -197,6 +198,12 @@ export function setImageAsset(
       ...(placeholderGone ? { caption: null } : {}),
     })
   })
+  if (!written.ok || written.value === presentation) return written
+  /* The picture in this zone has changed, so a binding that described the
+     *previous* one has nothing left to be about. Only a superseded binding is
+     dropped — the one the plan still orders is this delivery. See
+     `dropSupersededBinding`. */
+  return ok(dropSupersededBinding(written.value, input.slideId, input.nodeId))
 }
 
 /**

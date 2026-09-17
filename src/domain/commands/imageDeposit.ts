@@ -1,12 +1,19 @@
 /**
  * Opening, closing and giving up on the deck's image deposit.
  *
- * The three writes a deposit ever needs, and the rule they all share: `pending`
- * is a state a deck can be put into exactly once. `completed` and `abandoned`
- * are final, so every function here asks `depositIsFinal` before it writes, and
- * a deck that has been through the workflow behaves like any other deck
- * afterwards — no numbers on its panels, no dialog on opening it, nothing to
- * reset.
+ * The three writes a deposit ever needs, and the rule they share: a deck is put
+ * into `pending` when it is waiting for pictures, and `completed` ends that
+ * round. A finished deck behaves like any other deck afterwards — no numbers on
+ * its panels, no dialog on opening it, nothing to reset.
+ *
+ * `completed` used to be final in the strong sense: nothing could put a deck
+ * back into `pending`. That turned out to describe one deck's life rather than
+ * a deck's, because a deck can order pictures again — rewrite a motif or the
+ * shared image context and the plan asks for pictures the deck does not have.
+ * So a completed round reopens when, and only when, the deck is waiting for
+ * pictures again; see `awaitsPictures`. `abandoned` is still final in the
+ * strong sense, because it is somebody's answer rather than a state of the
+ * deck.
  *
  * Where the numbering comes from is not decided here. It is `resolveImagePlan`'s
  * deck-order numbering, the same one that stamps the placeholder captions and
@@ -16,13 +23,13 @@
  */
 
 import {
-  depositIsFinal,
   depositIsOpen,
   depositSlots,
   restampDepositNumbers,
   withoutDepositNumbers,
   type ImageDeposit,
 } from '../imageDeposit'
+import { staleGeneratedImages } from '../imageGeneration'
 import { resolveImagePlan, imageZoneKey } from '../imagePlan'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
@@ -40,17 +47,27 @@ import type { StructuralOptions } from './types'
  * opening the brief brings the numbers, the placeholders and the brief back
  * into line together.
  *
- * Three outcomes, and the first is the one that matters most:
+ * Four outcomes, and the first two are about what «final» is allowed to mean:
  *
- *  - a deck whose deposit is **final** is left exactly as it is. Nothing can
- *    put it back into `pending`, which is the promise the whole workflow rests
- *    on;
+ *  - a deck whose deposit was **abandoned** is left exactly as it is. Somebody
+ *    said no to the automatic flow, and nothing here overrules that;
+ *  - a deck whose deposit **completed** is left alone too — *unless the deck has
+ *    since ordered pictures it does not have*. That exception exists because
+ *    the alternative turned out to be a dead end: rewrite a motif or the shared
+ *    image context on a finished deck, and the plan asks for new pictures that
+ *    no deposit would ever accept. The old rule read «nothing can put it back
+ *    into pending», and what it protected against was a *finished* deck
+ *    reopening for no reason — not a deck that genuinely has new pictures
+ *    coming. `awaitsPictures` is that difference, asked of the deck rather than
+ *    assumed;
  *  - a deck that **plans no pictures** loses its deposit and every number on
  *    its panels — there is nothing to deposit;
  *  - anything else is stamped 1‥N in deck order and marked `pending`.
  */
 export function openImageDeposit(presentation: Presentation): Presentation {
-  if (depositIsFinal(presentation.imageDeposit)) return presentation
+  const current = presentation.imageDeposit
+  if (current?.status === 'abandoned') return presentation
+  if (current?.status === 'completed' && !awaitsPictures(presentation)) return presentation
 
   const numbers = new Map(
     resolveImagePlan(presentation).map((image) => [
@@ -147,6 +164,28 @@ export function completeImageDeposit(
 
   const stripped = withoutDepositNumbers(current)
   return ok(touch(withDeposit(stripped, { status: 'completed', expectedCount: slots.length })))
+}
+
+/**
+ * Whether the deck is waiting for pictures it does not have.
+ *
+ * Two ways, and the second is why this exists. A planned zone with no file is
+ * plainly waiting. A planned zone whose file was generated for an order the
+ * deck has since rewritten is waiting too — it holds a picture, and not the one
+ * it now asks for. Without the second case a finished deck could be re-planned
+ * and never receive the replacements: the workflow would say the pictures are
+ * owed, and the deposit dialog would have nothing open to put them in.
+ */
+function awaitsPictures(presentation: Presentation): boolean {
+  const planned = resolveImagePlan(presentation)
+  if (planned.length === 0) return false
+  if (planned.some((image) => !image.filled)) return true
+  const plannedZones = new Set(
+    planned.map((image) => imageZoneKey(image.plan.slideId, image.plan.nodeId)),
+  )
+  return staleGeneratedImages(presentation).some((record) =>
+    plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
+  )
 }
 
 /** The document with a deposit, or with none. Absent means «never had one». */

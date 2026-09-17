@@ -37,6 +37,7 @@ import {
   type PlannedImageField,
 } from './constants'
 import { stableDigest } from './digest'
+import { IMAGE_PLAN_ITEM_ID_PREFIX } from './imageBinding'
 import { computeSlideGeometry } from './geometry'
 import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { panelFrame } from './imageOptimization'
@@ -81,7 +82,11 @@ export interface PlannedImage {
  * ------------------------------------------------------------------ */
 
 /** The prefix every plan-entry id carries, so an id is recognisable on sight. */
-export const IMAGE_PLAN_ITEM_ID_PREFIX = 'imgplan_'
+/* The prefix and the predicate are the shared module's: the document schema
+   checks them too, and it sits below this file in the import graph. Re-exported
+   because this is where a reader looks for everything about a plan entry's
+   identity. */
+export { IMAGE_PLAN_ITEM_ID_PREFIX, isImagePlanItemId } from './imageBinding'
 
 /**
  * The whole order for one picture: what it identifies, and what it was made from.
@@ -163,13 +168,6 @@ export function imagePlanItemId(order: ImagePlanItemOrder): string {
       order.orientation,
     ])
   )
-}
-
-const IMAGE_PLAN_ITEM_ID_PATTERN = new RegExp(`^${IMAGE_PLAN_ITEM_ID_PREFIX}[0-9a-f]{16}$`)
-
-/** Whether a string is shaped like a plan-entry id at all. Checked at boundaries. */
-export function isImagePlanItemId(value: string): boolean {
-  return IMAGE_PLAN_ITEM_ID_PATTERN.test(value)
 }
 
 /**

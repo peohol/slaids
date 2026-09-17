@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { SELF_CHECK_STOP } from '../../agent/design'
+import {
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+  IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+} from '../../domain/imageWorkflow'
 import { MCP_INSTRUCTIONS } from './instructions'
 
 describe('visual media planning instructions', () => {
@@ -57,5 +62,275 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/0 planlagte rasterbilder/i)
     expect(MCP_INSTRUCTIONS).toMatch(/SVG var enklere å lage/i)
     expect(MCP_INSTRUCTIONS).toMatch(/felles bildekontekst uten noen planlagte rasterbilder/i)
+  })
+
+  describe('bildeplanen er et mellomsteg, ikke leveransen', () => {
+    /*
+     * The regression, in the plainest form it took: the user asked for an
+     * illustrated talk, the agent built the deck, wrote the image plan, and
+     * closed the turn with «the presentation is created, the pictures are not
+     * inserted yet». Nothing was invalid and nothing was skipped — the turn
+     * simply ended one step before the pictures existed.
+     *
+     * Everything asserted here is a sentence that makes that ending visible as
+     * the failure it is, rather than as a status report.
+     */
+
+    it('sier at bildeplanen aldri er et sluttpunkt', () => {
+      expect(MCP_INSTRUCTIONS).toMatch(/Bildeplanen er et mellomsteg, ikke leveransen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/Bildeplanen er aldri et sluttpunkt/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/uten å vente på en ny brukerbeskjed/i)
+      // And «same conversation» does not contradict finishing the deck first:
+      // the wait is for the deck to settle, never for another user turn.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /«I samme samtale» betyr ikke før resten av presentasjonsarbeidet er ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/samme sammenhengende arbeidsøkten – ikke i en ny/i)
+    })
+
+    it('gjør dekkets egen status til stoppkriteriet', () => {
+      // The decision is a field, not an impression: an agent that only reads
+      // structure sees `complete: false`.
+      expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Avslutt først når du har gjort det `workflow\.remainingSteps` krever av deg/i,
+      )
+      /*
+       * And never «stop when the list is empty». In `awaiting-deposit` it does
+       * not go empty from anything the agent does — handing the files over is
+       * not a change to the document — so that rule would be a rule to wait for
+       * the user's deposit, which is the architecture boundary this whole flow
+       * is about.
+       */
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Avslutt først når `workflow\.remainingSteps` er tom/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/listen blir ikke tom av det du gjør/i)
+    })
+
+    it('gjør koblingskontrollen, ikke fylte bildesoner, til genereringens stoppkriterium', () => {
+      // The lifecycle the first version of this got wrong: Slaids never sees a
+      // generated file, so a filled zone answers «has the file arrived», never
+      // «was the picture made». An agent told to wait for filled zones waits
+      // for a browser action it cannot perform — and regenerates.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
+      // And the answer is a fact about the deck, not about one response: the
+      // regression was `verify_image_handoff` saying «done» and the very next
+      // read asking for every picture again.
+      expect(MCP_INSTRUCTIONS).toMatch(/også ved senere lesninger, fordi svaret lagres på dekket/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/faller kontrollen bort av seg selv/i)
+      // The check is stored and the files are not, so a later session that does
+      // not hold them must be able to act rather than report a deck with empty
+      // picture zones as finished.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Filene lagres ikke: åpner du et `awaiting-deposit`-dekk uten å ha dem/i,
+      )
+      /*
+       * What is left is not one sentence. `awaiting-deposit` covers a deck with
+       * empty zones *and* a deck whose zones still show the previous pictures,
+       * and `generation-verified` has no empty zone at all — so a rule that
+       * always said «the picture zones are empty» would have the agent tell the
+       * user something untrue in two of the states this PR just made
+       * load-bearing.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Meld aldri et dekk ferdig uten å si hva som faktisk gjenstår/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /andre viser fortsatt bildet fra forrige bestilling/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /I `generation-verified` er ingen sone tom, og da skal du ikke påstå at noen er det/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/Gjenta dekkets egen tilstand, ikke en fast setning/i)
+      // The unconditional version is asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Meld aldri et dekk ferdig uten å si at bildesonene står tomme/i,
+      )
+      // And the retired definition is asserted gone rather than left to review:
+      // the rule and the stages must not give the model two answers to «what
+      // does a passing check leave me in».
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /stadiet er `awaiting-deposit` så lenge bildene ikke er på plass i sonene/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /sier `generation-verified` også ved senere lesninger/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /skal ikke genereres om igjen fordi sonen står tom/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/brukerens steg i nettleseren med mindre klienten har en\s+filbro/i)
+      // And the rule itself says the count is what Slaids is missing, never a
+      // debt of pictures the agent still owes.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`awaitingFileCount` er hva Slaids mangler, aldri hvor mange bilder du skylder/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(/pendingImageCount/)
+    })
+
+    it('navngir den obligatoriske rekkefølgen etter planen', () => {
+      expect(MCP_INSTRUCTIONS).toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/Slå aldri flere planlagte bilder sammen til ett bilde/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/rekkefølgen bildene returneres i er irrelevant/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/kobles til riktig oppføring før det neste genereres/i)
+    })
+
+    it('lister fullføringskriteriene, alle seks', () => {
+      for (const criterion of IMAGE_WORKFLOW_COMPLETION_CRITERIA) {
+        expect(MCP_INSTRUCTIONS).toContain(criterion)
+      }
+    })
+
+    it('forbyr de tre avslutningene arbeidsflyten faktisk endte med', () => {
+      for (const closing of IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS) {
+        expect(MCP_INSTRUCTIONS).toContain(closing)
+      }
+      // And the only two legitimate stops are named, so «blocked» cannot be a
+      // feeling: the user said stop, or there is a failure to point at.
+      expect(MCP_INSTRUCTIONS).toMatch(/navngi blokkeringen konkret/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
+    })
+
+    it('skiller de to `plan-outdated`-tilfellene, som krever motsatt handling', () => {
+      /*
+       * The rule used to say one thing about a planned zone that already has a
+       * picture: rewrite the plan without it. That is right for a file nothing
+       * accounts for, and exactly wrong for one the deck knows was made for an
+       * order it has since rewritten — there the zone stays in the plan and the
+       * replacement gets made. A rule that gave only the first answer could
+       * send an agent to empty the plan at the very moment it should generate.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(/sier `workflow` `plan-outdated`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/to tilfeller som krever motsatt handling/i)
+      // Superseded: keep the zone, generate the replacement — and the whole
+      // plan, because the check expects one file per planned entry.
+      expect(MCP_INSTRUCTIONS).toMatch(/koblingskontrollen svarer `PLAN_CHANGED`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/skal sonen bli stående i planen og erstatningen genereres/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/også for soner som alt har et bilde/i)
+      // Unknown provenance: rewrite the plan with only what still waits.
+      expect(MCP_INSTRUCTIONS).toMatch(/ingen kobling som gjør rede for filen, er proveniensen ukjent/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/bare sonene som fortsatt venter/i)
+      // And the deck decides which, not the agent's guess.
+      expect(MCP_INSTRUCTIONS).toMatch(/Følg `nextAction`, ikke gjetningen/i)
+      // The one-answer version is asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Bildeplanen skal beskrive nøyaktig de bildesonene som venter på en fil/i,
+      )
+    })
+
+    it('utløses av planlagte bildesoner, ikke bare av ordet «bilder»', () => {
+      // The earlier wording made the mandate conditional on how the user had
+      // phrased the order, which is the one input an agent can talk itself out
+      // of. Planned picture zones are the trigger.
+      expect(MCP_INSTRUCTIONS).toMatch(/Har dekket planlagte rasterbilder, skal de genereres/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/planlagte bildesoner er i seg selv nok/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/den skal vente, ikke utgå/i)
+    })
+
+    it('lar ikke `complete` alene avslutte arbeidet', () => {
+      /*
+       * `complete` answers for the document — the plan is covered by a current,
+       * verified generation — and the bindings are stored while the files are
+       * not. So the same true field is read by two readers who owe opposite
+       * work: the conversation that holds the pictures, and a later one that
+       * opens the deck with none of them. A stop rule keyed on `complete`
+       * alone told the second one it was finished, in the same instructions
+       * that tell it to generate the pictures again.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Det er `remainingSteps` som avgjør det, ikke `complete` alene/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/`complete` er en påstand om dokumentet/i)
+      // Both readers are named, each with the condition that selects them.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /har du bildefilene fra genereringen.*skal du ikke si at presentasjonen er ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Har du dem ikke.*da gjenstår det agentarbeid, og du genererer de samme oppføringene på nytt/i,
+      )
+      // The two translations that read `complete` as a finishing line are gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /rasterflyten er gjennomført – `workflow\.complete` er true – er presentasjonen ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /`workflow\.complete` er true, er \*\*ditt\*\* arbeid ferdig/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /avslutt først når `workflow\.complete` er true/i,
+      )
+    })
+
+    it('henger genereringssekvensen på stadiet som krever den, ikke på `complete: false`', () => {
+      /*
+       * The enumeration — print the brief, start generating, one call per entry
+       * — belongs to a deck that owes pictures *now*. Two earlier versions
+       * attached it to the wrong thing. A sentence about the empty list placed
+       * just before it turned «Da gjør du dette i tur» into «when nothing is
+       * left, generate», the opposite of the two stages where the list is
+       * empty. Keying it on `complete: false` was wrong the other way:
+       * `plan-needs-repair` and both `plan-outdated` variants are also
+       * `complete: false`, and there the plan has to be repaired or rewritten
+       * before a brief means anything — a deck with plan issues would have been
+       * generated from an invalid plan.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Hva som skal gjøres nå, sier alltid `nextAction` og `remainingSteps`/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete: false` i seg selv er ikke et signal om å generere/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /stadiet kan være `plan-needs-repair` eller `plan-outdated`, og da skal planen repareres eller skrives om \*\*før\*\* noe genereres/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+      )
+      /*
+       * And the rule's own opening must not say the opposite either. «Så snart
+       * dekket har planlagte rasterbilder, er neste steg bildegenereringen» is
+       * false in exactly the two stages this test is about: a deck can have
+       * planned pictures *and* be `plan-needs-repair`, or `plan-outdated` with
+       * unknown provenance, where the plan has to be put right first.
+       */
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /hva som er neste handling, sier alltid `workflow\.nextAction` og `workflow\.stage`/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Er stadiet `plan-needs-repair` eller `plan-outdated`, skal planen først bringes i orden/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /så snart dekket har planlagte rasterbilder, er neste steg bildegenereringen/i,
+      )
+      // Both retired attachments are asserted gone.
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /er den tom, gjenstår det ingenting for deg\. Da gjør du dette i tur/i,
+      )
+      expect(MCP_INSTRUCTIONS).not.toMatch(
+        /Er `complete` false, gjør du dette i tur/i,
+      )
+    })
+
+    it('slutter aldri med at en tom kontrolliste er ferdig arbeid', () => {
+      expect(MCP_INSTRUCTIONS).not.toMatch(/er listen tom, er bildeplanen ferdig/i)
+      expect(SELF_CHECK_STOP).toMatch(
+        /du har gjort det `workflow\.remainingSteps` krever av deg/i,
+      )
+      expect(SELF_CHECK_STOP).not.toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\*/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/overleveringer i rasterflyten er startet/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/er true – er presentasjonen ferdig/i)
+      expect(SELF_CHECK_STOP).not.toMatch(/`complete` sier at agenten er ferdig/i)
+    })
   })
 })

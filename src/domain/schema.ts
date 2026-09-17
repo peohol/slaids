@@ -24,6 +24,7 @@ import {
 import { validateTree } from './layout'
 import { quantizeStoredRatios } from './ratios'
 import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactive'
+import { generatedImageRecordSchema } from './imageBinding'
 import type { ImageDepositStatus } from './imageDeposit'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
@@ -337,6 +338,21 @@ export const presentationSchema = z.object({
   /* Optional for the same reason again: absent is a deck that never planned an
      image deposit, which is not the same as one that gave up on it. */
   imageDeposit: imageDepositSchema.optional(),
+  /* Optional for the same reason again, and validated with the very schema the
+     manifest file is read through (`imageGenerationManifestSchema`), so a
+     stored binding and a delivered one cannot be different shapes. Whether a
+     record still points at a planned picture is *not* asked here, for the same
+     reason `imagePlan` is not: that is a question about the plan, and
+     `checkGeneratedImages` answers it — so a deck whose motifs were rewritten
+     stays openable and reports the mismatch instead of failing validation. */
+  generatedImages: z
+    /* Twice the plan's own bound: a deck may carry one binding per planned
+       picture *and* the binding each of them replaced, for as long as the
+       replaced picture is still the one sitting in the zone. See
+       `recordGeneratedImages`. */
+    .array(generatedImageRecordSchema)
+    .max(MAX_PLANNED_IMAGES * 2)
+    .optional(),
   theme: themeSchema,
   /* At least one slide, and the first one is a section. The refinement is the
      runtime half of `DeckSlides`: it is the only place a stored document is

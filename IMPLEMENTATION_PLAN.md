@@ -316,10 +316,13 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
 presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
-bildekontekst, og Slaids genererer den samlede briefen. Når brukerbestillingen
-forutsetter rasterbilder for å være oppfylt — også formuleringer som «med
-bilder», «bruk bilder» eller «bilder i hvert steg» — skal bildegenereringen
-startes fra en fersk sluttbrief etter at citations, øvrige innholdsendringer,
+bildekontekst, og Slaids genererer den samlede briefen. **Bildeplanen er et
+mellomsteg, aldri en ferdig leveranse.** Har dekket planlagte rasterbilder, skal
+de genereres — det gjelder alltid når brukerbestillingen forutsetter bilder for
+å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller
+«bilder i hvert steg», men planlagte bildesoner er i seg selv nok. Selve
+bildegenereringen startes fra en fersk sluttbrief etter at citations, øvrige
+innholdsendringer,
 validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
 brief hentet tidligere i arbeidsflyten er foreløpig og skal ikke sendes til
 generatoren. Når bildesonene er stabile, henter klienten briefen på nytt fra den
@@ -531,7 +534,7 @@ Persistensgrensen er ikke defensiv duplisering mellom interne lag — et
 importert dokument bære en plan den vanlige skriveveien aldri ville tillatt.
 Blanke felt (bare mellomrom) er tomme felt alle tre steder. `checkImagePlan` har
 derfor ingenting å si om saken: en ufullstendig oppføring kan ikke oppstå, og en
-tom kontrolliste betyr fortsatt ferdig.
+tom kontrolliste betyr fortsatt at planen er klar.
 
 ### Den felles bildekonteksten
 
@@ -631,6 +634,245 @@ genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
 planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
 dem som utgjør en ferdig leveranse, og hvordan én av dem utføres.
 
+### Bildeplanen er et mellomsteg: `workflow`
+
+Kontrakten over sier hvordan bildene lages. Den sier ikke om de er laget, og det
+var nettopp det som manglet. En agent bedt om å lage et illustrert foredrag
+bygget dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og
+avsluttet samtalen med «presentasjonen er opprettet, bildene er ikke satt inn
+ennå». Alle reglene om bildegenerering lå i det svaret, som prosa. Det som ikke
+lå der, var det ene som betydde noe: at arbeidet ikke var over.
+
+En regel til ville ikke hjulpet — reglene fantes. Derfor er tilstanden **avledet
+av dekket** og returnert ved siden av planen, av `composeImageWorkflowStatus`, i
+svaret fra `plan_deck_images`, `get_image_brief` og `verify_image_handoff`.
+
+#### Hva dekket kan se, og hva det ikke kan
+
+Det avgjørende er å ikke besvare spørsmålet med det feil faktumet. **Slaids ser
+aldri en generert bildefil.** Bildene lages i vertsklienten, og uten en filbro
+kommer de inn gjennom *brukerens* deponering i nettleseren. «Denne sonen har en
+fil» er altså et faktum om deponeringen, ikke om genereringen, og det å bruke
+det som begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
+generert og korrekt verifisert mens dekket fortsatt har 0 `assetId`, og et
+stoppkriterium bygget på fylte soner blir uoppnåelig i nøyaktig den
+arbeidsflyten det ble skrevet for — og ber i praksis om at bildene genereres om
+igjen.
+
+Derfor to separate tall og én sannhetskilde:
+
+- **`plannedImageCount`**, **`depositedImageCount`** og **`awaitingFileCount`**
+  sier det Slaids kan observere, med de ordene: hvor mange oppføringer planen
+  har, hvor mange soner som holder en fil, og hvor mange som står tomme.
+  `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
+  skylder.
+- **Om selve genereringen er ferdig, svarer `checkGeneratedImages` på.** `ok`
+  der betyr at hver planlagte oppføring har nøyaktig én fil knyttet til seg, og
+  det er definisjonen på at genereringen er utført. Statusen leser det aldri av
+  en fylt sone.
+
+#### Koblingene lagres, fordi ett kall ikke er en tilstand
+
+Det holdt ikke å la kontrollen svare. Første forsøk lot bare
+`verify_image_handoff` kjenne utfallet, og da var sekvensen inkonsistent: planen
+ble skrevet, N filer generert, kontrollen svarte «ferdig» og
+`complete: true` — og neste `get_image_brief` på *nøyaktig samme dekk* svarte
+`awaiting-generation` og ba om N nye genereringskall, fordi sonene fortsatt var
+tomme. Det er den samme duplikatgenereringen regelen forbyr, ett kall senere.
+
+Derfor lagres koblingene på dokumentet (`Presentation.generatedImages`), og
+`verify_image_handoff` er en mutasjon: den skriver settet som gikk gjennom, og
+bare det. `imageGenerationIsVerified` spør `checkGeneratedImages` om de lagrede
+koblingene på nytt hver gang, mot planen dekket har *nå* — det er ikke et flagg.
+
+Det gir utløpet gratis, og det er egenskapen som gjør lagringen trygg å stole
+på: en oppførings `imagePlanItemId` dekker hele bestillingen, så et omskrevet
+motiv eller en omskrevet felles bildekontekst gjør de lagrede koblingene til
+`PLAN_CHANGED`, og et bilde laget for en bestilling dekket ikke lenger har kan
+ikke melde seg ferdig. `setImagePlan` rydder bort koblinger som ikke lenger
+resolverer, så dokumentet ikke samler påstander om bilder ingen har bestilt.
+
+Selve *formen* på en kobling bor i `domain/imageBinding.ts`, importert både av
+manifestet som kommer med filene og av dokumentskjemaet. To definisjoner ville
+vært den enkle veien og den gale: en kobling som er lovlig i et manifest og
+ulovlig på dokumentet er en leveranse som validerer på vei inn og feiler på vei
+ut.
+
+#### Stegene
+
+| `stage` | `complete` | Hva det betyr |
+| --- | --- | --- |
+| `no-planned-images` | ✔ | Dekket planlegger ingen bilder, og ingen bildesone venter. |
+| `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
+| `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
+| `generation-verified` | ✔ | Koblingskontrollen svarte `ok`, og ingenting Slaids kan se er utestående: hver planlagt sone har fått sin fil. |
+| `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. |
+| `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
+
+Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
+et dekk med reserverte bildesoner og ingen bildeplan planlegger null bilder, og
+rapportert som ferdig ville den billigste feilen som finnes — reservere sonene og
+aldri beskrive dem — lest som en leveranse. Samme rekkefølge gjør at et dekk med
+planfeil ikke kan bli `complete` selv om hver sone har fil, i tråd med statusens
+eget `completionCriteria` om at `issues` skal være tom.
+
+#### To sannheter en lagret kontroll ikke er
+
+Persistensen løste at kontrollen var et faktum om ett kall, men den innførte to
+nye overdrivelser, og begge er rettet.
+
+**Den kan ikke slettes bort.** Reparasjonen statusen navnga i `plan-outdated` —
+«skriv planen på nytt med bare sonene som fortsatt venter» — er en *tom* plan på
+et fullt deponert dekk. `setImagePlan([])` prunet så koblingene, og resultatet
+var `no-planned-images` og `complete: true` med de gamle bildene stående under
+den nye bestillingen: reparasjonsveien gjeninnførte akkurat feilen den skulle
+forhindre. Dekket hadde informasjonen hele tiden, og nå brukes den.
+`staleGeneratedImages` skiller «ingen kjent proveniens» (en fil i en sone uten
+noen kobling — en manuell opplasting, et eldre dekk) fra «samme sone har en
+lagret kobling hvis oppføring siden er skrevet om», og `pruneGeneratedImages`
+beholder den andre så lenge bildet fortsatt ligger i sonen. En `PLAN_CHANGED`
+kan derfor ikke forsvinne ved at planen tømmes; den krever at bildene lages om,
+eller at brukeren uttrykkelig velger å beholde dem.
+
+**Den er ikke et bevis på at filene er lagt inn.** En kobling sier at bildet ble
+laget, ikke at det er bildet som ligger i sonen. Etter en omskrevet bestilling
+er reparasjonen å generere erstatningene — og i det øyeblikket holder sonene
+fortsatt de *gamle* filene, samtidig som hver planlagt sone har en fil. Å la de
+nye koblingene erstatte de gamle gjorde da dekket blindt for nettopp det, og
+statusen meldte erstatningene som «lagt inn i dekket». Derfor beholder
+`recordGeneratedImages` koblingen den erstatter, så lenge det gamle bildet
+fortsatt er det som står i sonen, og statusen skiller:
+
+- **superseded** — sonen er planlagt igjen, altså er en erstatning bestilt. Er
+  den laget og kontrollert, er dette `awaiting-deposit`; er den ikke laget ennå,
+  er det `plan-outdated` med beskjed om å generere **hele planen**. De to
+  gruppene — soner som viser forrige bilde og soner uten bilde — er disjunkte
+  deler av samme plan, og `checkGeneratedImages` venter én record per *planlagt*
+  oppføring uansett hvilken gruppe sonen er i. Et antall som bare dekket den
+  ene ville sendt agenten inn i `MISSING_ITEM` på resten.
+- **unaddressed** — ingen bestilling dekker sonen. Det stopper flyten, og det er
+  dette som må overleve en tømt bildeplan.
+
+Koblingen slutter å gjelde i det bildet i sonen faktisk byttes:
+`dropSupersededBinding` kalles fra både `setImageAsset` og `setZoneContent`, som
+er de to veiene et bilde kan komme inn i en sone. Det er det ene tidspunktet
+dekket kan vite det, siden ingenting på panelet husker hvilken bestilling filen
+kom fra.
+
+Og siden en re-planlagt sone faktisk skal få et nytt bilde, kan en **fullført
+deponering åpnes igjen**: `openImageDeposit` slipper til når dekket har
+planlagte soner som mangler fil eller holder et bilde fra en tidligere
+bestilling. Det gamle «ingenting kan sette den tilbake til `pending`» beskyttet
+mot at et *ferdig* dekk åpnet seg uten grunn — ikke mot et dekk som har nye
+bilder på vei. En `abandoned` deponering er fortsatt endelig: der har noen sagt
+nei til den automatiske flyten.
+
+Reåpningen skjer gjennom `syncImagePlaceholders`, og derfor kaller
+**`setImageContext` den også**: den felles bildekonteksten er del av hver
+oppførings identitet, så å skrive den om re-identifiserer hele planen på én
+gang. Uten det kunne konteksten endres på et ferdig dekk, statusen be om
+erstatninger, og deponeringen fortsatt være lukket — agenten bedt om å levere
+filer ingenting kunne ta imot. Andre endringer som re-identifiserer en
+bestilling uten å skrive planen (en flyttet slide, en delt sone) fanges ikke av
+et kall, men av statusen: `depositNote` sier at bildeplanen må skrives på nytt
+før filene leveres, og bare når deponeringen faktisk er lukket. Alternativet —
+at hver strukturell kommando husker å reconcile — er nettopp regelen
+`syncImagePlaceholders` finnes for å slippe.
+
+#### Hva dekket aldri kan vite om en fil
+
+`generation-verified` betyr at genereringen er kontrollert og at ingenting
+dekket kan se er utestående. Det betyr **ikke** at hver sone holder nettopp sin
+kontrollerte fil, og det kan det ikke: Slaids ser aldri et bilde, og
+`assetHash.ts` slår fast at en registrert innholdshash er rådgivende og aldri
+bærende — det er derfor deduplisering avgjør på de lagrede bytene og ikke på
+hashen. Et bilde byttet for hånd etterpå er ikke til å skille fra det som ble
+deponert.
+
+Identitet blir bevist ett sted: i deponeringsdialogen, som sammenligner
+manifestets avtrykk mot bytene i filen den fikk før noe settes inn. Det er en
+egenskap ved den leveransen, ikke ved dokumentet etterpå. Derfor sier hvert
+terminalt stadium at bildene fortsatt skal ses gjennom.
+
+**Den er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
+reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
+senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang
+til bildene den forrige samtalen laget. Derfor er `awaiting-deposit` sitt eget
+stadium: genereringen *var* agentens arbeid og er gjort, men handlingen må
+fungere for en økt som ikke har filene. Statusen sier begge veier — lever dem
+med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem —
+og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
+filen. `forbiddenClosings` er dessuten tom når `complete` er true, så ingenting
+står i veien for å lage dem på nytt — og `remainingSteps` er ikke tom der, så
+den som ikke har filene blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
+ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
+tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
+bildet fra forrige bestilling, mens ingen sone er tom i `generation-verified`.
+Statusen sier hvilket av delene dekket har, og agenten gjentar den i stedet for en
+fast setning.
+
+#### Hvorfor `plan-outdated` finnes
+
+`plan-outdated` gjør to jobber, og begge kommer av at bildeplanens kontrakt er
+«én oppføring per bildesone som *venter* på en fil».
+
+Den ene er ærlighet om proveniens: en fil i en sone er ikke i seg selv bevis for
+at den ble laget for bestillingen planen bærer nå, og ingenting på panelet
+husker hvilken bestilling filen kom fra — men de lagrede koblingene gjør det når
+de finnes, og et `PLAN_CHANGED` der er nettopp den påstanden. Den andre er en selvmotsigelse den fjerner. Tidligere
+brukte `awaiting-generation` `awaitingFileCount` som antall bilder å generere,
+mens `images` fortsatt listet alle oppføringene og `checkGeneratedImages`
+forventer én record per *planlagt* oppføring: med tre oppføringer der én sone
+alt hadde fil, sa statusen «kall bildegeneratoren 2 ganger», og en agent som
+fulgte den fikk `MISSING_ITEM` på den tredje. Nå er en slik plan `plan-outdated`
+i stedet, og veien videre er å skrive den på nytt med bare sonene som venter —
+aldri å generere den eksisterende filen om igjen. I `awaiting-generation` er
+`awaitingFileCount` derfor lik `plannedImageCount` ved konstruksjon, og lik det
+kontrollen forventer.
+
+#### Feltene agenten leser
+
+- **`complete`** er en påstand om *dokumentet*: bildeplanen som gjelder nå er
+  dekket av en gyldig, gjeldende genereringskontroll. Deponeringen er brukerens
+  steg, og å vente på den er aldri agentens jobb, så `awaiting-deposit` er
+  `complete: true`. Men true er ikke i seg selv lov til å stoppe, og
+  asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
+  det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
+  holdt den samtalen. En senere økt kan lese den samme sanne påstanden uten å ha
+  en eneste av filene — og skylder bildene på nytt. Og false sier bare at
+  oppgaven ikke er ferdig, aldri at det er generering som gjenstår:
+  `plan-needs-repair` og begge `plan-outdated`-variantene er også false, og der
+  skal planen repareres eller skrives om først. Derfor henger genereringsteksten
+  i agentregelen på stadiet som krever den, ikke på boolskeverdien.
+- **`nextAction`** navngir neste handling med dekkets eget tall i seg;
+  **`remainingSteps`** er det agenten fortsatt skylder, i rekkefølge, og peker
+  på `generation.perImageSteps` i stedet for å kopiere løkken. Det er
+  `remainingSteps` en stopp avgjøres på, fordi det er det eneste feltet som kan
+  bære en betingelse: i `awaiting-deposit` kan dekket ikke vite hvilken av to
+  lesere det svarer — den som har filene den nettopp laget, eller den som åpner
+  et kontrollert dekk uten dem — så begge stegene står, hver med betingelsen som
+  velger det. En tom liste der ville sagt «ingenting å gjøre» til den halvparten
+  som skylder alle bildene. Tom er den bare i `no-planned-images` og
+  `generation-verified`. Stoppen er derfor «du har gjort det steget som gjelder
+  deg», aldri «listen ble tom»: i `awaiting-deposit` blir den ikke tom av noe
+  agenten gjør — å levere filene er ingen endring av dokumentet, og dekket går
+  videre først når *brukeren* deponerer dem. En regel som ventet på en tom liste
+  ville vært en regel om å vente på en nettleserhandling agenten ikke kan
+  utføre, altså den samme feilen sett fra motsatt kant.
+- **`completionCriteria`** er hva fullført krever, og de to siste linjene er de
+  som koster noe å få riktig: beviset for at bildene finnes er
+  koblingskontrollen, og deponeringen er uttrykkelig ikke en del av kriteriet.
+- **`forbiddenClosings`** navngir avslutningene som er gale mens `complete` er
+  false — «presentasjonen er opprettet», «bildene er ikke satt inn ennå»,
+  «bildeplanen er klar», å be om en ny brukerbeskjed, og å generere et godkjent
+  bilde om igjen fordi sonen fortsatt står tom. De tre første er sanne setninger
+  om et halvferdig dekk, og det er nettopp derfor de ble valgt.
+
+De to listene bor i `domain/imagePlan.ts` sammen med statusen som rapporterer
+dem, og `agent/design.ts` importerer dem inn i agentinstruksen. Det er poenget:
+den stående instruksen og dekkets eget svar er samme liste, og en leveranse kan
+ikke tilfredsstille én av dem.
+
 ### Sluttkontrollen av koblingen
 
 Antallet var ikke nok. Ni riktige bilder navngitt etter rekkefølgen de kom
@@ -723,8 +965,10 @@ Strukturelle feil — ukjent sone, en sone som ikke er en bildesone, to oppføri
 på samme sone — avvises av kommandoen i stedet, og ingenting skrives. Det er ikke
 et dekk med et problem i; det er et kall som mente en annen sone.
 
-En tom kontrolliste er sluttpunktet for bildearbeidet. Det finnes ingen åpen
-forbedringssløyfe etter det.
+En tom kontrolliste er sluttpunktet for *planarbeidet*, ikke for bildearbeidet:
+den betyr at planen er klar til bildegenerering. Hvor selve bildearbeidet står,
+svarer `workflow` på. Det finnes ingen åpen forbedringssløyfe etter at begge er
+ferdige.
 
 ### Editoren
 
@@ -892,9 +1136,16 @@ versjon brukeren nettopp gikk bort fra, og tømt historikken på veien. Det er d
 samme regelen den tilbakeholdte strukturendringen følger — en utregning gjelder
 bare mot dokumentet den ble gjort på.
 
-**`completed` og `abandoned` er endelige.** Ingenting setter et dekk tilbake til
-`pending` — heller ikke en ny bildeplan. Begge avslutningene fjerner numrene fra
-panelene, så et ferdig dekk er et helt vanlig dekk.
+**`abandoned` er endelig; `completed` avslutter en runde.** Begge avslutningene
+fjerner numrene fra panelene, så et ferdig dekk er et helt vanlig dekk. Men et
+dekk kan bestille bilder på nytt — skriv om et motiv eller den felles
+bildekonteksten, og planen ber om bilder dekket ikke har — og da åpner en
+`completed` deponering igjen for den nye runden. Betingelsen er reell:
+`awaitsPictures` spør om dekket har planlagte soner som mangler fil eller holder
+et bilde fra en tidligere bestilling, så et ferdig dekk som ikke har bestilt noe
+nytt blir liggende. `abandoned` åpner aldri: der har noen sagt nei til den
+automatiske flyten, og det er et svar og ikke en tilstand ved dekket. Se §7.2,
+som er der hele livssyklusen står.
 
 ### Editoren, når dekket venter
 

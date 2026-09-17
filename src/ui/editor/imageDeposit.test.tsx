@@ -419,6 +419,7 @@ describe('ImageDepositModal', () => {
 
     pickFiles([picked(realImages.webpLossless(), '2.png', 'image/png')])
     await settle()
+    await settle()
 
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
     expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
@@ -448,7 +449,13 @@ describe('ImageDepositModal', () => {
     // Remove one file and put the very same bytes back under the same name.
     act(() => find<HTMLElement>('[aria-label="Fjern 3.png"]').click())
     await settle()
+    /* Two settles, for the reason `pickWithManifest` gives: reading a picked
+       file's bytes and hashing them are two async hops, and `deliveryKey` — what
+       the acknowledgement is keyed to — is not the delivery's key until both
+       have landed. Asserting after one is asserting mid-read, which is why this
+       failed about a quarter of the time. */
     pickFiles([picked(PICTURES[2](), '3.png', 'image/png')])
+    await settle()
     await settle()
 
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')

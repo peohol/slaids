@@ -19,6 +19,7 @@ import { IMAGE_BRIEF_RULE, IMAGE_HANDOFF_RULE, IMAGE_PLAN_RULE } from '../design
 import {
   createDeck,
   fitContextFor,
+  recordGeneratedImages,
   setImageContext,
   setImagePlan,
   setPresentationTitle,
@@ -42,6 +43,10 @@ import {
   resolveImagePlan,
   type ImageGenerationContract,
 } from '../../domain/imagePlan'
+import {
+  composeImageWorkflowStatus,
+  type ImageWorkflowStatus,
+} from '../../domain/imageWorkflow'
 import {
   bodyOf,
   contentAssetIds,
@@ -461,6 +466,16 @@ export interface PlannedImageView {
 export interface ImageBriefView {
   presentationId: string
   revision: string
+  /**
+   * Whether the picture work is finished, and what happens next if it is not.
+   *
+   * First in the answer, and deliberately: this is the field that decides
+   * whether the *task* is over, and it is read by an agent that has just
+   * written a plan and is deciding what to say to the user. Everything below is
+   * the plan itself; this is the sentence about the plan. See
+   * `ImageWorkflowStatus` for the failure it exists to make impossible.
+   */
+  workflow: ImageWorkflowStatus
   /** The shared visual context, or `null` when the deck has none. */
   imageContext: string | null
   imageCount: number
@@ -514,6 +529,7 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
   return {
     presentationId: presentation.id,
     revision: presentationRevision(presentation),
+    workflow: composeImageWorkflowStatus(presentation),
     imageContext: presentation.imageContext ?? null,
     imageCount: images.length,
     images: images.map((image) => ({
@@ -576,7 +592,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -611,7 +627,7 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at bildeplanen er ferdig.',
+    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig. Det svarer `workflow` på.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
@@ -655,6 +671,19 @@ export interface GeneratedImagesView {
    * out would be exactly the false reassurance this operation exists to remove.
    */
   manifest: string | null
+  /**
+   * Where the raster flow stands once this check's answer is part of the deck.
+   *
+   * A passing check is stored, so what it reports here is what every later read
+   * reports too. `ok` means every planned entry has exactly one file bound to
+   * it — which is what finishing the *generation* is, and all this call can
+   * settle. Whether the pictures are in the deck is a separate question the
+   * deposit answers, so a passing check normally lands on `awaiting-deposit`
+   * rather than `generation-verified`: the files reach Slaids through the
+   * user's browser, and an agent that waited for the zones to fill would be
+   * waiting for something it cannot do.
+   */
+  workflow: ImageWorkflowStatus
 }
 
 /**
@@ -692,12 +721,13 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget: `workflow.stage` blir `awaiting-deposit` så lenge filene ikke er lagt inn i sonene, og `generation-verified` når de er det. Å legge dem inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
-  mutates: false,
-  scopes: ['presentations:read'],
+  mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
     images: z
       .array(
         z.strictObject({
@@ -731,28 +761,46 @@ export const verifyImageHandoff = defineOperation({
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
   }),
-  async run(context, input): Promise<AgentResult<GeneratedImagesView>> {
-    const loaded = await loadPresentation(context, input.presentationId)
-    if (!loaded.ok) return loaded
-    const presentation = loaded.value
-    const issues = checkGeneratedImages(presentation, input.images)
-    const check = imageBindingCheck(input.images)
-    return ok({
-      presentationId: presentation.id,
-      revision: presentationRevision(presentation),
-      ok: issues.length === 0,
-      check,
-      checkMeans: CHECK_MEANS[check],
-      issues,
-      expected: expectedGeneratedImages(presentation),
-      manifestFileName: IMAGE_MANIFEST_FILE_NAME,
-      manifest:
-        issues.length === 0
-          ? composeImageGenerationManifest({
-              presentationId: presentation.id,
-              images: [...input.images],
-            })
-          : null,
+  run(context, input): Promise<AgentResult<GeneratedImagesView>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const issues = checkGeneratedImages(presentation, input.images)
+      const check = imageBindingCheck(input.images)
+      /*
+       * A check that passes is written down, and that is what makes this a
+       * mutation at all. Slaids never sees a generated file, so the deck cannot
+       * observe generation on its own: an answer that lived only in this
+       * response would be gone by the next read, and the very next
+       * `get_image_brief` on an unchanged deck would ask for every picture
+       * again — the duplicate generation the flow's own rules forbid.
+       *
+       * Only on success. Storing a set that did not check out would be the
+       * false reassurance this operation exists to remove, and the command
+       * refuses it independently for that reason.
+       */
+      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, input.images) : null
+      if (recorded && !recorded.ok) return recorded
+      const written = recorded?.value ?? presentation
+      return ok({
+        presentation: written,
+        value: {
+          presentationId: written.id,
+          revision: presentationRevision(written),
+          ok: issues.length === 0,
+          check,
+          checkMeans: CHECK_MEANS[check],
+          issues,
+          expected: expectedGeneratedImages(written),
+          manifestFileName: IMAGE_MANIFEST_FILE_NAME,
+          manifest:
+            issues.length === 0
+              ? composeImageGenerationManifest({
+                  presentationId: written.id,
+                  images: [...input.images],
+                })
+              : null,
+          workflow: composeImageWorkflowStatus(written),
+        },
+      })
     })
   },
 })

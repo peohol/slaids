@@ -721,6 +721,26 @@ describe('én regel, ett sted', () => {
     for (const unit of NAMED_UNITS) expect(listed).toContain(unit)
   })
 
+  it('lar guiden si samme stadium som domenet etter en godkjent kontroll', () => {
+    /*
+     * The guide is what `CLAUDE.md` sends a developing agent to read before it
+     * touches the agent's rules, so a wrong stage here is not cosmetic: it can
+     * put back the very confusion this flow spent its rounds removing. It said
+     * a passing check gave `stage: generation-verified`, and it does not —
+     * `composeImageWorkflowStatus` reaches that stage only when nothing the
+     * deck can see is outstanding. A verified set whose files are not in the
+     * zones is `awaiting-deposit`.
+     */
+    const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
+    expect(guide).not.toMatch(/genereringsoppgaven er ferdig \(`stage: generation-verified`\)/i)
+    expect(guide).toMatch(
+      /ligger filene ennå ikke i sonene, er `workflow\.stage` `awaiting-deposit`/i,
+    )
+    expect(guide).toMatch(
+      /`generation-verified` kommer først når ingenting Slaids kan se er utestående/i,
+    )
+  })
+
   it('lar guiden og agentflaten lete etter de samme bildene', () => {
     // Same claim, for the picture roles: a guide that named other pictures
     // than the agent surface does would be a second contract, and the reader
