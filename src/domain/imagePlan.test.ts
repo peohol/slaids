@@ -409,12 +409,34 @@ describe('den samlede briefen', () => {
     const brief = composeImageBrief(written) ?? ''
 
     expect(brief).toContain('Lag nøyaktig 2 separate bilder')
-    expect(brief).toContain('Generer deretter alle 2 bildene som separate bilder.')
+    expect(brief).toContain('Generer deretter alle 2 bildene enkeltvis, ett kall per oppføring.')
     expect(brief).toContain('Ikke kombiner flere nummer i samme bilde.')
     expect(brief).toMatch(/collage, kontaktark, storyboard/)
     // Exactly as many picture sections as pictures — the failure a written
     // count invites is a brief that says one number and lists another.
     expect(brief.match(/^BILDE \d+ AV 2$/gm)).toHaveLength(2)
+  })
+
+  it('navngir hver oppføring med sin egen id og sitt eget filnavn', () => {
+    // The brief is what an agent and a person actually read while the pictures
+    // are being made, so the identity has to be *in* it — not only in the
+    // structured half beside it. This is the line that makes «which entry is
+    // this file for?» answerable from the text somebody pasted.
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = planned(deck, [
+      entry(slideId, nodeIds[0], 'Australopithecus afarensis i helfigur på savannen.'),
+      entry(slideId, nodeIds[1], 'Homo erectus som bearbeider en steinøks.'),
+    ])
+    const brief = composeImageBrief(written) ?? ''
+
+    for (const image of resolveImagePlan(written)) {
+      expect(brief).toContain(`Bildeplan-ID: ${image.id}`)
+      expect(brief).toContain(`Filnavn: ${image.number}.<filendelse>`)
+    }
+    // And the one rule that makes the ids worth printing.
+    expect(brief).toMatch(/Rekkefølgen bildene blir ferdige i/)
+    expect(brief).toMatch(/Bruk aldri «det første bildet som kom tilbake» som bilde 1/)
+    expect(brief).toMatch(/ETTER GENERERING/)
   })
 
   it('oppgir aspect ratio per bilde, målt fra sonen', () => {
@@ -559,6 +581,32 @@ describe('bildeplanen som genereringskontrakt', () => {
     expect(contract.briefRole).toMatch(/menneskelesbare representasjonen/i)
     expect(contract.briefRole).toMatch(/ikke én bildegenereringsprompt/i)
     expect(contract.briefRole).toMatch(/ikke parses tilbake til enkeltbilder/i)
+  })
+
+  it('sier hvordan én oppføring behandles av gangen, og at rekkefølgen ikke er identitet', () => {
+    // The sequencing half of the fix. The observed failure was not a step done
+    // wrong — every generation call was correct — it was the *binding* being
+    // left until after all of them, when there was nothing left to bind from.
+    const { contract } = contractFor(9)
+    const steps = contract.perImageSteps.join(' ')
+    expect(contract.perImageSteps.length).toBeGreaterThan(3)
+    expect(steps).toMatch(/stigende `number`/)
+    expect(steps).toMatch(/nøyaktig én gang for denne oppføringen/)
+    expect(steps).toMatch(/før neste oppføring genereres/)
+    expect(steps).toMatch(/ikke et løpenummer for genereringen/)
+    expect(steps).toMatch(/Gå først deretter videre/)
+
+    expect(contract.orderIsNotIdentity).toMatch(/ikke en identitetskilde/)
+    expect(contract.orderIsNotIdentity).toMatch(/`imagePlanItemId`/)
+    expect(contract.orderIsNotIdentity).toMatch(/aldri bilde 1/)
+  })
+
+  it('kontrollerer koblingen, ikke bare antallet, før deponering', () => {
+    const checks = contractFor(9).contract.beforeDeposit.join(' ')
+    expect(checks).toMatch(/`imagePlanItemId`/)
+    expect(checks).toMatch(/brukt nøyaktig én gang/)
+    expect(checks).toMatch(/ikke bildets plass i genereringsrekkefølgen/)
+    expect(contractFor(9).contract.perImageInstruction).toMatch(/`imagePlanItemId`/)
   })
 
   it('navngir filene med bildets eget nummer, med deponeringens egne filendelser', () => {

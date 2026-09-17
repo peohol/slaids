@@ -377,9 +377,12 @@ interface Presentation {
 }
 ```
 
-- **Adressert av sone, ikke av en egen id.** Sonen *er* bildets identitet: den
-  bestemmer formatet, den bærer plassholderen forfatteren leser, og den er der
-  den ferdige filen havner. En egen id ville vært et andre navn på én ting.
+- **Lagret adressert av sone, ikke av en lagret id.** Sonen bestemmer formatet,
+  bærer plassholderen forfatteren leser, og er der den ferdige filen havner. En
+  lagret id ved siden av ville vært én ting mer å holde i takt. Oppføringens
+  *utadvendte* identitet — `imagePlanItemId` — er derfor avledet av oppføringen
+  i stedet for lagret ved siden av den. Se «Oppføringens stabile identitet»
+  under.
 - **Fire felt, ikke ett.** Hvert felt er én seksjon i briefen og kontrolleres
   hver for seg: motivet er det som må skille to bilder fra hverandre,
   komposisjonen er det som må passe sonens form, og «unngå» er det som må bli
@@ -391,6 +394,91 @@ interface Presentation {
 Planen skrives hel om gangen (`setImagePlan`, agentens `plan_deck_images`), fordi
 nummereringen er en egenskap ved *settet*: en oppføring lagt til alene ville
 renummerert alt etter seg likevel.
+
+### Oppføringens stabile identitet
+
+Hver løste bildeoppføring har en id på formen `imgplan_<digest>`, og den er
+**avledet**, ikke lagret:
+
+```ts
+imagePlanItemId({ presentationId, slideId, nodeId, number, subject })
+```
+
+`fields` er alle fire tekstfeltene, `imageContext` er dekkets felles kontekst, og
+`aspectRatio`/`orientation` er formatet som faktisk står i briefen. Til sammen er
+det **hele bestillingen** – ikke bare motivet. Det som med vilje står utenfor, er
+alt en generator aldri får høre om: dekkets tittel, slidens tittel, de andre
+slidene, temaet. En endring der skal ikke ugyldiggjøre ferdige bilder.
+
+Den finnes fordi genereringsrekkefølge ble brukt som identitet, og det gikk galt
+på en måte ingen del av flyten kunne se. Slaids planla ni bilder i slide-orden,
+bildegeneratoren produserte dem i rekkefølgen 1, 3, 9, 6, 5, 8, 2, 4, 7, og
+filene ble navngitt `1`‥`9` **etter rekkefølgen de kom tilbake i**. Sju av ni
+bilder havnet på en slide de aldri var laget for, og hvert enkelt steg så
+vellykket ut: planen var riktig, antallet var riktig, filnavnene var
+velformede, og deponeringen plasserte nøyaktig det den fikk.
+
+Regelen som følger av det, og som resten av 7.2 og 7.3 håndhever:
+**genereringsrekkefølge er aldri identitet.** Et bilde er identifisert av
+oppføringen det ble generert fra, og nummeret er hva *filen* heter — lest av den
+oppføringen, ikke tellet opp mens filene kommer inn.
+
+Avledet i stedet for mintet, av tre grunner:
+
+- **ingen migrasjon og ingen drift.** En lagret tilfeldig id måtte vært skrevet
+  inn i hvert eksisterende dokument, holdt i takt av hver kommando som skriver
+  en plan på nytt, og kunne likevel endt med å navngi en oppføring som var
+  omskrevet siden;
+- **den dekker hele bestillingen, ikke en del av den.** Id-en er det ene som
+  reiser ut til en generator og tilbake, så den må dekke alt generatoren ble
+  fortalt. Første versjon dekket bare `subject`, og det var ikke nok:
+  `composition`, `requirements`, `avoid`, den felles bildekonteksten og det
+  målte formatet kunne alle skrives om mens et bilde generert fra den gamle
+  ordlyden fortsatt passerte kontrollen. Endres noe av det, endres id-en — og
+  det er akkurat hendelsen en deponering må avvise i stedet for å absorbere;
+- **motivet normaliseres** som ellers i modulen, så en rettet stor bokstav eller
+  et dobbelt mellomrom ikke er et nytt bilde.
+
+Filnavnet er den andre halvdelen av samme par: `imageFileNameStem` skriver det
+(oppføringens eget nummer) og `imageFileNumber` leser det tilbake. De ligger ved
+siden av hverandre fordi det er én regel, ikke to.
+
+Det id-en ikke sier noe om, er om filen noen leverer faktisk *er* den filen
+generatoren laget for den oppføringen. Det er et spørsmål om bytes, og det
+besvares under.
+
+### Koblingen til filens egne bytes
+
+En oppføring alene er metadata om en fil, og metadata kan være konsistent om de
+gale filene. Bytt innholdet i `1.png` og `2.png` og la hvert navn og hver
+oppføring stå: id-er, numre, soner og navn stemmer fortsatt, og to bilder ligger
+fortsatt på feil slide.
+
+Derfor bærer en oppføring også `contentHash` — SHA-256 av bytene
+genereringsresponsen returnerte — og deponeringen sammenligner det med bytene i
+filen den får, **før** sanitering, optimalisering og innsetting.
+
+To grenser står eksplisitt, fordi et avtrykk lett blir lest som mer enn det er:
+
+- **Avtrykket må tas fra genereringsresponsen selv**, i det den ene filen kommer
+  tilbake, før neste bilde genereres. Et avtrykk beregnet i ettertid, fra en
+  mappe med ferdige filer, fingeravtrykker den forvekslingen som allerede har
+  skjedd og bekrefter den.
+- **Det er filintegritet, aldri motivkontroll.** Et avtrykk som stemmer sier
+  «dette er filen som kom tilbake for den oppføringen». Det kan ikke si at
+  bildet viser det rette — ingenting her kan det, fordi Slaids aldri ser på
+  bildet. `ImageBindingCheck` er navngitt etter hva den dekker, så de to ikke
+  stilltiende slås sammen.
+
+`AssetRef.contentHash` kan ikke brukes til dette: den er over de *lagrede*
+bytene og svarer på et annet spørsmål (deduplisering). Sanitering skriver om en
+SVG, så en korrekt fil ville sett ut som en utbyttet fil. Selve hashen er
+`domain/assetHash.ts` sin, ikke en ny implementasjon.
+
+Ikke alle vertsklienter får tilgang til bytene til det bildeverktøyet deres
+produserte. En leveranse uten avtrykk avvises derfor ikke — den er
+`'unchecked'`, og den som tilbyr den må si det og be om den kontrollen et
+menneske kan gjøre. Den skal aldri rapporteres som verifisert.
 
 ### Plassholderen på sliden
 
@@ -520,19 +608,101 @@ uenige om antallet:
 - **`perImageInstruction`** sier at instruksen for ett bilde er den ene
   oppføringens egne felter pluss dekkets felles bildekontekst, med `aspectRatio`
   fra den samme oppføringen;
+- **`perImageSteps`** er løkken, ett nummerert steg om gangen: velg neste
+  oppføring i stigende `number`, les bare den, kall generatoren én gang for den,
+  knytt filen til samme `imagePlanItemId` **før** neste oppføring genereres, gi
+  filen oppføringens eget filnavn, kontroller koblingen, og gå først deretter
+  videre. Rekkefølgen på stegene er selve mekanismen: en agent som samler alle
+  filene først og navngir dem etterpå har ingenting igjen å knytte dem fra;
+- **`orderIsNotIdentity`** sier hvorfor rekkefølgen ikke kan brukes: «det første
+  bildet som kom tilbake» er aldri bilde 1;
 - **`fileNamePattern`** og **`fileExtensions`** er deponeringens eget
   filnavnprotokoll, ikke en kopi av det;
 - **`beforeDeposit`** er de kontrollerbare linjene: nøyaktig N filer, numrene
-  1‥N én gang hver, riktig format per fil, og at ett collage-, storyboard-,
-  kontaktark-, split-screen- eller infografikkbilde aldri teller som flere
-  bilder;
+  1‥N én gang hver, hver `imagePlanItemId` brukt nøyaktig én gang, hver fil
+  knyttet til den oppføringen den ble generert fra, riktig format per fil, og at
+  ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde
+  aldri teller som flere bilder;
 - **`briefRole`** sier hva den samlede briefen er, så den ikke forveksles med én
   genereringsprompt.
 
 Stemmer antallet ikke, er bildegenereringen ikke ferdig: de manglende bildene
 genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
 planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
-dem som utgjør en ferdig leveranse.
+dem som utgjør en ferdig leveranse, og hvordan én av dem utføres.
+
+### Sluttkontrollen av koblingen
+
+Antallet var ikke nok. Ni riktige bilder navngitt etter rekkefølgen de kom
+tilbake i er ni filer med velformede navn, riktig antall og feil kobling, og en
+kontroll som teller ser ingenting. Så koblingen kontrolleres for seg, og den
+kontrolleres av noen andre enn modellen som laget den:
+
+```ts
+interface GeneratedImageRecord {
+  imagePlanItemId: string
+  number: number
+  slideId: string
+  nodeId: string
+  fileName: string
+  /** SHA-256 av bytene genereringsresponsen returnerte. Valgfri. */
+  contentHash?: string
+}
+```
+
+Agenten oppgir én slik oppføring per ferdig fil — `verify_image_handoff` — og
+`checkGeneratedImages` sammenligner settet med planen dekket faktisk holder:
+
+| Kode | Hva den fanger |
+| --- | --- |
+| `WRONG_PRESENTATION` | Koblingene er laget for et annet dekk. |
+| `PLAN_CHANGED` | Oppføringen for sonen har fått en annen id: nummeret eller motivet er endret etter at bildet ble generert. |
+| `UNKNOWN_ITEM` | Id-en svarer til ingen oppføring, og ingen sone forklarer den. |
+| `DUPLICATE_ITEM` | To filer hevder samme oppføring. |
+| `MISSING_ITEM` | En planlagt oppføring har ingen fil. |
+| `NUMBER_MISMATCH` | Nummeret er ikke oppføringens nummer — feilen filnavn etter genereringsrekkefølge gir. |
+| `DUPLICATE_NUMBER` | To filer hevder samme nummer. |
+| `ZONE_MISMATCH` | Slide eller sone er ikke oppføringens. |
+| `FILE_NAME_MISMATCH` | Filen heter ikke det nummeret sitt sier. |
+| `FILE_MISSING` | En kobling navngir en fil som ikke ble levert. |
+| `FILE_UNACCOUNTED` | En levert fil hører ikke til noen kobling. |
+| `CONTENT_MISMATCH` | Filens egne bytes er ikke de bytene genereringsresponsen returnerte. Den ene koden som rekker forbi metadataene. |
+
+Kontrollen er **total**: den melder alt som er galt, ikke det første, fordi en
+agent som må rette én kobling per rundtur regenererer bilder som var i orden.
+Hver oppføring er redundant med id-en — id-en er avledet av nettopp de
+faktaene — og de oppgis likevel, fordi en feilkobling da har fem sjanser til å
+motsi seg selv i stedet for én, og fordi en id som ikke lenger svarer kan
+skilles fra en som aldri gjorde det.
+
+**`ok` og `check` svarer på to forskjellige spørsmål, og de rapporteres ved
+siden av hverandre.** `ok` sier at ingenting motsier seg selv; `check` sier hvor
+langt koblingen faktisk er kontrollert:
+
+| `check` | Hva det betyr |
+| --- | --- |
+| `file-checked` | Hver kobling bærer et avtrykk, så nettleseren kan sammenligne hver fil med akkurat den filen genereringen returnerte. |
+| `unchecked` | Minst én kobling mangler avtrykk. Metadataene kan stemme samtidig som filene er forvekslet. |
+
+En leveranse uten avtrykk gir `ok: true` og `check: 'unchecked'`. En agent som
+bare leste `ok` ville kalt den verifisert — som er nøyaktig den samme feilen ett
+lag opp. `checkMeans` følger med og sier hva nivået dekker, i Slaids' egne ord,
+fordi formuleringen er halve leveransen: «kontrollert» sagt om et sett ingen
+kunne kontrollere er hvordan en flyt som ikke ser sine egne bilder ender opp med
+å hevde at den gjør det. Ingen av nivåene sier at bildet viser det rette.
+
+To ting kontrollen med vilje **ikke** er: den er ikke en mutasjon, og den er
+ikke en port Slaids kan håndheve — deponeringen er en brukerhandling i en
+nettleser, og Slaids ser aldri filene. Det den kjøper er at en feilkobling blir
+oppdaget *av agenten, før filene leveres*, med en melding som navngir hvilket
+bilde som skal lages på nytt.
+
+Holder koblingen, svarer kontrollen med et **manifest**: `slaids-bilder.json`,
+som legges ved siden av bildefilene. Det er den eneste måten koblingen kan
+overleve turen gjennom en nedlastingsmappe, og deponeringen i 7.3 leser nøyaktig
+den filen gjennom den samme modulen. Manifestet holdes tilbake når noe er galt:
+et manifest laget av koblinger som ikke stemmer ville vært nettopp den falske
+bekreftelsen kontrollen finnes for å fjerne.
 
 ### Kontrollene
 
@@ -636,15 +806,67 @@ takt. Deponeringen åpnes av å skrive bildeplanen — det er ingenting en agent
 skru på i tillegg — og `plan_deck_images`/`get_image_brief` rapporterer
 tilstanden i `deposit`.
 
-**Filnavnet er hele protokollen.** `1.png`, `2.jpg`, `3.webp`: et tall, et punktum,
-en støttet filendelse, ingenting annet. Det er den ene instruksen som overlever
-å bli båret mellom to programmer av et menneske. `01.png`, `bilde1.png`, `1a.png`
-og `1.txt` avvises med en begrunnelse i stedet for å gjettes på — ledende null
-trimmes ikke, fordi `01.png` og `1.png` i samme mappe er to filer til ett bilde
-— og to filer som krever samme nummer merkes *begge*, fordi å velge mellom to av
-noens bilder ikke er Slaids sin oppgave. `reviewDepositFiles` er den ene regelen,
-og den er både det som gråer ut «Fullfør» og det `completeImageDeposit` avviser
-på, så knappen kan ikke være aktiv for et sett skrivingen ville nektet.
+**Filnavnet er hele protokollen når et menneske lagde bildene.** `1.png`,
+`2.jpg`, `3.webp`: et tall, et punktum, en støttet filendelse, ingenting annet.
+Det er den ene instruksen som overlever å bli båret mellom to programmer av et
+menneske. `01.png`, `bilde1.png`, `1a.png` og `1.txt` avvises med en begrunnelse
+i stedet for å gjettes på — ledende null trimmes ikke, fordi `01.png` og `1.png`
+i samme mappe er to filer til ett bilde — og to filer som krever samme nummer
+merkes *begge*, fordi å velge mellom to av noens bilder ikke er Slaids sin
+oppgave. Regelen er `imageFileNumber`, ved siden av regelen som skriver navnet.
+
+**Det er tre situasjoner, og det er tre fordi det å slå sammen to av dem ville
+overdrevet den ene.** `DepositReview.assurance` sier hvilken:
+
+| `assurance` | Hva som er autoritativt | Hva som er kontrollert |
+| --- | --- | --- |
+| `manual` | nummeret i filnavnet | filnavn, antall, duplikater |
+| `file-checked` | `imagePlanItemId` i manifestet | koblingen mot planen **og** hver fils egne bytes |
+| `unchecked` | `imagePlanItemId` i manifestet | bare koblingen mot planen; filene er ikke sammenlignet med noe |
+
+Et filnavn er en utmerket instruks fra et menneske og en dårlig instruks fra en
+generator som produserte bildene i en annen rekkefølge enn de ble planlagt: ni
+filer navngitt etter ankomst er ni velformede navn på de gale bildene. Derfor
+bringer et agentgenerert sett `slaids-bilder.json` med seg, hver kobling
+kontrolleres mot dekkets egen plan (7.2), og en konflikt avviser **hele** settet
+i stedet for å plassere det som ble levert. Et manifest som ikke kan leses er
+ikke det samme som ingen manifest: det er et sett med ukjent kobling, og å falle
+tilbake på filnavnene der ville vært den opprinnelige feilen med et ekstra steg
+foran.
+
+**Bytene sammenlignes i nettleseren, og de sammenlignes før alt annet.** Hver
+sluppet bildefil hashes med `hashBytes` slik den kom — før sanitering og før
+optimalisering, som begge skriver om filen og ville fått en korrekt fil til å se
+utbyttet ut. Hashingen skjer bare når det ligger et manifest der: en manuell
+opplasting har ingen avtrykk å sammenligne med, og skal ikke vente på en hash
+den aldri bruker.
+
+`'unchecked'` er ikke en avvisning. En vertsklient som ikke kan lese bytene til
+det bildeverktøyet sitt produserte skal ikke stenges ute, og et sett den
+leverer skal ikke vaskes gjennom heller: dialogen sier at koblingen ikke er
+verifisert, og «Fullfør» krever at brukeren uttrykkelig bekrefter at hvert
+nummer viser det motivet det skal. Manuell opplasting krever ingen slik
+bekreftelse — den som navnga filene laget koblingen selv, og å kreve et
+avkrysningsfelt for det ville vært en regresjon forkledd som grundighet.
+
+**Bekreftelsen gjelder ett sett, ikke dialogens levetid.** Den ble først lagret
+som en boolean, og en boolean overlevde settet den ble gitt for: kryss av, bytt
+så ut ett bilde med et annet under samme filnavn, og settet er komplett og
+uverifisert igjen mens «Fullfør» fortsatt er aktiv for et bilde ingen har sett
+på. Derfor bærer `DepositReview` en `deliveryKey` — avledet av manifestet og av
+hver leverte fils navn sammen med avtrykket av bytene — og dialogen husker
+*hvilken* nøkkel som ble bekreftet. Endres leveransen materielt, krysses boksen
+av seg selv; plukkes de samme filene i en annen rekkefølge, gjør den det ikke.
+En bekreftelse som kostet brukeren en ny avkrysning for ingenting er hvordan man
+lærer folk å krysse av uten å se.
+
+Ingen av nivåene sier noe om hva bildet *viser*. Dialogen holder de to fra
+hverandre i ordlyden, fordi et avtrykk som stemmer er lett å lese som en
+godkjenning av motivet.
+
+`reviewDeposit` er den ene inngangen — filnavnene, og koblingen når det finnes en
+— og den er både det som gråer ut «Fullfør» og det `completeImageDeposit`
+avviser på, så knappen kan ikke være aktiv for et sett skrivingen ville nektet.
 
 **Deponeringen er én skriving.** Filene lagres først, og deretter settes hele
 settet inn i ett kall. Et dekk som tok tre av fem bilder er nøyaktig den
@@ -682,7 +904,13 @@ panelene, så et ferdig dekk er et helt vanlig dekk.
   lenge grunnlaget er gyldig.
 - «Bildene er klare» åpner deponeringsdialogen: dra-og-slipp eller filvelger, en
   statusliste over hvilke numre som er på plass, hvilke som mangler og hva som er
-  feil, og «Fullfør» deaktivert til nøyaktig 1‥N er der uten feil.
+  feil, og «Fullfør» deaktivert til nøyaktig 1‥N er der uten feil. Ligger
+  `slaids-bilder.json` blant filene, sier dialogen det, og koblingskonfliktene
+  får sin egen seksjon — de er en annen slags feil enn et galt filnavn: filene er
+  i orden, og det som ikke stemmer er hvilket bilde hver av dem er *for*. Én
+  linje sier hva som faktisk er kontrollert, i tre forskjellige ordlyder, og et
+  avkrysningsfelt ber om manuell gjennomgang når ingenting annet kunne
+  kontrollere koblingen.
 
 ### Den strukturelle endringen
 

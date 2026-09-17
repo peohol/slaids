@@ -685,17 +685,39 @@ rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
 ferdig validert og bildesonene er stabile; klienten henter da en fersk sluttbrief
 fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
 bildegenerering, skal den skrive sluttbriefen ut i samme samtale og starte
-bildegenereringen umiddelbart — ett kall per planlagt bilde, og antallet ferdige
-bildefiler kontrolleres mot planen før deponering; verktøyresponsen alene er
-ikke handoff. Hvis
+bildegenereringen umiddelbart — ett kall per planlagt bilde, én oppføring
+ferdigstilt av gangen, og både antallet ferdige bildefiler og koblingen mellom
+hver fil og bildeplanoppføringen den ble generert fra kontrolleres mot planen før
+deponering; verktøyresponsen alene er ikke handoff. Hvis
 klienten ikke kan sende briefen direkte, kan den fortsatt kopieres manuelt. Uten
 en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
 bildedeponeringen.
+
+**Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
+stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
+til generering til fil til deponering, og som dekker hele bestillingen: dekket,
+sonen, nummeret, alle fire bildefeltene, den felles bildekonteksten og det målte
+formatet. Nummeret er hva filen *heter*; id-en er hva bildet *er*. En
+bildegenerator som produserer bildene i en annen rekkefølge enn planen er helt i
+orden — men et bilde skal aldri nummereres etter når det ble ferdig, og «det
+første bildet som kom tilbake» er aldri bilde 1.
+
+**Koblingen går til filens egne bytes, ikke bare til filnavnet.** Agenten oppgir
+`contentHash` — SHA-256 av bytene bildegenereringen returnerte — regnet ut i det
+hver fil kommer tilbake. Avtrykket følger `slaids-bilder.json`, og nettleseren
+sammenligner det med filens innhold før noe settes inn, så to filer som har
+byttet innhold under uendrede navn blir avvist. Et avtrykk som stemmer sier
+hvilken fil som hører til hvilken bildeplass — det sier ingenting om hva bildet
+viser. Kan vertsklienten ikke lese bytene, er leveransen *uverifisert*: den blir
+ikke avvist, men den blir ikke kalt kontrollert heller, og deponeringen ber
+brukeren bekrefte manuelt — for det konkrete settet, så en bekreftelse ikke
+overlever at et bilde byttes ut etterpå.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
 | `get_image_brief`                        | den genererte, ferdige bestillingen, kontrollene og deponeringsstatusen |
+| `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller
 `titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids
@@ -714,10 +736,13 @@ Det samme kallet åpner **bildedeponeringen**, og da ser brukeren dette:
 3. Bildene lagres som **`1`, `2`, `3` … opp til *N***, med den filendelsen de
    får: `1.png`, `2.jpg`, `3.webp`. Formatene kan gjerne blandes. `01.png`,
    `bilde1.png` og `1a.png` godtas ikke, og to filer med samme nummer meldes som
-   en konflikt – ingenting gjettes.
+   en konflikt – ingenting gjettes. Er bildene agentgenererte, legges
+   `slaids-bilder.json` ved siden av dem: da kontrolleres koblingen mot
+   bildeplanen, og ikke bare filnavnet.
 4. «Bildene er klare» åpner deponeringen: filene dras inn eller velges, en
    statusliste viser hva som er på plass, hva som mangler og hva som er feil, og
-   «Fullfør» er deaktivert til nøyaktig 1…*N* er der uten feil.
+   «Fullfør» er deaktivert til nøyaktig 1…*N* er der uten feil — og uten
+   koblingskonflikter, når manifestet er med.
 5. Alle filene lastes opp, hvert bilde havner i den sonen det ble bestilt for,
    og plassholderteksten forsvinner.
 

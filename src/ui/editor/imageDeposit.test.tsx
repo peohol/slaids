@@ -27,6 +27,13 @@ import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import { setRepositoryOverride } from '../../persistence/activeRepository'
 import { depositIsOpen } from '../../domain/imageDeposit'
+import { hashBytes } from '../../domain/assetHash'
+import {
+  composeImageGenerationManifest,
+  IMAGE_MANIFEST_FILE_NAME,
+  type GeneratedImageRecord,
+} from '../../domain/imageGeneration'
+import { resolveImagePlan } from '../../domain/imagePlan'
 import type { Presentation } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { ImageBriefModal } from './ImageBriefModal'
@@ -131,6 +138,74 @@ function pick(names: readonly string[]): void {
   })
 }
 
+/**
+ * Hand the dialog pictures *and* a manifest, and let the read settle.
+ *
+ * The manifest is read asynchronously — it is a file on disk — so the dialog is
+ * deliberately not ready until it has been. Flushing here is what lets a test
+ * assert the state after the read rather than during it.
+ */
+async function pickText(
+  pictures: readonly { name: string; bytes: Uint8Array }[],
+  manifest: string,
+): Promise<void> {
+  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
+  const files = [
+    ...pictures.map((file) => picked(file.bytes, file.name, 'image/png')),
+    new File([manifest], IMAGE_MANIFEST_FILE_NAME, { type: 'application/json' }),
+  ]
+  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  /* Two reads have to settle, not one: the manifest's text and every picture's
+     own digest. Both are async, and the dialog is deliberately not ready until
+     they land — so a test that asserted before them would be asserting on the
+     loading state. */
+  await settle()
+  await settle()
+}
+
+/** Three genuinely different pictures, so a swap between two of them is real. */
+const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
+
+/** Let the dialog's asynchronous reads finish. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/**
+ * The same, with the manifest derived from the deck's own plan and then bent.
+ *
+ * `bytesFor` is separate from `bend` on purpose: the failure worth testing here
+ * is a manifest that is *right* about files whose contents were exchanged, so
+ * the test has to be able to move the bytes without touching a record.
+ */
+async function pickWithManifest(
+  deck: Presentation,
+  bend: (record: GeneratedImageRecord) => GeneratedImageRecord = (record) => record,
+  bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
+): Promise<void> {
+  const images = await Promise.all(
+    resolveImagePlan(deck).map(async (image, index) =>
+      bend({
+        imagePlanItemId: image.id,
+        number: image.number,
+        slideId: image.plan.slideId,
+        nodeId: image.plan.nodeId,
+        fileName: `${image.fileNameStem}.png`,
+        contentHash: await hashBytes(PICTURES[index % 3]()),
+      }),
+    ),
+  )
+  await pickText(
+    images.map((image, index) => ({ name: image.fileName, bytes: bytesFor(index) })),
+    composeImageGenerationManifest({ presentationId: deck.id, images }),
+  )
+}
+
 describe('ImageDepositIntroModal', () => {
   it('tilbyr begge veiene videre, og sier hvor mange bilder det gjelder', () => {
     const choices: string[] = []
@@ -223,6 +298,174 @@ describe('ImageDepositModal', () => {
     const problems = find('[data-testid="image-deposit-problems"]')
     expect(problems.textContent).toContain('samme nummeret')
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('2 av 3 på plass')
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+  })
+
+  it('kontrollerer koblingen mot filenes innhold når manifestet følger med', async () => {
+    // The manifest is the agent flow's binding, and the dialog's job is to
+    // check it rather than trust the file names: nine pictures named by arrival
+    // are nine well-formed names for the wrong pictures.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck)
+    expect(find('[data-testid="image-deposit-manifest"]').textContent).toContain(
+      'slaids-bilder.json',
+    )
+    const assurance = find('[data-testid="image-deposit-assurance"]')
+    expect(assurance.getAttribute('data-assurance')).toBe('file-checked')
+    // And the dialog keeps «which file» apart from «what the picture shows».
+    expect(assurance.textContent).toMatch(/ikke hva bildet viser/)
+    expect(document.querySelector('[data-testid="image-deposit-binding"]')).toBeNull()
+    expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('stopper to filer som har byttet innhold, med navn og manifest urørt', async () => {
+    // The delivery every name-based check calls correct. The dialog must not,
+    // and the button must stay out of reach — there is no partial insertion to
+    // be had here, because «Fullfør» is the only way in.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => record, (index) =>
+      index === 0 ? PICTURES[1]() : index === 1 ? PICTURES[0]() : PICTURES[2](),
+    )
+
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
+    const binding = find('[data-testid="image-deposit-binding"]')
+    expect(binding.textContent).toMatch(/inneholder ikke de bytene/)
+    expect(binding.children).toHaveLength(2)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+  })
+
+  it('krever en uttrykkelig bekreftelse når koblingen ikke kan kontrolleres', async () => {
+    // A host that cannot reach the bytes of what its image tool produced is not
+    // refused — it is unverified, and the honest response is to say so and ask
+    // for the one check a person can still make.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+
+    const assurance = find('[data-testid="image-deposit-assurance"]')
+    expect(assurance.getAttribute('data-assurance')).toBe('unchecked')
+    expect(assurance.textContent).toMatch(/ikke verifisert/)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+
+    const box = find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box.click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('krever ingen bekreftelse for vanlig manuell opplasting', async () => {
+    // The flow the deposit was built for, unchanged: a person who saved «bilde
+    // 3» as `3.png` made the binding, and asking them to tick a box for it
+    // would be a regression dressed as rigour.
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['1.png', '2.jpg', '3.webp'])
+    await settle()
+
+    expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
+      'manual',
+    )
+    expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('stopper deponeringen når manifestet og bildeplanen er uenige', async () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    // Three well-formed files, the right count, the right names — and picture 2
+    // bound to the wrong entry. This is the delivery the dialog used to accept.
+    await pickWithManifest(deck, (image) =>
+      image.number === 2 ? { ...image, number: 3 } : image,
+    )
+
+    const binding = find('[data-testid="image-deposit-binding"]')
+    expect(binding.children.length).toBeGreaterThan(0)
+    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+  })
+
+  it('mister bekreftelsen når leveransen endres etter at den ble gitt', async () => {
+    // The sequence a boolean survived: confirm an unverified set, then swap one
+    // picture for another under the same name. The set is complete again, still
+    // unverified, and nobody has looked at the picture that is now in it — so
+    // «Fullfør» has to be out of reach until it is confirmed again.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+
+    // Swap `2.png`: the dialog adds rather than replaces, so the old one goes
+    // first — exactly what a person does when one picture came back wrong.
+    act(() => find<HTMLElement>('[aria-label="Fjern 2.png"]').click())
+    await settle()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+
+    pickFiles([picked(realImages.webpLossless(), '2.png', 'image/png')])
+    await settle()
+
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
+      'unchecked',
+    )
+    // Complete again, and still refused: the box unticked itself with the set.
+    expect(box().checked).toBe(false)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('beholder bekreftelsen når ingenting materielt er endret', async () => {
+    // The other half: re-picking the same bytes under the same names is the same
+    // delivery, and a dialog that demanded a new tick for it would teach people
+    // to tick without looking.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+
+    // Remove one file and put the very same bytes back under the same name.
+    act(() => find<HTMLElement>('[aria-label="Fjern 3.png"]').click())
+    await settle()
+    pickFiles([picked(PICTURES[2](), '3.png', 'image/png')])
+    await settle()
+
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    expect(box().checked).toBe(true)
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
+  it('behandler et uleselig manifest som en ukjent kobling', async () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    await pickText(
+      ['1.png', '2.png', '3.png'].map((name, index) => ({ name, bytes: PICTURES[index]() })),
+      '{ ikke json',
+    )
+    expect(find('[data-testid="image-deposit-binding"]').children).toHaveLength(1)
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
   })
 

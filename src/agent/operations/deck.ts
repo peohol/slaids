@@ -15,7 +15,7 @@
  */
 
 import { z } from 'zod'
-import { IMAGE_BRIEF_RULE, IMAGE_PLAN_RULE } from '../design'
+import { IMAGE_BRIEF_RULE, IMAGE_HANDOFF_RULE, IMAGE_PLAN_RULE } from '../design'
 import {
   createDeck,
   fitContextFor,
@@ -25,9 +25,20 @@ import {
 } from '../../domain/commands'
 import type { ImageDeposit } from '../../domain/imageDeposit'
 import {
+  checkGeneratedImages,
+  composeImageGenerationManifest,
+  expectedGeneratedImages,
+  imageBindingCheck,
+  IMAGE_MANIFEST_FILE_NAME,
+  type GeneratedImageRecord,
+  type ImageBindingCheck,
+  type ImageBindingIssue,
+} from '../../domain/imageGeneration'
+import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
+  isImagePlanItemId,
   resolveImagePlan,
   type ImageGenerationContract,
 } from '../../domain/imagePlan'
@@ -409,8 +420,21 @@ export const setImageContextOperation = defineOperation({
 
 /** One planned picture as an agent reads it back: what it says, and what Slaids measured. */
 export interface PlannedImageView {
+  /**
+   * The entry's stable identity, and the only thing a generated file may be
+   * bound to.
+   *
+   * Here because the alternative was tried and failed: with only a `number` to
+   * go on, an agent that generated nine pictures and named the files in the
+   * order they came back put seven of them on the wrong slide. The id is what a
+   * generation call carries out and back, and `verify_image_handoff` is what
+   * checks that it came back attached to the same picture.
+   */
+  imagePlanItemId: string
   /** 1‥N in deck order. The number the zone's placeholder caption says. */
   number: number
+  /** What this picture's file is called: the entry's own number, plus the extension. */
+  fileName: string
   slideId: string
   nodeId: string
   /** What the slide is called, so a reader can find the zone. */
@@ -493,7 +517,9 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
     imageContext: presentation.imageContext ?? null,
     imageCount: images.length,
     images: images.map((image) => ({
+      imagePlanItemId: image.id,
       number: image.number,
+      fileName: `${image.fileNameStem}.<filendelse>`,
       slideId: image.plan.slideId,
       nodeId: image.plan.nodeId,
       slideLabel: image.slideLabel,
@@ -593,6 +619,141 @@ export const getImageBrief = defineOperation({
     const loaded = await loadPresentation(context, input.presentationId)
     if (!loaded.ok) return loaded
     return ok(imageBriefView(loaded.value))
+  },
+})
+
+/** What the handoff check answers. See `verify_image_handoff`. */
+export interface GeneratedImagesView {
+  presentationId: string
+  revision: string
+  /** Whether the files may be handed over. False means something is named below. */
+  ok: boolean
+  /**
+   * How far the bindings can be checked against the files themselves.
+   *
+   * Reported beside `ok`, never folded into it, because the two answer
+   * different questions and the difference is the whole point: a delivery with
+   * no digests is consistent metadata about files nobody compared, so it is
+   * `ok: true` and `check: 'unchecked'`. An agent that read only `ok` would
+   * call that verified, which is the failure one layer up from the one this
+   * operation exists for.
+   */
+  check: ImageBindingCheck
+  /** What `check` means, in a sentence that does not overstate it. */
+  checkMeans: string
+  /** What is wrong with the bindings, in the deck's own terms. Empty when `ok`. */
+  issues: ImageBindingIssue[]
+  /** The bindings the deck's plan expects, so a fix does not need a second read. */
+  expected: Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[]
+  /** What the manifest file is called when the files go through the deposit. */
+  manifestFileName: string
+  /**
+   * The manifest to hand over with the files, or `null` while anything is wrong.
+   *
+   * Withheld rather than emitted with a warning: a manifest is a statement that
+   * the binding was checked, and one produced from records that did not check
+   * out would be exactly the false reassurance this operation exists to remove.
+   */
+  manifest: string | null
+}
+
+/**
+ * What each verification level actually covers, for an agent about to report it.
+ *
+ * Here rather than left to the agent to phrase, because the phrasing is the
+ * deliverable: «kontrollert» said of a delivery nobody could check is how a
+ * flow that cannot see its own pictures ends up claiming it can.
+ */
+const CHECK_MEANS: Record<ImageBindingCheck, string> = {
+  'file-checked':
+    'Hver kobling bærer et avtrykk av bytene bildegenereringen returnerte, så nettleseren kan sammenligne hver fil med akkurat den filen før bildene settes inn. Det avgjør hvilken fil som hører til hvilken bildeplass – det sier ingenting om hva bildet viser. Se gjennom bildene selv i tillegg.',
+  unchecked:
+    'Minst én kobling mangler `contentHash`, så koblingen kan ikke kontrolleres mot filene selv – bare mot planen. Leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Si dette uttrykkelig til brukeren, og be om manuell gjennomgang av bildene i stedet for å omtale leveransen som kontrollert.',
+}
+
+/**
+ * The final check before the files leave the agent's hands.
+ *
+ * A read, and the one read in the whole surface whose *argument* is the answer:
+ * the agent states, per file, which plan entry it generated that file from, and
+ * Slaids says whether that set of claims is the set of pictures the deck
+ * planned. Nothing else in the flow can do it. Slaids never sees the files, and
+ * the agent cannot check its own bookkeeping against a plan it is holding from
+ * memory — which is exactly how nine pictures generated in the order 1, 3, 9,
+ * 6, 5, 8, 2, 4, 7 became nine files named by arrival.
+ *
+ * Deliberately not a mutation and deliberately not a gate Slaids can enforce:
+ * the deposit is a user action in a browser, so what this buys is that a
+ * mis-binding is *discovered by the agent, before the files are handed over*,
+ * with a message that names which picture to generate again. The deposit dialog
+ * asks the same question of the same module when a manifest comes with the
+ * files, so the two cannot disagree about what a correct delivery is.
+ */
+export const verifyImageHandoff = defineOperation({
+  name: 'verify_image_handoff',
+  summary:
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. ' +
+    IMAGE_HANDOFF_RULE,
+  mutates: false,
+  scopes: ['presentations:read'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    images: z
+      .array(
+        z.strictObject({
+          imagePlanItemId: z
+            .string()
+            .refine((value) => isImagePlanItemId(value), { message: 'Ikke en gyldig bildeplan-id' })
+            .describe(
+              'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra `images` i bildebriefen. Aldri konstruert, aldri gjettet ut fra rekkefølgen.',
+            ),
+          number: z
+            .number()
+            .int()
+            .min(1)
+            .max(MAX_PLANNED_IMAGES)
+            .describe('Oppføringens eget nummer – ikke bildets plass i genereringsrekkefølgen.'),
+          slideId: slideIdSchema,
+          nodeId: nodeIdSchema,
+          fileName: z
+            .string()
+            .min(1)
+            .describe('Filnavnet filen fikk: oppføringens nummer og filendelsen formatet har.'),
+          contentHash: z
+            .string()
+            .regex(/^[0-9a-f]{64}$/)
+            .optional()
+            .describe(
+              'SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Regn den ut i det filen kommer tilbake, før neste bilde genereres – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Utelat feltet hvis du ikke har tilgang til bytene; leveransen blir da rapportert som uverifisert, aldri som kontrollert.',
+            ),
+        }),
+      )
+      .max(MAX_PLANNED_IMAGES)
+      .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
+  }),
+  async run(context, input): Promise<AgentResult<GeneratedImagesView>> {
+    const loaded = await loadPresentation(context, input.presentationId)
+    if (!loaded.ok) return loaded
+    const presentation = loaded.value
+    const issues = checkGeneratedImages(presentation, input.images)
+    const check = imageBindingCheck(input.images)
+    return ok({
+      presentationId: presentation.id,
+      revision: presentationRevision(presentation),
+      ok: issues.length === 0,
+      check,
+      checkMeans: CHECK_MEANS[check],
+      issues,
+      expected: expectedGeneratedImages(presentation),
+      manifestFileName: IMAGE_MANIFEST_FILE_NAME,
+      manifest:
+        issues.length === 0
+          ? composeImageGenerationManifest({
+              presentationId: presentation.id,
+              images: [...input.images],
+            })
+          : null,
+    })
   },
 })
 
@@ -952,5 +1113,6 @@ export const deckOperations = [
   setImageContextOperation,
   planDeckImages,
   getImageBrief,
+  verifyImageHandoff,
   inspectSlide,
 ]

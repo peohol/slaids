@@ -38,6 +38,7 @@ import {
   DESIGN_DOCS_PATH,
   IMAGE_BRIEF_RULE,
   IMAGE_GENERATION_RULE,
+  IMAGE_HANDOFF_RULE,
   IMAGE_PLACEHOLDER_POLICY,
   IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
@@ -100,6 +101,7 @@ const NORMATIVE = [
   IMAGE_BRIEF_RULE,
   IMAGE_PLAN_RULE,
   IMAGE_GENERATION_RULE,
+  IMAGE_HANDOFF_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
   SELF_CHECK_STOP,
@@ -197,6 +199,7 @@ describe('det agenten vet før første kall', () => {
       SPLIT_RULE,
       IMAGE_BRIEF_RULE,
       IMAGE_PLAN_RULE,
+      IMAGE_HANDOFF_RULE,
       ...IMAGE_PLACEHOLDER_POLICY,
       ...VECTOR_POLICY,
       ...RASTER_POLICY,
@@ -448,6 +451,62 @@ describe('raster og vektor', () => {
     // zones rather than failing.
     expect(IMAGE_GENERATION_RULE).toMatch(/planlagt bilde 1 blir fil `1`/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/med filendelsen til formatet/i)
+  })
+
+  it('sier at genereringsrekkefølgen aldri er en identitetskilde', () => {
+    // The second observed failure, and the one a count could not see: nine
+    // pictures generated in the order 1, 3, 9, 6, 5, 8, 2, 4, 7, named by
+    // arrival, seven of them on the wrong slide. The rule has to name the
+    // identity that replaces the order.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Genereringsrekkefølgen er aldri en identitetskilde/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/«det første bildet som kom tilbake» er aldri bilde 1/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri nummereres etter når det ble ferdig/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/aldri fra en teller over de ferdige filene/i)
+  })
+
+  it('gjør arbeidsflyten eksplisitt sekvensiell, én oppføring av gangen', () => {
+    // Order matters in the loop itself: the binding is written down before the
+    // next generation call exists to confuse it with. An agent that collects
+    // every file first has nothing left to bind them from.
+    expect(IMAGE_GENERATION_RULE).toMatch(/stigende `number`/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/fullfør én av gangen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/knytt filen som kommer tilbake til den samme `imagePlanItemId`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/gå først deretter videre til neste oppføring/i)
+  })
+
+  it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {
+    // On the tool that performs it, because it is only writable once there are
+    // files to write about — and because the whole value of the check is that
+    // somebody other than the model does it.
+    expect(toolProse()).toContain(IMAGE_HANDOFF_RULE)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/før de leveres eller deponeres/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/kopieres ordrett fra `images`/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/den utledes ikke fra rekkefølgen/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/nøyaktig én gang/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`ok` false.*skal bildene ikke deponeres/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`manifest`.*`manifestFileName`/)
+  })
+
+  it('binder kontrollen til filenes egne bytes, ikke bare til metadata', () => {
+    // A record is otherwise a claim about a file *name*, and a name survives
+    // having its contents swapped: the digest is the only part of the handoff
+    // that reaches the files themselves.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`contentHash`/)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av bytene/i)
+    // And it has to be taken from the response, not from the folder afterwards.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/i det filen kommer tilbake/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/beregnet i ettertid.*fester.*allerede har skjedd/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/regn ut SHA-256 av bytene den returnerte med en gang/i)
+  })
+
+  it('sier hva en kontrollert kobling ikke er, og hva som skjer uten avtrykk', () => {
+    // The two overstatements this replaces. «Kontrollert» must not creep into
+    // meaning «the right picture», and a host that cannot reach its own bytes
+    // must be reported as unverified rather than refused or waved through.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/sier ingenting om hva bildet viser/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/uverifisert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/aldri presenteres som kontrollert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/manuell gjennomgang/i)
   })
 
   it('bruker den strukturerte oppføringen som kilde, ikke den samlede briefen', () => {
