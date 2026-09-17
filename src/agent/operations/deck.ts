@@ -19,6 +19,7 @@ import { IMAGE_BRIEF_RULE, IMAGE_HANDOFF_RULE, IMAGE_PLAN_RULE } from '../design
 import {
   createDeck,
   fitContextFor,
+  recordGeneratedImages,
   setImageContext,
   setImagePlan,
   setPresentationTitle,
@@ -38,12 +39,14 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
-  composeImageWorkflowStatus,
   isImagePlanItemId,
   resolveImagePlan,
   type ImageGenerationContract,
-  type ImageWorkflowStatus,
 } from '../../domain/imagePlan'
+import {
+  composeImageWorkflowStatus,
+  type ImageWorkflowStatus,
+} from '../../domain/imageWorkflow'
 import {
   bodyOf,
   contentAssetIds,
@@ -716,12 +719,13 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget – da er `workflow.stage` `generation-verified` også før filene er lagt inn. ' +
     IMAGE_HANDOFF_RULE,
-  mutates: false,
-  scopes: ['presentations:read'],
+  mutates: true,
+  scopes: ['presentations:write'],
   input: z.strictObject({
     presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
     images: z
       .array(
         z.strictObject({
@@ -755,31 +759,46 @@ export const verifyImageHandoff = defineOperation({
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
   }),
-  async run(context, input): Promise<AgentResult<GeneratedImagesView>> {
-    const loaded = await loadPresentation(context, input.presentationId)
-    if (!loaded.ok) return loaded
-    const presentation = loaded.value
-    const issues = checkGeneratedImages(presentation, input.images)
-    const check = imageBindingCheck(input.images)
-    return ok({
-      presentationId: presentation.id,
-      revision: presentationRevision(presentation),
-      ok: issues.length === 0,
-      check,
-      checkMeans: CHECK_MEANS[check],
-      issues,
-      expected: expectedGeneratedImages(presentation),
-      manifestFileName: IMAGE_MANIFEST_FILE_NAME,
-      manifest:
-        issues.length === 0
-          ? composeImageGenerationManifest({
-              presentationId: presentation.id,
-              images: [...input.images],
-            })
-          : null,
-      workflow: composeImageWorkflowStatus(presentation, {
-        generationVerified: issues.length === 0,
-      }),
+  run(context, input): Promise<AgentResult<GeneratedImagesView>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const issues = checkGeneratedImages(presentation, input.images)
+      const check = imageBindingCheck(input.images)
+      /*
+       * A check that passes is written down, and that is what makes this a
+       * mutation at all. Slaids never sees a generated file, so the deck cannot
+       * observe generation on its own: an answer that lived only in this
+       * response would be gone by the next read, and the very next
+       * `get_image_brief` on an unchanged deck would ask for every picture
+       * again — the duplicate generation the flow's own rules forbid.
+       *
+       * Only on success. Storing a set that did not check out would be the
+       * false reassurance this operation exists to remove, and the command
+       * refuses it independently for that reason.
+       */
+      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, input.images) : null
+      if (recorded && !recorded.ok) return recorded
+      const written = recorded?.value ?? presentation
+      return ok({
+        presentation: written,
+        value: {
+          presentationId: written.id,
+          revision: presentationRevision(written),
+          ok: issues.length === 0,
+          check,
+          checkMeans: CHECK_MEANS[check],
+          issues,
+          expected: expectedGeneratedImages(written),
+          manifestFileName: IMAGE_MANIFEST_FILE_NAME,
+          manifest:
+            issues.length === 0
+              ? composeImageGenerationManifest({
+                  presentationId: written.id,
+                  images: [...input.images],
+                })
+              : null,
+          workflow: composeImageWorkflowStatus(written),
+        },
+      })
     })
   },
 })

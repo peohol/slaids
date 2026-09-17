@@ -68,11 +68,11 @@
 import { z } from 'zod'
 import { MAX_PLANNED_IMAGES } from './constants'
 import {
-  imageFileNumber,
-  imageZoneKey,
-  isImagePlanItemId,
-  resolveImagePlan,
-} from './imagePlan'
+  CONTENT_HASH_PATTERN,
+  generatedImageRecordSchema,
+  type GeneratedImageRecord,
+} from './imageBinding'
+import { imageFileNumber, imageZoneKey, resolveImagePlan } from './imagePlan'
 import { err, ok, type Result } from './result'
 import type { Presentation } from './types'
 
@@ -80,42 +80,8 @@ import type { Presentation } from './types'
  * One generated file, and what it was generated for
  * ------------------------------------------------------------------ */
 
-/**
- * One finished picture file, as the agent that made it recorded the binding.
- *
- * Every field is redundant with `imagePlanItemId` — the id is derived from the
- * deck, the zone, the number and the motif, so in a correct record the other
- * fields can be looked up rather than stated. They are stated anyway, and that
- * is the point: a record is a claim about *five* things, so a mis-binding has
- * five chances to contradict itself instead of one. It also turns an id that no
- * longer resolves into something diagnosable — a moved slide and a rewritten
- * motif produce the same «unknown id» otherwise, and they need different
- * answers.
- */
-export interface GeneratedImageRecord {
-  /** The plan entry this file was generated from. The file's real identity. */
-  imagePlanItemId: string
-  /** The entry's own number, which is also what the file is called. */
-  number: number
-  slideId: string
-  nodeId: string
-  /** The finished file's name, `<number>.<filendelse>`. */
-  fileName: string
-  /**
-   * SHA-256 of the bytes the generation response returned, as lowercase hex.
-   *
-   * The one field that reaches past the metadata: without it the record is a
-   * claim about a file *name*, and a name survives having its contents
-   * swapped. Taken from the response for this one entry, at the moment it
-   * arrives — a digest computed afterwards from a folder of files certifies
-   * whatever mix-up already happened.
-   *
-   * Optional because not every host can reach those bytes. Absent, the
-   * delivery is `'unchecked'` rather than refused, and never reported as
-   * verified.
-   */
-  contentHash?: string
-}
+/** Re-exported so a caller reading about bindings finds the shape beside the checks. */
+export type { GeneratedImageRecord } from './imageBinding'
 
 /**
  * One file as it was actually handed over.
@@ -156,7 +122,6 @@ export interface DeliveredImageFile {
 export type ImageBindingCheck = 'file-checked' | 'unchecked'
 
 /** A SHA-256 as `assetHash.ts` writes one: 64 lowercase hex characters. */
-const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/
 
 /**
  * Whether a delivery can be checked against its own files at all.
@@ -501,24 +466,10 @@ export function isImageManifestFileName(fileName: string): boolean {
  *
  * A system boundary in the sense `CLAUDE.md` means — the JSON has been out of
  * the process, through a chat window and a download folder — so the shape is
- * asked rather than assumed. The bounds are the plan's own: a manifest cannot
- * describe more pictures than a deck may plan.
+ * asked rather than assumed. The record shape itself is `imageBinding.ts`'s,
+ * shared with the copy the document stores, so a binding cannot be legal in one
+ * and illegal in the other.
  */
-const generatedImageRecordSchema = z.object({
-  imagePlanItemId: z.string().refine((value) => isImagePlanItemId(value), {
-    message: 'Ikke en gyldig bildeplan-id',
-  }),
-  number: z.number().int().min(1).max(MAX_PLANNED_IMAGES),
-  slideId: z.string().min(1),
-  nodeId: z.string().min(1),
-  fileName: z.string().min(1),
-  /* Optional, and shape-checked when present: a digest that is not a SHA-256
-     is refused here rather than reported as a mismatch later, because «this
-     field is not a digest» and «these are the wrong bytes» call for different
-     answers from whoever has to fix it. */
-  contentHash: z.string().regex(CONTENT_HASH_PATTERN).optional(),
-})
-
 export const imageGenerationManifestSchema = z.object({
   presentationId: z.string().min(1),
   images: z.array(generatedImageRecordSchema).min(1).max(MAX_PLANNED_IMAGES),

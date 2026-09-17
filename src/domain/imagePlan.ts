@@ -37,6 +37,7 @@ import {
   type PlannedImageField,
 } from './constants'
 import { stableDigest } from './digest'
+import { IMAGE_PLAN_ITEM_ID_PREFIX } from './imageBinding'
 import { computeSlideGeometry } from './geometry'
 import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { panelFrame } from './imageOptimization'
@@ -81,7 +82,11 @@ export interface PlannedImage {
  * ------------------------------------------------------------------ */
 
 /** The prefix every plan-entry id carries, so an id is recognisable on sight. */
-export const IMAGE_PLAN_ITEM_ID_PREFIX = 'imgplan_'
+/* The prefix and the predicate are the shared module's: the document schema
+   checks them too, and it sits below this file in the import graph. Re-exported
+   because this is where a reader looks for everything about a plan entry's
+   identity. */
+export { IMAGE_PLAN_ITEM_ID_PREFIX, isImagePlanItemId } from './imageBinding'
 
 /**
  * The whole order for one picture: what it identifies, and what it was made from.
@@ -163,13 +168,6 @@ export function imagePlanItemId(order: ImagePlanItemOrder): string {
       order.orientation,
     ])
   )
-}
-
-const IMAGE_PLAN_ITEM_ID_PATTERN = new RegExp(`^${IMAGE_PLAN_ITEM_ID_PREFIX}[0-9a-f]{16}$`)
-
-/** Whether a string is shaped like a plan-entry id at all. Checked at boundaries. */
-export function isImagePlanItemId(value: string): boolean {
-  return IMAGE_PLAN_ITEM_ID_PATTERN.test(value)
 }
 
 /**
@@ -951,268 +949,6 @@ function deliveryChecks(count: number): readonly string[] {
     'Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiver det inneholder.',
     'Stemmer ikke antallet, er bildegenereringen ikke ferdig: generer de manglende bildene enkeltvis før deponering, i stedet for å gå videre.',
   ]
-}
-
-/* ------------------------------------------------------------------ *
- * Where the picture work stands, and what is therefore not done yet
- * ------------------------------------------------------------------ */
-
-/**
- * The raster flow's position, in the deck's own terms.
- *
- * `awaiting-generation`, `plan-needs-repair` and `plan-outdated` are the stages
- * an agent must never end a turn in. The two that are finished are finished for
- * different reasons: `no-planned-images` because there is nothing to make, and
- * `generation-verified` because the binding check has confirmed that everything
- * planned *was* made.
- */
-export type ImageWorkflowStage =
-  | 'no-planned-images'
-  | 'plan-needs-repair'
-  | 'awaiting-generation'
-  | 'generation-verified'
-  | 'plan-outdated'
-
-/**
- * How far the deck's raster flow has got, derived rather than remembered.
- *
- * It exists because of a failure every prose rule in this flow already forbade
- * and that happened anyway: the plan was written, the answer came back full of
- * instructions about generating the pictures, and the agent stopped there and
- * told the user the presentation was ready. Nothing in that answer *said* the
- * work was unfinished — an empty `issues` list reads as a finishing line, and a
- * paragraph of instructions is something an agent has read rather than
- * something it is visibly in the middle of.
- *
- * So the state is computed from the deck and returned beside the plan. The load
- * bearing field is `complete`: «may I stop here?» stops being a judgement about
- * prose and becomes a boolean the answer already carries.
- *
- * ## What the deck can see, and what it cannot
- *
- * The one thing this must not do is answer the question with the wrong fact.
- * Slaids never sees a generated file: the pictures are made in the host client,
- * and without a file bridge they reach the deck through the *user's* deposit in
- * a browser, which is why `verify_image_handoff` is a read and not a gate. So
- * «this zone holds a file» is a fact about the deposit, not about generation,
- * and an earlier version of this module used it as both — which made
- * `complete` unreachable in exactly the flow it was written for: every picture
- * generated and verified, every zone still empty, and a stop criterion telling
- * the agent to keep generating.
- *
- * Hence two separate counts and one truth source. `awaitingFileCount` and
- * `depositedImageCount` say what Slaids can observe, in those words. Whether
- * the *generation* is done is answered by `checkGeneratedImages` — `ok` there
- * means every planned entry has exactly one file bound to it — so this takes it
- * as an argument from the operation that runs that check, and never infers it
- * from a filled zone.
- *
- * The consequence is deliberate: a file sitting in a zone is not proof it was
- * generated for the order the plan carries *now*. A rewritten motif or shared
- * context gives an entry a new `imagePlanItemId`, and nothing on the panel
- * records which order its file came from — so a deck whose planned zones are
- * all filled is `plan-outdated` and not finished: either the plan has entries
- * that no longer wait for anything and should be rewritten without them, or the
- * orders changed under the files and those pictures need making again.
- */
-export interface ImageWorkflowStatus {
-  stage: ImageWorkflowStage
-  /**
-   * Whether the raster flow has anything left in it *for the agent*.
-   *
-   * The single field to branch on. False means the task is not finished, no
-   * matter how complete the slides look — see `completionCriteria`. It is not
-   * a statement about the deposit: the files reaching Slaids is the user's
-   * step, and waiting for it is never the agent's work.
-   */
-  complete: boolean
-  plannedImageCount: number
-  /**
-   * Planned entries whose zone holds a file.
-   *
-   * A fact about the deposit. It says Slaids *has* a file for that zone — never
-   * that the file was generated for the order the entry carries now.
-   */
-  depositedImageCount: number
-  /**
-   * Planned entries whose zone is still empty.
-   *
-   * What Slaids is missing, which is not the same as what is left to generate:
-   * a picture can be made, bound and verified while its zone waits for the
-   * user to deposit the file.
-   */
-  awaitingFileCount: number
-  /** What happens next, named as an action rather than as a state. */
-  nextAction: string
-  /** The steps between here and a finished task, in order. Empty when complete. */
-  remainingSteps: readonly string[]
-  /** Everything that has to be true before the task may be called finished. */
-  completionCriteria: readonly string[]
-  /** Endings that are wrong while `complete` is false. Empty when it is true. */
-  forbiddenClosings: readonly string[]
-}
-
-/**
- * What finishing means for a deck that plans pictures.
- *
- * Exported because the same lines are the agent's standing instruction and this
- * deck's own status, and two copies of a definition of done is how a delivery
- * comes to satisfy one of them.
- *
- * The last two are the ones that cost something to get right: the proof that
- * the pictures exist is the binding check, and the deposit is explicitly *not*
- * part of it. Without that, «all pictures generated» has no observable form and
- * an agent either stops too early or waits for a browser action it cannot
- * perform.
- */
-export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
-  'Presentasjonen er opprettet eller oppdatert.',
-  'Slidestruktur og innhold er på plass.',
-  'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
-  'Den ferske sluttbriefen er skrevet ut i samtalen.',
-  'Alle planlagte bilder er generert i samme samtale, som like mange separate bildefiler.',
-  'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, og koblingskontrollen svarer `ok` for alle planlagte oppføringer. Det er den kontrollen som avgjør at bildegenereringen er ferdig.',
-  'Å legge bildene inn i Slaids kreves ikke for at genereringsoppgaven er ferdig: uten en filbro tilbake til Slaids er deponeringen brukerens steg i nettleseren. Fylte bildesoner er derfor aldri stoppkriteriet.',
-]
-
-/**
- * The endings that were the failure, said as the failure rather than as style
- * advice.
- *
- * Each of the first three is a true sentence about a deck whose pictures have
- * not been made, which is exactly why it was reached for: an agent describing
- * what it has done is not obviously stopping early. The last two close the two
- * ways out that remain — asking the user to say «go», and mistaking an empty
- * zone for a missing picture and generating it a second time.
- */
-export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
-  'Ikke avslutt med «Presentasjonen er opprettet» når bildene fortsatt skal genereres i denne samtalen.',
-  'Ikke avslutt med «Bildene er ikke satt inn ennå». Det er en beskrivelse av arbeid som gjenstår, og arbeidet er ditt.',
-  'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
-  'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe etter briefen, eller en konkret teknisk blokkering du navngir.',
-  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids. Svarer koblingskontrollen `ok`, er bildet laget – det som gjenstår er deponeringen, og den er brukerens steg.',
-]
-
-/** The generation half of what is left, with this deck's own count in it. */
-function generationSteps(awaiting: number): readonly string[] {
-  return [
-    'Hent den ferske sluttbriefen fra den endelige presentasjonstilstanden, og skriv den ut i samtalen.',
-    `Generer de ${awaiting} bildene som mangler, enkeltvis: ett kall per oppføring i \`images\`, i stigende \`number\`, etter \`generation.perImageSteps\`.`,
-    'Kjør koblingskontrollen på alle planlagte oppføringer, mot `generation.beforeDeposit`. Den er stoppkriteriet for bildegenereringen.',
-    'Svarer kontrollen `ok`, er genereringsoppgaven ferdig. Lever bildene med manifestet; å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
-  ]
-}
-
-/** What the caller already knows that the deck cannot say for itself. */
-export interface ImageWorkflowInput {
-  /**
-   * Whether the binding check has confirmed a complete, consistent set of
-   * generated files for this plan — `checkGeneratedImages` with no issues.
-   *
-   * Only `verify_image_handoff` can answer this, because only its caller holds
-   * the records. Left out, the status reports the flow as it looks from the
-   * deck alone: pictures still owed for every zone that has no file.
-   */
-  generationVerified?: boolean
-}
-
-/**
- * The deck's raster flow, as a state rather than as a recollection.
- *
- * Total: every deck has one, including a deck that plans no pictures, because
- * «nothing to do here» is an answer an agent needs as much as a count of four.
- *
- * The plan's own checks are consulted **before** any finished branch. That
- * ordering is not a detail: a deck with picture zones waiting and no plan at
- * all plans zero pictures, and reporting that as finished would let the
- * cheapest possible mistake — reserving the zones and never describing them —
- * read as a delivery.
- */
-export function composeImageWorkflowStatus(
-  presentation: Presentation,
-  input: ImageWorkflowInput = {},
-): ImageWorkflowStatus {
-  const images = resolveImagePlan(presentation)
-  const deposited = images.filter((image) => image.filled).length
-  const awaiting = images.length - deposited
-  const counts = {
-    plannedImageCount: images.length,
-    depositedImageCount: deposited,
-    awaitingFileCount: awaiting,
-  }
-  const status = (
-    stage: ImageWorkflowStage,
-    complete: boolean,
-    nextAction: string,
-    remainingSteps: readonly string[],
-  ): ImageWorkflowStatus => ({
-    stage,
-    complete,
-    ...counts,
-    nextAction,
-    remainingSteps: complete ? [] : remainingSteps,
-    completionCriteria: IMAGE_WORKFLOW_COMPLETION_CRITERIA,
-    forbiddenClosings: complete ? [] : IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
-  })
-
-  /* First, and ahead of every finished branch: an empty check list is part of
-     the stop criterion the status itself publishes, so a plan the deck
-     disagrees with can never be reported as done. It is a step on the way to
-     the same generation, never a reason to hand the deck back. */
-  if (checkImagePlan(presentation).length > 0) {
-    return status(
-      'plan-needs-repair',
-      false,
-      'Rett først det `issues` peker på, og skriv bildeplanen på nytt – tomme kontroller er en del av stoppkriteriet. Fortsett deretter i samme samtale med bildegenereringen for oppføringene som venter på en fil.',
-      [
-        'Rett det `issues` peker på, og skriv bildeplanen på nytt.',
-        ...(awaiting > 0 ? generationSteps(awaiting) : []),
-      ],
-    )
-  }
-
-  if (images.length === 0) {
-    return status(
-      'no-planned-images',
-      true,
-      'Dekket planlegger ingen rasterbilder, så rasterflyten har ingenting utestående. Forutsetter bestillingen bilder, er det bildeplanen som mangler – ikke bildegenereringen.',
-      [],
-    )
-  }
-
-  if (input.generationVerified) {
-    return status(
-      'generation-verified',
-      true,
-      `Koblingskontrollen bekrefter at alle ${images.length} planlagte bilder er generert og knyttet til sin egen oppføring. Genereringsoppgaven er ferdig.${
-        awaiting > 0
-          ? ` De ${awaiting} filene som ennå ikke ligger i dekket, kommer inn gjennom bildedeponeringen – det er brukerens steg. Lever filene med manifestet og si hva brukeren skal gjøre.`
-          : ''
-      }`,
-      [],
-    )
-  }
-
-  if (awaiting === 0) {
-    return status(
-      'plan-outdated',
-      false,
-      'Hver planlagt bildesone har allerede en fil, så planen beskriver ingen bilder som venter. Skriv bildeplanen på nytt uten de oppføringene. En fil i en sone er ikke bevis for at den ble laget for bestillingen som står nå: er motivet eller den felles bildekonteksten endret etter at filen kom, generer det bildet på nytt og kjør koblingskontrollen.',
-      [
-        'Skriv bildeplanen på nytt uten oppføringene som allerede har fil.',
-        'Er en oppførings bestilling endret etter at filen kom, generer bildet på nytt og kjør koblingskontrollen.',
-      ],
-    )
-  }
-
-  return status(
-    'awaiting-generation',
-    false,
-    `${
-      deposited > 0 ? `${deposited} av ${images.length} planlagte bilder har fått sin fil i dekket. ` : ''
-    }Bildeplanen er et mellomsteg, ikke leveransen. Fortsett i samme samtale: skriv ut den ferske sluttbriefen, og kall deretter bildegeneratoren ${awaiting} ganger – én gang per oppføring i \`images\`, én oppføring ferdigstilt av gangen. Genereringsoppgaven er ferdig når koblingskontrollen svarer \`ok\` for alle planlagte oppføringer, ikke når bildesonene er fylt.`,
-    generationSteps(awaiting),
-  )
 }
 
 /* ------------------------------------------------------------------ *

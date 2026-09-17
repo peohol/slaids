@@ -3,7 +3,7 @@ import { SELF_CHECK_STOP } from '../../agent/design'
 import {
   IMAGE_WORKFLOW_COMPLETION_CRITERIA,
   IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
-} from '../../domain/imagePlan'
+} from '../../domain/imageWorkflow'
 import { MCP_INSTRUCTIONS } from './instructions'
 
 describe('visual media planning instructions', () => {
@@ -106,6 +106,11 @@ describe('visual media planning instructions', () => {
         /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `generation-verified`/i)
+      // And the answer is a fact about the deck, not about one response: the
+      // regression was `verify_image_handoff` saying «done» and the very next
+      // read asking for every picture again.
+      expect(MCP_INSTRUCTIONS).toMatch(/også ved senere lesninger, fordi svaret lagres på dekket/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/faller kontrollen bort av seg selv/i)
       expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
       expect(MCP_INSTRUCTIONS).toMatch(
         /skal ikke genereres om igjen fordi sonen står tom/i,
@@ -142,6 +147,16 @@ describe('visual media planning instructions', () => {
       // feeling: the user said stop, or there is a failure to point at.
       expect(MCP_INSTRUCTIONS).toMatch(/navngi blokkeringen konkret/i)
       expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
+    })
+
+    it('holder bildeplanen til de sonene som faktisk venter', () => {
+      // The contradiction this closes: the status asked for two pictures while
+      // `images` listed three and the binding check expected three records.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Bildeplanen skal beskrive nøyaktig de bildesonene som venter på en fil/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/sier `workflow` `plan-outdated`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/i stedet for å generere mot en liste dekket selv er uenig med/i)
     })
 
     it('utløses av planlagte bildesoner, ikke bare av ordet «bilder»', () => {

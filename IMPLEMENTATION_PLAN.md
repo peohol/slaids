@@ -651,10 +651,9 @@ svaret fra `plan_deck_images`, `get_image_brief` og `verify_image_handoff`.
 
 Det avgjørende er å ikke besvare spørsmålet med det feil faktumet. **Slaids ser
 aldri en generert bildefil.** Bildene lages i vertsklienten, og uten en filbro
-kommer de inn gjennom *brukerens* deponering i nettleseren — det er derfor
-`verify_image_handoff` er en lesning og ikke en port. «Denne sonen har en fil»
-er altså et faktum om deponeringen, ikke om genereringen, og det å bruke det som
-begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
+kommer de inn gjennom *brukerens* deponering i nettleseren. «Denne sonen har en
+fil» er altså et faktum om deponeringen, ikke om genereringen, og det å bruke
+det som begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
 generert og korrekt verifisert mens dekket fortsatt har 0 `assetId`, og et
 stoppkriterium bygget på fylte soner blir uoppnåelig i nøyaktig den
 arbeidsflyten det ble skrevet for — og ber i praksis om at bildene genereres om
@@ -669,9 +668,35 @@ Derfor to separate tall og én sannhetskilde:
   skylder.
 - **Om selve genereringen er ferdig, svarer `checkGeneratedImages` på.** `ok`
   der betyr at hver planlagte oppføring har nøyaktig én fil knyttet til seg, og
-  det er definisjonen på at genereringen er utført. Statusen tar det derfor som
-  et argument (`ImageWorkflowInput.generationVerified`) fra operasjonen som
-  kjører kontrollen, og utleder det aldri fra en fylt sone.
+  det er definisjonen på at genereringen er utført. Statusen leser det aldri av
+  en fylt sone.
+
+#### Koblingene lagres, fordi ett kall ikke er en tilstand
+
+Det holdt ikke å la kontrollen svare. Første forsøk lot bare
+`verify_image_handoff` kjenne utfallet, og da var sekvensen inkonsistent: planen
+ble skrevet, N filer generert, kontrollen svarte `generation-verified` og
+`complete: true` — og neste `get_image_brief` på *nøyaktig samme dekk* svarte
+`awaiting-generation` og ba om N nye genereringskall, fordi sonene fortsatt var
+tomme. Det er den samme duplikatgenereringen regelen forbyr, ett kall senere.
+
+Derfor lagres koblingene på dokumentet (`Presentation.generatedImages`), og
+`verify_image_handoff` er en mutasjon: den skriver settet som gikk gjennom, og
+bare det. `imageGenerationIsVerified` spør `checkGeneratedImages` om de lagrede
+koblingene på nytt hver gang, mot planen dekket har *nå* — det er ikke et flagg.
+
+Det gir utløpet gratis, og det er egenskapen som gjør lagringen trygg å stole
+på: en oppførings `imagePlanItemId` dekker hele bestillingen, så et omskrevet
+motiv eller en omskrevet felles bildekontekst gjør de lagrede koblingene til
+`PLAN_CHANGED`, og et bilde laget for en bestilling dekket ikke lenger har kan
+ikke melde seg ferdig. `setImagePlan` rydder bort koblinger som ikke lenger
+resolverer, så dokumentet ikke samler påstander om bilder ingen har bestilt.
+
+Selve *formen* på en kobling bor i `domain/imageBinding.ts`, importert både av
+manifestet som kommer med filene og av dokumentskjemaet. To definisjoner ville
+vært den enkle veien og den gale: en kobling som er lovlig i et manifest og
+ulovlig på dokumentet er en leveranse som validerer på vei inn og feiler på vei
+ut.
 
 #### Stegene
 
@@ -681,7 +706,7 @@ Derfor to separate tall og én sannhetskilde:
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
 | `generation-verified` | ✔ | Koblingskontrollen svarte `ok`: alt planlagt er laget og koblet. |
-| `plan-outdated` | ✗ | Hver planlagt sone har alt en fil, så planen beskriver ingenting som venter. |
+| `plan-outdated` | ✗ | En planlagt sone har alt en fil som ingen kontrollert kobling gjør rede for. |
 
 Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
 et dekk med reserverte bildesoner og ingen bildeplan planlegger null bilder, og
@@ -690,14 +715,21 @@ aldri beskrive dem — lest som en leveranse. Samme rekkefølge gjør at et dekk
 planfeil ikke kan bli `complete` selv om hver sone har fil, i tråd med statusens
 eget `completionCriteria` om at `issues` skal være tom.
 
-`plan-outdated` er den andre siden av samme ærlighet: en fil i en sone er ikke
-bevis for at den ble laget for den bestillingen planen bærer *nå*. Et omskrevet
-motiv eller en omskrevet felles bildekontekst gir oppføringen en ny
-`imagePlanItemId`, og ingenting på panelet husker hvilken bestilling filen kom
-fra. Enten har planen oppføringer som ikke venter på noe lenger og skal skrives
-på nytt uten dem, eller bestillingene er endret under filene og de bildene skal
-lages om — og da er det `PLAN_CHANGED` fra koblingskontrollen som sier det,
-ikke en fylt sone som skjuler det.
+`plan-outdated` gjør to jobber, og begge kommer av at bildeplanens kontrakt er
+«én oppføring per bildesone som *venter* på en fil».
+
+Den ene er ærlighet om proveniens: en fil i en sone er ikke bevis for at den ble
+laget for bestillingen planen bærer nå, og ingenting på panelet husker hvilken
+bestilling filen kom fra. Den andre er en selvmotsigelse den fjerner. Tidligere
+brukte `awaiting-generation` `awaitingFileCount` som antall bilder å generere,
+mens `images` fortsatt listet alle oppføringene og `checkGeneratedImages`
+forventer én record per *planlagt* oppføring: med tre oppføringer der én sone
+alt hadde fil, sa statusen «kall bildegeneratoren 2 ganger», og en agent som
+fulgte den fikk `MISSING_ITEM` på den tredje. Nå er en slik plan `plan-outdated`
+i stedet, og veien videre er å skrive den på nytt med bare sonene som venter —
+aldri å generere den eksisterende filen om igjen. I `awaiting-generation` er
+`awaitingFileCount` derfor lik `plannedImageCount` ved konstruksjon, og lik det
+kontrollen forventer.
 
 #### Feltene agenten leser
 

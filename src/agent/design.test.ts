@@ -49,7 +49,7 @@ import { PLANNED_IMAGE_FIELDS, REQUIRED_PLANNED_IMAGE_FIELDS } from '../domain/c
 import {
   IMAGE_WORKFLOW_COMPLETION_CRITERIA,
   IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
-} from '../domain/imagePlan'
+} from '../domain/imageWorkflow'
 import { realImages } from '../domain/testImages'
 import { runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
@@ -1412,21 +1412,98 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(short.workflow.complete).toBe(false)
   })
 
-  it('lar en deponert fil rapporteres uten å bli tatt for bevis på generering', async () => {
+  it('holder seg ferdig når briefen leses etter en godkjent kontroll', async () => {
+    // The regression: `verify_image_handoff` answered «done», and the very next
+    // `get_image_brief` on the unchanged deck answered «generate eight
+    // pictures» — the same duplicate generation, one call later. The check
+    // writes its result to the deck, so every later read agrees with it.
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+    expect(verified.workflow.stage).toBe('generation-verified')
 
-    await deposit(context, brief.presentationId, brief.images[0])
-    const state = await ok<ImageBriefView>(context, 'get_image_brief', {
+    const reread = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
     })
-    // Counted, and counted as what it is: a file Slaids has, not a picture it
-    // knows was made.
-    expect(state.workflow.depositedImageCount).toBe(1)
-    expect(state.workflow.awaitingFileCount).toBe(MOTIFS.length - 1)
-    expect(state.workflow.stage).toBe('awaiting-generation')
-    expect(state.workflow.complete).toBe(false)
-    expect(state.workflow.nextAction).toContain(`1 av ${MOTIFS.length}`)
+    expect(reread.workflow.stage).toBe('generation-verified')
+    expect(reread.workflow.complete).toBe(true)
+    expect(reread.workflow.remainingSteps).toEqual([])
+    expect(reread.workflow.nextAction).not.toMatch(/kall deretter bildegeneratoren/i)
+    // Nothing was deposited, and the deck says so without treating it as work.
+    expect(reread.workflow.awaitingFileCount).toBe(MOTIFS.length)
+    expect(reread.workflow.depositedImageCount).toBe(0)
+  })
+
+  it('ber om bildene på nytt hvis bestillingen skrives om etter kontrollen', async () => {
+    // The stored answer is not a flag: it is the bindings, re-checked against
+    // the plan the deck carries now. Rewriting the shared context changes every
+    // order's identity, so the verification stops applying by itself.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 2)
+    await ok(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief),
+    })
+    await ok(context, 'set_image_context', {
+      presentationId: brief.presentationId,
+      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
+    })
+
+    const reread = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(reread.images.map((image) => image.imagePlanItemId)).not.toEqual(
+      brief.images.map((image) => image.imagePlanItemId),
+    )
+    expect(reread.workflow.stage).toBe('awaiting-generation')
+    expect(reread.workflow.complete).toBe(false)
+  })
+
+  it('kan nå ferdig fra en delvis deponert plan uten å lage bildet om igjen', async () => {
+    // Three planned, one file already in its zone. The old status said «call
+    // the generator twice» while `images` still listed three and the binding
+    // check expected three records — so an agent that followed it walked into
+    // MISSING_ITEM. Now the plan is stale until it describes only what waits,
+    // and the way out never regenerates the picture that is already there.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 3)
+    await deposit(context, brief.presentationId, brief.images[0])
+
+    const stale = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(stale.workflow.stage).toBe('plan-outdated')
+    expect(stale.workflow.complete).toBe(false)
+    expect(stale.workflow.depositedImageCount).toBe(1)
+    expect(stale.workflow.nextAction).toMatch(/skriv bildeplanen på nytt med bare de sonene/i)
+
+    // Follow it: re-plan the two zones that still wait.
+    const waiting = stale.images.filter((image) => !image.filled)
+    expect(waiting).toHaveLength(2)
+    const replanned = await ok<ImageBriefView>(context, 'plan_deck_images', {
+      presentationId: brief.presentationId,
+      images: waiting.map((image) =>
+        planned(image.slideId, image.nodeId, MOTIFS[image.number - 1]),
+      ),
+    })
+    expect(replanned.issues).toEqual([])
+    expect(replanned.workflow.stage).toBe('awaiting-generation')
+    // The number the status asks for is exactly the set the check expects.
+    expect(replanned.workflow.awaitingFileCount).toBe(2)
+    expect(replanned.images).toHaveLength(2)
+    expect(replanned.generation?.expectedFileCount).toBe(2)
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(replanned),
+    })
+    expect(verified.ok).toBe(true)
+    expect(verified.issues).toEqual([])
+    expect(verified.workflow.stage).toBe('generation-verified')
+    expect(verified.workflow.complete).toBe(true)
   })
 
   it('lar ikke gamle filer i sonene gjøre en omskrevet bestilling ferdig', async () => {
