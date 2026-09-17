@@ -28,8 +28,10 @@ import {
   checkGeneratedImages,
   composeImageGenerationManifest,
   expectedGeneratedImages,
+  imageBindingCheck,
   IMAGE_MANIFEST_FILE_NAME,
   type GeneratedImageRecord,
+  type ImageBindingCheck,
   type ImageBindingIssue,
 } from '../../domain/imageGeneration'
 import {
@@ -626,10 +628,23 @@ export interface GeneratedImagesView {
   revision: string
   /** Whether the files may be handed over. False means something is named below. */
   ok: boolean
+  /**
+   * How far the bindings can be checked against the files themselves.
+   *
+   * Reported beside `ok`, never folded into it, because the two answer
+   * different questions and the difference is the whole point: a delivery with
+   * no digests is consistent metadata about files nobody compared, so it is
+   * `ok: true` and `check: 'unchecked'`. An agent that read only `ok` would
+   * call that verified, which is the failure one layer up from the one this
+   * operation exists for.
+   */
+  check: ImageBindingCheck
+  /** What `check` means, in a sentence that does not overstate it. */
+  checkMeans: string
   /** What is wrong with the bindings, in the deck's own terms. Empty when `ok`. */
   issues: ImageBindingIssue[]
   /** The bindings the deck's plan expects, so a fix does not need a second read. */
-  expected: Omit<GeneratedImageRecord, 'fileName'>[]
+  expected: Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[]
   /** What the manifest file is called when the files go through the deposit. */
   manifestFileName: string
   /**
@@ -640,6 +655,20 @@ export interface GeneratedImagesView {
    * out would be exactly the false reassurance this operation exists to remove.
    */
   manifest: string | null
+}
+
+/**
+ * What each verification level actually covers, for an agent about to report it.
+ *
+ * Here rather than left to the agent to phrase, because the phrasing is the
+ * deliverable: «kontrollert» said of a delivery nobody could check is how a
+ * flow that cannot see its own pictures ends up claiming it can.
+ */
+const CHECK_MEANS: Record<ImageBindingCheck, string> = {
+  'file-checked':
+    'Hver kobling bærer et avtrykk av bytene bildegenereringen returnerte, så nettleseren kan sammenligne hver fil med akkurat den filen før bildene settes inn. Det avgjør hvilken fil som hører til hvilken bildeplass – det sier ingenting om hva bildet viser. Se gjennom bildene selv i tillegg.',
+  unchecked:
+    'Minst én kobling mangler `contentHash`, så koblingen kan ikke kontrolleres mot filene selv – bare mot planen. Leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Si dette uttrykkelig til brukeren, og be om manuell gjennomgang av bildene i stedet for å omtale leveransen som kontrollert.',
 }
 
 /**
@@ -690,6 +719,13 @@ export const verifyImageHandoff = defineOperation({
             .string()
             .min(1)
             .describe('Filnavnet filen fikk: oppføringens nummer og filendelsen formatet har.'),
+          contentHash: z
+            .string()
+            .regex(/^[0-9a-f]{64}$/)
+            .optional()
+            .describe(
+              'SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Regn den ut i det filen kommer tilbake, før neste bilde genereres – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Utelat feltet hvis du ikke har tilgang til bytene; leveransen blir da rapportert som uverifisert, aldri som kontrollert.',
+            ),
         }),
       )
       .max(MAX_PLANNED_IMAGES)
@@ -700,10 +736,13 @@ export const verifyImageHandoff = defineOperation({
     if (!loaded.ok) return loaded
     const presentation = loaded.value
     const issues = checkGeneratedImages(presentation, input.images)
+    const check = imageBindingCheck(input.images)
     return ok({
       presentationId: presentation.id,
       revision: presentationRevision(presentation),
       ok: issues.length === 0,
+      check,
+      checkMeans: CHECK_MEANS[check],
       issues,
       expected: expectedGeneratedImages(presentation),
       manifestFileName: IMAGE_MANIFEST_FILE_NAME,

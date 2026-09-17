@@ -34,6 +34,7 @@ import { createPresentation } from './presentation'
 import { titleDoc } from './richdoc'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
+import { realImages } from './testImages'
 import {
   depositImages,
   depositIsOpen,
@@ -42,8 +43,10 @@ import {
   reviewDeposit,
   reviewDepositFiles,
 } from './imageDeposit'
+import { hashBytes } from './assetHash'
 import {
   composeImageGenerationManifest,
+  type DeliveredImageFile,
   type GeneratedImageRecord,
 } from './imageGeneration'
 import { imageFileNumber, resolveImagePlan } from './imagePlan'
@@ -270,39 +273,63 @@ describe('gjennomgangen av de valgte filene', () => {
 })
 
 describe('de to flytene: manuell opplasting og agentgenererte bilder', () => {
+  /** Three different pictures, so a swap between two of them is a real swap. */
+  const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
+
+  /** The files as the dialog hands them over: a name and a digest of the bytes. */
+  async function files(
+    names: readonly string[],
+    bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
+  ): Promise<DeliveredImageFile[]> {
+    return Promise.all(
+      names.map(async (fileName, index) => ({
+        fileName,
+        contentHash: await hashBytes(bytesFor(index)),
+      })),
+    )
+  }
+
   /** The manifest an agent would hand over, with the bindings it recorded. */
-  function manifest(
+  async function manifest(
     deck: Presentation,
-    bind: (image: ReturnType<typeof resolveImagePlan>[number]) => Partial<GeneratedImageRecord> = () => ({}),
-  ): string {
-    return composeImageGenerationManifest({
-      presentationId: deck.id,
-      images: resolveImagePlan(deck).map((image) => ({
+    bind: (
+      image: ReturnType<typeof resolveImagePlan>[number],
+      index: number,
+    ) => Partial<GeneratedImageRecord> = () => ({}),
+  ): Promise<string> {
+    const images = await Promise.all(
+      resolveImagePlan(deck).map(async (image, index) => ({
         imagePlanItemId: image.id,
         number: image.number,
         slideId: image.plan.slideId,
         nodeId: image.plan.nodeId,
         fileName: `${image.fileNameStem}.png`,
-        ...bind(image),
+        contentHash: await hashBytes(PICTURES[index % 3]()),
+        ...bind(image, index),
       })),
-    })
+    )
+    return composeImageGenerationManifest({ presentationId: deck.id, images })
   }
 
-  it('lar manuell opplasting uten metadata fungere som før', () => {
+  it('lar manuell opplasting uten metadata fungere som før', async () => {
     // The file name *is* the binding when a person made it, and there is nothing
     // to cross-check it against. Demanding a manifest here would break the flow
     // the deposit was built for.
     const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, ['1.png', '2.jpg', '3.webp'], null)
-    expect(review.source).toBe('manual')
+    const review = reviewDeposit(deck, await files(['1.png', '2.jpg', '3.webp']), null)
+    expect(review.assurance).toBe('manual')
     expect(review.binding).toEqual([])
     expect(review.ready).toBe(true)
   })
 
-  it('kontrollerer koblingen når agentens manifest følger med', () => {
+  it('kontrollerer koblingen mot filenes innhold når manifestet følger med', async () => {
     const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], manifest(deck))
-    expect(review.source).toBe('agent')
+    const review = reviewDeposit(
+      deck,
+      await files(['1.png', '2.png', '3.png']),
+      await manifest(deck),
+    )
+    expect(review.assurance).toBe('file-checked')
     expect(review.binding).toEqual([])
     expect(review.ready).toBe(true)
   })
@@ -311,39 +338,77 @@ describe('de to flytene: manuell opplasting og agentgenererte bilder', () => {
     // Well-formed files, the right count, the right names — and one picture
     // bound to the wrong entry. This is the delivery the old dialog accepted.
     const { deck } = pendingDeck()
-    const review = reviewDeposit(
-      deck,
-      ['1.png', '2.png', '3.png'],
-      manifest(deck, (image) => (image.number === 2 ? { number: 3 } : {})),
+    return manifest(deck, (image) => (image.number === 2 ? { number: 3 } : {})).then(
+      async (text) => {
+        const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), text)
+        expect(review.missing).toEqual([])
+        expect(review.files.every((file) => file.problem === null)).toBe(true)
+        expect(review.binding.length).toBeGreaterThan(0)
+        expect(review.ready).toBe(false)
+      },
     )
-    expect(review.missing).toEqual([])
+  })
+
+  it('stopper to filer som har byttet innhold, med navn og manifest urørt', async () => {
+    // Nothing in the metadata has moved: the same three names, the same three
+    // records, the same count. Only the bytes behind `1.png` and `2.png` have
+    // changed places — which is the whole delivery the names cannot see.
+    const { deck } = pendingDeck()
+    const swapped = await files(['1.png', '2.png', '3.png'], (index) =>
+      index === 0 ? PICTURES[1]() : index === 1 ? PICTURES[0]() : PICTURES[2](),
+    )
+    const review = reviewDeposit(deck, swapped, await manifest(deck))
+
     expect(review.files.every((file) => file.problem === null)).toBe(true)
-    expect(review.binding.length).toBeGreaterThan(0)
+    expect(review.missing).toEqual([])
+    expect(review.binding.map((issue) => issue.code)).toEqual([
+      'CONTENT_MISMATCH',
+      'CONTENT_MISMATCH',
+    ])
+    // The whole set, not the two files: `ready` is what the dialog gates on and
+    // what the command refuses, so nothing lands — not even the one that matched.
     expect(review.ready).toBe(false)
   })
 
-  it('behandler et uleselig manifest som en ukjent kobling, ikke som ingen kobling', () => {
+  it('kaller en levering uten avtrykk uverifisert, ikke kontrollert', async () => {
     const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], '{ ikke json')
-    expect(review.source).toBe('agent')
+    const bare = await manifest(deck, () => ({ contentHash: undefined }))
+    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), bare)
+
+    // Consistent, complete, and nobody compared it to anything. It may still be
+    // deposited — refusing every host that cannot reach its own bytes would push
+    // people back to naming files by hand — but it is never called checked.
+    expect(review.binding).toEqual([])
+    expect(review.ready).toBe(true)
+    expect(review.assurance).toBe('unchecked')
+  })
+
+  it('behandler et uleselig manifest som en ukjent kobling, ikke som ingen kobling', async () => {
+    const { deck } = pendingDeck()
+    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), '{ ikke json')
+    expect(review.assurance).toBe('unchecked')
     expect(review.binding).toHaveLength(1)
     expect(review.ready).toBe(false)
   })
 
-  it('stopper et manifest som hører til et annet dekk', () => {
+  it('stopper et manifest som hører til et annet dekk', async () => {
     const { deck } = pendingDeck()
     const other = composeImageGenerationManifest({
-      ...JSON.parse(manifest(deck)),
+      ...JSON.parse(await manifest(deck)),
       presentationId: 'p_et_annet_dekk',
     })
-    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png'], other)
+    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), other)
     expect(review.binding.map((issue) => issue.code)).toEqual(['WRONG_PRESENTATION'])
     expect(review.ready).toBe(false)
   })
 
-  it('melder en fil som er levert uten å høre til noe generert bilde', () => {
+  it('melder en fil som er levert uten å høre til noe generert bilde', async () => {
     const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, ['1.png', '2.png', '3.png', '4.png'], manifest(deck))
+    const review = reviewDeposit(
+      deck,
+      await files(['1.png', '2.png', '3.png', '4.png']),
+      await manifest(deck),
+    )
     // `4.png` is out of range as a name *and* unaccounted for as a binding, and
     // both are said: the two answers are «remove it» and «it was never made».
     expect(review.files.map((file) => file.problem)).toContain('RANGE')

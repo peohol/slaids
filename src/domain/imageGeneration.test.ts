@@ -20,27 +20,48 @@
  *    failure — name the files in arrival order — is written out here and has to
  *    be refused. A test that only asserted the happy path would pass against
  *    the broken implementation too.
+ *
+ * Two further failures are asserted here because consistent metadata is not the
+ * same thing as correct files, and neither is visible to any check that only
+ * reads records:
+ *
+ *  - **swapped contents under unchanged names.** Build a correct manifest for
+ *    two genuinely different image files, then exchange the bytes behind
+ *    `1.png` and `2.png`. Every id, number, zone and name still agrees. Only
+ *    the files' own digests disagree, so the digests are what the tests below
+ *    use real image bytes to check.
+ *  - **an order that moved under finished pictures.** `composition`,
+ *    `requirements`, `avoid`, the deck's shared context and the measured aspect
+ *    ratio are all part of what a generator was told, so each of them has to
+ *    invalidate a binding on its own — while an edit a generator was never told
+ *    about must not.
  */
 
 import { describe, expect, it } from 'vitest'
-import { setImagePlan } from './commands/imagePlan'
+import { hashBytes } from './assetHash'
+import { setImagePlan, syncImagePlaceholders } from './commands/imagePlan'
+import { setImageContext } from './commands/slides'
+import { setSplitWeights } from './commands/layout'
 import { createImage } from './content'
 import {
   checkGeneratedImages,
   composeImageGenerationManifest,
   expectedGeneratedImages,
+  imageBindingCheck,
   IMAGE_MANIFEST_FILE_NAME,
   isImageManifestFileName,
   manifestPresentationIssue,
   parseImageGenerationManifest,
+  type DeliveredImageFile,
   type GeneratedImageRecord,
 } from './imageGeneration'
 import { resolveImagePlan } from './imagePlan'
-import { createLeaf } from './layout'
+import { createLeaf, createSplit } from './layout'
 import { createPresentation } from './presentation'
 import { titleDoc } from './richdoc'
 import { contentAt, sectionAt } from './testDecks'
-import type { ContentSlide, DeckSlides, Presentation } from './types'
+import { realImages } from './testImages'
+import type { ContentSlide, DeckSlides, PlannedImage, Presentation } from './types'
 
 const CONTEXT = 'Fotorealistiske rekonstruksjoner, naturlig dagslys, ingen tekst i bildene.'
 
@@ -170,6 +191,62 @@ function fileByMotif(records: readonly GeneratedImageRecord[], deck: Presentatio
       return [motif?.plan.subject ?? record.imagePlanItemId, record.fileName]
     }),
   )
+}
+
+/**
+ * Two genuinely different pictures, as bytes.
+ *
+ * Real encoder output rather than two byte arrays assembled here, for the same
+ * reason `testImages.ts` exists at all: the scenario under test is two *files*
+ * whose contents were exchanged, and a fixture that is not a file would leave
+ * the test proving something about strings.
+ */
+const PICTURES: Record<Label, () => Uint8Array> = {
+  A: realImages.png,
+  B: realImages.jpeg,
+  C: realImages.webp,
+  D: realImages.gif,
+}
+
+/** The files as the deposit receives them: a name, and a digest of the bytes. */
+async function deliver(
+  contents: readonly { fileName: string; bytes: Uint8Array }[],
+): Promise<DeliveredImageFile[]> {
+  return Promise.all(
+    contents.map(async (file) => ({
+      fileName: file.fileName,
+      contentHash: await hashBytes(file.bytes),
+    })),
+  )
+}
+
+/** A bound delivery: the records the agent wrote, and the files it hands over. */
+async function generateFiles(
+  deck: Presentation,
+  order: readonly Label[],
+): Promise<{ records: GeneratedImageRecord[]; delivered: DeliveredImageFile[] }> {
+  const named = order.map((label) => ({
+    label,
+    entry: entryFor(deck, label),
+    bytes: PICTURES[label](),
+  }))
+  const records = await Promise.all(
+    named.map(async (file) => ({
+      imagePlanItemId: file.entry.id,
+      number: file.entry.number,
+      slideId: file.entry.plan.slideId,
+      nodeId: file.entry.plan.nodeId,
+      fileName: `${file.entry.fileNameStem}.png`,
+      /* Taken from the bytes this generation call returned, which is the whole
+         point: a digest taken later, from the folder, would agree with whatever
+         mix-up had happened in between. */
+      contentHash: await hashBytes(file.bytes),
+    })),
+  )
+  const delivered = await deliver(
+    named.map((file) => ({ fileName: `${file.entry.fileNameStem}.png`, bytes: file.bytes })),
+  )
+  return { records, delivered }
 }
 
 const SCRAMBLED: readonly Label[] = ['C', 'A', 'D', 'B']
@@ -358,15 +435,28 @@ describe('kontrollen før deponering', () => {
     expect(issues.find((issue) => issue.code === 'PLAN_CHANGED')?.message).toMatch(/endret seg/)
   })
 
-  it('krysser koblingene mot filene som faktisk er levert', () => {
+  it('krysser koblingene mot filene som faktisk er levert', async () => {
     const { deck } = deckOfFour()
     const records = generateBound(deck, ['A', 'B', 'C', 'D'])
-    const names = ['1.png', '2.png', '3.png']
-    const issues = checkGeneratedImages(deck, records, [...names, 'ekstra.png'])
+    const short = await deliver(
+      ['1.png', '2.png', '3.png'].map((fileName) => ({ fileName, bytes: realImages.png() })),
+    )
+    const stray = await deliver([{ fileName: 'ekstra.png', bytes: realImages.gif() }])
+    const issues = checkGeneratedImages(deck, records, [...short, ...stray])
     expect(issues.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(['FILE_MISSING', 'FILE_UNACCOUNTED']),
     )
-    expect(checkGeneratedImages(deck, records, ['1.png', '2.png', '3.png', '4.png'])).toEqual([])
+
+    const complete = await deliver(
+      ['1.png', '2.png', '3.png', '4.png'].map((fileName) => ({
+        fileName,
+        bytes: realImages.png(),
+      })),
+    )
+    // Records without digests: consistent, complete, and therefore no issues —
+    // which is exactly why the level below is reported beside them.
+    expect(checkGeneratedImages(deck, records, complete)).toEqual([])
+    expect(imageBindingCheck(records)).toBe('unchecked')
   })
 
   it('melder alt som er galt, ikke bare det første', () => {
@@ -426,5 +516,257 @@ describe('manifestet som følger filene', () => {
     const issue = manifestPresentationIssue(deck, manifest)
     expect(issue?.code).toBe('WRONG_PRESENTATION')
     expect(manifestPresentationIssue(deck, { ...manifest, presentationId: deck.id })).toBeNull()
+  })
+})
+
+describe('koblingen til de faktiske filene', () => {
+  it('godtar en riktig koblet levering i stokket rekkefølge, med filenes egne avtrykk', async () => {
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, SCRAMBLED)
+
+    expect(checkGeneratedImages(deck, records, delivered)).toEqual([])
+    expect(imageBindingCheck(records)).toBe('file-checked')
+    // Each picture's own bytes are behind the number its plan entry gave it.
+    for (const label of ['A', 'B', 'C', 'D'] as Label[]) {
+      const entry = entryFor(deck, label)
+      const file = delivered.find((item) => item.fileName === `${entry.number}.png`)
+      expect(file?.contentHash).toBe(await hashBytes(PICTURES[label]()))
+    }
+  })
+
+  it('avviser to filer som har byttet innhold, med navn og manifest urørt', async () => {
+    // The scenario a metadata-only check cannot see. Everything agrees: ids,
+    // numbers, zones, names, count. Only the bytes behind two of the names have
+    // changed places, and two pictures are on the wrong slides.
+    const { deck } = deckOfFour()
+    const { records } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    const swapped = await deliver([
+      { fileName: '1.png', bytes: PICTURES.B() },
+      { fileName: '2.png', bytes: PICTURES.A() },
+      { fileName: '3.png', bytes: PICTURES.C() },
+      { fileName: '4.png', bytes: PICTURES.D() },
+    ])
+
+    const issues = checkGeneratedImages(deck, records, swapped)
+    const mismatched = issues.filter((issue) => issue.code === 'CONTENT_MISMATCH')
+    expect(mismatched.map((issue) => issue.number).sort()).toEqual([1, 2])
+    // And it is the whole set that is refused, not the two files: `ready` is
+    // what the deposit gates on, and it is all-or-nothing by construction.
+    expect(issues.length).toBeGreaterThan(0)
+  })
+
+  it('avviser en fil som er byttet ut med en annen etter genereringen', async () => {
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    const tampered = await deliver([{ fileName: '3.png', bytes: realImages.webpLossless() }])
+    const issues = checkGeneratedImages(deck, records, [
+      ...delivered.filter((file) => file.fileName !== '3.png'),
+      ...tampered,
+    ])
+    expect(issues.map((issue) => issue.code)).toEqual(['CONTENT_MISMATCH'])
+    expect(issues[0].number).toBe(3)
+  })
+
+  it('nedgraderer aldri en manglende kontroll til «kontrollert»', async () => {
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+
+    // No digests at all: nothing contradicts itself, and nothing was checked.
+    const bare = records.map(({ contentHash: _dropped, ...rest }) => rest)
+    expect(checkGeneratedImages(deck, bare, delivered)).toEqual([])
+    expect(imageBindingCheck(bare)).toBe('unchecked')
+
+    // One missing out of four is still a delivery nobody can vouch for: the
+    // other three passing is not «mostly verified», it is unverified with three
+    // pictures that happen to be checkable.
+    const partial = records.map((record, index) =>
+      index === 2 ? { ...record, contentHash: undefined } : record,
+    )
+    expect(imageBindingCheck(partial)).toBe('unchecked')
+    // The three that *do* carry a digest are still compared — a missing digest
+    // excuses its own record, never the others.
+    const swappedElsewhere = await deliver([
+      { fileName: '1.png', bytes: PICTURES.B() },
+      { fileName: '2.png', bytes: PICTURES.A() },
+      { fileName: '3.png', bytes: PICTURES.C() },
+      { fileName: '4.png', bytes: PICTURES.D() },
+    ])
+    expect(
+      checkGeneratedImages(deck, partial, swappedElsewhere).map((issue) => issue.code),
+    ).toContain('CONTENT_MISMATCH')
+  })
+
+  it('avviser et avtrykk som ikke er en SHA-256, ved grensen', async () => {
+    // At the boundary rather than as a mismatch later: «this field is not a
+    // digest» and «these are the wrong bytes» need different answers.
+    const { deck } = deckOfFour()
+    const { records } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    const manifest = JSON.stringify({
+      presentationId: deck.id,
+      images: records.map((record, index) =>
+        index === 0 ? { ...record, contentHash: 'ikke-en-hash' } : record,
+      ),
+    })
+    expect(parseImageGenerationManifest(manifest).ok).toBe(false)
+  })
+
+  it('bærer avtrykkene gjennom manifestet', async () => {
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, SCRAMBLED)
+    const parsed = parseImageGenerationManifest(
+      composeImageGenerationManifest({ presentationId: deck.id, images: records }),
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(imageBindingCheck(parsed.value.images)).toBe('file-checked')
+    expect(checkGeneratedImages(deck, parsed.value.images, delivered)).toEqual([])
+  })
+})
+
+describe('bestillingen som helhet, ikke bare motivet', () => {
+  /** The deck's plan with one entry's field rewritten. */
+  function rewrite(deck: Presentation, label: Label, change: Partial<PlannedImage>): Presentation {
+    const zone = entryFor(deck, label).plan
+    const written = setImagePlan(
+      deck,
+      (deck.imagePlan ?? []).map((entry) =>
+        entry.nodeId === zone.nodeId ? { ...entry, ...change } : entry,
+      ),
+    )
+    if (!written.ok) throw new Error(written.error.message)
+    return written.value
+  }
+
+  it('ugyldiggjør en kobling når hvert enkelt bestillingsfelt endres', async () => {
+    // One field at a time, because the first version of the id covered only
+    // `subject`: everything else in the order could be rewritten while a picture
+    // generated from the old wording still passed the check.
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    expect(checkGeneratedImages(deck, records, delivered)).toEqual([])
+
+    const changes: Partial<PlannedImage>[] = [
+      { subject: 'Et helt annet motiv, tydelig ulikt alt annet i planen.' },
+      { composition: 'Ekstrem nærbildeutsnitt ovenfra, motivet i nedre hjørne.' },
+      { requirements: 'Redskapene må være av jern, ikke av tre.' },
+      { avoid: 'Ingen moderne klesdrakt og ingen maskiner.' },
+    ]
+    for (const change of changes) {
+      const moved = rewrite(deck, 'A', change)
+      const issues = checkGeneratedImages(moved, records, delivered)
+      expect(issues.map((issue) => issue.code)).toContain('PLAN_CHANGED')
+    }
+  })
+
+  it('ugyldiggjør alle koblinger når den felles bildekonteksten endres', async () => {
+    // The shared context is part of every picture's order, so it invalidates
+    // every one of them — which is correct, and is why it must not be edited
+    // after the handoff.
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    const recontexted = setImageContext(
+      deck,
+      'Grove tresnitt i svart og hvitt, hard strek, ingen gråtoner.',
+    )
+    if (!recontexted.ok) throw new Error(recontexted.error.message)
+
+    const issues = checkGeneratedImages(recontexted.value, records, delivered)
+    expect(issues.filter((issue) => issue.code === 'PLAN_CHANGED')).toHaveLength(4)
+  })
+
+  it('ugyldiggjør koblingen når en layoutendring endrer bildeformatet', async () => {
+    // The format is measured off the zone and printed into the brief, so it is
+    // part of the order even though nobody typed it: a weight change that makes
+    // the rectangle a different shape is a different order for that picture,
+    // and a picture generated for the old shape comes back cropped.
+    const base = createPresentation({ title: 'Fra lin til lerret' })
+    const picture = createLeaf(createImage())
+    const beside = createLeaf(null)
+    const template = contentAt(base, 1)
+    const slides: DeckSlides = [
+      sectionAt(base, 0),
+      { ...template, root: createSplit('x', [1, 1], [picture, beside]) },
+    ]
+    const planned = setImagePlan({ ...base, imageContext: CONTEXT, slides }, [
+      {
+        slideId: slides[1].id,
+        nodeId: picture.id,
+        subject: MOTIFS[0].subject,
+        composition: 'Motivet sentrert i rolig omgivelse, naturlig øyehøyde.',
+        requirements: '',
+        avoid: '',
+      },
+    ])
+    if (!planned.ok) throw new Error(planned.error.message)
+    const deck = planned.value
+
+    const entry = resolveImagePlan(deck)[0]
+    const bytes = realImages.png()
+    const records: GeneratedImageRecord[] = [
+      {
+        imagePlanItemId: entry.id,
+        number: entry.number,
+        slideId: entry.plan.slideId,
+        nodeId: entry.plan.nodeId,
+        fileName: '1.png',
+        contentHash: await hashBytes(bytes),
+      },
+    ]
+    const delivered = await deliver([{ fileName: '1.png', bytes }])
+    expect(checkGeneratedImages(deck, records, delivered)).toEqual([])
+
+    const widened = setSplitWeights(deck, {
+      slideId: slides[1].id,
+      nodeId: deck.slides[1].kind === 'content' ? deck.slides[1].root.id : '',
+      weights: [4, 1],
+    })
+    if (!widened.ok) throw new Error(widened.error.message)
+    const resynced = syncImagePlaceholders(widened.value.presentation)
+    if (!resynced.ok) throw new Error(resynced.error.message)
+
+    expect(resolveImagePlan(resynced.value)[0].aspectRatio).not.toBe(entry.aspectRatio)
+    expect(checkGeneratedImages(resynced.value, records, delivered).map((i) => i.code)).toContain(
+      'PLAN_CHANGED',
+    )
+  })
+
+  it('lar en endring generatoren aldri fikk høre om stå urørt', async () => {
+    // The other half of the rule, and the one that keeps it usable: a deck title
+    // or a slide title is never sent to a generator, so editing one must not
+    // invalidate finished pictures.
+    const { deck } = deckOfFour()
+    const { records, delivered } = await generateFiles(deck, SCRAMBLED)
+
+    const retitled: Presentation = {
+      ...deck,
+      title: 'Lin gjennom året',
+      slides: [
+        deck.slides[0],
+        ...deck.slides.slice(1).map((slide) =>
+          slide.kind === 'content' ? { ...slide, title: titleDoc('En annen tittel') } : slide,
+        ),
+      ] as typeof deck.slides,
+    }
+    expect(checkGeneratedImages(retitled, records, delivered)).toEqual([])
+    // And re-reading the untouched deck still accepts the same binding.
+    expect(checkGeneratedImages(deck, records, delivered)).toEqual([])
+    expect(expectedGeneratedImages(retitled)).toEqual(expectedGeneratedImages(deck))
+  })
+})
+
+describe('nivået krever begge sider', () => {
+  it('er uverifisert når avtrykket finnes i manifestet men filen ikke er lest', async () => {
+    // A guard rather than a path the dialog can take: it hashes whenever a
+    // manifest is present. But the type allows a record with a digest beside a
+    // file nobody read, and «could have been checked» must never be reported as
+    // «was checked».
+    const { deck } = deckOfFour()
+    const { records } = await generateFiles(deck, ['A', 'B', 'C', 'D'])
+    const unread = records.map((record) => ({ fileName: record.fileName }))
+
+    expect(imageBindingCheck(records)).toBe('file-checked')
+    expect(imageBindingCheck(records, unread)).toBe('unchecked')
+    // And nothing is invented: a file nobody read is not a mismatch.
+    expect(checkGeneratedImages(deck, records, unread)).toEqual([])
   })
 })

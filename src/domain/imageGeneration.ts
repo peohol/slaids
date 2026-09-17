@@ -36,6 +36,33 @@
  *  - **manual upload** — a person saving «bilde 3» as `3.png` is the binding,
  *    and there is nothing to cross-check it against. The number in the file
  *    name stays authoritative there, exactly as before. See `reviewDeposit`.
+ *
+ * ## What the bindings reach, and what they do not
+ *
+ * Records alone are metadata about files, and metadata can be consistent about
+ * the wrong files. Swap the *contents* of `1.png` and `2.png` and leave every
+ * name and every record untouched: ids, numbers, zones and names all still
+ * agree, and two pictures are still on the wrong slides. So a record may also
+ * carry `contentHash` — a SHA-256 of the bytes the generation response actually
+ * returned — and the deposit compares it against the bytes of the file it was
+ * handed, before anything is sanitised, optimised or inserted.
+ *
+ * Two limits on that, and both are stated rather than glossed:
+ *
+ *  - **The digest has to be taken from the generation response itself**, the
+ *    moment that one file comes back, before the next picture is generated. A
+ *    digest computed later, from a folder of finished files, fingerprints
+ *    whatever mix-up already happened and certifies it.
+ *  - **It is file integrity, never motif control.** A matching digest says
+ *    «this is the file that came back for that entry». It cannot say the
+ *    picture shows the right thing — nothing here can, because Slaids never
+ *    looks at the picture. `ImageBindingCheck` is named for what it covers so
+ *    the two are not quietly conflated.
+ *
+ * Not every host client can reach the bytes of what its image tool produced. A
+ * delivery without digests is therefore not refused — it is `'unchecked'`, and
+ * whatever offers it has to say so and ask for the check a person can make. It
+ * is never reported as verified. See `reviewDeposit` and the deposit dialog.
  */
 
 import { z } from 'zod'
@@ -74,6 +101,89 @@ export interface GeneratedImageRecord {
   nodeId: string
   /** The finished file's name, `<number>.<filendelse>`. */
   fileName: string
+  /**
+   * SHA-256 of the bytes the generation response returned, as lowercase hex.
+   *
+   * The one field that reaches past the metadata: without it the record is a
+   * claim about a file *name*, and a name survives having its contents
+   * swapped. Taken from the response for this one entry, at the moment it
+   * arrives — a digest computed afterwards from a folder of files certifies
+   * whatever mix-up already happened.
+   *
+   * Optional because not every host can reach those bytes. Absent, the
+   * delivery is `'unchecked'` rather than refused, and never reported as
+   * verified.
+   */
+  contentHash?: string
+}
+
+/**
+ * One file as it was actually handed over.
+ *
+ * The digest is over the bytes the deposit was given — before sanitising and
+ * before optimisation, which is the point: those rewrite an SVG and would make
+ * a correct file look like a substituted one. `AssetRef.contentHash` is over the
+ * *stored* bytes and answers a different question (deduplication), so it cannot
+ * stand in for this.
+ */
+export interface DeliveredImageFile {
+  fileName: string
+  /**
+   * The digest, when the bytes have been read. Absent means nobody looked.
+   *
+   * Optional because reading bytes is work with a purpose only when there is
+   * something to compare them against: a manual upload has no digests to check
+   * against and must not be made to wait for a hash it will never use. Absent
+   * on a file whose record *does* carry a digest, the comparison simply cannot
+   * be made — which `imageBindingCheck` reports as unchecked rather than
+   * passing off as checked.
+   */
+  contentHash?: string
+}
+
+/**
+ * How far a delivery's binding was actually checked by a machine.
+ *
+ *  - `'file-checked'` — every record carried a digest of the bytes its
+ *    generation response returned, so the binding can be, and is, compared
+ *    against the files themselves.
+ *  - `'unchecked'` — at least one record carried none. The metadata may be
+ *    perfectly consistent and still describe the wrong files.
+ *
+ * Named for what it covers. Neither value says the picture shows the right
+ * motif: that is a judgement about an image, and Slaids never sees one.
+ */
+export type ImageBindingCheck = 'file-checked' | 'unchecked'
+
+/** A SHA-256 as `assetHash.ts` writes one: 64 lowercase hex characters. */
+const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/
+
+/**
+ * Whether a delivery can be checked against its own files at all.
+ *
+ * Every record, not most: one picture whose binding nobody can check is one
+ * picture that may be on the wrong slide, and a delivery that reported itself
+ * verified on the strength of the other eight would be worse than one that
+ * reported nothing. An empty delivery is `'unchecked'` for the same reason —
+ * there is nothing there to have checked.
+ */
+export function imageBindingCheck(
+  records: readonly GeneratedImageRecord[],
+  delivered?: readonly DeliveredImageFile[],
+): ImageBindingCheck {
+  if (records.length === 0) return 'unchecked'
+  const digested = delivered && new Map(delivered.map((file) => [baseName(file.fileName), file]))
+  for (const record of records) {
+    if (record.contentHash === undefined) return 'unchecked'
+    if (!CONTENT_HASH_PATTERN.test(record.contentHash)) return 'unchecked'
+    /* Both sides or neither. A record that carries a digest for a file nobody
+       hashed is not a checked binding — it is a binding that *could* have been
+       checked, which is a different sentence and must not be said as this one. */
+    if (digested && digested.get(baseName(record.fileName))?.contentHash === undefined) {
+      return 'unchecked'
+    }
+  }
+  return 'file-checked'
 }
 
 /**
@@ -104,7 +214,7 @@ export interface ImageGenerationManifest {
  */
 export function expectedGeneratedImages(
   presentation: Presentation,
-): Omit<GeneratedImageRecord, 'fileName'>[] {
+): Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[] {
   return resolveImagePlan(presentation).map((image) => ({
     imagePlanItemId: image.id,
     number: image.number,
@@ -138,6 +248,10 @@ export function expectedGeneratedImages(
  *  - `FILE_NAME_MISMATCH` — the file is not called what its number says.
  *  - `FILE_MISSING`   — a record names a file that was not handed over.
  *  - `FILE_UNACCOUNTED` — a file was handed over that no record claims.
+ *  - `CONTENT_MISMATCH` — the file's own bytes are not the bytes the generation
+ *                       response returned for that entry. The one code that
+ *                       reaches past the metadata: it is what catches two files
+ *                       whose contents were swapped under unchanged names.
  */
 export type ImageBindingIssueCode =
   | 'WRONG_PRESENTATION'
@@ -152,6 +266,7 @@ export type ImageBindingIssueCode =
   | 'FILE_NAME_MISMATCH'
   | 'FILE_MISSING'
   | 'FILE_UNACCOUNTED'
+  | 'CONTENT_MISMATCH'
 
 export interface ImageBindingIssue {
   code: ImageBindingIssueCode
@@ -169,19 +284,24 @@ export interface ImageBindingIssue {
  * wrong rather than the first thing wrong, because an agent that has to fix one
  * binding per round trip will regenerate pictures it did not need to.
  *
- * `fileNames` is what was actually handed over, when that is known — the
- * deposit dialog knows, an agent reporting its own work does not have to. Left
- * out, the records are checked against the plan alone; passed, the files and
- * the records are also checked against each other, which is the only way to
- * catch a record for a file that never arrived.
+ * `delivered` is what was actually handed over, when that is known — the deposit
+ * dialog holds the files, an agent reporting its own work does not. Left out,
+ * the records are checked against the plan alone, and that is all an agent can
+ * ask for. Passed, two further things become checkable and are the only reason
+ * this check reaches past metadata at all: that every record has a file and
+ * every file has a record, and that each file's **own bytes** are the bytes its
+ * generation response returned.
  *
  * An empty list means the set may be deposited. Anything in it means it may
- * not: this is a gate, not advice.
+ * not: this is a gate, not advice. What an empty list does *not* mean is that
+ * the binding was verified — a delivery with no digests passes every check
+ * there is to run and is still `'unchecked'`. Callers report
+ * `imageBindingCheck` alongside, never instead.
  */
 export function checkGeneratedImages(
   presentation: Presentation,
   records: readonly GeneratedImageRecord[],
-  fileNames?: readonly string[],
+  delivered?: readonly DeliveredImageFile[],
 ): ImageBindingIssue[] {
   const issues: ImageBindingIssue[] = []
   const expected = expectedGeneratedImages(presentation)
@@ -279,42 +399,69 @@ export function checkGeneratedImages(
     })
   }
 
-  if (fileNames) issues.push(...fileIssues(records, fileNames))
+  if (delivered) issues.push(...fileIssues(records, delivered))
   return issues
 }
 
 /**
- * The records against the files that actually arrived.
+ * The records against the files that actually arrived, contents included.
  *
- * Both directions, because they fail differently: a record with no file is a
- * picture somebody believes was delivered, and a file no record claims is a
- * picture nobody can place. Neither may be absorbed silently, which is the
- * mistake the whole module exists to make impossible.
+ * Three directions, because they fail differently. A record with no file is a
+ * picture somebody believes was delivered; a file no record claims is a picture
+ * nobody can place; and a file whose bytes are not the bytes that came back for
+ * that entry is the one failure every other check in this module is blind to —
+ * the names agree, the ids agree, the numbers agree, and the pictures are
+ * swapped.
+ *
+ * Addressing is still by name, because that is what a record names. The digest
+ * is what decides whether the file behind that name is the right one, so the
+ * two are not alternatives: the name finds the file and the bytes confirm it.
  */
 function fileIssues(
   records: readonly GeneratedImageRecord[],
-  fileNames: readonly string[],
+  delivered: readonly DeliveredImageFile[],
 ): ImageBindingIssue[] {
   const issues: ImageBindingIssue[] = []
-  const delivered = new Set(fileNames.map(baseName))
+  const byName = new Map(delivered.map((file) => [baseName(file.fileName), file]))
   const claimed = new Set(records.map((record) => baseName(record.fileName)))
 
   for (const record of records) {
-    if (delivered.has(baseName(record.fileName))) continue
+    const file = byName.get(baseName(record.fileName))
+    if (!file) {
+      issues.push({
+        code: 'FILE_MISSING',
+        message: `Filen «${record.fileName}» er registrert for bilde ${record.number}, men ligger ikke blant filene som er levert.`,
+        imagePlanItemId: record.imagePlanItemId,
+        number: record.number,
+        fileName: record.fileName,
+      })
+      continue
+    }
+    /* No digest on the record is not a mismatch — it is a binding nobody can
+       check, which `imageBindingCheck` reports as such. Treating it as a
+       failure here would refuse every host that cannot reach its own bytes;
+       treating it as a pass would be the false reassurance this exists to
+       remove. It is neither: it is unchecked, and said out loud. */
+    if (record.contentHash === undefined) continue
+    /* Nothing read on this side either: `imageBindingCheck` says so, and
+       inventing a mismatch here would refuse a file for not having been
+       looked at. */
+    if (file.contentHash === undefined) continue
+    if (record.contentHash === file.contentHash) continue
     issues.push({
-      code: 'FILE_MISSING',
-      message: `Filen «${record.fileName}» er registrert for bilde ${record.number}, men ligger ikke blant filene som er levert.`,
+      code: 'CONTENT_MISMATCH',
+      message: `Filen «${record.fileName}» inneholder ikke de bytene bildegeneratoren returnerte for bilde ${record.number}. Filen er byttet ut eller forvekslet med en annen etter genereringen, så bildene kan ikke settes inn.`,
       imagePlanItemId: record.imagePlanItemId,
       number: record.number,
       fileName: record.fileName,
     })
   }
-  for (const name of fileNames) {
-    if (claimed.has(baseName(name))) continue
+  for (const file of delivered) {
+    if (claimed.has(baseName(file.fileName))) continue
     issues.push({
       code: 'FILE_UNACCOUNTED',
-      message: `Filen «${name}» hører ikke til noen av de genererte bildene. Den kan ikke plasseres.`,
-      fileName: name,
+      message: `Filen «${file.fileName}» hører ikke til noen av de genererte bildene. Den kan ikke plasseres.`,
+      fileName: file.fileName,
     })
   }
   return issues
@@ -365,6 +512,11 @@ const generatedImageRecordSchema = z.object({
   slideId: z.string().min(1),
   nodeId: z.string().min(1),
   fileName: z.string().min(1),
+  /* Optional, and shape-checked when present: a digest that is not a SHA-256
+     is refused here rather than reported as a mismatch later, because «this
+     field is not a digest» and «these are the wrong bytes» call for different
+     answers from whoever has to fix it. */
+  contentHash: z.string().regex(CONTENT_HASH_PATTERN).optional(),
 })
 
 export const imageGenerationManifestSchema = z.object({

@@ -246,6 +246,8 @@ Den andre feilen var ikke et steg gjort galt — hvert genereringskall var rikti
 
 Derfor har hver bildeoppføring en egen, stabil id — `imagePlanItemId`, på formen `imgplan_…` — som følger bildet fra bildeplan til generering til fil til deponering. Nummeret er hva *filen* heter; id-en er hva bildet *er*.
 
+Id-en dekker **hele bestillingen**, ikke bare motivet: dekket, sonen, nummeret, alle fire bildefeltene, dekkets felles bildekontekst og det målte formatet. Skrives noe av det om etter at bildet er laget, er bildet laget fra en bestilling dekket ikke lenger har, og koblingen avvises. Det som med vilje står utenfor, er alt en generator aldri får høre om — dekkets tittel, slidens tittel, de andre slidene, temaet — så en endring der ugyldiggjør ingenting.
+
 Arbeidsflyten er eksplisitt sekvensiell, og rekkefølgen på stegene er selve mekanismen. For hver oppføring, i stigende `number`:
 
 1. Les bare denne oppføringen, sammen med dekkets felles bildekontekst.
@@ -258,6 +260,19 @@ Arbeidsflyten er eksplisitt sekvensiell, og rekkefølgen på stegene er selve me
 En agent som samler alle filene først og navngir dem etterpå har ingenting igjen å knytte dem fra. Rekkefølgen bildegeneratoren produserer, returnerer eller *viser* bildene i er ikke en identitetskilde: «det første bildet som kom tilbake» er aldri bilde 1, og et bilde skal aldri nummereres etter når det ble ferdig.
 
 **Sluttkontrollen er et kall, ikke en huskeregel.** Når alle filene er ferdige, og før de leveres eller deponeres, oppgir agenten én kobling per fil til `verify_image_handoff` — `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavn — og Slaids kontrollerer at alle planlagte id-er finnes nøyaktig én gang, at ingen id er ukjent eller gjentatt, at hvert nummer forekommer én gang, at hver id peker på den sonen planen sier, og at filnavnet stemmer med oppføringens nummer. Er svaret ikke `ok`, skal bildene ikke deponeres: de bildene det gjelder genereres enkeltvis på nytt. Er det `ok`, følger `slaids-bilder.json` med, og den legges ved siden av bildefilene — det er slik koblingen overlever turen gjennom en nedlastingsmappe, og deponeringen kontrollerer den på nytt i nettleseren.
+
+### Metadata er ikke nok: filens egne bytes
+
+En kobling uten avtrykk er en påstand om et *filnavn*, og et filnavn overlever at innholdet byttes om. Bytt innholdet i `1.png` og `2.png` og la navnene og manifestet stå: id-er, numre, soner og navn stemmer fortsatt, og to bilder ligger fortsatt på feil slide.
+
+Derfor oppgir agenten også `contentHash`: SHA-256 av bytene bildegenereringen returnerte for akkurat den oppføringen, **regnet ut i det filen kommer tilbake** og før neste bilde genereres. Et avtrykk beregnet i ettertid, fra en mappe med ferdige filer, fester bare en forveksling som allerede har skjedd. Avtrykket følger manifestet, og nettleseren sammenligner det med filens egne bytes før sanitering, optimalisering og innsetting.
+
+To ting dette **ikke** er:
+
+- **Det er ikke motivkontroll.** Et avtrykk som stemmer sier hvilken fil som hører til hvilken bildeplass. Det sier ingenting om hva bildet viser — ingenting i Slaids kan det, fordi Slaids aldri ser på bildet. Se gjennom bildene i tillegg, og si det samme til brukeren.
+- **Det er ikke et krav.** Ikke alle vertsklienter får tilgang til bytene til det bildeverktøyet deres produserte. Utelat feltet da: kontrollen svarer `check: "unchecked"`, leveransen skal omtales som uverifisert, og deponeringen ber brukeren bekrefte manuelt. Den skal aldri presenteres som kontrollert.
+
+`ok` og `check` svarer på to forskjellige spørsmål. `ok: true` betyr bare at ingenting motsier seg selv; `check` sier hvor langt koblingen faktisk er kontrollert, og `checkMeans` sier hva nivået dekker. Les dem sammen.
 
 **Antallet kontrolleres før deponering.** Feltet `generation` i det samme svaret sier hva en ferdig leveranse er, avledet av den samme planen briefen bygges av:
 
@@ -285,7 +300,7 @@ Brukeren møter dette slik:
 1. Presentasjonen åpnes, og en dialog forklarer at den har *N* bildeplasser som kan fylles automatisk. To valg: **«Generer og legg inn bilder»** eller **«Gå til editoren»**. Å velge editoren avslutter ingenting — knappen for bildebriefen øverst i editoren fører tilbake hit når som helst.
 2. Bildebriefen vises med en nummerert liste over bildene som skal lages: nummer, format og motiv. Kopi-knappen finnes fortsatt for klienter og arbeidsflyter som trenger manuell overlevering.
 3. Bildene kan genereres direkte av vertsklienten eller produseres et annet sted. Når bildefilene er tilgjengelige, lagres de som `1`, `2`, `3` … opp til *N*, med den filendelsen de får. Formatene kan gjerne være forskjellige: `1.png`, `2.jpg`, `3.webp`. Navn som `01.png`, `bilde1.png` og `1a.png` avvises med en begrunnelse — de blir aldri gjettet på — og to filer med samme nummer meldes som konflikt.
-   Er bildene agentgenererte, legges `slaids-bilder.json` ved siden av dem. Da er ikke filnavnet alt Slaids har å gå etter: hver kobling kontrolleres mot bildeplanen, og en konflikt stopper hele deponeringen med en begrunnelse per bilde. Et manifest som ikke kan leses regnes som ukjent kobling, ikke som ingen kobling. Manuell opplasting uten manifest fungerer som før — der er nummeret i filnavnet autoritativt, fordi et menneske som lagrer «bilde 3» som `3.png` har laget koblingen selv.
+   Er bildene agentgenererte, legges `slaids-bilder.json` ved siden av dem. Da er ikke filnavnet alt Slaids har å gå etter: hver kobling kontrolleres mot bildeplanen, hver fils egne bytes sammenlignes med avtrykket bildegenereringen ga, og en konflikt stopper hele deponeringen med en begrunnelse per bilde. Mangler avtrykkene, sier dialogen at koblingen ikke er verifisert og ber om en uttrykkelig bekreftelse på at hvert nummer viser det motivet det skal. Et manifest som ikke kan leses regnes som ukjent kobling, ikke som ingen kobling. Manuell opplasting uten manifest fungerer som før — der er nummeret i filnavnet autoritativt, fordi et menneske som lagrer «bilde 3» som `3.png` har laget koblingen selv, og det kreves ingen ekstra bekreftelse.
 4. «Bildene er klare» åpner deponeringsdialogen. Filene dras inn eller velges, og en statusliste viser hvilke numre som er på plass, hvilke som mangler og hva som eventuelt er feil. **«Fullfør»** er deaktivert til nøyaktig 1…*N* er der uten feil, og uten koblingskonflikter.
 5. Når deponeringen fullføres, lastes alle filene opp, hvert bilde havner i sonen det ble bestilt for, plassholderteksten forsvinner, og statusen settes til `completed`.
 
@@ -372,6 +387,11 @@ ETTER GENERERING
 Kontroller for hver ferdige fil at den hører til den oppføringen den ble
 generert fra: samme Bildeplan-ID, samme nummer og filnavnet oppføringen
 oppgir. Stemmer ikke koblingen, skal bildene ikke leveres videre.
+Kan du lese bytene til de ferdige filene, regn ut SHA-256 av hver fil
+i det den kommer tilbake, og lever avtrykkene sammen med bildene: et
+filnavn overlever at innholdet byttes om, et avtrykk gjør det ikke.
+Et avtrykk sier hvilken fil som hører til hvilken bildeplass, ikke hva
+bildet viser – se gjennom bildene selv i tillegg.
 ```
 
 Malen bor i `src/domain/imagePlan.ts` og er dekket av tester. Utdraget over er en gjengivelse for lesere, ikke en andre normativ kilde: endres formatet, endres det der.
@@ -483,6 +503,8 @@ Unngå aktivt:
 - å skrive den samlede bildebriefen for hånd i stedet for å la den genereres fra bildeplanen;
 - å navngi bildefilene etter rekkefølgen bildegeneratoren ble ferdig med dem, i stedet for etter oppføringens eget nummer;
 - å levere eller deponere bildene uten å ha kontrollert koblingen mellom hver fil og bildeplanoppføringen den ble generert fra;
+- å regne ut avtrykkene i ettertid fra en mappe med ferdige filer, i stedet for fra hver genereringsrespons;
+- å omtale en leveranse uten avtrykk som kontrollert, eller å lese et avtrykk som stemmer som en godkjenning av hva bildet viser;
 - å bruke en aksent som om den var kortets hovedoverskrift, der korttittelen skulle båret navnet;
 - å tegne en hel slide, en slideoverskrift, kort eller korttitler som SVG i stedet for å bruke Slaids sine egne innholdstyper;
 - å tegne mennesker, dyr, bygninger eller andre illustrasjonsmotiver som hjemmelaget SVG i stedet for et rasterbilde eller en planlagt bildesone;

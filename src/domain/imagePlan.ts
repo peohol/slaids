@@ -84,21 +84,33 @@ export interface PlannedImage {
 export const IMAGE_PLAN_ITEM_ID_PREFIX = 'imgplan_'
 
 /**
- * What a plan entry's id is derived from, and therefore what it identifies.
+ * The whole order for one picture: what it identifies, and what it was made from.
  *
- * Written out as a type rather than as five positional arguments because the
- * list *is* the contract: these five facts are what the id means, and a caller
- * that had to remember their order could bind a file to the wrong picture by
- * swapping two strings.
+ * Written out as a type rather than as positional arguments because the list
+ * *is* the contract — and because the list grew once already. It first held five
+ * facts (deck, zone, number, motif) and that was not enough: `composition`,
+ * `requirements`, `avoid`, the deck's shared context and the measured format are
+ * all part of what a generator is actually told, so any of them could be
+ * rewritten while a picture generated from the old wording still passed.
+ *
+ * What is deliberately *not* in it is everything a generator is never told: the
+ * deck's title, the slide's title, the other slides, the theme. An edit to those
+ * must not invalidate finished pictures.
  */
-export interface ImagePlanItemIdentity {
+export interface ImagePlanItemOrder {
   presentationId: string
   slideId: string
   nodeId: string
   /** 1‥N in deck order — the number the placeholder, the brief and the file say. */
   number: number
-  /** The motif, normalised. What the picture was actually generated from. */
-  subject: string
+  /** The four text fields, exactly as the brief prints them. */
+  fields: Record<PlannedImageField, string>
+  /** The deck's shared visual context: part of every picture's order, not one's. */
+  imageContext: string
+  /** The format the brief states, measured off the zone. */
+  aspectRatio: string
+  /** The word the brief puts beside the ratio. */
+  orientation: ImageOrientation
 }
 
 /**
@@ -117,27 +129,38 @@ export interface ImagePlanItemIdentity {
  *  - **Derived, so it needs no storage and cannot drift.** A stored random id
  *    would have to be migrated into every existing document, kept in step by
  *    every command that rewrites a plan, and could still end up naming an entry
- *    that has since been rewritten. A digest over the five facts that make the
- *    entry what it is answers «is this still the same planned picture?» by
+ *    that has since been rewritten. A digest over the facts that make the entry
+ *    what it is answers «is this still the same planned picture?» by
  *    construction.
- *  - **Over exactly these five facts**, so a file generated for one picture can
- *    never be accepted for another: the deck it was planned in, the zone it is
- *    for, the number it carries, and the motif it was generated from. Change
- *    any of them and the id changes, which is precisely the event a deposit has
- *    to refuse rather than absorb.
+ *  - **Over the whole order, not part of it.** The id is the one thing that
+ *    travels out to a generator and back, so it has to cover everything the
+ *    generator was told — see `ImagePlanItemOrder`. Change any of it and the id
+ *    changes, which is precisely the event a deposit has to refuse rather than
+ *    absorb. Leaving `composition` or the shared context out would have let a
+ *    rewritten brief keep vouching for pictures made from the old one.
  *
- * The motif is normalised the way this module normalises motifs everywhere
+ * Every text is normalised the way this module normalises motifs everywhere
  * else, so fixing a capital letter or a double space is not a new picture.
+ *
+ * What it does **not** say anything about is whether the file somebody hands
+ * back actually shows that motif. That is a different question, asked with the
+ * file's own bytes; see `imageGeneration.ts`.
  */
-export function imagePlanItemId(identity: ImagePlanItemIdentity): string {
+export function imagePlanItemId(order: ImagePlanItemOrder): string {
   return (
     IMAGE_PLAN_ITEM_ID_PREFIX +
     stableDigest([
-      identity.presentationId,
-      identity.slideId,
-      identity.nodeId,
-      identity.number,
-      normalize(identity.subject),
+      order.presentationId,
+      order.slideId,
+      order.nodeId,
+      order.number,
+      /* Derived from `PLANNED_IMAGE_FIELDS` rather than listed: a field added to
+         a plan entry is part of the order the moment it exists, and a list here
+         would be one more place to forget it. */
+      ...PLANNED_IMAGE_FIELDS.map((field) => normalize(order.fields[field])),
+      normalize(order.imageContext),
+      order.aspectRatio,
+      order.orientation,
     ])
   )
 }
@@ -318,13 +341,21 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
       const frame = panelFrame(leaf.content, rect, tokens.cardHeaderHeight)
       const aspect = frame.height > 0 ? frame.width / frame.height : 1
       const number = resolved.length + 1
+      const aspectRatio = aspectRatioLabel(frame)
+      const orientation = orientationOf(aspect)
       resolved.push({
+        /* The id is derived from the same values this entry reports, in the same
+           pass, so the brief an agent reads and the id it carries back cannot
+           describe two different orders. */
         id: imagePlanItemId({
           presentationId: presentation.id,
           slideId: slide.id,
           nodeId: leaf.id,
           number,
-          subject: entry.subject,
+          fields: entry,
+          imageContext: presentation.imageContext ?? '',
+          aspectRatio,
+          orientation,
         }),
         number,
         fileNameStem: imageFileNameStem(number),
@@ -332,8 +363,8 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
         slideLabel: slideLabel(slide.title, index),
         frame,
         aspect,
-        aspectRatio: aspectRatioLabel(frame),
-        orientation: orientationOf(aspect),
+        aspectRatio,
+        orientation,
         filled: Boolean(panel.assetId),
         caption: panel.caption ? docToPlainText(panel.caption.doc) : null,
       })
@@ -761,6 +792,11 @@ export function composeImageBrief(presentation: Presentation): string | null {
     'Kontroller for hver ferdige fil at den hører til den oppføringen den ble',
     'generert fra: samme Bildeplan-ID, samme nummer og filnavnet oppføringen',
     'oppgir. Stemmer ikke koblingen, skal bildene ikke leveres videre.',
+    'Kan du lese bytene til de ferdige filene, regn ut SHA-256 av hver fil',
+    'i det den kommer tilbake, og lever avtrykkene sammen med bildene: et',
+    'filnavn overlever at innholdet byttes om, et avtrykk gjør det ikke.',
+    'Et avtrykk sier hvilken fil som hører til hvilken bildeplass, ikke hva',
+    'bildet viser – se gjennom bildene selv i tillegg.',
   ].join('\n')
 }
 
@@ -888,8 +924,9 @@ const PER_IMAGE_STEPS: readonly string[] = [
   'Les bare denne oppføringens egne felter, sammen med dekkets felles bildekontekst. Ikke send hele planen eller den samlede briefen som én kontekst.',
   'Kall bildegeneratoren nøyaktig én gang for denne oppføringen.',
   'Knytt filen som kommer tilbake til den samme `imagePlanItemId` med en gang, før neste oppføring genereres.',
+  'Regn ut SHA-256 av bytene som kom tilbake, nå og ikke senere: et avtrykk beregnet i ettertid fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd.',
   'Gi filen navnet oppføringen oppgir – `<number>.<filendelse>` – der `number` er oppføringens eget nummer, ikke et løpenummer for genereringen.',
-  'Kontroller at koblingen er bevart: `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavn hører til samme oppføring.',
+  'Kontroller at koblingen er bevart: `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavn og avtrykk hører til samme oppføring.',
   'Gå først deretter videre til neste oppføring.',
 ]
 
@@ -907,6 +944,8 @@ function deliveryChecks(count: number): readonly string[] {
     `Numrene 1‥${count} forekommer én gang hver: ingen hull, ingen duplikater.`,
     'Hver `imagePlanItemId` i planen er brukt nøyaktig én gang, og ingen fil bærer en id som ikke finnes i planen.',
     'Hver fil er knyttet til den oppføringen den ble generert fra: samme `imagePlanItemId`, og den oppføringens `number`, `slideId` og `nodeId`.',
+    'Hver fil bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte for sin egen oppføring. Mangler avtrykket, er koblingen uverifisert og må kontrolleres manuelt – den er ikke kontrollert.',
+    'Et avtrykk som stemmer sier hvilken fil som hører til hvilken bildeplass, ikke hva bildet viser. Se gjennom bildene i tillegg.',
     'Filnavnet er oppføringens eget nummer, ikke bildets plass i genereringsrekkefølgen.',
     'Hver fil viser motivet til sitt eget nummer, og har det aspect ratio oppføringen oppgir.',
     'Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiver det inneholder.',

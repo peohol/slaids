@@ -44,8 +44,10 @@ import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from '.
 import { mapDeckSlides } from './deckSlides'
 import {
   checkGeneratedImages,
+  imageBindingCheck,
   manifestPresentationIssue,
   parseImageGenerationManifest,
+  type DeliveredImageFile,
   type ImageBindingIssue,
 } from './imageGeneration'
 import { imageFileNumber, imageZoneKey, resolveImagePlan } from './imagePlan'
@@ -220,20 +222,38 @@ export interface DepositReview {
   /** Numbers 1‥N with nothing for them yet. */
   missing: number[]
   /**
-   * Where the numbering came from, which decides what «correct» even means.
+   * Where the numbering came from, and how far anything could check it.
    *
-   * `'manual'` — a person named the files. The number in the name is the only
-   * binding there is, and it is authoritative.
-   * `'agent'` — a manifest came with the files, so every binding is stated and
-   * checked against the plan. The name still has to agree with it.
+   * Three values because there are three genuinely different situations, and
+   * collapsing any two would overstate one of them:
+   *
+   *  - `'manual'` — a person named the files. The number in the name is the
+   *    only binding there is, and it is authoritative: they made it.
+   *  - `'file-checked'` — a manifest came with the files, every record carried
+   *    a digest of the bytes its generation response returned, and each file's
+   *    own bytes matched. The strongest thing Slaids can say.
+   *  - `'unchecked'` — a manifest came with the files but at least one binding
+   *    carries no digest, so the metadata is all there is. It may be perfectly
+   *    consistent and still describe the wrong files.
+   *
+   * None of the three says the picture shows the right motif. Whatever shows
+   * this to somebody has to keep those apart; see the deposit dialog.
    */
-  source: 'manual' | 'agent'
+  assurance: 'manual' | 'file-checked' | 'unchecked'
   /**
    * Everything wrong with an agent delivery's bindings. Always empty for a
    * manual upload, because there is nothing there to be wrong.
    */
   binding: ImageBindingIssue[]
-  /** Exactly 1‥N, each once, nothing rejected, and no binding in conflict. */
+  /**
+   * Exactly 1‥N, each once, nothing rejected, and no binding in conflict.
+   *
+   * Deliberately true for an `'unchecked'` delivery: nothing is wrong with it
+   * as far as anything here can tell, and refusing every host that cannot
+   * reach its own bytes would push people back to naming files by hand. What it
+   * does not do is *claim* anything — a caller that offers this set has to
+   * carry the `assurance` through to whoever is about to press the button.
+   */
   ready: boolean
 }
 
@@ -281,7 +301,7 @@ export function reviewDepositFiles(
     files,
     present,
     missing,
-    source: 'manual',
+    assurance: 'manual',
     binding: [],
     ready:
       expectedCount > 0 &&
@@ -311,30 +331,41 @@ export function reviewDepositFiles(
  */
 export function reviewDeposit(
   presentation: Presentation,
-  fileNames: readonly string[],
+  delivered: readonly DeliveredImageFile[],
   manifestText: string | null,
 ): DepositReview {
-  const names = reviewDepositFiles(fileNames, depositSlots(presentation).length)
+  const names = reviewDepositFiles(
+    delivered.map((file) => file.fileName),
+    depositSlots(presentation).length,
+  )
   if (manifestText === null) return names
-  const binding = bindingOf(presentation, manifestText, fileNames)
-  return { ...names, source: 'agent', binding, ready: names.ready && binding.length === 0 }
-}
 
-/** Everything wrong with an agent delivery's bindings, manifest included. */
-function bindingOf(
-  presentation: Presentation,
-  manifestText: string,
-  fileNames: readonly string[],
-): ImageBindingIssue[] {
   const parsed = parseImageGenerationManifest(manifestText)
   if (!parsed.ok) {
-    return [{ code: 'MANIFEST_UNREADABLE', message: parsed.error.message }]
+    return refused(names, { code: 'MANIFEST_UNREADABLE', message: parsed.error.message })
   }
   /* Asked before the bindings are: a manifest for another deck reports every id
      as unknown, and that list says nothing about what actually went wrong. */
   const wrongDeck = manifestPresentationIssue(presentation, parsed.value)
-  if (wrongDeck) return [wrongDeck]
-  return checkGeneratedImages(presentation, parsed.value.images, fileNames)
+  if (wrongDeck) return refused(names, wrongDeck)
+
+  const records = parsed.value.images
+  const binding = checkGeneratedImages(presentation, records, delivered)
+  return {
+    ...names,
+    /* The level is what the *records* make possible, and the issues are whether
+       it held. They are reported side by side rather than folded together
+       because a delivery with no digests produces no issues at all, and calling
+       that «checked» is the one thing this must never do. */
+    assurance: imageBindingCheck(records, delivered),
+    binding,
+    ready: names.ready && binding.length === 0,
+  }
+}
+
+/** A manifest that could not even be read against: nothing lands, nothing is claimed. */
+function refused(names: DepositReview, issue: ImageBindingIssue): DepositReview {
+  return { ...names, assurance: 'unchecked', binding: [issue], ready: false }
 }
 
 /* ------------------------------------------------------------------ *

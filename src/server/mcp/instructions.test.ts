@@ -487,6 +487,28 @@ describe('raster og vektor', () => {
     expect(IMAGE_HANDOFF_RULE).toMatch(/`manifest`.*`manifestFileName`/)
   })
 
+  it('binder kontrollen til filenes egne bytes, ikke bare til metadata', () => {
+    // A record is otherwise a claim about a file *name*, and a name survives
+    // having its contents swapped: the digest is the only part of the handoff
+    // that reaches the files themselves.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`contentHash`/)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av bytene/i)
+    // And it has to be taken from the response, not from the folder afterwards.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/i det filen kommer tilbake/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/beregnet i ettertid.*fester.*allerede har skjedd/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/regn ut SHA-256 av bytene den returnerte med en gang/i)
+  })
+
+  it('sier hva en kontrollert kobling ikke er, og hva som skjer uten avtrykk', () => {
+    // The two overstatements this replaces. «Kontrollert» must not creep into
+    // meaning «the right picture», and a host that cannot reach its own bytes
+    // must be reported as unverified rather than refused or waved through.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/sier ingenting om hva bildet viser/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/uverifisert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/aldri presenteres som kontrollert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/manuell gjennomgang/i)
+  })
+
   it('bruker den strukturerte oppføringen som kilde, ikke den samlede briefen', () => {
     // Every field an entry carries is named, so nothing has to be parsed back
     // out of the prose that the structured half already holds.

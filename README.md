@@ -695,10 +695,22 @@ bildedeponeringen.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
-til generering til fil til deponering. Nummeret er hva filen *heter*; id-en er
-hva bildet *er*. En bildegenerator som produserer bildene i en annen rekkefølge
-enn planen er helt i orden — men et bilde skal aldri nummereres etter når det ble
-ferdig, og «det første bildet som kom tilbake» er aldri bilde 1.
+til generering til fil til deponering, og som dekker hele bestillingen: dekket,
+sonen, nummeret, alle fire bildefeltene, den felles bildekonteksten og det målte
+formatet. Nummeret er hva filen *heter*; id-en er hva bildet *er*. En
+bildegenerator som produserer bildene i en annen rekkefølge enn planen er helt i
+orden — men et bilde skal aldri nummereres etter når det ble ferdig, og «det
+første bildet som kom tilbake» er aldri bilde 1.
+
+**Koblingen går til filens egne bytes, ikke bare til filnavnet.** Agenten oppgir
+`contentHash` — SHA-256 av bytene bildegenereringen returnerte — regnet ut i det
+hver fil kommer tilbake. Avtrykket følger `slaids-bilder.json`, og nettleseren
+sammenligner det med filens innhold før noe settes inn, så to filer som har
+byttet innhold under uendrede navn blir avvist. Et avtrykk som stemmer sier
+hvilken fil som hører til hvilken bildeplass — det sier ingenting om hva bildet
+viser. Kan vertsklienten ikke lese bytene, er leveransen *uverifisert*: den blir
+ikke avvist, men den blir ikke kalt kontrollert heller, og deponeringen ber
+brukeren bekrefte manuelt.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |

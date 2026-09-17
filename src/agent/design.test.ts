@@ -902,6 +902,89 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(again.images.map((image) => image.imagePlanItemId)).toEqual(ids)
   })
 
+  it('rapporterer uverifisert når koblingene mangler avtrykk av filene', async () => {
+    // `ok` and `check` answer different questions, and the difference is the
+    // point: nothing contradicts itself, and nobody compared the bindings to a
+    // single byte. An agent that read only `ok` would call this verified.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: brief.images.map((image) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: image.number,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${image.number}.png`,
+      })),
+    })
+
+    expect(verified.ok).toBe(true)
+    expect(verified.check).toBe('unchecked')
+    expect(verified.checkMeans).toMatch(/uverifisert/i)
+    expect(verified.checkMeans).toMatch(/manuell gjennomgang/i)
+  })
+
+  it('rapporterer kontrollert bare når hver kobling bærer et avtrykk', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const digest = (seed: number): string => seed.toString(16).padStart(2, '0').repeat(32)
+
+    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: brief.images.map((image, index) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: image.number,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${image.number}.png`,
+        contentHash: digest(index + 1),
+      })),
+    })
+
+    expect(verified.check).toBe('file-checked')
+    // What it covers, and what it does not — stated by Slaids rather than left
+    // to an agent to phrase.
+    expect(verified.checkMeans).toMatch(/sier ingenting om hva bildet viser/i)
+    // The digests ride along in the manifest, which is the only way they reach
+    // the browser that can actually compare them.
+    expect(JSON.parse(verified.manifest ?? '{}').images[0].contentHash).toBe(digest(1))
+
+    // One missing out of eight is not «mostly verified».
+    const partial = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: brief.images.map((image, index) => ({
+        imagePlanItemId: image.imagePlanItemId,
+        number: image.number,
+        slideId: image.slideId,
+        nodeId: image.nodeId,
+        fileName: `${image.number}.png`,
+        ...(index === 3 ? {} : { contentHash: digest(index + 1) }),
+      })),
+    })
+    expect(partial.check).toBe('unchecked')
+  })
+
+  it('avviser et avtrykk som ikke er en SHA-256', async () => {
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 1)
+    const refused = await fails(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: [
+        {
+          imagePlanItemId: brief.images[0].imagePlanItemId,
+          number: 1,
+          slideId: brief.images[0].slideId,
+          nodeId: brief.images[0].nodeId,
+          fileName: '1.png',
+          contentHash: 'ikke-en-hash',
+        },
+      ],
+    })
+    expect(refused.code).toBe('INVALID_INPUT')
+  })
+
   it('godkjenner bilder som er generert i en annen rekkefølge enn planen', async () => {
     // The whole point: a generator that answered out of order is fine, as long
     // as every file went back to the entry it was generated from.

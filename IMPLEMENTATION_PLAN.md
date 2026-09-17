@@ -404,6 +404,12 @@ Hver løste bildeoppføring har en id på formen `imgplan_<digest>`, og den er
 imagePlanItemId({ presentationId, slideId, nodeId, number, subject })
 ```
 
+`fields` er alle fire tekstfeltene, `imageContext` er dekkets felles kontekst, og
+`aspectRatio`/`orientation` er formatet som faktisk står i briefen. Til sammen er
+det **hele bestillingen** – ikke bare motivet. Det som med vilje står utenfor, er
+alt en generator aldri får høre om: dekkets tittel, slidens tittel, de andre
+slidene, temaet. En endring der skal ikke ugyldiggjøre ferdige bilder.
+
 Den finnes fordi genereringsrekkefølge ble brukt som identitet, og det gikk galt
 på en måte ingen del av flyten kunne se. Slaids planla ni bilder i slide-orden,
 bildegeneratoren produserte dem i rekkefølgen 1, 3, 9, 6, 5, 8, 2, 4, 7, og
@@ -423,15 +429,56 @@ Avledet i stedet for mintet, av tre grunner:
   inn i hvert eksisterende dokument, holdt i takt av hver kommando som skriver
   en plan på nytt, og kunne likevel endt med å navngi en oppføring som var
   omskrevet siden;
-- **de fem faktaene id-en består av er nettopp de som gjør oppføringen til den
-  den er.** Endres dekket, sonen, nummeret eller motivet, endres id-en — og det
-  er akkurat hendelsen en deponering må avvise i stedet for å absorbere;
+- **den dekker hele bestillingen, ikke en del av den.** Id-en er det ene som
+  reiser ut til en generator og tilbake, så den må dekke alt generatoren ble
+  fortalt. Første versjon dekket bare `subject`, og det var ikke nok:
+  `composition`, `requirements`, `avoid`, den felles bildekonteksten og det
+  målte formatet kunne alle skrives om mens et bilde generert fra den gamle
+  ordlyden fortsatt passerte kontrollen. Endres noe av det, endres id-en — og
+  det er akkurat hendelsen en deponering må avvise i stedet for å absorbere;
 - **motivet normaliseres** som ellers i modulen, så en rettet stor bokstav eller
   et dobbelt mellomrom ikke er et nytt bilde.
 
 Filnavnet er den andre halvdelen av samme par: `imageFileNameStem` skriver det
 (oppføringens eget nummer) og `imageFileNumber` leser det tilbake. De ligger ved
 siden av hverandre fordi det er én regel, ikke to.
+
+Det id-en ikke sier noe om, er om filen noen leverer faktisk *er* den filen
+generatoren laget for den oppføringen. Det er et spørsmål om bytes, og det
+besvares under.
+
+### Koblingen til filens egne bytes
+
+En oppføring alene er metadata om en fil, og metadata kan være konsistent om de
+gale filene. Bytt innholdet i `1.png` og `2.png` og la hvert navn og hver
+oppføring stå: id-er, numre, soner og navn stemmer fortsatt, og to bilder ligger
+fortsatt på feil slide.
+
+Derfor bærer en oppføring også `contentHash` — SHA-256 av bytene
+genereringsresponsen returnerte — og deponeringen sammenligner det med bytene i
+filen den får, **før** sanitering, optimalisering og innsetting.
+
+To grenser står eksplisitt, fordi et avtrykk lett blir lest som mer enn det er:
+
+- **Avtrykket må tas fra genereringsresponsen selv**, i det den ene filen kommer
+  tilbake, før neste bilde genereres. Et avtrykk beregnet i ettertid, fra en
+  mappe med ferdige filer, fingeravtrykker den forvekslingen som allerede har
+  skjedd og bekrefter den.
+- **Det er filintegritet, aldri motivkontroll.** Et avtrykk som stemmer sier
+  «dette er filen som kom tilbake for den oppføringen». Det kan ikke si at
+  bildet viser det rette — ingenting her kan det, fordi Slaids aldri ser på
+  bildet. `ImageBindingCheck` er navngitt etter hva den dekker, så de to ikke
+  stilltiende slås sammen.
+
+`AssetRef.contentHash` kan ikke brukes til dette: den er over de *lagrede*
+bytene og svarer på et annet spørsmål (deduplisering). Sanitering skriver om en
+SVG, så en korrekt fil ville sett ut som en utbyttet fil. Selve hashen er
+`domain/assetHash.ts` sin, ikke en ny implementasjon.
+
+Ikke alle vertsklienter får tilgang til bytene til det bildeverktøyet deres
+produserte. En leveranse uten avtrykk avvises derfor ikke — den er
+`'unchecked'`, og den som tilbyr den må si det og be om den kontrollen et
+menneske kan gjøre. Den skal aldri rapporteres som verifisert.
 
 ### Plassholderen på sliden
 
@@ -598,6 +645,8 @@ interface GeneratedImageRecord {
   slideId: string
   nodeId: string
   fileName: string
+  /** SHA-256 av bytene genereringsresponsen returnerte. Valgfri. */
+  contentHash?: string
 }
 ```
 
@@ -617,6 +666,7 @@ Agenten oppgir én slik oppføring per ferdig fil — `verify_image_handoff` —
 | `FILE_NAME_MISMATCH` | Filen heter ikke det nummeret sitt sier. |
 | `FILE_MISSING` | En kobling navngir en fil som ikke ble levert. |
 | `FILE_UNACCOUNTED` | En levert fil hører ikke til noen kobling. |
+| `CONTENT_MISMATCH` | Filens egne bytes er ikke de bytene genereringsresponsen returnerte. Den ene koden som rekker forbi metadataene. |
 
 Kontrollen er **total**: den melder alt som er galt, ikke det første, fordi en
 agent som må rette én kobling per rundtur regenererer bilder som var i orden.
@@ -624,6 +674,22 @@ Hver oppføring er redundant med id-en — id-en er avledet av nettopp de
 faktaene — og de oppgis likevel, fordi en feilkobling da har fem sjanser til å
 motsi seg selv i stedet for én, og fordi en id som ikke lenger svarer kan
 skilles fra en som aldri gjorde det.
+
+**`ok` og `check` svarer på to forskjellige spørsmål, og de rapporteres ved
+siden av hverandre.** `ok` sier at ingenting motsier seg selv; `check` sier hvor
+langt koblingen faktisk er kontrollert:
+
+| `check` | Hva det betyr |
+| --- | --- |
+| `file-checked` | Hver kobling bærer et avtrykk, så nettleseren kan sammenligne hver fil med akkurat den filen genereringen returnerte. |
+| `unchecked` | Minst én kobling mangler avtrykk. Metadataene kan stemme samtidig som filene er forvekslet. |
+
+En leveranse uten avtrykk gir `ok: true` og `check: 'unchecked'`. En agent som
+bare leste `ok` ville kalt den verifisert — som er nøyaktig den samme feilen ett
+lag opp. `checkMeans` følger med og sier hva nivået dekker, i Slaids' egne ord,
+fordi formuleringen er halve leveransen: «kontrollert» sagt om et sett ingen
+kunne kontrollere er hvordan en flyt som ikke ser sine egne bilder ender opp med
+å hevde at den gjør det. Ingen av nivåene sier at bildet viser det rette.
 
 To ting kontrollen med vilje **ikke** er: den er ikke en mutasjon, og den er
 ikke en port Slaids kan håndheve — deponeringen er en brukerhandling i en
@@ -749,12 +815,14 @@ i samme mappe er to filer til ett bilde — og to filer som krever samme nummer
 merkes *begge*, fordi å velge mellom to av noens bilder ikke er Slaids sin
 oppgave. Regelen er `imageFileNumber`, ved siden av regelen som skriver navnet.
 
-**Det er to flyter, og de har to forskjellige autoriteter.**
+**Det er tre situasjoner, og det er tre fordi det å slå sammen to av dem ville
+overdrevet den ene.** `DepositReview.assurance` sier hvilken:
 
-| Flyt | Hva som er autoritativt | Hva som kontrolleres |
+| `assurance` | Hva som er autoritativt | Hva som er kontrollert |
 | --- | --- | --- |
-| Manuell opplasting | nummeret i filnavnet | filnavn, antall, duplikater |
-| Agentgenerert | `imagePlanItemId` i manifestet | koblingen mot planen, i tillegg til filnavnene |
+| `manual` | nummeret i filnavnet | filnavn, antall, duplikater |
+| `file-checked` | `imagePlanItemId` i manifestet | koblingen mot planen **og** hver fils egne bytes |
+| `unchecked` | `imagePlanItemId` i manifestet | bare koblingen mot planen; filene er ikke sammenlignet med noe |
 
 Et filnavn er en utmerket instruks fra et menneske og en dårlig instruks fra en
 generator som produserte bildene i en annen rekkefølge enn de ble planlagt: ni
@@ -765,6 +833,25 @@ i stedet for å plassere det som ble levert. Et manifest som ikke kan leses er
 ikke det samme som ingen manifest: det er et sett med ukjent kobling, og å falle
 tilbake på filnavnene der ville vært den opprinnelige feilen med et ekstra steg
 foran.
+
+**Bytene sammenlignes i nettleseren, og de sammenlignes før alt annet.** Hver
+sluppet bildefil hashes med `hashBytes` slik den kom — før sanitering og før
+optimalisering, som begge skriver om filen og ville fått en korrekt fil til å se
+utbyttet ut. Hashingen skjer bare når det ligger et manifest der: en manuell
+opplasting har ingen avtrykk å sammenligne med, og skal ikke vente på en hash
+den aldri bruker.
+
+`'unchecked'` er ikke en avvisning. En vertsklient som ikke kan lese bytene til
+det bildeverktøyet sitt produserte skal ikke stenges ute, og et sett den
+leverer skal ikke vaskes gjennom heller: dialogen sier at koblingen ikke er
+verifisert, og «Fullfør» krever at brukeren uttrykkelig bekrefter at hvert
+nummer viser det motivet det skal. Manuell opplasting krever ingen slik
+bekreftelse — den som navnga filene laget koblingen selv, og å kreve et
+avkrysningsfelt for det ville vært en regresjon forkledd som grundighet.
+
+Ingen av nivåene sier noe om hva bildet *viser*. Dialogen holder de to fra
+hverandre i ordlyden, fordi et avtrykk som stemmer er lett å lese som en
+godkjenning av motivet.
 
 `reviewDeposit` er den ene inngangen — filnavnene, og koblingen når det finnes en
 — og den er både det som gråer ut «Fullfør» og det `completeImageDeposit`
@@ -809,7 +896,10 @@ panelene, så et ferdig dekk er et helt vanlig dekk.
   feil, og «Fullfør» deaktivert til nøyaktig 1‥N er der uten feil. Ligger
   `slaids-bilder.json` blant filene, sier dialogen det, og koblingskonfliktene
   får sin egen seksjon — de er en annen slags feil enn et galt filnavn: filene er
-  i orden, og det som ikke stemmer er hvilket bilde hver av dem er *for*.
+  i orden, og det som ikke stemmer er hvilket bilde hver av dem er *for*. Én
+  linje sier hva som faktisk er kontrollert, i tre forskjellige ordlyder, og et
+  avkrysningsfelt ber om manuell gjennomgang når ingenting annet kunne
+  kontrollere koblingen.
 
 ### Den strukturelle endringen
 
