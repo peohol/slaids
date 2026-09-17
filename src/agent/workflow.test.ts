@@ -2151,6 +2151,78 @@ describe('validering', () => {
     expect(whole).toMatchObject({ valid: true, issues: [] })
   })
 
+  it('anmerker en aksent som gjør jobben til en korttittel, uten å gjøre sliden ugyldig', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const nodeId = firstZone(
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      }),
+    )
+
+    // Nøyaktig veien som lager mønsteret: et kort uten tittel, og en aksent
+    // øverst som i praksis er kortets overskrift.
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'untitled-card',
+    })
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: [
+        { type: 'accent', spans: [{ text: 'ca. 10 000–9000 fvt.' }] },
+        ...paragraph('Da innlandsisen trakk seg tilbake, ble kysten tilgjengelig.'),
+      ],
+    })
+
+    const flagged = await ok<ValidationReport>(context, 'validate_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    // Lovlig, og derfor fortsatt gyldig – men sagt fra om.
+    expect(flagged).toMatchObject({ valid: true, issues: [] })
+    expect(flagged.advice).toEqual([
+      {
+        code: 'ACCENT_AS_CARD_TITLE',
+        message: expect.stringContaining('titled-card'),
+        slideId,
+        nodeId,
+        details: { contentKind: 'untitled-card' },
+      },
+    ])
+
+    const whole = await ok<ValidationReport>(context, 'validate_presentation', {
+      presentationId: deck.presentationId,
+    })
+    expect(whole.advice.map((advice) => advice.nodeId)).toEqual([nodeId])
+
+    // Reparasjonen anmerkningen ber om: overskriften blir korttittelen.
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      blocks: paragraph('Da innlandsisen trakk seg tilbake, ble kysten tilgjengelig.'),
+    })
+    await ok(context, 'set_zone_card', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId,
+      kind: 'titled-card',
+      title: [{ text: 'Da isen slapp taket' }],
+    })
+
+    const repaired = await ok<ValidationReport>(context, 'validate_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(repaired).toMatchObject({ valid: true, issues: [], advice: [] })
+  })
+
   it('rapporterer manglende fil og ugyldig referanse, og reparerer ingenting', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
