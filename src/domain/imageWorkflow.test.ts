@@ -570,10 +570,16 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     expect(deck.imageDeposit?.status).toBe('completed')
     expect(composeImageWorkflowStatus(deck).stage).toBe('generation-verified')
 
-    // The order changes, and the same zones are planned again.
+    /*
+     * Only the shared context changes — no re-plan, because the status does not
+     * ask for one here: the superseded branch says to generate the entries the
+     * plan already holds. That is the sequence an agent following `nextAction`
+     * actually produces, and it is the one that used to leave a closed deposit
+     * behind. `setImageContext` reconciles for exactly this reason.
+     */
     const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast.')
     if (!rewritten.ok) throw new Error(rewritten.error.message)
-    deck = planned(rewritten.value, [...(rewritten.value.imagePlan ?? [])])
+    deck = rewritten.value
     expect(composeImageWorkflowStatus(deck).stage).toBe('plan-outdated')
     // A finished deposit that is asked for new pictures opens again — without
     // this the workflow asks for replacements nothing can receive.
@@ -588,6 +594,63 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     const done = composeImageWorkflowStatus(deck)
     expect(done.stage).toBe('generation-verified')
     expect(done.complete).toBe(true)
+  })
+
+  it('ber om hele planen når noen soner venter og andre viser forrige bilde', () => {
+    /*
+     * The two groups are disjoint slices of one plan, and the check expects one
+     * record per *planned* entry — so a status that asked only for the larger
+     * slice would walk the agent into `MISSING_ITEM` on the rest. Three
+     * entries: one zone never filled, two holding pictures from the previous
+     * order.
+     */
+    let deck = verified(awaiting(3))
+    for (const index of [0, 1]) deck = withFile(deck, index)
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    deck = rewritten.value
+
+    const status = composeImageWorkflowStatus(deck)
+    expect(status.stage).toBe('plan-outdated')
+    expect(status.awaitingFileCount).toBe(1)
+    expect(staleGeneratedImages(deck)).toHaveLength(2)
+    // Not max(1, 2): the whole plan.
+    expect(status.nextAction).toMatch(/Generer alle 3 oppføringene i planen/i)
+    expect(status.remainingSteps.join(' ')).toContain('de 3 bildene')
+
+    // And the number it asks for is exactly the set the check accepts.
+    const delivered = records(deck)
+    expect(delivered).toHaveLength(3)
+    expect(checkGeneratedImages(deck, delivered)).toEqual([])
+    expect(composeImageWorkflowStatus(verified(deck)).stage).toBe('awaiting-deposit')
+  })
+
+  it('sier fra når bildene ikke har noe sted å bli levert', () => {
+    // A re-split zone re-identifies its order without any plan write, so the
+    // deposit from the last round is still closed. The status says what to do
+    // about it instead of leaving the user with files and nowhere to put them.
+    let deck = depositAll(verified(awaiting(2)), 'first-')
+    expect(deck.imageDeposit?.status).toBe('completed')
+    const stripped: Presentation = { ...deck, generatedImages: undefined }
+    deck = { ...stripped, generatedImages: deck.generatedImages }
+
+    const rewritten = setImageContext(deck, 'Kullstift, ingen farge.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+    // `setImageContext` reconciles, so this deck *does* reopen — the note is
+    // for the paths that do not, and it is absent exactly when the deposit is
+    // open.
+    expect(rewritten.value.imageDeposit?.status).toBe('pending')
+    expect(composeImageWorkflowStatus(rewritten.value).nextAction).not.toMatch(
+      /Skriv bildeplanen på nytt før filene leveres/i,
+    )
+
+    const closed: Presentation = {
+      ...rewritten.value,
+      imageDeposit: { status: 'completed', expectedCount: 2 },
+    }
+    expect(composeImageWorkflowStatus(closed).nextAction).toMatch(
+      /Skriv bildeplanen på nytt før filene leveres/i,
+    )
   })
 
   it('åpner ikke en fullført deponering på nytt uten grunn', () => {

@@ -191,6 +191,28 @@ function generationSteps(awaiting: number): readonly string[] {
 }
 
 /**
+ * The one sentence a deck needs when it is waiting for pictures the deposit is
+ * not open for.
+ *
+ * Writing the image plan is what reconciles a deck — `syncImagePlaceholders`
+ * stamps the numbers and reopens the deposit — and `setImagePlan` and
+ * `setImageContext` both run it. Everything else that can re-identify an order
+ * does not: a moved slide changes an entry's number, a re-split zone changes
+ * its measured shape, and either leaves a deck that needs pictures with a
+ * deposit that closed after the last round.
+ *
+ * Rather than have every structural command remember to reconcile — the rule
+ * `syncImagePlaceholders` exists to avoid — the status says it where it
+ * matters. Empty the rest of the time, so it never appears on a deck that has
+ * nothing to receive.
+ */
+function depositNote(presentation: Presentation): string {
+  return presentation.imageDeposit?.status === 'pending'
+    ? ''
+    : ' Skriv bildeplanen på nytt før filene leveres, slik at Slaids åpner bildedeponeringen for dem – uten den har brukeren ingen steg å legge dem inn i.'
+}
+
+/**
  * Whether the deck's stored bindings account for the plan it carries now.
  *
  * The records are kept only while they resolve (see `setImagePlan`), and the
@@ -305,11 +327,20 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
   }
 
   if (superseded.length > 0 && !verified) {
+    /*
+     * The whole current plan, never just the superseded part. The two groups —
+     * zones showing a previous picture, and zones with no picture at all — are
+     * disjoint slices of the same plan, and `checkGeneratedImages` expects one
+     * record per *planned* entry regardless of which slice a zone is in. A
+     * count that added up to less than the plan would send the agent into
+     * `MISSING_ITEM` on the rest, which is the contradiction this flow keeps
+     * having to be saved from.
+     */
     return status(
       'plan-outdated',
       false,
-      `${superseded.length} av bildesonene holder fortsatt bildet fra den forrige bestillingen, og erstatningene er ikke laget ennå. Generer oppføringene i planen enkeltvis og kjør koblingskontrollen; først når de nye filene er lagt inn i sonene, er bildene i dekket de som er bestilt.`,
-      generationSteps(Math.max(counts.awaitingFileCount, superseded.length)),
+      `${superseded.length} av bildesonene holder fortsatt bildet fra den forrige bestillingen, og erstatningene er ikke laget ennå. Generer alle ${images.length} oppføringene i planen enkeltvis og kjør koblingskontrollen på hele settet – kontrollen venter én fil per planlagt oppføring, også for sonene som allerede har et bilde. Først når de nye filene er lagt inn i sonene, er bildene i dekket de som er bestilt.${depositNote(presentation)}`,
+      generationSteps(images.length),
     )
   }
 
@@ -361,7 +392,9 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
               counts.awaitingFileCount > 0 ? `, og ${counts.awaitingFileCount} står tomme` : ''
             }`
           : `${counts.awaitingFileCount} bildesoner står tomme`
-      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.`,
+      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er det riktig å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
+        presentation,
+      )}`,
     )
   }
 

@@ -1,12 +1,19 @@
 /**
  * Opening, closing and giving up on the deck's image deposit.
  *
- * The three writes a deposit ever needs, and the rule they all share: `pending`
- * is a state a deck can be put into exactly once. `completed` and `abandoned`
- * are final, so every function here asks `depositIsFinal` before it writes, and
- * a deck that has been through the workflow behaves like any other deck
- * afterwards — no numbers on its panels, no dialog on opening it, nothing to
- * reset.
+ * The three writes a deposit ever needs, and the rule they share: a deck is put
+ * into `pending` when it is waiting for pictures, and `completed` ends that
+ * round. A finished deck behaves like any other deck afterwards — no numbers on
+ * its panels, no dialog on opening it, nothing to reset.
+ *
+ * `completed` used to be final in the strong sense: nothing could put a deck
+ * back into `pending`. That turned out to describe one deck's life rather than
+ * a deck's, because a deck can order pictures again — rewrite a motif or the
+ * shared image context and the plan asks for pictures the deck does not have.
+ * So a completed round reopens when, and only when, the deck is waiting for
+ * pictures again; see `awaitsPictures`. `abandoned` is still final in the
+ * strong sense, because it is somebody's answer rather than a state of the
+ * deck.
  *
  * Where the numbering comes from is not decided here. It is `resolveImagePlan`'s
  * deck-order numbering, the same one that stamps the placeholder captions and

@@ -745,7 +745,11 @@ fortsatt er det som står i sonen, og statusen skiller:
 
 - **superseded** — sonen er planlagt igjen, altså er en erstatning bestilt. Er
   den laget og kontrollert, er dette `awaiting-deposit`; er den ikke laget ennå,
-  er det `plan-outdated` med beskjed om å generere.
+  er det `plan-outdated` med beskjed om å generere **hele planen**. De to
+  gruppene — soner som viser forrige bilde og soner uten bilde — er disjunkte
+  deler av samme plan, og `checkGeneratedImages` venter én record per *planlagt*
+  oppføring uansett hvilken gruppe sonen er i. Et antall som bare dekket den
+  ene ville sendt agenten inn i `MISSING_ITEM` på resten.
 - **unaddressed** — ingen bestilling dekker sonen. Det stopper flyten, og det er
   dette som må overleve en tømt bildeplan.
 
@@ -762,6 +766,18 @@ bestilling. Det gamle «ingenting kan sette den tilbake til `pending`» beskytte
 mot at et *ferdig* dekk åpnet seg uten grunn — ikke mot et dekk som har nye
 bilder på vei. En `abandoned` deponering er fortsatt endelig: der har noen sagt
 nei til den automatiske flyten.
+
+Reåpningen skjer gjennom `syncImagePlaceholders`, og derfor kaller
+**`setImageContext` den også**: den felles bildekonteksten er del av hver
+oppførings identitet, så å skrive den om re-identifiserer hele planen på én
+gang. Uten det kunne konteksten endres på et ferdig dekk, statusen be om
+erstatninger, og deponeringen fortsatt være lukket — agenten bedt om å levere
+filer ingenting kunne ta imot. Andre endringer som re-identifiserer en
+bestilling uten å skrive planen (en flyttet slide, en delt sone) fanges ikke av
+et kall, men av statusen: `depositNote` sier at bildeplanen må skrives på nytt
+før filene leveres, og bare når deponeringen faktisk er lukket. Alternativet —
+at hver strukturell kommando husker å reconcile — er nettopp regelen
+`syncImagePlaceholders` finnes for å slippe.
 
 #### Hva dekket aldri kan vite om en fil
 

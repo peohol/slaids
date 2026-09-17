@@ -30,6 +30,7 @@ import {
 } from './fitGuard'
 import { FIT_TOLERANCE, MAX_IMAGE_CONTEXT_CHARS } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
+import { syncImagePlaceholders } from './imagePlan'
 import type { StructuralOptions } from './types'
 import {
   createInteractiveSlide,
@@ -496,9 +497,27 @@ export function setImageContext(
   if (value.trim() === '') {
     if (current === '') return ok(presentation)
     const { imageContext: _removed, ...rest } = presentation
-    return ok(touch(rest))
+    return reconcile(touch(rest))
   }
-  return ok(touch({ ...presentation, imageContext: value }))
+  return reconcile(touch({ ...presentation, imageContext: value }))
+}
+
+/**
+ * The deck brought back into line after the shared context moved.
+ *
+ * The context is part of *every* picture's order — `imagePlanItemId` covers it
+ * — so rewriting it re-identifies every planned picture at once: bindings that
+ * answered for the old orders stop answering, and the pictures in those zones
+ * become pictures made for something the deck no longer asks for.
+ *
+ * `syncImagePlaceholders` is this codebase's one idempotent reconciliation
+ * pass, and it is what reopens the deposit for a deck that needs pictures
+ * again. Without this call the shared context could be rewritten on a finished
+ * deck, the workflow would ask for replacements, and the deposit would still be
+ * closed — the agent told to hand over files nothing could receive.
+ */
+function reconcile(presentation: Presentation): Result<Presentation> {
+  return syncImagePlaceholders(presentation)
 }
 
 /**
