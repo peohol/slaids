@@ -513,7 +513,7 @@ describe('seriebriefen', () => {
     expect(brief).not.toMatch(/<filendelse>/i)
     expect(brief).not.toMatch(/skal brukes på slide/i)
     expect(brief).not.toMatch(/manifest/i)
-    expect(brief).not.toMatch(/sha-256|avtrykk/i)
+    expect(brief).not.toMatch(/sha-256|\bavtrykk\b/i)
     expect(brief).not.toMatch(/slaids/i)
     expect(brief).not.toMatch(/get_next_image_job|verify_image_handoff/i)
     // And nothing that sends the reader back between the pictures.
