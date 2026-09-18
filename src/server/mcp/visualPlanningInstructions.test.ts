@@ -34,7 +34,12 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/At planen finnes i verktøyresponsen er ikke en overlevering/i)
     expect(MCP_INSTRUCTIONS).toMatch(/først startet når bildegenereringsverktøyet faktisk er kalt/i)
     expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*les bildeplanen på nytt.*generer de bildene på nytt/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)
+    // The manual route is what the instructions name when direct handoff is
+    // not available — a file bridge is neither offered nor promised.
+    expect(MCP_INSTRUCTIONS).toMatch(/«Kopier prompt»-knapp i Slaids/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /de ferdige filene legges inn gjennom bildedeponeringen i nettleseren uansett/i,
+    )
     expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
     // And the retired first step is asserted gone, not left to review: it is
     // what made the task a multi-picture task before the first call.
@@ -92,8 +97,16 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(
       /utleder verktøyet den fra samtalen i stedet, skriver du `prompt` ordrett som din egen melding rett før kallet/i,
     )
+    // Best effort, in those words: the host can hand its image tool more of the
+    // conversation than the agent chose, and neither the agent nor Slaids can
+    // prevent or check that.
+    expect(MCP_INSTRUCTIONS).toMatch(/\*\*Dette er best effort\.\*\*/)
     expect(MCP_INSTRUCTIONS).toMatch(
-      /Kan du ikke begrense hva bildeverktøyet ser, si det til brukeren/i,
+      /lov derfor aldri at generatoren bare har sett den ene prompten/i,
+    )
+    // And the supported fallback, named as part of the flow.
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /be brukeren åpne bildeplanen i Slaids, trykke «Kopier prompt».*ny, tom ChatGPT-samtale/is,
     )
     expect(MCP_INSTRUCTIONS).toMatch(/ikke hent flere jobber på forskudd/i)
     expect(MCP_INSTRUCTIONS).toMatch(
@@ -102,9 +115,14 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert/i)
     // The binding is checked per picture, and the digest is what makes the
     // check mean anything: everything else in it was in the plan already.
-    expect(MCP_INSTRUCTIONS).toMatch(/for hver oppføring så snart bildet er laget/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/Avtrykket er ikke valgfritt/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/`generation-unverified`/)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /Meld hver oppføring med koblingskontrollen så snart bildet er laget/i,
+    )
+    // The digest is offered as an extra check rather than demanded, because the
+    // ordinary host cannot produce one.
+    expect(MCP_INSTRUCTIONS).toMatch(/\*\*ekstra\*\* kontroll deponeringen kan bruke, ikke et vilkår/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/Avtrykket er ikke valgfritt/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/generation-unverified|bytesUnavailable/)
     expect(MCP_INSTRUCTIONS).toMatch(/koblingen mellom hver fil og bildeplanoppføringen/i)
     // And the retired instruction — hand the brief over as the generation
     // prompt — is asserted gone rather than left to review.
@@ -174,19 +192,19 @@ describe('visual media planning instructions', () => {
       // «was the picture made». An agent told to wait for filled zones waits
       // for a browser action it cannot perform — and regenerates.
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Kontrollen er stoppkriteriet for \*ditt\* genereringsarbeid: er hele planen dekket og svaret `ok` med `check: "file-checked"`, er den delen gjort/i,
+        /Meldingen er stoppkriteriet for \*ditt\* genereringsarbeid: er hele planen dekket og svaret `ok`, er den delen gjort/i,
       )
       // And what it is not: a report cannot finish the deck, because Slaids
       // has no file to compare it against.
       expect(MCP_INSTRUCTIONS).toMatch(
-        /en kobling du melder er en påstand Slaids ikke kan sammenligne med noen fil/i,
+        /koblingen er selvrapportert, Slaids har sammenlignet den med bildeplanen og aldri med et bilde/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
       // And the answer is a fact about the deck, not about one response: the
       // regression was `verify_image_handoff` saying «done» and the very next
       // read asking for every picture again.
       expect(MCP_INSTRUCTIONS).toMatch(/også ved senere lesninger, fordi svaret lagres på dekket/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/faller kontrollen bort av seg selv/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/faller koblingen bort av seg selv/i)
       // The check is stored and the files are not, so a later session that does
       // not hold them must be able to act rather than report a deck with empty
       // picture zones as finished.
@@ -208,7 +226,7 @@ describe('visual media planning instructions', () => {
         /andre viser fortsatt bildet fra forrige bestilling/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
-        /I `generation-verified` er ingen sone tom, og da skal du ikke påstå at noen er det/i,
+        /I `images-in-deck` er ingen sone tom, og da skal du ikke påstå at noen er det/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/Gjenta dekkets egen tilstand, ikke en fast setning/i)
       // The unconditional version is asserted gone.
@@ -221,15 +239,15 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /stadiet er `awaiting-deposit` så lenge bildene ikke er på plass i sonene/i,
       )
-      expect(MCP_INSTRUCTIONS).not.toMatch(
-        /sier `generation-verified` også ved senere lesninger/i,
-      )
-      expect(MCP_INSTRUCTIONS).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
+      expect(MCP_INSTRUCTIONS).not.toMatch(/generation-verified/)
       expect(MCP_INSTRUCTIONS).toMatch(/tomme bildesoner er aldri stoppkriteriet/i)
       expect(MCP_INSTRUCTIONS).toMatch(
         /skal ikke genereres om igjen fordi sonen står tom/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/brukerens steg i nettleseren med mindre klienten har en\s+filbro/i)
+      // The deposit is the user's step, full stop: no file bridge is held out
+      // as an alternative that might arrive.
+      expect(MCP_INSTRUCTIONS).toMatch(/Å legge filene inn i Slaids er brukerens steg i nettleseren/i)
+      expect(MCP_INSTRUCTIONS).not.toMatch(/med mindre klienten har en\s+filbro/i)
       // And the rule itself says the count is what Slaids is missing, never a
       // debt of pictures the agent still owes.
       expect(MCP_INSTRUCTIONS).toMatch(

@@ -947,11 +947,12 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       expect(job.job).not.toHaveProperty(field)
       expect(summary).not.toContain(`\`${field}\``)
     }
-    // Both legal answers about the bytes, because the check refuses a binding
-    // that gives neither — and a summary naming only one of them would send an
-    // honest host without byte access into a job it can never leave.
+    // The digest is offered as an extra and never as a condition, because the
+    // ordinary host cannot produce one — a summary that demanded it would send
+    // an honest host into a job it can never leave.
     expect(summary).toMatch(/SHA-256/)
-    expect(summary).toMatch(/`bytesUnavailable: true`/)
+    expect(summary).toMatch(/ekstra kontroll, ikke et vilkår for å gå videre/i)
+    expect(summary).not.toMatch(/bytesUnavailable/)
 
     /*
      * And the check's own field does not send the agent back to the plan for
@@ -1003,16 +1004,16 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(second.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
   })
 
-  it('lar ikke en kobling som ikke sier noe om bytene tømme genereringsløkken', async () => {
+  it('lar en kobling uten avtrykk tømme sin egen plass i køen', async () => {
     /*
-     * The shortcut, on the agent surface: fetch a job, send its own id back
-     * saying nothing about the bytes, fetch the next. Nothing in such a binding
-     * is evidence — every field was in the plan first — so it is refused at the
-     * boundary, and the entry stays in the queue.
+     * The dead end this replaces, on the agent surface. A binding with no
+     * digest used to be refused at the boundary, so the entry stayed in the
+     * queue — and the ordinary host cannot read the bytes its own image tool
+     * returned, which meant the only way past a picture it had really made was
+     * to make it again.
      *
-     * The honest host that cannot hash its own output is not left stuck by
-     * that: it says so, once, and the entry stops being offered while the
-     * delivery stands as unverified.
+     * The binding is enough now, and nothing pretends it is more than it is:
+     * `reporting` says self-reported, and the deck still finishes on the files.
      */
     const context = freshContext()
     const brief = await plannedPictureDeck(context, 3)
@@ -1021,33 +1022,16 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     })
     if (!job.job) throw new Error('Forventet en jobb')
 
-    const refused = await fails(context, 'verify_image_handoff', {
+    const reported = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
       presentationId: brief.presentationId,
       images: [{ imagePlanItemId: job.job.imagePlanItemId, fileExtension: 'png' }],
     })
-    expect(refused.code).toBe('INVALID_INPUT')
+    expect(reported.ok).toBe(true)
+    expect(reported.reporting).toBe('self-reported')
+    expect(reported.reportingMeans).toMatch(/selvrapportert/i)
+    expect(reported.reportingMeans).not.toMatch(/kontrollert mot bildefilene/i)
 
-    const still = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    expect(still.job?.imagePlanItemId).toBe(job.job.imagePlanItemId)
-
-    // The declaration is not proof either — it is a statement that no proof is
-    // coming — and that is exactly what it buys: the queue moves on, and the
-    // deck says the delivery was never checkable.
-    const declared = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: [
-        {
-          imagePlanItemId: job.job.imagePlanItemId,
-          fileExtension: 'png',
-          bytesUnavailable: true,
-        },
-      ],
-    })
-    expect(declared.ok).toBe(true)
-    expect(declared.check).toBe('unchecked')
-
+    // The queue moves exactly one step, on a binding with no digest in it.
     const next = await ok<ImageJobView>(context, 'get_next_image_job', {
       presentationId: brief.presentationId,
     })
@@ -1129,14 +1113,14 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(again.images.map((image) => image.imagePlanItemId)).toEqual(ids)
   })
 
-  it('rapporterer uverifisert når koblingene mangler avtrykk av filene', async () => {
-    // `ok` and `check` answer different questions, and the difference is the
-    // point: nothing contradicts itself, and nobody compared the bindings to a
-    // single byte. An agent that read only `ok` would call this verified.
+  it('rapporterer selvrapportert når koblingene ikke bærer avtrykk', async () => {
+    // The ordinary delivery: nothing contradicts itself, and nobody compared
+    // the bindings to a single byte. `ok` and `reporting` answer different
+    // questions, and an agent that read only `ok` would call this verified.
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+    const reported = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
       presentationId: brief.presentationId,
       images: brief.images.map((image) => ({
         imagePlanItemId: image.imagePlanItemId,
@@ -1144,17 +1128,25 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
-        bytesUnavailable: true as const,
       })),
     })
 
-    expect(verified.ok).toBe(true)
-    expect(verified.check).toBe('unchecked')
-    expect(verified.checkMeans).toMatch(/uverifisert/i)
-    expect(verified.checkMeans).toMatch(/manuell gjennomgang/i)
+    expect(reported.ok).toBe(true)
+    expect(reported.reporting).toBe('self-reported')
+    expect(reported.reportingMeans).toMatch(/selvrapportert/i)
+    // And it is not framed as a defect: this is what most hosts can deliver, so
+    // «make the pictures again to get a check» would be the duplicate
+    // generation the whole flow exists to prevent.
+    expect(reported.reportingMeans).toMatch(/det vanlige/i)
+    expect(reported.reportingMeans).toMatch(/ikke lag bildene om igjen/i)
+    // The plan is covered, and the deck is still not finished: only the files
+    // can do that.
+    expect(reported.planCovered).toBe(true)
+    expect(reported.workflow.stage).toBe('awaiting-deposit')
+    expect(reported.workflow.complete).toBe(false)
   })
 
-  it('rapporterer kontrollert bare når hver kobling bærer et avtrykk', async () => {
+  it('rapporterer avtrykk bare når hver kobling bærer ett', async () => {
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
     const digest = (seed: number): string => seed.toString(16).padStart(2, '0').repeat(32)
@@ -1171,20 +1163,22 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       })),
     })
 
-    expect(verified.check).toBe('file-checked')
+    expect(verified.reporting).toBe('hash-reported')
     // What it covers, and what it does not — stated by Slaids rather than left
     // to an agent to phrase.
-    expect(verified.checkMeans).toMatch(/aldri hva bildet viser/i)
+    expect(verified.reportingMeans).toMatch(/aldri hva bildet viser/i)
     // And it does not overstate itself: the comparison happens in the browser,
     // so at this point the digest is a string the caller supplied.
-    expect(verified.checkMeans).toMatch(
+    expect(verified.reportingMeans).toMatch(
       /Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine/i,
     )
     // The digests ride along in the manifest, which is the only way they reach
     // the browser that can actually compare them.
     expect(JSON.parse(verified.manifest ?? '{}').images[0].contentHash).toBe(digest(1))
 
-    // One missing out of eight is not «mostly verified».
+    // One missing out of eight is not «mostly hashed»: the deposit can only
+    // compare the whole delivery or none of it, so the answer is the weaker
+    // word. It is still a legal delivery, and still `ok`.
     const partial = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
       presentationId: brief.presentationId,
       images: brief.images.map((image, index) => ({
@@ -1193,12 +1187,11 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
-        ...(index === 3
-          ? { bytesUnavailable: true as const }
-          : { contentHash: digest(index + 1) }),
+        ...(index === 3 ? {} : { contentHash: digest(index + 1) }),
       })),
     })
-    expect(partial.check).toBe('unchecked')
+    expect(partial.ok).toBe(true)
+    expect(partial.reporting).toBe('self-reported')
   })
 
   it('avviser et avtrykk som ikke er en SHA-256', async () => {
@@ -1668,9 +1661,12 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
      */
     expect(SELF_CHECK_STOP).toMatch(/at bildene faktisk ligger i dekket/i)
     expect(SELF_CHECK_STOP).not.toMatch(/gyldig, gjeldende genereringskontroll/i)
-    // Both delivery stages are named: `generation-unverified` leaves work owed
-    // too, and a rule that named only the deposit would be silent about it.
-    expect(SELF_CHECK_STOP).toMatch(/`generation-unverified` og `awaiting-deposit`/)
+    // The one delivery stage is named, and so is the pair that is genuinely
+    // finished — a rule that named neither would leave the stop to a feeling.
+    expect(SELF_CHECK_STOP).toMatch(/`no-planned-images` og `images-in-deck`/)
+    expect(SELF_CHECK_STOP).toMatch(/I `awaiting-deposit` er den ikke tom/)
+    // And the stage that existed only to hold a missing digest is gone.
+    expect(SELF_CHECK_STOP).not.toMatch(/generation-unverified/)
 
     /*
      * And the ordinary case — this conversation has the files — must be able to
@@ -1719,7 +1715,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     })
 
     expect(verified.ok).toBe(true)
-    expect(verified.check).toBe('file-checked')
+    expect(verified.reporting).toBe('hash-reported')
     expect(verified.workflow.stage).toBe('awaiting-deposit')
     expect(verified.workflow.complete).toBe(false)
     // Slaids still has none of the files, and says so — it is just not the
@@ -1981,7 +1977,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     const delivered = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
     })
-    expect(delivered.workflow.stage).toBe('generation-verified')
+    expect(delivered.workflow.stage).toBe('images-in-deck')
     expect(delivered.workflow.complete).toBe(true)
 
     await ok(context, 'set_image_context', {
@@ -2029,32 +2025,34 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     const delivered2 = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
     })
-    expect(delivered2.workflow.stage).toBe('generation-verified')
+    expect(delivered2.workflow.stage).toBe('images-in-deck')
     expect(delivered2.workflow.complete).toBe(true)
   })
 
   it('beskriver `awaiting-deposit` i kontrakten koblingskontrollen selv bærer', async () => {
     // The tool summary is part of what the model reads before it calls. It said
-    // a passing check lands on `generation-verified` «also before the files are
+    // a passing check lands on `images-in-deck` «also before the files are
     // in» — the opposite of what the stages now mean, and this PR is about not
     // giving an agent two definitions of the same thing.
     const verify = mcpTools().find((tool) => tool.name.endsWith('verify_image_handoff'))
     expect(verify).toBeDefined()
     expect(verify?.description).toMatch(
-      /med avtrykk blir `workflow\.stage` `awaiting-deposit` når hele planen er dekket/i,
+      /`workflow\.stage` blir `awaiting-deposit` når hele planen er dekket/i,
     )
     expect(verify?.description).toMatch(
-      /`generation-verified` først når filene er lagt inn i sonene/i,
+      /`images-in-deck` først når filene er lagt inn i sonene/i,
     )
-    expect(verify?.description).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
-    // And what the check settles is what was *reported*: the digests are
-    // compared where the bytes are, which is the browser.
+    expect(verify?.description).not.toMatch(/`images-in-deck` også før filene er lagt inn/i)
+    // And what the check settles is what was *reported*: the files themselves
+    // are only ever seen in the browser.
     expect(verify?.description).toMatch(
-      /det er også der avtrykkene faktisk sammenlignes med bytene/i,
+      /Begge er `complete: false` til filene er inne, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes/i,
     )
-    expect(verify?.description).toMatch(
-      /Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes/i,
-    )
+    expect(verify?.description).toMatch(/`reporting` og `reportingMeans` sier hvor langt svaret rekker/i)
+    // The digest is an extra check the ordinary host cannot produce, so the
+    // description must not read as a demand for one.
+    expect(verify?.description).toMatch(/ekstra kontroll deponeringen kan bruke/i)
+    expect(verify?.description).not.toMatch(/bytesUnavailable/)
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {

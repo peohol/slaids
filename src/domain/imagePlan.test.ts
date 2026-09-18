@@ -767,11 +767,14 @@ describe('bildeplanen som genereringskontrakt', () => {
     // first step of generation.
     const { contract } = contractFor(3)
     expect(contract.briefRole).toMatch(/^Intern\./)
-    expect(contract.briefRole).toMatch(/dokumentasjon, for feilsøking og for manuell kopiering/i)
+    expect(contract.briefRole).toMatch(/dokumentasjon, for feilsøking/i)
+    // And where a person who wants one picture is sent instead: the entry's own
+    // prompt, into an empty conversation. Never this text.
+    expect(contract.briefRole).toMatch(/den ene oppføringens `prompt`/i)
+    expect(contract.briefRole).toMatch(/ny, tom samtale/i)
     expect(contract.briefRole).toMatch(/ikke et steg i normalflyten/i)
     expect(contract.briefRole).toMatch(/ikke en bildegenereringsprompt/i)
     expect(contract.briefRole).toMatch(/skal ikke skrives ut i samtalen/i)
-    expect(contract.briefRole).toMatch(/Bruk `prompt` på den ene oppføringen i stedet/i)
   })
 
   it('holder flerbildekonteksten ute av samtalen rundt kallet', () => {
@@ -790,7 +793,16 @@ describe('bildeplanen som genereringskontrakt', () => {
     expect(contract.isolation).toMatch(/nøytral og ikke røpe at flere bilder er planlagt/i)
     // And it is named as the main mechanism rather than as etiquette around
     // the warnings, which is the point of the change.
-    expect(contract.isolation).toMatch(/hovedgrepet mot sammenslåtte bilder/i)
+    expect(contract.isolation).toMatch(/det beste grepet mot sammenslåtte bilder/i)
+    /*
+     * Best effort, and said so. A host whose image tool reads the conversation
+     * can hand it more than the agent chose, so a rule that promised isolation
+     * would be promising something neither the agent nor Slaids can deliver —
+     * and the supported way out is named in the same breath.
+     */
+    expect(contract.isolation).toMatch(/best effort, ikke en garanti/i)
+    expect(contract.isolation).not.toMatch(/garantert|garanterer/i)
+    expect(contract.isolation).toMatch(/ny, tom ChatGPT-samtale/i)
   })
 
   it('sier hvordan én oppføring behandles av gangen, og at rekkefølgen ikke er identitet', () => {

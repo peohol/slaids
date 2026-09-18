@@ -33,7 +33,8 @@ import {
   IMAGE_MANIFEST_FILE_NAME,
   type GeneratedImageRecord,
 } from '../../domain/imageGeneration'
-import { resolveImagePlan } from '../../domain/imagePlan'
+import { composeImageGenerationPrompt, resolveImagePlan } from '../../domain/imagePlan'
+import { nextImageJob } from '../../domain/imageWorkflow'
 import type { Presentation } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { ImageBriefModal } from './ImageBriefModal'
@@ -71,6 +72,19 @@ afterEach(async () => {
   while (databases.length > 0) await databases.pop()?.delete()
 })
 
+/**
+ * Motifs that are genuinely different from each other.
+ *
+ * `checkImagePlan` refuses near-duplicates, and a plan with findings hands out
+ * no image job at all — so three variations on one sentence would make the
+ * fixture untestable against the generation flow.
+ */
+const SUBJECTS: readonly string[] = [
+  'Motiv nummer 1: en savanne med akasietrær i lavt morgenlys',
+  'Motiv nummer 2: et tilhugget steinredskap holdt frem mellom to fingre',
+  'Motiv nummer 3: en leirboplass med røyk som siger mellom skinntelt',
+]
+
 /** A deck of three planned, numbered, unfilled picture zones. */
 function pendingDeck(): Presentation {
   const base = createPresentation({ title: 'Menneskets evolusjon' })
@@ -92,10 +106,10 @@ function pendingDeck(): Presentation {
     leaves.map((leaf, index) => ({
       slideId: deck.slides[1].id,
       nodeId: leaf.id,
-      subject: `Motiv nummer ${index + 1}, tydelig forskjellig fra de andre`,
+      subject: SUBJECTS[index],
       composition: 'Sentrert motiv, rolig bakgrunn.',
-      requirements: '',
-      avoid: '',
+      requirements: 'Anatomisk korrekt skjelettbygning for arten som vises.',
+      avoid: 'Ingen moderne klær, ingen bygninger.',
     })),
   )
   if (!written.ok) throw new Error(written.error.message)
@@ -165,6 +179,32 @@ async function pickText(
   await settle()
   await settle()
 }
+
+/**
+ * A clipboard that records rather than a real one.
+ *
+ * jsdom has neither `navigator.clipboard` nor `document.execCommand`, so
+ * without this every copy in a test reports failure — and what is being checked
+ * here is precisely the *text* that reaches the clipboard, not that a button
+ * was pressed.
+ */
+function captureClipboard(): { text: () => string } {
+  const written: string[] = []
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: (text: string) => { written.push(text); return Promise.resolve() } },
+    configurable: true,
+  })
+  clipboardInstalled = true
+  return { text: () => written.at(-1) ?? '' }
+}
+
+let clipboardInstalled = false
+
+afterEach(() => {
+  if (!clipboardInstalled) return
+  Reflect.deleteProperty(navigator, 'clipboard')
+  clipboardInstalled = false
+})
 
 /** Three genuinely different pictures, so a swap between two of them is real. */
 const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
@@ -238,6 +278,113 @@ describe('ImageBriefModal', () => {
 
     click('[data-testid="image-brief-modal-deposit"]')
     expect(wentOn).toBe(true)
+  })
+
+  it('kopierer bare den rene prompten for det ene bildet', async () => {
+    /*
+     * The errand the dialog exists for, and the correction this pins. Copying
+     * «the whole brief» was the obvious button, and a whole brief pasted into
+     * an image generator is a generator that has been shown a set — which is
+     * what comes back. So the per-picture copy is the primary action, and what
+     * it puts on the clipboard is the entry's own order and nothing else.
+     */
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    const clipboard = captureClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    click('[data-testid="image-brief-modal-copy-prompt-2"]')
+    await settle()
+    const copied = clipboard.text()
+
+    // Everything a generator actually needs: the deck's shared look, this one
+    // motif, how it is framed, what it must get right, what to avoid, and the
+    // format measured off the zone.
+    expect(copied).toContain('Fotorealistisk, dempet palett')
+    expect(copied).toContain('Motiv nummer 2')
+    expect(copied).toContain('Sentrert motiv, rolig bakgrunn.')
+    expect(copied).toContain('Anatomisk korrekt skjelettbygning')
+    expect(copied).toContain('Ingen moderne klær')
+    expect(copied).toMatch(/Aspect ratio \d+:\d+/)
+
+    // And nothing that says «one of several». Each of these is bookkeeping
+    // Slaids needs and an image generator cannot use: an id, a file name, a
+    // slide, a count, another motif.
+    expect(copied).not.toContain('imgplan_')
+    expect(copied).not.toMatch(/Bildeplan-ID/i)
+    expect(copied).not.toMatch(/Filnavn/i)
+    expect(copied).not.toMatch(/Skal brukes på slide/i)
+    expect(copied).not.toContain(deck.slides[1].id)
+    expect(copied).not.toContain(resolveImagePlan(deck)[1].plan.nodeId)
+    expect(copied).not.toMatch(/BILDE \d+ AV \d+/i)
+    expect(copied).not.toMatch(/separate bilder/i)
+    expect(copied).not.toContain('Motiv nummer 1')
+    expect(copied).not.toContain('Motiv nummer 3')
+  })
+
+  it('viser bildets plass i raden uten å legge den i teksten', async () => {
+    // The split the dialog rests on: a person needs the number, the slide and
+    // the file name to find their way, and none of it belongs in the order.
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    const clipboard = captureClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    const row = find('[data-testid="image-brief-modal-list"]').children[1]
+    expect(row.textContent).toContain('Bilde 2')
+    expect(row.textContent).toContain('Tre arter')
+    expect(row.textContent).toMatch(/Filnavn: 2\./)
+
+    click('[data-testid="image-brief-modal-copy-prompt-2"]')
+    await settle()
+    expect(clipboard.text()).not.toContain('Tre arter')
+    expect(clipboard.text()).not.toMatch(/\bBilde 2\b/)
+  })
+
+  it('kopierer nøyaktig den teksten agenten får som bildejobb', async () => {
+    /*
+     * One composer, two surfaces. The automatic flow and the manual fallback
+     * have to order the *same* picture — otherwise pasting the prompt into a
+     * fresh conversation, which is the supported way out when a host merges
+     * several motifs, would produce a different picture than the flow it is
+     * rescuing.
+     */
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    const clipboard = captureClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    click('[data-testid="image-brief-modal-copy-prompt-1"]')
+    await settle()
+
+    /* The dialog reconciles the placeholder captions as it opens, so the deck
+       an agent would be reading is the store's, not the fixture's. */
+    const shown = useEditorStore.getState().presentation
+    if (!shown) throw new Error('Forventet et dekk i editoren')
+    const job = nextImageJob(shown)
+    expect(job.status).toBe('job')
+    expect(clipboard.text()).toBe(job.job?.prompt)
+    // And the same text again from the domain, so the parity is a property of
+    // the composer rather than a coincidence of this deck.
+    expect(clipboard.text()).toBe(
+      composeImageGenerationPrompt(resolveImagePlan(shown)[0], shown.imageContext ?? ''),
+    )
+  })
+
+  it('holder den samlede briefen adskilt fra genereringshandlingen', () => {
+    // The whole plan is still generated and still reachable — documentation and
+    // debugging need it — but it is folded away and labelled, so it does not
+    // read as the way to order pictures.
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    const details = find<HTMLDetailsElement>('[data-testid="image-brief-modal-full"]')
+    expect(details.open).toBe(false)
+    expect(details.textContent).toMatch(/dokumentasjon og feilsøking/i)
+    expect(details.textContent).toMatch(/ingen bildeprompt/i)
+    // The brief itself carries the bookkeeping the prompt must not: that is
+    // what makes it internal.
+    expect(find('[data-testid="image-brief-modal-text"]').textContent).toContain('Bildeplan-ID')
   })
 
   it('tilbyr ikke deponering når dekket har avsluttet den', () => {
