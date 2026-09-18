@@ -9,12 +9,12 @@
  * to answer «were the pictures made», so a record that did not check out would
  * be a finished-looking answer to the question the whole flow turns on.
  *
- * What *is* storable and still not proof is a binding without a digest. It is
- * kept — otherwise a host that cannot reach the bytes of its own image tool
- * would be asked to generate the same pictures on every read — and
- * `imageGenerationCoverage` reports it as `unverified` rather than done,
- * because every field in such a record was already in the plan the agent read
- * before it generated anything.
+ * What is storable and still not proof is any binding at all. Every field in
+ * one was already in the plan the agent read before it generated anything, and
+ * a digest — where the host can reach the bytes to make one — is a string
+ * Slaids has no file to hold it against. So a stored binding is a *self-report*
+ * everywhere it is read back: `imageGenerationIsReported` is named for that,
+ * and nothing here turns into «verified» or into a finished deck.
  *
  * Nothing here expires the records on a timer or a flag. They expire because an
  * entry's `imagePlanItemId` covers its whole order, so a rewritten motif or
@@ -63,8 +63,8 @@ export function recordGeneratedImages(
     return err('INVALID_ARGUMENT', 'En kobling må gjelde minst ett generert bilde.')
   }
   /* A record for an entry that already has one replaces it, which is how a
-     re-run with digests upgrades an unchecked binding without a second entry
-     for the same picture. */
+     re-run — a regenerated picture, or the same one with a digest this time —
+     updates a binding without leaving a second entry for the same picture. */
   const incoming = new Set(records.map((record) => record.imagePlanItemId))
   const merged = [
     ...records.map(normalizeRecord),
@@ -188,6 +188,5 @@ function normalizeRecord(record: GeneratedImageRecord): GeneratedImageRecord {
     nodeId: record.nodeId,
     fileName: record.fileName,
     ...(record.contentHash ? { contentHash: record.contentHash } : {}),
-    ...(record.bytesUnavailable ? { bytesUnavailable: true as const } : {}),
   }
 }
