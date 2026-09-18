@@ -680,18 +680,61 @@ vei ut igjen:
 
 Slaids-agent-API-et genererer ikke rasterfiler. Standardflyten er at agenten
 reserverer bildesoner, skriver bildeplan og felles bildekontekst, og Slaids
-genererer den samlede bildebriefen. Når brukerbestillingen forutsetter
+setter sammen den ferdige bildeprompten for hver enkelt oppføring. Når
+brukerbestillingen forutsetter
 rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
-ferdig validert og bildesonene er stabile; klienten henter da en fersk sluttbrief
+ferdig validert og bildesonene er stabile; klienten leser da bildeplanen på nytt
 fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
-bildegenerering, skal den skrive sluttbriefen ut i samme samtale og starte
-bildegenereringen umiddelbart — ett kall per planlagt bilde, én oppføring
-ferdigstilt av gangen, og både antallet ferdige bildefiler og koblingen mellom
+bildegenerering, skal den starte bildegenereringen umiddelbart: Slaids gir én
+bildejobb om gangen — én ferdig `prompt` og koblingsdataene for akkurat den
+oppføringen — og neste jobb finnes først når den forrige er generert og
+kontrollert. Både antallet ferdige
+bildefiler og koblingen mellom
 hver fil og bildeplanoppføringen den ble generert fra kontrolleres mot planen før
 deponering; verktøyresponsen alene er ikke handoff. Hvis
-klienten ikke kan sende briefen direkte, kan den fortsatt kopieres manuelt. Uten
+klienten ikke kan generere direkte, kan den samlede briefen fortsatt kopieres
+manuelt. Uten
 en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
 bildedeponeringen.
+
+**Hver bildegenerering er en isolert oppgave, strukturelt.** Prompten Slaids
+setter sammen inneholder dekkets felles bildekontekst og bare den ene
+oppføringen — ingen opptelling, ingen nummerering, ingen andre motiver — og
+selve genereringssteget leser én jobb om gangen, så settet er ikke i konteksten
+når bildekallet skrives. Bildeplanens svar bærer ingen ferdige prompter, den
+samlede briefen følger bare med når noen ber om den, og normalflyten skriver
+verken den, en oppsummering av bildeplanen eller antallet bilder ut i samtalen.
+En bildegenerator som får se at oppgaven er et sett, lager et sett: collage,
+kontaktark eller storyboard i stedet for N separate bilder. Tekster som viser
+til de andre bildene — «samme utsnitt som forrige bilde» — meldes som funn i
+bildeplanen, fordi de ellers ville reist inni selve ordren.
+
+**Ingenting agenten skriver kan fullføre dekket.** En kobling består av id,
+nummer, sone, filnavn og `contentHash` — de fire første sto i bildeplanen før
+bildet ble laget, og avtrykket har Slaids ingen fil å sammenligne med, for
+API-et er aldri i rommet når et bilde lages. Fullføring hviler derfor på det ene
+som ikke kan påstås: en fil i dekket. `complete` blir true når hver planlagte
+bildesone holder en fil, og det er brukerens deponering i nettleseren som setter
+dem der — og det eneste stedet avtrykkene faktisk sammenlignes med bytes. En
+kobling uten avtrykk lagres, men da kan ingenting noensinne sammenlignes, og
+dekket sier det (`generation-unverified`).
+
+**Isolasjonen har en grense Slaids ikke kan håndheve.** Agenten skriver
+bildeplanen, så motivene har vært i samtalen dens uansett; og arver
+vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten. At
+generatoren bare ser den ene prompten er derfor et krav til vertsklienten, ikke
+en garanti Slaids kan gi. Instruksen dekker begge verktøyformer: sendes prompten
+som parameter, går den ordrett; utleder verktøyet prompten fra samtalen — som i
+ChatGPT — skrives den som agentens egen melding rett før kallet, alene. Derfor
+bærer bildejobben heller ikke nummer, filnavn eller sone: koblingskontrollen
+svarer med filnavnet etterpå.
+
+**En kobling må svare for bytene.** Enten et avtrykk, eller en uttrykkelig
+erklæring om at vertsklienten ikke gir agenten tilgang til dem. Sier koblingen
+ingenting, avvises den og oppføringen blir stående som ubesvart bildejobb — ellers
+kunne hele løkken vandres uten å kalle en bildegenerator. Et oppdiktet avtrykk
+er ingen snarvei: deponeringen sammenligner det med filens egne bytes og avviser
+hele settet, og det er der den eneste ikke-forfalskbare kontrollen finnes.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
@@ -716,14 +759,16 @@ overlever at et bilde byttes ut etterpå.
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
-| `get_image_brief`                        | den genererte, ferdige bestillingen, kontrollene og deponeringsstatusen |
+| `get_image_brief`                        | bildeplanen slik den står, kontrollene og deponeringsstatusen |
+| `get_next_image_job`                     | den ene bildejobben som står for tur: én ferdig prompt, formatet og en ugjennomsiktig id – intet nummer, filnavn eller sone |
 | `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra, og lagrer koblingen på dekket når den holder |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller
 `titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids
 nummererer bildene i dekkets rekkefølge, måler aspect ratio fra sonens faktiske
-geometri, skriver plassholderteksten «Sett inn bilde 3 her» i sonen og genererer
-den samlede briefen. Aspect ratio skrives aldri i fritekst av agenten.
+geometri, skriver plassholderteksten «Sett inn bilde 3 her» i sonen og setter
+sammen prompten for hvert enkelt bilde — som deles ut én jobb om gangen. Aspect
+ratio skrives aldri i fritekst av agenten.
 
 Det samme kallet åpner **bildedeponeringen**, og da ser brukeren dette:
 

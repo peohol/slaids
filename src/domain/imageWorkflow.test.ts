@@ -36,7 +36,13 @@ import {
 } from './imageGeneration'
 import { depositSlots } from './imageDeposit'
 import { checkImagePlan, resolveImagePlan, type PlannedImage } from './imagePlan'
-import { composeImageWorkflowStatus, imageGenerationIsVerified } from './imageWorkflow'
+import {
+  composeImageWorkflowStatus,
+  imageGenerationCoverage,
+  imageGenerationIsReported,
+  nextImageJob,
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
+} from './imageWorkflow'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
 import type { Presentation } from './types'
@@ -121,6 +127,29 @@ function records(deck: Presentation): GeneratedImageRecord[] {
   }))
 }
 
+/**
+ * The same bindings with nothing that reaches a file.
+ *
+ * Every field in one of these was in the plan before any picture was made — the
+ * id, the number, the zone, the file name — so this is exactly what an agent
+ * can produce *without calling an image generator at all*. It is the shortcut
+ * the coverage rules exist to refuse.
+ */
+function claims(deck: Presentation): GeneratedImageRecord[] {
+  return records(deck).map(({ contentHash: _unproven, ...record }) => record)
+}
+
+/**
+ * The same bindings from a host that says it cannot reach the bytes.
+ *
+ * Not proof either — it is a declaration that no proof is coming — and that is
+ * what it buys: the entry stops being offered as a job, and the delivery stands
+ * as unverified for good.
+ */
+function declared(deck: Presentation): GeneratedImageRecord[] {
+  return claims(deck).map((record) => ({ ...record, bytesUnavailable: true as const }))
+}
+
 /** The deck as it is after a successful binding check. */
 function verified(deck: Presentation): Presentation {
   const written = recordGeneratedImages(deck, records(deck))
@@ -165,9 +194,51 @@ describe('en fersk bildeplan er ikke ferdig arbeid', () => {
     const status = composeImageWorkflowStatus(awaiting(8))
     expect(status.nextAction).toMatch(/mellomsteg/i)
     expect(status.nextAction).toMatch(/samme samtale/i)
-    expect(status.nextAction).toContain('8 ganger')
-    expect(status.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
-    expect(status.remainingSteps.join(' ')).toContain('de 8 bildene')
+    expect(status.nextAction).toMatch(
+      /generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen/i,
+    )
+    expect(status.nextAction).toMatch(/bare den oppføringens ferdige `prompt`/i)
+    expect(status.remainingSteps[0]).toMatch(/Hent neste bildejobb/i)
+  })
+
+  it('ber ikke agenten skrive ut den samlede briefen i samtalen', () => {
+    /*
+     * Test 1 of the isolation work, and the root cause it closes. The first
+     * step used to be «hent den ferske sluttbriefen, og skriv den ut i
+     * samtalen», with «generer de 8 bildene» after it — so before the first
+     * generation call the conversation held a message that counted eight
+     * pictures and listed every motif. A generator reading that is composing a
+     * set, whatever the individual prompts then say.
+     *
+     * Asserted over a multi-picture deck, because that is the only case where
+     * the leak exists.
+     */
+    const status = composeImageWorkflowStatus(awaiting(8))
+    const instructions = [status.nextAction, ...status.remainingSteps].join(' ')
+    // Stated as a property rather than as a banned word: the brief may be
+    // named, and every sentence that names it has to be denying it.
+    const aboutTheBrief = instructions
+      .split(/(?<=[.:])\s+/)
+      .filter((sentence) => /brief/i.test(sentence))
+    expect(aboutTheBrief.length).toBeGreaterThan(0)
+    for (const sentence of aboutTheBrief) {
+      expect(sentence, `«${sentence}» ber om briefen`).toMatch(/\b(ikke|aldri|uten)\b/i)
+    }
+    expect(instructions).not.toMatch(/sluttbrief/i)
+    // And nothing counts the pictures at the agent either. The deck plans
+    // eight; the instruction never says so, and never says how many are left.
+    expect(instructions).not.toMatch(/\b8\b/)
+    expect(instructions).not.toMatch(/\d+\s+(planlagte\s+)?bilder\b/i)
+    expect(instructions).not.toMatch(/bilde \d+ av \d+/i)
+    // What it does say is that the conversation stays quiet about the rest.
+    expect(instructions).toMatch(
+      /Ikke skriv ut samlet brief, andre bildeoppføringer eller en opptelling i samtalen/i,
+    )
+    expect(instructions).toMatch(/Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen/i)
+    // The plan's own numbers are still there — as fields, which nothing reads
+    // aloud.
+    expect(status.plannedImageCount).toBe(8)
+    expect(status.awaitingFileCount).toBe(8)
   })
 
   it('forbyr nettopp de avslutningene som beskriver halvferdig arbeid', () => {
@@ -179,12 +250,30 @@ describe('en fersk bildeplan er ikke ferdig arbeid', () => {
     expect(closings).toMatch(/Ikke generer et bilde om igjen fordi bildesonen ennå er tom/i)
   })
 
-  it('krever bildene generert og koblingen kontrollert, men ikke deponert', () => {
+  it('skiller agentens arbeid fra dekkets fullføring', () => {
+    // What finishing is measured on. One separate file per entry, reported with
+    // the `imagePlanItemId` it was made from and its digest, in the format that
+    // entry asks for — and the document is complete when the pictures are in
+    // it, which is the one thing nobody can assert.
     const criteria = composeImageWorkflowStatus(awaiting(3)).completionCriteria.join(' ')
-    expect(criteria).toMatch(/skrevet ut i samtalen/i)
-    expect(criteria).toMatch(/generert i samme samtale/i)
+    expect(criteria).toMatch(/uten å vente på en ny brukerbeskjed, ett av gangen/i)
+    expect(criteria).toMatch(/like mange separate bildefiler som planen har oppføringer/i)
+    expect(criteria).toMatch(/én fil per `imagePlanItemId`/i)
+    expect(criteria).toMatch(/aspect ratio oppføringen den ble generert fra oppgir/i)
+    expect(criteria).toMatch(/meldt med den `imagePlanItemId` den ble generert fra/i)
+    // The contradiction the review found: the queue lives in the document, so
+    // «same conversation» cannot be a completion criterion.
+    expect(criteria).not.toMatch(/i samme samtale/i)
+    expect(criteria).toMatch(/køen ligger i dokumentet, ikke i samtalen/i)
+    // And the trust anchor is named: a binding is a claim until the browser
+    // compares it, so `complete` waits for the pictures.
+    expect(criteria).toMatch(/Koblingen er en påstand til den er kontrollert mot filene selv/i)
+    expect(criteria).toMatch(/`complete` blir først true når bildene faktisk ligger i dekket/i)
     expect(criteria).toMatch(/koblingskontrollen svarer `ok`/i)
-    expect(criteria).toMatch(/Fylte bildesoner er derfor aldri stoppkriteriet/i)
+    expect(criteria).toMatch(/Å legge bildene inn er derfor brukerens steg, og aldri noe du venter på/i)
+    // And printing the brief is not a criterion any more. It was one, which
+    // made showing a generator the whole plan a condition of finishing.
+    expect(criteria).not.toMatch(/brief/i)
   })
 })
 
@@ -196,12 +285,22 @@ describe('genereringen er kontrollert, ikke observert', () => {
     const deck = verified(awaiting(3))
     const status = composeImageWorkflowStatus(deck)
     expect(status.stage).toBe('awaiting-deposit')
-    expect(status.complete).toBe(true)
+    // Not complete: the pictures are not in the deck, and nothing the agent
+    // reports can put them there. Its own work is `remainingSteps`.
+    expect(status.complete).toBe(false)
     expect(status.awaitingFileCount).toBe(3)
     expect(status.depositedImageCount).toBe(0)
-    expect(status.forbiddenClosings).toEqual([])
-    expect(status.nextAction).toMatch(/genereringsoppgaven er gjort/i)
+    // The endings that are wrong here are the delivery ones, not the
+    // generation ones: «arbeidet er ditt» about inserting pictures is false.
+    expect(status.forbiddenClosings.join(' ')).toMatch(
+      /Ikke si at bildene er kontrollert eller verifisert/i,
+    )
+    expect(status.forbiddenClosings.join(' ')).toMatch(/Ikke vent på at brukeren deponerer/i)
+    expect(status.nextAction).toMatch(/genereringsarbeidet ditt er gjort/i)
     expect(status.nextAction).toMatch(/brukerens steg/i)
+    // And what that is worth is said in the same breath: the digests are
+    // compared in the browser, not here.
+    expect(status.nextAction).toMatch(/koblingen er din påstand til den er sammenlignet i nettleseren/i)
     // Complete, and not empty-handed: `complete` answers for the document, and
     // what is left for the *agent* depends on something the deck cannot see —
     // whether this conversation still holds the files. Both cases are named
@@ -220,11 +319,11 @@ describe('genereringen er kontrollert, ikke observert', () => {
     const second = composeImageWorkflowStatus(deck)
     expect(second).toEqual(first)
     expect(second.stage).toBe('awaiting-deposit')
-    expect(second.complete).toBe(true)
+    expect(second.complete).toBe(false)
     // Regeneration is named, but only as the branch for a reader who does not
     // have the files — never as this stage's own demand.
     expect(second.remainingSteps.join(' ')).not.toMatch(/^Generer de \d+ bildene/im)
-    expect(second.nextAction).toMatch(/genereringsoppgaven er gjort/i)
+    expect(second.nextAction).toMatch(/genereringsarbeidet ditt er gjort/i)
     // And it survives the trip through storage, because it is stored: the
     // bindings are validated by the same schema the manifest file is read
     // through, so a stored one and a delivered one cannot be different shapes.
@@ -259,7 +358,7 @@ describe('genereringen er kontrollert, ikke observert', () => {
 
     const status = composeImageWorkflowStatus(stored)
     expect(status.stage).toBe('awaiting-deposit')
-    expect(status.complete).toBe(true)
+    expect(status.complete).toBe(false)
     // What is left is not nothing, and it is not unconditional either.
     expect(status.remainingSteps).toHaveLength(3)
     const [holding, without] = status.remainingSteps
@@ -267,19 +366,25 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(holding).toMatch(/lever dem med manifestet/i)
     expect(without).toMatch(/har du dem ikke/i)
     expect(without).toMatch(/ingen leveranse du kan gjøre/i)
-    expect(without).toMatch(/generer de 3 oppføringene på nytt/i)
+    expect(without).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
     expect(without).toMatch(/kjør koblingskontrollen igjen/i)
-    // And the count it asks for is the plan's own, so the check it sends the
-    // agent back into is the one that can answer `ok`.
+    // The whole plan is what the check expects, and the plan's own field says
+    // how big it is — the step does not count the pictures out loud, because
+    // regenerating is the same one-at-a-time work as generating.
+    expect(without).not.toMatch(/\b3\b/)
     expect(status.plannedImageCount).toBe(3)
     expect(status.nextAction).toMatch(/`remainingSteps` sier hvilket av de to som gjelder her/i)
   })
 
-  it('lagrer ingenting når koblingen ikke holder', () => {
-    // One picture short is not «mostly verified», and an unverified set must
-    // not be storable: the document's copy is what later reads trust.
+  it('lagrer ingenting når koblingen motsier planen', () => {
+    // A binding that contradicts the plan must not be storable: the document's
+    // copy is what later reads trust. One picture *short* is a different thing
+    // — that is the loop, and the test below is about it.
     const deck = awaiting(3)
-    const refused = recordGeneratedImages(deck, records(deck).slice(0, -1))
+    const wrongZone = records(deck).map((record, index) =>
+      index === 0 ? { ...record, nodeId: 'en-annen-sone' } : record,
+    )
+    const refused = recordGeneratedImages(deck, wrongZone)
     expect(refused.ok).toBe(false)
     if (refused.ok) return
     expect(refused.error.code).toBe('INVALID_ARGUMENT')
@@ -287,16 +392,46 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(composeImageWorkflowStatus(deck).stage).toBe('awaiting-generation')
   })
 
+  it('tar imot koblingene én av gangen, uten å glemme de forrige', () => {
+    /*
+     * The storage half of the sequential flow. A picture is bound the moment it
+     * is made, before the next one is generated — so a call that carries one
+     * binding has to be accepted and merged, and the deck is what remembers how
+     * far the loop has come. Requiring the whole set would mean nothing could
+     * be recorded until everything was, and «which entry is next» would have
+     * nothing to read.
+     */
+    let deck: Presentation = awaiting(3)
+    const all = records(deck)
+    for (const record of all) {
+      const written = recordGeneratedImages(deck, [record])
+      if (!written.ok) throw new Error(written.error.message)
+      deck = written.value
+    }
+    expect(deck.generatedImages).toHaveLength(3)
+    expect(imageGenerationIsReported(deck)).toBe(true)
+
+    // And a partial set is not a finished one: two of three leaves the flow
+    // where it was.
+    let partial: Presentation = awaiting(3)
+    const written = recordGeneratedImages(partial, records(partial).slice(0, 2))
+    if (!written.ok) throw new Error(written.error.message)
+    partial = written.value
+    expect(partial.generatedImages).toHaveLength(2)
+    expect(imageGenerationCoverage(partial)).toBe('none')
+    expect(composeImageWorkflowStatus(partial).stage).toBe('awaiting-generation')
+  })
+
   it('slutter å gjelde når bestillingen skrives om', () => {
     // An entry's id covers its whole order, so rewriting the shared context
     // gives every entry a new one. The stored bindings then point at pictures
     // the deck no longer orders, and nothing had to remember to clear them.
     const deck = verified(awaiting(3))
-    expect(imageGenerationIsVerified(deck)).toBe(true)
+    expect(imageGenerationIsReported(deck)).toBe(true)
 
     const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast, ingen farge.')
     if (!rewritten.ok) throw new Error(rewritten.error.message)
-    expect(imageGenerationIsVerified(rewritten.value)).toBe(false)
+    expect(imageGenerationIsReported(rewritten.value)).toBe(false)
     expect(
       checkGeneratedImages(rewritten.value, rewritten.value.generatedImages ?? []).map(
         (issue) => issue.code,
@@ -315,7 +450,7 @@ describe('genereringen er kontrollert, ikke observert', () => {
     // Re-writing the same plan changes no id, so the bindings stand.
     const same = planned(deck, [...(deck.imagePlan ?? [])])
     expect(same.generatedImages).toHaveLength(3)
-    expect(imageGenerationIsVerified(same)).toBe(true)
+    expect(imageGenerationIsReported(same)).toBe(true)
 
     // Dropping the plan drops them: they described orders that no longer exist.
     const cleared = planned(deck, [])
@@ -374,7 +509,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
 
     const status = composeImageWorkflowStatus(remade)
     expect(status.stage).toBe('awaiting-deposit')
-    expect(status.complete).toBe(true)
+    expect(status.complete).toBe(false)
     // Nothing is *missing* from the deck, and the pictures are still not right.
     expect(status.awaitingFileCount).toBe(0)
     expect(status.nextAction).toMatch(/2 bildesoner viser fortsatt bildet fra den forrige bestillingen/i)
@@ -429,7 +564,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     let remade = verified(replanned)
     const made = composeImageWorkflowStatus(remade)
     expect(made.stage).toBe('awaiting-deposit')
-    expect(made.complete).toBe(true)
+    expect(made.complete).toBe(false)
     expect(made.nextAction).toMatch(/viser fortsatt bildet fra den forrige bestillingen/i)
     expect(staleGeneratedImages(remade)).toHaveLength(3)
 
@@ -506,7 +641,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(status.stage).toBe('awaiting-generation')
     expect(status.plannedImageCount).toBe(2)
     expect(status.awaitingFileCount).toBe(2)
-    expect(status.nextAction).toContain('2 ganger')
+    expect(status.nextAction).toMatch(/generer neste planlagte bilde direkte/i)
 
     // And the count the status asks for is exactly the set the check expects.
     const delivered = records(replanned)
@@ -514,7 +649,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(checkGeneratedImages(replanned, delivered)).toEqual([])
     const done = composeImageWorkflowStatus(verified(replanned))
     expect(done.stage).toBe('awaiting-deposit')
-    expect(done.complete).toBe(true)
+    expect(done.complete).toBe(false)
   })
 })
 
@@ -551,13 +686,15 @@ describe('det første steget er det stadiet faktisk krever', () => {
     expect(status.remainingSteps[0]).not.toMatch(/generer/i)
   })
 
-  it('går til brief og ett kall per oppføring når planen faktisk venter på bilder', () => {
+  it('går rett på det første bildet når planen faktisk venter på bilder', () => {
     const status = composeImageWorkflowStatus(awaiting(3))
     expect(status.stage).toBe('awaiting-generation')
     expect(status.complete).toBe(false)
-    expect(status.remainingSteps[0]).toMatch(/sluttbriefen.*skriv den ut i samtalen/i)
-    expect(status.remainingSteps[1]).toMatch(/ett kall per oppføring/i)
-    expect(status.remainingSteps[1]).toContain('de 3 bildene')
+    expect(status.remainingSteps[0]).toMatch(/Hent neste bildejobb/i)
+    expect(status.remainingSteps[0]).toMatch(/uten de andre oppføringene/i)
+    expect(status.remainingSteps[1]).toMatch(/nøyaktig én gang, med bare den `prompt`-teksten/i)
+    expect(status.remainingSteps[2]).toMatch(/SHA-256/)
+    expect(status.remainingSteps[3]).toMatch(/Hent så neste jobb/i)
   })
 })
 
@@ -602,7 +739,7 @@ describe('planens egne kontroller gjelder foran alle ferdig-grener', () => {
     if (!broken.ok) throw new Error(broken.error.message)
     // The context is part of every order, so the bindings expire with it — and
     // the plan checks would have stopped this anyway. Both, on purpose.
-    expect(imageGenerationIsVerified(broken.value)).toBe(false)
+    expect(imageGenerationIsReported(broken.value)).toBe(false)
     expect(composeImageWorkflowStatus(broken.value).stage).toBe('plan-needs-repair')
   })
 
@@ -705,9 +842,12 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     expect(status.stage).toBe('plan-outdated')
     expect(status.awaitingFileCount).toBe(1)
     expect(staleGeneratedImages(deck)).toHaveLength(2)
-    // Not max(1, 2): the whole plan.
-    expect(status.nextAction).toMatch(/Generer alle 3 oppføringene i planen/i)
-    expect(status.remainingSteps.join(' ')).toContain('de 3 bildene')
+    // Not max(1, 2): the whole plan, one entry at a time — and «which
+    // entries» is «those without a verified binding», which covers both the
+    // empty zone and the two holding the previous pictures.
+    expect(status.nextAction).toMatch(/Generer oppføringene i planen én av gangen/i)
+    expect(status.nextAction).toMatch(/kontrollen venter én fil per planlagt oppføring/i)
+    expect(status.remainingSteps.join(' ')).toMatch(/Hent neste bildejobb/i)
 
     // And the number it asks for is exactly the set the check accepts.
     const delivered = records(deck)
@@ -766,7 +906,7 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     }
     const status = composeImageWorkflowStatus(abandoned)
     expect(status.stage).toBe('awaiting-deposit')
-    expect(status.complete).toBe(true)
+    expect(status.complete).toBe(false)
     expect(status.nextAction).toMatch(/Bildedeponeringen er forlatt for dette dekket/i)
     expect(status.nextAction).toMatch(/én sone om gangen/i)
     expect(status.nextAction).not.toMatch(/Skriv bildeplanen på nytt før filene leveres/i)
@@ -786,7 +926,7 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     // actually be done rather than a deposit that is designed to stay shut.
     const remade = composeImageWorkflowStatus(verified(rewritten.value))
     expect(remade.stage).toBe('awaiting-deposit')
-    expect(remade.complete).toBe(true)
+    expect(remade.complete).toBe(false)
     expect(remade.nextAction).toMatch(/én sone om gangen/i)
     expect(remade.nextAction).not.toMatch(/Skriv bildeplanen på nytt før filene leveres/i)
   })
@@ -892,9 +1032,13 @@ describe('et verifisert dekk som åpnes i en ny samtale', () => {
     const status = composeImageWorkflowStatus(stored)
     expect(status.stage).toBe('awaiting-deposit')
     expect(status.awaitingFileCount).toBe(3)
-    // Nothing forbids making them again — `forbiddenClosings` is empty here,
-    // and the action says so in words for the session that does not hold them.
-    expect(status.forbiddenClosings).toEqual([])
+    // Nothing forbids making them again: the delivery closings are about
+    // overstating what a report proves, and the action says in words what a
+    // session that does not hold the files should do.
+    expect(status.forbiddenClosings.join(' ')).toMatch(/så lenge du selv har filen/i)
+    expect(status.forbiddenClosings.join(' ')).toMatch(
+      /Er filen laget i en tidligere samtale og ikke tilgjengelig for deg, er det motsatte riktig/i,
+    )
     expect(status.nextAction).toMatch(/er dette en senere samtale og filene ikke er tilgjengelige/i)
     expect(status.nextAction).toMatch(/generere bildene på nytt/i)
     // And it may not be reported as a finished deck while the zones are empty.
@@ -905,8 +1049,438 @@ describe('et verifisert dekk som åpnes i en ny samtale', () => {
     // The executable path, executed: the same orders, made again, checked again.
     const deck = verified(awaiting(2))
     const again = verified(deck)
-    expect(imageGenerationIsVerified(again)).toBe(true)
+    expect(imageGenerationIsReported(again)).toBe(true)
     expect(composeImageWorkflowStatus(again).stage).toBe('awaiting-deposit')
+  })
+})
+
+/*
+ * The generation surface, asked the only question that matters about it: what
+ * can a reader see at the moment it writes an image call?
+ *
+ * The prompt being composed per entry was not enough, and that is the finding
+ * this answers. Every response that carried the plan carried the *set* — nine
+ * motifs, nine finished prompts, a count — so an agent had the whole thing in
+ * context before the first call, and «do not repeat it» was left holding a
+ * structural problem. A generator that has read a set composes a set.
+ */
+describe('én jobb om gangen', () => {
+  it('gir én jobb, og ingenting om de andre', () => {
+    const deck = awaiting(8)
+    const next = nextImageJob(deck)
+    expect(next.status).toBe('job')
+    expect(next.job?.prompt).toContain(MOTIFS[0])
+
+    /*
+     * Asserted over the whole answer rather than over the prompt: the leak the
+     * finding names is everything a reader can see, not only the text that
+     * happens to be sent on. No other motif, no count, nothing from the brief.
+     */
+    const answer = JSON.stringify(next)
+    for (const motif of MOTIFS.slice(1)) expect(answer).not.toContain(motif)
+    expect(answer).not.toMatch(/BILDE \d+ AV \d+/)
+    expect(answer).not.toMatch(/separate bilder/i)
+    expect(answer).not.toMatch(/\b8\b/)
+    // No ordinal survives at all: a number is a fact about a set, and the file
+    // name is answered by the binding check afterwards instead.
+    expect(next.job).not.toHaveProperty('number')
+    expect(next.job).not.toHaveProperty('fileName')
+    expect(next.job).not.toHaveProperty('slideId')
+    expect(answer).not.toMatch(/\bbildeslide-\d/)
+  })
+
+  it('gir neste jobb først når den forrige er bundet', () => {
+    // The queue is the document: the next job is the first planned entry no
+    // stored binding accounts for, so an interrupted conversation picks up
+    // where the deck is rather than where a lost counter said.
+    let deck: Presentation = awaiting(3)
+    const seen: string[] = []
+    for (let round = 0; round < 3; round += 1) {
+      const next = nextImageJob(deck)
+      expect(next.status).toBe('job')
+      if (!next.job) throw new Error('Forventet en jobb')
+      seen.push(next.job.prompt)
+      const record = records(deck).find(
+        (candidate) => candidate.imagePlanItemId === next.job?.imagePlanItemId,
+      )
+      if (!record) throw new Error('Forventet en kobling for jobben')
+      const written = recordGeneratedImages(deck, [record])
+      if (!written.ok) throw new Error(written.error.message)
+      deck = written.value
+    }
+    expect(seen.map((prompt) => MOTIFS.findIndex((motif) => prompt.includes(motif)))).toEqual([
+      0, 1, 2,
+    ])
+
+    const done = nextImageJob(deck)
+    expect(done.status).toBe('all-answered')
+    expect(done.job).toBeNull()
+    // The loop ends without anybody having been told how long it was.
+    expect(JSON.stringify(done)).not.toMatch(/\b3\b/)
+  })
+
+
+  it('lar den ærlige verten uten tilgang til bytene komme videre', () => {
+    /*
+     * The dead end the rule above would otherwise create. A host whose image
+     * tool gives it no bytes has made the picture and can never hash it, and
+     * being offered the same job for ever is not an answer. So it can declare
+     * that, per picture: the entry stops being offered, and the delivery is
+     * marked for what it is rather than for what it is not.
+     *
+     * The declaration is not evidence — nothing at this boundary is — it is a
+     * statement that no evidence is coming, which the deck then repeats instead
+     * of calling the work checked.
+     */
+    const deck = awaiting(3)
+    const written = recordGeneratedImages(deck, declared(deck))
+    if (!written.ok) throw new Error(written.error.message)
+
+    const done = nextImageJob(written.value)
+    expect(done.status).toBe('all-answered')
+    /*
+     * And the end of the queue says which answers emptied it. «Every entry has
+     * a binding with a digest» is simply false for this deck, and an agent that
+     * repeated it would be describing a delivery nothing can check as one that
+     * was checked.
+     */
+    expect(done.instruction).not.toMatch(/Alle bærer et avtrykk/i)
+    expect(done.instruction).toMatch(/meldt uten avtrykk/i)
+    expect(done.instruction).toMatch(/omtales som uverifisert/i)
+    expect(imageGenerationCoverage(written.value)).toBe('claimed')
+    const status = composeImageWorkflowStatus(written.value)
+    expect(status.stage).toBe('generation-unverified')
+    expect(status.complete).toBe(false)
+
+    // One declared, the rest still owed: the queue moves exactly one step.
+    const one = awaiting(3)
+    const first = recordGeneratedImages(one, declared(one).slice(0, 1))
+    if (!first.ok) throw new Error(first.error.message)
+    const second = nextImageJob(first.value)
+    expect(second.status).toBe('job')
+    expect(second.job?.prompt).toContain(MOTIFS[1])
+  })
+
+  it('gir ingen jobb fra en plan som ikke beskriver dekket', () => {
+    // A picture made from a plan with findings is a picture made for a zone
+    // that has moved. The repair comes first, exactly as in the status.
+    const deck = awaiting(3)
+    const stripped = setImageContext(deck, null)
+    if (!stripped.ok) throw new Error(stripped.error.message)
+    const next = nextImageJob(stripped.value)
+    expect(next.status).toBe('plan-needs-repair')
+    expect(next.job).toBeNull()
+    expect(next.issues.map((issue) => issue.code)).toContain('MISSING_CONTEXT')
+  })
+
+  it('gir ingen jobb for en sone som alt holder en fil ingen kobling forklarer', () => {
+    // The two surfaces have to agree about the same deck: the status calls this
+    // `plan-outdated` and asks for the plan to be rewritten with the zones that
+    // still wait, so handing out a job would put a second picture where one
+    // already is.
+    const deck = withFile(awaiting(3), 0)
+    expect(composeImageWorkflowStatus(deck).stage).toBe('plan-outdated')
+    const next = nextImageJob(deck)
+    expect(next.status).toBe('plan-needs-repair')
+    expect(next.job).toBeNull()
+    expect(next.instruction).toMatch(/bare de bildesonene som fortsatt venter/i)
+  })
+
+  it('gir jobben når sonen holder bildet fra en bestilling som er skrevet om', () => {
+    // The opposite case, and it needs the opposite answer: the deck knows that
+    // picture was made for an order it has since rewritten, so the replacement
+    // is exactly what is owed.
+    let deck = verified(awaiting(3))
+    for (const index of [0, 1, 2]) deck = withFile(deck, index)
+    const rewritten = setImageContext(deck, 'Kullstifttegninger, høy kontrast.')
+    if (!rewritten.ok) throw new Error(rewritten.error.message)
+
+    expect(composeImageWorkflowStatus(rewritten.value).stage).toBe('plan-outdated')
+    const next = nextImageJob(rewritten.value)
+    expect(next.status).toBe('job')
+    expect(next.job?.prompt).toContain(MOTIFS[0])
+  })
+
+  it('lar ikke en kobling uten avtrykk spise opp jobben', () => {
+    /*
+     * The shortcut this closes, walked end to end: fetch a job, send its own id
+     * straight back without a digest, fetch the next. Every field in that
+     * binding was in the plan before any picture existed, so nothing in it is
+     * evidence — and a queue that counted it as done could be emptied without
+     * calling an image generator once, ending on the strongest word the flow
+     * has — and the weaker word it now ends on is the point: `all-answered`
+     * says the bindings answered for the bytes, never that a generator ran.
+     *
+     * Only a binding that carries a digest takes an entry out of the queue. The
+     * claim is not thrown away — a host that cannot reach its own bytes has
+     * made the pictures and must not be sent back to make them again — it just
+     * never becomes «generated».
+     */
+    const start = awaiting(3)
+    const first = nextImageJob(start)
+    if (!first.job) throw new Error('Forventet en jobb')
+
+    // Report that one job back without a digest — the whole shortcut in one
+    // call — and the queue is exactly where it was.
+    const claim = claims(start).find(
+      (record) => record.imagePlanItemId === first.job?.imagePlanItemId,
+    )
+    if (!claim) throw new Error('Forventet en kobling for jobben')
+    const claimed = recordGeneratedImages(start, [claim])
+    if (!claimed.ok) throw new Error(claimed.error.message)
+    expect(nextImageJob(claimed.value).job?.imagePlanItemId).toBe(first.job.imagePlanItemId)
+
+    // The same for the rest: every entry claimed, and the loop has not ended.
+    const written = recordGeneratedImages(start, claims(start))
+    if (!written.ok) throw new Error(written.error.message)
+    const deck: Presentation = written.value
+    expect(deck.generatedImages).toHaveLength(3)
+    const after = nextImageJob(deck)
+    expect(after.status).toBe('unverified-claim')
+    expect(after.status).not.toBe('all-answered')
+    expect(after.job?.prompt).toContain(MOTIFS[0])
+    // The three cases only the reader can tell apart, named rather than guessed.
+    expect(after.instruction).toMatch(/laget du bildet og kan lese bytene/i)
+    expect(after.instruction).toMatch(/får ikke tilgang til bytene/i)
+    expect(after.instruction).toMatch(/Er bildet ikke laget/i)
+
+    // A digest on one entry moves exactly that one out of the queue.
+    const proven = recordGeneratedImages(deck, records(deck).slice(0, 1))
+    if (!proven.ok) throw new Error(proven.error.message)
+    const second = nextImageJob(proven.value)
+    expect(second.status).toBe('unverified-claim')
+    expect(second.job?.prompt).toContain(MOTIFS[1])
+
+    // And the loop ends only when every entry carries one.
+    const all = recordGeneratedImages(proven.value, records(proven.value))
+    if (!all.ok) throw new Error(all.error.message)
+    const done = nextImageJob(all.value)
+    expect(done.status).toBe('all-answered')
+    expect(done.instruction).toMatch(/Alle bærer et avtrykk/i)
+    // Even here, with a digest on every entry, the end of the queue is not
+    // allowed to read as a receipt for the generation.
+    expect(done.instruction).toMatch(/Tom kø er ikke et bevis på at bildene ble laget/i)
+  })
+
+  it('gir ingen jobb til et dekk som ikke planlegger bilder', () => {
+    const next = nextImageJob(createPresentation({ title: 'Uten bilder' }))
+    expect(next.status).toBe('no-plan')
+    expect(next.job).toBeNull()
+  })
+})
+
+/*
+ * The other half of the same finding: the prompt is composed from texts a
+ * person wrote, and those texts can say «samme utsnitt som forrige bilde» on
+ * their own. Then the isolation is prose again — the agent is told not to write
+ * such things, and the order it sends says one anyway.
+ */
+describe('en enkeltprompt som viser til de andre bildene', () => {
+  it('stopper på den felles bildekonteksten', () => {
+    const deck = awaiting(3)
+    const leaky = setImageContext(
+      deck,
+      'Alle bildene skal ha samme stil: fotorealistisk, naturlig dagslys, dempet palett.',
+    )
+    if (!leaky.ok) throw new Error(leaky.error.message)
+
+    const issues = checkImagePlan(leaky.value)
+    expect(issues.map((issue) => issue.code)).toContain('CROSS_IMAGE_REFERENCE')
+    expect(issues.find((issue) => issue.code === 'CROSS_IMAGE_REFERENCE')?.message).toMatch(
+      /alle bildene/i,
+    )
+    // And nothing is handed out while it says that.
+    const next = nextImageJob(leaky.value)
+    expect(next.status).toBe('plan-needs-repair')
+    expect(next.job).toBeNull()
+  })
+
+  it('stopper på et motiv som beskriver seg i forhold til de andre', () => {
+    const { deck, zones } = deckOfPictures(3)
+    const leaky = planned(deck, [
+      entry(zones[0].slideId, zones[0].nodeId, MOTIFS[0]),
+      {
+        ...entry(zones[1].slideId, zones[1].nodeId, MOTIFS[1]),
+        composition: 'Samme utsnitt som forrige bilde, men sett fra siden.',
+      },
+      entry(zones[2].slideId, zones[2].nodeId, MOTIFS[2]),
+    ])
+    const found = checkImagePlan(leaky).filter(
+      (issue) => issue.code === 'CROSS_IMAGE_REFERENCE',
+    )
+    expect(found).toHaveLength(1)
+    expect(found[0].number).toBe(2)
+    expect(nextImageJob(leaky).status).toBe('plan-needs-repair')
+  })
+
+  it('lar et helt vanlig motiv stå i fred', () => {
+    // The check has to be narrow enough to read: a plural style note names no
+    // other picture, and flagging it would make the rule something authors
+    // route around.
+    const deck = awaiting(3)
+    const ordinary = setImageContext(
+      deck,
+      'Fotorealistiske rekonstruksjoner, naturlig dagslys, ingen tekst i bildene.',
+    )
+    if (!ordinary.ok) throw new Error(ordinary.error.message)
+    expect(
+      checkImagePlan(ordinary.value).filter((issue) => issue.code === 'CROSS_IMAGE_REFERENCE'),
+    ).toEqual([])
+    expect(nextImageJob(ordinary.value).status).toBe('job')
+  })
+})
+
+/*
+ * The shortcut the coverage rules close.
+ *
+ * Everything in a binding but the digest was in the plan before any picture was
+ * made: the id, the number, the zone, the file name. So an agent can produce a
+ * complete, self-consistent set of bindings *without calling an image generator
+ * at all* — and that used to answer `ok`, store, and read back as
+ * `complete: true`.
+ */
+describe('en kobling uten avtrykk er ikke et bevis', () => {
+  it('blir ikke verifisert av metadata som kan skrives av bildeplanen', () => {
+    const deck = awaiting(3)
+    const written = recordGeneratedImages(deck, claims(deck))
+    if (!written.ok) throw new Error(written.error.message)
+
+    // Stored — a host that cannot read its own bytes must not be asked to
+    // generate everything again on the next read — and not proof.
+    expect(written.value.generatedImages).toHaveLength(3)
+    expect(imageGenerationCoverage(written.value)).toBe('claimed')
+    // Reported — every entry is spoken for — and that is all it is.
+    expect(imageGenerationIsReported(written.value)).toBe(true)
+
+    const status = composeImageWorkflowStatus(written.value)
+    expect(status.stage).toBe('generation-unverified')
+    expect(status.complete).toBe(false)
+    expect(status.nextAction).toMatch(/ingen av dem bærer avtrykket/i)
+    expect(status.nextAction).toMatch(
+      /Én kobling uten avtrykk gjør hele leveransen ukontrollerbar/i,
+    )
+    expect(status.nextAction).toMatch(/skrevet av bildeplanen/i)
+    expect(status.nextAction).toMatch(/Ikke omtal dette som kontrollert/i)
+    expect(status.forbiddenClosings.join(' ')).toMatch(
+      /Ikke si at bildene er kontrollert eller verifisert/i,
+    )
+  })
+
+  it('beskriver en blandet leveranse som blandet, ikke som helt uten avtrykk', () => {
+    /*
+     * Two hashed, one declared — a legal delivery, not an edge case: a host can
+     * reach the bytes of one response and not another. The stage is still
+     * `generation-unverified`, because one binding nobody can check makes the
+     * whole delivery uncheckable, but «none of them carries the digest» is
+     * simply false here, and an agent repeating it would be describing work it
+     * actually did as work it did not.
+     */
+    const deck = awaiting(3)
+    const mixed = [...records(deck).slice(0, 2), ...declared(deck).slice(2)]
+    const written = recordGeneratedImages(deck, mixed)
+    if (!written.ok) throw new Error(written.error.message)
+
+    expect(imageGenerationCoverage(written.value)).toBe('claimed')
+    const status = composeImageWorkflowStatus(written.value)
+    expect(status.stage).toBe('generation-unverified')
+    expect(status.nextAction).not.toMatch(/ingen av dem bærer/i)
+    expect(status.nextAction).toMatch(/1 av dem bærer ikke avtrykket/i)
+    expect(status.nextAction).toMatch(/med erklæringen om at bytene ikke var tilgjengelige/i)
+    // And the way out is the one entry that lacks a digest, not all of them.
+    expect(status.remainingSteps.join(' ')).toMatch(/bildefilene som mangler avtrykk/i)
+
+    // The queue agrees: every entry answered for its bytes, so there is no job
+    // left — and the end of it says one of the answers was a declaration.
+    const done = nextImageJob(written.value)
+    expect(done.status).toBe('all-answered')
+    expect(done.instruction).toMatch(/meldt uten avtrykk/i)
+
+    /*
+     * And this is the delivery the completion criteria used to make
+     * unreachable. They demanded SHA-256 for *every* file and
+     * `check: "file-checked"` for the whole plan — which this host can never
+     * produce — while the deck could still reach `complete: true` once the
+     * user deposited the files. Two definitions of done in one model. The
+     * criteria now name both answers about the bytes, and the deck still
+     * finishes on the files.
+     */
+    const criteria = IMAGE_WORKFLOW_COMPLETION_CRITERIA.join(' ')
+    expect(criteria).toMatch(/ellers `bytesUnavailable: true`/i)
+    expect(criteria).toMatch(/Er én av dem en erklæring, er hele leveransen `unchecked`/i)
+    expect(criteria).toMatch(/aldri en grunn til å lage bildene om igjen/i)
+
+    let deposited: Presentation = written.value
+    for (const index of [0, 1, 2]) deposited = withFile(deposited, index)
+    const after = composeImageWorkflowStatus(deposited)
+    expect(after.stage).toBe('generation-verified')
+    expect(after.complete).toBe(true)
+  })
+
+  it('peker på avtrykket som veien ut, ikke på å lage bildene om igjen', () => {
+    // The missing thing is the digest, not the picture. A stage that sent the
+    // agent back to the generator would be the duplicate generation the rest
+    // of this module exists to prevent.
+    const deck = awaiting(3)
+    const written = recordGeneratedImages(deck, claims(deck))
+    if (!written.ok) throw new Error(written.error.message)
+    const steps = composeImageWorkflowStatus(written.value).remainingSteps.join(' ')
+    expect(steps).toMatch(/regn ut SHA-256/i)
+    expect(steps).toMatch(/krever ingen nye bilder/i)
+    expect(steps).toMatch(/uverifisert/i)
+    expect(steps).toMatch(/ikke generer bildene om igjen/i)
+  })
+
+  it('blir verifisert når avtrykkene kommer, uten at noe bilde lages om', () => {
+    // The way out, executed: the same entries, the same files, the digests
+    // added. One call upgrades the bindings rather than adding a second set.
+    const deck = awaiting(3)
+    const claimed = recordGeneratedImages(deck, claims(deck))
+    if (!claimed.ok) throw new Error(claimed.error.message)
+    const proven = recordGeneratedImages(claimed.value, records(claimed.value))
+    if (!proven.ok) throw new Error(proven.error.message)
+
+    expect(proven.value.generatedImages).toHaveLength(3)
+    expect(imageGenerationCoverage(proven.value)).toBe('checkable')
+    const status = composeImageWorkflowStatus(proven.value)
+    expect(status.stage).toBe('awaiting-deposit')
+    // Still not complete: a digest the agent supplied is a claim, and the deck
+    // is finished when the pictures are in it.
+    expect(status.complete).toBe(false)
+  })
+
+  it('kan ikke nå `complete` på noe agenten skriver selv', () => {
+    /*
+     * The finding this closes, stated as the property that answers it: every
+     * field in a binding is a string the caller supplied — the digest included,
+     * since Slaids has no file to compare it against — so a syntactically
+     * perfect delivery must not be able to reach a finished document. The one
+     * thing that cannot be asserted is a picture in a zone, and that is what
+     * `complete` now waits for.
+     */
+    const deck = awaiting(3)
+    const fabricated = records(deck).map((record) => ({ ...record, contentHash: '0'.repeat(64) }))
+    const written = recordGeneratedImages(deck, fabricated)
+    if (!written.ok) throw new Error(written.error.message)
+
+    expect(imageGenerationCoverage(written.value)).toBe('checkable')
+    const claimed = composeImageWorkflowStatus(written.value)
+    expect(claimed.stage).toBe('awaiting-deposit')
+    expect(claimed.complete).toBe(false)
+
+    // The deposit is the trust anchor: the pictures arrive, and only then does
+    // the deck say it is finished.
+    let deposited: Presentation = written.value
+    for (const index of [0, 1, 2]) deposited = withFile(deposited, index)
+    const done = composeImageWorkflowStatus(deposited)
+    expect(done.stage).toBe('generation-verified')
+    expect(done.complete).toBe(true)
+  })
+
+  it('krever avtrykket i fullføringskriteriene, ikke bare i prosaen', () => {
+    const criteria = composeImageWorkflowStatus(awaiting(3)).completionCriteria.join(' ')
+    expect(criteria).toMatch(/avtrykket \(SHA-256\)/i)
+    expect(criteria).toMatch(/check: "file-checked"/i)
+    expect(criteria).toMatch(/Slaids ser aldri bytene dine/i)
   })
 })
 
@@ -922,7 +1496,7 @@ describe('et dekk uten planlagte bilder', () => {
   it('blir ikke ferdig av lagrede koblinger alene', () => {
     // A record set with no plan to check against must never verify itself.
     const deck = createPresentation({ title: 'Uten bilder' })
-    expect(imageGenerationIsVerified(deck)).toBe(false)
-    expect(imageGenerationIsVerified({ ...deck, generatedImages: [] })).toBe(false)
+    expect(imageGenerationIsReported(deck)).toBe(false)
+    expect(imageGenerationIsReported({ ...deck, generatedImages: [] })).toBe(false)
   })
 })

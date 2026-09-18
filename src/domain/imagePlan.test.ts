@@ -14,6 +14,12 @@
  *    of the same call, so they cannot mean different pictures;
  *  - the checks are asked of plan, zones and geometry at once, which is the one
  *    question an agent re-reading its own prompt cannot answer.
+ *
+ * And one thing the brief itself made possible, which the prompt closes: the
+ * order for a single picture used to be reachable only as part of a *plan* —
+ * «BILDE 3 AV 9», nine motifs in one message — so a generator could not be
+ * handed one picture without being handed the set. `composeImageGenerationPrompt`
+ * can see one entry, and the brief is now the internal, human-readable half.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -36,10 +42,12 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
+  composeImageGenerationPrompt,
   isPlaceholderCaption,
   orientationOf,
   placeholderCaption,
   resolveImagePlan,
+  IMAGE_PROMPT_SECTION_HEADINGS,
   PLANNED_IMAGE_SECTION_HEADINGS,
   type PlannedImage,
 } from './imagePlan'
@@ -399,6 +407,15 @@ describe('nummeret på sliden mot nummeret i briefen', () => {
   })
 })
 
+/*
+ * The brief, which is now the internal half.
+ *
+ * Everything below still holds — an author copies this text out of the editor's
+ * brief dialog, and documentation and debugging read it — and it is precisely
+ * because it counts the pictures, numbers them and lists every motif that it is
+ * no longer what a generation call carries. See `prompten for ett bilde` below
+ * for what does.
+ */
 describe('den samlede briefen', () => {
   it('teller bildene i stedet for å oppgi et tall, og sier at de er separate', () => {
     const { deck, slideId, nodeIds } = threeColumns()
@@ -510,6 +527,155 @@ describe('den samlede briefen', () => {
   })
 })
 
+/*
+ * The prompt one picture is generated from.
+ *
+ * The root cause this answers was not a missing warning. It was that the order
+ * for one picture only existed inside a plan: the brief said «BILDE 3 AV 9» and
+ * listed every motif, and the structured list handed the other entries over
+ * beside this one — so a generator could not be given one picture without being
+ * given the set, and the ordinary answer to a set is one merged image.
+ *
+ * Everything below is a property of one composed prompt: it says everything
+ * that one picture needs, and nothing that implies a second one exists.
+ */
+describe('prompten for ett bilde', () => {
+  /** Three planned pictures with distinguishable motifs, and their prompts. */
+  function promptsFor(): { deck: Presentation; images: ReturnType<typeof resolveImagePlan>; prompts: string[] } {
+    const { deck, zones } = deckOfPictures(3)
+    const written = planned(deck, [
+      entry(zones[0].slideId, zones[0].nodeId, 'Australopithecus afarensis i helfigur på savannen.'),
+      entry(zones[1].slideId, zones[1].nodeId, 'Homo erectus som bearbeider en steinøks ved elven.'),
+      entry(zones[2].slideId, zones[2].nodeId, 'Et neandertalerbarn foran en hulemaling i fakkellys.'),
+    ])
+    const images = resolveImagePlan(written)
+    return {
+      deck: written,
+      images,
+      prompts: images.map((image) => composeImageGenerationPrompt(image, written.imageContext ?? '')),
+    }
+  }
+
+  it('inneholder alt det ene bildet trenger: stil, motiv, komposisjon, krav, unngå og format', () => {
+    const { images, prompts } = promptsFor()
+    const image = images[0]
+    const prompt = prompts[0]
+
+    expect(prompt).toContain('Lag ett bilde.')
+    expect(prompt).toContain(`Stil og kvalitet:\n${CONTEXT}`)
+    for (const field of PLANNED_IMAGE_FIELDS) {
+      expect(prompt).toContain(`${IMAGE_PROMPT_SECTION_HEADINGS[field]}:\n${image.plan[field]}`)
+    }
+    // The format is the zone's own measurement, never prose about a shape.
+    expect(prompt).toContain(`Aspect ratio ${image.aspectRatio} (${image.orientation})`)
+    expect(prompt).toMatch(/Ett motiv i ett bilde/)
+  })
+
+  it('nevner ikke et eneste av de andre bildene', () => {
+    // The isolation itself, asserted the only way that means anything: the
+    // other entries' motifs are absent from this entry's prompt.
+    const { images, prompts } = promptsFor()
+    prompts.forEach((prompt, index) => {
+      images.forEach((other, otherIndex) => {
+        if (otherIndex === index) return
+        expect(prompt).not.toContain(other.plan.subject)
+        expect(prompt).not.toContain(other.id)
+      })
+    })
+  })
+
+  it('sier ikke hvilket nummer bildet har, hvor det skal, eller at det finnes flere', () => {
+    const { images, prompts } = promptsFor()
+    prompts.forEach((prompt, index) => {
+      const image = images[index]
+      // The bookkeeping belongs beside the call: an id, a number, a file name,
+      // a slide and a deck are all things the agent needs and the generator
+      // must not be told, because each of them says «one of several».
+      expect(prompt).not.toContain(image.id)
+      expect(prompt).not.toContain(image.slideLabel)
+      expect(prompt).not.toContain(`${image.fileNameStem}.`)
+      expect(prompt).not.toMatch(/bilde \d/i)
+      expect(prompt).not.toMatch(/\bslide\b/i)
+      expect(prompt).not.toMatch(/presentasjon/i)
+      expect(prompt).not.toMatch(/Bildeplan-ID/)
+      expect(prompt).not.toMatch(/\d+ separate bilder/i)
+      expect(prompt).not.toMatch(/felles/i)
+    })
+  })
+
+  it('kaller ikke «unngå» for noe som gjelder akkurat dette bildet blant andre', () => {
+    // The brief's own heading is «Unngå i akkurat dette bildet», which only
+    // means something beside the other entries. In a prompt that is the only
+    // picture there is, «akkurat dette» is a reference to the others.
+    const { prompts } = promptsFor()
+    expect(PLANNED_IMAGE_SECTION_HEADINGS.avoid).toContain('akkurat dette bildet')
+    expect(IMAGE_PROMPT_SECTION_HEADINGS.avoid).toBe('Unngå')
+    for (const prompt of prompts) expect(prompt).not.toContain('akkurat dette bildet')
+  })
+
+  it('skriver bare de seksjonene som faktisk sier noe', () => {
+    // Same rule as the brief's, and for the same reason: a heading over silence
+    // is an instruction to render nothing in particular.
+    const optional = PLANNED_IMAGE_FIELDS.filter(
+      (field) => !REQUIRED_PLANNED_IMAGE_FIELDS.includes(field),
+    )
+    expect(optional.length).toBeGreaterThan(0)
+
+    const { deck, zones } = deckOfPictures(1)
+    const blanked = { ...entry(zones[0].slideId, zones[0].nodeId, 'Nærbilde av en flintøks.') }
+    for (const field of optional) blanked[field] = ''
+    const written = planned(deck, [blanked])
+    const prompt = composeImageGenerationPrompt(
+      resolveImagePlan(written)[0],
+      written.imageContext ?? '',
+    )
+
+    for (const field of PLANNED_IMAGE_FIELDS) {
+      const heading = `${IMAGE_PROMPT_SECTION_HEADINGS[field]}:`
+      expect(prompt.includes(heading), heading).toBe(!optional.includes(field))
+    }
+  })
+
+  it('utelater stilseksjonen helt når dekket ikke har noen felles kontekst', () => {
+    // A plan without a context is `MISSING_CONTEXT`, which is the plan's own
+    // finding. The prompt must not turn it into a sentence about a missing
+    // brief, which is what the brief does for its author.
+    const { deck, zones } = deckOfPictures(1)
+    const written = planned(
+      { ...deck, imageContext: undefined },
+      [entry(zones[0].slideId, zones[0].nodeId, 'Nærbilde av en flintøks.')],
+    )
+    const prompt = composeImageGenerationPrompt(
+      resolveImagePlan(written)[0],
+      written.imageContext ?? '',
+    )
+    expect(prompt).not.toContain('Stil og kvalitet')
+    expect(prompt).not.toMatch(/Ingen felles bildekontekst/i)
+    expect(prompt).toContain('Nærbilde av en flintøks.')
+  })
+
+  it('følger formatet til sin egen sone, ikke et format flere bilder deler', () => {
+    // Two zones on one slide with different shapes: each prompt states its own
+    // measurement, which is the whole reason the format is not prose.
+    const bare = createLeaf(createImage())
+    const titled = createLeaf(createTitledImageCard())
+    const deck = deckWith(createSplit('x', [3, 1], [bare, titled]))
+    const slideId = deck.slides[1].id
+    const written = planned(deck, [
+      entry(slideId, bare.id, 'En vid savannescene i morgenlys.'),
+      entry(slideId, titled.id, 'Et portrett av en neandertaler.'),
+    ])
+    const images = resolveImagePlan(written)
+    const prompts = images.map((image) =>
+      composeImageGenerationPrompt(image, written.imageContext ?? ''),
+    )
+    expect(images[0].aspectRatio).not.toBe(images[1].aspectRatio)
+    expect(prompts[0]).toContain(`Aspect ratio ${images[0].aspectRatio}`)
+    expect(prompts[1]).toContain(`Aspect ratio ${images[1].aspectRatio}`)
+    expect(prompts[0]).not.toContain(`Aspect ratio ${images[1].aspectRatio}`)
+  })
+})
+
 describe('bildeplanen som genereringskontrakt', () => {
   /** The plan, written across `count` one-picture slides. */
   function contractFor(count: number) {
@@ -528,21 +694,25 @@ describe('bildeplanen som genereringskontrakt', () => {
   it('beskriver ett bilde som én genereringsjobb', () => {
     const { contract } = contractFor(1)
     expect(contract.expectedFileCount).toBe(1)
-    expect(contract.rule).toContain('Lag nøyaktig ett bilde')
-    expect(contract.rule).toMatch(/én selvstendig bildegenerering og én bildefil/i)
-    // One picture is one job, and the rule does not start counting calls at it.
-    expect(contract.rule).not.toMatch(/ganger/i)
+    expect(contract.rule).toMatch(/ett kall til bildegeneratoren, ett motiv, én aspect ratio, én bildefil/i)
+    expect(contract.rule).toMatch(/bare den ene oppføringens ferdige `prompt`/i)
   })
 
   it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', () => {
     // The observed failure, stated as a number: eight entries came back as one
-    // storyboard because nothing in the answer said «eight calls» in a form
-    // that was not prose to be skimmed.
+    // storyboard. The count is still what a finished delivery is measured
+    // against — but it is stated as a check, never as the task, because an
+    // agent that repeats «eight pictures» to a generator has handed it a set.
     const { written, contract } = contractFor(8)
     expect(contract.expectedFileCount).toBe(8)
-    expect(contract.rule).toContain('Lag nøyaktig 8 separate bilder')
-    expect(contract.rule).toMatch(/kalles 8 ganger/i)
-    expect(contract.rule).toMatch(/aldri én gang for hele planen/i)
+    expect(contract.rule).toMatch(/hver oppføring i `images` er én selvstendig bildegenereringsoppgave/i)
+    expect(contract.rule).toMatch(
+      /`expectedFileCount` er tallet den ferdige leveransen kontrolleres mot, ikke noe som skal sies i samtalen/i,
+    )
+    // The multi-picture framing the rule used to open with is gone: nothing
+    // hands the executing agent a count to pass on.
+    expect(contract.rule).not.toMatch(/Lag nøyaktig 8 separate bilder/i)
+    expect(contract.rule).not.toMatch(/kalles 8 ganger/i)
     // The entries are the jobs: one per file, numbered 1‥8 in deck order.
     expect(resolveImagePlan(written).map((image) => image.number)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8,
@@ -570,17 +740,57 @@ describe('bildeplanen som genereringskontrakt', () => {
     expect(checks).toMatch(/generer de manglende bildene enkeltvis før deponering/i)
   })
 
-  it('henter instruksen for ett bilde fra oppføringen, ikke fra den samlede briefen', () => {
+  it('henter instruksen for ett bilde fra oppføringen alene', () => {
+    // Test 2 of the isolation work: one generation call carries the entry and
+    // the deck's shared context, and nothing else — no other entry, no part of
+    // the rest of the plan.
     const { contract } = contractFor(3)
     for (const field of PLANNED_IMAGE_FIELDS) {
       expect(contract.perImageInstruction).toContain(
-        PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
+        IMAGE_PROMPT_SECTION_HEADINGS[field].toLowerCase(),
       )
     }
-    expect(contract.perImageInstruction).toMatch(/aspect ratio hentes fra den samme oppføringen/i)
-    expect(contract.briefRole).toMatch(/menneskelesbare representasjonen/i)
-    expect(contract.briefRole).toMatch(/ikke én bildegenereringsprompt/i)
-    expect(contract.briefRole).toMatch(/ikke parses tilbake til enkeltbilder/i)
+    expect(contract.perImageInstruction).toMatch(/oppføringens egen `prompt`/i)
+    expect(contract.perImageInstruction).toMatch(/felles bildekontekst/i)
+    expect(contract.perImageInstruction).toMatch(/bare denne oppføringens egne felter/i)
+    expect(contract.perImageInstruction).toMatch(
+      /Ingen annen oppføring, ingen del av resten av planen/i,
+    )
+    // The bookkeeping travels beside the call, never inside it: the prompt has
+    // no id, no number and no file name in it, and does not need one.
+    expect(contract.perImageInstruction).toMatch(/din egen bokføring ved siden av kallet/i)
+  })
+
+  it('markerer den samlede briefen som intern, ikke som et steg', () => {
+    // Test 4: the brief may be kept — the editor's dialog and debugging read
+    // it — but it is labelled for what it is, so it cannot come back as the
+    // first step of generation.
+    const { contract } = contractFor(3)
+    expect(contract.briefRole).toMatch(/^Intern\./)
+    expect(contract.briefRole).toMatch(/dokumentasjon, for feilsøking og for manuell kopiering/i)
+    expect(contract.briefRole).toMatch(/ikke et steg i normalflyten/i)
+    expect(contract.briefRole).toMatch(/ikke en bildegenereringsprompt/i)
+    expect(contract.briefRole).toMatch(/skal ikke skrives ut i samtalen/i)
+    expect(contract.briefRole).toMatch(/Bruk `prompt` på den ene oppføringen i stedet/i)
+  })
+
+  it('holder flerbildekonteksten ute av samtalen rundt kallet', () => {
+    // The root cause this closes: the prompts were already separate, and the
+    // conversation around them was not. An agent that prints the brief, lists
+    // the motifs or announces «nå lager jeg de ni bildene» has told the
+    // generator the task is a set, whatever the next prompt says.
+    const { contract } = contractFor(9)
+    expect(contract.isolation).toMatch(/fullstendig selvstendig oppgave/i)
+    expect(contract.isolation).toMatch(/ikke skriv en innledning/i)
+    expect(contract.isolation).toMatch(/en oppsummering av bildeplanen/i)
+    expect(contract.isolation).toMatch(/en punktliste over bildene/i)
+    expect(contract.isolation).toMatch(/en opptelling/i)
+    expect(contract.isolation).toMatch(/«nå går jeg videre til neste bilde»/i)
+    expect(contract.isolation).toMatch(/Ikke skriv ut `brief`/i)
+    expect(contract.isolation).toMatch(/nøytral og ikke røpe at flere bilder er planlagt/i)
+    // And it is named as the main mechanism rather than as etiquette around
+    // the warnings, which is the point of the change.
+    expect(contract.isolation).toMatch(/hovedgrepet mot sammenslåtte bilder/i)
   })
 
   it('sier hvordan én oppføring behandles av gangen, og at rekkefølgen ikke er identitet', () => {
@@ -591,14 +801,44 @@ describe('bildeplanen som genereringskontrakt', () => {
     const steps = contract.perImageSteps.join(' ')
     expect(contract.perImageSteps.length).toBeGreaterThan(3)
     expect(steps).toMatch(/stigende `number`/)
-    expect(steps).toMatch(/nøyaktig én gang for denne oppføringen/)
-    expect(steps).toMatch(/før neste oppføring genereres/)
+    expect(steps).toMatch(/Kall bildegeneratoren nøyaktig én gang, med bare denne teksten/)
+    expect(steps).toMatch(/med en gang, før noe annet gjøres/)
     expect(steps).toMatch(/ikke et løpenummer for genereringen/)
-    expect(steps).toMatch(/Gå først deretter videre/)
+    expect(steps).toMatch(/til ingen står igjen/)
 
     expect(contract.orderIsNotIdentity).toMatch(/ikke en identitetskilde/)
     expect(contract.orderIsNotIdentity).toMatch(/`imagePlanItemId`/)
     expect(contract.orderIsNotIdentity).toMatch(/aldri bilde 1/)
+  })
+
+  it('sier ingenting om andre bilder i teksten for ett enkelt bilde', () => {
+    // Test 3, as a property of every single-generation text there is: the
+    // composed prompt, the instruction for one picture, and the loop's own
+    // steps. A phrase from this list in any of them is the multi-picture
+    // context reaching the one place it must never reach.
+    const { written, contract } = contractFor(9)
+    const singles = [
+      ...resolveImagePlan(written).map((image) =>
+        composeImageGenerationPrompt(image, written.imageContext ?? ''),
+      ),
+      contract.perImageInstruction,
+      ...contract.perImageSteps,
+    ]
+    const forbidden = [
+      /bilde \d+ av \d+/i,
+      /generer (deretter )?alle( de)? \d* ?bildene/i,
+      /neste bilde i serien/i,
+      /samlede? brief/i,
+      /\bserie\b/i,
+      /\bsettet?\b/i,
+      /\bpakke\b/i,
+      /\d+ separate bilder/i,
+    ]
+    for (const text of singles) {
+      for (const pattern of forbidden) {
+        expect(text, `«${pattern}» i «${text.slice(0, 80)}…»`).not.toMatch(pattern)
+      }
+    }
   })
 
   it('kontrollerer koblingen, ikke bare antallet, før deponering', () => {
@@ -638,8 +878,9 @@ describe('bildeplanen som genereringskontrakt', () => {
   })
 
   it('genererer fortsatt den samlede briefen ved siden av kontrakten', () => {
-    // The brief is not replaced by this: it is still the message a person
-    // reads, pastes and keeps, and it still counts the same pictures.
+    // The brief is still generated, as the internal, human-readable half: the
+    // editor's dialog, documentation and debugging read it, and it still counts
+    // the same pictures. What changed is who reads it — see `briefRole`.
     const { written, contract } = contractFor(8)
     const brief = composeImageBrief(written) ?? ''
     expect(brief).toContain('Lag nøyaktig 8 separate bilder')

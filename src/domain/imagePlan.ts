@@ -1,12 +1,23 @@
 /**
- * The deck's picture plan, and the one brief that is generated from it.
+ * The deck's picture plan, and the two texts that are generated from it.
  *
  * Slaids never makes a picture. What it can do is make the *order* for one
  * unambiguous, and that is what this module is: the structured half of the
  * workflow lives in the document — one entry per reserved picture zone — and
- * the copy-paste message the author hands an image generator is composed from
- * it here, once, so there is no second description of the same picture to fall
- * out of step with the first.
+ * the texts an image generator or an author is handed are composed from it
+ * here, once, so there is no second description of the same picture to fall out
+ * of step with the first.
+ *
+ * The two texts are not two views of the same thing, and the difference is the
+ * point:
+ *
+ *  - `composeImageGenerationPrompt` is what a generation call carries. It can
+ *    see **one** entry, so a picture is ordered as a complete, self-contained
+ *    task with no count, no numbering and no other motif in it.
+ *  - `composeImageBrief` is the whole plan as one message for a person — the
+ *    editor's brief dialog, documentation, debugging. It is internal to that,
+ *    never a prompt and never a step in the normal generation flow, because a
+ *    reader shown nine numbered motifs has been handed a set to compose.
  *
  * Three things make the generated brief worth generating rather than writing:
  *
@@ -417,6 +428,8 @@ export type ImagePlanIssueCode =
   | 'MISSING_CONTEXT'
   /** The shared context reaches into what a single picture shows. */
   | 'CONTEXT_OVERREACH'
+  /** A text describes its picture by its place among the others. */
+  | 'CROSS_IMAGE_REFERENCE'
 
 export interface ImagePlanIssue {
   code: ImagePlanIssueCode
@@ -471,6 +484,61 @@ const ORIENTATION_TERMS: readonly { pattern: RegExp; orientation: ImageOrientati
 
 const WRITTEN_RATIO = /\b(\d{1,2})\s*[:∶]\s*(\d{1,2})\b/g
 
+/**
+ * Phrases that place a picture among others.
+ *
+ * The plan's texts are copied verbatim into the prompt for one picture — that
+ * is what makes the prompt the entry's own order rather than a paraphrase of it
+ * — and it is also the one way the set can still reach a generator after
+ * everything else about the flow was made one picture at a time. «Samme utsnitt
+ * som forrige bilde», «alle bildene skal ha samme stil», «bilde 2 av 8»: each
+ * of those is a complete instruction to compose a set, and no rule about what
+ * an agent may *write in the conversation* touches them, because they travel
+ * inside the order itself.
+ *
+ * So they are refused rather than warned about. Every pattern names a
+ * *reference*: a number out of a total, another picture, the series, the set.
+ * What is deliberately not here is the bare plural — «ingen tekst i bildene» is
+ * how a person writes a style note, it names no other picture, and flagging it
+ * would make the check something authors route around instead of read.
+ *
+ * Norwegian and English both, because a motif gets written in either.
+ */
+const CROSS_IMAGE_REFERENCES: readonly RegExp[] = [
+  /\bbilde(?:t|ne|r)?\s*(?:nr\.?\s*)?\d+\s*(?:av|of)\s*\d+\b/gi,
+  /\b(?:alle|begge|andre|øvrige|resten\s+av)\s+(?:de\s+)?(?:bilder|bildene|bilda)\b/gi,
+  /\bde\s+(?:andre|øvrige)\s+(?:bilder|bildene|bilda)\b/gi,
+  /\b(?:forrige|neste|første|siste|øvrige)\s+bilde(?:t|ne)?\b/gi,
+  /\bsom\s+(?:i\s+)?bilde\s*\d+\b/gi,
+  /\b(?:denne|samme)\s+(?:bilde)?serien\b/gi,
+  /\bbildeserien?\b/gi,
+  /\bbildesettet\b/gi,
+  /\b(?:i|til)\s+dette\s+settet\b/gi,
+  /\bimage\s*\d+\s*of\s*\d+\b/gi,
+  /\ball\s+(?:the\s+)?images\b/gi,
+  /\b(?:other|previous|next|remaining)\s+images?\b/gi,
+  /\bthis\s+series\b/gi,
+]
+
+/**
+ * Every phrase in a text that refers to another picture, once each.
+ *
+ * Exported because two layers ask it of two different things and must not
+ * disagree: `checkImagePlan` asks it of the fields an author wrote, so the
+ * finding names what to rewrite, and the generation flow asks it of the
+ * *composed prompt*, so a leak cannot be handed to a generator even if it
+ * arrived some way the field check did not see. One list of patterns, two
+ * questions.
+ */
+export function crossImageReferences(text: string): string[] {
+  const found = new Set<string>()
+  for (const pattern of CROSS_IMAGE_REFERENCES) {
+    pattern.lastIndex = 0
+    for (const match of text.matchAll(pattern)) found.add(normalize(match[0]))
+  }
+  return [...found]
+}
+
 /** How far a ratio written into a prompt may sit from the zone's own before it is wrong. */
 const RATIO_TOLERANCE = 0.08
 
@@ -521,6 +589,7 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
     issues.push(...aspectIssues(image))
     const stale = placeholderIssue(image)
     if (stale) issues.push(stale)
+    issues.push(...crossReferenceIssues(image))
   }
   issues.push(...duplicateIssues(resolved))
 
@@ -533,8 +602,45 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
     })
   } else if (context !== '') {
     issues.push(...contextOverreachIssues(context, resolved))
+    const referenced = crossImageReferences(context)
+    if (referenced.length > 0 && resolved.length > 0) {
+      issues.push({
+        code: 'CROSS_IMAGE_REFERENCE',
+        message: `Den felles bildekonteksten viser til de andre bildene: ${quoted(
+          referenced,
+        )}. Konteksten går ordrett inn i prompten for hvert enkelt bilde, så en slik formulering forteller bildegeneratoren at oppgaven er flere bilder – og da lager den ett sammenslått bilde. Skriv den som ren stil: hvordan bildet skal se ut, uten å nevne antall, serie eller de andre bildene.`,
+      })
+    }
   }
   return issues
+}
+
+/**
+ * One picture's own texts, read for references to the others.
+ *
+ * Reported per entry rather than per field so a rewrite is one edit: the author
+ * gets the phrases, and the fields they sit in are the four the entry has.
+ */
+function crossReferenceIssues(image: ResolvedPlannedImage): ImagePlanIssue[] {
+  const referenced = crossImageReferences(
+    PLANNED_IMAGE_FIELDS.map((field) => image.plan[field]).join('\n'),
+  )
+  if (referenced.length === 0) return []
+  return [
+    {
+      code: 'CROSS_IMAGE_REFERENCE',
+      message: `Bilde ${image.number} beskriver seg selv i forhold til de andre bildene: ${quoted(
+        referenced,
+      )}. Feltene går ordrett inn i prompten for dette ene bildet, som ikke skal vite at det finnes andre – en slik formulering er nettopp det som gjør at bildegeneratoren lager collage eller kontaktark. Skriv motivet, komposisjonen og kravene slik at de står alene.`,
+      number: image.number,
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+    },
+  ]
+}
+
+function quoted(phrases: readonly string[]): string {
+  return phrases.map((phrase) => `«${phrase}»`).join(', ')
 }
 
 /**
@@ -675,7 +781,7 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /* ------------------------------------------------------------------ *
- * The generated brief
+ * The prompt one picture is made from, and the brief kept behind it
  * ------------------------------------------------------------------ */
 
 /**
@@ -693,12 +799,89 @@ export const PLANNED_IMAGE_SECTION_HEADINGS: Record<PlannedImageField, string> =
   avoid: 'Unngå i akkurat dette bildet',
 }
 
+/**
+ * The heading each field gets in the prompt for one picture.
+ *
+ * Derived from the brief's headings rather than written out again, with the one
+ * difference stated where it is made: the brief calls the last section «Unngå i
+ * akkurat dette bildet» because it stands beside the other pictures' sections,
+ * and in a prompt that is the only picture in the world «akkurat dette» says
+ * there are others. Everything a single prompt must not reveal is a difference
+ * of exactly that kind, so it is spelled out here instead of being avoided by
+ * hand at every call site.
+ */
+export const IMAGE_PROMPT_SECTION_HEADINGS: Record<PlannedImageField, string> = {
+  ...PLANNED_IMAGE_SECTION_HEADINGS,
+  avoid: 'Unngå',
+}
+
+/**
+ * Everything one picture is generated from, and nothing else.
+ *
+ * This is the text a generation call carries, and the reason it is composed
+ * here rather than assembled by whoever makes the call is the failure it
+ * answers. The order for a picture was reachable only as part of a *plan*: the
+ * shared brief listed every motif under «BILDE 3 AV 9», the structured list
+ * held the other entries beside this one, and a host client that passed any of
+ * that along was handing an image generator a multi-picture task. The ordinary
+ * answer to a multi-picture task is one picture — a collage, a contact sheet, a
+ * storyboard, a whole slide — and every individual rule against that had
+ * already been written.
+ *
+ * So the isolation is structural. What comes out of here is a complete,
+ * self-contained image order: the deck's shared visual context as plain style
+ * instruction, this entry's own four fields, and the format measured off this
+ * entry's own zone. What is deliberately absent is everything that would let a
+ * reader infer a second picture — no count, no numbering, no plan-entry id, no
+ * file name, no slide, no deck, no other motif. The bookkeeping those names
+ * carry is real, but it belongs beside the prompt, not inside it: the agent
+ * binds the returned file to `imagePlanItemId` itself.
+ *
+ * Every section is omitted when it says nothing, exactly as in the brief: a
+ * heading over silence is an instruction to render nothing in particular.
+ */
+export function composeImageGenerationPrompt(
+  image: ResolvedPlannedImage,
+  imageContext: string,
+): string {
+  return [
+    'Lag ett bilde.',
+    ...section('Stil og kvalitet', imageContext),
+    ...PLANNED_IMAGE_FIELDS.flatMap((field) =>
+      section(IMAGE_PROMPT_SECTION_HEADINGS[field], image.plan[field]),
+    ),
+    ...section(
+      'Format',
+      `Aspect ratio ${image.aspectRatio} (${image.orientation}). Følg dette forholdet så nøyaktig som bildegeneratoren tillater, og gjør ikke et stående eller nær kvadratisk bilde liggende fordi motivet også kunne vært fremstilt i landskapsformat.`,
+    ),
+    ...section(
+      'Krav til bildefilen',
+      'Ett motiv i ett bilde: ikke del flaten i paneler, ikke sett varianter av motivet ved siden av hverandre, og ikke legg ramme rundt bildet. Ingen tekst, etiketter eller infografikkelementer i bildet med mindre det er bedt om over.',
+    ),
+  ].join('\n')
+}
+
 /** What the brief says where the author has written nothing. */
 const MISSING_CONTEXT_TEXT =
   '(Ingen felles bildekontekst er skrevet for dette dekket ennå.)'
 
 /**
- * The deck's pictures as one message an author can paste into a chat window.
+ * The deck's pictures as one message a *person* can read, and nothing an agent
+ * is asked to produce in a conversation.
+ *
+ * Internal by design, and that is the change this carries. The brief was once
+ * the normal first step of generation — printed in the chat, then executed —
+ * and printing it is precisely what made the task a multi-picture task: a
+ * reader that has seen «lag nøyaktig 9 separate bilder» and nine numbered
+ * motifs has been handed a set to compose, and composing a set is how a collage
+ * gets made. One picture is now generated from
+ * `composeImageGenerationPrompt`, which can see one entry.
+ *
+ * What is left for this is the work a single prompt cannot do: the editor's own
+ * brief dialog, where an author copies the whole order out by hand, and
+ * documentation and debugging, where the question is what Slaids ordered rather
+ * than what one generator was told. See `ImageGenerationContract.briefRole` —
+ * it is never a generation prompt, and never a step in the normal flow.
  *
  * This template is the canonical one — the documentation shows it, it is not a
  * second copy of it — and every number in it is derived: the count is the
@@ -810,35 +993,43 @@ function section(heading: string, value: string): string[] {
 /**
  * What a generator has to deliver, counted rather than described.
  *
- * The brief above is one message for a person to read, paste and keep. This is
- * the same plan stated as work: how many files, what they are called, and what
- * has to be true before they are handed back. Both are derived from the same
- * resolved plan in the same module, so they cannot disagree about the count —
- * which is the entire reason this is generated here instead of being counted
- * again by whoever executes the plan.
+ * The brief is one message for a person to read, paste and keep. This is the
+ * same plan stated as work: how one picture is ordered, how many files make a
+ * delivery, what they are called, and what has to be true before they are
+ * handed back. Both are derived from the same resolved plan in the same module,
+ * so they cannot disagree about the count — which is the entire reason this is
+ * generated here instead of being counted again by whoever executes the plan.
  *
  * It exists because a numbered list inside one long message has an ordinary
  * failure mode, and it was observed: an agent handed the whole brief to an
  * image generator as a single prompt and got one storyboard back — eight
  * motifs, one file, none of them placeable, and nothing in the flow that could
- * tell that apart from success. A count the executing agent is handed
- * *separately from the prose* turns that from something discovered after the
- * fact into something refused before deposit.
+ * tell that apart from success.
  *
- * Nothing here repeats the plan: the entries, their numbers, their motifs and
+ * The count alone did not close that. A host client can satisfy «eight files»
+ * and still have shown the generator a plan of eight — by printing the brief,
+ * by summarising the list, by saying «now I will make the nine pictures» — and
+ * a generator that has been told the task is a set is a generator with a set to
+ * compose. So the count stays what a *finished* delivery is checked against,
+ * while `perImageInstruction`, `perImageSteps` and `isolation` say what a
+ * single call may contain and what the conversation around it may not.
+ *
+ * Nothing here repeats the plan: the entries, their numbers, their prompts and
  * their aspect ratios are the resolved plan itself, and a caller executing this
  * contract reads them from there. What this adds is only what the entries
- * cannot say on their own — how many of them make a finished delivery.
+ * cannot say on their own — how one of them is carried out, and how many of
+ * them make a finished delivery.
  */
 export interface ImageGenerationContract {
   /**
    * How many separate image files the plan requires. Always one per entry.
    *
    * The number to check a finished set of files against, and the same number
-   * `ImageDeposit.expectedCount` is opened with.
+   * `ImageDeposit.expectedCount` is opened with. A completion check, never
+   * something to state in the conversation: see `isolation`.
    */
   expectedFileCount: number
-  /** The rule, with this plan's own count in it rather than an «N» to substitute. */
+  /** What one entry is, and what a call may carry. */
   rule: string
   /** Where the instruction for one file comes from, and where it does not. */
   perImageInstruction: string
@@ -854,6 +1045,18 @@ export interface ImageGenerationContract {
    * seen to have skipped.
    */
   perImageSteps: readonly string[]
+  /**
+   * What must not reach the conversation around a generation call.
+   *
+   * The half of the fix that is not about the call itself. Every rule against
+   * merged pictures was already written and had already been followed; what had
+   * not been said is that an agent narrating its own plan — a printed brief, a
+   * bullet list of motifs, «nå genererer jeg de ti bildene», «neste bilde» —
+   * has told the generator the task is a set, whatever the individual prompts
+   * then say. Stated as its own field because it governs what an agent *writes*
+   * rather than what it sends.
+   */
+  isolation: string
   /** Why generation order can never stand in for a picture's identity. */
   orderIsNotIdentity: string
   /** What a finished file is called, so its number survives the trip back. */
@@ -862,7 +1065,7 @@ export interface ImageGenerationContract {
   fileExtensions: readonly string[]
   /** What has to hold before the files are deposited. Each line is checkable. */
   beforeDeposit: readonly string[]
-  /** What the composed brief is, so it is never mistaken for one generation prompt. */
+  /** That the composed brief is internal: never a prompt, never a step. */
   briefRole: string
 }
 
@@ -879,22 +1082,40 @@ export function composeImageGenerationContract(
   if (count === 0) return null
   return {
     expectedFileCount: count,
-    rule:
-      count === 1
-        ? 'Lag nøyaktig ett bilde: den ene oppføringen i bildeplanen er én selvstendig bildegenerering og én bildefil.'
-        : `Lag nøyaktig ${count} separate bilder: hver oppføring i bildeplanen er én selvstendig bildegenerering og én bildefil. Bildegeneratoren skal kalles ${count} ganger – én gang per oppføring, aldri én gang for hele planen.`,
-    perImageInstruction: `Instruksen for ett bilde er den ene oppføringens egne felter – \`imagePlanItemId\`, nummer, slide, aspect ratio, orientering, ${PLANNED_IMAGE_FIELDS.map(
-      (field) => PLANNED_IMAGE_SECTION_HEADINGS[field].toLowerCase(),
-    ).join(', ')} – sammen med dekkets felles bildekontekst. Aspect ratio hentes fra den samme oppføringen, slik at to bilder med ulikt format ikke havner på samme lerret.`,
+    rule: 'Hver oppføring i `images` er én selvstendig bildegenereringsoppgave: ett kall til bildegeneratoren, ett motiv, én aspect ratio, én bildefil. Kallet skal inneholde bare den ene oppføringens ferdige `prompt` – aldri to oppføringer i samme kall, aldri hele planen, og aldri `brief`. `expectedFileCount` er tallet den ferdige leveransen kontrolleres mot, ikke noe som skal sies i samtalen.',
+    perImageInstruction: `Instruksen for ett bilde er oppføringens egen \`prompt\`. Slaids har alt satt den sammen av dekkets felles bildekontekst og bare denne oppføringens egne felter – ${PLANNED_IMAGE_FIELDS.map(
+      (field) => IMAGE_PROMPT_SECTION_HEADINGS[field].toLowerCase(),
+    ).join(
+      ', ',
+    )} – og oppføringens eget aspect ratio, målt fra den sonen bildet skal ligge i. Send den som den er. Ingen annen oppføring, ingen del av resten av planen, ingen slidetekst, ingen id, ingen opptelling og ingen innledning skal inn i kallet. \`imagePlanItemId\` og filnavnet er din egen bokføring ved siden av kallet, ikke noe bildegeneratoren skal se.`,
     perImageSteps: PER_IMAGE_STEPS,
+    isolation: SINGLE_TASK_ISOLATION,
     orderIsNotIdentity: ORDER_IS_NOT_IDENTITY,
     fileNamePattern: '<nummer>.<filendelse>',
     fileExtensions: IMAGE_FILE_EXTENSION_LIST,
     beforeDeposit: deliveryChecks(count),
     briefRole:
-      'Den samlede briefen er den menneskelesbare representasjonen av nøyaktig den samme planen – til utskrift i samtalen, manuell kopiering, dokumentasjon og eventuelt overordnet kontekst. Den er ikke én bildegenereringsprompt, og den skal ikke parses tilbake til enkeltbilder: den strukturerte planen inneholder allerede det som trengs per bilde.',
+      'Intern. `brief` er hele planen skrevet ut som én menneskelesbar tekst, og den finnes for Slaids sin egen bildebrief-dialog, for dokumentasjon, for feilsøking og for manuell kopiering når brukeren uttrykkelig ber om den. Den er ikke et steg i normalflyten, ikke en bildegenereringsprompt, og skal ikke skrives ut i samtalen: den viser alle bildene samtidig, og det er nettopp det én bildegenerering ikke skal se. Bruk `prompt` på den ene oppføringen i stedet.',
   }
 }
+
+/**
+ * Why a single generation must not be narrated.
+ *
+ * The rules this sits beside all govern what a call *contains*, and they were
+ * all being followed when the merged pictures came back: the prompts were
+ * separate, the count was right, and the conversation around them had already
+ * said «nå lager jeg de ni bildene» and printed the brief. A generator reading
+ * that conversation has been handed a set no matter how the next prompt is
+ * worded — so the discipline has to cover what the agent writes, not only what
+ * it sends.
+ *
+ * Deliberately not another warning about collages. "Ikke lag kontaktark" is a
+ * rule aimed at a reader who has already been told there are nine pictures;
+ * this removes the telling.
+ */
+const SINGLE_TASK_ISOLATION =
+  'Hver bildegenerering skal se ut som en fullstendig selvstendig oppgave – i kallet og i samtalen rundt det. Ikke skriv en innledning om hva som skal lages, en oppsummering av bildeplanen, en punktliste over bildene, en opptelling, «nå går jeg videre til neste bilde» eller noe annet som viser at det finnes mer enn denne ene bildeoppgaven. Ikke skriv ut `brief`. Trengs en kort statusmelding, skal den være nøytral og ikke røpe at flere bilder er planlagt. Dette er hovedgrepet mot sammenslåtte bilder: en generator som aldri får se at oppgaven er et sett, har ikke noe sett å slå sammen.'
 
 /**
  * Why a picture's place in the queue says nothing about which picture it is.
@@ -916,16 +1137,22 @@ const ORDER_IS_NOT_IDENTITY =
  * confuse it with. That ordering is the whole mechanism: an agent that only
  * collects files and names them afterwards has no record left of which prompt
  * produced which file, and no amount of care at the end can recover one.
+ *
+ * The steps also say what the call may carry, and that half is newer: the
+ * instruction is the entry's own composed `prompt`, so there is nothing for the
+ * executing agent to assemble and therefore nothing for it to assemble *from*
+ * the rest of the plan. None of these lines counts pictures or refers to
+ * another one — an entry is worked as the only entry there is.
  */
 const PER_IMAGE_STEPS: readonly string[] = [
-  'Velg neste oppføring i `images`, i stigende `number`.',
-  'Les bare denne oppføringens egne felter, sammen med dekkets felles bildekontekst. Ikke send hele planen eller den samlede briefen som én kontekst.',
-  'Kall bildegeneratoren nøyaktig én gang for denne oppføringen.',
-  'Knytt filen som kommer tilbake til den samme `imagePlanItemId` med en gang, før neste oppføring genereres.',
+  'Velg oppføringen i `images` som ennå ikke har sin egen kontrollerte fil, i stigende `number`.',
+  'Bruk oppføringens ferdige `prompt` som hele instruksen. Den inneholder alt bildet trenger: stil og kvalitet fra dekkets felles bildekontekst, motiv, komposisjon, krav, hva som skal unngås, og aspect ratio.',
+  'Kall bildegeneratoren nøyaktig én gang, med bare denne teksten. Ikke legg ved id, nummer, filnavn, slide, andre oppføringer eller en innledning om oppgaven.',
+  'Knytt filen som kommer tilbake til oppføringens `imagePlanItemId` med en gang, før noe annet gjøres.',
   'Regn ut SHA-256 av bytene som kom tilbake, nå og ikke senere: et avtrykk beregnet i ettertid fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd.',
   'Gi filen navnet oppføringen oppgir – `<number>.<filendelse>` – der `number` er oppføringens eget nummer, ikke et løpenummer for genereringen.',
   'Kontroller at koblingen er bevart: `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavn og avtrykk hører til samme oppføring.',
-  'Gå først deretter videre til neste oppføring.',
+  'Gjenta det samme for den oppføringen som da står uten sin egen kontrollerte fil, til ingen står igjen – uten å kommentere i samtalen at du gjør det.',
 ]
 
 /**

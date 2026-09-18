@@ -370,6 +370,34 @@ describe('de to flytene: manuell opplasting og agentgenererte bilder', () => {
     expect(review.ready).toBe(false)
   })
 
+  it('avviser avtrykk som aldri kom fra en bildegenerator', async () => {
+    /*
+     * The question the agent boundary cannot answer, asked where it can be.
+     *
+     * A digest an agent states is a string: Slaids never sees the bytes, so
+     * `verify_image_handoff` can only check that it *looks* like SHA-256. An
+     * agent that skipped the image generator and wrote `00…00` for every entry
+     * therefore gets a consistent-looking delivery — and this is where that
+     * ends. The browser holds the files, hashes them itself, and compares. The
+     * set does not land, so the one state that means «the pictures are in the
+     * deck» is not reachable by writing strings.
+     */
+    const { deck } = pendingDeck()
+    const invented = await manifest(deck, () => ({ contentHash: '0'.repeat(64) }))
+    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), invented)
+
+    // Nothing in the metadata is wrong: three names, three records, right count.
+    expect(review.missing).toEqual([])
+    expect(review.files.every((file) => file.problem === null)).toBe(true)
+    // And every binding fails against the bytes it claims to be about.
+    expect(review.binding.map((issue) => issue.code)).toEqual([
+      'CONTENT_MISMATCH',
+      'CONTENT_MISMATCH',
+      'CONTENT_MISMATCH',
+    ])
+    expect(review.ready).toBe(false)
+  })
+
   it('kaller en levering uten avtrykk uverifisert, ikke kontrollert', async () => {
     const { deck } = pendingDeck()
     const bare = await manifest(deck, () => ({ contentHash: undefined }))

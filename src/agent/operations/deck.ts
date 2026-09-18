@@ -15,7 +15,12 @@
  */
 
 import { z } from 'zod'
-import { IMAGE_BRIEF_RULE, IMAGE_HANDOFF_RULE, IMAGE_PLAN_RULE } from '../design'
+import {
+  IMAGE_BRIEF_RULE,
+  IMAGE_HANDOFF_RULE,
+  IMAGE_JOB_RULE,
+  IMAGE_PLAN_RULE,
+} from '../design'
 import {
   createDeck,
   fitContextFor,
@@ -27,6 +32,7 @@ import {
 import type { ImageDeposit } from '../../domain/imageDeposit'
 import {
   checkGeneratedImages,
+  plannedGeneratedImages,
   composeImageGenerationManifest,
   expectedGeneratedImages,
   imageBindingCheck,
@@ -45,6 +51,9 @@ import {
 } from '../../domain/imagePlan'
 import {
   composeImageWorkflowStatus,
+  nextImageJob,
+  type ImageGenerationJob,
+  type ImageJobStatus,
   type ImageWorkflowStatus,
 } from '../../domain/imageWorkflow'
 import {
@@ -401,7 +410,7 @@ export const setPresentationTitleOperation = defineOperation({
 export const setImageContextOperation = defineOperation({
   name: 'set_image_context',
   summary:
-    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Den blir seksjonen «FELLES BILDEKONTEKST» i den samlede bildebriefen get_image_brief genererer – du skriver aldri den samlede briefen selv. ' +
+    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Slaids bruker den som stil- og kvalitetsdelen av den ferdige prompten for hvert enkelt bilde – du skriver aldri prompten selv, og du sier aldri til en bildegenerator at den samme konteksten gjelder flere bilder. ' +
     IMAGE_BRIEF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -449,10 +458,24 @@ export interface PlannedImageView {
   orientation: string
   /** Whether the file has arrived. A filled zone keeps its number. */
   filled: boolean
-  subject: string
-  composition: string
-  requirements: string
-  avoid: string
+  /**
+   * The entry's own texts — **on a read, and not on the write that stored them.**
+   *
+   * Optional for one reason, and it is the same reason the prompts moved to a
+   * surface of their own: a response that restates the plan puts the set back
+   * in the context the next image call is written from. Writing the plan is the
+   * one call that has just been *handed* these texts, so echoing them adds a
+   * second copy and answers no question the caller does not already have the
+   * answer to. Reading the plan back is different — a later session repairing
+   * an entry has to see what it says — so the read carries them.
+   *
+   * Never the source for a generation prompt either way: that is composed by
+   * Slaids, one entry at a time. See `composeImageGenerationPrompt`.
+   */
+  subject?: string
+  composition?: string
+  requirements?: string
+  avoid?: string
 }
 
 /**
@@ -489,18 +512,20 @@ export interface ImageBriefView {
    */
   issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
   /**
-   * The finished brief, ready to print and paste, or `null` when nothing is
-   * planned.
+   * The whole plan as one human-readable message — **only when it was asked
+   * for**, and `null` otherwise. Documentation, debugging, manual copying.
    *
    * Generated from the plan and the zones every time it is asked for; there is
    * no stored copy, so it cannot be stale.
    *
-   * It is the *human-readable* representation of the plan above, and that is a
-   * contract rather than a description: it is one message, so an agent handing
-   * it to an image generator as a single prompt asks for one picture — which is
-   * exactly the collage a deck of eight planned pictures came back as. What
-   * drives automatic generation is `images`, one entry at a time, and
-   * `generation` says so with this deck's own count in it.
+   * Opt-in because it does not belong in the generation flow at all, and being
+   * in the response *is* being in the flow: one message that counts the
+   * pictures, numbers them and lists every motif is a set to compose, whether
+   * it is handed to a generator directly — the collage a deck of eight planned
+   * pictures came back as — or merely sitting in the context the next image
+   * call is written from. Generation runs off one job at a time; the editor's
+   * own brief dialog composes this same text for a person, and an agent asks
+   * for it when a person wants to paste it somewhere.
    */
   brief: string | null
   /**
@@ -524,7 +549,17 @@ export interface ImageBriefView {
   deposit: ImageDeposit | null
 }
 
-function imageBriefView(presentation: Presentation): ImageBriefView {
+interface ImageBriefViewOptions {
+  /** The whole-plan message, only when a person asked for it. */
+  brief?: boolean
+  /** The entries' own texts. On the read, not on the write that stored them. */
+  fields?: boolean
+}
+
+function imageBriefView(
+  presentation: Presentation,
+  options: ImageBriefViewOptions = {},
+): ImageBriefView {
   const images = resolveImagePlan(presentation)
   return {
     presentationId: presentation.id,
@@ -542,13 +577,17 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
       aspectRatio: image.aspectRatio,
       orientation: image.orientation,
       filled: image.filled,
-      subject: image.plan.subject,
-      composition: image.plan.composition,
-      requirements: image.plan.requirements,
-      avoid: image.plan.avoid,
+      ...(options.fields
+        ? {
+            subject: image.plan.subject,
+            composition: image.plan.composition,
+            requirements: image.plan.requirements,
+            avoid: image.plan.avoid,
+          }
+        : {}),
     })),
     issues: checkImagePlan(presentation),
-    brief: composeImageBrief(presentation),
+    brief: options.brief ? composeImageBrief(presentation) : null,
     generation: composeImageGenerationContract(presentation),
     deposit: presentation.imageDeposit ? { ...presentation.imageDeposit } : null,
   }
@@ -592,7 +631,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og setter sammen den ferdige bildeprompten for hver enkelt oppføring. Hele planen sendes hver gang – en tom liste fjerner den. Svaret er `images`: én oppføring per bilde, med det Slaids utledet – `imagePlanItemId`, nummer, filnavn, sone og aspect ratio. Teksten du nettopp sendte gjentas ikke: den ligger i planen og leses tilbake med `get_image_brief` når den trengs. Selve prompten ligger ikke her: den hentes én jobb om gangen med `get_next_image_job`, slik at ett bildekall aldri ser de andre oppføringene. `generation` sier hvordan én jobb utføres og hva en ferdig leveranse er. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -627,14 +666,76 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig. Det svarer `workflow` på.',
+    'Les dekkets bildeplan slik den står nå: `images` med én oppføring per bilde – `imagePlanItemId`, filnavn, sone, aspect ratio målt fra sonen, og de fire tekstfeltene. Bildene genereres ikke herfra: selve prompten kommer én jobb om gangen fra `get_next_image_job`, slik at ett bildekall aldri ser de andre oppføringene. Svaret har kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig; det svarer `workflow` på – og `generation`, som sier hvordan én oppføring utføres og hva en ferdig leveranse er. `brief` er tom med mindre du ber om den: den samlede teksten er til dokumentasjon og manuell kopiering, aldri et steg i genereringsflyten.',
   mutates: false,
   scopes: ['presentations:read'],
-  input: z.strictObject({ presentationId: presentationIdSchema }),
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    includeBrief: z
+      .boolean()
+      .optional()
+      .describe(
+        'Ta med den samlede, menneskelesbare briefen i `brief`. Bare når et menneske skal lese eller lime den inn et sted – den viser alle bildene samtidig, og det er nettopp det én bildegenerering ikke skal se. Utelatt er `brief` `null`.',
+      ),
+  }),
   async run(context, input): Promise<AgentResult<ImageBriefView>> {
     const loaded = await loadPresentation(context, input.presentationId)
     if (!loaded.ok) return loaded
-    return ok(imageBriefView(loaded.value))
+    return ok(imageBriefView(loaded.value, { fields: true, brief: input.includeBrief ?? false }))
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * get_next_image_job
+ * ------------------------------------------------------------------ */
+
+/**
+ * One picture to generate now, as an agent reads it.
+ *
+ * A surface of its own rather than a field on the plan, and that is the whole
+ * design: a response that carries the plan carries the *set*, and an agent
+ * holding nine motifs and nine prompts has the set in context when it writes
+ * the first image call — whatever it was told not to say out loud. What an
+ * image generator does with a task it can see is a set is compose the set: a
+ * collage, a contact sheet, a storyboard, a whole slide. That is its ordinary
+ * behaviour, not a lapse another warning would catch.
+ *
+ * So this can only say one thing, and the next job is fetched after the current
+ * one is generated and bound. See `nextImageJob`.
+ */
+export interface ImageJobView {
+  presentationId: string
+  revision: string
+  /** Why there is a job, or why there is none. See `ImageJobStatus`. */
+  status: ImageJobStatus
+  /** The one picture to generate now, or `null`. */
+  job: ImageGenerationJob | null
+  /** What to do with this answer, in one sentence. */
+  instruction: string
+  /** What to fix when the plan is what stops a job. Empty otherwise. */
+  issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
+}
+
+export const getNextImageJob = defineOperation({
+  name: 'get_next_image_job',
+  summary:
+    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb, og den har tre felter: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå» – `aspectRatio` er formatet målt fra sonen, og `imagePlanItemId` er bokføringen kontrollen etterpå ber om. Nummer, filnavn og sone følger ikke med: hvert av dem sier «ett av flere», og koblingskontrollen svarer med navnet filen skal lagres under. Ingen andre oppføringer, ingen samlet brief, intet antall: kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, svar for bytene – SHA-256 av det som kom tilbake, eller `bytesUnavailable: true` når verten ikke gir deg dem – kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene har svart for bytene – det siste er slutten på løkken. ' +
+    IMAGE_JOB_RULE,
+  mutates: false,
+  scopes: ['presentations:read'],
+  input: z.strictObject({ presentationId: presentationIdSchema }),
+  async run(context, input): Promise<AgentResult<ImageJobView>> {
+    const loaded = await loadPresentation(context, input.presentationId)
+    if (!loaded.ok) return loaded
+    const next = nextImageJob(loaded.value)
+    return ok({
+      presentationId: loaded.value.id,
+      revision: presentationRevision(loaded.value),
+      status: next.status,
+      job: next.job,
+      instruction: next.instruction,
+      issues: next.issues.map((issue) => ({ ...issue })),
+    })
   },
 })
 
@@ -659,29 +760,61 @@ export interface GeneratedImagesView {
   checkMeans: string
   /** What is wrong with the bindings, in the deck's own terms. Empty when `ok`. */
   issues: ImageBindingIssue[]
-  /** The bindings the deck's plan expects, so a fix does not need a second read. */
+  /**
+   * Whether every planned entry now has a stored binding.
+   *
+   * The completeness half, separated from `ok` because the check runs per
+   * picture: a call that binds one picture correctly is `ok` while the plan is
+   * still waiting for the rest, and an agent that read `ok` as «the set is
+   * done» would stop one job early. False is not a finding — it is the loop
+   * saying there is another job to fetch.
+   */
+  planCovered: boolean
+  /**
+   * The bindings the deck's plan expects — **only when something is wrong.**
+   *
+   * There to save a round trip on a repair, and withheld otherwise for the
+   * reason the whole generation flow is one job at a time: this list is the
+   * set, and a successful per-picture check that restated it would put the set
+   * back in context before the next image call.
+   */
   expected: Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[]
+  /**
+   * What each file in this call is to be saved as, by plan entry.
+   *
+   * The name is the entry's own number and the format's extension, and it is
+   * answered *here* rather than handed out with the job: a number is a fact
+   * about a set, and the job is the one place that must not carry one. Nothing
+   * needs it to make a picture; the deposit needs it to place one.
+   */
+  files: { imagePlanItemId: string; fileName: string }[]
   /** What the manifest file is called when the files go through the deposit. */
   manifestFileName: string
   /**
-   * The manifest to hand over with the files, or `null` while anything is wrong.
+   * The manifest to hand over with the files, or `null` until the whole plan is
+   * bound and nothing is wrong.
    *
    * Withheld rather than emitted with a warning: a manifest is a statement that
    * the binding was checked, and one produced from records that did not check
    * out would be exactly the false reassurance this operation exists to remove.
+   *
+   * Composed from the bindings the deck *holds*, so the per-picture loop
+   * produces one manifest for the whole delivery on its last round rather than
+   * a partial one on every round. The deposit matches files 1‥N, and a manifest
+   * naming one of them is not a delivery.
    */
   manifest: string | null
   /**
-   * Where the raster flow stands once this check's answer is part of the deck.
+   * Where the raster flow stands once this call's bindings are part of the deck.
    *
    * A passing check is stored, so what it reports here is what every later read
-   * reports too. `ok` means every planned entry has exactly one file bound to
-   * it — which is what finishing the *generation* is, and all this call can
-   * settle. Whether the pictures are in the deck is a separate question the
-   * deposit answers, so a passing check normally lands on `awaiting-deposit`
-   * rather than `generation-verified`: the files reach Slaids through the
-   * user's browser, and an agent that waited for the zones to fill would be
-   * waiting for something it cannot do.
+   * reports too. What it reports is what was *claimed*: every field in a
+   * binding is a string this call supplied, so a complete set lands on
+   * `awaiting-deposit` with `complete: false` — the pictures are not in the
+   * deck, and nothing said here can put them there. `complete` turns true when
+   * the user's deposit inserts the files, which is also the only place the
+   * digests are compared against real bytes. An agent's own stop is
+   * `workflow.remainingSteps`, never `complete`.
    */
   workflow: ImageWorkflowStatus
 }
@@ -695,7 +828,7 @@ export interface GeneratedImagesView {
  */
 const CHECK_MEANS: Record<ImageBindingCheck, string> = {
   'file-checked':
-    'Hver kobling bærer et avtrykk av bytene bildegenereringen returnerte, så nettleseren kan sammenligne hver fil med akkurat den filen før bildene settes inn. Det avgjør hvilken fil som hører til hvilken bildeplass – det sier ingenting om hva bildet viser. Se gjennom bildene selv i tillegg.',
+    'Hver kobling bærer et avtrykk, så nettleseren *kan* sammenligne hver fil med akkurat de bytene før bildene settes inn. Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine, så på dette punktet er avtrykket en påstand du har oppgitt. Når den er sammenlignet, avgjør den hvilken fil som hører til hvilken bildeplass – aldri hva bildet viser. Se gjennom bildene selv i tillegg.',
   unchecked:
     'Minst én kobling mangler `contentHash`, så koblingen kan ikke kontrolleres mot filene selv – bare mot planen. Leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Si dette uttrykkelig til brukeren, og be om manuell gjennomgang av bildene i stedet for å omtale leveransen som kontrollert.',
 }
@@ -721,7 +854,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget: `workflow.stage` blir `awaiting-deposit` så lenge filene ikke er lagt inn i sonene, og `generation-verified` når de er det. Å legge dem inn er brukerens steg med mindre klienten har en filbro. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben, `fileExtension` – filendelsen filen har – og enten `contentHash`, avtrykket av bytene bildegenereringen returnerte, eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg de bytene. Én av de to må være med: uten noen av dem blir oppføringen stående som ubesvart bildejobb, fordi alt annet i en kobling sto i bildeplanen fra før. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -735,20 +868,39 @@ export const verifyImageHandoff = defineOperation({
             .string()
             .refine((value) => isImagePlanItemId(value), { message: 'Ikke en gyldig bildeplan-id' })
             .describe(
-              'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra `images` i bildebriefen. Aldri konstruert, aldri gjettet ut fra rekkefølgen.',
+              'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra jobben som ga deg prompten. Aldri konstruert, aldri gjettet ut fra rekkefølgen, og ikke hentet ut av bildeplanen på nytt: mellom to genereringer leser du ikke de andre oppføringene.',
             ),
+          fileExtension: z
+            .string()
+            .min(1)
+            .describe(
+              'Filendelsen filen faktisk har – `png`, `jpg`, `webp` og så videre. Slaids setter sammen navnet av oppføringens eget nummer og denne, og svarer med navnet filen skal lagres under. Du trenger ikke vite nummeret for å generere bildet, og bildejobben oppgir det derfor ikke.',
+            )
+            .optional(),
           number: z
             .number()
             .int()
             .min(1)
             .max(MAX_PLANNED_IMAGES)
-            .describe('Oppføringens eget nummer – ikke bildets plass i genereringsrekkefølgen.'),
-          slideId: slideIdSchema,
-          nodeId: nodeIdSchema,
+            .describe(
+              'Valgfri: oppføringens eget nummer, hvis du har holdt styr på det – ikke bildets plass i genereringsrekkefølgen. Utelatt henter Slaids det fra bildeplanen.',
+            )
+            .optional(),
+          slideId: slideIdSchema.optional(),
+          nodeId: nodeIdSchema.optional(),
           fileName: z
             .string()
             .min(1)
-            .describe('Filnavnet filen fikk: oppføringens nummer og filendelsen formatet har.'),
+            .describe(
+              'Valgfri: filnavnet filen fikk, hvis du alt har navngitt den. Utelatt setter Slaids det sammen av oppføringens nummer og `fileExtension`, og svaret sier hva det ble.',
+            )
+            .optional(),
+          bytesUnavailable: z
+            .literal(true)
+            .optional()
+            .describe(
+              'Sett denne når vertsklienten ikke gir deg bytene fra sitt eget bildeverktøy, så du ikke kan regne ut et avtrykk. Oppføringen slutter da å bli tilbudt som bildejobb, leveransen står som uverifisert for godt, og brukeren bekrefter bildene manuelt i deponeringen. Den er en erklæring, ikke et bevis – bruk den bare når bildet faktisk er laget.',
+            ),
           contentHash: z
             .string()
             .regex(/^[0-9a-f]{64}$/)
@@ -756,15 +908,73 @@ export const verifyImageHandoff = defineOperation({
             .describe(
               'SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Regn den ut i det filen kommer tilbake, før neste bilde genereres – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Utelat feltet hvis du ikke har tilgang til bytene; leveransen blir da rapportert som uverifisert, aldri som kontrollert.',
             ),
-        }),
+        })
+          .refine((image) => image.fileName !== undefined || image.fileExtension !== undefined, {
+            message:
+              'Oppgi enten `fileExtension` – så setter Slaids sammen filnavnet – eller `fileName` hvis du alt har navngitt filen.',
+          })
+          /*
+           * One of the two, never both and never neither. A binding that says
+           * nothing about the bytes is a row that could have been written off
+           * the plan, and it would leave the entry in the queue for ever; a
+           * binding that says both is claiming a digest it has just said it
+           * could not compute.
+           */
+          .refine(
+            (image) =>
+              (image.contentHash === undefined) !== (image.bytesUnavailable === undefined),
+            {
+              message:
+                'Oppgi `contentHash` – SHA-256 av bytene bildegenereringen returnerte – eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg bytene. Én av dem, ikke begge: uten noen av dem har Slaids ingenting som skiller en generert fil fra en rad skrevet av bildeplanen, og oppføringen blir stående som ubesvart bildejobb.',
+            },
+          ),
       )
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
   }),
   run(context, input): Promise<AgentResult<GeneratedImagesView>> {
     return mutatePresentation(context, input, (presentation) => {
-      const issues = checkGeneratedImages(presentation, input.images)
-      const check = imageBindingCheck(input.images)
+      /*
+       * Everything but the id and the digest is filled in from the plan when
+       * the caller leaves it out, and that is what lets a generation job be an
+       * opaque id, a format and a prompt.
+       *
+       * The number, the zone and the file name are facts about a *set* — «the
+       * third one», «the one on that slide» — so a host whose image tool reads
+       * the conversation rather than an explicit prompt would have them in
+       * context at the moment it generates. They are not needed to make a
+       * picture, only to file one, so they are asked for afterwards or derived
+       * here. A caller that tracked them may still send them: then they are
+       * checked against the plan exactly as before, which is the cross-check
+       * that catches a delivery named by arrival order.
+       */
+      const plan = new Map(resolveImagePlan(presentation).map((image) => [image.id, image]))
+      const completed = input.images.map((image) => {
+        const entry = plan.get(image.imagePlanItemId)
+        const extension = image.fileExtension?.replace(/^\./, '').toLowerCase()
+        return {
+          imagePlanItemId: image.imagePlanItemId,
+          number: image.number ?? entry?.number ?? 0,
+          slideId: image.slideId ?? entry?.plan.slideId ?? '',
+          nodeId: image.nodeId ?? entry?.plan.nodeId ?? '',
+          fileName:
+            image.fileName ??
+            (entry && extension ? `${entry.fileNameStem}.${extension}` : (image.fileName ?? '')),
+          ...(image.contentHash ? { contentHash: image.contentHash } : {}),
+          ...(image.bytesUnavailable ? { bytesUnavailable: true as const } : {}),
+        }
+      })
+      /*
+       * `MISSING_ITEM` is set apart from everything else this check reports,
+       * and that is what makes the flow sequential. The others are things
+       * wrong with the bindings in *this* call — an unknown id, a duplicate, a
+       * zone that is not the entry's — and they refuse it. A missing entry is
+       * the plan waiting for a job that has not been generated yet, which is
+       * the normal state of every call but the last one.
+       */
+      const outstanding = checkGeneratedImages(presentation, completed)
+      const issues = outstanding.filter((issue) => issue.code !== 'MISSING_ITEM')
+      const check = imageBindingCheck(completed)
       /*
        * A check that passes is written down, and that is what makes this a
        * mutation at all. Slaids never sees a generated file, so the deck cannot
@@ -777,9 +987,19 @@ export const verifyImageHandoff = defineOperation({
        * false reassurance this operation exists to remove, and the command
        * refuses it independently for that reason.
        */
-      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, input.images) : null
+      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, completed) : null
       if (recorded && !recorded.ok) return recorded
       const written = recorded?.value ?? presentation
+      /*
+       * The manifest is the *stored* set, not this call's argument. It is what
+       * travels to the deposit beside the files, and the deposit accepts
+       * 1‥N — so it can only be written once the last job is bound, and it has
+       * to carry every binding rather than the one that happened to be checked
+       * last.
+       */
+      const stored = plannedGeneratedImages(written)
+      const planCovered =
+        stored.length > 0 && checkGeneratedImages(written, stored).length === 0
       return ok({
         presentation: written,
         value: {
@@ -789,13 +1009,18 @@ export const verifyImageHandoff = defineOperation({
           check,
           checkMeans: CHECK_MEANS[check],
           issues,
-          expected: expectedGeneratedImages(written),
+          planCovered,
+          expected: issues.length === 0 ? [] : expectedGeneratedImages(written),
+          files: completed.map((record) => ({
+            imagePlanItemId: record.imagePlanItemId,
+            fileName: record.fileName,
+          })),
           manifestFileName: IMAGE_MANIFEST_FILE_NAME,
           manifest:
-            issues.length === 0
+            issues.length === 0 && planCovered
               ? composeImageGenerationManifest({
                   presentationId: written.id,
-                  images: [...input.images],
+                  images: stored,
                 })
               : null,
           workflow: composeImageWorkflowStatus(written),
@@ -1161,6 +1386,7 @@ export const deckOperations = [
   setImageContextOperation,
   planDeckImages,
   getImageBrief,
+  getNextImageJob,
   verifyImageHandoff,
   inspectSlide,
 ]

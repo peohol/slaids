@@ -25,31 +25,86 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/med bilder.*bruk bilder.*bilder i hvert steg/i)
     expect(MCP_INSTRUCTIONS).toMatch(/ikke start ekstern rastergenerering ennå/i)
     expect(MCP_INSTRUCTIONS).toMatch(/innholdsendringer, citations, validering\/reparasjoner og visuell QA.*bildesonene er stabile/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/hent den genererte bildebriefen på nytt fra den endelige presentasjonstilstanden/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/skriv den returnerte briefen ut i samme samtale/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/kall deretter umiddelbart.*bildegenereringsverktøyet/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/les bildeplanen på nytt fra den endelige presentasjonstilstanden/i)
+    // The printed brief is not the first step any more — the first picture is.
+    expect(MCP_INSTRUCTIONS).toMatch(/kall vertsklientens bildegenereringsverktøy umiddelbart/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart med det første planlagte bildet/i)
     expect(MCP_INSTRUCTIONS).toMatch(/ett kall per planlagt bilde/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/briefen finnes i verktøyresponsen er ikke en overlevering/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/bare den ene oppføringens ferdige `prompt`/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/At planen finnes i verktøyresponsen er ikke en overlevering/i)
     expect(MCP_INSTRUCTIONS).toMatch(/først startet når bildegenereringsverktøyet faktisk er kalt/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*ny fersk sluttbrief.*på nytt/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*les bildeplanen på nytt.*generer de bildene på nytt/i)
     expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)
     expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
+    // And the retired first step is asserted gone, not left to review: it is
+    // what made the task a multi-picture task before the first call.
+    expect(MCP_INSTRUCTIONS).not.toMatch(/skriv den returnerte briefen ut i samme samtale/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/skriv denne ferske briefen ut i samme samtale/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/ny fersk sluttbrief/i)
   })
 
-  it('hands the generator one planned picture at a time, never the whole brief as one job', () => {
-    // The regression: eight planned pictures, one composed brief, and a host
-    // client that sent the brief on as a single image-generation job. One
-    // storyboard came back. The instructions must not read as advice to do
-    // that — the brief is printed in the conversation, and the generation runs
-    // per entry.
-    expect(MCP_INSTRUCTIONS).toMatch(/ett kall per oppføring i `images`/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/generation\.expectedFileCount.*før bildene deponeres/i)
+  it('never asks for the whole plan to be written out in the conversation', () => {
+    /*
+     * Test 1, on the surface an agent reads before its first call. Every
+     * sentence that mentions the brief has to be denying it: the brief exists,
+     * an author copies it out of the editor, and a client without direct
+     * handoff still delivers it — but nothing here may instruct an agent to
+     * print it, because a conversation holding «lag nøyaktig 9 separate
+     * bilder» has already told the generator what the task is.
+     *
+     * Stated as a property rather than as a banned phrase, so a reworded
+     * instruction to print the brief fails here too.
+     */
+    const asking = MCP_INSTRUCTIONS.split(/(?<=[.:;])\s+|\n/).filter((sentence) =>
+      /\bbrief/i.test(sentence),
+    )
+    expect(asking.length).toBeGreaterThan(0)
+    for (const sentence of asking) {
+      if (!/skriv|utskrift|print/i.test(sentence)) continue
+      expect(sentence, `«${sentence}» ber om at briefen skrives ut`).toMatch(
+        /\b(ikke|aldri)\b/i,
+      )
+    }
+    // And what replaces it is named, including the field that says why.
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /ikke skriv ut den samlede briefen, ikke oppsummer bildeplanen og ikke si i samtalen hvor mange bilder som skal lages/i,
+    )
+    expect(MCP_INSTRUCTIONS).toMatch(/`generation\.isolation`/)
+  })
+
+  it('hands the generator one job at a time, never the plan as one job', () => {
+    /*
+     * The regression, and then the finding that followed it. Eight planned
+     * pictures, one composed brief, and a host client that sent the brief on as
+     * a single image-generation job: one storyboard came back. Composing a
+     * prompt per entry fixed the prompt and left the exposure — every answer
+     * still carried the whole plan — so the generation step now reads one job
+     * at a time and the instructions have to say that.
+     */
+    expect(MCP_INSTRUCTIONS).toMatch(/hent den ene bildejobben som står for tur/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/Slaids gir deg én jobb om gangen/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /uten de andre oppføringene, uten noe antall og uten nummer, filnavn eller sone/i,
+    )
+    // Both tool shapes, because the one this feature was built for derives the
+    // image instruction from the conversation rather than taking a prompt.
+    expect(MCP_INSTRUCTIONS).toMatch(/tar verktøyet en prompt som parameter, sendes den ordrett/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /utleder verktøyet den fra samtalen i stedet, skriver du `prompt` ordrett som din egen melding rett før kallet/i,
+    )
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /Kan du ikke begrense hva bildeverktøyet ser, si det til brukeren/i,
+    )
+    expect(MCP_INSTRUCTIONS).toMatch(/ikke hent flere jobber på forskudd/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /ikke les bildeplanen på nytt for å få tak i de andre motivene underveis/i,
+    )
     expect(MCP_INSTRUCTIONS).toMatch(/alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert/i)
-    // One entry finished at a time, and the count is not the only thing
-    // checked: the second failure was nine correct pictures named in the order
-    // they came back, which a count cannot see.
-    expect(MCP_INSTRUCTIONS).toMatch(/én oppføring ferdigstilt av gangen/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/hver fil er knyttet til den `imagePlanItemId` den ble generert fra/i)
+    // The binding is checked per picture, and the digest is what makes the
+    // check mean anything: everything else in it was in the plan already.
+    expect(MCP_INSTRUCTIONS).toMatch(/for hver oppføring så snart bildet er laget/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/Avtrykket er ikke valgfritt/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/`generation-unverified`/)
     expect(MCP_INSTRUCTIONS).toMatch(/koblingen mellom hver fil og bildeplanoppføringen/i)
     // And the retired instruction — hand the brief over as the generation
     // prompt — is asserted gone rather than left to review.
@@ -91,11 +146,14 @@ describe('visual media planning instructions', () => {
     it('gjør dekkets egen status til stoppkriteriet', () => {
       // The decision is a field, not an impression: an agent that only reads
       // structure sees `complete: false`.
-      expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete` svarer for dokumentet – at bildene faktisk ligger i dekket – ikke for deg/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/bare deponeringen kan gjøre den true/i)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Avslutt først når du har gjort det `workflow\.remainingSteps` krever av deg/i,
+        /avslutt først når du har gjort det `remainingSteps` krever av deg/i,
       )
       /*
        * And never «stop when the list is empty». In `awaiting-deposit` it does
@@ -116,7 +174,12 @@ describe('visual media planning instructions', () => {
       // «was the picture made». An agent told to wait for filled zones waits
       // for a browser action it cannot perform — and regenerates.
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
+        /Kontrollen er stoppkriteriet for \*ditt\* genereringsarbeid: er hele planen dekket og svaret `ok` med `check: "file-checked"`, er den delen gjort/i,
+      )
+      // And what it is not: a report cannot finish the deck, because Slaids
+      // has no file to compare it against.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /en kobling du melder er en påstand Slaids ikke kan sammenligne med noen fil/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
       // And the answer is a fact about the deck, not about one response: the
@@ -176,12 +239,19 @@ describe('visual media planning instructions', () => {
     })
 
     it('navngir den obligatoriske rekkefølgen etter planen', () => {
-      expect(MCP_INSTRUCTIONS).toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart med det første planlagte bildet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring med bare den oppføringens ferdige `prompt`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/fortsett med én oppføring av gangen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Ikke skriv ut samlet brief, en oversikt over bildeplanen eller hvor mange bilder som skal lages/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/hver generering skal se ut som en selvstendig oppgave/i)
       expect(MCP_INSTRUCTIONS).toMatch(/Slå aldri flere planlagte bilder sammen til ett bilde/i)
       expect(MCP_INSTRUCTIONS).toMatch(/rekkefølgen bildene returneres i er irrelevant/i)
       expect(MCP_INSTRUCTIONS).toMatch(/kobles til riktig oppføring før det neste genereres/i)
+      // The sequence used to open with the brief, which put the whole plan in
+      // the conversation before the first call.
+      expect(MCP_INSTRUCTIONS).not.toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
     })
 
     it('lister fullføringskriteriene, alle seks', () => {
@@ -197,7 +267,9 @@ describe('visual media planning instructions', () => {
       // And the only two legitimate stops are named, so «blocked» cannot be a
       // feeling: the user said stop, or there is a failure to point at.
       expect(MCP_INSTRUCTIONS).toMatch(/navngi blokkeringen konkret/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /brukeren uttrykkelig har bedt deg stoppe før bildene genereres/i,
+      )
     })
 
     it('skiller de to `plan-outdated`-tilfellene, som krever motsatt handling', () => {
@@ -238,13 +310,13 @@ describe('visual media planning instructions', () => {
 
     it('lar ikke `complete` alene avslutte arbeidet', () => {
       /*
-       * `complete` answers for the document — the plan is covered by a current,
-       * verified generation — and the bindings are stored while the files are
-       * not. So the same true field is read by two readers who owe opposite
-       * work: the conversation that holds the pictures, and a later one that
-       * opens the deck with none of them. A stop rule keyed on `complete`
-       * alone told the second one it was finished, in the same instructions
-       * that tell it to generate the pictures again.
+       * `complete` answers for the document — the pictures are in the deck — and
+       * only the user's deposit puts them there. So it is neither a receipt for
+       * the agent's work nor, when false, a statement that the agent owes
+       * something: the delivery stages are false while the conversation that
+       * made the pictures may be finished, and a later one that opens the same
+       * deck without the files owes all of them. A stop keyed on `complete`
+       * alone answers both readers wrongly, in opposite directions.
        */
       expect(MCP_INSTRUCTIONS).toMatch(
         /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
@@ -252,7 +324,9 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /Det er `remainingSteps` som avgjør det, ikke `complete` alene/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/`complete` er en påstand om dokumentet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete` er et faktum om dokumentet – at bildene faktisk ligger i dekket/i,
+      )
       // Both readers are named, each with the condition that selects them.
       expect(MCP_INSTRUCTIONS).toMatch(
         /har du bildefilene fra genereringen.*skal du ikke si at presentasjonen er ferdig/i,
@@ -295,7 +369,7 @@ describe('visual media planning instructions', () => {
         /stadiet kan være `plan-needs-repair` eller `plan-outdated`, og da skal planen repareres eller skrives om \*\*før\*\* noe genereres/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: start bildegenereringen umiddelbart med det første planlagte bildet/i,
       )
       /*
        * And the rule's own opening must not say the opposite either. «Så snart
