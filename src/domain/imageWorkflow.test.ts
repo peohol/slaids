@@ -358,7 +358,7 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(without).toMatch(/har du dem ikke/i)
     expect(without).toMatch(/ingen leveranse du kan gjøre/i)
     expect(without).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
-    expect(without).toMatch(/kjør koblingskontrollen igjen/i)
+    expect(without).toMatch(/meld koblingen igjen/i)
     // The whole plan is what the check expects, and the plan's own field says
     // how big it is — the step does not count the pictures out loud, because
     // regenerating is the same one-at-a-time work as generating.
@@ -1485,6 +1485,33 @@ describe('et dekk uten planlagte bilder', () => {
     expect(status.complete).toBe(true)
     expect(status.plannedImageCount).toBe(0)
     expect(status.forbiddenClosings).toEqual([])
+  })
+
+  it('leser et dekk lagret under den gamle erklæringen uten å be om bildene igjen', () => {
+    /*
+     * The migration this needs and does not have: `bytesUnavailable` was how a
+     * host said it could not hash its own output, and decks were stored with
+     * it. The field is gone from the record shape, and the schema drops unknown
+     * keys — so such a deck opens as an ordinary self-reported delivery.
+     *
+     * What matters is that it does not open as *less* than it was: the entries
+     * must stay out of the generation queue, or every deck stored under the old
+     * rule would ask a later session to make its pictures a second time.
+     */
+    const deck = awaiting(2)
+    const stored = {
+      ...deck,
+      generatedImages: claims(deck).map((record) => ({ ...record, bytesUnavailable: true })),
+    }
+    const reopened = validatePresentation(JSON.parse(JSON.stringify(stored)))
+    expect(reopened.issues).toEqual([])
+    const value = reopened.value
+    if (!value) throw new Error('Forventet et gyldig dokument')
+    expect(value.generatedImages?.every((record) => !('bytesUnavailable' in record))).toBe(true)
+
+    expect(imageGenerationIsReported(value)).toBe(true)
+    expect(composeImageWorkflowStatus(value).stage).toBe('awaiting-deposit')
+    expect(nextImageJob(value).status).toBe('all-reported')
   })
 
   it('blir ikke ferdig av lagrede koblinger alene', () => {

@@ -1786,7 +1786,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     const owed = reopened.workflow.remainingSteps.join(' ')
     expect(owed).toMatch(/har du dem ikke/i)
     expect(owed).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
-    expect(owed).toMatch(/kjør koblingskontrollen igjen/i)
+    expect(owed).toMatch(/meld koblingen igjen/i)
 
     // And doing it gets this conversation out: the same entries, generated
     // again, pass the check against the plan the deck still carries.

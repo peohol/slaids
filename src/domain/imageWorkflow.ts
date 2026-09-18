@@ -253,7 +253,7 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
   'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
   'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe før bildene genereres, eller en konkret teknisk blokkering du navngir.',
   'Ikke omtal en meldt generering som kontrollert eller verifisert. Slaids har sammenlignet koblingen med bildeplanen, ikke med en fil – id, nummer, sone og filnavn sto alle i planen fra før. Si at bildene er generert og meldt, og at de først kontrolleres når de legges inn i dekket.',
-  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er koblingen alt kontrollert, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
+  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er oppføringen alt meldt, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
 ]
 
 /**
@@ -300,14 +300,14 @@ const GENERATION_STEPS: readonly string[] = [
 ]
 
 /**
- * What is left once the pictures have been made and checked, which is a
+ * What is left once the pictures have been made and reported, which is a
  * question the deck cannot finish answering.
  *
- * The check is stored on the document; the files are not. So a verified deck
- * with empty zones means one of two things, and they need opposite work: the
- * conversation that made the pictures still holds them and has only to hand
- * them over, or a later one opened the deck, reads the same verification, and
- * has nothing to hand over at all. Slaids cannot tell those apart — the host's
+ * The bindings are stored on the document; the files are not. So a fully
+ * reported deck with empty zones means one of two things, and they need
+ * opposite work: the conversation that made the pictures still holds them and
+ * has only to hand them over, or a later one opened the deck, reads the same
+ * bindings, and has nothing to hand over at all. Slaids cannot tell those apart — the host's
  * file state is not a property of the document — so both are named with the
  * condition that selects them, rather than one being guessed at.
  *
@@ -321,7 +321,7 @@ const GENERATION_STEPS: readonly string[] = [
  */
 const DEPOSIT_STEPS: readonly string[] = [
   'Har du bildefilene fra genereringen: lever dem med manifestet, og si hva brukeren skal gjøre for å legge dem inn. Si samtidig at genereringen er selvrapportert – Slaids har ikke sett bildene – så brukeren ser gjennom dem når de er inne.',
-  'Har du dem ikke – kontrollen er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er den lagrede kontrollen ingen leveranse du kan gjøre: si det, og generer oppføringene i `images` på nytt, én av gangen og hver for seg, mot `generation.perImageSteps`. Kjør koblingskontrollen igjen etterpå.',
+  'Har du dem ikke – koblingene er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er de lagrede koblingene ingen leveranse du kan gjøre: si det, og generer oppføringene i `images` på nytt, én av gangen og hver for seg, mot `generation.perImageSteps`. Meld koblingen igjen etterpå.',
   'Uansett hvilken av de to: si hva som gjenstår og hvem som gjør det, i stedet for å melde presentasjonen ferdig.',
 ]
 
@@ -533,10 +533,10 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       /*
        * The one state that may say finished, and the reason is that it rests on
        * something nobody could assert: a file in the deck. Every field in a
-       * binding, the digest included, is a string the agent supplied — but the
-       * bytes in a picture zone got there through the deposit, which compares
-       * each file against the digest its manifest carries before inserting
-       * anything. Completion is therefore a fact about the document rather than
+       * binding, a digest included, is a string the agent supplied — but the
+       * bytes in a picture zone got there through the deposit, which checks the
+       * numbers always and each file's own bytes where a digest came with the
+       * manifest. Completion is therefore a fact about the document rather than
        * a claim about work.
        */
       return status(
@@ -571,7 +571,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
               counts.awaitingFileCount > 0 ? `, og ${counts.awaitingFileCount} står tomme` : ''
             }`
           : `${counts.awaitingFileCount} bildesoner står tomme`
-      }, og å legge filene inn er brukerens steg. Det er der filene faktisk kontrolleres – Slaids har sammenlignet koblingene med bildeplanen, aldri med et bilde, så genereringen er selvrapportert til filene kommer inn. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er de lagrede koblingene ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
+      }, og å legge filene inn er brukerens steg. Det er der filene faktisk kommer inn og blir sett på – Slaids har sammenlignet koblingene med bildeplanen, aldri med et bilde, så genereringen er selvrapportert til da. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er de lagrede koblingene ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og melde koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
         presentation,
       )}`,
       DEPOSIT_STEPS,

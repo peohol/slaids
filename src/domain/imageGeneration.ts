@@ -150,8 +150,6 @@ export function deliveryReporting(
   return imageBindingCheck(records) === 'file-checked' ? 'hash-reported' : 'self-reported'
 }
 
-/** A SHA-256 as `assetHash.ts` writes one: 64 lowercase hex characters. */
-
 /**
  * Whether a delivery can be checked against its own files at all.
  *
