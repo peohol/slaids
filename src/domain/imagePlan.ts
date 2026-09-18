@@ -8,23 +8,22 @@
  * here, once, so there is no second description of the same picture to fall out
  * of step with the first.
  *
- * The two texts are not two views of the same thing, and the difference is the
- * point:
+ * The two texts are not two views of the same thing, and the difference is
+ * which errand they are for:
  *
- *  - `composeImageGenerationPrompt` is what a generation call carries, and what
- *    the editor's «Kopier prompt» puts on the clipboard. It can see **one**
- *    entry, so a picture is ordered as a complete, self-contained task with no
- *    count, no numbering, no plan id, no file name and no other motif in it —
- *    a text that can be pasted into an empty conversation and produce exactly
- *    that picture. One composer for both surfaces, so the automatic flow and
- *    the manual one order the same picture.
- *  - `composeImageBrief` is the whole plan as one message for a person —
- *    documentation, debugging, and the fold-down half of the editor's brief
- *    dialog. It is internal to that, never a prompt and never a step in the
- *    normal generation flow, because a reader shown nine numbered motifs has
- *    been handed a set to compose.
+ *  - `composeImageBrief` is **the deliverable**: the deck's whole series as one
+ *    order, for one conversation whose only job from that point is making N
+ *    pictures. It counts the files in its first line, numbers them section by
+ *    section, and asks for them as separate files in its last. That is the
+ *    distinction the whole flow turns on — one image task producing N files,
+ *    never N tasks with other work between them.
+ *  - `composeImageGenerationPrompt` is **the repair**: one picture ordered
+ *    again on its own, when picture 5 came back wrong or never came back. It
+ *    can see one entry, so it carries no count, no numbering, no file name and
+ *    no other motif — a text that can be pasted into an empty conversation and
+ *    produce exactly that picture.
  *
- * Three things make the generated brief worth generating rather than writing:
+ * Three things make the brief worth generating rather than writing:
  *
  *  - **The number of pictures is counted, never stated.** A brief that says
  *    «lag 7 bilder» and then lists six is a brief that produces six, or eight.
@@ -37,7 +36,7 @@
  *  - **The checks are asked of the same data the brief is built from.** See
  *    `checkImagePlan`: a mismatch between plan and deck is a question about
  *    two things this module already holds, so it cannot be answered one way
- *    here and another way in a prompt.
+ *    here and another way in an order.
  *
  * Nothing in here is drawn on a slide and nothing in here is published: the
  * plan lives beside the slides, exactly as the sandbox and the ideas list do.

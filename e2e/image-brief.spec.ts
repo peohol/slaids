@@ -3,18 +3,18 @@
  *
  * The dialog has two halves and the split is the point: the top is the only
  * text a person writes — the visual context every picture in the deck shares —
- * and the bottom lists the planned pictures, each with its own finished prompt
- * to copy. The per-picture copy is the errand: one clean order, pasted into an
- * empty conversation, that produces exactly that picture.
+ * and under it is the whole series as one finished order, to copy into one
+ * conversation that from that point makes nothing but pictures. One fold down
+ * sits the per-picture prompt, for ordering one of them again.
  *
  * A deck with nothing planned is the state most decks are in most of the time,
  * so it is the one tested here end to end: the context still saves and survives
- * a reload, the dialog says there is nothing to generate yet, and the
- * whole-plan brief does not offer to copy nothing. What a prompt *contains*
- * once pictures are planned is `src/domain/imagePlan.test.ts` and
- * `src/ui/editor/imageDeposit.test.tsx` — the planning itself is an agent
- * operation with no editor surface, and driving it through the UI would be
- * testing a fixture rather than the product.
+ * a reload, the dialog says there is nothing to order yet, and it does not
+ * offer to copy nothing. What the brief *contains* once pictures are planned is
+ * `src/domain/imagePlan.test.ts`, `src/ui/editor/imageDeposit.test.tsx` and
+ * `e2e/image-deposit.spec.ts` — the planning itself is an agent operation with
+ * no editor surface, and driving it through the UI would be testing a fixture
+ * rather than the product.
  */
 
 import { expect, test } from './fixtures'
@@ -57,12 +57,13 @@ test.describe('bildebrief', () => {
 
     await page.getByTestId('open-image-brief').click()
     await expect(page.getByTestId('image-brief-modal-empty')).toBeVisible()
-    await expect(page.getByTestId('image-brief-modal-text')).toBeHidden()
+    await expect(page.getByTestId('image-brief-modal-text')).toHaveCount(0)
     await expect(page.getByTestId('image-brief-modal-count')).toContainText('Ingen bilder planlagt')
     // Nothing to copy, so nothing is offered: a copy button that copies an
     // empty message is worse than one that is plainly unavailable.
     await expect(page.getByTestId('image-brief-modal-copy')).toBeDisabled()
     // And no per-picture prompt either, because there is no picture.
+    await expect(page.getByTestId('image-brief-modal-single')).toHaveCount(0)
     await expect(page.getByTestId('image-brief-modal-list')).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
