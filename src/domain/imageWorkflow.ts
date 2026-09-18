@@ -230,7 +230,8 @@ export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
   'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
   'Alle planlagte bilder er generert uten å vente på en ny brukerbeskjed, ett av gangen: like mange separate bildefiler som planen har oppføringer, én fil per `imagePlanItemId`. Blir samtalen avbrutt, fortsetter genereringen der dekket står – køen ligger i dokumentet, ikke i samtalen.',
   'Hver fil har det aspect ratio oppføringen den ble generert fra oppgir.',
-  'Hver fil er meldt med den `imagePlanItemId` den ble generert fra og avtrykket (SHA-256) av bytene bildegenereringen returnerte, og koblingskontrollen svarer `ok` med `check: "file-checked"` for alle planlagte oppføringer. Det er så langt *ditt* arbeid rekker, og svaret blir stående på dekket.',
+  'Hver fil er meldt med den `imagePlanItemId` den ble generert fra og et svar om bytene: avtrykket (SHA-256) av det bildegenereringen returnerte når du kan lese dem, ellers `bytesUnavailable: true` – erklæringen om at verten ikke gir deg dem. Avtrykket er den eneste veien til en kontrollerbar leveranse, så erklæringen er for de bildene bytene faktisk er utenfor rekkevidde for.',
+  'Koblingskontrollen svarer `ok` for alle planlagte oppføringer. Bærer hver av dem et avtrykk, er `check: "file-checked"`, og deponeringen kan sammenligne hver fil med sitt eget. Er én av dem en erklæring, er hele leveransen `unchecked`: det er en lovlig, dårligere leveranse som skal omtales som uverifisert og ses gjennom manuelt – aldri en grunn til å lage bildene om igjen. Det er så langt *ditt* arbeid rekker uansett hvilken av de to, og svaret blir stående på dekket.',
   'Koblingen er en påstand til den er kontrollert mot filene selv. Slaids ser aldri bytene dine: id, nummer, sone og filnavn sto i bildeplanen fra før, og avtrykket er en streng du oppgir. Den eneste sammenligningen med virkelige bytes skjer i nettleseren når brukeren deponerer filene, så `complete` blir først true når bildene faktisk ligger i dekket.',
   'Å legge bildene inn er derfor brukerens steg, og aldri noe du venter på: `remainingSteps` sier hva som gjenstår for deg, og er den gjort, er ditt arbeid ferdig selv om dekket ikke er det.',
 ]
@@ -327,7 +328,7 @@ const GENERATION_STEPS: readonly string[] = [
  * duplicate work the rest of this module exists to prevent.
  */
 const UNVERIFIED_STEPS: readonly string[] = [
-  'Har du bytene til bildefilene: regn ut SHA-256 av hver av dem og kjør koblingskontrollen på nytt med avtrykkene. Det er den ene veien til en kontrollerbar leveranse, og den krever ingen nye bilder.',
+  'Har du bytene til bildefilene som mangler avtrykk: regn ut SHA-256 av dem og kjør koblingskontrollen på nytt med avtrykkene. Det er den ene veien til en kontrollerbar leveranse, og den krever ingen nye bilder.',
   'Har du dem ikke – vertsklienten gir deg ikke tilgang til bytene fra sitt eget bildeverktøy – si uttrykkelig til brukeren at leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Lever filene med manifestet, og si at bildene må ses gjennom manuelt.',
   'Er bildene i virkeligheten ikke laget – koblingene er skrevet av bildeplanen – finnes det ingen leveranse her. Da er det å generere dem som gjenstår: hent neste bildejobb, som fortsatt tilbyr hver oppføring uten avtrykk.',
   'I de to første tilfellene: ikke generer bildene om igjen for å få en kontroll, og ikke omtal leveransen som kontrollert uansett hvilket av de tre som gjelder.',
@@ -592,10 +593,28 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
        * answer to a deck whose pictures were made and whose bindings merely
        * cannot be checked.
        */
+      /*
+       * What is missing has to be said about the bindings this deck actually
+       * has. «None of them carries the digest» is false for a mixed delivery —
+       * two hashed, one declared — and that is a legal delivery now, not an
+       * edge case: a host can reach the bytes of one response and not another.
+       * The rule that makes the *whole* delivery uncheckable is still every
+       * record, not most, and stating it that way is what keeps the agent from
+       * reading «unverified» as «nothing was hashed».
+       */
+      const missing = plannedGeneratedImages(presentation).filter(
+        (record) => record.contentHash === undefined,
+      )
+      const declared = missing.some((record) => record.bytesUnavailable)
+      const allMissing = missing.length === images.length
       return status(
         'generation-unverified',
         false,
-        `Alle ${images.length} planlagte oppføringer har en kobling, og ingen av dem bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte. Uten avtrykket kan deponeringen aldri sammenligne filene med noe, og Slaids kan ikke skille en ekte leveranse fra id-er, numre og filnavn skrevet av bildeplanen – alt det sto i planen før bildene ble laget. Har du bytene, regn ut avtrykkene og kjør koblingskontrollen på nytt; det krever ingen nye bilder. Har du dem ikke, si uttrykkelig at leveransen er uverifisert og må ses gjennom manuelt. \`remainingSteps\` sier hvilken av de to som gjelder her. Ikke omtal dette som kontrollert.${depositNote(
+        `Alle ${images.length} planlagte oppføringer har en kobling, og ${
+          allMissing ? 'ingen av dem bærer' : `${missing.length} av dem bærer ikke`
+        } avtrykket (SHA-256) av bytene bildegenereringen returnerte${
+          declared ? ', med erklæringen om at bytene ikke var tilgjengelige' : ''
+        }. Én kobling uten avtrykk gjør hele leveransen ukontrollerbar – étt bilde ingen kan sjekke er étt bilde som kan ligge på feil slide – og Slaids kan ikke skille en ekte leveranse fra id-er, numre og filnavn skrevet av bildeplanen, for alt det sto i planen før bildene ble laget. Har du bytene til dem som mangler avtrykk, regn dem ut og kjør koblingskontrollen på nytt; det krever ingen nye bilder. Har du dem ikke, si uttrykkelig at leveransen er uverifisert og må ses gjennom manuelt. \`remainingSteps\` sier hvilken av de to som gjelder her. Ikke omtal dette som kontrollert.${depositNote(
           presentation,
         )}`,
         UNVERIFIED_STEPS,

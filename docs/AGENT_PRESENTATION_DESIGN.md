@@ -295,8 +295,8 @@ Arbeidsflyten er eksplisitt sekvensiell, og rekkefølgen på stegene er selve me
 
 1. Hent den ene bildejobben som står for tur. `prompt` er hele instruksen, og ingenting skal legges til den.
 2. Kall bildegeneratoren nøyaktig én gang, med bare den teksten – som parameter der verktøyet tar en, ellers som din egen melding rett før kallet.
-3. Regn ut SHA-256 av bytene som kom tilbake, med en gang.
-4. Kjør koblingskontrollen for denne ene oppføringen: `imagePlanItemId`, filendelsen og avtrykket.
+3. Kan du lese bytene som kom tilbake, regn ut SHA-256 av dem med en gang.
+4. Kjør koblingskontrollen for denne ene oppføringen: `imagePlanItemId`, filendelsen og avtrykket – eller `bytesUnavailable: true` når verten ikke gir deg bytene.
 5. Lagre filen under navnet kontrollen svarer med (`files`). Kontrollen krever ett av to svar om bytene: `contentHash`, eller `bytesUnavailable: true` når vertsklienten ikke gir deg dem. Sier koblingen ingenting om bytene, avvises den, og oppføringen blir stående som ubesvart bildejobb. Et oppdiktet avtrykk hjelper ikke: deponeringen sammenligner det med filens egne bytes og avviser hele settet.
 6. Hent først deretter neste jobb, uten å kommentere i samtalen at du gjør det.
 

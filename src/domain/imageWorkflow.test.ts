@@ -41,6 +41,7 @@ import {
   imageGenerationCoverage,
   imageGenerationIsReported,
   nextImageJob,
+  IMAGE_WORKFLOW_COMPLETION_CRITERIA,
 } from './imageWorkflow'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
@@ -1354,12 +1355,65 @@ describe('en kobling uten avtrykk er ikke et bevis', () => {
     const status = composeImageWorkflowStatus(written.value)
     expect(status.stage).toBe('generation-unverified')
     expect(status.complete).toBe(false)
-    expect(status.nextAction).toMatch(/Uten avtrykket kan deponeringen aldri sammenligne filene/i)
+    expect(status.nextAction).toMatch(/ingen av dem bærer avtrykket/i)
+    expect(status.nextAction).toMatch(
+      /Én kobling uten avtrykk gjør hele leveransen ukontrollerbar/i,
+    )
     expect(status.nextAction).toMatch(/skrevet av bildeplanen/i)
     expect(status.nextAction).toMatch(/Ikke omtal dette som kontrollert/i)
     expect(status.forbiddenClosings.join(' ')).toMatch(
       /Ikke si at bildene er kontrollert eller verifisert/i,
     )
+  })
+
+  it('beskriver en blandet leveranse som blandet, ikke som helt uten avtrykk', () => {
+    /*
+     * Two hashed, one declared — a legal delivery, not an edge case: a host can
+     * reach the bytes of one response and not another. The stage is still
+     * `generation-unverified`, because one binding nobody can check makes the
+     * whole delivery uncheckable, but «none of them carries the digest» is
+     * simply false here, and an agent repeating it would be describing work it
+     * actually did as work it did not.
+     */
+    const deck = awaiting(3)
+    const mixed = [...records(deck).slice(0, 2), ...declared(deck).slice(2)]
+    const written = recordGeneratedImages(deck, mixed)
+    if (!written.ok) throw new Error(written.error.message)
+
+    expect(imageGenerationCoverage(written.value)).toBe('claimed')
+    const status = composeImageWorkflowStatus(written.value)
+    expect(status.stage).toBe('generation-unverified')
+    expect(status.nextAction).not.toMatch(/ingen av dem bærer/i)
+    expect(status.nextAction).toMatch(/1 av dem bærer ikke avtrykket/i)
+    expect(status.nextAction).toMatch(/med erklæringen om at bytene ikke var tilgjengelige/i)
+    // And the way out is the one entry that lacks a digest, not all of them.
+    expect(status.remainingSteps.join(' ')).toMatch(/bildefilene som mangler avtrykk/i)
+
+    // The queue agrees: every entry answered for its bytes, so there is no job
+    // left — and the end of it says one of the answers was a declaration.
+    const done = nextImageJob(written.value)
+    expect(done.status).toBe('all-answered')
+    expect(done.instruction).toMatch(/meldt uten avtrykk/i)
+
+    /*
+     * And this is the delivery the completion criteria used to make
+     * unreachable. They demanded SHA-256 for *every* file and
+     * `check: "file-checked"` for the whole plan — which this host can never
+     * produce — while the deck could still reach `complete: true` once the
+     * user deposited the files. Two definitions of done in one model. The
+     * criteria now name both answers about the bytes, and the deck still
+     * finishes on the files.
+     */
+    const criteria = IMAGE_WORKFLOW_COMPLETION_CRITERIA.join(' ')
+    expect(criteria).toMatch(/ellers `bytesUnavailable: true`/i)
+    expect(criteria).toMatch(/Er én av dem en erklæring, er hele leveransen `unchecked`/i)
+    expect(criteria).toMatch(/aldri en grunn til å lage bildene om igjen/i)
+
+    let deposited: Presentation = written.value
+    for (const index of [0, 1, 2]) deposited = withFile(deposited, index)
+    const after = composeImageWorkflowStatus(deposited)
+    expect(after.stage).toBe('generation-verified')
+    expect(after.complete).toBe(true)
   })
 
   it('peker på avtrykket som veien ut, ikke på å lage bildene om igjen', () => {

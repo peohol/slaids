@@ -886,7 +886,7 @@ ut.
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
 | `generation-verified` | ✔ | Koblingskontrollen svarte `ok`, og ingenting Slaids kan se er utestående: hver planlagt sone har fått sin fil. |
-| `generation-unverified` | ✗ | Koblingene er meldt uten avtrykk — eller erklært uhashbare — så deponeringen får ingenting å sammenligne. Leveransesteg, ikke generering på nytt. |
+| `generation-unverified` | ✗ | Minst én kobling mangler avtrykket — uteblitt eller erklært uhashbar — og én som ikke kan sjekkes gjør hele leveransen ukontrollerbar. Leveransesteg, ikke generering på nytt. |
 | `awaiting-deposit` | ✗ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. Agenten kan være ferdig; dekket er det ikke. |
 | `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
@@ -1044,13 +1044,20 @@ kontrollen forventer.
   utføre, altså den samme feilen sett fra motsatt kant.
 - **`completionCriteria`** er hva fullført krever, målt på filene og koblingene:
   like mange separate filer som planen har oppføringer, én fil per
-  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, meldt med avtrykk og
-  godkjent med `check: "file-checked"`. Den samlede briefen er uttrykkelig
-  *ikke* et kriterium: den var det, og det gjorde utskrift av hele bildeplanen
-  til en betingelse for å bli ferdig. De to siste linjene er de som koster noe
-  å få riktig, og de skiller to spørsmål: koblingskontrollen er så langt agentens
-  arbeid rekker, mens `complete` først blir true når filene er deponert — og
-  deponeringen er brukerens steg, aldri noe agenten venter på.
+  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, og **et svar om
+  bytene for hver av dem** — et avtrykk, eller `bytesUnavailable`. Kriteriet kan
+  ikke kreve SHA-256 av alle: da ville den ene lovlige veien for en vert uten
+  byte-tilgang vært umulig å oppfylle samtidig som dekket kunne bli
+  `complete: true` etter deponering — to definisjoner av ferdig i samme modell.
+  Det kriterielisten sier i stedet, er at kontrollen svarer `ok` for hele
+  planen, at `check: "file-checked"` krever avtrykk på hver eneste kobling, og
+  at én erklæring gjør hele leveransen `unchecked`: en lovlig, dårligere
+  leveranse som skal omtales som uverifisert — aldri en grunn til å lage bildene
+  om igjen. Den samlede briefen er uttrykkelig *ikke* et kriterium: den var det,
+  og det gjorde utskrift av hele bildeplanen til en betingelse for å bli ferdig.
+  De to siste linjene skiller de to spørsmålene: koblingskontrollen er så langt
+  agentens arbeid rekker, mens `complete` først blir true når filene er
+  deponert — og deponeringen er brukerens steg, aldri noe agenten venter på.
 - **`forbiddenClosings`** navngir avslutningene som er gale på *dette* stadiet,
   ikke de som er gale mens `complete` er false. Genereringslisten —
   «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er
