@@ -718,24 +718,27 @@ describe('én regel, ett sted', () => {
     for (const unit of NAMED_UNITS) expect(listed).toContain(unit)
   })
 
-  it('lar guiden si samme stadium som domenet etter en godkjent kontroll', () => {
+  it('lar guiden si de samme stadiene som domenet', () => {
     /*
      * The guide is what `CLAUDE.md` sends a developing agent to read before it
      * touches the agent's rules, so a wrong stage here is not cosmetic: it can
-     * put back the very confusion this flow spent its rounds removing. It said
-     * a passing check gave `stage: generation-verified`, and it does not —
-     * `composeImageWorkflowStatus` reaches that stage only when nothing the
-     * deck can see is outstanding. A verified set whose files are not in the
-     * zones is `awaiting-deposit`.
+     * put back the very confusion this flow spent its rounds removing. It named
+     * stages the domain no longer has, from a flow where an agent reported its
+     * own generation back to the deck.
      */
     const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
-    expect(guide).not.toMatch(/generation-verified/)
-    expect(guide).toMatch(
-      /ligger filene ennå ikke i sonene, er `workflow\.stage` `awaiting-deposit`/i,
-    )
-    expect(guide).toMatch(
-      /`images-in-deck` kommer først når ingenting Slaids kan se er utestående/i,
-    )
+    expect(guide).not.toMatch(/generation-verified|awaiting-generation|awaiting-deposit|all-reported/)
+    for (const stage of [
+      'no-planned-images',
+      'plan-needs-repair',
+      'plan-outdated',
+      'awaiting-images',
+      'images-in-deck',
+    ]) {
+      expect(guide).toContain(`\`${stage}\``)
+    }
+    expect(guide).toMatch(/`images-in-deck` den eneste ferdig-tilstanden som gjelder bildene/i)
+    expect(guide).toMatch(/Slaids later aldri som om det vet at et bilde finnes/i)
   })
 
   it('lar guiden og agentflaten lete etter de samme bildene', () => {
