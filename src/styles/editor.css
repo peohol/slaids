@@ -1933,6 +1933,59 @@
   align-items: center;
 }
 
+/*
+ * The picture itself, at the size where «which one is this?» is answered at a
+ * glance and nothing else. A file name is what a generator chose; the thumbnail
+ * is what the person recognises, and the order is given by looking at these.
+ */
+.deposit-row__thumb {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+}
+
+.deposit-row__remove {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/*
+ * Reordering the pictures: the ideas list's gesture, so the two feel the same.
+ * The rules are its rules — a lifted row is `fixed` so it follows the pointer
+ * without being clipped by the dialog it came from, and `pointer-events: none`
+ * lets the hit test see the rows under it.
+ */
+.deposit-list.is-dragging {
+  cursor: grabbing;
+}
+
+.deposit-row.is-pressed {
+  background: var(--chrome-bg-inset);
+}
+
+.deposit-row.is-dragging {
+  position: fixed;
+  z-index: 45;
+  margin: 0;
+  pointer-events: none;
+  cursor: grabbing;
+  background: var(--chrome-bg-raised);
+  border-color: var(--chrome-border-strong);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  transform: rotate(-1.2deg);
+  will-change: left, top;
+}
+
+/* The place the picture gets if you let go now. */
+.deposit-row--placeholder {
+  border-style: dashed;
+  border-color: var(--chrome-border-strong);
+  background: var(--chrome-accent-soft);
+}
+
 /* ----------------------------------------------------------------- *
  * Non-drag structural controls
  *
