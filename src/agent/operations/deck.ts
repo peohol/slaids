@@ -719,7 +719,7 @@ export interface ImageJobView {
 export const getNextImageJob = defineOperation({
   name: 'get_next_image_job',
   summary:
-    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå», med formatet målt fra sonen – sammen med koblingsdataene kontrollen etterpå ber om: `imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`. Ingen andre oppføringer, ingen samlet brief, intet antall: kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, regn ut SHA-256 av bytene som kommer tilbake, kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene har sin egen kobling – det siste er slutten på løkken. ' +
+    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb, og den har tre felter: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå» – `aspectRatio` er formatet målt fra sonen, og `imagePlanItemId` er bokføringen kontrollen etterpå ber om. Nummer, filnavn og sone følger ikke med: hvert av dem sier «ett av flere», og koblingskontrollen svarer med navnet filen skal lagres under. Ingen andre oppføringer, ingen samlet brief, intet antall: kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, svar for bytene – SHA-256 av det som kom tilbake, eller `bytesUnavailable: true` når verten ikke gir deg dem – kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene har svart for bytene – det siste er slutten på løkken. ' +
     IMAGE_JOB_RULE,
   mutates: false,
   scopes: ['presentations:read'],
@@ -868,7 +868,7 @@ export const verifyImageHandoff = defineOperation({
             .string()
             .refine((value) => isImagePlanItemId(value), { message: 'Ikke en gyldig bildeplan-id' })
             .describe(
-              'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra `images` i bildebriefen. Aldri konstruert, aldri gjettet ut fra rekkefølgen.',
+              'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra jobben som ga deg prompten. Aldri konstruert, aldri gjettet ut fra rekkefølgen, og ikke hentet ut av bildeplanen på nytt: mellom to genereringer leser du ikke de andre oppføringene.',
             ),
           fileExtension: z
             .string()

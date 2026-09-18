@@ -52,7 +52,7 @@ import {
   IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
 } from '../domain/imageWorkflow'
 import { realImages } from '../domain/testImages'
-import { runOperation } from './registry'
+import { describeOperations, runOperation } from './registry'
 import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
 import type {
@@ -916,6 +916,53 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     // assemble a second, set-aware instruction from.
     expect(JSON.stringify(brief.images)).not.toContain('Lag ett bilde')
     expect(brief.brief).toBeNull()
+  })
+
+  it('lar ikke verktøybeskrivelsene love en annen jobb enn den som leveres', async () => {
+    /*
+     * The operation summary and the input-schema descriptions are text the
+     * model reads as part of the tool surface — standing instructions, the same
+     * way `IMAGE_JOB_RULE` is. When the job lost its number, file name and zone,
+     * the summary kept listing them; when `bytesUnavailable` became a legal
+     * answer, it kept asking for a digest unconditionally. Either one tells the
+     * model to work against the mechanism every other test here locks, and it
+     * names the three facts about a *set* this surface exists to withhold.
+     *
+     * Asserted against the delivered job rather than against a second copy of
+     * the field list: what the description may name is what the job has.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 3)
+    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    if (!job.job) throw new Error('Forventet en jobb')
+
+    const described = describeOperations()
+    const summary =
+      described.find((operation) => operation.name === 'get_next_image_job')?.summary ?? ''
+    expect(summary).not.toBe('')
+    for (const field of Object.keys(job.job)) expect(summary).toContain(`\`${field}\``)
+    for (const field of ['number', 'fileName', 'slideId', 'nodeId']) {
+      expect(job.job).not.toHaveProperty(field)
+      expect(summary).not.toContain(`\`${field}\``)
+    }
+    // Both legal answers about the bytes, because the check refuses a binding
+    // that gives neither — and a summary naming only one of them would send an
+    // honest host without byte access into a job it can never leave.
+    expect(summary).toMatch(/SHA-256/)
+    expect(summary).toMatch(/`bytesUnavailable: true`/)
+
+    /*
+     * And the check's own field does not send the agent back to the plan for
+     * the id it was just handed. Re-reading `images` between two generations to
+     * find an id is exactly the step that puts the other motifs back in
+     * context, one call before the next picture is made.
+     */
+    const handoff = described.find((operation) => operation.name === 'verify_image_handoff')
+    const schema = JSON.stringify(handoff?.inputSchema ?? {})
+    expect(schema).toContain('ordrett fra jobben som ga deg prompten')
+    expect(schema).not.toMatch(/ordrett fra .images. i bildebriefen/)
   })
 
   it('navngir filen etter kontrollen, ikke i jobben', async () => {
