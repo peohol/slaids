@@ -135,11 +135,14 @@ describe('visual media planning instructions', () => {
     it('gjør dekkets egen status til stoppkriteriet', () => {
       // The decision is a field, not an impression: an agent that only reads
       // structure sees `complete: false`.
-      expect(MCP_INSTRUCTIONS).toMatch(/Er `workflow\.complete` false, er det ikke ferdig/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete` svarer for dokumentet – at bildene faktisk ligger i dekket – ikke for deg/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/bare deponeringen kan gjøre den true/i)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.nextAction`/)
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.remainingSteps`/)
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Avslutt først når du har gjort det `workflow\.remainingSteps` krever av deg/i,
+        /avslutt først når du har gjort det `remainingSteps` krever av deg/i,
       )
       /*
        * And never «stop when the list is empty». In `awaiting-deposit` it does
@@ -160,7 +163,12 @@ describe('visual media planning instructions', () => {
       // «was the picture made». An agent told to wait for filled zones waits
       // for a browser action it cannot perform — and regenerates.
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Kontrollen er stoppkriteriet for bildegenereringen: er hele planen dekket og svaret `ok` med `check: "file-checked"`, er genereringsoppgaven ferdig/i,
+        /Kontrollen er stoppkriteriet for \*ditt\* genereringsarbeid: er hele planen dekket og svaret `ok` med `check: "file-checked"`, er den delen gjort/i,
+      )
+      // And what it is not: a report cannot finish the deck, because Slaids
+      // has no file to compare it against.
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /en kobling du melder er en påstand Slaids ikke kan sammenligne med noen fil/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
       // And the answer is a fact about the deck, not about one response: the

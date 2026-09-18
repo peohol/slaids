@@ -932,8 +932,15 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(brief.images.map((image) => image.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     for (const image of brief.images) {
       expect(image.aspectRatio).toMatch(/^\d+:\d+$/)
-      expect(image.subject).not.toBe('')
+      // The write does not hand the motifs back: they were its own argument,
+      // and a second copy is a second copy in the context the first image call
+      // is written from. The read carries them, for a session that repairs.
+      expect(image.subject).toBeUndefined()
     }
+    const read = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(read.images.map((image) => image.subject)).toEqual(MOTIFS)
 
     // And the count is stated separately from the prose, against the same plan
     // the brief is composed from, so «are we finished» is a comparison.
@@ -1026,7 +1033,12 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(verified.check).toBe('file-checked')
     // What it covers, and what it does not — stated by Slaids rather than left
     // to an agent to phrase.
-    expect(verified.checkMeans).toMatch(/sier ingenting om hva bildet viser/i)
+    expect(verified.checkMeans).toMatch(/aldri hva bildet viser/i)
+    // And it does not overstate itself: the comparison happens in the browser,
+    // so at this point the digest is a string the caller supplied.
+    expect(verified.checkMeans).toMatch(
+      /Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine/i,
+    )
     // The digests ride along in the manifest, which is the only way they reach
     // the browser that can actually compare them.
     expect(JSON.parse(verified.manifest ?? '{}').images[0].contentHash).toBe(digest(1))
@@ -1481,7 +1493,9 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     })
 
     expect(verified.workflow.stage).toBe('awaiting-deposit')
-    expect(verified.workflow.complete).toBe(true)
+    // Not complete: the pictures are not in the deck, and a report cannot put
+    // them there. The agent's own stop is `remainingSteps`.
+    expect(verified.workflow.complete).toBe(false)
     expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
     // Every picture zone is still empty, and the action says whose step that is.
     expect(verified.workflow.nextAction).toMatch(/bildesoner står tomme/i)
@@ -1549,12 +1563,12 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verified.ok).toBe(true)
     expect(verified.check).toBe('file-checked')
     expect(verified.workflow.stage).toBe('awaiting-deposit')
-    expect(verified.workflow.complete).toBe(true)
+    expect(verified.workflow.complete).toBe(false)
     // Slaids still has none of the files, and says so — it is just not the
     // stop criterion, and it is never called «generation calls remaining».
     expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
     expect(verified.workflow.depositedImageCount).toBe(0)
-    expect(verified.workflow.nextAction).toMatch(/genereringsoppgaven er gjort/i)
+    expect(verified.workflow.nextAction).toMatch(/genereringsarbeidet ditt er gjort/i)
     expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
     // And it works for a session that does not hold the files: the deck keeps
     // the check, never the pictures, so a later conversation is told to say so
@@ -1571,7 +1585,14 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verified.workflow.remainingSteps.join(' ')).not.toMatch(
       /^Generer de \d+ bildene/im,
     )
-    expect(verified.workflow.forbiddenClosings).toEqual([])
+    // The delivery stage names its own wrong endings: overstating what a
+    // report proves, and calling the deck finished while its zones are empty.
+    expect(verified.workflow.forbiddenClosings.join(' ')).toMatch(
+      /Ikke si at bildene er kontrollert eller verifisert/i,
+    )
+    expect(verified.workflow.forbiddenClosings.join(' ')).not.toMatch(
+      /Bildene er ikke satt inn ennå/i,
+    )
   })
 
   it('lar ikke en lagret kontroll være en leveranse en senere samtale kan gjøre', async () => {
@@ -1601,7 +1622,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
       presentationId: brief.presentationId,
     })
     expect(reopened.workflow.stage).toBe('awaiting-deposit')
-    expect(reopened.workflow.complete).toBe(true)
+    expect(reopened.workflow.complete).toBe(false)
 
     // The model-facing stop contract, run for this reader: work is owed, and
     // `complete` is not what decides it.
@@ -1647,7 +1668,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(last.planCovered).toBe(true)
     expect(last.manifest).toContain(brief.images[0].imagePlanItemId)
     expect(last.workflow.stage).toBe('awaiting-deposit')
-    expect(last.workflow.complete).toBe(true)
+    expect(last.workflow.complete).toBe(false)
   })
 
   it('holder seg ferdig når briefen leses etter en godkjent kontroll', async () => {
@@ -1667,7 +1688,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
       presentationId: brief.presentationId,
     })
     expect(reread.workflow.stage).toBe('awaiting-deposit')
-    expect(reread.workflow.complete).toBe(true)
+    expect(reread.workflow.complete).toBe(false)
     expect(reread.workflow.remainingSteps.join(' ')).not.toMatch(/^Generer de \d+ bildene/im)
     expect(reread.workflow.nextAction).not.toMatch(/kall deretter bildegeneratoren/i)
     // Nothing was deposited, and the deck says so without treating it as work.
@@ -1741,7 +1762,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verified.ok).toBe(true)
     expect(verified.issues).toEqual([])
     expect(verified.workflow.stage).toBe('awaiting-deposit')
-    expect(verified.workflow.complete).toBe(true)
+    expect(verified.workflow.complete).toBe(false)
   })
 
   it('lar ikke gamle filer i sonene gjøre en omskrevet bestilling ferdig', async () => {
@@ -1864,11 +1885,17 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(verify?.description).toMatch(
       /med avtrykk blir `workflow\.stage` `awaiting-deposit` når hele planen er dekket/i,
     )
-    expect(verify?.description).toMatch(/`generation-verified` når filene er lagt inn i sonene/i)
-    expect(verify?.description).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
-    // And the level below it, which is what an unchecked delivery lands on.
     expect(verify?.description).toMatch(
-      /Uten avtrykk lagres koblingen, men genereringen blir aldri verifisert/i,
+      /`generation-verified` først når filene er lagt inn i sonene/i,
+    )
+    expect(verify?.description).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
+    // And what the check settles is what was *reported*: the digests are
+    // compared where the bytes are, which is the browser.
+    expect(verify?.description).toMatch(
+      /det er også der avtrykkene faktisk sammenlignes med bytene/i,
+    )
+    expect(verify?.description).toMatch(
+      /Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes/i,
     )
   })
 

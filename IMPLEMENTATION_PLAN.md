@@ -342,26 +342,35 @@ Denne direkte overleveringen gjelder starten på genereringen, ikke
 filreturen: uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt
 gjennom bildedeponeringen i 7.3.
 
-**Normalflyten eksponerer aldri at det finnes flere bilder.** Hver generering
-skal se ut som en fullstendig selvstendig oppgave, i kallet og i samtalen rundt
-det: ingen utskrevet samlet brief, ingen oppsummering av bildeplanen, ingen
+**Slaids eksponerer ikke settet i genereringssteget.** Hver generering skal se
+ut som en fullstendig selvstendig oppgave, i kallet og i samtalen rundt det:
+ingen utskrevet samlet brief, ingen oppsummering av bildeplanen, ingen
 punktliste over bildene, ingen opptelling, ingen «bilde 1 av 10» og ingen «nå
-går jeg videre til neste bilde». Det er hovedgrepet mot sammenslåtte bilder, og
-det er strukturelt fremfor advarende: en bildegenerator som får se at oppgaven
-er et sett, lager et sett — collage, kontaktark, storyboard eller ett helt
-slide-oppsett — og ingen regel mot collage veier opp for å ha vist den at settet
-finnes. Antallet finnes fortsatt i svaret, som kontroll av den ferdige
-leveransen (`expectedFileCount`), aldri som noe agenten gjentar.
+går jeg videre til neste bilde». Det er hovedgrepet mot sammenslåtte bilder: en
+bildegenerator som får se at oppgaven er et sett, lager et sett — collage,
+kontaktark, storyboard eller ett helt slide-oppsett — og ingen regel mot collage
+veier opp for å ha vist den at settet finnes. Antallet finnes fortsatt i svaret,
+som kontroll av den ferdige leveransen (`expectedFileCount`), aldri som noe
+agenten gjentar.
 
-Å komponere prompten per oppføring var ikke nok alene, og det er verdt å si
-hvorfor: svarene bar fortsatt hele planen — hvert motiv, hver ferdige prompt,
-antallet — så agenten hadde settet foran seg i det første bildekallet ble
-skrevet, uansett hva den var bedt om å ikke gjenta. Isolasjonen måtte derfor
-flytte fra *hva som skrives* til *hva som er synlig*: genereringssteget leser én
-jobb om gangen, bildeplanens svar bærer ingen ferdige prompter, og den samlede
-briefen følger bare med når noen ber om den. Agenten henter heller ikke flere
-jobber på forskudd, og leser ikke planen på nytt for å få tak i de andre
-motivene mens den genererer.
+Å komponere prompten per oppføring var ikke nok alene: svarene bar fortsatt hele
+planen — hvert motiv, hver ferdige prompt, antallet — så agenten hadde settet
+foran seg i det første bildekallet ble skrevet. Derfor leser genereringssteget
+én jobb om gangen, bærer bildeplanens svar ingen ferdige prompter, følger den
+samlede briefen bare med når noen ber om den, og gjentar ikke skrivekallet
+tekstene det nettopp fikk.
+
+**Og her går grensen for hva Slaids kan håndheve, sagt rett ut.** Agenten
+*skriver* bildeplanen, så motivene har vært i samtalen dens uansett hva Slaids
+svarer etterpå; og om vertsklientens bildeverktøy arver den samtalen, er det en
+egenskap ved verten, ikke ved dette API-et. Slaids kontrollerer hva det selv
+eksponerer og når. At bildegeneratoren bare ser den ene prompten er derfor et
+**krav til vertsklienten**: gjør bildekallet i en isolert kontekst, og kan
+klienten ikke det, si det til brukeren i stedet for å love isolasjon den ikke
+har. `CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene som ellers ville
+reist inni ordren, men den er lint på kjente mønstre — «viderefør uttrykket fra
+resten av presentasjonen» går klar av enhver regex, og den reelle garantien
+ligger i den isolerte konteksten.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -763,28 +772,36 @@ Derfor to separate tall og én sannhetskilde:
   har, hvor mange soner som holder en fil, og hvor mange som står tomme.
   `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
   skylder.
-- **Om selve genereringen er ferdig, svarer `imageGenerationCoverage` på.** Den
-  har tre nivåer: `none` (planen er ikke dekket), `unverified` (hver oppføring
-  har en kobling, og minst én mangler avtrykket) og `verified` (alle koblinger
-  bærer avtrykket av bytene bildegenereringen returnerte). Bare `verified` er en
-  utført generering. Statusen leser det aldri av en fylt sone.
+- **Hva som er *meldt*, svarer `imageGenerationCoverage` på.** Den har tre
+  nivåer: `none` (planen er ikke dekket), `claimed` (hver oppføring har en
+  kobling, og minst én mangler avtrykket, så deponeringen kan aldri sammenligne
+  noe) og `checkable` (alle koblinger bærer et avtrykk deponeringen *kan*
+  sammenligne). Ingen av dem er et bevis på at et bilde er laget. Statusen leser
+  det heller aldri av en fylt sone alene.
 
-#### Avtrykket er det eneste beviset, fordi alt annet står i planen
+#### Ingenting agenten skriver kan fullføre dekket
 
 En kobling består av `imagePlanItemId`, nummeret, sonen, filnavnet og
-`contentHash`. De fire første sto i bildeplanen *før* noe bilde ble laget, så en
-komplett, selvmotsigelsesfri koblingsliste kan skrives av planen uten å kalle en
-bildegenerator i det hele tatt — og det svarte `ok`, ble lagret og leste tilbake
-som `complete: true`. Avtrykket er det eneste feltet som ikke kan skrives av
-planen.
+`contentHash`. De fire første sto i bildeplanen *før* noe bilde ble laget, og
+avtrykket er 64 tegn Slaids ikke har noen fil å sammenligne med — API-et er
+aldri i rommet når et bilde lages. En komplett, selvmotsigelsesfri koblingsliste
+med syntaktisk gyldige avtrykk kan derfor skrives av planen uten å kalle en
+bildegenerator i det hele tatt, og ingen kontroll på denne siden kan se
+forskjell.
 
-Derfor: en kobling uten avtrykk *lagres* — ellers ville en vertsklient som ikke
+Derfor hviler fullføring på det ene som ikke kan påstås: **en fil i dekket.**
+`complete` blir true i `generation-verified` — hver planlagt bildesone holder en
+fil — og i `no-planned-images`. Filene kommer inn gjennom brukerens deponering i
+nettleseren, som er også det eneste stedet avtrykkene faktisk sammenlignes med
+bytes. `awaiting-deposit` og `generation-unverified` er derfor `complete: false`
+selv når agenten er ferdig med sitt: det er `remainingSteps` som sier hva som
+gjenstår for *den*, og den kan avslutte når grenen som gjelder er utført.
+
+En kobling uten avtrykk lagres likevel — ellers ville en vertsklient som ikke
 får tilgang til bytene fra sitt eget bildeverktøy blitt bedt om å generere alt
-på nytt ved hver lesning — men den teller ikke som bevis. Stadiet blir
-`generation-unverified` med `complete: false`, og veien ut er avtrykket, ikke
-nye bilder: har agenten bytene, regner den ut SHA-256 og kjører kontrollen på
-nytt; har den dem ikke, skal leveransen uttrykkelig omtales som uverifisert og
-overlates til manuell gjennomgang i deponeringen.
+på nytt ved hver lesning — men da kan deponeringen aldri sammenligne noe, og
+stadiet sier det: `generation-unverified`, med avtrykket som vei ut, ikke nye
+bilder.
 
 #### Koblingene lagres, fordi ett kall ikke er en tilstand
 

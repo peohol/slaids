@@ -709,12 +709,21 @@ kontaktark eller storyboard i stedet for N separate bilder. Tekster som viser
 til de andre bildene — «samme utsnitt som forrige bilde» — meldes som funn i
 bildeplanen, fordi de ellers ville reist inni selve ordren.
 
-**Avtrykket er det eneste beviset på at et bilde faktisk er laget.** En kobling
-består av id, nummer, sone, filnavn og `contentHash`, og de fire første sto i
-bildeplanen før bildet ble laget. Uten avtrykket blir genereringen derfor aldri
-regnet som verifisert: koblingen lagres, men dekket står i
-`generation-unverified` til avtrykkene er på plass eller leveransen uttrykkelig
-omtales som uverifisert.
+**Ingenting agenten skriver kan fullføre dekket.** En kobling består av id,
+nummer, sone, filnavn og `contentHash` — de fire første sto i bildeplanen før
+bildet ble laget, og avtrykket har Slaids ingen fil å sammenligne med, for
+API-et er aldri i rommet når et bilde lages. Fullføring hviler derfor på det ene
+som ikke kan påstås: en fil i dekket. `complete` blir true når hver planlagte
+bildesone holder en fil, og det er brukerens deponering i nettleseren som setter
+dem der — og det eneste stedet avtrykkene faktisk sammenlignes med bytes. En
+kobling uten avtrykk lagres, men da kan ingenting noensinne sammenlignes, og
+dekket sier det (`generation-unverified`).
+
+**Isolasjonen har en grense Slaids ikke kan håndheve.** Agenten skriver
+bildeplanen, så motivene har vært i samtalen dens uansett; og arver
+vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten. At
+generatoren bare ser den ene prompten er derfor et krav til vertsklienten, ikke
+en garanti Slaids kan gi.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan

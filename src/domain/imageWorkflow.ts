@@ -61,21 +61,21 @@ import type { Presentation } from './types'
 /**
  * The raster flow's position, in the deck's own terms.
  *
- * Two are finished outright: `no-planned-images` because there is nothing to
- * make, and `generation-verified` because everything planned was made *and* is
- * in the deck. `awaiting-deposit` is the one that is finished *conditionally* —
- * everything planned was made, and whether anything is left for the agent
- * depends on something the deck cannot see: whether this conversation still
- * holds the files. The others are stages an agent must never end a turn in.
+ * Two are finished for the *document*: `no-planned-images` because there is
+ * nothing to make, and `generation-verified` because every planned picture is
+ * in the deck. Those are the only two that are `complete`, and the reason is
+ * that they are the only two nobody can assert: a file in a zone got there
+ * through the deposit.
  *
- * `generation-unverified` is the one that is about *evidence* rather than about
- * work. Every planned entry has a binding and not one of them carries a digest
- * of the bytes a generation response returned — which is a delivery nobody can
- * tell apart from ids, numbers and file names copied straight out of the plan.
- * An agent holds all of those before it generates anything, so a state that
- * called this finished would let the whole flow be satisfied without one image
- * call. It is therefore never `complete`, and the way out is the digest rather
- * than another picture.
+ * `awaiting-deposit` and `generation-unverified` are the delivery stages. Both
+ * are `complete: false` while the agent may well be finished — what decides
+ * that is `remainingSteps`, which names the branch that applies. They differ in
+ * what the delivery will allow later: with digests the deposit can compare each
+ * file against the bytes its generation response is said to have returned;
+ * without them it can compare nothing, and the delivery is a claim with no
+ * future check in it.
+ *
+ * The rest are stages an agent must never end a turn in.
  */
 export type ImageWorkflowStage =
   | 'no-planned-images'
@@ -90,22 +90,23 @@ export type ImageWorkflowStage =
 export interface ImageWorkflowStatus {
   stage: ImageWorkflowStage
   /**
-   * Whether the plan the deck carries now is covered by a current, verified
-   * generation.
+   * Whether the pictures the deck plans are actually in it.
    *
-   * A statement about the *document*, and only that. False means the task is
-   * not finished, no matter how complete the slides look — see
-   * `completionCriteria` — and it is never a statement about the deposit: the
-   * files reaching Slaids is the user's step, and waiting for it is never the
-   * agent's work.
+   * A statement about the *document*, and only that — and deliberately about
+   * the one thing nobody can assert into existence. Everything an agent reports
+   * about a generated picture is a string it supplied: the plan entry's id, the
+   * number, the zone and the file name were in the plan before any picture
+   * existed, and the digest is 64 characters Slaids has nothing to compare
+   * against. A delivery is therefore a claim until the files reach the deck,
+   * where the deposit compares each one against the digest its manifest carries
+   * before inserting anything.
    *
-   * True is not by itself a licence to stop, and that asymmetry is the point.
-   * The bindings are stored on the document and the pictures are not, so a
-   * verified deck says the files were made *once*, by whoever held that
-   * conversation. A later session can open the same deck, read the same true
-   * fact, and have no access to a single one of those files — and it owes the
-   * pictures again. What is left for the agent is therefore `remainingSteps`,
-   * which is empty only when nothing is owed by anybody.
+   * So `complete` is never a report of the agent's work, and `false` does not
+   * mean the agent owes something. **`remainingSteps` is what a stop decides
+   * on**: in the delivery stages it names two branches, the agent performs the
+   * one that applies, and its work is done while the deck is not. That
+   * separation is what keeps «the pictures are in the deck» from being
+   * something a model can state about itself.
    */
   complete: boolean
   plannedImageCount: number
@@ -164,6 +165,14 @@ export interface ImageWorkflowStatus {
  * What no stage here asserts, stated once so nothing downstream reads more into
  * one than it says.
  *
+ * **No stage says a picture was generated.** Slaids is not in the room when one
+ * is made: the bindings it stores are what an agent reported, and a binding can
+ * be written from the plan alone. `generation-verified` is not an exception —
+ * it says the planned zones hold files, which is a fact about the document that
+ * the deposit put there, and the deposit checks digests when a manifest carries
+ * them. What it never says is that the picture in the zone shows the motif that
+ * was ordered.
+ *
  * **Slaids never sees a picture.** It knows which orders were placed, which
  * bindings a generating agent wrote down and checked, and whether a zone holds
  * *a* file. It cannot know that the file in a zone is the file a binding
@@ -209,10 +218,11 @@ export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
   'Presentasjonen er opprettet eller oppdatert.',
   'Slidestruktur og innhold er på plass.',
   'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
-  'Alle planlagte bilder er generert i samme samtale, ett av gangen: like mange separate bildefiler som planen har oppføringer, én fil per `imagePlanItemId`.',
+  'Alle planlagte bilder er generert uten å vente på en ny brukerbeskjed, ett av gangen: like mange separate bildefiler som planen har oppføringer, én fil per `imagePlanItemId`. Blir samtalen avbrutt, fortsetter genereringen der dekket står – køen ligger i dokumentet, ikke i samtalen.',
   'Hver fil har det aspect ratio oppføringen den ble generert fra oppgir.',
-  'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, med avtrykket (SHA-256) av bytene bildegenereringen returnerte, og koblingskontrollen svarer `ok` med `check: "file-checked"` for alle planlagte oppføringer. Det er den kontrollen som avgjør at bildegenereringen er ferdig, og svaret blir stående på dekket. En kobling uten avtrykk teller ikke: id, nummer, sone og filnavn står alle i bildeplanen fra før, så de kan skrives av uten at noe bilde er laget.',
-  'Å legge bildene inn i Slaids kreves ikke for at genereringsoppgaven er ferdig: uten en filbro tilbake til Slaids er deponeringen brukerens steg i nettleseren. Fylte bildesoner er derfor aldri stoppkriteriet.',
+  'Hver fil er meldt med den `imagePlanItemId` den ble generert fra og avtrykket (SHA-256) av bytene bildegenereringen returnerte, og koblingskontrollen svarer `ok` med `check: "file-checked"` for alle planlagte oppføringer. Det er så langt *ditt* arbeid rekker, og svaret blir stående på dekket.',
+  'Koblingen er en påstand til den er kontrollert mot filene selv. Slaids ser aldri bytene dine: id, nummer, sone og filnavn sto i bildeplanen fra før, og avtrykket er en streng du oppgir. Den eneste sammenligningen med virkelige bytes skjer i nettleseren når brukeren deponerer filene, så `complete` blir først true når bildene faktisk ligger i dekket.',
+  'Å legge bildene inn er derfor brukerens steg, og aldri noe du venter på: `remainingSteps` sier hva som gjenstår for deg, og er den gjort, er ditt arbeid ferdig selv om dekket ikke er det.',
 ]
 
 /**
@@ -232,6 +242,22 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
   'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe før bildene genereres, eller en konkret teknisk blokkering du navngir.',
   'Ikke omtal en leveranse uten avtrykk som kontrollert eller verifisert, og ikke meld genereringen ferdig på den. Uten `contentHash` er koblingen bare metadata om et filnavn – og id, nummer, sone og filnavn kan alle skrives av bildeplanen uten at noe bilde er laget. Si at leveransen er uverifisert, eller regn ut avtrykkene og kjør kontrollen på nytt.',
   'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er koblingen alt kontrollert, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
+]
+
+/**
+ * The endings that are wrong once the pictures have been delivered.
+ *
+ * A separate list, because the generation one does not fit here and one of its
+ * lines is false here: «bildene er ikke satt inn ennå — arbeidet er ditt» is
+ * exactly backwards for a deck whose files are waiting for the user's deposit.
+ * What is wrong at this end is overstating what the delivery proves, and
+ * quietly calling the deck finished while its picture zones are empty.
+ */
+export const IMAGE_DELIVERY_FORBIDDEN_CLOSINGS: readonly string[] = [
+  'Ikke si at bildene er kontrollert eller verifisert. Slaids har sammenlignet koblingene med bildeplanen, ikke med filene: avtrykket er en påstand du oppga, og det blir først sammenlignet med virkelige bytes i nettleseren når brukeren deponerer filene.',
+  'Ikke meld presentasjonen ferdig uten å si at bildene ikke er på plass i dekket ennå, og hva brukeren skal gjøre for å legge dem inn.',
+  'Ikke vent på at brukeren deponerer bildene. Deponeringen er brukerens steg i nettleseren, og den er aldri ditt arbeid.',
+  'Ikke generer et bilde om igjen fordi bildesonen ennå er tom, så lenge du selv har filen. Er filen laget i en tidligere samtale og ikke tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
 ]
 
 /**
@@ -336,25 +362,29 @@ function depositNote(presentation: Presentation): string {
  *
  *  - `none` — the plan is not covered: entries are missing a binding, or the
  *    bindings contradict the plan.
- *  - `unverified` — every entry has a binding, and at least one carries no
- *    digest of the bytes its generation response returned. Consistent metadata
- *    about files nobody can point at.
- *  - `verified` — every entry has a binding and every binding carries its
- *    digest.
+ *  - `claimed` — every entry has a binding, and at least one carries no digest.
+ *    Nothing about this delivery can ever be compared against a file.
+ *  - `checkable` — every entry has a binding and every binding carries a
+ *    digest, so the deposit *will* compare each file's own bytes against the
+ *    digest its generation response is said to have returned.
+ *
+ * **Neither of the last two is proof, and the names are chosen so nothing
+ * downstream can read one as proof.** Slaids never sees a generated file: at
+ * the agent boundary a digest is a 64-character string the caller supplied, and
+ * every other field in a binding — the id, the number, the zone, the file name
+ * — was in the plan before any picture existed. So a complete, self-consistent,
+ * digest-carrying set of bindings is exactly as cheap to produce by copying the
+ * plan as by generating the pictures, and no check on this side can tell the
+ * two apart. It used to end in `complete: true`; it no longer can. The one
+ * thing that cannot be asserted into existence is a file in the deck, and that
+ * is what completion now rests on.
  *
  * The records are kept only while they resolve (see `setImagePlan`), and the
  * check is asked against the *current* plan every time rather than trusted as a
  * flag — so a rewritten motif or shared context invalidates the answer without
  * anything having to remember to clear it.
- *
- * The digest is what makes this a fact about *files* rather than a claim. Every
- * other field in a binding — the id, the number, the zone, the file name — is
- * something the plan already told the agent, so a set of bindings without
- * digests is exactly as cheap to produce by copying the plan as by generating
- * the pictures. That is not a hypothetical shortcut: it is the cheapest path
- * through this flow, and it used to end in `complete: true`.
  */
-export type ImageGenerationCoverage = 'none' | 'unverified' | 'verified'
+export type ImageGenerationCoverage = 'none' | 'claimed' | 'checkable'
 
 export function imageGenerationCoverage(presentation: Presentation): ImageGenerationCoverage {
   /*
@@ -367,17 +397,18 @@ export function imageGenerationCoverage(presentation: Presentation): ImageGenera
   const records = plannedGeneratedImages(presentation)
   if (records.length === 0) return 'none'
   if (checkGeneratedImages(presentation, records).length > 0) return 'none'
-  return imageBindingCheck(records) === 'file-checked' ? 'verified' : 'unverified'
+  return imageBindingCheck(records) === 'file-checked' ? 'checkable' : 'claimed'
 }
 
 /**
- * Whether the plan is covered by bindings that reach the files themselves.
+ * Whether the agent has reported a binding for every planned picture.
  *
- * The one question a finished generation turns on, and it is deliberately
- * stricter than «the bindings add up»: see `imageGenerationCoverage`.
+ * A statement about what was *claimed*, never about what was made — see
+ * `imageGenerationCoverage`. Named so that no caller can mistake it for the
+ * question it is not.
  */
-export function imageGenerationIsVerified(presentation: Presentation): boolean {
-  return imageGenerationCoverage(presentation) === 'verified'
+export function imageGenerationIsReported(presentation: Presentation): boolean {
+  return imageGenerationCoverage(presentation) !== 'none'
 }
 
 /**
@@ -403,11 +434,22 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     depositedImageCount: deposited,
     awaitingFileCount: images.length - deposited,
   }
+  /*
+   * `forbiddenClosings` is the stage's own, not a function of `complete`.
+   *
+   * It used to be «empty when complete», which worked while `complete` meant
+   * «the agent's generation is done». It does not any more: completion is now
+   * the pictures being in the deck, so the stages where the agent has delivered
+   * are `complete: false` too — and the generation list, which says «the work
+   * is yours» about inserting pictures, is actively wrong there. The delivery
+   * stages name their own endings instead.
+   */
   const status = (
     stage: ImageWorkflowStage,
     complete: boolean,
     nextAction: string,
     remainingSteps: readonly string[] = [],
+    forbiddenClosings: readonly string[] = IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
   ): ImageWorkflowStatus => ({
     stage,
     complete,
@@ -415,7 +457,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     nextAction,
     remainingSteps,
     completionCriteria: IMAGE_WORKFLOW_COMPLETION_CRITERIA,
-    forbiddenClosings: complete ? [] : IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS,
+    forbiddenClosings,
   })
 
   if (checkImagePlan(presentation).length > 0) {
@@ -458,7 +500,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     (record) => !plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
   )
   const coverage = imageGenerationCoverage(presentation)
-  const verified = coverage === 'verified'
+  const reported = coverage !== 'none'
 
   if (unaddressed.length > 0) {
     const numbers = unaddressed.map((record) => record.number).join(', ')
@@ -474,7 +516,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     )
   }
 
-  if (superseded.length > 0 && !verified) {
+  if (superseded.length > 0 && !reported) {
     /*
      * The whole current plan, never just the superseded part. The two groups —
      * zones showing a previous picture, and zones with no picture at all — are
@@ -497,35 +539,68 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       'no-planned-images',
       true,
       'Dekket planlegger ingen rasterbilder, så rasterflyten har ingenting utestående. Forutsetter bestillingen bilder, er det bildeplanen som mangler – ikke bildegenereringen.',
+      [],
+      [],
     )
   }
 
-  if (verified) {
+  if (reported) {
     /*
+     * Every planned entry is spoken for. What that means depends on one thing
+     * the deck *can* see — whether the pictures are in it.
+     *
      * Delivered means two things, and a filled zone only answers one of them.
      * A zone whose picture is still the superseded one *has* a file, so the
      * count says nothing is missing — and the replacement it is waiting for has
-     * been made and checked. Both are true, and «the pictures are in the deck»
-     * is not.
+     * been reported. Both are true, and «the pictures are in the deck» is not.
      */
     const outstanding = counts.awaitingFileCount + superseded.length
     if (outstanding === 0) {
+      /*
+       * The one state that may say finished, and the reason is that it rests on
+       * something nobody could assert: a file in the deck. Every field in a
+       * binding, the digest included, is a string the agent supplied — but the
+       * bytes in a picture zone got there through the deposit, which compares
+       * each file against the digest its manifest carries before inserting
+       * anything. Completion is therefore a fact about the document rather than
+       * a claim about work.
+       */
       return status(
         'generation-verified',
         true,
-        `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, og hver bildesone har fått en fil uten at noe i dekket motsier bestillingen. Rasterflyten er ferdig. Slaids ser aldri selve bildet, så dette er så langt dekket kan svare: se gjennom bildene i tillegg.`,
+        `Alle ${images.length} planlagte bilder er gjort rede for av en kobling, og hver bildesone har fått en fil uten at noe i dekket motsier bestillingen. Rasterflyten er ferdig. Slaids ser aldri selve bildet, så dette er så langt dekket kan svare: se gjennom bildene i tillegg.`,
+        [],
+        [],
+      )
+    }
+    if (coverage === 'claimed') {
+      /*
+       * Reported, and nothing about the report can ever be compared against a
+       * file. Deliberately before the filled-zone branch below: that one says
+       * «rewrite the plan with the zones that still wait», which is the wrong
+       * answer to a deck whose pictures were made and whose bindings merely
+       * cannot be checked.
+       */
+      return status(
+        'generation-unverified',
+        false,
+        `Alle ${images.length} planlagte oppføringer har en kobling, og ingen av dem bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte. Uten avtrykket kan deponeringen aldri sammenligne filene med noe, og Slaids kan ikke skille en ekte leveranse fra id-er, numre og filnavn skrevet av bildeplanen – alt det sto i planen før bildene ble laget. Har du bytene, regn ut avtrykkene og kjør koblingskontrollen på nytt; det krever ingen nye bilder. Har du dem ikke, si uttrykkelig at leveransen er uverifisert og må ses gjennom manuelt. \`remainingSteps\` sier hvilken av de to som gjelder her. Ikke omtal dette som kontrollert.${depositNote(
+          presentation,
+        )}`,
+        UNVERIFIED_STEPS,
+        IMAGE_DELIVERY_FORBIDDEN_CLOSINGS,
       )
     }
     /*
-     * Verified, and the files are not in the deck. Complete, because generating
-     * them was the agent's work and it is done — but the stage says what is
-     * pending, and the action has to work for a session that does not hold the
-     * files.
+     * Reported with digests, and the files are not in the deck. Not complete —
+     * completion is the pictures being in the deck, and nothing the agent can
+     * write moves that — but the generation work itself is what `remainingSteps`
+     * decides, and it has to work for a session that does not hold the files.
      *
-     * That last part is the failure this wording answers. The check is stored,
-     * so it outlives the conversation that ran it: a later session can open
-     * this deck, read «done», and have no access to the pictures a previous
-     * chat produced. A record is proof that files were made once; it is not
+     * That last part is the failure this wording answers. The bindings are
+     * stored, so they outlive the conversation that wrote them: a later session
+     * can open this deck, read them, and have no access to the pictures a
+     * previous chat produced. A record says files were reported once; it is not
      * proof that anybody can still deliver them. So making them again is
      * explicitly allowed here, and reporting the deck as finished while its
      * picture zones are empty — or still showing the previous picture — is
@@ -533,34 +608,18 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
      */
     return status(
       'awaiting-deposit',
-      true,
-      `Alle ${images.length} planlagte bilder er generert og kontrollert mot sin egen oppføring, så genereringsoppgaven er gjort. Filene ligger ikke i dekket: ${
+      false,
+      `Alle ${images.length} planlagte bilder er meldt generert med avtrykk, så genereringsarbeidet ditt er gjort. Dekket er ikke ferdig: ${
         superseded.length > 0
           ? `${superseded.length} bildesoner viser fortsatt bildet fra den forrige bestillingen${
               counts.awaitingFileCount > 0 ? `, og ${counts.awaitingFileCount} står tomme` : ''
             }`
           : `${counts.awaitingFileCount} bildesoner står tomme`
-      }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er den lagrede kontrollen ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
+      }, og å legge filene inn er brukerens steg. Det er der avtrykkene faktisk kontrolleres – Slaids ser aldri bytene dine, så koblingen er din påstand til den er sammenlignet i nettleseren. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er de lagrede koblingene ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
         presentation,
       )}`,
       DEPOSIT_STEPS,
-    )
-  }
-
-  if (coverage === 'unverified') {
-    /*
-     * Every entry is claimed and not one claim reaches a file. Deliberately
-     * before the filled-zone branch below: that one says «rewrite the plan with
-     * the zones that still wait», which is the wrong answer to a deck whose
-     * pictures were made and whose bindings are merely unprovable.
-     */
-    return status(
-      'generation-unverified',
-      false,
-      `Alle ${images.length} planlagte oppføringer har en kobling, og ingen av dem bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte. Da kan Slaids ikke skille en ekte leveranse fra id-er, numre og filnavn som er skrevet av bildeplanen – alt det sto i planen før bildene ble laget – så genereringen er ikke verifisert. Har du bytene, regn ut avtrykkene og kjør koblingskontrollen på nytt; da er den verifisert uten at noe bilde lages om. Har du dem ikke, si uttrykkelig at leveransen er uverifisert og må ses gjennom manuelt. \`remainingSteps\` sier hvilken av de to som gjelder her. Ikke omtal dette som kontrollert.${depositNote(
-        presentation,
-      )}`,
-      UNVERIFIED_STEPS,
+      IMAGE_DELIVERY_FORBIDDEN_CLOSINGS,
     )
   }
 
