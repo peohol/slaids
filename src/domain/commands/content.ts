@@ -45,7 +45,6 @@ import { touch, withSlide } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import { normalizeHex } from '../color'
 import { hasAsset } from './assets'
-import { dropSupersededBinding } from './imageGeneration'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
 import type {
@@ -198,12 +197,7 @@ export function setImageAsset(
       ...(placeholderGone ? { caption: null } : {}),
     })
   })
-  if (!written.ok || written.value === presentation) return written
-  /* The picture in this zone has changed, so a binding that described the
-     *previous* one has nothing left to be about. Only a superseded binding is
-     dropped — the one the plan still orders is this delivery. See
-     `dropSupersededBinding`. */
-  return ok(dropSupersededBinding(written.value, input.slideId, input.nodeId))
+  return written
 }
 
 /**

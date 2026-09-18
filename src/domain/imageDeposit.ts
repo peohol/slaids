@@ -2,10 +2,10 @@
  * Handing the deck's planned pictures over, and taking them back in one go.
  *
  * `imagePlan.ts` produces the *order*: one brief, numbered 1‥N, that a person
- * pastes into whatever makes their pictures. This module is the other end of
- * that errand — the return trip. The pictures come back as a folder of files,
- * and the only thing that has to survive the round trip is which file belongs
- * in which zone.
+ * pastes into one conversation whose whole job from that point is making N
+ * pictures. This module is the other end of that errand — the return trip. The
+ * pictures come back as a folder of files, and the only thing that has to
+ * survive the round trip is which file belongs in which zone.
  *
  * Three decisions make that survivable:
  *
@@ -18,39 +18,31 @@
  *    afterwards.
  *  - **The numbering is the brief's own.** `syncImagePlaceholders` stamps the
  *    placeholder captions, the deposit numbers and the brief from one pass over
- *    `resolveImagePlan`, so «Sett inn bilde 3 her», «BILDE 3 AV 7» and `3.png`
- *    are the same 3 by construction. There is no second numbering to keep in
+ *    `resolveImagePlan`, so «Sett inn bilde 3 her», «BILDE 3 AV 7» and picture
+ *    3 are the same 3 by construction. There is no second numbering to keep in
  *    step.
- *  - **The file name is the whole protocol.** `1.png`, `2.jpg`, `3.webp` — a
- *    number, a dot, an extension, nothing else. It is the one instruction that
- *    survives being carried between two programs by a person, and it is checked
- *    rather than guessed at: `01.png` and `bilde1.png` are refused with a
- *    reason, never silently matched to something. The rule itself is
- *    `imageFileNumber`, beside the rule that writes the name.
+ *  - **There are exactly two ways to say the order, and neither is a guess.**
+ *    Either the files are called `1`, `2`, `3` … — a complete, unambiguous
+ *    1‥N — and the names *are* the order; or they are called whatever the
+ *    generator called them, and then nothing in the names can be read as an
+ *    order, so the person puts them in order themselves. See
+ *    `reviewDepositFiles`.
  *
- * The file name is enough when a *person* made the pictures, because a person
- * saving «bilde 7» saves it as `7.png`. It is not enough when an agent did:
- * generation order is not the plan's order, and a file named by arrival is a
- * file named after the wrong picture. So an agent-driven delivery also carries
- * an explicit binding — `imageGeneration.ts` — and `reviewDeposit` refuses the
- * whole set when that binding and the plan disagree.
+ * The second way is what this module gained when the pictures stopped being
+ * generated one at a time. A conversation that produces the whole series hands
+ * back `IMG_4821.png` and `padmasambhava.webp` as readily as `1.png`, and
+ * refusing those was refusing the ordinary delivery: the order is a thing a
+ * person can supply in two seconds by dragging, and it is the one thing they
+ * are certain of.
  *
  * `pending` is the only state in which any of this is live. `completed` and
- * `abandoned` are both final — nothing here can put a deck back into `pending`,
- * which is why `openImageDeposit` asks before it stamps.
+ * `abandoned` are both final for the round they close, and only a deck that is
+ * genuinely waiting for pictures again reopens — see `openImageDeposit`.
  */
 
 import { hasImagePanel, imagePanelOf, withDepositIndex, withImagePanel } from './content'
 import { mapDeckSlides } from './deckSlides'
-import { stableDigest } from './digest'
-import {
-  checkGeneratedImages,
-  imageBindingCheck,
-  manifestPresentationIssue,
-  parseImageGenerationManifest,
-  type DeliveredImageFile,
-  type ImageBindingIssue,
-} from './imageGeneration'
+import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { imageFileNumber, imageZoneKey, resolveImagePlan } from './imagePlan'
 import { collectLeaves, updateNode } from './layout'
 import type { ContentSlide, LayoutNode, Presentation, SandboxItem } from './types'
@@ -155,8 +147,8 @@ export interface DepositImage {
   index: number
   /** Which slide it belongs on, so the number can be found in the deck. */
   slideLabel: string
-  /** The short brief for exactly this picture: its motif, in one field. */
-  generationBrief: string
+  /** What this picture shows: the plan entry's motif, in one field. */
+  subject: string
   /** The shape the zone wants, measured off the slide. `null` when unknown. */
   desiredAspectRatio: string | null
   filled: boolean
@@ -183,7 +175,7 @@ export function depositImages(presentation: Presentation): DepositImage[] {
     return {
       index: slot.index,
       slideLabel: image?.slideLabel ?? '',
-      generationBrief: image?.plan.subject ?? '',
+      subject: image?.plan.subject ?? '',
       desiredAspectRatio: image?.aspectRatio ?? null,
       filled: slot.filled,
     }
@@ -191,226 +183,168 @@ export function depositImages(presentation: Presentation): DepositImage[] {
 }
 
 /* ------------------------------------------------------------------ *
- * The file names
+ * The files, and the order they are in
  * ------------------------------------------------------------------ */
 
 /**
- * Why a dropped file cannot be used.
+ * How the order of the deposited files was decided.
  *
- *  - `NAME`   — it is not `<number>.<extension>`, or the extension is not one
- *               Slaids stores. `01.png`, `bilde1.png`, `1a.png`, `1` and
- *               `1.txt` all land here.
- *  - `RANGE`  — a number outside 1‥N. The brief asked for N pictures.
- *  - `DUPLICATE` — two files claim the same number. Both are marked, because
- *                  neither is more right than the other and the user has to say
- *                  which one they meant.
+ *  - `'numbered'` — the files are called `1`‥`N`, so the names say it.
+ *  - `'manual'` — they are not, so the person says it by arranging them.
+ *
+ * Two modes rather than one, because the two deliveries are genuinely
+ * different. A person who saves «bilde 7» as `7.png` has made the binding
+ * themselves and it is the strongest one available. A conversation that made
+ * the whole series at once hands back whatever it calls its files, and the
+ * order it returned them in is not a fact about the plan — so it is asked for
+ * rather than inferred.
  */
-export type DepositFileProblem = 'NAME' | 'RANGE' | 'DUPLICATE'
+export type DepositOrderMode = 'numbered' | 'manual'
+
+/**
+ * Why a picked file cannot be used.
+ *
+ *  - `TYPE`   — not a picture Slaids stores. A `.txt`, a `.json`, a `.zip`.
+ *  - `EXCESS` — more pictures than the deck has places for. The deck expects
+ *               exactly N, and which of the extras to drop is the person's
+ *               choice, not Slaids'.
+ *
+ * What is deliberately *not* here any more is a verdict on the *name*. `01.png`,
+ * `bilde1.png` and `1-final.png` used to be refused, because a name that was
+ * not exactly `<number>.<ext>` could not be placed. They are ordinary file
+ * names now: they simply do not say an order, so the person is asked for one.
+ * The rule that has not moved an inch is that Slaids never *guesses* — a name
+ * is either a complete 1‥N set or it is not read as a number at all.
+ */
+export type DepositFileProblem = 'TYPE' | 'EXCESS'
 
 export interface DepositFileVerdict {
   name: string
-  /** The number the name claims, or `null` when it claims none. */
+  /** The picture number this file will become, or `null` when it cannot be used. */
   index: number | null
   problem: DepositFileProblem | null
 }
 
 /** What the deposit screen shows about the files picked so far. */
 export interface DepositReview {
-  /** One verdict per file, in the order they were picked. */
+  /** Where the order came from. See `DepositOrderMode`. */
+  mode: DepositOrderMode
+  /**
+   * One verdict per picked file, **positionally aligned with the names given**.
+   *
+   * By position rather than by name, because arbitrary names are not unique: two
+   * folders can both hold an `IMG_4821.png`, and a lookup by name would place
+   * one of them twice. The position is also what the person is arranging in
+   * manual mode, so it is the only thing that can carry their answer.
+   */
   files: DepositFileVerdict[]
-  /** Numbers that have exactly one usable file. */
+  /** Numbers that have a file. */
   present: number[]
   /** Numbers 1‥N with nothing for them yet. */
   missing: number[]
   /**
-   * Where the numbering came from, and how far anything could check it.
+   * Exactly N usable files, each with a number of its own, nothing rejected.
    *
-   * Three values because there are three genuinely different situations, and
-   * collapsing any two would overstate one of them:
-   *
-   *  - `'manual'` — a person named the files. The number in the name is the
-   *    only binding there is, and it is authoritative: they made it.
-   *  - `'file-checked'` — a manifest came with the files, every record carried
-   *    a digest of the bytes its generation response returned, and each file's
-   *    own bytes matched. The strongest thing Slaids can say.
-   *  - `'unchecked'` — a manifest came with the files but at least one binding
-   *    carries no digest, so the metadata is all there is. It may be perfectly
-   *    consistent and still describe the wrong files.
-   *
-   * None of the three says the picture shows the right motif. Whatever shows
-   * this to somebody has to keep those apart; see the deposit dialog.
-   */
-  assurance: 'manual' | 'file-checked' | 'unchecked'
-  /**
-   * Everything wrong with an agent delivery's bindings. Always empty for a
-   * manual upload, because there is nothing there to be wrong.
-   */
-  binding: ImageBindingIssue[]
-  /**
-   * The identity of *this* delivery: what a person would be confirming.
-   *
-   * Derived from what actually decides the outcome — the manifest, and every
-   * delivered file's name together with the digest of its bytes — so it changes
-   * when the set changes materially and not when React renders again or the
-   * files are picked in another order.
-   *
-   * It exists because a confirmation is about a set, not about a dialog. An
-   * `'unchecked'` delivery asks the person to look at the pictures; if that
-   * answer outlived a file being swapped for another one under the same name,
-   * «Fullfør» would be reachable for a set nobody had looked at. A caller that
-   * asks for the confirmation remembers *which* key was confirmed and compares.
-   */
-  deliveryKey: string
-  /**
-   * Exactly 1‥N, each once, nothing rejected, and no binding in conflict.
-   *
-   * Deliberately true for an `'unchecked'` delivery: nothing is wrong with it
-   * as far as anything here can tell, and refusing every host that cannot
-   * reach its own bytes would push people back to naming files by hand. What it
-   * does not do is *claim* anything — a caller that offers this set has to
-   * carry the `assurance` through to whoever is about to press the button.
+   * The same predicate «Fullfør» is greyed out on and the command refuses on, so
+   * the button cannot be enabled for a set the write would turn down.
    */
   ready: boolean
 }
 
+/** The extension a name claims, lowercase and without the dot, or `null`. */
+function extensionOf(fileName: string): string | null {
+  const base = fileName.split(/[\\/]/).pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0 || dot === base.length - 1) return null
+  return base.slice(dot + 1).toLowerCase()
+}
+
+/** Whether a file is a picture at all, judged by the one thing a name can say. */
+function isPictureFileName(fileName: string): boolean {
+  const extension = extensionOf(fileName)
+  return extension !== null && IMAGE_FILE_EXTENSION_LIST.includes(extension)
+}
+
 /**
- * Judge a set of picked file *names* against the brief that asked for them.
+ * The numbers the file names spell out, or `null` when they do not spell any.
+ *
+ * All or nothing, deliberately. A set is read as numbered only when it is
+ * exactly N files whose names are `1`‥`N`, each once — so `1.png, 2.jpg,
+ * 3.webp` is a numbering and `1.png, bilde2.png, 3.webp` is not a numbering
+ * with a defect in it. Anything less than complete is a set of ordinary names,
+ * and the person is asked for the order instead of being told two of their
+ * three files are wrong.
+ *
+ * The order the names arrive in says nothing: `3.webp, 1.png, 2.jpg` is the
+ * same numbering as `1.png, 2.jpg, 3.webp`, because a file picker and an
+ * operating system sort a folder however they like.
+ */
+function numberedOrder(fileNames: readonly string[], expectedCount: number): number[] | null {
+  if (expectedCount < 1 || fileNames.length !== expectedCount) return null
+  const numbers: number[] = []
+  const seen = new Set<number>()
+  for (const name of fileNames) {
+    const number = imageFileNumber(name)
+    if (number === null || number < 1 || number > expectedCount || seen.has(number)) return null
+    seen.add(number)
+    numbers.push(number)
+  }
+  return numbers
+}
+
+/**
+ * Judge a set of picked file names, in the order they are standing, against the
+ * brief that asked for them.
  *
  * Total and pure — names in, verdicts out — so the same rule is what the tests
- * state and what `reviewDeposit` builds its verdict on. It never picks a winner
- * between two files claiming one number: the dialog says both are in conflict
- * and the person removes one, because the alternative is Slaids choosing which
- * of their pictures to use.
+ * state and what the dialog shows. It decides three things and nothing else:
+ * which files are pictures at all, whether the names say the order, and which
+ * number each file will become.
  *
- * The manual flow in full, and the whole of it: a name is the only binding a
- * person gives, so `source` is `'manual'` and there is nothing to cross-check.
- * `reviewDeposit` is what the dialog asks, because it is the one that knows
- * about the other flow.
+ * In `'manual'` mode the answer is the position: the first usable file is
+ * picture 1, the second picture 2, and so on. That is the person's own
+ * arrangement, because the caller keeps the list in the order they dragged it
+ * into — there is nothing here to sort, and sorting would be Slaids overruling
+ * the one thing it asked them for.
  */
 export function reviewDepositFiles(
   fileNames: readonly string[],
   expectedCount: number,
 ): DepositReview {
-  const claimed = new Map<number, number>()
-  for (const name of fileNames) {
-    const index = imageFileNumber(name)
-    if (index === null || index < 1 || index > expectedCount) continue
-    claimed.set(index, (claimed.get(index) ?? 0) + 1)
-  }
+  const pictures = fileNames.filter(isPictureFileName)
+  const numbers = numberedOrder(pictures, expectedCount)
+  const mode: DepositOrderMode = numbers ? 'numbered' : 'manual'
 
+  let position = 0
   const files: DepositFileVerdict[] = fileNames.map((name) => {
-    const index = imageFileNumber(name)
-    if (index === null) return { name, index: null, problem: 'NAME' }
-    if (index < 1 || index > expectedCount) return { name, index, problem: 'RANGE' }
-    if ((claimed.get(index) ?? 0) > 1) return { name, index, problem: 'DUPLICATE' }
-    return { name, index, problem: null }
+    if (!isPictureFileName(name)) return { name, index: null, problem: 'TYPE' }
+    const place = position
+    position += 1
+    if (numbers) return { name, index: numbers[place], problem: null }
+    if (place >= expectedCount) return { name, index: null, problem: 'EXCESS' }
+    return { name, index: place + 1, problem: null }
   })
 
+  const claimed = new Set(
+    files.flatMap((file) => (file.problem === null && file.index !== null ? [file.index] : [])),
+  )
   const present: number[] = []
   const missing: number[] = []
   for (let index = 1; index <= expectedCount; index += 1) {
-    if (claimed.get(index) === 1) present.push(index)
+    if (claimed.has(index)) present.push(index)
     else missing.push(index)
   }
 
   return {
+    mode,
     files,
     present,
     missing,
-    assurance: 'manual',
-    binding: [],
-    deliveryKey: deliveryKeyOf(
-      fileNames.map((fileName) => ({ fileName })),
-      null,
-    ),
     ready:
       expectedCount > 0 &&
       missing.length === 0 &&
       files.every((file) => file.problem === null),
   }
-}
-
-/**
- * The whole verdict on a deposit: the names, and the binding when there is one.
- *
- * One entry point, so the two flows cannot be told apart anywhere but here. The
- * dialog hands over what it has — the image files it was given, and the text of
- * the manifest file if one came with them — and gets back a single `ready`.
- * Deciding that in the dialog instead would put the rule that keeps pictures off
- * the wrong slides in a React component, where the tests are not.
- *
- * A manifest changes what the review *is*, not just what it warns about: with
- * one, the bindings are checked against the deck's own plan and a mismatch
- * refuses the whole set. Without one, this is exactly the manual upload it has
- * always been — the number in the file name is the binding, because a person who
- * saves «bilde 3» as `3.png` has made it.
- *
- * A manifest that cannot be read is *not* a deposit without a manifest. It is an
- * agent delivery whose binding is unknown, and falling back to the file names
- * there would be the original failure with an extra step in front of it.
- */
-export function reviewDeposit(
-  presentation: Presentation,
-  delivered: readonly DeliveredImageFile[],
-  manifestText: string | null,
-): DepositReview {
-  const names = {
-    ...reviewDepositFiles(
-      delivered.map((file) => file.fileName),
-      depositSlots(presentation).length,
-    ),
-    // Recomputed with what this entry point actually holds: the bytes and the
-    // manifest, which are what a person would be confirming.
-    deliveryKey: deliveryKeyOf(delivered, manifestText),
-  }
-  if (manifestText === null) return names
-
-  const parsed = parseImageGenerationManifest(manifestText)
-  if (!parsed.ok) {
-    return refused(names, { code: 'MANIFEST_UNREADABLE', message: parsed.error.message })
-  }
-  /* Asked before the bindings are: a manifest for another deck reports every id
-     as unknown, and that list says nothing about what actually went wrong. */
-  const wrongDeck = manifestPresentationIssue(presentation, parsed.value)
-  if (wrongDeck) return refused(names, wrongDeck)
-
-  const records = parsed.value.images
-  const binding = checkGeneratedImages(presentation, records, delivered)
-  return {
-    ...names,
-    /* The level is what the *records* make possible, and the issues are whether
-       it held. They are reported side by side rather than folded together
-       because a delivery with no digests produces no issues at all, and calling
-       that «checked» is the one thing this must never do. */
-    assurance: imageBindingCheck(records, delivered),
-    binding,
-    ready: names.ready && binding.length === 0,
-  }
-}
-
-/**
- * The identity of a delivery, for a confirmation that has to be about one.
- *
- * Sorted by name, because the order somebody happened to pick the files in is
- * not part of what gets inserted. The digest of each file's bytes *is*: a
- * different picture under the same name is a different delivery, and that is
- * precisely the change a stale confirmation would wave through.
- */
-function deliveryKeyOf(
-  delivered: readonly DeliveredImageFile[],
-  manifestText: string | null,
-): string {
-  return stableDigest([
-    manifestText,
-    [...delivered]
-      .map((file) => [file.fileName, file.contentHash ?? null] as const)
-      .sort((a, b) => a[0].localeCompare(b[0])),
-  ])
-}
-
-/** A manifest that could not even be read against: nothing lands, nothing is claimed. */
-function refused(names: DepositReview, issue: ImageBindingIssue): DepositReview {
-  return { ...names, assurance: 'unchecked', binding: [issue], ready: false }
 }
 
 /* ------------------------------------------------------------------ *
