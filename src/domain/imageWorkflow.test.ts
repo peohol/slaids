@@ -1112,7 +1112,7 @@ describe('én jobb om gangen', () => {
     ])
 
     const done = nextImageJob(deck)
-    expect(done.status).toBe('all-generated')
+    expect(done.status).toBe('all-answered')
     expect(done.job).toBeNull()
     // The loop ends without anybody having been told how long it was.
     expect(JSON.stringify(done)).not.toMatch(/\b3\b/)
@@ -1136,7 +1136,16 @@ describe('én jobb om gangen', () => {
     if (!written.ok) throw new Error(written.error.message)
 
     const done = nextImageJob(written.value)
-    expect(done.status).toBe('all-generated')
+    expect(done.status).toBe('all-answered')
+    /*
+     * And the end of the queue says which answers emptied it. «Every entry has
+     * a binding with a digest» is simply false for this deck, and an agent that
+     * repeated it would be describing a delivery nothing can check as one that
+     * was checked.
+     */
+    expect(done.instruction).not.toMatch(/Alle bærer et avtrykk/i)
+    expect(done.instruction).toMatch(/meldt uten avtrykk/i)
+    expect(done.instruction).toMatch(/omtales som uverifisert/i)
     expect(imageGenerationCoverage(written.value)).toBe('claimed')
     const status = composeImageWorkflowStatus(written.value)
     expect(status.stage).toBe('generation-unverified')
@@ -1198,7 +1207,8 @@ describe('én jobb om gangen', () => {
      * binding was in the plan before any picture existed, so nothing in it is
      * evidence — and a queue that counted it as done could be emptied without
      * calling an image generator once, ending on the strongest word the flow
-     * has: `all-generated`.
+     * has — and the weaker word it now ends on is the point: `all-answered`
+     * says the bindings answered for the bytes, never that a generator ran.
      *
      * Only a binding that carries a digest takes an entry out of the queue. The
      * claim is not thrown away — a host that cannot reach its own bytes has
@@ -1226,7 +1236,7 @@ describe('én jobb om gangen', () => {
     expect(deck.generatedImages).toHaveLength(3)
     const after = nextImageJob(deck)
     expect(after.status).toBe('unverified-claim')
-    expect(after.status).not.toBe('all-generated')
+    expect(after.status).not.toBe('all-answered')
     expect(after.job?.prompt).toContain(MOTIFS[0])
     // The three cases only the reader can tell apart, named rather than guessed.
     expect(after.instruction).toMatch(/laget du bildet og kan lese bytene/i)
@@ -1244,8 +1254,11 @@ describe('én jobb om gangen', () => {
     const all = recordGeneratedImages(proven.value, records(proven.value))
     if (!all.ok) throw new Error(all.error.message)
     const done = nextImageJob(all.value)
-    expect(done.status).toBe('all-generated')
-    expect(done.instruction).toMatch(/kobling med avtrykk/i)
+    expect(done.status).toBe('all-answered')
+    expect(done.instruction).toMatch(/Alle bærer et avtrykk/i)
+    // Even here, with a digest on every entry, the end of the queue is not
+    // allowed to read as a receipt for the generation.
+    expect(done.instruction).toMatch(/Tom kø er ikke et bevis på at bildene ble laget/i)
   })
 
   it('gir ingen jobb til et dekk som ikke planlegger bilder', () => {

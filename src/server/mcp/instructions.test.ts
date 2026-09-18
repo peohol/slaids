@@ -517,7 +517,10 @@ describe('raster og vektor', () => {
     expect(toolProse()).toContain(IMAGE_JOB_RULE)
     expect(IMAGE_JOB_RULE).toMatch(/Dette er én bildegenereringsoppgave/i)
     expect(IMAGE_JOB_RULE).toMatch(/Send `prompt` ordrett/i)
-    expect(IMAGE_JOB_RULE).toMatch(/`all-generated` er slutten på løkken, ikke et tall/i)
+    expect(IMAGE_JOB_RULE).toMatch(/`all-answered` er slutten på løkken, ikke et tall/i)
+    // And the name is not read as a receipt: the queue emptying says the
+    // bindings answered, never that a generator ran.
+    expect(IMAGE_JOB_RULE).toMatch(/«gjort rede for», ikke «generert»/i)
   })
 
   it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {

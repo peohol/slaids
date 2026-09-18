@@ -752,10 +752,18 @@ nøyaktig to svar: et avtrykk, eller vertsklientens uttrykkelige erklæring om a
 den ikke får tilgang til bytene (`bytesUnavailable`). En kobling som ikke sier
 noe om bytene er en rad en agent kan skrive av planen alene, og lot den
 konsumere en jobb, kunne hele løkken vandres uten å kalle en bildegenerator én
-eneste gang — og ende på det sterkeste ordet flyten har, `all-generated`. Den
-avvises derfor i kontrollen, og oppføringen blir stående.
+eneste gang. Den avvises derfor i kontrollen, og oppføringen blir stående.
 
-Ingen av de to svarene er et bevis, og ingenting later som. Et avtrykk er en
+Ingen av de to svarene er et bevis, og ingenting later som. **Derfor heter enden
+på køen `all-answered`, ikke `all-generated`.** Begge svarene skrives av den
+samme parten som ville skrevet dem om den hoppet over generatoren, så en tom kø
+er et faktum om *koblingene*; et navn som sa «generert» ville vært det ene stedet
+denne flyten påsto noe den ikke kan se. Instruksen følger samme regel og sier
+hvilke svar som tomte køen: er noen av dem erklæringer, står det der, og
+leveransen skal omtales som uverifisert. Det som ville fortjent det sterke ordet,
+er en kvittering agenten ikke kan skrive selv — en artefakt-id fra vertens eget
+bildekall, eller en bro som observerer responsen. Det er samme integrasjon som
+gjør isolasjonen til en reell grense, og den er egen sak. Et avtrykk er en
 streng agenten oppgir; det som gjør det verdt å be om, er at **deponeringen
 sammenligner det med filens egne bytes og avviser hele settet når det ikke
 stemmer** — et oppdiktet avtrykk kjøper altså en tur gjennom køen og en leveranse

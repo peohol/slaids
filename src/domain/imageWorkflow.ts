@@ -720,15 +720,25 @@ export interface ImageGenerationJob {
  *    no signal that a picture was ever made for it: every field in that binding
  *    was in the plan beforehand. The job is handed out again with the three
  *    cases named, rather than being counted as done.
- *  - `all-generated` — every entry has a binding that carries a digest. The
- *    loop ends here, without anybody having been told how long it was.
+ *  - `all-answered` — every entry has a binding that answered for the bytes,
+ *    with a digest or with the declaration that none is coming. The loop ends
+ *    here, without anybody having been told how long it was.
+ *
+ * `all-answered` is deliberately not `all-generated`. Slaids is never in the
+ * room when a picture is made, and both answers are written by the same caller
+ * that would have written them if it had skipped the generator entirely — so
+ * the end of the queue is a fact about the *bindings*, and a name that said
+ * «generated» would be the one place this module asserted something it cannot
+ * see. What would earn that name is a receipt the caller cannot author: an
+ * artefact id from the host's own image call, or a bridge that observes the
+ * response. Until then the honest word is the weaker one.
  */
 export type ImageJobStatus =
   | 'job'
   | 'unverified-claim'
   | 'no-plan'
   | 'plan-needs-repair'
-  | 'all-generated'
+  | 'all-answered'
 
 /** The next job, or what stands in its way. */
 export interface NextImageJob {
@@ -808,9 +818,23 @@ export function nextImageJob(presentation: Presentation): NextImageJob {
   )
   const next = images.find((image) => !answered.has(image.id))
   if (!next) {
+    /*
+     * What the end of the queue is allowed to say depends on which answers got
+     * it here. «Every entry has a digest» is simply false for a deck whose
+     * bindings are declarations, and an instruction that said it anyway would
+     * hand the agent a sentence to repeat to the user about a delivery nothing
+     * can check.
+     */
+    const declared = records.some(
+      (record) => record.bytesUnavailable && record.contentHash === undefined,
+    )
     return none(
-      'all-generated',
-      'Hver planlagt oppføring har en kobling med avtrykk, så det er ingen bildejobb igjen. Avtrykkene sammenlignes med filenes egne bytes når brukeren deponerer dem; `workflow` på de andre svarene sier hva som gjenstår.',
+      'all-answered',
+      `Hver planlagt oppføring er gjort rede for, så det er ingen bildejobb igjen. ${
+        declared
+          ? 'Minst én er meldt uten avtrykk, med erklæringen om at bytene ikke var tilgjengelige: den er aldri blitt kontrollerbar, og leveransen skal omtales som uverifisert.'
+          : 'Alle bærer et avtrykk, og avtrykkene sammenlignes med filenes egne bytes når brukeren deponerer dem.'
+      } Tom kø er ikke et bevis på at bildene ble laget – Slaids er aldri i rommet når et bilde lages – og \`workflow\` på de andre svarene sier hva som gjenstår.`,
     )
   }
 
