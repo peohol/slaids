@@ -418,7 +418,7 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
                   </span>
                   <img
                     className="deposit-row__thumb"
-                    src={thumbnails.get(file) ?? ''}
+                    src={thumbnails.get(file)}
                     alt=""
                     draggable={false}
                   />
