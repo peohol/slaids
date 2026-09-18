@@ -180,13 +180,20 @@ export interface ImageWorkflowStatus {
  * part of it. Without that, «all pictures generated» has no observable form,
  * and an agent either stops too early or waits for a browser action it cannot
  * perform.
+ *
+ * What is deliberately *not* a criterion is the composed brief. It was one —
+ * «den ferske sluttbriefen er skrevet ut i samtalen» — and that made printing
+ * the whole picture plan a condition of finishing, which is the same as making
+ * it mandatory to show a generator that the task is nine pictures. Finishing is
+ * measured on the files and their bindings instead: one file per entry, in the
+ * format that entry asks for, bound to the entry it was made from.
  */
 export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
   'Presentasjonen er opprettet eller oppdatert.',
   'Slidestruktur og innhold er på plass.',
   'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
-  'Den ferske sluttbriefen er skrevet ut i samtalen.',
-  'Alle planlagte bilder er generert i samme samtale, som like mange separate bildefiler.',
+  'Alle planlagte bilder er generert i samme samtale, ett av gangen: like mange separate bildefiler som planen har oppføringer, én fil per `imagePlanItemId`.',
+  'Hver fil har det aspect ratio oppføringen den ble generert fra oppgir.',
   'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, og koblingskontrollen svarer `ok` for alle planlagte oppføringer. Det er den kontrollen som avgjør at bildegenereringen er ferdig, og svaret blir stående på dekket.',
   'Å legge bildene inn i Slaids kreves ikke for at genereringsoppgaven er ferdig: uten en filbro tilbake til Slaids er deponeringen brukerens steg i nettleseren. Fylte bildesoner er derfor aldri stoppkriteriet.',
 ]
@@ -205,19 +212,35 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
   'Ikke avslutt med «Presentasjonen er opprettet» når bildene fortsatt skal genereres i denne samtalen.',
   'Ikke avslutt med «Bildene er ikke satt inn ennå». Det er en beskrivelse av arbeid som gjenstår, og arbeidet er ditt.',
   'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
-  'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe etter briefen, eller en konkret teknisk blokkering du navngir.',
+  'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe før bildene genereres, eller en konkret teknisk blokkering du navngir.',
   'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er koblingen alt kontrollert, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
 ]
 
-/** The generation half of what is left, with this deck's own count in it. */
-function generationSteps(awaiting: number): readonly string[] {
-  return [
-    'Hent den ferske sluttbriefen fra den endelige presentasjonstilstanden, og skriv den ut i samtalen.',
-    `Generer de ${awaiting} bildene, enkeltvis: ett kall per oppføring i \`images\`, i stigende \`number\`, etter \`generation.perImageSteps\`.`,
-    'Kjør koblingskontrollen på alle planlagte oppføringer, mot `generation.beforeDeposit`. Den er stoppkriteriet for bildegenereringen, og svaret blir stående på dekket.',
-    'Svarer kontrollen `ok`, er genereringsoppgaven ferdig. Lever bildene med manifestet; å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
-  ]
-}
+/**
+ * The generation half of what is left: one picture, then the same again.
+ *
+ * Deliberately without a count, and deliberately without the brief. The first
+ * step used to be «hent den ferske sluttbriefen, og skriv den ut i samtalen»,
+ * followed by «generer de 9 bildene» — two sentences that between them put the
+ * whole picture plan into the conversation before the first call, which is how
+ * a generator comes to be working on a set. There is nothing here to print and
+ * nothing to add up: each round names the one entry that is next, and the deck
+ * still carries the numbers as `plannedImageCount` for the reader that needs
+ * them.
+ *
+ * The wording is «ennå ikke har en kontrollert kobling» rather than «tom sone»
+ * because both stages that reach these steps have to be covered by it: a zone
+ * that never got a file, and a zone still holding the picture from an order
+ * that has since been rewritten. The binding check expects one record per
+ * planned entry in either case.
+ */
+const GENERATION_STEPS: readonly string[] = [
+  'Generer neste planlagte bilde direkte: velg den oppføringen i `images` som ennå ikke har en kontrollert kobling, og kall bildegeneratoren med bare den oppføringens ferdige `prompt`. Den er satt sammen av dekkets felles bildekontekst og denne ene oppføringen.',
+  'Knytt filen til oppføringens `imagePlanItemId`, gi den oppføringens eget filnavn, og kontroller koblingen før noe annet gjøres. Se `generation.perImageSteps`.',
+  'Gjenta det samme for den neste oppføringen uten kontrollert kobling, til ingen står igjen. Ikke skriv ut samlet brief, andre bildeoppføringer eller en opptelling i samtalen – se `generation.isolation`.',
+  'Kjør koblingskontrollen på alle planlagte oppføringer, mot `generation.beforeDeposit`. Den er stoppkriteriet for bildegenereringen, og svaret blir stående på dekket.',
+  'Svarer kontrollen `ok`, er genereringsoppgaven ferdig. Lever bildene med manifestet; å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
+]
 
 /**
  * What is left once the pictures have been made and checked, which is a
@@ -234,14 +257,16 @@ function generationSteps(awaiting: number): readonly string[] {
  * Saying neither was the failure this replaces: an empty step list in a stage
  * whose own action says «generate them again» told the second reader that its
  * work was done.
+ *
+ * The regeneration branch names no count either, for the same reason the
+ * generation steps do not: it is the same one-entry-at-a-time work, and a
+ * number in it is a number to repeat to a generator.
  */
-function depositSteps(planned: number): readonly string[] {
-  return [
-    'Har du bildefilene fra genereringen: lever dem med manifestet, og si hva brukeren skal gjøre for å legge dem inn.',
-    `Har du dem ikke – kontrollen er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er den lagrede kontrollen ingen leveranse du kan gjøre: si det, generer de ${planned} oppføringene på nytt, enkeltvis, og kjør koblingskontrollen igjen.`,
-    'Uansett hvilken av de to: si hva som gjenstår og hvem som gjør det, i stedet for å melde presentasjonen ferdig.',
-  ]
-}
+const DEPOSIT_STEPS: readonly string[] = [
+  'Har du bildefilene fra genereringen: lever dem med manifestet, og si hva brukeren skal gjøre for å legge dem inn.',
+  'Har du dem ikke – kontrollen er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er den lagrede kontrollen ingen leveranse du kan gjøre: si det, og generer oppføringene i `images` på nytt, én av gangen og hver for seg, mot `generation.perImageSteps`. Kjør koblingskontrollen igjen etterpå.',
+  'Uansett hvilken av de to: si hva som gjenstår og hvem som gjør det, i stedet for å melde presentasjonen ferdig.',
+]
 
 /**
  * The one sentence a deck needs when it is waiting for pictures the deposit is
@@ -338,7 +363,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       'Rett først det `issues` peker på, og skriv bildeplanen på nytt – tomme kontroller er en del av stoppkriteriet. Fortsett deretter i samme samtale med bildegenereringen.',
       [
         'Rett det `issues` peker på, og skriv bildeplanen på nytt.',
-        ...(counts.awaitingFileCount > 0 ? generationSteps(counts.awaitingFileCount) : []),
+        ...(counts.awaitingFileCount > 0 ? GENERATION_STEPS : []),
       ],
     )
   }
@@ -399,8 +424,8 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     return status(
       'plan-outdated',
       false,
-      `${superseded.length} av bildesonene holder fortsatt bildet fra den forrige bestillingen, og erstatningene er ikke laget ennå. Generer alle ${images.length} oppføringene i planen enkeltvis og kjør koblingskontrollen på hele settet – kontrollen venter én fil per planlagt oppføring, også for sonene som allerede har et bilde. Først når de nye filene er lagt inn i sonene, er bildene i dekket de som er bestilt.${depositNote(presentation)}`,
-      generationSteps(images.length),
+      `${superseded.length} av bildesonene holder fortsatt bildet fra den forrige bestillingen, og erstatningene er ikke laget ennå. Generer oppføringene i planen én av gangen, hver for seg fra sin egen \`prompt\`, og kjør koblingskontrollen på hele planen etterpå – kontrollen venter én fil per planlagt oppføring, også for sonene som allerede har et bilde. Først når de nye filene er lagt inn i sonene, er bildene i dekket de som er bestilt.${depositNote(presentation)}`,
+      GENERATION_STEPS,
     )
   }
 
@@ -455,7 +480,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
       }, og å legge dem inn er brukerens steg. Har du filene, lever dem med manifestet og si hva brukeren skal gjøre. Er dette en senere samtale og filene ikke er tilgjengelige for deg, si det – da er den lagrede kontrollen ingen leveranse du kan gjøre, og det riktige er å generere bildene på nytt for de samme oppføringene og kontrollere koblingen igjen. \`complete\` svarer for dokumentet, ikke for deg: \`remainingSteps\` sier hvilket av de to som gjelder her. Meld aldri dekket ferdig til brukeren uten å si at bildene ikke er på plass.${depositNote(
         presentation,
       )}`,
-      depositSteps(images.length),
+      DEPOSIT_STEPS,
     )
   }
 
@@ -474,7 +499,7 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
   return status(
     'awaiting-generation',
     false,
-    `Bildeplanen er et mellomsteg, ikke leveransen. Fortsett i samme samtale: skriv ut den ferske sluttbriefen, og kall deretter bildegeneratoren ${counts.awaitingFileCount} ganger – én gang per oppføring i \`images\`, én oppføring ferdigstilt av gangen. Genereringsoppgaven er ferdig når koblingskontrollen svarer \`ok\` for alle planlagte oppføringer, ikke når bildesonene er fylt.`,
-    generationSteps(counts.awaitingFileCount),
+    'Bildeplanen er et mellomsteg, ikke leveransen. Fortsett i samme samtale: generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen – ett kall med bare den oppføringens ferdige `prompt` – og gjenta for én oppføring av gangen til alle har sin egen fil. Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen. Genereringsoppgaven er ferdig når koblingskontrollen svarer `ok` for alle planlagte oppføringer, ikke når bildesonene er fylt.',
+    GENERATION_STEPS,
   )
 }

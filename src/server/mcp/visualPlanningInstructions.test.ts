@@ -25,15 +25,51 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/med bilder.*bruk bilder.*bilder i hvert steg/i)
     expect(MCP_INSTRUCTIONS).toMatch(/ikke start ekstern rastergenerering ennå/i)
     expect(MCP_INSTRUCTIONS).toMatch(/innholdsendringer, citations, validering\/reparasjoner og visuell QA.*bildesonene er stabile/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/hent den genererte bildebriefen på nytt fra den endelige presentasjonstilstanden/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/skriv den returnerte briefen ut i samme samtale/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/kall deretter umiddelbart.*bildegenereringsverktøyet/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/les bildeplanen på nytt fra den endelige presentasjonstilstanden/i)
+    // The printed brief is not the first step any more — the first picture is.
+    expect(MCP_INSTRUCTIONS).toMatch(/kall vertsklientens bildegenereringsverktøy umiddelbart/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart med det første planlagte bildet/i)
     expect(MCP_INSTRUCTIONS).toMatch(/ett kall per planlagt bilde/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/briefen finnes i verktøyresponsen er ikke en overlevering/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/bare den ene oppføringens ferdige `prompt`/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/At planen finnes i verktøyresponsen er ikke en overlevering/i)
     expect(MCP_INSTRUCTIONS).toMatch(/først startet når bildegenereringsverktøyet faktisk er kalt/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*ny fersk sluttbrief.*på nytt/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/bildeplanen etter handoff.*les bildeplanen på nytt.*generer de bildene på nytt/i)
     expect(MCP_INSTRUCTIONS).toMatch(/filbro.*bildedeponeringen/i)
     expect(MCP_INSTRUCTIONS).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
+    // And the retired first step is asserted gone, not left to review: it is
+    // what made the task a multi-picture task before the first call.
+    expect(MCP_INSTRUCTIONS).not.toMatch(/skriv den returnerte briefen ut i samme samtale/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/skriv denne ferske briefen ut i samme samtale/i)
+    expect(MCP_INSTRUCTIONS).not.toMatch(/ny fersk sluttbrief/i)
+  })
+
+  it('never asks for the whole plan to be written out in the conversation', () => {
+    /*
+     * Test 1, on the surface an agent reads before its first call. Every
+     * sentence that mentions the brief has to be denying it: the brief exists,
+     * an author copies it out of the editor, and a client without direct
+     * handoff still delivers it — but nothing here may instruct an agent to
+     * print it, because a conversation holding «lag nøyaktig 9 separate
+     * bilder» has already told the generator what the task is.
+     *
+     * Stated as a property rather than as a banned phrase, so a reworded
+     * instruction to print the brief fails here too.
+     */
+    const asking = MCP_INSTRUCTIONS.split(/(?<=[.:;])\s+|\n/).filter((sentence) =>
+      /\bbrief/i.test(sentence),
+    )
+    expect(asking.length).toBeGreaterThan(0)
+    for (const sentence of asking) {
+      if (!/skriv|utskrift|print/i.test(sentence)) continue
+      expect(sentence, `«${sentence}» ber om at briefen skrives ut`).toMatch(
+        /\b(ikke|aldri)\b/i,
+      )
+    }
+    // And what replaces it is named, including the field that says why.
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /ikke skriv ut den samlede briefen, ikke oppsummer bildeplanen og ikke si i samtalen hvor mange bilder som skal lages/i,
+    )
+    expect(MCP_INSTRUCTIONS).toMatch(/`generation\.isolation`/)
   })
 
   it('hands the generator one planned picture at a time, never the whole brief as one job', () => {
@@ -176,12 +212,19 @@ describe('visual media planning instructions', () => {
     })
 
     it('navngir den obligatoriske rekkefølgen etter planen', () => {
-      expect(MCP_INSTRUCTIONS).toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/start bildegenereringen umiddelbart med det første planlagte bildet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/ett kall per bildeoppføring med bare den oppføringens ferdige `prompt`/i)
+      expect(MCP_INSTRUCTIONS).toMatch(/fortsett med én oppføring av gangen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /Ikke skriv ut samlet brief, en oversikt over bildeplanen eller hvor mange bilder som skal lages/i,
+      )
+      expect(MCP_INSTRUCTIONS).toMatch(/hver generering skal se ut som en selvstendig oppgave/i)
       expect(MCP_INSTRUCTIONS).toMatch(/Slå aldri flere planlagte bilder sammen til ett bilde/i)
       expect(MCP_INSTRUCTIONS).toMatch(/rekkefølgen bildene returneres i er irrelevant/i)
       expect(MCP_INSTRUCTIONS).toMatch(/kobles til riktig oppføring før det neste genereres/i)
+      // The sequence used to open with the brief, which put the whole plan in
+      // the conversation before the first call.
+      expect(MCP_INSTRUCTIONS).not.toMatch(/skriv ut den ferdige bildebriefen i samtalen/i)
     })
 
     it('lister fullføringskriteriene, alle seks', () => {
@@ -197,7 +240,9 @@ describe('visual media planning instructions', () => {
       // And the only two legitimate stops are named, so «blocked» cannot be a
       // feeling: the user said stop, or there is a failure to point at.
       expect(MCP_INSTRUCTIONS).toMatch(/navngi blokkeringen konkret/i)
-      expect(MCP_INSTRUCTIONS).toMatch(/brukeren uttrykkelig har bedt deg stoppe etter briefen/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /brukeren uttrykkelig har bedt deg stoppe før bildene genereres/i,
+      )
     })
 
     it('skiller de to `plan-outdated`-tilfellene, som krever motsatt handling', () => {
@@ -295,7 +340,7 @@ describe('visual media planning instructions', () => {
         /stadiet kan være `plan-needs-repair` eller `plan-outdated`, og da skal planen repareres eller skrives om \*\*før\*\* noe genereres/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: skriv ut den ferdige bildebriefen/i,
+        /Krever statusen generering – `awaiting-generation`, eller superseded-varianten av `plan-outdated`.*gjør du dette i tur: start bildegenereringen umiddelbart med det første planlagte bildet/i,
       )
       /*
        * And the rule's own opening must not say the opposite either. «Så snart

@@ -891,12 +891,27 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     // And the count is stated separately from the prose, against the same plan
     // the brief is composed from, so «are we finished» is a comparison.
     expect(brief.generation?.expectedFileCount).toBe(brief.imageCount)
-    expect(brief.generation?.rule).toMatch(/kalles 8 ganger/i)
+    expect(brief.generation?.rule).toMatch(/én selvstendig bildegenereringsoppgave/i)
     expect(brief.deposit).toEqual({ status: 'pending', expectedCount: 8 })
 
-    // The brief is still generated, and still says the same eight.
+    // Each entry carries the whole instruction for its own picture, and
+    // nothing about any other: that is what keeps a plan of eight from
+    // reaching the generator as a plan at all.
+    for (const image of brief.images) {
+      expect(image.prompt).toContain(image.subject)
+      expect(image.prompt).toContain(`Aspect ratio ${image.aspectRatio}`)
+      expect(image.prompt).not.toContain(image.imagePlanItemId)
+      expect(image.prompt).not.toMatch(/\d+ separate bilder/i)
+      for (const other of brief.images) {
+        if (other.number === image.number) continue
+        expect(image.prompt).not.toContain(other.subject)
+      }
+    }
+
+    // The brief is still generated beside them, as the internal half.
     expect(brief.brief).toContain('Lag nøyaktig 8 separate bilder')
     expect(brief.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
+    expect(brief.generation?.briefRole).toMatch(/^Intern\./)
   })
 
   it('gir hver oppføring en stabil id, og et filnavn som kommer fra planen', async () => {
@@ -1359,13 +1374,21 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
 
     expect(brief.workflow.nextAction).toMatch(/mellomsteg, ikke leveransen/i)
     expect(brief.workflow.nextAction).toMatch(/samme samtale/i)
-    // With this deck's own count in it, so «how many calls» is not inferred
-    // from the prose the brief happens to contain.
-    expect(brief.workflow.nextAction).toContain('8 ganger')
+    // The next action is one picture, taken from the shared context and the
+    // entry that is next — not «call the generator eight times», which is a
+    // count for the agent to pass on to a generator.
+    expect(brief.workflow.nextAction).toMatch(
+      /generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen/i,
+    )
+    expect(brief.workflow.nextAction).toMatch(
+      /Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen/i,
+    )
+    expect(brief.workflow.nextAction).not.toContain('8')
     expect(brief.workflow.awaitingFileCount).toBe(brief.generation?.expectedFileCount)
     // And the steps left point at the loop rather than restating it.
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Generer neste planlagte bilde direkte/i)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.perImageSteps/)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.isolation/)
   })
 
   it('forbyr avslutningene som beskriver arbeidet i stedet for å gjøre det', async () => {
@@ -1524,7 +1547,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(reopened.workflow.remainingSteps).not.toEqual([])
     const owed = reopened.workflow.remainingSteps.join(' ')
     expect(owed).toMatch(/har du dem ikke/i)
-    expect(owed).toMatch(new RegExp(`generer de ${MOTIFS.length} oppføringene på nytt`, 'i'))
+    expect(owed).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
     expect(owed).toMatch(/kjør koblingskontrollen igjen/i)
 
     // And doing it gets this conversation out: the same entries, generated
@@ -1794,7 +1817,9 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.stage).toBe('plan-needs-repair')
     expect(brief.workflow.complete).toBe(false)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/enkeltvis/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(
+      /Generer neste planlagte bilde direkte/i,
+    )
   })
 
   it('kaller ikke reserverte bildesoner uten bildeplan for ferdig', async () => {

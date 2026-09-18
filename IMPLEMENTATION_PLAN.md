@@ -311,32 +311,45 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 
 ---
 
-## 7.2\. Bildekontekst, bildeplan og samlet bildebrief
+## 7.2\. Bildekontekst, bildeplan og bildeprompt
 
 Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
 presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
-bildekontekst, og Slaids genererer den samlede briefen. **Bildeplanen er et
+bildekontekst, og Slaids setter sammen den ferdige bildeprompten for hver enkelt
+oppføring. **Bildeplanen er et
 mellomsteg, aldri en ferdig leveranse.** Har dekket planlagte rasterbilder, skal
 de genereres — det gjelder alltid når brukerbestillingen forutsetter bilder for
 å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller
 «bilder i hvert steg», men planlagte bildesoner er i seg selv nok. Selve
-bildegenereringen startes fra en fersk sluttbrief etter at citations, øvrige
+bildegenereringen startes fra en endelig bildeplan etter at citations, øvrige
 innholdsendringer,
 validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
-brief hentet tidligere i arbeidsflyten er foreløpig og skal ikke sendes til
-generatoren. Når bildesonene er stabile, henter klienten briefen på nytt fra den
+plan lest tidligere i arbeidsflyten er foreløpig, og bildene skal ikke genereres
+fra den. Når bildesonene er stabile, leser klienten planen på nytt fra den
 endelige presentasjonstilstanden. Har vertsklienten innebygd bildegenerering,
-skal den skrive denne sluttbriefen ut i samme samtale og umiddelbart starte
-bildegenereringen med den. Verken en brief som bare finnes i verktøyresponsen
-eller en brief som bare er skrevet ut, er en fullført handoff; genereringen er
+skal den starte umiddelbart med det første planlagte bildet: ett kall per
+oppføring, med bare den oppføringens ferdige `prompt`. At planen finnes i
+verktøyresponsen er ikke en fullført handoff; genereringen er
 først startet når bildegenereringsverktøyet faktisk er kalt, og oppgaven skal
-ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må sluttbriefen
-hentes på nytt og genereringen gjentas. Hvis direkte overlevering ikke finnes,
-brukes den samme sluttbriefen der bildene produseres; det er ikke en fallback.
-Denne direkte overleveringen gjelder briefen og starten på genereringen, ikke
+ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må den leses
+på nytt og de bildene genereres på nytt. Hvis direkte overlevering ikke finnes,
+er den samlede briefen fortsatt normal leveranse til stedet bildene produseres —
+der er den en tekst et menneske limer inn selv, og det er ikke en fallback.
+Denne direkte overleveringen gjelder starten på genereringen, ikke
 filreturen: uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt
 gjennom bildedeponeringen i 7.3.
+
+**Normalflyten eksponerer aldri at det finnes flere bilder.** Hver generering
+skal se ut som en fullstendig selvstendig oppgave, i kallet og i samtalen rundt
+det: ingen utskrevet samlet brief, ingen oppsummering av bildeplanen, ingen
+punktliste over bildene, ingen opptelling, ingen «bilde 1 av 10» og ingen «nå
+går jeg videre til neste bilde». Det er hovedgrepet mot sammenslåtte bilder, og
+det er strukturelt fremfor advarende: en bildegenerator som får se at oppgaven
+er et sett, lager et sett — collage, kontaktark, storyboard eller ett helt
+slide-oppsett — og ingen regel mot collage veier opp for å ha vist den at settet
+finnes. Antallet finnes fortsatt i svaret, som kontroll av den ferdige
+leveransen (`expectedFileCount`), aldri som noe agenten gjentar.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -386,8 +399,8 @@ interface Presentation {
   *utadvendte* identitet — `imagePlanItemId` — er derfor avledet av oppføringen
   i stedet for lagret ved siden av den. Se «Oppføringens stabile identitet»
   under.
-- **Fire felt, ikke ett.** Hvert felt er én seksjon i briefen og kontrolleres
-  hver for seg: motivet er det som må skille to bilder fra hverandre,
+- **Fire felt, ikke ett.** Hvert felt er én seksjon i prompten — og i briefen —
+  og kontrolleres hver for seg: motivet er det som må skille to bilder fra hverandre,
   komposisjonen er det som må passe sonens form, og «unngå» er det som må bli
   værende lokalt i stedet for å lekke inn i den felles konteksten.
 - **Formatet står ikke i planen.** Aspect ratio måles fra sonens geometri. Det
@@ -408,7 +421,7 @@ imagePlanItemId({ presentationId, slideId, nodeId, number, subject })
 ```
 
 `fields` er alle fire tekstfeltene, `imageContext` er dekkets felles kontekst, og
-`aspectRatio`/`orientation` er formatet som faktisk står i briefen. Til sammen er
+`aspectRatio`/`orientation` er formatet som faktisk står i prompten. Til sammen er
 det **hele bestillingen** – ikke bare motivet. Det som med vilje står utenfor, er
 alt en generator aldri får høre om: dekkets tittel, slidens tittel, de andre
 slidene, temaet. En endring der skal ikke ugyldiggjøre ferdige bilder.
@@ -510,15 +523,15 @@ nummer; agenten skriver bildeplanen på nytt.
 (`REQUIRED_PLANNED_IMAGE_FIELDS`) som tre flater leser:
 
 - **`subject`** er det oppføringen *er*. Det er feltet som må skille to bilder
-  fra hverandre, og en brief som nummererer et bilde uten noe å vise er en brief
-  som produserer hva som helst.
+  fra hverandre, og en prompt uten noe å vise er en prompt som produserer hva
+  som helst.
 - **`composition`** er det sonens format kontrolleres mot. Uten den har
   `ASPECT_MISMATCH` ingenting å lese, og planen kan ikke kontrolleres mot dekket
   i det hele tatt — som er det hele modellen finnes for.
 
 `requirements` og `avoid` er valgfrie. Å kreve dem ville produsert «ingenting
-spesielt å unngå» i hver eneste oppføring, og briefen skriver derfor bare de
-seksjonene som faktisk sier noe: en overskrift over «(ikke beskrevet)» er en
+spesielt å unngå» i hver eneste oppføring, og både prompten og briefen skriver
+derfor bare de seksjonene som faktisk sier noe: en overskrift over «(ikke beskrevet)» er en
 instruks om å tegne ingenting spesielt.
 
 Regelen håndheves tre steder, og ingen av dem gjentar den: `plan_deck_images`
@@ -565,12 +578,40 @@ bakgrunnskarakter, detaljnivå, fargeholdning, komposisjonsprinsipper, hvordan
 mennesker, dyr og gjenstander fremstilles, og hva som konsekvent skal unngås.
 Motivene hører hjemme i bildeplanen.
 
-### Den samlede briefen genereres
+### Prompten for ett bilde genereres
 
-`composeImageBrief` setter sammen én tekst som skrives ut i samtalen og kan
-kopieres dit bildene lages. Den er den menneskelesbare halvdelen av planen; den
-strukturerte listen er den som utføres, se «Planen er N genereringsjobber»
-under. Alt som kan telles eller måles er avledet:
+`composeImageGenerationPrompt` setter sammen den ene teksten et bildekall
+bærer, og den ser **én** oppføring. Den inneholder dekkets felles bildekontekst
+som ren stil- og kvalitetsinstruks, oppføringens eget motiv, komposisjon,
+faglige krav og hva som skal unngås, og formatet målt fra den sonen bildet skal
+ligge i. Den inneholder ikke noe som forutsetter et bilde til: ingen opptelling,
+ingen nummerering, ingen `imagePlanItemId`, intet filnavn, ingen slide, ingen
+presentasjon og intet annet motiv. Bokføringen agenten trenger — id, nummer,
+filnavn, sone — ligger ved siden av prompten i `images`, ikke inni den.
+
+Dette er isolasjonen som stopper sammenslåtte bilder, og den er strukturell:
+bestillingen for ett bilde var tidligere bare tilgjengelig som del av en *plan*,
+så en generator kunne ikke få ett bilde uten å få settet. Å dele svaret i en
+maskinhalvdel og en menneskehalvdel rettet prompten og lot lekkasjen stå — en
+agent kan kalle generatoren én gang per oppføring og likevel ha vist den hele
+planen, ved å skrive ut briefen, liste motivene eller melde antallet. Derfor
+finnes prompten, og derfor sier `generation.isolation` hva samtalen rundt kallet
+ikke får røpe.
+
+Feltene «Unngå» viser hvorfor teksten genereres to steder fra samme data:
+briefen kaller seksjonen «Unngå i akkurat dette bildet», som bare betyr noe ved
+siden av de andre oppføringene, mens prompten kaller den `Unngå`. Overskriftene
+er avledet av briefens (`IMAGE_PROMPT_SECTION_HEADINGS`), med nettopp den ene
+forskjellen skrevet der den gjøres.
+
+### Den samlede briefen genereres, som intern halvdel
+
+`composeImageBrief` setter sammen hele planen som én menneskelesbar tekst:
+Slaids sin egen bildebrief-dialog, dokumentasjon, feilsøking og manuell
+kopiering når brukeren ber om den. Den skrives ikke ut i samtalen og er ikke en
+prompt — den teller bildene, nummererer dem og viser alle motivene samtidig, og
+det er nøyaktig det én bildegenerering ikke skal se. Alt som kan telles eller
+måles er avledet:
 
 - **antallet** er lengden på listen, aldri et tall noen har skrevet;
 - **nummereringen** er listens egen rekkefølge, i dekkets rekkefølge, som er den
@@ -589,11 +630,10 @@ normativ kilde.
 ### Planen er N genereringsjobber
 
 Svaret bærer to halvdeler av den samme planen, og de har hver sin jobb. Den
-strukturerte listen — én oppføring per bildesone — er den autoritative kilden
-når bildene genereres: **ett element = én selvstendig bildegenerering = én
-bildefil**. Den samlede briefen er den menneskelesbare representasjonen av
-nøyaktig den samme planen, og skal ikke sendes til en bildegenerator som én
-samlet genereringsjobb når flere bilder er planlagt.
+strukturerte listen — én oppføring per bildesone, hver med sin egen ferdige
+`prompt` — er den autoritative kilden når bildene genereres: **ett element = én
+selvstendig bildegenerering = én bildefil**. Den samlede briefen er intern og
+skal verken sendes til en bildegenerator eller skrives ut i samtalen.
 
 Skillet er ikke redaksjonelt. Én lang tekst med en nummerert liste i seg er én
 melding, og en bildegenerator som får én melding lager ett bilde: en plan på
@@ -606,17 +646,24 @@ avledet av den samme løste planen briefen bygges av, så de to kan ikke bli
 uenige om antallet:
 
 - **`expectedFileCount`** er antall separate bildefiler planen krever — alltid
-  én per oppføring, og det samme tallet deponeringen åpnes med;
-- **`rule`** har dekkets eget tall i seg, ikke en «N» som skal substitueres;
-- **`perImageInstruction`** sier at instruksen for ett bilde er den ene
-  oppføringens egne felter pluss dekkets felles bildekontekst, med `aspectRatio`
-  fra den samme oppføringen;
-- **`perImageSteps`** er løkken, ett nummerert steg om gangen: velg neste
-  oppføring i stigende `number`, les bare den, kall generatoren én gang for den,
-  knytt filen til samme `imagePlanItemId` **før** neste oppføring genereres, gi
-  filen oppføringens eget filnavn, kontroller koblingen, og gå først deretter
-  videre. Rekkefølgen på stegene er selve mekanismen: en agent som samler alle
-  filene først og navngir dem etterpå har ingenting igjen å knytte dem fra;
+  én per oppføring, og det samme tallet deponeringen åpnes med. Det er en
+  kontroll av den ferdige leveransen, aldri noe som sies i samtalen;
+- **`rule`** sier at én oppføring er én hel genereringsoppgave, og hva kallet
+  får inneholde: bare den ene oppføringens `prompt`;
+- **`perImageInstruction`** sier at instruksen for ett bilde *er* oppføringens
+  `prompt`, og hva som skal holdes utenfor kallet — andre oppføringer, resten av
+  planen, slidetekst, id, nummer, opptelling og innledninger;
+- **`perImageSteps`** er løkken, ett nummerert steg om gangen: velg oppføringen
+  som mangler sin fil i stigende `number`, bruk dens `prompt` som hele
+  instruksen, kall generatoren én gang med bare den, knytt filen til samme
+  `imagePlanItemId` **før** noe annet gjøres, gi filen oppføringens eget
+  filnavn, kontroller koblingen, og gjenta. Rekkefølgen på stegene er selve
+  mekanismen: en agent som samler alle filene først og navngir dem etterpå har
+  ingenting igjen å knytte dem fra;
+- **`isolation`** sier hva samtalen rundt kallet ikke får avsløre. Det er den
+  halvdelen som ikke handler om kallet: reglene mot sammenslåtte bilder var
+  fulgt, og planen nådde generatoren likevel — gjennom en utskrevet brief, en
+  oppsummering, en opptelling eller en framdriftsmelding;
 - **`orderIsNotIdentity`** sier hvorfor rekkefølgen ikke kan brukes: «det første
   bildet som kom tilbake» er aldri bilde 1;
 - **`fileNamePattern`** og **`fileExtensions`** er deponeringens eget
@@ -626,13 +673,15 @@ uenige om antallet:
   knyttet til den oppføringen den ble generert fra, riktig format per fil, og at
   ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde
   aldri teller som flere bilder;
-- **`briefRole`** sier hva den samlede briefen er, så den ikke forveksles med én
-  genereringsprompt.
+- **`briefRole`** sier at den samlede briefen er intern — dokumentasjon,
+  feilsøking og manuell kopiering — og verken en genereringsprompt eller et steg
+  i normalflyten.
 
 Stemmer antallet ikke, er bildegenereringen ikke ferdig: de manglende bildene
 genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
 planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
-dem som utgjør en ferdig leveranse, og hvordan én av dem utføres.
+dem som utgjør en ferdig leveranse, hvordan én av dem utføres, og hva som ikke
+får eksponeres mens det skjer.
 
 ### Bildeplanen er et mellomsteg: `workflow`
 
@@ -2292,7 +2341,7 @@ bildetekst og én renderer (`ImagePanelView`) for begge.
 
 En bildetype uten fil (`assetId: null`) er en sone som er reservert til et bilde
 som lages et annet sted. Den fulle regelen står i §7.2, sammen med bildeplanen og
-den genererte briefen.
+de genererte tekstene den gir opphav til.
 
 ---
 
@@ -4994,7 +5043,8 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `list_folders`, `get_presentation` (som også
   bærer temaet, `sandboxCount` og den felles bildekonteksten), `get_image_brief`
-  (den genererte briefen og kontrollene mot sonene), `inspect_slide`,
+  (bildeplanen med én ferdig prompt per oppføring, og kontrollene mot sonene),
+  `inspect_slide`,
   `list_assets`, `list_sandbox_items`, `validate_slide`,
   `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.

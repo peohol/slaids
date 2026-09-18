@@ -435,7 +435,6 @@ describe('raster og vektor', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(
       /ett element i `images` = én selvstendig bildegenerering = én bildefil/i,
     )
-    expect(IMAGE_GENERATION_RULE).toMatch(/`imageCount` 8.*kalles 8 ganger.*8 separate bildefiler/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/send den aldri til bildegeneratoren som én samlet genereringsjobb/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/parse den aldri tilbake til enkeltbilder/i)
     // The count is checked against the plan before the files are deposited,
@@ -443,6 +442,41 @@ describe('raster og vektor', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(/generation\.expectedFileCount/)
     expect(IMAGE_GENERATION_RULE).toMatch(/aldri et gyldig svar på en plan med flere bilder/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/generer de manglende bildene enkeltvis på nytt/i)
+    // And the count is a check on the finished delivery, not a task the agent
+    // restates. «Er `imageCount` 8, skal bildegeneratoren kalles 8 ganger» is
+    // gone: an agent that carries that sentence into the conversation has told
+    // the generator the job is eight pictures, which is the whole leak.
+    expect(IMAGE_GENERATION_RULE).not.toMatch(/`imageCount` 8/)
+    expect(IMAGE_GENERATION_RULE).not.toMatch(/kalles 8 ganger/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /Det tallet er en kontroll av det ferdige settet, ikke noe du sier i samtalen/i,
+    )
+  })
+
+  it('holder flerbildekonteksten ute av samtalen, ikke bare ute av prompten', () => {
+    /*
+     * The root cause. Separate prompts were already the rule and were already
+     * being followed: the plan still reached the generator, through the
+     * conversation — a printed brief, a summary of the plan, «nå lager jeg de
+     * ni bildene», a running count. A generator that has read a set composes a
+     * set, and the merged image that comes back is its ordinary behaviour, so
+     * the fix has to be what is exposed rather than another prohibition.
+     */
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /Hver enkelt generering skal se ut som en fullstendig selvstendig oppgave, også i samtalen/i,
+    )
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke skriv ut `brief`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke oppsummer bildeplanen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke list opp bildene som skal lages/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke tell dem/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/nøytral og ikke røpe at flere bilder er planlagt/i)
+    // Named as the mechanism, so it does not read as etiquette around the
+    // warnings it replaces.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Dette er hovedgrepet, ikke en formalitet/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ingen advarsel mot det veier opp for å ha vist den/i)
+    // And the brief is labelled for what it is on the surface too.
+    expect(IMAGE_GENERATION_RULE).toMatch(/`brief` er intern/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke et steg i normalflyten/i)
   })
 
   it('bevarer nummereringen fra planlagt bilde til bildefil', () => {
@@ -509,15 +543,24 @@ describe('raster og vektor', () => {
     expect(IMAGE_HANDOFF_RULE).toMatch(/manuell gjennomgang/i)
   })
 
-  it('bruker den strukturerte oppføringen som kilde, ikke den samlede briefen', () => {
-    // Every field an entry carries is named, so nothing has to be parsed back
-    // out of the prose that the structured half already holds.
+  it('bruker oppføringens ferdige prompt som instruks, og holder resten utenfor kallet', () => {
+    // The instruction for one picture is composed by Slaids from the deck's
+    // shared context and that one entry — so there is nothing for the agent to
+    // assemble, and therefore no reason for it to have the rest of the plan
+    // open while it does. Every field that used to be part of the instruction
+    // is still named here, as something the call must *not* carry: each of them
+    // says «one of several» to whoever reads it.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Hver oppføring bærer sin egen ferdige `prompt`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/hele instruksen for det ene bildet/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Send den ordrett, ett kall per oppføring, og bygg den aldri selv/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Ingenting annet skal inn i kallet/i)
     for (const field of ['number', 'slideId', 'nodeId', 'slideLabel', 'aspectRatio', 'orientation']) {
       expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
     }
     for (const field of PLANNED_IMAGE_FIELDS) {
       expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
     }
+    expect(IMAGE_GENERATION_RULE).toMatch(/din egen bokføring ved siden av kallet/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/`imageContext`/)
     expect(IMAGE_GENERATION_RULE).toMatch(/aldri et felles format for flere bilder/i)
   })
@@ -697,9 +740,11 @@ describe('den gamle notat-/bildeprompt-flyten er borte fra alt agenten og lesere
       expect(text).toMatch(/Sett inn bilde 1 her/)
       expect(text).toMatch(/felles bildekontekst/i)
     }
-    // And the guide shows the generated template, so a reader can recognise it.
+    // And the guide shows the generated templates, so a reader can recognise
+    // both: the prompt one picture is made from, and the internal brief.
+    expect(guide).toContain('Lag ett bilde.')
     expect(guide).toContain('Lag nøyaktig [ANTALL] separate bilder til én presentasjon.')
-    expect(guide).toMatch(/Malen bor i `src\/domain\/imagePlan\.ts`/)
+    expect(guide).toMatch(/Begge malene bor i `src\/domain\/imagePlan\.ts`/)
   })
 })
 

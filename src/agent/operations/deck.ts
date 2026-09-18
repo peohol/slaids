@@ -39,6 +39,7 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
+  composeImageGenerationPrompt,
   isImagePlanItemId,
   resolveImagePlan,
   type ImageGenerationContract,
@@ -401,7 +402,7 @@ export const setPresentationTitleOperation = defineOperation({
 export const setImageContextOperation = defineOperation({
   name: 'set_image_context',
   summary:
-    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Den blir seksjonen «FELLES BILDEKONTEKST» i den samlede bildebriefen get_image_brief genererer – du skriver aldri den samlede briefen selv. ' +
+    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Slaids bruker den som stil- og kvalitetsdelen av den ferdige prompten for hvert enkelt bilde – du skriver aldri prompten selv, og du sier aldri til en bildegenerator at den samme konteksten gjelder flere bilder. ' +
     IMAGE_BRIEF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -453,6 +454,25 @@ export interface PlannedImageView {
   composition: string
   requirements: string
   avoid: string
+  /**
+   * The finished text this one picture is generated from — and the whole of it.
+   *
+   * Composed by Slaids rather than assembled by the caller, because assembling
+   * it was where the picture plan leaked: the fields above are one entry among
+   * others, and an agent building a prompt out of them has the rest of the list
+   * open in front of it. What an image generator does with a task it can see is
+   * a set is compose the set — a collage, a contact sheet, a storyboard — and
+   * that is the ordinary behaviour rather than a mistake to warn about.
+   *
+   * So this is a complete, self-contained image order: the deck's shared visual
+   * context as plain style instruction, this entry's own motif, framing,
+   * requirements and exclusions, and the format measured off this entry's own
+   * zone. It names no count, no number, no other motif, no slide and no deck.
+   * Send it as it is, one call per entry. The fields above stay for reading,
+   * checking and binding — `imagePlanItemId` is the agent's bookkeeping beside
+   * the call, never part of it. See `composeImageGenerationPrompt`.
+   */
+  prompt: string
 }
 
 /**
@@ -489,18 +509,20 @@ export interface ImageBriefView {
    */
   issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
   /**
-   * The finished brief, ready to print and paste, or `null` when nothing is
-   * planned.
+   * The whole plan as one human-readable message, or `null` when nothing is
+   * planned. **Internal: documentation, debugging and manual copying.**
    *
    * Generated from the plan and the zones every time it is asked for; there is
    * no stored copy, so it cannot be stale.
    *
-   * It is the *human-readable* representation of the plan above, and that is a
-   * contract rather than a description: it is one message, so an agent handing
-   * it to an image generator as a single prompt asks for one picture — which is
-   * exactly the collage a deck of eight planned pictures came back as. What
-   * drives automatic generation is `images`, one entry at a time, and
-   * `generation` says so with this deck's own count in it.
+   * Not a step in the normal flow, and not a prompt. It was both, and printing
+   * it is what turned a picture into a picture *out of nine*: one message that
+   * counts the pictures, numbers them and lists every motif is a set to
+   * compose, whether it is handed to a generator directly — the collage a deck
+   * of eight planned pictures came back as — or merely written out in the
+   * conversation the generator is reading. Generation runs off
+   * `images[].prompt`, one entry at a time; `generation.briefRole` and
+   * `generation.isolation` say so.
    */
   brief: string | null
   /**
@@ -546,6 +568,7 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
       composition: image.plan.composition,
       requirements: image.plan.requirements,
       avoid: image.plan.avoid,
+      prompt: composeImageGenerationPrompt(image, presentation.imageContext ?? ''),
     })),
     issues: checkImagePlan(presentation),
     brief: composeImageBrief(presentation),
@@ -592,7 +615,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og genererer den samlede bildebriefen. Hele planen sendes hver gang – en tom liste fjerner den. Svaret har to halvdeler av den samme planen: `images` er den strukturerte listen med én oppføring per bilde, `brief` er den menneskelesbare teksten, og `generation` sier hvor mange separate bildefiler planen krever. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og setter sammen den ferdige bildeprompten for hver enkelt oppføring. Hele planen sendes hver gang – en tom liste fjerner den. Svaret er `images`: én oppføring per bilde, hver med sin egen `prompt` som er alt det ene bildet skal genereres fra. `generation` sier hvordan én oppføring utføres og hvor mange separate bildefiler en ferdig leveranse er. `brief` er intern – hele planen som én lesbar tekst, til dokumentasjon og manuell kopiering, aldri en prompt og ikke noe du skriver ut i samtalen. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -627,7 +650,7 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets samlede bildebrief: én ferdig tekst brukeren kan lime rett inn der bildene lages, med nøyaktig antall bilder, aspect ratio per bilde målt fra sonen, motiv per bilde og den felles bildekonteksten. Svaret inneholder også den strukturerte `images`-listen og `generation`, som er det bildegenereringen skal utføres etter, og kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig. Det svarer `workflow` på.',
+    'Les dekkets bildeplan slik den står nå: `images` med én oppføring per bilde, hver med `imagePlanItemId`, filnavn, sone, aspect ratio målt fra sonen, og den ferdige `prompt` som er alt det ene bildet skal genereres fra. `generation` er det bildegenereringen utføres etter: én oppføring om gangen, ett kall med bare den oppføringens `prompt`. Svaret har også kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig; det svarer `workflow` på. `brief` følger med som intern dokumentasjon og til manuell kopiering, ikke som et steg i flyten.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),

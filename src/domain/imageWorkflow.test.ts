@@ -165,9 +165,50 @@ describe('en fersk bildeplan er ikke ferdig arbeid', () => {
     const status = composeImageWorkflowStatus(awaiting(8))
     expect(status.nextAction).toMatch(/mellomsteg/i)
     expect(status.nextAction).toMatch(/samme samtale/i)
-    expect(status.nextAction).toContain('8 ganger')
-    expect(status.remainingSteps.join(' ')).toMatch(/skriv den ut i samtalen/i)
-    expect(status.remainingSteps.join(' ')).toContain('de 8 bildene')
+    expect(status.nextAction).toMatch(
+      /generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen/i,
+    )
+    expect(status.nextAction).toMatch(/bare den oppføringens ferdige `prompt`/i)
+    expect(status.remainingSteps[0]).toMatch(/Generer neste planlagte bilde direkte/i)
+  })
+
+  it('ber ikke agenten skrive ut den samlede briefen i samtalen', () => {
+    /*
+     * Test 1 of the isolation work, and the root cause it closes. The first
+     * step used to be «hent den ferske sluttbriefen, og skriv den ut i
+     * samtalen», with «generer de 8 bildene» after it — so before the first
+     * generation call the conversation held a message that counted eight
+     * pictures and listed every motif. A generator reading that is composing a
+     * set, whatever the individual prompts then say.
+     *
+     * Asserted over a multi-picture deck, because that is the only case where
+     * the leak exists.
+     */
+    const status = composeImageWorkflowStatus(awaiting(8))
+    const instructions = [status.nextAction, ...status.remainingSteps].join(' ')
+    // Stated as a property rather than as a banned word: the brief may be
+    // named, and every sentence that names it has to be denying it.
+    const aboutTheBrief = instructions
+      .split(/(?<=[.:])\s+/)
+      .filter((sentence) => /brief/i.test(sentence))
+    expect(aboutTheBrief.length).toBeGreaterThan(0)
+    for (const sentence of aboutTheBrief) {
+      expect(sentence, `«${sentence}» ber om briefen`).toMatch(/\b(ikke|aldri)\b/i)
+    }
+    expect(instructions).not.toMatch(/sluttbrief/i)
+    // And nothing counts the pictures at the agent either: eight of them is
+    // not a number to pass on to a generator, so no number appears at all.
+    expect(instructions).not.toMatch(/\d/)
+    expect(instructions).not.toMatch(/bilde \d+ av \d+/i)
+    // What it does say is that the conversation stays quiet about the rest.
+    expect(instructions).toMatch(
+      /Ikke skriv ut samlet brief, andre bildeoppføringer eller en opptelling i samtalen/i,
+    )
+    expect(instructions).toMatch(/Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen/i)
+    // The plan's own numbers are still there — as fields, which nothing reads
+    // aloud.
+    expect(status.plannedImageCount).toBe(8)
+    expect(status.awaitingFileCount).toBe(8)
   })
 
   it('forbyr nettopp de avslutningene som beskriver halvferdig arbeid', () => {
@@ -180,11 +221,20 @@ describe('en fersk bildeplan er ikke ferdig arbeid', () => {
   })
 
   it('krever bildene generert og koblingen kontrollert, men ikke deponert', () => {
+    // Test 5: what finishing is measured on. One separate file per entry, bound
+    // to the `imagePlanItemId` it was made from, in the format that entry asks
+    // for — and the deposit explicitly not part of it.
     const criteria = composeImageWorkflowStatus(awaiting(3)).completionCriteria.join(' ')
-    expect(criteria).toMatch(/skrevet ut i samtalen/i)
-    expect(criteria).toMatch(/generert i samme samtale/i)
+    expect(criteria).toMatch(/generert i samme samtale, ett av gangen/i)
+    expect(criteria).toMatch(/like mange separate bildefiler som planen har oppføringer/i)
+    expect(criteria).toMatch(/én fil per `imagePlanItemId`/i)
+    expect(criteria).toMatch(/aspect ratio oppføringen den ble generert fra oppgir/i)
+    expect(criteria).toMatch(/knyttet til den `imagePlanItemId` den ble generert fra/i)
     expect(criteria).toMatch(/koblingskontrollen svarer `ok`/i)
     expect(criteria).toMatch(/Fylte bildesoner er derfor aldri stoppkriteriet/i)
+    // And printing the brief is not a criterion any more. It was one, which
+    // made showing a generator the whole plan a condition of finishing.
+    expect(criteria).not.toMatch(/brief/i)
   })
 })
 
@@ -267,10 +317,12 @@ describe('genereringen er kontrollert, ikke observert', () => {
     expect(holding).toMatch(/lever dem med manifestet/i)
     expect(without).toMatch(/har du dem ikke/i)
     expect(without).toMatch(/ingen leveranse du kan gjøre/i)
-    expect(without).toMatch(/generer de 3 oppføringene på nytt/i)
+    expect(without).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
     expect(without).toMatch(/kjør koblingskontrollen igjen/i)
-    // And the count it asks for is the plan's own, so the check it sends the
-    // agent back into is the one that can answer `ok`.
+    // The whole plan is what the check expects, and the plan's own field says
+    // how big it is — the step does not count the pictures out loud, because
+    // regenerating is the same one-at-a-time work as generating.
+    expect(without).not.toMatch(/\b3\b/)
     expect(status.plannedImageCount).toBe(3)
     expect(status.nextAction).toMatch(/`remainingSteps` sier hvilket av de to som gjelder her/i)
   })
@@ -506,7 +558,7 @@ describe('en plan som ikke lenger beskriver det den påstår', () => {
     expect(status.stage).toBe('awaiting-generation')
     expect(status.plannedImageCount).toBe(2)
     expect(status.awaitingFileCount).toBe(2)
-    expect(status.nextAction).toContain('2 ganger')
+    expect(status.nextAction).toMatch(/generer neste planlagte bilde direkte/i)
 
     // And the count the status asks for is exactly the set the check expects.
     const delivered = records(replanned)
@@ -551,13 +603,14 @@ describe('det første steget er det stadiet faktisk krever', () => {
     expect(status.remainingSteps[0]).not.toMatch(/generer/i)
   })
 
-  it('går til brief og ett kall per oppføring når planen faktisk venter på bilder', () => {
+  it('går rett på det første bildet når planen faktisk venter på bilder', () => {
     const status = composeImageWorkflowStatus(awaiting(3))
     expect(status.stage).toBe('awaiting-generation')
     expect(status.complete).toBe(false)
-    expect(status.remainingSteps[0]).toMatch(/sluttbriefen.*skriv den ut i samtalen/i)
-    expect(status.remainingSteps[1]).toMatch(/ett kall per oppføring/i)
-    expect(status.remainingSteps[1]).toContain('de 3 bildene')
+    expect(status.remainingSteps[0]).toMatch(/Generer neste planlagte bilde direkte/i)
+    expect(status.remainingSteps[0]).toMatch(/bare den oppføringens ferdige `prompt`/i)
+    expect(status.remainingSteps[1]).toMatch(/Knytt filen til oppføringens `imagePlanItemId`/i)
+    expect(status.remainingSteps[2]).toMatch(/Gjenta det samme for den neste oppføringen/i)
   })
 })
 
@@ -705,9 +758,12 @@ describe('erstatninger gjennom den virkelige deponeringen', () => {
     expect(status.stage).toBe('plan-outdated')
     expect(status.awaitingFileCount).toBe(1)
     expect(staleGeneratedImages(deck)).toHaveLength(2)
-    // Not max(1, 2): the whole plan.
-    expect(status.nextAction).toMatch(/Generer alle 3 oppføringene i planen/i)
-    expect(status.remainingSteps.join(' ')).toContain('de 3 bildene')
+    // Not max(1, 2): the whole plan, one entry at a time — and «which
+    // entries» is «those without a verified binding», which covers both the
+    // empty zone and the two holding the previous pictures.
+    expect(status.nextAction).toMatch(/Generer oppføringene i planen én av gangen/i)
+    expect(status.nextAction).toMatch(/kontrollen venter én fil per planlagt oppføring/i)
+    expect(status.remainingSteps.join(' ')).toMatch(/ennå ikke har en kontrollert kobling/i)
 
     // And the number it asks for is exactly the set the check accepts.
     const delivered = records(deck)
