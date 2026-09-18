@@ -310,13 +310,13 @@ describe('visual media planning instructions', () => {
 
     it('lar ikke `complete` alene avslutte arbeidet', () => {
       /*
-       * `complete` answers for the document — the plan is covered by a current,
-       * verified generation — and the bindings are stored while the files are
-       * not. So the same true field is read by two readers who owe opposite
-       * work: the conversation that holds the pictures, and a later one that
-       * opens the deck with none of them. A stop rule keyed on `complete`
-       * alone told the second one it was finished, in the same instructions
-       * that tell it to generate the pictures again.
+       * `complete` answers for the document — the pictures are in the deck — and
+       * only the user's deposit puts them there. So it is neither a receipt for
+       * the agent's work nor, when false, a statement that the agent owes
+       * something: the delivery stages are false while the conversation that
+       * made the pictures may be finished, and a later one that opens the same
+       * deck without the files owes all of them. A stop keyed on `complete`
+       * alone answers both readers wrongly, in opposite directions.
        */
       expect(MCP_INSTRUCTIONS).toMatch(
         /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
@@ -324,7 +324,9 @@ describe('visual media planning instructions', () => {
       expect(MCP_INSTRUCTIONS).toMatch(
         /Det er `remainingSteps` som avgjør det, ikke `complete` alene/i,
       )
-      expect(MCP_INSTRUCTIONS).toMatch(/`complete` er en påstand om dokumentet/i)
+      expect(MCP_INSTRUCTIONS).toMatch(
+        /`complete` er et faktum om dokumentet – at bildene faktisk ligger i dekket/i,
+      )
       // Both readers are named, each with the condition that selects them.
       expect(MCP_INSTRUCTIONS).toMatch(
         /har du bildefilene fra genereringen.*skal du ikke si at presentasjonen er ferdig/i,

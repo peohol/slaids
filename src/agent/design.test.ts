@@ -1611,6 +1611,19 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(SELF_CHECK_STOP).toMatch(
       /har du bildefilene fra genereringen.*ikke si at presentasjonen er ferdig/i,
     )
+    /*
+     * And it must say what `complete` is *about*, in the same terms the status
+     * uses. It once said the deck was complete when the plan was covered by a
+     * current generation check — a statement about something the agent supplies,
+     * and the check is stored on the document while the files are not. A stop
+     * rule keyed on that would let a deck with empty picture zones read as
+     * finished, which is the one reading this whole status exists to refuse.
+     */
+    expect(SELF_CHECK_STOP).toMatch(/at bildene faktisk ligger i dekket/i)
+    expect(SELF_CHECK_STOP).not.toMatch(/gyldig, gjeldende genereringskontroll/i)
+    // Both delivery stages are named: `generation-unverified` leaves work owed
+    // too, and a rule that named only the deposit would be silent about it.
+    expect(SELF_CHECK_STOP).toMatch(/`generation-unverified` og `awaiting-deposit`/)
 
     /*
      * And the ordinary case — this conversation has the files — must be able to

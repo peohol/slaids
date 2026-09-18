@@ -878,7 +878,8 @@ ut.
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
 | `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
 | `generation-verified` | ✔ | Koblingskontrollen svarte `ok`, og ingenting Slaids kan se er utestående: hver planlagt sone har fått sin fil. |
-| `awaiting-deposit` | ✔ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. |
+| `generation-unverified` | ✗ | Koblingene er meldt uten avtrykk — eller erklært uhashbare — så deponeringen får ingenting å sammenligne. Leveransesteg, ikke generering på nytt. |
+| `awaiting-deposit` | ✗ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. Agenten kan være ferdig; dekket er det ikke. |
 | `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
 Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
@@ -974,9 +975,10 @@ stadium: genereringen *var* agentens arbeid og er gjort, men handlingen må
 fungere for en økt som ikke har filene. Statusen sier begge veier — lever dem
 med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem —
 og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
-filen. `forbiddenClosings` er dessuten tom når `complete` er true, så ingenting
-står i veien for å lage dem på nytt — og `remainingSteps` er ikke tom der, så
-den som ikke har filene blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
+filen. Leveransestegene har dessuten sin egen `forbiddenClosings`, der forbudet mot å
+generere om igjen bærer unntaket i seg selv — «så lenge du selv har filen» — så
+ingenting står i veien for å lage dem på nytt for den som ikke har dem, og
+`remainingSteps` er ikke tom der, så den blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
 ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
 tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
 bildet fra forrige bestilling, mens ingen sone er tom i `generation-verified`.
@@ -1004,18 +1006,19 @@ kontrollen forventer.
 
 #### Feltene agenten leser
 
-- **`complete`** er en påstand om *dokumentet*: bildeplanen som gjelder nå er
-  dekket av en gyldig, gjeldende genereringskontroll. Deponeringen er brukerens
-  steg, og å vente på den er aldri agentens jobb, så `awaiting-deposit` er
-  `complete: true`. Men true er ikke i seg selv lov til å stoppe, og
+- **`complete`** er et faktum om *dokumentet*, og bevisst om det ene ingen kan
+  påstå fram: at bildene ligger i dekket. Det er aldri en rapport om agentens
+  arbeid, og false betyr ikke at agenten skylder noe — `awaiting-deposit` og
+  `generation-unverified` er begge false mens agenten godt kan være ferdig. Den
   asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
   det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
-  holdt den samtalen. En senere økt kan lese den samme sanne påstanden uten å ha
-  en eneste av filene — og skylder bildene på nytt. Og false sier bare at
-  oppgaven ikke er ferdig, aldri at det er generering som gjenstår:
-  `plan-needs-repair` og begge `plan-outdated`-variantene er også false, og der
-  skal planen repareres eller skrives om først. Derfor henger genereringsteksten
-  i agentregelen på stadiet som krever den, ikke på boolskeverdien.
+  holdt den samtalen. En senere økt kan lese de samme koblingene uten å ha en
+  eneste av filene — og skylder bildene på nytt. Og false sier aldri av seg selv
+  at det er generering som gjenstår: `plan-needs-repair` og begge
+  `plan-outdated`-variantene er også false, og der skal planen repareres eller
+  skrives om først. Derfor henger genereringsteksten i agentregelen på stadiet
+  som krever den, ikke på boolskeverdien, og en stopp avgjøres på
+  `remainingSteps`.
 - **`nextAction`** navngir neste handling med dekkets eget tall i seg;
   **`remainingSteps`** er det agenten fortsatt skylder, i rekkefølge, og peker
   på `generation.perImageSteps` i stedet for å kopiere løkken. Det er
@@ -1031,16 +1034,27 @@ kontrollen forventer.
   videre først når *brukeren* deponerer dem. En regel som ventet på en tom liste
   ville vært en regel om å vente på en nettleserhandling agenten ikke kan
   utføre, altså den samme feilen sett fra motsatt kant.
-- **`completionCriteria`** er hva fullført krever, og de to siste linjene er de
-  som koster noe å få riktig: beviset for at bildene finnes er
-  koblingskontrollen, og deponeringen er uttrykkelig ikke en del av kriteriet.
-- **`forbiddenClosings`** navngir avslutningene som er gale mens `complete` er
-  false — «presentasjonen er opprettet», «bildene er ikke satt inn ennå»,
-  «bildeplanen er klar», å be om en ny brukerbeskjed, og å generere et godkjent
-  bilde om igjen fordi sonen fortsatt står tom. De tre første er sanne setninger
-  om et halvferdig dekk, og det er nettopp derfor de ble valgt.
+- **`completionCriteria`** er hva fullført krever, målt på filene og koblingene:
+  like mange separate filer som planen har oppføringer, én fil per
+  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, meldt med avtrykk og
+  godkjent med `check: "file-checked"`. Den samlede briefen er uttrykkelig
+  *ikke* et kriterium: den var det, og det gjorde utskrift av hele bildeplanen
+  til en betingelse for å bli ferdig. De to siste linjene er de som koster noe
+  å få riktig, og de skiller to spørsmål: koblingskontrollen er så langt agentens
+  arbeid rekker, mens `complete` først blir true når filene er deponert — og
+  deponeringen er brukerens steg, aldri noe agenten venter på.
+- **`forbiddenClosings`** navngir avslutningene som er gale på *dette* stadiet,
+  ikke de som er gale mens `complete` er false. Genereringslisten —
+  «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er
+  klar», å be om en ny brukerbeskjed, og å kalle en leveranse uten avtrykk
+  kontrollert — gjelder der bildene fortsatt skal lages. De tre første er sanne
+  setninger om et halvferdig dekk, og det er nettopp derfor de ble valgt.
+  Leveransestegene har sin egen liste, fordi «bildene er ikke satt inn ennå, og
+  arbeidet er ditt» er stikk motsatt for filer som venter på brukerens
+  deponering: der er det å overdrive hva leveransen beviser, og å melde dekket
+  ferdig med tomme bildesoner, som er galt.
 
-De to listene bor i `domain/imagePlan.ts` sammen med statusen som rapporterer
+Listene bor i `domain/imageWorkflow.ts` sammen med statusen som rapporterer
 dem, og `agent/design.ts` importerer dem inn i agentinstruksen. Det er poenget:
 den stående instruksen og dekkets eget svar er samme liste, og en leveranse kan
 ikke tilfredsstille én av dem.
@@ -5166,7 +5180,9 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `list_folders`, `get_presentation` (som også
   bærer temaet, `sandboxCount` og den felles bildekonteksten), `get_image_brief`
-  (bildeplanen med én ferdig prompt per oppføring, og kontrollene mot sonene),
+  (bildeplanen slik den står, og kontrollene mot sonene — uten prompter, og med
+  den samlede briefen bare når kallet ber om den), `get_next_image_job` (én
+  jobb om gangen: én `imagePlanItemId`, én aspect ratio og én ferdig prompt),
   `inspect_slide`,
   `list_assets`, `list_sandbox_items`, `validate_slide`,
   `validate_presentation`.

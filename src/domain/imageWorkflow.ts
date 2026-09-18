@@ -157,7 +157,14 @@ export interface ImageWorkflowStatus {
   remainingSteps: readonly string[]
   /** Everything that has to be true before the task may be called finished. */
   completionCriteria: readonly string[]
-  /** Endings that are wrong while `complete` is false. Empty when it is true. */
+  /**
+   * Endings that are wrong at *this* stage. Empty where nothing is outstanding.
+   *
+   * The stage's own list rather than a function of `complete`: the delivery
+   * stages are `complete: false` while the agent may be finished, and the
+   * generation list is false there — «the pictures are not inserted yet, and
+   * the work is yours» is backwards for files waiting on the user's deposit.
+   */
   forbiddenClosings: readonly string[]
 }
 
@@ -201,11 +208,14 @@ export interface ImageWorkflowStatus {
  * deck's own status, and two copies of a definition of done is how a delivery
  * comes to satisfy one of them.
  *
- * The last two are the ones that cost something to get right: the proof that
- * the pictures exist is the binding check, and the deposit is explicitly *not*
- * part of it. Without that, «all pictures generated» has no observable form,
- * and an agent either stops too early or waits for a browser action it cannot
- * perform.
+ * The last two are the ones that cost something to get right, and they split a
+ * question that used to be answered with one fact. The binding check is what
+ * the *agent* is measured on, and finishing it is the end of its work. It is
+ * not what makes the deck finished: every field in a binding was in the plan
+ * first, so the check compares a claim against the order it came from, and the
+ * only comparison against real bytes happens in the browser when the user
+ * deposits the files. Saying that plainly is what keeps the agent from stopping
+ * too early *and* from waiting for a browser action it cannot perform.
  *
  * What is deliberately *not* a criterion is the composed brief. It was one —
  * «den ferske sluttbriefen er skrevet ut i samtalen» — and that made printing
