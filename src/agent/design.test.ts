@@ -59,6 +59,7 @@ import type {
   ContentSlideInspection,
   GeneratedImagesView,
   ImageBriefView,
+  ImageJobView,
   PresentationView,
   ZoneInspection,
 } from './operations/deck'
@@ -537,7 +538,13 @@ describe('formen reglene ber om, på det samme stoffet', () => {
 
     expect(brief.imageCount).toBe(3)
     expect(brief.issues).toEqual([])
-    const text = brief.brief ?? ''
+    // The brief is the human half, and it is fetched deliberately: being in
+    // the answer is being in the context the next image call is written from.
+    const asked = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+      includeBrief: true,
+    })
+    const text = asked.brief ?? ''
     expect(text).toContain('Lag nøyaktig 3 separate bilder')
     expect(text).toContain(CONTEXT)
     for (const [index, species] of SPECIES.entries()) {
@@ -868,6 +875,46 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(unplanned?.nodeId).toBe(slide.columnIds[1])
   })
 
+  it('gir bildegenereringen én jobb om gangen, og aldri settet', async () => {
+    /*
+     * The finding this closes, on the surface it was made about. Composing the
+     * prompt per entry was not enough: `plan_deck_images` and `get_image_brief`
+     * still answered with every prompt, every motif, the whole brief and the
+     * count, so an agent had the *set* in context when it wrote the first image
+     * call — and a generator that has read a set composes a set.
+     *
+     * Asserted over the serialized answers rather than over one field: what
+     * matters is everything a reader can see, not what it was told to repeat.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const others = MOTIFS.slice(1)
+
+    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    expect(job.status).toBe('job')
+    expect(job.job?.prompt).toContain(MOTIFS[0])
+    expect(job.job?.prompt).toContain(CONTEXT)
+
+    const answer = JSON.stringify(job)
+    for (const motif of others) expect(answer).not.toContain(motif)
+    expect(answer).not.toMatch(/BILDE \d+ AV \d+/)
+    expect(answer).not.toMatch(/separate bilder/i)
+    expect(answer).not.toMatch(/\b8\b/)
+
+    // And the binding data is beside the prompt rather than inside it: the
+    // check needs it afterwards, a generator must never see it.
+    expect(job.job?.imagePlanItemId).toBe(brief.images[0].imagePlanItemId)
+    expect(job.job?.prompt).not.toContain(brief.images[0].imagePlanItemId)
+    expect(job.job?.fileName).toBe('1.<filendelse>')
+
+    // The plan surfaces carry no prompt at all, so there is nothing there to
+    // assemble a second, set-aware instruction from.
+    expect(JSON.stringify(brief.images)).not.toContain('Lag ett bilde')
+    expect(brief.brief).toBeNull()
+  })
+
   it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', async () => {
     // The observed failure: eight pictures were planned correctly, the answer
     // carried both halves of the plan, and the whole brief went to the image
@@ -894,24 +941,23 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(brief.generation?.rule).toMatch(/én selvstendig bildegenereringsoppgave/i)
     expect(brief.deposit).toEqual({ status: 'pending', expectedCount: 8 })
 
-    // Each entry carries the whole instruction for its own picture, and
-    // nothing about any other: that is what keeps a plan of eight from
-    // reaching the generator as a plan at all.
+    // No prompt rides along with the plan: the instruction for one picture
+    // comes one job at a time, from a surface that can only see one entry.
     for (const image of brief.images) {
-      expect(image.prompt).toContain(image.subject)
-      expect(image.prompt).toContain(`Aspect ratio ${image.aspectRatio}`)
-      expect(image.prompt).not.toContain(image.imagePlanItemId)
-      expect(image.prompt).not.toMatch(/\d+ separate bilder/i)
-      for (const other of brief.images) {
-        if (other.number === image.number) continue
-        expect(image.prompt).not.toContain(other.subject)
-      }
+      expect(image).not.toHaveProperty('prompt')
     }
-
-    // The brief is still generated beside them, as the internal half.
-    expect(brief.brief).toContain('Lag nøyaktig 8 separate bilder')
-    expect(brief.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
+    // And the whole-plan message is not in the answer at all unless a person
+    // asked for it. Being in the response is being in the context the next
+    // image call is written from.
+    expect(brief.brief).toBeNull()
     expect(brief.generation?.briefRole).toMatch(/^Intern\./)
+
+    const onRequest = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+      includeBrief: true,
+    })
+    expect(onRequest.brief).toContain('Lag nøyaktig 8 separate bilder')
+    expect(onRequest.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
   })
 
   it('gir hver oppføring en stabil id, og et filnavn som kommer fra planen', async () => {
@@ -1076,7 +1122,13 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     )
   })
 
-  it('melder et manglende bilde i stedet for å telle riktig', async () => {
+  it('kaller ikke sju av åtte en ferdig leveranse', async () => {
+    /*
+     * A picture short is the normal state of the loop — the check runs after
+     * each job — so it is not a refusal. What it must never be is a finished
+     * delivery: no manifest, `planCovered` false, and the flow still asking
+     * for pictures.
+     */
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
@@ -1088,12 +1140,23 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
+        contentHash: image.number.toString(16).padStart(2, '0').repeat(32),
       })),
     })
 
-    expect(verified.ok).toBe(false)
-    const missing = verified.issues.filter((issue) => issue.code === 'MISSING_ITEM')
-    expect(missing.map((issue) => issue.number)).toEqual([8])
+    expect(verified.ok).toBe(true)
+    expect(verified.planCovered).toBe(false)
+    expect(verified.manifest).toBeNull()
+    expect(verified.workflow.stage).toBe('awaiting-generation')
+    expect(verified.workflow.complete).toBe(false)
+
+    // And the job that is left is the eighth, which is the only thing the
+    // generation surface will say.
+    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    expect(job.status).toBe('job')
+    expect(job.job?.number).toBe(8)
   })
 
   it('avviser en bildeplan-id som ikke har formen Slaids lager', async () => {
@@ -1386,8 +1449,8 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.nextAction).not.toContain('8')
     expect(brief.workflow.awaitingFileCount).toBe(brief.generation?.expectedFileCount)
     // And the steps left point at the loop rather than restating it.
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Generer neste planlagte bilde direkte/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.perImageSteps/)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Hent neste bildejobb/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/uten de andre oppføringene/i)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.isolation/)
   })
 
@@ -1560,19 +1623,31 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(again.workflow.stage).toBe('awaiting-deposit')
   })
 
-  it('er ikke ferdig når koblingskontrollen avviser settet', async () => {
+  it('er ikke ferdig før den siste jobben er kontrollert', async () => {
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
-    // One picture short: the check names it, and the flow is unfinished.
+    // One picture short: the loop's normal state, and never a delivery.
     const short = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
       presentationId: brief.presentationId,
       images: generated(brief).slice(0, -1),
     })
-    expect(short.ok).toBe(false)
-    expect(short.issues.map((issue) => issue.code)).toContain('MISSING_ITEM')
+    expect(short.ok).toBe(true)
+    expect(short.planCovered).toBe(false)
+    expect(short.manifest).toBeNull()
     expect(short.workflow.stage).toBe('awaiting-generation')
     expect(short.workflow.complete).toBe(false)
+
+    // The last one closes it, and the manifest is the whole set rather than
+    // the binding that happened to be checked last.
+    const last = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: generated(brief).slice(-1),
+    })
+    expect(last.planCovered).toBe(true)
+    expect(last.manifest).toContain(brief.images[0].imagePlanItemId)
+    expect(last.workflow.stage).toBe('awaiting-deposit')
+    expect(last.workflow.complete).toBe(true)
   })
 
   it('holder seg ferdig når briefen leses etter en godkjent kontroll', async () => {
@@ -1786,9 +1861,15 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     // giving an agent two definitions of the same thing.
     const verify = mcpTools().find((tool) => tool.name.endsWith('verify_image_handoff'))
     expect(verify).toBeDefined()
-    expect(verify?.description).toMatch(/`awaiting-deposit` så lenge filene ikke er lagt inn/i)
-    expect(verify?.description).toMatch(/`generation-verified` når de er det/i)
+    expect(verify?.description).toMatch(
+      /med avtrykk blir `workflow\.stage` `awaiting-deposit` når hele planen er dekket/i,
+    )
+    expect(verify?.description).toMatch(/`generation-verified` når filene er lagt inn i sonene/i)
     expect(verify?.description).not.toMatch(/`generation-verified` også før filene er lagt inn/i)
+    // And the level below it, which is what an unchecked delivery lands on.
+    expect(verify?.description).toMatch(
+      /Uten avtrykk lagres koblingen, men genereringen blir aldri verifisert/i,
+    )
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {
@@ -1817,9 +1898,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.stage).toBe('plan-needs-repair')
     expect(brief.workflow.complete).toBe(false)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(
-      /Generer neste planlagte bilde direkte/i,
-    )
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Hent neste bildejobb/i)
   })
 
   it('kaller ikke reserverte bildesoner uten bildeplan for ferdig', async () => {

@@ -4,10 +4,17 @@
  *
  * `imageGeneration.ts` decides whether a set of bindings is the set of pictures
  * the deck planned. This stores the ones that were, and it is a command rather
- * than a field assignment for one reason: **an unverified set must not be
- * storable.** The document's copy is what `imageWorkflow.ts` reads to answer
- * «were the pictures made», so a record that did not check out would be a
- * finished-looking answer to the question the whole flow turns on.
+ * than a field assignment for one reason: **a set that contradicts the plan
+ * must not be storable.** The document's copy is what `imageWorkflow.ts` reads
+ * to answer «were the pictures made», so a record that did not check out would
+ * be a finished-looking answer to the question the whole flow turns on.
+ *
+ * What *is* storable and still not proof is a binding without a digest. It is
+ * kept — otherwise a host that cannot reach the bytes of its own image tool
+ * would be asked to generate the same pictures on every read — and
+ * `imageGenerationCoverage` reports it as `unverified` rather than done,
+ * because every field in such a record was already in the plan the agent read
+ * before it generated anything.
  *
  * Nothing here expires the records on a timer or a flag. They expire because an
  * entry's `imagePlanItemId` covers its whole order, so a rewritten motif or
@@ -28,11 +35,25 @@ import { err, ok, type Result } from '../result'
 import type { Presentation } from '../types'
 
 /**
- * Store the bindings for this deck's generated pictures.
+ * Store the bindings for this deck's generated pictures, one or several at a
+ * time.
  *
  * Refused unless every binding checks out against the plan the deck holds
  * *now*: the same question `verify_image_handoff` answers, asked again here so
  * the answer cannot be asserted by a caller that did not ask it.
+ *
+ * **Incremental, and that is what makes the flow sequential.** The pictures are
+ * generated one at a time, and the binding for each one is written down before
+ * the next is generated — so this merges what it is handed into what the deck
+ * already holds, rather than replacing it. Requiring the whole set in one call
+ * would mean an agent could not record a picture until it held them all, and
+ * «which entry is next» would have nothing on the document to read.
+ *
+ * So completeness is not a condition of storing: `MISSING_ITEM` is what the
+ * plan is still waiting for, not something wrong with this delivery. Everything
+ * else is — an unknown id, a duplicate, a number or zone that is not the
+ * entry's, a file named after something else — and those are refused over the
+ * *merged* set, so a second call cannot contradict the first.
  */
 export function recordGeneratedImages(
   presentation: Presentation,
@@ -41,7 +62,19 @@ export function recordGeneratedImages(
   if (records.length === 0) {
     return err('INVALID_ARGUMENT', 'En kobling må gjelde minst ett generert bilde.')
   }
-  const issues = checkGeneratedImages(presentation, records)
+  /* A record for an entry that already has one replaces it, which is how a
+     re-run with digests upgrades an unchecked binding without a second entry
+     for the same picture. */
+  const incoming = new Set(records.map((record) => record.imagePlanItemId))
+  const merged = [
+    ...records.map(normalizeRecord),
+    ...plannedGeneratedImages(presentation).filter(
+      (record) => !incoming.has(record.imagePlanItemId),
+    ),
+  ]
+  const issues = checkGeneratedImages(presentation, merged).filter(
+    (issue) => issue.code !== 'MISSING_ITEM',
+  )
   if (issues.length > 0) {
     return err('INVALID_ARGUMENT', issues[0].message, { issues })
   }
@@ -59,12 +92,11 @@ export function recordGeneratedImages(
    * see a file, so the only thing that knows is the binding it is about to
    * throw away. `setImageAsset` drops it when a new file actually lands there.
    */
-  const written = records.map(normalizeRecord)
-  const ids = new Set(written.map((record) => record.imagePlanItemId))
+  const ids = new Set(merged.map((record) => record.imagePlanItemId))
   const superseded = staleGeneratedImages(presentation).filter(
     (record) => !ids.has(record.imagePlanItemId),
   )
-  const stored = [...byNumber(written), ...byNumber(superseded)]
+  const stored = [...byNumber(merged), ...byNumber(superseded)]
 
   // A call that changed nothing writes nothing — the same contract
   // `setImagePlan` keeps, so re-running the check on an unchanged delivery does

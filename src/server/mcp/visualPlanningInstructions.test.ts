@@ -72,20 +72,28 @@ describe('visual media planning instructions', () => {
     expect(MCP_INSTRUCTIONS).toMatch(/`generation\.isolation`/)
   })
 
-  it('hands the generator one planned picture at a time, never the whole brief as one job', () => {
-    // The regression: eight planned pictures, one composed brief, and a host
-    // client that sent the brief on as a single image-generation job. One
-    // storyboard came back. The instructions must not read as advice to do
-    // that — the brief is printed in the conversation, and the generation runs
-    // per entry.
-    expect(MCP_INSTRUCTIONS).toMatch(/ett kall per oppføring i `images`/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/generation\.expectedFileCount.*før bildene deponeres/i)
+  it('hands the generator one job at a time, never the plan as one job', () => {
+    /*
+     * The regression, and then the finding that followed it. Eight planned
+     * pictures, one composed brief, and a host client that sent the brief on as
+     * a single image-generation job: one storyboard came back. Composing a
+     * prompt per entry fixed the prompt and left the exposure — every answer
+     * still carried the whole plan — so the generation step now reads one job
+     * at a time and the instructions have to say that.
+     */
+    expect(MCP_INSTRUCTIONS).toMatch(/hent den ene bildejobben som står for tur/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/Slaids gir deg én jobb om gangen/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/uten de andre oppføringene og uten noe antall/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/ikke hent flere jobber på forskudd/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /ikke les bildeplanen på nytt for å få tak i de andre motivene underveis/i,
+    )
     expect(MCP_INSTRUCTIONS).toMatch(/alle disse kallene er gjort og antallet ferdige bildefiler er kontrollert/i)
-    // One entry finished at a time, and the count is not the only thing
-    // checked: the second failure was nine correct pictures named in the order
-    // they came back, which a count cannot see.
-    expect(MCP_INSTRUCTIONS).toMatch(/én oppføring ferdigstilt av gangen/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/hver fil er knyttet til den `imagePlanItemId` den ble generert fra/i)
+    // The binding is checked per picture, and the digest is what makes the
+    // check mean anything: everything else in it was in the plan already.
+    expect(MCP_INSTRUCTIONS).toMatch(/for hver oppføring så snart bildet er laget/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/Avtrykket er ikke valgfritt/i)
+    expect(MCP_INSTRUCTIONS).toMatch(/`generation-unverified`/)
     expect(MCP_INSTRUCTIONS).toMatch(/koblingen mellom hver fil og bildeplanoppføringen/i)
     // And the retired instruction — hand the brief over as the generation
     // prompt — is asserted gone rather than left to review.
@@ -152,7 +160,7 @@ describe('visual media planning instructions', () => {
       // «was the picture made». An agent told to wait for filled zones waits
       // for a browser action it cannot perform — and regenerates.
       expect(MCP_INSTRUCTIONS).toMatch(
-        /Den er stoppkriteriet for bildegenereringen: svarer den `ok`, er genereringsoppgaven ferdig/i,
+        /Kontrollen er stoppkriteriet for bildegenereringen: er hele planen dekket og svaret `ok` med `check: "file-checked"`, er genereringsoppgaven ferdig/i,
       )
       expect(MCP_INSTRUCTIONS).toMatch(/`workflow\.stage` blir `awaiting-deposit`/i)
       // And the answer is a fact about the deck, not about one response: the

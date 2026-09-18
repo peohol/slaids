@@ -428,6 +428,8 @@ export type ImagePlanIssueCode =
   | 'MISSING_CONTEXT'
   /** The shared context reaches into what a single picture shows. */
   | 'CONTEXT_OVERREACH'
+  /** A text describes its picture by its place among the others. */
+  | 'CROSS_IMAGE_REFERENCE'
 
 export interface ImagePlanIssue {
   code: ImagePlanIssueCode
@@ -482,6 +484,61 @@ const ORIENTATION_TERMS: readonly { pattern: RegExp; orientation: ImageOrientati
 
 const WRITTEN_RATIO = /\b(\d{1,2})\s*[:∶]\s*(\d{1,2})\b/g
 
+/**
+ * Phrases that place a picture among others.
+ *
+ * The plan's texts are copied verbatim into the prompt for one picture — that
+ * is what makes the prompt the entry's own order rather than a paraphrase of it
+ * — and it is also the one way the set can still reach a generator after
+ * everything else about the flow was made one picture at a time. «Samme utsnitt
+ * som forrige bilde», «alle bildene skal ha samme stil», «bilde 2 av 8»: each
+ * of those is a complete instruction to compose a set, and no rule about what
+ * an agent may *write in the conversation* touches them, because they travel
+ * inside the order itself.
+ *
+ * So they are refused rather than warned about. Every pattern names a
+ * *reference*: a number out of a total, another picture, the series, the set.
+ * What is deliberately not here is the bare plural — «ingen tekst i bildene» is
+ * how a person writes a style note, it names no other picture, and flagging it
+ * would make the check something authors route around instead of read.
+ *
+ * Norwegian and English both, because a motif gets written in either.
+ */
+const CROSS_IMAGE_REFERENCES: readonly RegExp[] = [
+  /\bbilde(?:t|ne|r)?\s*(?:nr\.?\s*)?\d+\s*(?:av|of)\s*\d+\b/gi,
+  /\b(?:alle|begge|andre|øvrige|resten\s+av)\s+(?:de\s+)?(?:bilder|bildene|bilda)\b/gi,
+  /\bde\s+(?:andre|øvrige)\s+(?:bilder|bildene|bilda)\b/gi,
+  /\b(?:forrige|neste|første|siste|øvrige)\s+bilde(?:t|ne)?\b/gi,
+  /\bsom\s+(?:i\s+)?bilde\s*\d+\b/gi,
+  /\b(?:denne|samme)\s+(?:bilde)?serien\b/gi,
+  /\bbildeserien?\b/gi,
+  /\bbildesettet\b/gi,
+  /\b(?:i|til)\s+dette\s+settet\b/gi,
+  /\bimage\s*\d+\s*of\s*\d+\b/gi,
+  /\ball\s+(?:the\s+)?images\b/gi,
+  /\b(?:other|previous|next|remaining)\s+images?\b/gi,
+  /\bthis\s+series\b/gi,
+]
+
+/**
+ * Every phrase in a text that refers to another picture, once each.
+ *
+ * Exported because two layers ask it of two different things and must not
+ * disagree: `checkImagePlan` asks it of the fields an author wrote, so the
+ * finding names what to rewrite, and the generation flow asks it of the
+ * *composed prompt*, so a leak cannot be handed to a generator even if it
+ * arrived some way the field check did not see. One list of patterns, two
+ * questions.
+ */
+export function crossImageReferences(text: string): string[] {
+  const found = new Set<string>()
+  for (const pattern of CROSS_IMAGE_REFERENCES) {
+    pattern.lastIndex = 0
+    for (const match of text.matchAll(pattern)) found.add(normalize(match[0]))
+  }
+  return [...found]
+}
+
 /** How far a ratio written into a prompt may sit from the zone's own before it is wrong. */
 const RATIO_TOLERANCE = 0.08
 
@@ -532,6 +589,7 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
     issues.push(...aspectIssues(image))
     const stale = placeholderIssue(image)
     if (stale) issues.push(stale)
+    issues.push(...crossReferenceIssues(image))
   }
   issues.push(...duplicateIssues(resolved))
 
@@ -544,8 +602,45 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
     })
   } else if (context !== '') {
     issues.push(...contextOverreachIssues(context, resolved))
+    const referenced = crossImageReferences(context)
+    if (referenced.length > 0 && resolved.length > 0) {
+      issues.push({
+        code: 'CROSS_IMAGE_REFERENCE',
+        message: `Den felles bildekonteksten viser til de andre bildene: ${quoted(
+          referenced,
+        )}. Konteksten går ordrett inn i prompten for hvert enkelt bilde, så en slik formulering forteller bildegeneratoren at oppgaven er flere bilder – og da lager den ett sammenslått bilde. Skriv den som ren stil: hvordan bildet skal se ut, uten å nevne antall, serie eller de andre bildene.`,
+      })
+    }
   }
   return issues
+}
+
+/**
+ * One picture's own texts, read for references to the others.
+ *
+ * Reported per entry rather than per field so a rewrite is one edit: the author
+ * gets the phrases, and the fields they sit in are the four the entry has.
+ */
+function crossReferenceIssues(image: ResolvedPlannedImage): ImagePlanIssue[] {
+  const referenced = crossImageReferences(
+    PLANNED_IMAGE_FIELDS.map((field) => image.plan[field]).join('\n'),
+  )
+  if (referenced.length === 0) return []
+  return [
+    {
+      code: 'CROSS_IMAGE_REFERENCE',
+      message: `Bilde ${image.number} beskriver seg selv i forhold til de andre bildene: ${quoted(
+        referenced,
+      )}. Feltene går ordrett inn i prompten for dette ene bildet, som ikke skal vite at det finnes andre – en slik formulering er nettopp det som gjør at bildegeneratoren lager collage eller kontaktark. Skriv motivet, komposisjonen og kravene slik at de står alene.`,
+      number: image.number,
+      slideId: image.plan.slideId,
+      nodeId: image.plan.nodeId,
+    },
+  ]
+}
+
+function quoted(phrases: readonly string[]): string {
+  return phrases.map((phrase) => `«${phrase}»`).join(', ')
 }
 
 /**

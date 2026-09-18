@@ -328,8 +328,10 @@ validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
 plan lest tidligere i arbeidsflyten er foreløpig, og bildene skal ikke genereres
 fra den. Når bildesonene er stabile, leser klienten planen på nytt fra den
 endelige presentasjonstilstanden. Har vertsklienten innebygd bildegenerering,
-skal den starte umiddelbart med det første planlagte bildet: ett kall per
-oppføring, med bare den oppføringens ferdige `prompt`. At planen finnes i
+skal den starte umiddelbart, og den henter **én jobb om gangen**: en jobb er én
+ferdig `prompt` og koblingsdataene for akkurat den oppføringen, uten de andre
+oppføringene og uten noe antall. Neste jobb finnes først når den forrige er
+generert og kontrollert. At planen finnes i
 verktøyresponsen er ikke en fullført handoff; genereringen er
 først startet når bildegenereringsverktøyet faktisk er kalt, og oppgaven skal
 ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må den leses
@@ -350,6 +352,16 @@ er et sett, lager et sett — collage, kontaktark, storyboard eller ett helt
 slide-oppsett — og ingen regel mot collage veier opp for å ha vist den at settet
 finnes. Antallet finnes fortsatt i svaret, som kontroll av den ferdige
 leveransen (`expectedFileCount`), aldri som noe agenten gjentar.
+
+Å komponere prompten per oppføring var ikke nok alene, og det er verdt å si
+hvorfor: svarene bar fortsatt hele planen — hvert motiv, hver ferdige prompt,
+antallet — så agenten hadde settet foran seg i det første bildekallet ble
+skrevet, uansett hva den var bedt om å ikke gjenta. Isolasjonen måtte derfor
+flytte fra *hva som skrives* til *hva som er synlig*: genereringssteget leser én
+jobb om gangen, bildeplanens svar bærer ingen ferdige prompter, og den samlede
+briefen følger bare med når noen ber om den. Agenten henter heller ikke flere
+jobber på forskudd, og leser ikke planen på nytt for å få tak i de andre
+motivene mens den genererer.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -598,6 +610,19 @@ planen, ved å skrive ut briefen, liste motivene eller melde antallet. Derfor
 finnes prompten, og derfor sier `generation.isolation` hva samtalen rundt kallet
 ikke får røpe.
 
+**Teksten kan lekke settet selv om prompten er isolert.** Feltene kopieres
+ordrett inn i prompten — det er det som gjør den til oppføringens egen
+bestilling — så «samme utsnitt som forrige bilde», «alle bildene skal ha samme
+stil» eller «bilde 2 av 8» ville reist rett til generatoren inni selve ordren.
+`crossImageReferences` finner slike referanser, og `checkImagePlan` melder dem
+som `CROSS_IMAGE_REFERENCE` på oppføringen eller på den felles bildekonteksten.
+Funn stopper genereringen: `nextImageJob` leverer ingen jobb før teksten står
+alene, og den spør de samme mønstrene én gang til av den ferdige prompten, som
+er siste punkt der teksten fortsatt er Slaids sin egen. Det som med vilje *ikke*
+fanges, er den nakne flertallsformen — «ingen tekst i bildene» navngir ikke noe
+annet bilde, og å melde den ville gjort kontrollen til noe forfattere går
+utenom.
+
 Feltene «Unngå» viser hvorfor teksten genereres to steder fra samme data:
 briefen kaller seksjonen «Unngå i akkurat dette bildet», som bare betyr noe ved
 siden av de andre oppføringene, mens prompten kaller den `Unngå`. Overskriftene
@@ -683,6 +708,29 @@ planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange a
 dem som utgjør en ferdig leveranse, hvordan én av dem utføres, og hva som ikke
 får eksponeres mens det skjer.
 
+### Genereringen leser én jobb om gangen
+
+`nextImageJob` er genereringsstegets egen flate, og den kan bare si én ting. Den
+svarer med den første planlagte oppføringen ingen lagret kobling gjør rede for:
+én ferdig `prompt`, formatet sonen ble målt til, og koblingsdataene kontrollen
+etterpå ber om (`imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`).
+Ingen søskenoppføring, intet annet motiv, ingen samlet brief, intet totalantall.
+
+Køen er dokumentet, ikke en teller: «neste» avledes av planen og de lagrede
+koblingene hver gang, så en avbrutt samtale plukker opp der dekket står. Og
+fordi neste jobb først finnes når den forrige er kontrollert, blir «hvor mange
+er det» aldri et spørsmål som må besvares — `all-generated` er slutten på
+løkken, ikke et tall.
+
+Planens egne kontroller går foran: er `checkImagePlan` ikke tom, leveres ingen
+jobb, og svaret sier hva som skal rettes. Det gjelder særlig
+`CROSS_IMAGE_REFERENCE`, som er det ene funnet som ellers ville *reist* med
+ordren.
+
+`plan_deck_images` og `get_image_brief` bærer derfor ingen `prompt` i det hele
+tatt, og `brief` er tom med mindre kallet ber om den (`includeBrief`). Å ligge i
+svaret er å ligge i konteksten det neste bildekallet skrives fra.
+
 ### Bildeplanen er et mellomsteg: `workflow`
 
 Kontrakten over sier hvordan bildene lages. Den sier ikke om de er laget, og det
@@ -715,10 +763,28 @@ Derfor to separate tall og én sannhetskilde:
   har, hvor mange soner som holder en fil, og hvor mange som står tomme.
   `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
   skylder.
-- **Om selve genereringen er ferdig, svarer `checkGeneratedImages` på.** `ok`
-  der betyr at hver planlagte oppføring har nøyaktig én fil knyttet til seg, og
-  det er definisjonen på at genereringen er utført. Statusen leser det aldri av
-  en fylt sone.
+- **Om selve genereringen er ferdig, svarer `imageGenerationCoverage` på.** Den
+  har tre nivåer: `none` (planen er ikke dekket), `unverified` (hver oppføring
+  har en kobling, og minst én mangler avtrykket) og `verified` (alle koblinger
+  bærer avtrykket av bytene bildegenereringen returnerte). Bare `verified` er en
+  utført generering. Statusen leser det aldri av en fylt sone.
+
+#### Avtrykket er det eneste beviset, fordi alt annet står i planen
+
+En kobling består av `imagePlanItemId`, nummeret, sonen, filnavnet og
+`contentHash`. De fire første sto i bildeplanen *før* noe bilde ble laget, så en
+komplett, selvmotsigelsesfri koblingsliste kan skrives av planen uten å kalle en
+bildegenerator i det hele tatt — og det svarte `ok`, ble lagret og leste tilbake
+som `complete: true`. Avtrykket er det eneste feltet som ikke kan skrives av
+planen.
+
+Derfor: en kobling uten avtrykk *lagres* — ellers ville en vertsklient som ikke
+får tilgang til bytene fra sitt eget bildeverktøy blitt bedt om å generere alt
+på nytt ved hver lesning — men den teller ikke som bevis. Stadiet blir
+`generation-unverified` med `complete: false`, og veien ut er avtrykket, ikke
+nye bilder: har agenten bytene, regner den ut SHA-256 og kjører kontrollen på
+nytt; har den dem ikke, skal leveransen uttrykkelig omtales som uverifisert og
+overlates til manuell gjennomgang i deponeringen.
 
 #### Koblingene lagres, fordi ett kall ikke er en tilstand
 
@@ -730,8 +796,15 @@ ble skrevet, N filer generert, kontrollen svarte «ferdig» og
 tomme. Det er den samme duplikatgenereringen regelen forbyr, ett kall senere.
 
 Derfor lagres koblingene på dokumentet (`Presentation.generatedImages`), og
-`verify_image_handoff` er en mutasjon: den skriver settet som gikk gjennom, og
-bare det. `imageGenerationIsVerified` spør `checkGeneratedImages` om de lagrede
+`verify_image_handoff` er en mutasjon: den skriver koblingene som gikk gjennom,
+og bare dem. Den tar imot **én oppføring om gangen** og fletter den inn i det
+dekket alt har, fordi løkken er «generer, kontroller, hent neste»:
+`MISSING_ITEM` er planen som venter på en jobb som ikke er gjort ennå, ikke noe
+galt med denne leveransen, mens alt annet — ukjent id, duplikat, feil nummer
+eller sone — avvises mot det *flettede* settet, slik at et andre kall ikke kan
+motsi det første. `planCovered` sier når hele planen er dekket, og manifestet
+skrives først da, av de lagrede koblingene: deponeringen tar imot 1‥N, og et
+manifest med én av dem er ingen leveranse. `imageGenerationIsVerified` spør `checkGeneratedImages` om de lagrede
 koblingene på nytt hver gang, mot planen dekket har *nå* — det er ikke et flagg.
 
 Det gir utløpet gratis, og det er egenskapen som gjør lagringen trygg å stole

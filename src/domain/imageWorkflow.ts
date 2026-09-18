@@ -44,10 +44,18 @@
 
 import {
   checkGeneratedImages,
+  imageBindingCheck,
   plannedGeneratedImages,
   staleGeneratedImages,
 } from './imageGeneration'
-import { checkImagePlan, imageZoneKey, resolveImagePlan } from './imagePlan'
+import {
+  checkImagePlan,
+  composeImageGenerationPrompt,
+  crossImageReferences,
+  imageZoneKey,
+  resolveImagePlan,
+  type ImagePlanIssue,
+} from './imagePlan'
 import type { Presentation } from './types'
 
 /**
@@ -58,13 +66,22 @@ import type { Presentation } from './types'
  * in the deck. `awaiting-deposit` is the one that is finished *conditionally* —
  * everything planned was made, and whether anything is left for the agent
  * depends on something the deck cannot see: whether this conversation still
- * holds the files. The other three are stages an agent must never end a turn
- * in.
+ * holds the files. The others are stages an agent must never end a turn in.
+ *
+ * `generation-unverified` is the one that is about *evidence* rather than about
+ * work. Every planned entry has a binding and not one of them carries a digest
+ * of the bytes a generation response returned — which is a delivery nobody can
+ * tell apart from ids, numbers and file names copied straight out of the plan.
+ * An agent holds all of those before it generates anything, so a state that
+ * called this finished would let the whole flow be satisfied without one image
+ * call. It is therefore never `complete`, and the way out is the digest rather
+ * than another picture.
  */
 export type ImageWorkflowStage =
   | 'no-planned-images'
   | 'plan-needs-repair'
   | 'awaiting-generation'
+  | 'generation-unverified'
   | 'generation-verified'
   | 'awaiting-deposit'
   | 'plan-outdated'
@@ -194,7 +211,7 @@ export const IMAGE_WORKFLOW_COMPLETION_CRITERIA: readonly string[] = [
   'Bildeplanen er skrevet, og kontrollene i `issues` er tomme.',
   'Alle planlagte bilder er generert i samme samtale, ett av gangen: like mange separate bildefiler som planen har oppføringer, én fil per `imagePlanItemId`.',
   'Hver fil har det aspect ratio oppføringen den ble generert fra oppgir.',
-  'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, og koblingskontrollen svarer `ok` for alle planlagte oppføringer. Det er den kontrollen som avgjør at bildegenereringen er ferdig, og svaret blir stående på dekket.',
+  'Hver fil er knyttet til den `imagePlanItemId` den ble generert fra, med avtrykket (SHA-256) av bytene bildegenereringen returnerte, og koblingskontrollen svarer `ok` med `check: "file-checked"` for alle planlagte oppføringer. Det er den kontrollen som avgjør at bildegenereringen er ferdig, og svaret blir stående på dekket. En kobling uten avtrykk teller ikke: id, nummer, sone og filnavn står alle i bildeplanen fra før, så de kan skrives av uten at noe bilde er laget.',
   'Å legge bildene inn i Slaids kreves ikke for at genereringsoppgaven er ferdig: uten en filbro tilbake til Slaids er deponeringen brukerens steg i nettleseren. Fylte bildesoner er derfor aldri stoppkriteriet.',
 ]
 
@@ -213,6 +230,7 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
   'Ikke avslutt med «Bildene er ikke satt inn ennå». Det er en beskrivelse av arbeid som gjenstår, og arbeidet er ditt.',
   'Ikke avslutt med «Bildeplanen er klar». Planen er et mellomsteg; neste steg er bildegenereringen.',
   'Ikke be om en ny brukerbeskjed for å starte bildegenereringen. Eneste gyldige stopp er at brukeren uttrykkelig har bedt om å stoppe før bildene genereres, eller en konkret teknisk blokkering du navngir.',
+  'Ikke omtal en leveranse uten avtrykk som kontrollert eller verifisert, og ikke meld genereringen ferdig på den. Uten `contentHash` er koblingen bare metadata om et filnavn – og id, nummer, sone og filnavn kan alle skrives av bildeplanen uten at noe bilde er laget. Si at leveransen er uverifisert, eller regn ut avtrykkene og kjør kontrollen på nytt.',
   'Ikke generer et bilde om igjen fordi bildesonen ennå er tom i Slaids, så lenge du selv har filen: er koblingen alt kontrollert, er bildet laget, og det som gjenstår er deponeringen. Er bildet laget i en tidligere samtale og filen ikke er tilgjengelig for deg, er det motsatte riktig – si det, og lag bildet på nytt for den samme oppføringen.',
 ]
 
@@ -235,11 +253,11 @@ export const IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS: readonly string[] = [
  * planned entry in either case.
  */
 const GENERATION_STEPS: readonly string[] = [
-  'Generer neste planlagte bilde direkte: velg den oppføringen i `images` som ennå ikke har en kontrollert kobling, og kall bildegeneratoren med bare den oppføringens ferdige `prompt`. Den er satt sammen av dekkets felles bildekontekst og denne ene oppføringen.',
-  'Knytt filen til oppføringens `imagePlanItemId`, gi den oppføringens eget filnavn, og kontroller koblingen før noe annet gjøres. Se `generation.perImageSteps`.',
-  'Gjenta det samme for den neste oppføringen uten kontrollert kobling, til ingen står igjen. Ikke skriv ut samlet brief, andre bildeoppføringer eller en opptelling i samtalen – se `generation.isolation`.',
-  'Kjør koblingskontrollen på alle planlagte oppføringer, mot `generation.beforeDeposit`. Den er stoppkriteriet for bildegenereringen, og svaret blir stående på dekket.',
-  'Svarer kontrollen `ok`, er genereringsoppgaven ferdig. Lever bildene med manifestet; å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
+  'Hent neste bildejobb fra Slaids. Svaret er én jobb: én ferdig `prompt` og koblingsdataene for akkurat den oppføringen, uten de andre oppføringene, uten samlet brief og uten noe antall.',
+  'Kall bildegeneratoren nøyaktig én gang, med bare den `prompt`-teksten.',
+  'Regn ut SHA-256 av bytene som kom tilbake, med en gang, og kjør koblingskontrollen for denne ene oppføringen med avtrykket. Uten avtrykk er koblingen bare metadata om et filnavn, og genereringen blir aldri verifisert.',
+  'Hent så neste jobb, og gjenta. Slaids gir ingen jobb når alle oppføringene har sin egen kontrollerte kobling – det er slutten på løkken, ikke et tall du trenger å holde styr på. Ikke skriv ut samlet brief, andre bildeoppføringer eller en opptelling i samtalen; se `generation.isolation`.',
+  'Når siste jobb er kontrollert, svarer kontrollen `ok` med `check: "file-checked"` og manifestet følger med. Da er genereringsoppgaven ferdig: lever bildene med manifestet, og å legge dem inn i Slaids er brukerens steg med mindre klienten har en filbro.',
 ]
 
 /**
@@ -262,6 +280,22 @@ const GENERATION_STEPS: readonly string[] = [
  * generation steps do not: it is the same one-entry-at-a-time work, and a
  * number in it is a number to repeat to a generator.
  */
+/**
+ * What is left when every picture is claimed and none of it can be checked.
+ *
+ * Two branches again, and for the same reason `DEPOSIT_STEPS` has two: the
+ * condition that selects one is something only the reader can see — whether it
+ * can reach the bytes of what its image tool produced. What is *not* a branch
+ * is generating the pictures again: the missing thing is the digest, not the
+ * picture, and an agent that re-generated to satisfy a check would be doing the
+ * duplicate work the rest of this module exists to prevent.
+ */
+const UNVERIFIED_STEPS: readonly string[] = [
+  'Har du bytene til bildefilene: regn ut SHA-256 av hver av dem og kjør koblingskontrollen på nytt med avtrykkene. Det er den ene veien til en verifisert generering, og den krever ingen nye bilder.',
+  'Har du dem ikke – vertsklienten gir deg ikke tilgang til bytene fra sitt eget bildeverktøy – si uttrykkelig til brukeren at leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Lever filene med manifestet, og si at bildene må ses gjennom manuelt.',
+  'Uansett hvilken av de to: ikke omtal leveransen som kontrollert, og ikke generer bildene om igjen for å få en kontroll – det som mangler er avtrykket, ikke bildet.',
+]
+
 const DEPOSIT_STEPS: readonly string[] = [
   'Har du bildefilene fra genereringen: lever dem med manifestet, og si hva brukeren skal gjøre for å legge dem inn.',
   'Har du dem ikke – kontrollen er lagret på dekket, men filene fulgte ikke med inn i denne samtalen – er den lagrede kontrollen ingen leveranse du kan gjøre: si det, og generer oppføringene i `images` på nytt, én av gangen og hver for seg, mot `generation.perImageSteps`. Kjør koblingskontrollen igjen etterpå.',
@@ -298,14 +332,31 @@ function depositNote(presentation: Presentation): string {
 }
 
 /**
- * Whether the deck's stored bindings account for the plan it carries now.
+ * How far the deck's stored bindings account for the plan it carries now.
+ *
+ *  - `none` — the plan is not covered: entries are missing a binding, or the
+ *    bindings contradict the plan.
+ *  - `unverified` — every entry has a binding, and at least one carries no
+ *    digest of the bytes its generation response returned. Consistent metadata
+ *    about files nobody can point at.
+ *  - `verified` — every entry has a binding and every binding carries its
+ *    digest.
  *
  * The records are kept only while they resolve (see `setImagePlan`), and the
  * check is asked against the *current* plan every time rather than trusted as a
  * flag — so a rewritten motif or shared context invalidates the answer without
  * anything having to remember to clear it.
+ *
+ * The digest is what makes this a fact about *files* rather than a claim. Every
+ * other field in a binding — the id, the number, the zone, the file name — is
+ * something the plan already told the agent, so a set of bindings without
+ * digests is exactly as cheap to produce by copying the plan as by generating
+ * the pictures. That is not a hypothetical shortcut: it is the cheapest path
+ * through this flow, and it used to end in `complete: true`.
  */
-export function imageGenerationIsVerified(presentation: Presentation): boolean {
+export type ImageGenerationCoverage = 'none' | 'unverified' | 'verified'
+
+export function imageGenerationCoverage(presentation: Presentation): ImageGenerationCoverage {
   /*
    * Only the records that answer for the plan the deck holds now. A record left
    * over from a rewritten order is not a flaw in this delivery — it is its own
@@ -314,8 +365,19 @@ export function imageGenerationIsVerified(presentation: Presentation): boolean {
    * correctly delivered plan look unverified.
    */
   const records = plannedGeneratedImages(presentation)
-  if (records.length === 0) return false
-  return checkGeneratedImages(presentation, records).length === 0
+  if (records.length === 0) return 'none'
+  if (checkGeneratedImages(presentation, records).length > 0) return 'none'
+  return imageBindingCheck(records) === 'file-checked' ? 'verified' : 'unverified'
+}
+
+/**
+ * Whether the plan is covered by bindings that reach the files themselves.
+ *
+ * The one question a finished generation turns on, and it is deliberately
+ * stricter than «the bindings add up»: see `imageGenerationCoverage`.
+ */
+export function imageGenerationIsVerified(presentation: Presentation): boolean {
+  return imageGenerationCoverage(presentation) === 'verified'
 }
 
 /**
@@ -395,7 +457,8 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
   const unaddressed = stale.filter(
     (record) => !plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
   )
-  const verified = imageGenerationIsVerified(presentation)
+  const coverage = imageGenerationCoverage(presentation)
+  const verified = coverage === 'verified'
 
   if (unaddressed.length > 0) {
     const numbers = unaddressed.map((record) => record.number).join(', ')
@@ -484,6 +547,23 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     )
   }
 
+  if (coverage === 'unverified') {
+    /*
+     * Every entry is claimed and not one claim reaches a file. Deliberately
+     * before the filled-zone branch below: that one says «rewrite the plan with
+     * the zones that still wait», which is the wrong answer to a deck whose
+     * pictures were made and whose bindings are merely unprovable.
+     */
+    return status(
+      'generation-unverified',
+      false,
+      `Alle ${images.length} planlagte oppføringer har en kobling, og ingen av dem bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte. Da kan Slaids ikke skille en ekte leveranse fra id-er, numre og filnavn som er skrevet av bildeplanen – alt det sto i planen før bildene ble laget – så genereringen er ikke verifisert. Har du bytene, regn ut avtrykkene og kjør koblingskontrollen på nytt; da er den verifisert uten at noe bilde lages om. Har du dem ikke, si uttrykkelig at leveransen er uverifisert og må ses gjennom manuelt. \`remainingSteps\` sier hvilken av de to som gjelder her. Ikke omtal dette som kontrollert.${depositNote(
+        presentation,
+      )}`,
+      UNVERIFIED_STEPS,
+    )
+  }
+
   if (deposited > 0) {
     return status(
       'plan-outdated',
@@ -502,4 +582,183 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
     'Bildeplanen er et mellomsteg, ikke leveransen. Fortsett i samme samtale: generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen – ett kall med bare den oppføringens ferdige `prompt` – og gjenta for én oppføring av gangen til alle har sin egen fil. Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen. Genereringsoppgaven er ferdig når koblingskontrollen svarer `ok` for alle planlagte oppføringer, ikke når bildesonene er fylt.',
     GENERATION_STEPS,
   )
+}
+
+/* ------------------------------------------------------------------ *
+ * One job at a time
+ * ------------------------------------------------------------------ */
+
+/**
+ * One picture to generate now, and nothing about any other.
+ *
+ * The status above answers «is anything left». This answers «what is the next
+ * thing», and it is a separate answer for a structural reason rather than a
+ * tidiness one: the plan is the set, and every response that carries the plan
+ * carries the set with it. An agent that reads a plan of nine entries — nine
+ * motifs, nine finished prompts, a count — has the set in front of it when it
+ * makes the first image call, however carefully it was told not to repeat any
+ * of that out loud. What reaches a generator is then a matter of discipline,
+ * and discipline is what had already been tried.
+ *
+ * So the generation step gets a surface of its own that can only say one thing.
+ * The fields here are the whole of it: the prompt for this one picture, the
+ * format its zone was measured at, and the bookkeeping the binding check will
+ * ask for afterwards. No sibling entry, no motif but its own, no brief, no
+ * total — the next job is fetched *after* this one is generated and bound, so
+ * «how many are there» never has to be answered at all.
+ *
+ * `number` and `fileName` are here because the deposit protocol is numbered:
+ * the file has to be called what its entry says, or the numbered files cannot
+ * find their zones. That is the one place an ordinal is unavoidable, and it is
+ * the file's name rather than a position in a set.
+ */
+export interface ImageGenerationJob {
+  /** What the finished file is bound to. Copied into the binding check, never into the prompt. */
+  imagePlanItemId: string
+  /** The entry's own number, which is what its file is called. */
+  number: number
+  /** `<number>.<filendelse>`: the name the file must carry. */
+  fileName: string
+  slideId: string
+  nodeId: string
+  /**
+   * The format, for a host whose image tool takes it as a parameter.
+   *
+   * The prompt states it too. Both, because a ratio a generator is handed as a
+   * parameter is obeyed more reliably than one it reads — and one entry's own
+   * measurement is never a format shared with another picture.
+   */
+  aspectRatio: string
+  /** The whole instruction for this one picture. See `composeImageGenerationPrompt`. */
+  prompt: string
+}
+
+/**
+ * Why there is no job, when there is none.
+ *
+ *  - `job` — there is one, and it is the only thing to do next.
+ *  - `no-plan` — the deck plans no pictures.
+ *  - `plan-needs-repair` — the plan has findings, and generating from a plan
+ *    that does not describe the deck is how a picture gets made for a zone that
+ *    has moved. It also covers the one finding that must never reach a
+ *    generator: a text that refers to the other pictures.
+ *  - `all-generated` — every entry has its own checked binding. The loop ends
+ *    here, without anybody having been told how long it was.
+ */
+export type ImageJobStatus = 'job' | 'no-plan' | 'plan-needs-repair' | 'all-generated'
+
+/** The next job, or what stands in its way. */
+export interface NextImageJob {
+  status: ImageJobStatus
+  job: ImageGenerationJob | null
+  /** What to do with this answer, in one sentence. */
+  instruction: string
+  /** What to fix, when the plan is what stops a job. Empty otherwise. */
+  issues: readonly ImagePlanIssue[]
+}
+
+/**
+ * The next picture to generate, or the reason there is none.
+ *
+ * «Next» is the first planned entry, in deck order, that no stored binding
+ * accounts for — so the queue is derived from the document rather than kept
+ * anywhere, and an interrupted conversation picks it up where the deck left it
+ * rather than where a lost counter said.
+ *
+ * The plan's own checks come first, exactly as in `composeImageWorkflowStatus`,
+ * and the prompt is checked once more before it is handed out: a text that
+ * refers to the other pictures is the one plan finding that would otherwise
+ * *travel*, and `CROSS_IMAGE_REFERENCE` on the entry is the same question asked
+ * of the same patterns one step earlier. Two asks rather than one, because this
+ * is the last point where the text is still Slaids'.
+ */
+export function nextImageJob(presentation: Presentation): NextImageJob {
+  const none = (
+    status: ImageJobStatus,
+    instruction: string,
+    issues: readonly ImagePlanIssue[] = [],
+  ): NextImageJob => ({ status, job: null, instruction, issues })
+
+  const issues = checkImagePlan(presentation)
+  if (issues.length > 0) {
+    return none(
+      'plan-needs-repair',
+      'Bildeplanen har funn, og det genereres ingenting fra en plan som ikke beskriver dekket. Rett det `issues` peker på, skriv bildeplanen på nytt, og hent jobben igjen.',
+      issues,
+    )
+  }
+
+  const images = resolveImagePlan(presentation)
+  if (images.length === 0) {
+    return none(
+      'no-plan',
+      'Dekket planlegger ingen rasterbilder, så det finnes ingen bildejobb. Forutsetter bestillingen bilder, er det bildeplanen som mangler.',
+    )
+  }
+
+  const bound = new Set(
+    plannedGeneratedImages(presentation).map((record) => record.imagePlanItemId),
+  )
+  const next = images.find((image) => !bound.has(image.id))
+  if (!next) {
+    return none(
+      'all-generated',
+      'Hver planlagt oppføring har sin egen kobling, så det er ingen bildejobb igjen. Er koblingene kontrollert med avtrykk, er genereringsoppgaven ferdig; `workflow` på de andre svarene sier hva som eventuelt gjenstår.',
+    )
+  }
+
+  /*
+   * A planned zone that already holds a file nothing accounts for is the one
+   * case where the next entry is not a job. The deck cannot say where that
+   * picture came from — a manual upload, an older order, a person — so
+   * generating against the plan would put a second picture where one already
+   * is. `composeImageWorkflowStatus` calls it `plan-outdated` and asks for the
+   * plan to be rewritten with the zones that still wait; this has to agree with
+   * it, or the two surfaces would give opposite answers about the same deck.
+   *
+   * A zone whose *previous* picture is accounted for by a stale record is the
+   * opposite case: the replacement is on order, and generating it is exactly
+   * what is owed.
+   */
+  const superseded = new Set(
+    staleGeneratedImages(presentation).map((record) =>
+      imageZoneKey(record.slideId, record.nodeId),
+    ),
+  )
+  if (next.filled && !superseded.has(imageZoneKey(next.plan.slideId, next.plan.nodeId))) {
+    return none(
+      'plan-needs-repair',
+      'Den neste planlagte bildesonen holder allerede en fil, og ingen kontrollert kobling gjør rede for den. Planen beskriver da ikke lenger det den påstår, og et nytt bilde ville kommet i tillegg til det som står der. Skriv bildeplanen på nytt med bare de bildesonene som fortsatt venter på en fil, og hent jobben igjen.',
+    )
+  }
+
+  const prompt = composeImageGenerationPrompt(next, presentation.imageContext ?? '')
+  const referenced = crossImageReferences(prompt)
+  if (referenced.length > 0) {
+    /* Unreachable while `checkImagePlan` asks the same patterns of the same
+       texts — and kept anyway, because this is the last place the prompt is
+       Slaids' own, and a leak that got here would go straight to a generator. */
+    return none(
+      'plan-needs-repair',
+      `Prompten for denne oppføringen viser til andre bilder (${referenced
+        .map((phrase) => `«${phrase}»`)
+        .join(', ')}), og da blir den ikke sendt. Skriv om motivet, komposisjonen, kravene eller den felles bildekonteksten slik at teksten står alene, og hent jobben igjen.`,
+    )
+  }
+
+  return {
+    status: 'job',
+    job: {
+      imagePlanItemId: next.id,
+      number: next.number,
+      fileName: `${next.fileNameStem}.<filendelse>`,
+      slideId: next.plan.slideId,
+      nodeId: next.plan.nodeId,
+      aspectRatio: next.aspectRatio,
+      prompt,
+    },
+    instruction:
+      'Dette er én bildegenereringsoppgave. Kall bildegeneratoren nøyaktig én gang med `prompt` ordrett – ikke legg til id, nummer, filnavn, slide eller noe om andre bilder. Regn ut SHA-256 av bytene som kommer tilbake med en gang, gi filen navnet `fileName` oppgir, og kjør koblingskontrollen for denne oppføringen med `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavnet og avtrykket. Hent deretter neste jobb.',
+    issues: [],
+  }
 }

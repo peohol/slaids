@@ -39,6 +39,7 @@ import {
   IMAGE_BRIEF_RULE,
   IMAGE_GENERATION_RULE,
   IMAGE_HANDOFF_RULE,
+  IMAGE_JOB_RULE,
   IMAGE_PLACEHOLDER_POLICY,
   IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
@@ -102,6 +103,7 @@ const NORMATIVE = [
   IMAGE_PLAN_RULE,
   IMAGE_GENERATION_RULE,
   IMAGE_HANDOFF_RULE,
+  IMAGE_JOB_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
   SELF_CHECK_STOP,
@@ -476,7 +478,7 @@ describe('raster og vektor', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(/ingen advarsel mot det veier opp for å ha vist den/i)
     // And the brief is labelled for what it is on the surface too.
     expect(IMAGE_GENERATION_RULE).toMatch(/`brief` er intern/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke et steg i normalflyten/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/følger ikke med i normalflyten i det hele tatt/i)
   })
 
   it('bevarer nummereringen fra planlagt bilde til bildefil', () => {
@@ -498,14 +500,24 @@ describe('raster og vektor', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(/aldri fra en teller over de ferdige filene/i)
   })
 
-  it('gjør arbeidsflyten eksplisitt sekvensiell, én oppføring av gangen', () => {
+  it('gjør arbeidsflyten eksplisitt sekvensiell, én jobb av gangen', () => {
     // Order matters in the loop itself: the binding is written down before the
     // next generation call exists to confuse it with. An agent that collects
-    // every file first has nothing left to bind them from.
-    expect(IMAGE_GENERATION_RULE).toMatch(/stigende `number`/)
-    expect(IMAGE_GENERATION_RULE).toMatch(/fullfør én av gangen/i)
+    // every file first has nothing left to bind them from — and one that holds
+    // several jobs at once has the set back in context.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Fullfør én jobb av gangen/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/knytt filen som kommer tilbake til den samme `imagePlanItemId`/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/gå først deretter videre til neste oppføring/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/hent først deretter neste jobb/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke hent flere jobber på forskudd/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /ikke hent bildeplanen på nytt for å få tak i de andre motivene/i,
+    )
+    // And the rule that makes one job a whole task is on the call that hands
+    // one out, where an agent meets it.
+    expect(toolProse()).toContain(IMAGE_JOB_RULE)
+    expect(IMAGE_JOB_RULE).toMatch(/Dette er én bildegenereringsoppgave/i)
+    expect(IMAGE_JOB_RULE).toMatch(/Send `prompt` ordrett/i)
+    expect(IMAGE_JOB_RULE).toMatch(/`all-generated` er slutten på løkken, ikke et tall/i)
   })
 
   it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {
@@ -513,8 +525,9 @@ describe('raster og vektor', () => {
     // files to write about — and because the whole value of the check is that
     // somebody other than the model does it.
     expect(toolProse()).toContain(IMAGE_HANDOFF_RULE)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/før de leveres eller deponeres/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/kopieres ordrett fra `images`/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/for hver oppføring så snart bildet er laget/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/før du henter neste jobb/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/kopieres ordrett fra jobben/i)
     expect(IMAGE_HANDOFF_RULE).toMatch(/den utledes ikke fra rekkefølgen/i)
     expect(IMAGE_HANDOFF_RULE).toMatch(/nøyaktig én gang/i)
     expect(IMAGE_HANDOFF_RULE).toMatch(/`ok` false.*skal bildene ikke deponeres/i)
@@ -527,6 +540,14 @@ describe('raster og vektor', () => {
     // that reaches the files themselves.
     expect(IMAGE_HANDOFF_RULE).toMatch(/`contentHash`/)
     expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av bytene/i)
+    // The reason it is not optional bookkeeping: everything else in a binding
+    // was in the plan before any picture was made, so a check without a digest
+    // can be written off the plan.
+    expect(IMAGE_HANDOFF_RULE).toMatch(
+      /det eneste i en kobling som ikke sto i bildeplanen fra før/i,
+    )
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`generation-unverified`/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Avtrykket er ikke valgfritt bokholderi/i)
     // And it has to be taken from the response, not from the folder afterwards.
     expect(IMAGE_HANDOFF_RULE).toMatch(/i det filen kommer tilbake/i)
     expect(IMAGE_HANDOFF_RULE).toMatch(/beregnet i ettertid.*fester.*allerede har skjedd/i)
@@ -550,9 +571,12 @@ describe('raster og vektor', () => {
     // open while it does. Every field that used to be part of the instruction
     // is still named here, as something the call must *not* carry: each of them
     // says «one of several» to whoever reads it.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Hver oppføring bærer sin egen ferdige `prompt`/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Slaids gir deg den ene jobben som står igjen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /ingen andre oppføringer, ingen samlet brief, intet antall/i,
+    )
     expect(IMAGE_GENERATION_RULE).toMatch(/hele instruksen for det ene bildet/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/Send den ordrett, ett kall per oppføring, og bygg den aldri selv/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Send den ordrett, ett kall per jobb, og bygg den aldri selv/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/Ingenting annet skal inn i kallet/i)
     for (const field of ['number', 'slideId', 'nodeId', 'slideLabel', 'aspectRatio', 'orientation']) {
       expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)

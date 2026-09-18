@@ -15,7 +15,12 @@
  */
 
 import { z } from 'zod'
-import { IMAGE_BRIEF_RULE, IMAGE_HANDOFF_RULE, IMAGE_PLAN_RULE } from '../design'
+import {
+  IMAGE_BRIEF_RULE,
+  IMAGE_HANDOFF_RULE,
+  IMAGE_JOB_RULE,
+  IMAGE_PLAN_RULE,
+} from '../design'
 import {
   createDeck,
   fitContextFor,
@@ -27,6 +32,7 @@ import {
 import type { ImageDeposit } from '../../domain/imageDeposit'
 import {
   checkGeneratedImages,
+  plannedGeneratedImages,
   composeImageGenerationManifest,
   expectedGeneratedImages,
   imageBindingCheck,
@@ -39,13 +45,15 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationContract,
-  composeImageGenerationPrompt,
   isImagePlanItemId,
   resolveImagePlan,
   type ImageGenerationContract,
 } from '../../domain/imagePlan'
 import {
   composeImageWorkflowStatus,
+  nextImageJob,
+  type ImageGenerationJob,
+  type ImageJobStatus,
   type ImageWorkflowStatus,
 } from '../../domain/imageWorkflow'
 import {
@@ -454,25 +462,6 @@ export interface PlannedImageView {
   composition: string
   requirements: string
   avoid: string
-  /**
-   * The finished text this one picture is generated from — and the whole of it.
-   *
-   * Composed by Slaids rather than assembled by the caller, because assembling
-   * it was where the picture plan leaked: the fields above are one entry among
-   * others, and an agent building a prompt out of them has the rest of the list
-   * open in front of it. What an image generator does with a task it can see is
-   * a set is compose the set — a collage, a contact sheet, a storyboard — and
-   * that is the ordinary behaviour rather than a mistake to warn about.
-   *
-   * So this is a complete, self-contained image order: the deck's shared visual
-   * context as plain style instruction, this entry's own motif, framing,
-   * requirements and exclusions, and the format measured off this entry's own
-   * zone. It names no count, no number, no other motif, no slide and no deck.
-   * Send it as it is, one call per entry. The fields above stay for reading,
-   * checking and binding — `imagePlanItemId` is the agent's bookkeeping beside
-   * the call, never part of it. See `composeImageGenerationPrompt`.
-   */
-  prompt: string
 }
 
 /**
@@ -509,20 +498,20 @@ export interface ImageBriefView {
    */
   issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
   /**
-   * The whole plan as one human-readable message, or `null` when nothing is
-   * planned. **Internal: documentation, debugging and manual copying.**
+   * The whole plan as one human-readable message — **only when it was asked
+   * for**, and `null` otherwise. Documentation, debugging, manual copying.
    *
    * Generated from the plan and the zones every time it is asked for; there is
    * no stored copy, so it cannot be stale.
    *
-   * Not a step in the normal flow, and not a prompt. It was both, and printing
-   * it is what turned a picture into a picture *out of nine*: one message that
-   * counts the pictures, numbers them and lists every motif is a set to
-   * compose, whether it is handed to a generator directly — the collage a deck
-   * of eight planned pictures came back as — or merely written out in the
-   * conversation the generator is reading. Generation runs off
-   * `images[].prompt`, one entry at a time; `generation.briefRole` and
-   * `generation.isolation` say so.
+   * Opt-in because it does not belong in the generation flow at all, and being
+   * in the response *is* being in the flow: one message that counts the
+   * pictures, numbers them and lists every motif is a set to compose, whether
+   * it is handed to a generator directly — the collage a deck of eight planned
+   * pictures came back as — or merely sitting in the context the next image
+   * call is written from. Generation runs off one job at a time; the editor's
+   * own brief dialog composes this same text for a person, and an agent asks
+   * for it when a person wants to paste it somewhere.
    */
   brief: string | null
   /**
@@ -546,7 +535,7 @@ export interface ImageBriefView {
   deposit: ImageDeposit | null
 }
 
-function imageBriefView(presentation: Presentation): ImageBriefView {
+function imageBriefView(presentation: Presentation, includeBrief = false): ImageBriefView {
   const images = resolveImagePlan(presentation)
   return {
     presentationId: presentation.id,
@@ -568,10 +557,9 @@ function imageBriefView(presentation: Presentation): ImageBriefView {
       composition: image.plan.composition,
       requirements: image.plan.requirements,
       avoid: image.plan.avoid,
-      prompt: composeImageGenerationPrompt(image, presentation.imageContext ?? ''),
     })),
     issues: checkImagePlan(presentation),
-    brief: composeImageBrief(presentation),
+    brief: includeBrief ? composeImageBrief(presentation) : null,
     generation: composeImageGenerationContract(presentation),
     deposit: presentation.imageDeposit ? { ...presentation.imageDeposit } : null,
   }
@@ -615,7 +603,7 @@ function plannedImageField(name: PlannedImageField) {
 export const planDeckImages = defineOperation({
   name: 'plan_deck_images',
   summary:
-    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og setter sammen den ferdige bildeprompten for hver enkelt oppføring. Hele planen sendes hver gang – en tom liste fjerner den. Svaret er `images`: én oppføring per bilde, hver med sin egen `prompt` som er alt det ene bildet skal genereres fra. `generation` sier hvordan én oppføring utføres og hvor mange separate bildefiler en ferdig leveranse er. `brief` er intern – hele planen som én lesbar tekst, til dokumentasjon og manuell kopiering, aldri en prompt og ikke noe du skriver ut i samtalen. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
+    'Skriv hele bildeplanen for presentasjonen: én oppføring per bildesone som venter på en fil. Slaids nummererer bildene i dekkets rekkefølge, måler aspect ratio fra hver sones faktiske geometri, setter plassholder-bildeteksten «Sett inn bilde N her» i hver ufylte bildesone, og setter sammen den ferdige bildeprompten for hver enkelt oppføring. Hele planen sendes hver gang – en tom liste fjerner den. Svaret er `images`: én oppføring per bilde, slik planen står. Selve prompten ligger ikke her: den hentes én jobb om gangen med `get_next_image_job`, slik at ett bildekall aldri ser de andre oppføringene. `generation` sier hvordan én jobb utføres og hva en ferdig leveranse er. Dette kallet er et mellomsteg, aldri en ferdig leveranse: `workflow` sier hvor rasterflyten står, hva som skal gjøres nå, og om oppgaven kan avsluttes i det hele tatt. ' +
     IMAGE_PLAN_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -650,14 +638,76 @@ export const planDeckImages = defineOperation({
 export const getImageBrief = defineOperation({
   name: 'get_image_brief',
   summary:
-    'Les dekkets bildeplan slik den står nå: `images` med én oppføring per bilde, hver med `imagePlanItemId`, filnavn, sone, aspect ratio målt fra sonen, og den ferdige `prompt` som er alt det ene bildet skal genereres fra. `generation` er det bildegenereringen utføres etter: én oppføring om gangen, ett kall med bare den oppføringens `prompt`. Svaret har også kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig; det svarer `workflow` på. `brief` følger med som intern dokumentasjon og til manuell kopiering, ikke som et steg i flyten.',
+    'Les dekkets bildeplan slik den står nå: `images` med én oppføring per bilde – `imagePlanItemId`, filnavn, sone, aspect ratio målt fra sonen, og de fire tekstfeltene. Bildene genereres ikke herfra: selve prompten kommer én jobb om gangen fra `get_next_image_job`, slik at ett bildekall aldri ser de andre oppføringene. Svaret har kontrollene mot sonene – en tom `issues`-liste betyr at planen er klar til bildegenerering, ikke at oppgaven er ferdig; det svarer `workflow` på – og `generation`, som sier hvordan én oppføring utføres og hva en ferdig leveranse er. `brief` er tom med mindre du ber om den: den samlede teksten er til dokumentasjon og manuell kopiering, aldri et steg i genereringsflyten.',
   mutates: false,
   scopes: ['presentations:read'],
-  input: z.strictObject({ presentationId: presentationIdSchema }),
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    includeBrief: z
+      .boolean()
+      .optional()
+      .describe(
+        'Ta med den samlede, menneskelesbare briefen i `brief`. Bare når et menneske skal lese eller lime den inn et sted – den viser alle bildene samtidig, og det er nettopp det én bildegenerering ikke skal se. Utelatt er `brief` `null`.',
+      ),
+  }),
   async run(context, input): Promise<AgentResult<ImageBriefView>> {
     const loaded = await loadPresentation(context, input.presentationId)
     if (!loaded.ok) return loaded
-    return ok(imageBriefView(loaded.value))
+    return ok(imageBriefView(loaded.value, input.includeBrief ?? false))
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * get_next_image_job
+ * ------------------------------------------------------------------ */
+
+/**
+ * One picture to generate now, as an agent reads it.
+ *
+ * A surface of its own rather than a field on the plan, and that is the whole
+ * design: a response that carries the plan carries the *set*, and an agent
+ * holding nine motifs and nine prompts has the set in context when it writes
+ * the first image call — whatever it was told not to say out loud. What an
+ * image generator does with a task it can see is a set is compose the set: a
+ * collage, a contact sheet, a storyboard, a whole slide. That is its ordinary
+ * behaviour, not a lapse another warning would catch.
+ *
+ * So this can only say one thing, and the next job is fetched after the current
+ * one is generated and bound. See `nextImageJob`.
+ */
+export interface ImageJobView {
+  presentationId: string
+  revision: string
+  /** Why there is a job, or why there is none. See `ImageJobStatus`. */
+  status: ImageJobStatus
+  /** The one picture to generate now, or `null`. */
+  job: ImageGenerationJob | null
+  /** What to do with this answer, in one sentence. */
+  instruction: string
+  /** What to fix when the plan is what stops a job. Empty otherwise. */
+  issues: { code: string; message: string; number?: number; slideId?: string; nodeId?: string }[]
+}
+
+export const getNextImageJob = defineOperation({
+  name: 'get_next_image_job',
+  summary:
+    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå», med formatet målt fra sonen – sammen med koblingsdataene kontrollen etterpå ber om: `imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`. Ingen andre oppføringer, ingen samlet brief, intet antall: kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, regn ut SHA-256 av bytene som kommer tilbake, kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene har sin egen kobling – det siste er slutten på løkken. ' +
+    IMAGE_JOB_RULE,
+  mutates: false,
+  scopes: ['presentations:read'],
+  input: z.strictObject({ presentationId: presentationIdSchema }),
+  async run(context, input): Promise<AgentResult<ImageJobView>> {
+    const loaded = await loadPresentation(context, input.presentationId)
+    if (!loaded.ok) return loaded
+    const next = nextImageJob(loaded.value)
+    return ok({
+      presentationId: loaded.value.id,
+      revision: presentationRevision(loaded.value),
+      status: next.status,
+      job: next.job,
+      instruction: next.instruction,
+      issues: next.issues.map((issue) => ({ ...issue })),
+    })
   },
 })
 
@@ -682,16 +732,39 @@ export interface GeneratedImagesView {
   checkMeans: string
   /** What is wrong with the bindings, in the deck's own terms. Empty when `ok`. */
   issues: ImageBindingIssue[]
-  /** The bindings the deck's plan expects, so a fix does not need a second read. */
+  /**
+   * Whether every planned entry now has a stored binding.
+   *
+   * The completeness half, separated from `ok` because the check runs per
+   * picture: a call that binds one picture correctly is `ok` while the plan is
+   * still waiting for the rest, and an agent that read `ok` as «the set is
+   * done» would stop one job early. False is not a finding — it is the loop
+   * saying there is another job to fetch.
+   */
+  planCovered: boolean
+  /**
+   * The bindings the deck's plan expects — **only when something is wrong.**
+   *
+   * There to save a round trip on a repair, and withheld otherwise for the
+   * reason the whole generation flow is one job at a time: this list is the
+   * set, and a successful per-picture check that restated it would put the set
+   * back in context before the next image call.
+   */
   expected: Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[]
   /** What the manifest file is called when the files go through the deposit. */
   manifestFileName: string
   /**
-   * The manifest to hand over with the files, or `null` while anything is wrong.
+   * The manifest to hand over with the files, or `null` until the whole plan is
+   * bound and nothing is wrong.
    *
    * Withheld rather than emitted with a warning: a manifest is a statement that
    * the binding was checked, and one produced from records that did not check
    * out would be exactly the false reassurance this operation exists to remove.
+   *
+   * Composed from the bindings the deck *holds*, so the per-picture loop
+   * produces one manifest for the whole delivery on its last round rather than
+   * a partial one on every round. The deposit matches files 1‥N, and a manifest
+   * naming one of them is not a delivery.
    */
   manifest: string | null
   /**
@@ -744,7 +817,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra, før bildene leveres eller deponeres. Send én oppføring per ferdig bildefil, med `imagePlanItemId`, `number`, `slideId`, `nodeId` og filnavnet. Svaret sier om koblingen holder, hva som eventuelt er galt, og hvilke koblinger planen venter. Holder koblingen, lagres den på dekket, slik at senere lesninger vet at bildene er laget: `workflow.stage` blir `awaiting-deposit` så lenge filene ikke er lagt inn i sonene, og `generation-verified` når de er det. Å legge dem inn er brukerens steg med mindre klienten har en filbro. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send den ene oppføringen med `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavnet og `contentHash` – avtrykket av bytene bildegenereringen returnerte. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er laget: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` når filene er lagt inn i sonene. Uten avtrykk lagres koblingen, men genereringen blir aldri verifisert – stadiet blir `generation-unverified` og `complete` false – fordi alt annet i en kobling sto i bildeplanen fra før. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -786,7 +859,16 @@ export const verifyImageHandoff = defineOperation({
   }),
   run(context, input): Promise<AgentResult<GeneratedImagesView>> {
     return mutatePresentation(context, input, (presentation) => {
-      const issues = checkGeneratedImages(presentation, input.images)
+      /*
+       * `MISSING_ITEM` is set apart from everything else this check reports,
+       * and that is what makes the flow sequential. The others are things
+       * wrong with the bindings in *this* call — an unknown id, a duplicate, a
+       * zone that is not the entry's — and they refuse it. A missing entry is
+       * the plan waiting for a job that has not been generated yet, which is
+       * the normal state of every call but the last one.
+       */
+      const outstanding = checkGeneratedImages(presentation, input.images)
+      const issues = outstanding.filter((issue) => issue.code !== 'MISSING_ITEM')
       const check = imageBindingCheck(input.images)
       /*
        * A check that passes is written down, and that is what makes this a
@@ -803,6 +885,16 @@ export const verifyImageHandoff = defineOperation({
       const recorded = issues.length === 0 ? recordGeneratedImages(presentation, input.images) : null
       if (recorded && !recorded.ok) return recorded
       const written = recorded?.value ?? presentation
+      /*
+       * The manifest is the *stored* set, not this call's argument. It is what
+       * travels to the deposit beside the files, and the deposit accepts
+       * 1‥N — so it can only be written once the last job is bound, and it has
+       * to carry every binding rather than the one that happened to be checked
+       * last.
+       */
+      const stored = plannedGeneratedImages(written)
+      const planCovered =
+        stored.length > 0 && checkGeneratedImages(written, stored).length === 0
       return ok({
         presentation: written,
         value: {
@@ -812,13 +904,14 @@ export const verifyImageHandoff = defineOperation({
           check,
           checkMeans: CHECK_MEANS[check],
           issues,
-          expected: expectedGeneratedImages(written),
+          planCovered,
+          expected: issues.length === 0 ? [] : expectedGeneratedImages(written),
           manifestFileName: IMAGE_MANIFEST_FILE_NAME,
           manifest:
-            issues.length === 0
+            issues.length === 0 && planCovered
               ? composeImageGenerationManifest({
                   presentationId: written.id,
-                  images: [...input.images],
+                  images: stored,
                 })
               : null,
           workflow: composeImageWorkflowStatus(written),
@@ -1184,6 +1277,7 @@ export const deckOperations = [
   setImageContextOperation,
   planDeckImages,
   getImageBrief,
+  getNextImageJob,
   verifyImageHandoff,
   inspectSlide,
 ]

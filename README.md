@@ -685,9 +685,10 @@ brukerbestillingen forutsetter
 rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
 ferdig validert og bildesonene er stabile; klienten leser da bildeplanen på nytt
 fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
-bildegenerering, skal den starte bildegenereringen umiddelbart med det første
-planlagte bildet — ett kall per planlagt bilde, med bare den oppføringens
-ferdige `prompt`, én oppføring ferdigstilt av gangen, og både antallet ferdige
+bildegenerering, skal den starte bildegenereringen umiddelbart: Slaids gir én
+bildejobb om gangen — én ferdig `prompt` og koblingsdataene for akkurat den
+oppføringen — og neste jobb finnes først når den forrige er generert og
+kontrollert. Både antallet ferdige
 bildefiler og koblingen mellom
 hver fil og bildeplanoppføringen den ble generert fra kontrolleres mot planen før
 deponering; verktøyresponsen alene er ikke handoff. Hvis
@@ -696,12 +697,24 @@ manuelt. Uten
 en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
 bildedeponeringen.
 
-**Hver bildegenerering er en isolert oppgave.** Prompten Slaids setter sammen
-inneholder dekkets felles bildekontekst og bare den ene oppføringen — ingen
-opptelling, ingen nummerering, ingen andre motiver — og normalflyten skriver
-verken den samlede briefen, en oppsummering av bildeplanen eller antallet bilder
-ut i samtalen. En bildegenerator som får se at oppgaven er et sett, lager et
-sett: collage, kontaktark eller storyboard i stedet for N separate bilder.
+**Hver bildegenerering er en isolert oppgave, strukturelt.** Prompten Slaids
+setter sammen inneholder dekkets felles bildekontekst og bare den ene
+oppføringen — ingen opptelling, ingen nummerering, ingen andre motiver — og
+selve genereringssteget leser én jobb om gangen, så settet er ikke i konteksten
+når bildekallet skrives. Bildeplanens svar bærer ingen ferdige prompter, den
+samlede briefen følger bare med når noen ber om den, og normalflyten skriver
+verken den, en oppsummering av bildeplanen eller antallet bilder ut i samtalen.
+En bildegenerator som får se at oppgaven er et sett, lager et sett: collage,
+kontaktark eller storyboard i stedet for N separate bilder. Tekster som viser
+til de andre bildene — «samme utsnitt som forrige bilde» — meldes som funn i
+bildeplanen, fordi de ellers ville reist inni selve ordren.
+
+**Avtrykket er det eneste beviset på at et bilde faktisk er laget.** En kobling
+består av id, nummer, sone, filnavn og `contentHash`, og de fire første sto i
+bildeplanen før bildet ble laget. Uten avtrykket blir genereringen derfor aldri
+regnet som verifisert: koblingen lagres, men dekket står i
+`generation-unverified` til avtrykkene er på plass eller leveransen uttrykkelig
+omtales som uverifisert.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
@@ -726,15 +739,16 @@ overlever at et bilde byttes ut etterpå.
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
-| `get_image_brief`                        | bildeplanen med én ferdig prompt per oppføring, kontrollene og deponeringsstatusen |
+| `get_image_brief`                        | bildeplanen slik den står, kontrollene og deponeringsstatusen |
+| `get_next_image_job`                     | den ene bildejobben som står for tur: én ferdig prompt og koblingsdataene for den oppføringen |
 | `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra, og lagrer koblingen på dekket når den holder |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller
 `titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids
 nummererer bildene i dekkets rekkefølge, måler aspect ratio fra sonens faktiske
 geometri, skriver plassholderteksten «Sett inn bilde 3 her» i sonen og setter
-sammen prompten for hvert enkelt bilde. Aspect ratio skrives aldri i fritekst av
-agenten.
+sammen prompten for hvert enkelt bilde — som deles ut én jobb om gangen. Aspect
+ratio skrives aldri i fritekst av agenten.
 
 Det samme kallet åpner **bildedeponeringen**, og da ser brukeren dette:
 
