@@ -138,6 +138,17 @@ function claims(deck: Presentation): GeneratedImageRecord[] {
   return records(deck).map(({ contentHash: _unproven, ...record }) => record)
 }
 
+/**
+ * The same bindings from a host that says it cannot reach the bytes.
+ *
+ * Not proof either — it is a declaration that no proof is coming — and that is
+ * what it buys: the entry stops being offered as a job, and the delivery stands
+ * as unverified for good.
+ */
+function declared(deck: Presentation): GeneratedImageRecord[] {
+  return claims(deck).map((record) => ({ ...record, bytesUnavailable: true as const }))
+}
+
 /** The deck as it is after a successful binding check. */
 function verified(deck: Presentation): Presentation {
   const written = recordGeneratedImages(deck, records(deck))
@@ -1105,6 +1116,39 @@ describe('én jobb om gangen', () => {
     expect(done.job).toBeNull()
     // The loop ends without anybody having been told how long it was.
     expect(JSON.stringify(done)).not.toMatch(/\b3\b/)
+  })
+
+
+  it('lar den ærlige verten uten tilgang til bytene komme videre', () => {
+    /*
+     * The dead end the rule above would otherwise create. A host whose image
+     * tool gives it no bytes has made the picture and can never hash it, and
+     * being offered the same job for ever is not an answer. So it can declare
+     * that, per picture: the entry stops being offered, and the delivery is
+     * marked for what it is rather than for what it is not.
+     *
+     * The declaration is not evidence — nothing at this boundary is — it is a
+     * statement that no evidence is coming, which the deck then repeats instead
+     * of calling the work checked.
+     */
+    const deck = awaiting(3)
+    const written = recordGeneratedImages(deck, declared(deck))
+    if (!written.ok) throw new Error(written.error.message)
+
+    const done = nextImageJob(written.value)
+    expect(done.status).toBe('all-generated')
+    expect(imageGenerationCoverage(written.value)).toBe('claimed')
+    const status = composeImageWorkflowStatus(written.value)
+    expect(status.stage).toBe('generation-unverified')
+    expect(status.complete).toBe(false)
+
+    // One declared, the rest still owed: the queue moves exactly one step.
+    const one = awaiting(3)
+    const first = recordGeneratedImages(one, declared(one).slice(0, 1))
+    if (!first.ok) throw new Error(first.error.message)
+    const second = nextImageJob(first.value)
+    expect(second.status).toBe('job')
+    expect(second.job?.prompt).toContain(MOTIFS[1])
   })
 
   it('gir ingen jobb fra en plan som ikke beskriver dekket', () => {

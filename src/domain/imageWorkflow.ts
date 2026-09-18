@@ -770,25 +770,33 @@ export function nextImageJob(presentation: Presentation): NextImageJob {
   }
 
   /*
-   * Only a binding that carries a digest takes an entry out of the queue, and
-   * that is the difference between «reported» and «made».
+   * An entry leaves the queue when the delivery has *answered* for it: with a
+   * digest, or with the host's explicit declaration that it cannot reach the
+   * bytes. A binding that does neither is a row an agent can write from the
+   * plan alone — id, number, zone and file name were all in it before any
+   * picture existed — and letting it consume a job meant the whole loop could
+   * be walked without calling an image generator once.
    *
-   * A binding without one is a row an agent can write from the plan alone: the
-   * id, the number, the zone and the file name were all in it before any
-   * picture existed. Letting such a row consume a job meant the whole loop
-   * could be walked without calling an image generator once, and the queue
-   * would end by reporting `all-generated` — the strongest word the flow has —
-   * on the strength of nothing. Slaids cannot prove a picture was made, so it
-   * says what it knows instead: this entry is claimed, not shown.
+   * Neither answer is proof, and nothing here pretends otherwise. A digest is a
+   * string the caller supplied; what makes it worth asking for is that the
+   * deposit compares it against the file's own bytes and refuses the set when
+   * it does not match, so a fabricated one buys a walk through the queue and a
+   * delivery the browser will reject. A declaration buys nothing at all: it is
+   * recorded as «never checkable», and it is the only way a host that cannot
+   * hash its own output gets past a picture it really did make.
    */
   const records = plannedGeneratedImages(presentation)
-  const shown = new Set(
-    records.filter((record) => record.contentHash !== undefined).map((r) => r.imagePlanItemId),
+  const answered = new Set(
+    records
+      .filter((record) => record.contentHash !== undefined || record.bytesUnavailable)
+      .map((record) => record.imagePlanItemId),
   )
   const claimed = new Set(
-    records.filter((record) => record.contentHash === undefined).map((r) => r.imagePlanItemId),
+    records
+      .filter((record) => record.contentHash === undefined && !record.bytesUnavailable)
+      .map((record) => record.imagePlanItemId),
   )
-  const next = images.find((image) => !shown.has(image.id))
+  const next = images.find((image) => !answered.has(image.id))
   if (!next) {
     return none(
       'all-generated',
@@ -853,7 +861,7 @@ export function nextImageJob(presentation: Presentation): NextImageJob {
       status: 'unverified-claim',
       job,
       instruction:
-        'Denne oppføringen har en kobling uten avtrykk. Slaids har da ingen holdepunkt for at et bilde faktisk ble laget for den: id, nummer, sone og filnavn sto alle i bildeplanen fra før. Tre tilfeller, og du vet hvilket som gjelder: laget du bildet og kan lese bytene, regn ut SHA-256 og kjør koblingskontrollen på nytt – da er jobben gjort uten et nytt bilde. Laget du bildet og får ikke tilgang til bytene, blir denne oppføringen stående uverifisert: ikke generer den om igjen, men si uttrykkelig til brukeren at leveransen ikke kan kontrolleres. Er bildet ikke laget, er `prompt` her, og da er det nå det skal genereres.',
+        'Denne oppføringen har en kobling som verken bærer avtrykk eller sier at bytene er utilgjengelige, og da har Slaids ingen holdepunkt for at et bilde faktisk ble laget: id, nummer, sone og filnavn sto alle i bildeplanen fra før. Tre tilfeller, og du vet hvilket som gjelder: laget du bildet og kan lese bytene, regn ut SHA-256 og kjør koblingskontrollen på nytt – da er jobben gjort uten et nytt bilde. Laget du bildet og får ikke tilgang til bytene, kjør kontrollen på nytt med `bytesUnavailable` i stedet: oppføringen slutter å bli tilbudt, leveransen står som uverifisert, og brukeren bekrefter bildene manuelt i deponeringen. Er bildet ikke laget, er `prompt` her, og da er det nå det skal genereres.',
       issues: [],
     }
   }

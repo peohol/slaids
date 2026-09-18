@@ -747,16 +747,22 @@ dem kan fortsatt sende dem, og da kontrolleres de mot planen som før.
 Køen er dokumentet, ikke en teller: «neste» avledes av planen og de lagrede
 koblingene hver gang, så en avbrutt samtale plukker opp der dekket står.
 
-**Bare en kobling med avtrykk tar en oppføring ut av køen.** En kobling uten
-avtrykk er en rad en agent kan skrive av planen alene, og lot den konsumere en
-jobb, kunne hele løkken vandres uten å kalle en bildegenerator én eneste gang —
-og ende på det sterkeste ordet flyten har, `all-generated`. Slaids kan ikke
-bevise at et bilde ble laget, så den sier det den vet: `status` blir
-`unverified-claim`, jobben tilbys igjen, og instruksen navngir de tre tilfellene
-bare leseren kan skille — bildet er laget og bytene er lesbare (regn ut
-avtrykket), bildet er laget og bytene er utilgjengelige (si at leveransen er
-uverifisert, ikke lag det om igjen), eller bildet er ikke laget (da er prompten
-her). `all-generated` krever at hver oppføring har et avtrykk.
+**En oppføring forlater køen når leveransen har *svart* for den**, og det finnes
+nøyaktig to svar: et avtrykk, eller vertsklientens uttrykkelige erklæring om at
+den ikke får tilgang til bytene (`bytesUnavailable`). En kobling som ikke sier
+noe om bytene er en rad en agent kan skrive av planen alene, og lot den
+konsumere en jobb, kunne hele løkken vandres uten å kalle en bildegenerator én
+eneste gang — og ende på det sterkeste ordet flyten har, `all-generated`. Den
+avvises derfor i kontrollen, og oppføringen blir stående.
+
+Ingen av de to svarene er et bevis, og ingenting later som. Et avtrykk er en
+streng agenten oppgir; det som gjør det verdt å be om, er at **deponeringen
+sammenligner det med filens egne bytes og avviser hele settet når det ikke
+stemmer** — et oppdiktet avtrykk kjøper altså en tur gjennom køen og en leveranse
+nettleseren nekter å ta imot. En erklæring kjøper ingenting i det hele tatt: den
+registreres som «aldri kontrollerbar», og den er den eneste veien videre for en
+vert som faktisk laget bildet og ikke kan hashe det. Det er det nærmeste denne
+arkitekturen kommer et ikke-forfalskbart signal, og det ligger der bytene er.
 
 Planens egne kontroller går foran: er `checkImagePlan` ikke tom, leveres ingen
 jobb, og svaret sier hva som skal rettes. Det gjelder særlig

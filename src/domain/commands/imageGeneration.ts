@@ -188,5 +188,6 @@ function normalizeRecord(record: GeneratedImageRecord): GeneratedImageRecord {
     nodeId: record.nodeId,
     fileName: record.fileName,
     ...(record.contentHash ? { contentHash: record.contentHash } : {}),
+    ...(record.bytesUnavailable ? { bytesUnavailable: true as const } : {}),
   }
 }

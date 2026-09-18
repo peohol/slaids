@@ -729,9 +729,12 @@ ChatGPT — skrives den som agentens egen melding rett før kallet, alene. Derfo
 bærer bildejobben heller ikke nummer, filnavn eller sone: koblingskontrollen
 svarer med filnavnet etterpå.
 
-**En kobling uten avtrykk tar ingen jobb ut av køen.** Da kunne hele løkken
-vandres uten å kalle en bildegenerator; i stedet svarer jobben
-`unverified-claim` og navngir de tre tilfellene bare agenten kan skille.
+**En kobling må svare for bytene.** Enten et avtrykk, eller en uttrykkelig
+erklæring om at vertsklienten ikke gir agenten tilgang til dem. Sier koblingen
+ingenting, avvises den og oppføringen blir stående som ubesvart bildejobb — ellers
+kunne hele løkken vandres uten å kalle en bildegenerator. Et oppdiktet avtrykk
+er ingen snarvei: deponeringen sammenligner det med filens egne bytes og avviser
+hele settet, og det er der den eneste ikke-forfalskbare kontrollen finnes.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan

@@ -854,7 +854,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben, `fileExtension` – filendelsen filen har – og `contentHash`, avtrykket av bytene bildegenereringen returnerte. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben, `fileExtension` – filendelsen filen har – og enten `contentHash`, avtrykket av bytene bildegenereringen returnerte, eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg de bytene. Én av de to må være med: uten noen av dem blir oppføringen stående som ubesvart bildejobb, fordi alt annet i en kobling sto i bildeplanen fra før. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -895,6 +895,12 @@ export const verifyImageHandoff = defineOperation({
               'Valgfri: filnavnet filen fikk, hvis du alt har navngitt den. Utelatt setter Slaids det sammen av oppføringens nummer og `fileExtension`, og svaret sier hva det ble.',
             )
             .optional(),
+          bytesUnavailable: z
+            .literal(true)
+            .optional()
+            .describe(
+              'Sett denne når vertsklienten ikke gir deg bytene fra sitt eget bildeverktøy, så du ikke kan regne ut et avtrykk. Oppføringen slutter da å bli tilbudt som bildejobb, leveransen står som uverifisert for godt, og brukeren bekrefter bildene manuelt i deponeringen. Den er en erklæring, ikke et bevis – bruk den bare når bildet faktisk er laget.',
+            ),
           contentHash: z
             .string()
             .regex(/^[0-9a-f]{64}$/)
@@ -906,7 +912,22 @@ export const verifyImageHandoff = defineOperation({
           .refine((image) => image.fileName !== undefined || image.fileExtension !== undefined, {
             message:
               'Oppgi enten `fileExtension` – så setter Slaids sammen filnavnet – eller `fileName` hvis du alt har navngitt filen.',
-          }),
+          })
+          /*
+           * One of the two, never both and never neither. A binding that says
+           * nothing about the bytes is a row that could have been written off
+           * the plan, and it would leave the entry in the queue for ever; a
+           * binding that says both is claiming a digest it has just said it
+           * could not compute.
+           */
+          .refine(
+            (image) =>
+              (image.contentHash === undefined) !== (image.bytesUnavailable === undefined),
+            {
+              message:
+                'Oppgi `contentHash` – SHA-256 av bytene bildegenereringen returnerte – eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg bytene. Én av dem, ikke begge: uten noen av dem har Slaids ingenting som skiller en generert fil fra en rad skrevet av bildeplanen, og oppføringen blir stående som ubesvart bildejobb.',
+            },
+          ),
       )
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
@@ -940,6 +961,7 @@ export const verifyImageHandoff = defineOperation({
             image.fileName ??
             (entry && extension ? `${entry.fileNameStem}.${extension}` : (image.fileName ?? '')),
           ...(image.contentHash ? { contentHash: image.contentHash } : {}),
+          ...(image.bytesUnavailable ? { bytesUnavailable: true as const } : {}),
         }
       })
       /*

@@ -78,6 +78,24 @@ export interface GeneratedImageRecord {
    * verified.
    */
   contentHash?: string
+  /**
+   * The host said it cannot reach the bytes of what its image tool produced.
+   *
+   * A declaration rather than evidence, and it exists because the alternative
+   * was a dead end. A binding with no digest is not something Slaids can treat
+   * as a generated picture — every other field in it was in the plan first — so
+   * such a binding does not take its entry out of the generation queue. That is
+   * right for a caller that skipped the generator and wrong for one that used
+   * it and simply cannot hash what came back: the honest host would be offered
+   * the same job forever.
+   *
+   * So it can say so, once, per picture. The entry then stops being offered and
+   * the delivery is marked for what it is: `'unchecked'`, never verified, and
+   * handed to the user's deposit to confirm by eye. Nothing here is a claim
+   * Slaids believes — it is a claim it *records*, so the deck can say «this was
+   * never checkable» instead of «this is done».
+   */
+  bytesUnavailable?: true
 }
 
 /**
@@ -102,4 +120,8 @@ export const generatedImageRecordSchema = z.object({
      field is not a digest» and «these are the wrong bytes» call for different
      answers from whoever has to fix it. */
   contentHash: z.string().regex(CONTENT_HASH_PATTERN).optional(),
+  /* `true` or absent, never `false`: the field says «this could not be
+     checked», and a record that carries it with a digest would be saying both
+     things at once. The boundary that writes one refuses that combination. */
+  bytesUnavailable: z.literal(true).optional(),
 })

@@ -83,7 +83,18 @@ describe('visual media planning instructions', () => {
      */
     expect(MCP_INSTRUCTIONS).toMatch(/hent den ene bildejobben som står for tur/i)
     expect(MCP_INSTRUCTIONS).toMatch(/Slaids gir deg én jobb om gangen/i)
-    expect(MCP_INSTRUCTIONS).toMatch(/uten de andre oppføringene og uten noe antall/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /uten de andre oppføringene, uten noe antall og uten nummer, filnavn eller sone/i,
+    )
+    // Both tool shapes, because the one this feature was built for derives the
+    // image instruction from the conversation rather than taking a prompt.
+    expect(MCP_INSTRUCTIONS).toMatch(/tar verktøyet en prompt som parameter, sendes den ordrett/i)
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /utleder verktøyet den fra samtalen i stedet, skriver du `prompt` ordrett som din egen melding rett før kallet/i,
+    )
+    expect(MCP_INSTRUCTIONS).toMatch(
+      /Kan du ikke begrense hva bildeverktøyet ser, si det til brukeren/i,
+    )
     expect(MCP_INSTRUCTIONS).toMatch(/ikke hent flere jobber på forskudd/i)
     expect(MCP_INSTRUCTIONS).toMatch(
       /ikke les bildeplanen på nytt for å få tak i de andre motivene underveis/i,

@@ -956,10 +956,17 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(second.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
   })
 
-  it('lar ikke en kobling uten avtrykk tømme genereringsløkken', async () => {
-    // The shortcut, on the agent surface: fetch a job, send its own id back
-    // with no digest, fetch the next. Nothing in that binding is evidence, so
-    // the queue does not move on and never reports `all-generated`.
+  it('lar ikke en kobling som ikke sier noe om bytene tømme genereringsløkken', async () => {
+    /*
+     * The shortcut, on the agent surface: fetch a job, send its own id back
+     * saying nothing about the bytes, fetch the next. Nothing in such a binding
+     * is evidence — every field was in the plan first — so it is refused at the
+     * boundary, and the entry stays in the queue.
+     *
+     * The honest host that cannot hash its own output is not left stuck by
+     * that: it says so, once, and the entry stops being offered while the
+     * delivery stands as unverified.
+     */
     const context = freshContext()
     const brief = await plannedPictureDeck(context, 3)
     const job = await ok<ImageJobView>(context, 'get_next_image_job', {
@@ -967,19 +974,38 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     })
     if (!job.job) throw new Error('Forventet en jobb')
 
-    const claimed = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+    const refused = await fails(context, 'verify_image_handoff', {
       presentationId: brief.presentationId,
       images: [{ imagePlanItemId: job.job.imagePlanItemId, fileExtension: 'png' }],
     })
-    expect(claimed.ok).toBe(true)
-    expect(claimed.check).toBe('unchecked')
+    expect(refused.code).toBe('INVALID_INPUT')
 
-    const again = await ok<ImageJobView>(context, 'get_next_image_job', {
+    const still = await ok<ImageJobView>(context, 'get_next_image_job', {
       presentationId: brief.presentationId,
     })
-    expect(again.status).toBe('unverified-claim')
-    expect(again.job?.imagePlanItemId).toBe(job.job.imagePlanItemId)
-    expect(again.instruction).toMatch(/Er bildet ikke laget/i)
+    expect(still.job?.imagePlanItemId).toBe(job.job.imagePlanItemId)
+
+    // The declaration is not proof either — it is a statement that no proof is
+    // coming — and that is exactly what it buys: the queue moves on, and the
+    // deck says the delivery was never checkable.
+    const declared = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: [
+        {
+          imagePlanItemId: job.job.imagePlanItemId,
+          fileExtension: 'png',
+          bytesUnavailable: true,
+        },
+      ],
+    })
+    expect(declared.ok).toBe(true)
+    expect(declared.check).toBe('unchecked')
+
+    const next = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    expect(next.status).toBe('job')
+    expect(next.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
   })
 
   it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', async () => {
@@ -1071,6 +1097,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
+        bytesUnavailable: true as const,
       })),
     })
 
@@ -1119,7 +1146,9 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
-        ...(index === 3 ? {} : { contentHash: digest(index + 1) }),
+        ...(index === 3
+          ? { bytesUnavailable: true as const }
+          : { contentHash: digest(index + 1) }),
       })),
     })
     expect(partial.check).toBe('unchecked')
@@ -1159,6 +1188,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${image.number}.png`,
+        contentHash: image.number.toString(16).padStart(2, '0').repeat(32),
       })),
     })
 
@@ -1185,6 +1215,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       images: arrival.map((image, index) => ({
         imagePlanItemId: image.imagePlanItemId,
         number: index + 1,
+        contentHash: (index + 1).toString(16).padStart(2, '0').repeat(32),
         slideId: image.slideId,
         nodeId: image.nodeId,
         fileName: `${index + 1}.png`,
