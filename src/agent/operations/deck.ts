@@ -35,10 +35,10 @@ import {
   plannedGeneratedImages,
   composeImageGenerationManifest,
   expectedGeneratedImages,
-  imageBindingCheck,
+  deliveryReporting,
   IMAGE_MANIFEST_FILE_NAME,
   type GeneratedImageRecord,
-  type ImageBindingCheck,
+  type ImageDeliveryReporting,
   type ImageBindingIssue,
 } from '../../domain/imageGeneration'
 import {
@@ -719,7 +719,7 @@ export interface ImageJobView {
 export const getNextImageJob = defineOperation({
   name: 'get_next_image_job',
   summary:
-    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb, og den har tre felter: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå» – `aspectRatio` er formatet målt fra sonen, og `imagePlanItemId` er bokføringen kontrollen etterpå ber om. Nummer, filnavn og sone følger ikke med: hvert av dem sier «ett av flere», og koblingskontrollen svarer med navnet filen skal lagres under. Ingen andre oppføringer, ingen samlet brief, intet antall: kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, svar for bytene – SHA-256 av det som kom tilbake, eller `bytesUnavailable: true` når verten ikke gir deg dem – kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene har svart for bytene – det siste er slutten på løkken. ' +
+    'Hent den ene bildejobben som skal gjøres nå. Svaret er én jobb, og den har tre felter: `prompt` er hele instruksen for dette ene bildet – dekkets felles bildekontekst og bare denne oppføringens motiv, komposisjon, krav og «unngå» – `aspectRatio` er formatet målt fra sonen, og `imagePlanItemId` er bokføringen kontrollen etterpå ber om. Nummer, filnavn og sone følger ikke med: hvert av dem sier «ett av flere», og koblingskontrollen svarer med navnet filen skal lagres under. Prompten er selvstendig og kan limes rett inn i en tom samtale. Ingen andre oppføringer, ingen samlet brief, intet antall: gi bildegeneratoren `prompt` ordrett i nøyaktig ett kall, kjør koblingskontrollen for denne oppføringen, og hent så neste jobb. Kan du lese bytene som kom tilbake, send avtrykket med kontrollen – det er en ekstra kontroll, ikke et vilkår for å gå videre. Kommer det ingen jobb, sier `status` hvorfor: planen har funn som skal rettes, dekket planlegger ingen bilder, eller alle oppføringene er meldt – det siste er slutten på løkken. ' +
     IMAGE_JOB_RULE,
   mutates: false,
   scopes: ['presentations:read'],
@@ -746,18 +746,25 @@ export interface GeneratedImagesView {
   /** Whether the files may be handed over. False means something is named below. */
   ok: boolean
   /**
-   * How far the bindings can be checked against the files themselves.
+   * What the delivery the deck now holds said about its own bytes.
+   *
+   * The *merged* set, not this call's argument — the same set the manifest is
+   * written from. The loop reports one picture at a time, so a call that
+   * carried a digest would otherwise answer for a whole delivery that also
+   * holds bindings without one.
    *
    * Reported beside `ok`, never folded into it, because the two answer
-   * different questions and the difference is the whole point: a delivery with
-   * no digests is consistent metadata about files nobody compared, so it is
-   * `ok: true` and `check: 'unchecked'`. An agent that read only `ok` would
-   * call that verified, which is the failure one layer up from the one this
-   * operation exists for.
+   * different questions and the difference is the whole point: `ok` says the
+   * bindings do not contradict the plan, and nothing here says a picture was
+   * made. `'self-reported'` is the ordinary answer — most hosts cannot hash
+   * what their image tool produced — and it is not a fault, a lesser delivery
+   * or a reason to generate anything again. `'hash-reported'` means every
+   * binding carried a digest the deposit will be able to compare against the
+   * file it is handed.
    */
-  check: ImageBindingCheck
-  /** What `check` means, in a sentence that does not overstate it. */
-  checkMeans: string
+  reporting: ImageDeliveryReporting
+  /** What `reporting` means, in a sentence that does not overstate it. */
+  reportingMeans: string
   /** What is wrong with the bindings, in the deck's own terms. Empty when `ok`. */
   issues: ImageBindingIssue[]
   /**
@@ -820,17 +827,19 @@ export interface GeneratedImagesView {
 }
 
 /**
- * What each verification level actually covers, for an agent about to report it.
+ * What each answer actually covers, for an agent about to report it.
  *
  * Here rather than left to the agent to phrase, because the phrasing is the
- * deliverable: «kontrollert» said of a delivery nobody could check is how a
- * flow that cannot see its own pictures ends up claiming it can.
+ * deliverable: «kontrollert» said of a delivery Slaids never compared against a
+ * file is how a flow that cannot see its own pictures ends up claiming it can.
+ * Neither line says a picture was made, and neither line treats the ordinary
+ * case as a defect.
  */
-const CHECK_MEANS: Record<ImageBindingCheck, string> = {
-  'file-checked':
-    'Hver kobling bærer et avtrykk, så nettleseren *kan* sammenligne hver fil med akkurat de bytene før bildene settes inn. Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine, så på dette punktet er avtrykket en påstand du har oppgitt. Når den er sammenlignet, avgjør den hvilken fil som hører til hvilken bildeplass – aldri hva bildet viser. Se gjennom bildene selv i tillegg.',
-  unchecked:
-    'Minst én kobling mangler `contentHash`, så koblingen kan ikke kontrolleres mot filene selv – bare mot planen. Leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Si dette uttrykkelig til brukeren, og be om manuell gjennomgang av bildene i stedet for å omtale leveransen som kontrollert.',
+const REPORTING_MEANS: Record<ImageDeliveryReporting, string> = {
+  'hash-reported':
+    'Hver kobling bærer et avtrykk, så nettleseren *kan* sammenligne hver fil med akkurat de bytene før bildene settes inn. Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine, så på dette punktet er avtrykket en streng du har oppgitt. Når den er sammenlignet, avgjør den hvilken fil som hører til hvilken bildeplass – aldri hva bildet viser. Se gjennom bildene selv i tillegg.',
+  'self-reported':
+    'Koblingene er kontrollert mot bildeplanen, ikke mot bildefilene – det er det vanlige, for de fleste verter gir deg ikke bytene fra sitt eget bildeverktøy. Genereringen er dermed selvrapportert: si til brukeren at bildene er generert og meldt, at Slaids ikke har sett dem, og at de ses gjennom når de legges inn. Ikke kall det kontrollert, og ikke lag bildene om igjen for å få en kontroll.',
 }
 
 /**
@@ -854,7 +863,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben, `fileExtension` – filendelsen filen har – og enten `contentHash`, avtrykket av bytene bildegenereringen returnerte, eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg de bytene. Én av de to må være med: uten noen av dem blir oppføringen stående som ubesvart bildejobb, fordi alt annet i en kobling sto i bildeplanen fra før. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
+    'Meld at bildefilen for én bildeplanoppføring er laget, og få den knyttet til den oppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben og `fileExtension` – filendelsen filen har. Kan du lese bytene bildegenereringen returnerte, send `contentHash` i tillegg; det er en ekstra kontroll deponeringen kan bruke, og de fleste verter gir deg ikke de bytene, så flyten går videre uten. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: `workflow.stage` blir `awaiting-deposit` når hele planen er dekket, og `images-in-deck` først når filene er lagt inn i sonene. Begge er `complete: false` til filene er inne, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes: `reporting` og `reportingMeans` sier hvor langt svaret rekker. Å legge filene inn er brukerens steg. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -895,39 +904,17 @@ export const verifyImageHandoff = defineOperation({
               'Valgfri: filnavnet filen fikk, hvis du alt har navngitt den. Utelatt setter Slaids det sammen av oppføringens nummer og `fileExtension`, og svaret sier hva det ble.',
             )
             .optional(),
-          bytesUnavailable: z
-            .literal(true)
-            .optional()
-            .describe(
-              'Sett denne når vertsklienten ikke gir deg bytene fra sitt eget bildeverktøy, så du ikke kan regne ut et avtrykk. Oppføringen slutter da å bli tilbudt som bildejobb, leveransen står som uverifisert for godt, og brukeren bekrefter bildene manuelt i deponeringen. Den er en erklæring, ikke et bevis – bruk den bare når bildet faktisk er laget.',
-            ),
           contentHash: z
             .string()
             .regex(/^[0-9a-f]{64}$/)
             .optional()
             .describe(
-              'SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Regn den ut i det filen kommer tilbake, før neste bilde genereres – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Utelat feltet hvis du ikke har tilgang til bytene; leveransen blir da rapportert som uverifisert, aldri som kontrollert.',
+              'Valgfri ekstrakontroll: SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Har du tilgang til bytene, regn den ut i det filen kommer tilbake – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. De fleste verter gir deg ikke de bytene: utelat feltet da, så går flyten videre som før. Koblingen er selvrapportert uansett, og skal aldri omtales som kontrollert.',
             ),
-        })
-          .refine((image) => image.fileName !== undefined || image.fileExtension !== undefined, {
-            message:
-              'Oppgi enten `fileExtension` – så setter Slaids sammen filnavnet – eller `fileName` hvis du alt har navngitt filen.',
-          })
-          /*
-           * One of the two, never both and never neither. A binding that says
-           * nothing about the bytes is a row that could have been written off
-           * the plan, and it would leave the entry in the queue for ever; a
-           * binding that says both is claiming a digest it has just said it
-           * could not compute.
-           */
-          .refine(
-            (image) =>
-              (image.contentHash === undefined) !== (image.bytesUnavailable === undefined),
-            {
-              message:
-                'Oppgi `contentHash` – SHA-256 av bytene bildegenereringen returnerte – eller `bytesUnavailable: true` hvis vertsklienten ikke gir deg bytene. Én av dem, ikke begge: uten noen av dem har Slaids ingenting som skiller en generert fil fra en rad skrevet av bildeplanen, og oppføringen blir stående som ubesvart bildejobb.',
-            },
-          ),
+        }).refine((image) => image.fileName !== undefined || image.fileExtension !== undefined, {
+          message:
+            'Oppgi enten `fileExtension` – så setter Slaids sammen filnavnet – eller `fileName` hvis du alt har navngitt filen.',
+        }),
       )
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
@@ -961,7 +948,6 @@ export const verifyImageHandoff = defineOperation({
             image.fileName ??
             (entry && extension ? `${entry.fileNameStem}.${extension}` : (image.fileName ?? '')),
           ...(image.contentHash ? { contentHash: image.contentHash } : {}),
-          ...(image.bytesUnavailable ? { bytesUnavailable: true as const } : {}),
         }
       })
       /*
@@ -974,7 +960,6 @@ export const verifyImageHandoff = defineOperation({
        */
       const outstanding = checkGeneratedImages(presentation, completed)
       const issues = outstanding.filter((issue) => issue.code !== 'MISSING_ITEM')
-      const check = imageBindingCheck(completed)
       /*
        * A check that passes is written down, and that is what makes this a
        * mutation at all. Slaids never sees a generated file, so the deck cannot
@@ -1000,14 +985,26 @@ export const verifyImageHandoff = defineOperation({
       const stored = plannedGeneratedImages(written)
       const planCovered =
         stored.length > 0 && checkGeneratedImages(written, stored).length === 0
+      /*
+       * And so is `reporting`: it answers for the delivery the *deck* now
+       * holds, never for the argument of this one call.
+       *
+       * The normal flow calls this once per picture, so the two are routinely
+       * different sets. Computed from the argument, a last call that happened
+       * to carry a digest answered `hash-reported` — «hver kobling bærer et
+       * avtrykk» — for a merged manifest holding an earlier binding with none.
+       * That is the overstatement this field exists to prevent, arrived at from
+       * the inside. The manifest is the stored set; so is the answer about it.
+       */
+      const reporting = deliveryReporting(stored)
       return ok({
         presentation: written,
         value: {
           presentationId: written.id,
           revision: presentationRevision(written),
           ok: issues.length === 0,
-          check,
-          checkMeans: CHECK_MEANS[check],
+          reporting,
+          reportingMeans: REPORTING_MEANS[reporting],
           issues,
           planCovered,
           expected: issues.length === 0 ? [] : expectedGeneratedImages(written),

@@ -67,35 +67,21 @@ export interface GeneratedImageRecord {
   /**
    * SHA-256 of the bytes the generation response returned, as lowercase hex.
    *
-   * The one field that reaches past the metadata: without it the record is a
-   * claim about a file *name*, and a name survives having its contents
-   * swapped. Taken from the response for this one entry, at the moment it
-   * arrives — a digest computed afterwards from a folder of files certifies
-   * whatever mix-up already happened.
+   * An **extra** check, never a condition. When it is there the deposit
+   * compares it against the bytes of the file it is handed, which catches two
+   * files whose contents were swapped under unchanged names. When it is not,
+   * the binding is simply what it always was: self-reported, and checked
+   * against the plan rather than against a file.
    *
-   * Optional because not every host can reach those bytes. Absent, the
-   * delivery is `'unchecked'` rather than refused, and never reported as
-   * verified.
+   * Optional because the ordinary host cannot reach those bytes. ChatGPT's
+   * image tool hands back a picture, not a buffer, so requiring a digest would
+   * have made the normal flow impossible to complete — and a flow that cannot
+   * be completed is worked around, not followed. Taken from the response for
+   * this one entry when it is available at all: a digest computed afterwards
+   * from a folder of finished files certifies whatever mix-up already
+   * happened.
    */
   contentHash?: string
-  /**
-   * The host said it cannot reach the bytes of what its image tool produced.
-   *
-   * A declaration rather than evidence, and it exists because the alternative
-   * was a dead end. A binding with no digest is not something Slaids can treat
-   * as a generated picture — every other field in it was in the plan first — so
-   * such a binding does not take its entry out of the generation queue. That is
-   * right for a caller that skipped the generator and wrong for one that used
-   * it and simply cannot hash what came back: the honest host would be offered
-   * the same job forever.
-   *
-   * So it can say so, once, per picture. The entry then stops being offered and
-   * the delivery is marked for what it is: `'unchecked'`, never verified, and
-   * handed to the user's deposit to confirm by eye. Nothing here is a claim
-   * Slaids believes — it is a claim it *records*, so the deck can say «this was
-   * never checkable» instead of «this is done».
-   */
-  bytesUnavailable?: true
 }
 
 /**
@@ -120,8 +106,4 @@ export const generatedImageRecordSchema = z.object({
      field is not a digest» and «these are the wrong bytes» call for different
      answers from whoever has to fix it. */
   contentHash: z.string().regex(CONTENT_HASH_PATTERN).optional(),
-  /* `true` or absent, never `false`: the field says «this could not be
-     checked», and a record that carries it with a digest would be saying both
-     things at once. The boundary that writes one refuses that combination. */
-  bytesUnavailable: z.literal(true).optional(),
 })

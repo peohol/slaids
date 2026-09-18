@@ -331,7 +331,17 @@ describe('raster og vektor', () => {
     expect(surface).toContain(RASTER_WORKFLOW_RULE)
     expect(RASTER_WORKFLOW_RULE).toMatch(/standardflyten/i)
     expect(RASTER_WORKFLOW_RULE).toMatch(/ikke en fallback eller nødløsning/i)
-    expect(RASTER_WORKFLOW_RULE).toMatch(/filbro.*bildedeponeringen/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/de ferdige filene legges inn gjennom bildedeponeringen/i)
+    // No file bridge and no image API is held out as available or planned: the
+    // surface says there is none, and names the manual route that exists
+    // instead. The old wording («uten en filbro», «med mindre klienten har en
+    // filbro») read as one being on the way.
+    expect(agentSurface()).toMatch(
+      /ingen egen bildegenerering, ingen bilde-API og ingen filbro, og planlegger ingen/i,
+    )
+    expect(agentSurface()).not.toMatch(/uten en filbro|med mindre klienten har en filbro/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/«Kopier prompt»-knapp i Slaids/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/ny, tom ChatGPT-samtale/i)
     expect(surface).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
     expect(RASTER_POLICY.join(' ')).not.toMatch(/si tydelig fra om begrensningen/i)
   })
@@ -473,9 +483,16 @@ describe('raster og vektor', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(/ikke tell dem/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/nøytral og ikke røpe at flere bilder er planlagt/i)
     // Named as the mechanism, so it does not read as etiquette around the
-    // warnings it replaces.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Dette er hovedgrepet, ikke en formalitet/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ingen advarsel mot det veier opp for å ha vist den/i)
+    // warnings it replaces — and as best effort, because a host whose image
+    // tool reads the conversation can see more than the agent chose.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Dette er hovedgrepet, og det er best effort, ikke en garanti/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /vertsklienten kan gi bildeverktøyet mer av samtalen enn du styrer/i,
+    )
+    // And the supported way out, so the answer to a merged picture is an action
+    // rather than another warning.
+    expect(IMAGE_GENERATION_RULE).toMatch(/«Kopier prompt»/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ny, tom ChatGPT-samtale/i)
     // And the brief is labelled for what it is on the surface too.
     expect(IMAGE_GENERATION_RULE).toMatch(/`brief` er intern/i)
     expect(IMAGE_GENERATION_RULE).toMatch(/følger ikke med i normalflyten i det hele tatt/i)
@@ -517,10 +534,10 @@ describe('raster og vektor', () => {
     expect(toolProse()).toContain(IMAGE_JOB_RULE)
     expect(IMAGE_JOB_RULE).toMatch(/Dette er én bildegenereringsoppgave/i)
     expect(IMAGE_JOB_RULE).toMatch(/Send `prompt` ordrett/i)
-    expect(IMAGE_JOB_RULE).toMatch(/`all-answered` er slutten på løkken, ikke et tall/i)
+    expect(IMAGE_JOB_RULE).toMatch(/`all-reported` er slutten på løkken, ikke et tall/i)
     // And the name is not read as a receipt: the queue emptying says the
-    // bindings answered, never that a generator ran.
-    expect(IMAGE_JOB_RULE).toMatch(/«gjort rede for», ikke «generert»/i)
+    // bindings were reported, never that a generator ran.
+    expect(IMAGE_JOB_RULE).toMatch(/«meldt», ikke «generert»/i)
   })
 
   it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {
@@ -537,34 +554,62 @@ describe('raster og vektor', () => {
     expect(IMAGE_HANDOFF_RULE).toMatch(/`manifest`.*`manifestFileName`/)
   })
 
-  it('binder kontrollen til filenes egne bytes, ikke bare til metadata', () => {
+  it('tilbyr avtrykket som ekstra kontroll, aldri som et vilkår', () => {
     // A record is otherwise a claim about a file *name*, and a name survives
-    // having its contents swapped: the digest is the only part of the handoff
-    // that reaches the files themselves.
+    // having its contents swapped — so the digest is worth asking for. What it
+    // must never be is a condition: the ordinary host cannot read the bytes its
+    // own image tool returned, and a flow that stopped there could not be
+    // finished at all except by generating the same picture again.
     expect(IMAGE_HANDOFF_RULE).toMatch(/`contentHash`/)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av bytene/i)
-    // The reason it is not optional bookkeeping: everything else in a binding
-    // was in the plan before any picture was made, so a check without a digest
-    // can be written off the plan.
-    expect(IMAGE_HANDOFF_RULE).toMatch(
-      /det eneste i en kobling som ikke sto i bildeplanen fra før/i,
-    )
-    expect(IMAGE_HANDOFF_RULE).toMatch(/`generation-unverified`/)
-    expect(IMAGE_GENERATION_RULE).toMatch(/Avtrykket er ikke valgfritt bokholderi/i)
-    // And it has to be taken from the response, not from the folder afterwards.
+    expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av dem/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/\*\*ekstra\*\* kontroll, ikke et vilkår/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/de fleste verter, ChatGPT blant dem, gir deg ikke bytene/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/utelater du feltet og går videre til neste bilde/i)
+    // The old model is gone from the prose as well as from the schema.
+    expect(IMAGE_HANDOFF_RULE).not.toMatch(/bytesUnavailable/)
+    expect(IMAGE_GENERATION_RULE).not.toMatch(/Avtrykket er ikke valgfritt bokholderi/i)
+    expect(agentSurface()).not.toMatch(/generation-unverified|unverified-claim|all-answered/)
+    // And a digest that *is* sent has to be taken from the response, not from
+    // the folder afterwards.
     expect(IMAGE_HANDOFF_RULE).toMatch(/i det filen kommer tilbake/i)
     expect(IMAGE_HANDOFF_RULE).toMatch(/beregnet i ettertid.*fester.*allerede har skjedd/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/regn ut SHA-256 av bytene den returnerte med en gang/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/regn ut SHA-256 av dem med en gang/i)
   })
 
-  it('sier hva en kontrollert kobling ikke er, og hva som skjer uten avtrykk', () => {
+  it('sier best effort om isolasjonen, og lover ingen garanti', () => {
+    /*
+     * The product decision this pins, stated as a property of the surface: the
+     * one-picture-at-a-time flow is the best available mechanism against merged
+     * pictures, and it is not a guarantee. A host whose image tool reads the
+     * conversation can hand it context the agent never chose, and Slaids can
+     * neither prevent that nor prove it did not happen — so an instruction that
+     * promised isolation would have the agent promise it to the user in turn.
+     */
+    const surface = agentSurface()
+    expect(surface).toMatch(/best effort/i)
+    expect(IMAGE_JOB_RULE).toMatch(/\*\*Dette er best effort, ikke en garanti\.\*\*/)
+    expect(IMAGE_JOB_RULE).toMatch(
+      /lov derfor aldri at generatoren bare har sett denne ene prompten/i,
+    )
+    // No hard claim about what ChatGPT's image tool can see, anywhere.
+    expect(surface).not.toMatch(/bare (?:kan )?se (?:den ene|én) prompt/i)
+    expect(surface).not.toMatch(/garantert isolasjon|isolasjonen er garantert/i)
+    expect(surface).not.toMatch(/kontekstisolert/i)
+
+    // And the supported fallback is named as a first-class step, so the answer
+    // to a merged picture is an action rather than another warning.
+    expect(surface).toMatch(/ny, tom ChatGPT-samtale/i)
+    expect(surface).toMatch(/«Kopier prompt»/)
+  })
+
+  it('sier hva en melding om generering ikke er', () => {
     // The two overstatements this replaces. «Kontrollert» must not creep into
-    // meaning «the right picture», and a host that cannot reach its own bytes
-    // must be reported as unverified rather than refused or waved through.
+    // meaning «the right picture», and a binding Slaids never held against a
+    // file must be described as what it is: a self-report.
     expect(IMAGE_HANDOFF_RULE).toMatch(/sier ingenting om hva bildet viser/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/uverifisert/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/aldri presenteres som kontrollert/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/manuell gjennomgang/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/koblingen er selvrapportert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/aldri at et bilde er laget eller kontrollert/i)
+    expect(IMAGE_HANDOFF_RULE).toMatch(/`reporting` og `reportingMeans`/)
   })
 
   it('bruker oppføringens ferdige prompt som instruks, og holder resten utenfor kallet', () => {
@@ -804,12 +849,12 @@ describe('én regel, ett sted', () => {
      * zones is `awaiting-deposit`.
      */
     const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
-    expect(guide).not.toMatch(/genereringsoppgaven er ferdig \(`stage: generation-verified`\)/i)
+    expect(guide).not.toMatch(/generation-verified/)
     expect(guide).toMatch(
       /ligger filene ennå ikke i sonene, er `workflow\.stage` `awaiting-deposit`/i,
     )
     expect(guide).toMatch(
-      /`generation-verified` kommer først når ingenting Slaids kan se er utestående/i,
+      /`images-in-deck` kommer først når ingenting Slaids kan se er utestående/i,
     )
   })
 

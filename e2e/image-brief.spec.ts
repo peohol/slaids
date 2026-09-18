@@ -3,15 +3,16 @@
  *
  * The dialog has two halves and the split is the point: the top is the only
  * text a person writes — the visual context every picture in the deck shares —
- * and the bottom is the brief itself, generated from the deck's picture plan.
- * The copy button copies the generated half, because that is the errand: one
- * message, pasted once, that produces every picture in the deck.
+ * and the bottom lists the planned pictures, each with its own finished prompt
+ * to copy. The per-picture copy is the errand: one clean order, pasted into an
+ * empty conversation, that produces exactly that picture.
  *
  * A deck with nothing planned is the state most decks are in most of the time,
  * so it is the one tested here end to end: the context still saves and survives
- * a reload, the brief says there is nothing to generate yet, and the copy button
- * does not offer to copy nothing. What the brief *contains* once pictures are
- * planned is `src/domain/imagePlan.test.ts` — the planning itself is an agent
+ * a reload, the dialog says there is nothing to generate yet, and the
+ * whole-plan brief does not offer to copy nothing. What a prompt *contains*
+ * once pictures are planned is `src/domain/imagePlan.test.ts` and
+ * `src/ui/editor/imageDeposit.test.tsx` — the planning itself is an agent
  * operation with no editor surface, and driving it through the UI would be
  * testing a fixture rather than the product.
  */
@@ -61,6 +62,8 @@ test.describe('bildebrief', () => {
     // Nothing to copy, so nothing is offered: a copy button that copies an
     // empty message is worse than one that is plainly unavailable.
     await expect(page.getByTestId('image-brief-modal-copy')).toBeDisabled()
+    // And no per-picture prompt either, because there is no picture.
+    await expect(page.getByTestId('image-brief-modal-list')).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
 })

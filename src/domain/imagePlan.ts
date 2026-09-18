@@ -11,13 +11,18 @@
  * The two texts are not two views of the same thing, and the difference is the
  * point:
  *
- *  - `composeImageGenerationPrompt` is what a generation call carries. It can
- *    see **one** entry, so a picture is ordered as a complete, self-contained
- *    task with no count, no numbering and no other motif in it.
- *  - `composeImageBrief` is the whole plan as one message for a person — the
- *    editor's brief dialog, documentation, debugging. It is internal to that,
- *    never a prompt and never a step in the normal generation flow, because a
- *    reader shown nine numbered motifs has been handed a set to compose.
+ *  - `composeImageGenerationPrompt` is what a generation call carries, and what
+ *    the editor's «Kopier prompt» puts on the clipboard. It can see **one**
+ *    entry, so a picture is ordered as a complete, self-contained task with no
+ *    count, no numbering, no plan id, no file name and no other motif in it —
+ *    a text that can be pasted into an empty conversation and produce exactly
+ *    that picture. One composer for both surfaces, so the automatic flow and
+ *    the manual one order the same picture.
+ *  - `composeImageBrief` is the whole plan as one message for a person —
+ *    documentation, debugging, and the fold-down half of the editor's brief
+ *    dialog. It is internal to that, never a prompt and never a step in the
+ *    normal generation flow, because a reader shown nine numbered motifs has
+ *    been handed a set to compose.
  *
  * Three things make the generated brief worth generating rather than writing:
  *
@@ -839,6 +844,13 @@ export const IMAGE_PROMPT_SECTION_HEADINGS: Record<PlannedImageField, string> = 
  *
  * Every section is omitted when it says nothing, exactly as in the brief: a
  * heading over silence is an instruction to render nothing in particular.
+ *
+ * The same text is what the editor's per-picture «Kopier prompt» copies, and
+ * that is deliberate rather than convenient: the supported way out of a host
+ * whose image tool merged several motifs is for a person to paste one of these
+ * into a new, empty conversation. If the automatic order and the pasted one
+ * came from two composers they would drift, and the fallback would produce a
+ * different picture than the flow it is rescuing.
  */
 export function composeImageGenerationPrompt(
   image: ResolvedPlannedImage,
@@ -877,11 +889,12 @@ const MISSING_CONTEXT_TEXT =
  * gets made. One picture is now generated from
  * `composeImageGenerationPrompt`, which can see one entry.
  *
- * What is left for this is the work a single prompt cannot do: the editor's own
- * brief dialog, where an author copies the whole order out by hand, and
- * documentation and debugging, where the question is what Slaids ordered rather
- * than what one generator was told. See `ImageGenerationContract.briefRole` —
- * it is never a generation prompt, and never a step in the normal flow.
+ * What is left for this is the work a single prompt cannot do: documentation
+ * and debugging, where the question is what Slaids ordered rather than what one
+ * generator was told, and the fold-down half of the editor's brief dialog,
+ * where it is labelled as exactly that. Copying it is not the way to order
+ * pictures — the per-picture prompt is. See `ImageGenerationContract.briefRole`:
+ * never a generation prompt, and never a step in the normal flow.
  *
  * This template is the canonical one — the documentation shows it, it is not a
  * second copy of it — and every number in it is derived: the count is the
@@ -976,6 +989,8 @@ export function composeImageBrief(presentation: Presentation): string | null {
     'Kan du lese bytene til de ferdige filene, regn ut SHA-256 av hver fil',
     'i det den kommer tilbake, og lever avtrykkene sammen med bildene: et',
     'filnavn overlever at innholdet byttes om, et avtrykk gjør det ikke.',
+    'Det er en ekstra kontroll, ikke et krav – de fleste verter gir ikke',
+    'tilgang til de bytene, og da leveres bildene uten.',
     'Et avtrykk sier hvilken fil som hører til hvilken bildeplass, ikke hva',
     'bildet viser – se gjennom bildene selv i tillegg.',
   ].join('\n')
@@ -1082,7 +1097,7 @@ export function composeImageGenerationContract(
   if (count === 0) return null
   return {
     expectedFileCount: count,
-    rule: 'Hver oppføring i `images` er én selvstendig bildegenereringsoppgave: ett kall til bildegeneratoren, ett motiv, én aspect ratio, én bildefil. Kallet skal inneholde bare den ene oppføringens ferdige `prompt` – aldri to oppføringer i samme kall, aldri hele planen, og aldri `brief`. `expectedFileCount` er tallet den ferdige leveransen kontrolleres mot, ikke noe som skal sies i samtalen.',
+    rule: 'Hver oppføring i `images` er én selvstendig bildegenereringsoppgave: ett kall til bildegeneratoren, ett motiv, én aspect ratio, én bildefil. Kallet skal inneholde bare den ene oppføringens ferdige `prompt` – aldri to oppføringer i samme kall, aldri hele planen, og aldri `brief`. Prompten er selvstendig og kan limes rett inn i en tom samtale. `expectedFileCount` er tallet den ferdige leveransen kontrolleres mot, ikke noe som skal sies i samtalen.',
     perImageInstruction: `Instruksen for ett bilde er oppføringens egen \`prompt\`. Slaids har alt satt den sammen av dekkets felles bildekontekst og bare denne oppføringens egne felter – ${PLANNED_IMAGE_FIELDS.map(
       (field) => IMAGE_PROMPT_SECTION_HEADINGS[field].toLowerCase(),
     ).join(
@@ -1095,7 +1110,7 @@ export function composeImageGenerationContract(
     fileExtensions: IMAGE_FILE_EXTENSION_LIST,
     beforeDeposit: deliveryChecks(count),
     briefRole:
-      'Intern. `brief` er hele planen skrevet ut som én menneskelesbar tekst, og den finnes for Slaids sin egen bildebrief-dialog, for dokumentasjon, for feilsøking og for manuell kopiering når brukeren uttrykkelig ber om den. Den er ikke et steg i normalflyten, ikke en bildegenereringsprompt, og skal ikke skrives ut i samtalen: den viser alle bildene samtidig, og det er nettopp det én bildegenerering ikke skal se. Bruk `prompt` på den ene oppføringen i stedet.',
+      'Intern. `brief` er hele planen skrevet ut som én menneskelesbar tekst, og den finnes for dokumentasjon, for feilsøking og for den nedfoldede halvdelen av Slaids sin egen bildebrief-dialog. Den er ikke et steg i normalflyten, ikke en bildegenereringsprompt, og skal ikke skrives ut i samtalen: den viser alle bildene samtidig, og det er nettopp det én bildegenerering ikke skal se. Skal brukeren lage ett bilde manuelt, kopierer hun den ene oppføringens `prompt` fra bildeplanen i editoren og limer den inn i en ny, tom samtale – ikke denne teksten.',
   }
 }
 
@@ -1115,7 +1130,7 @@ export function composeImageGenerationContract(
  * this removes the telling.
  */
 const SINGLE_TASK_ISOLATION =
-  'Hver bildegenerering skal se ut som en fullstendig selvstendig oppgave – i kallet og i samtalen rundt det. Ikke skriv en innledning om hva som skal lages, en oppsummering av bildeplanen, en punktliste over bildene, en opptelling, «nå går jeg videre til neste bilde» eller noe annet som viser at det finnes mer enn denne ene bildeoppgaven. Ikke skriv ut `brief`. Trengs en kort statusmelding, skal den være nøytral og ikke røpe at flere bilder er planlagt. Dette er hovedgrepet mot sammenslåtte bilder: en generator som aldri får se at oppgaven er et sett, har ikke noe sett å slå sammen.'
+  'Hver bildegenerering skal se ut som en fullstendig selvstendig oppgave – i kallet og i samtalen rundt det. Ikke skriv en innledning om hva som skal lages, en oppsummering av bildeplanen, en punktliste over bildene, en opptelling, «nå går jeg videre til neste bilde» eller noe annet som viser at det finnes mer enn denne ene bildeoppgaven. Ikke skriv ut `brief`. Trengs en kort statusmelding, skal den være nøytral og ikke røpe at flere bilder er planlagt. Dette er det beste grepet mot sammenslåtte bilder: en generator som aldri får se at oppgaven er et sett, har ikke noe sett å slå sammen. Det er best effort, ikke en garanti: bruker vertens bildeverktøy samtalen, kan det se mer enn du styrer, og det kan Slaids verken hindre eller etterprøve – lov derfor aldri at generatoren bare har sett denne ene prompten. Kommer flere planlagte motiver likevel tilbake som ett bilde, er den støttede veien videre at brukeren kopierer det ene bildets prompt fra bildeplanen i Slaids og limer den inn i en ny, tom ChatGPT-samtale.'
 
 /**
  * Why a picture's place in the queue says nothing about which picture it is.
@@ -1149,7 +1164,7 @@ const PER_IMAGE_STEPS: readonly string[] = [
   'Bruk oppføringens ferdige `prompt` som hele instruksen. Den inneholder alt bildet trenger: stil og kvalitet fra dekkets felles bildekontekst, motiv, komposisjon, krav, hva som skal unngås, og aspect ratio.',
   'Kall bildegeneratoren nøyaktig én gang, med bare denne teksten. Ikke legg ved id, nummer, filnavn, slide, andre oppføringer eller en innledning om oppgaven.',
   'Knytt filen som kommer tilbake til oppføringens `imagePlanItemId` med en gang, før noe annet gjøres.',
-  'Regn ut SHA-256 av bytene som kom tilbake, nå og ikke senere: et avtrykk beregnet i ettertid fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd.',
+  'Har du tilgang til bytene som kom tilbake, regn ut SHA-256 av dem nå og ikke senere: et avtrykk beregnet i ettertid fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Får du dem ikke – det vanlige – hopper du over dette steget og går videre.',
   'Gi filen navnet oppføringen oppgir – `<number>.<filendelse>` – der `number` er oppføringens eget nummer, ikke et løpenummer for genereringen.',
   'Kontroller at koblingen er bevart: `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavn og avtrykk hører til samme oppføring.',
   'Gjenta det samme for den oppføringen som da står uten sin egen kontrollerte fil, til ingen står igjen – uten å kommentere i samtalen at du gjør det.',
@@ -1169,8 +1184,8 @@ function deliveryChecks(count: number): readonly string[] {
     `Numrene 1‥${count} forekommer én gang hver: ingen hull, ingen duplikater.`,
     'Hver `imagePlanItemId` i planen er brukt nøyaktig én gang, og ingen fil bærer en id som ikke finnes i planen.',
     'Hver fil er knyttet til den oppføringen den ble generert fra: samme `imagePlanItemId`, og den oppføringens `number`, `slideId` og `nodeId`.',
-    'Hver fil bærer avtrykket (SHA-256) av bytene bildegenereringen returnerte for sin egen oppføring. Mangler avtrykket, er koblingen uverifisert og må kontrolleres manuelt – den er ikke kontrollert.',
-    'Et avtrykk som stemmer sier hvilken fil som hører til hvilken bildeplass, ikke hva bildet viser. Se gjennom bildene i tillegg.',
+    'Kunne bytene leses, bærer filen avtrykket (SHA-256) av det bildegenereringen returnerte for sin egen oppføring. Kunne de ikke – det vanlige – er leveransen fortsatt gyldig, og koblingen er selvrapportert.',
+    'Koblingen er uansett kontrollert mot bildeplanen, aldri mot et bilde: den sier hvilken fil som hører til hvilken bildeplass, ikke hva bildet viser. Se gjennom bildene i tillegg.',
     'Filnavnet er oppføringens eget nummer, ikke bildets plass i genereringsrekkefølgen.',
     'Hver fil viser motivet til sitt eget nummer, og har det aspect ratio oppføringen oppgir.',
     'Ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde teller aldri som flere bilder, uansett hvor mange motiver det inneholder.',

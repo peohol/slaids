@@ -42,27 +42,32 @@
  * Records alone are metadata about files, and metadata can be consistent about
  * the wrong files. Swap the *contents* of `1.png` and `2.png` and leave every
  * name and every record untouched: ids, numbers, zones and names all still
- * agree, and two pictures are still on the wrong slides. So a record may also
+ * agree, and two pictures are still on the wrong slides. So a record **may**
  * carry `contentHash` — a SHA-256 of the bytes the generation response actually
- * returned — and the deposit compares it against the bytes of the file it was
- * handed, before anything is sanitised, optimised or inserted.
+ * returned — and where one is there, the deposit compares it against the bytes
+ * of the file it was handed, before anything is sanitised, optimised or
+ * inserted.
  *
- * Two limits on that, and both are stated rather than glossed:
+ * Three limits on that, and they are stated rather than glossed:
  *
- *  - **The digest has to be taken from the generation response itself**, the
- *    moment that one file comes back, before the next picture is generated. A
- *    digest computed later, from a folder of finished files, fingerprints
- *    whatever mix-up already happened and certifies it.
+ *  - **It is an extra check, never a requirement.** The ordinary host cannot
+ *    reach the bytes of what its own image tool produced — ChatGPT hands back a
+ *    picture, not a buffer — so a flow that could not go on without a digest
+ *    was a flow that could not be finished at all. A delivery without digests
+ *    is a legal, self-reported delivery: checked against the plan, not against
+ *    a file, and described that way.
+ *  - **A digest that is there has to be taken from the generation response
+ *    itself**, the moment that one file comes back. A digest computed later,
+ *    from a folder of finished files, fingerprints whatever mix-up already
+ *    happened and certifies it.
  *  - **It is file integrity, never motif control.** A matching digest says
  *    «this is the file that came back for that entry». It cannot say the
  *    picture shows the right thing — nothing here can, because Slaids never
  *    looks at the picture. `ImageBindingCheck` is named for what it covers so
  *    the two are not quietly conflated.
  *
- * Not every host client can reach the bytes of what its image tool produced. A
- * delivery without digests is therefore not refused — it is `'unchecked'`, and
- * whatever offers it has to say so and ask for the check a person can make. It
- * is never reported as verified. See `reviewDeposit` and the deposit dialog.
+ * See `reviewDeposit` and the deposit dialog for what each of the two
+ * deliveries is allowed to be called.
  */
 
 import { z } from 'zod'
@@ -110,7 +115,7 @@ export interface DeliveredImageFile {
 }
 
 /**
- * How far a delivery's binding was actually checked by a machine.
+ * How far a delivery's binding was actually checked against the files.
  *
  *  - `'file-checked'` — every record carried a digest of the bytes its
  *    generation response returned, so the binding can be, and is, compared
@@ -118,20 +123,40 @@ export interface DeliveredImageFile {
  *  - `'unchecked'` — at least one record carried none. The metadata may be
  *    perfectly consistent and still describe the wrong files.
  *
+ * `'unchecked'` is the ordinary case, not a fault: most hosts cannot hash what
+ * their image tool produced. It says what is known, so the browser's deposit
+ * can ask a person to confirm what a machine could not.
+ *
  * Named for what it covers. Neither value says the picture shows the right
  * motif: that is a judgement about an image, and Slaids never sees one.
  */
 export type ImageBindingCheck = 'file-checked' | 'unchecked'
 
-/** A SHA-256 as `assetHash.ts` writes one: 64 lowercase hex characters. */
+/**
+ * What a delivery reported about its own bytes, as the agent boundary says it.
+ *
+ * The same question `imageBindingCheck` asks of the records — derived from it
+ * rather than asked again — under the names that are true *there*. In the
+ * browser a digest is compared against a file, so «file-checked» is a check
+ * that ran. At the agent boundary nothing has been compared with anything:
+ * Slaids never sees the bytes, so a digest is a string the caller supplied and
+ * the honest word for the whole answer is «reported».
+ */
+export type ImageDeliveryReporting = 'self-reported' | 'hash-reported'
+
+export function deliveryReporting(
+  records: readonly GeneratedImageRecord[],
+): ImageDeliveryReporting {
+  return imageBindingCheck(records) === 'file-checked' ? 'hash-reported' : 'self-reported'
+}
 
 /**
  * Whether a delivery can be checked against its own files at all.
  *
  * Every record, not most: one picture whose binding nobody can check is one
- * picture that may be on the wrong slide, and a delivery that reported itself
- * verified on the strength of the other eight would be worse than one that
- * reported nothing. An empty delivery is `'unchecked'` for the same reason —
+ * picture that may be on the wrong slide, and a delivery that called itself
+ * file-checked on the strength of the other eight would be worse than one that
+ * claimed nothing. An empty delivery is `'unchecked'` for the same reason —
  * there is nothing there to have checked.
  */
 export function imageBindingCheck(
@@ -319,9 +344,9 @@ export interface ImageBindingIssue {
  *
  * An empty list means the set may be deposited. Anything in it means it may
  * not: this is a gate, not advice. What an empty list does *not* mean is that
- * the binding was verified — a delivery with no digests passes every check
- * there is to run and is still `'unchecked'`. Callers report
- * `imageBindingCheck` alongside, never instead.
+ * the binding was verified against the files — a delivery with no digests
+ * passes every check there is to run here and is still `'unchecked'`. Callers
+ * report `imageBindingCheck` alongside, never instead.
  */
 export function checkGeneratedImages(
   presentation: Presentation,
