@@ -779,6 +779,15 @@ export interface GeneratedImagesView {
    * back in context before the next image call.
    */
   expected: Omit<GeneratedImageRecord, 'fileName' | 'contentHash'>[]
+  /**
+   * What each file in this call is to be saved as, by plan entry.
+   *
+   * The name is the entry's own number and the format's extension, and it is
+   * answered *here* rather than handed out with the job: a number is a fact
+   * about a set, and the job is the one place that must not carry one. Nothing
+   * needs it to make a picture; the deposit needs it to place one.
+   */
+  files: { imagePlanItemId: string; fileName: string }[]
   /** What the manifest file is called when the files go through the deposit. */
   manifestFileName: string
   /**
@@ -845,7 +854,7 @@ const CHECK_MEANS: Record<ImageBindingCheck, string> = {
 export const verifyImageHandoff = defineOperation({
   name: 'verify_image_handoff',
   summary:
-    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send den ene oppføringen med `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavnet og `contentHash` – avtrykket av bytene bildegenereringen returnerte. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
+    'Kontroller at hver genererte bildefil er knyttet til den bildeplanoppføringen den faktisk ble generert fra. Kjør den per bilde, rett etter at bildet er laget og før neste jobb hentes: send `imagePlanItemId` fra jobben, `fileExtension` – filendelsen filen har – og `contentHash`, avtrykket av bytene bildegenereringen returnerte. Nummer, sone og filnavn henter Slaids fra bildeplanen, og `files` i svaret sier hva filen skal lagres som; har du selv holdt styr på dem, kan du sende dem, og da kontrolleres de mot planen som før. Flere oppføringer i samme kall går også an. Koblingene legges til dem dekket allerede har, så senere lesninger vet hva som er meldt: med avtrykk blir `workflow.stage` `awaiting-deposit` når hele planen er dekket, og `generation-verified` først når filene er lagt inn i sonene – det er også der avtrykkene faktisk sammenlignes med bytene. Uten avtrykk lagres koblingen, men ingenting kan noen gang sammenlignes: stadiet blir `generation-unverified`. Begge er `complete: false`, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes. Å legge filene inn er brukerens steg med mindre klienten har en filbro. ' +
     IMAGE_HANDOFF_RULE,
   mutates: true,
   scopes: ['presentations:write'],
@@ -861,18 +870,31 @@ export const verifyImageHandoff = defineOperation({
             .describe(
               'Id-en til bildeplanoppføringen denne filen ble generert fra, ordrett fra `images` i bildebriefen. Aldri konstruert, aldri gjettet ut fra rekkefølgen.',
             ),
+          fileExtension: z
+            .string()
+            .min(1)
+            .describe(
+              'Filendelsen filen faktisk har – `png`, `jpg`, `webp` og så videre. Slaids setter sammen navnet av oppføringens eget nummer og denne, og svarer med navnet filen skal lagres under. Du trenger ikke vite nummeret for å generere bildet, og bildejobben oppgir det derfor ikke.',
+            )
+            .optional(),
           number: z
             .number()
             .int()
             .min(1)
             .max(MAX_PLANNED_IMAGES)
-            .describe('Oppføringens eget nummer – ikke bildets plass i genereringsrekkefølgen.'),
-          slideId: slideIdSchema,
-          nodeId: nodeIdSchema,
+            .describe(
+              'Valgfri: oppføringens eget nummer, hvis du har holdt styr på det – ikke bildets plass i genereringsrekkefølgen. Utelatt henter Slaids det fra bildeplanen.',
+            )
+            .optional(),
+          slideId: slideIdSchema.optional(),
+          nodeId: nodeIdSchema.optional(),
           fileName: z
             .string()
             .min(1)
-            .describe('Filnavnet filen fikk: oppføringens nummer og filendelsen formatet har.'),
+            .describe(
+              'Valgfri: filnavnet filen fikk, hvis du alt har navngitt den. Utelatt setter Slaids det sammen av oppføringens nummer og `fileExtension`, og svaret sier hva det ble.',
+            )
+            .optional(),
           contentHash: z
             .string()
             .regex(/^[0-9a-f]{64}$/)
@@ -880,13 +902,46 @@ export const verifyImageHandoff = defineOperation({
             .describe(
               'SHA-256 (lowercase hex) av bytene bildegenereringen returnerte for akkurat denne oppføringen. Regn den ut i det filen kommer tilbake, før neste bilde genereres – et avtrykk beregnet etterpå fra en mappe med ferdige filer fester bare en forveksling som allerede har skjedd. Utelat feltet hvis du ikke har tilgang til bytene; leveransen blir da rapportert som uverifisert, aldri som kontrollert.',
             ),
-        }),
+        })
+          .refine((image) => image.fileName !== undefined || image.fileExtension !== undefined, {
+            message:
+              'Oppgi enten `fileExtension` – så setter Slaids sammen filnavnet – eller `fileName` hvis du alt har navngitt filen.',
+          }),
       )
       .max(MAX_PLANNED_IMAGES)
       .describe('Én oppføring per ferdig bildefil. Rekkefølgen her betyr ingenting.'),
   }),
   run(context, input): Promise<AgentResult<GeneratedImagesView>> {
     return mutatePresentation(context, input, (presentation) => {
+      /*
+       * Everything but the id and the digest is filled in from the plan when
+       * the caller leaves it out, and that is what lets a generation job be an
+       * opaque id, a format and a prompt.
+       *
+       * The number, the zone and the file name are facts about a *set* — «the
+       * third one», «the one on that slide» — so a host whose image tool reads
+       * the conversation rather than an explicit prompt would have them in
+       * context at the moment it generates. They are not needed to make a
+       * picture, only to file one, so they are asked for afterwards or derived
+       * here. A caller that tracked them may still send them: then they are
+       * checked against the plan exactly as before, which is the cross-check
+       * that catches a delivery named by arrival order.
+       */
+      const plan = new Map(resolveImagePlan(presentation).map((image) => [image.id, image]))
+      const completed = input.images.map((image) => {
+        const entry = plan.get(image.imagePlanItemId)
+        const extension = image.fileExtension?.replace(/^\./, '').toLowerCase()
+        return {
+          imagePlanItemId: image.imagePlanItemId,
+          number: image.number ?? entry?.number ?? 0,
+          slideId: image.slideId ?? entry?.plan.slideId ?? '',
+          nodeId: image.nodeId ?? entry?.plan.nodeId ?? '',
+          fileName:
+            image.fileName ??
+            (entry && extension ? `${entry.fileNameStem}.${extension}` : (image.fileName ?? '')),
+          ...(image.contentHash ? { contentHash: image.contentHash } : {}),
+        }
+      })
       /*
        * `MISSING_ITEM` is set apart from everything else this check reports,
        * and that is what makes the flow sequential. The others are things
@@ -895,9 +950,9 @@ export const verifyImageHandoff = defineOperation({
        * the plan waiting for a job that has not been generated yet, which is
        * the normal state of every call but the last one.
        */
-      const outstanding = checkGeneratedImages(presentation, input.images)
+      const outstanding = checkGeneratedImages(presentation, completed)
       const issues = outstanding.filter((issue) => issue.code !== 'MISSING_ITEM')
-      const check = imageBindingCheck(input.images)
+      const check = imageBindingCheck(completed)
       /*
        * A check that passes is written down, and that is what makes this a
        * mutation at all. Slaids never sees a generated file, so the deck cannot
@@ -910,7 +965,7 @@ export const verifyImageHandoff = defineOperation({
        * false reassurance this operation exists to remove, and the command
        * refuses it independently for that reason.
        */
-      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, input.images) : null
+      const recorded = issues.length === 0 ? recordGeneratedImages(presentation, completed) : null
       if (recorded && !recorded.ok) return recorded
       const written = recorded?.value ?? presentation
       /*
@@ -934,6 +989,10 @@ export const verifyImageHandoff = defineOperation({
           issues,
           planCovered,
           expected: issues.length === 0 ? [] : expectedGeneratedImages(written),
+          files: completed.map((record) => ({
+            imagePlanItemId: record.imagePlanItemId,
+            fileName: record.fileName,
+          })),
           manifestFileName: IMAGE_MANIFEST_FILE_NAME,
           manifest:
             issues.length === 0 && planCovered

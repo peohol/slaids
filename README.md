@@ -723,7 +723,15 @@ dekket sier det (`generation-unverified`).
 bildeplanen, så motivene har vært i samtalen dens uansett; og arver
 vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten. At
 generatoren bare ser den ene prompten er derfor et krav til vertsklienten, ikke
-en garanti Slaids kan gi.
+en garanti Slaids kan gi. Instruksen dekker begge verktøyformer: sendes prompten
+som parameter, går den ordrett; utleder verktøyet prompten fra samtalen — som i
+ChatGPT — skrives den som agentens egen melding rett før kallet, alene. Derfor
+bærer bildejobben heller ikke nummer, filnavn eller sone: koblingskontrollen
+svarer med filnavnet etterpå.
+
+**En kobling uten avtrykk tar ingen jobb ut av køen.** Da kunne hele løkken
+vandres uten å kalle en bildegenerator; i stedet svarer jobben
+`unverified-claim` og navngir de tre tilfellene bare agenten kan skille.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
@@ -749,7 +757,7 @@ overlever at et bilde byttes ut etterpå.
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
 | `get_image_brief`                        | bildeplanen slik den står, kontrollene og deponeringsstatusen |
-| `get_next_image_job`                     | den ene bildejobben som står for tur: én ferdig prompt og koblingsdataene for den oppføringen |
+| `get_next_image_job`                     | den ene bildejobben som står for tur: én ferdig prompt, formatet og en ugjennomsiktig id – intet nummer, filnavn eller sone |
 | `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra, og lagrer koblingen på dekket når den holder |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller

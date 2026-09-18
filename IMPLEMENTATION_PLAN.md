@@ -364,13 +364,24 @@ tekstene det nettopp fikk.
 *skriver* bildeplanen, så motivene har vært i samtalen dens uansett hva Slaids
 svarer etterpå; og om vertsklientens bildeverktøy arver den samtalen, er det en
 egenskap ved verten, ikke ved dette API-et. Slaids kontrollerer hva det selv
-eksponerer og når. At bildegeneratoren bare ser den ene prompten er derfor et
-**krav til vertsklienten**: gjør bildekallet i en isolert kontekst, og kan
-klienten ikke det, si det til brukeren i stedet for å love isolasjon den ikke
-har. `CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene som ellers ville
-reist inni ordren, men den er lint på kjente mønstre — «viderefør uttrykket fra
-resten av presentasjonen» går klar av enhver regex, og den reelle garantien
-ligger i den isolerte konteksten.
+eksponerer og når.
+
+Verktøyflatene er ikke like, og instruksen dekker begge. **Tar bildeverktøyet en
+prompt som parameter**, sendes `prompt` ordrett, ett kall, uten noe annet.
+**Utleder verktøyet prompten fra samtalen** — det gjelder flere verter, blant
+dem ChatGPT — er agentens siste melding i praksis prompten: da skrives `prompt`
+ordrett som den meldingen, alene, uten noe annet om bilder i samme tur. Det er
+grunnen til at jobben ikke bærer nummer, filnavn eller sone, og til at Slaids
+ikke gjentar planen i noe svar etter at den er skrevet: det som ligger nærmest
+generatoren skal være nøyaktig det ene motivet.
+
+Det er så langt dette API-et rekker. Kan klienten ikke begrense hva
+bildeverktøyet ser, skal agenten si det til brukeren i stedet for å love en
+isolasjon den ikke har — og en faktisk garanti ville krevd at bildet ble
+generert bak en filbro Slaids selv styrer, noe §7.2 i dag uttrykkelig ikke gjør.
+`CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene som ellers ville reist
+inni ordren, men den er lint på kjente mønstre — «viderefør uttrykket fra resten
+av presentasjonen» går klar av enhver regex.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -719,17 +730,33 @@ får eksponeres mens det skjer.
 
 ### Genereringen leser én jobb om gangen
 
-`nextImageJob` er genereringsstegets egen flate, og den kan bare si én ting. Den
-svarer med den første planlagte oppføringen ingen lagret kobling gjør rede for:
-én ferdig `prompt`, formatet sonen ble målt til, og koblingsdataene kontrollen
-etterpå ber om (`imagePlanItemId`, `number`, `fileName`, `slideId`, `nodeId`).
-Ingen søskenoppføring, intet annet motiv, ingen samlet brief, intet totalantall.
+`nextImageJob` er genereringsstegets egen flate, og den kan bare si én ting. En
+jobb er `imagePlanItemId`, formatet sonen ble målt til, og den ferdige
+`prompt`-teksten. Det er alt: ingen søskenoppføring, intet annet motiv, ingen
+samlet brief, intet totalantall — og **intet nummer, filnavn eller sone**.
+
+Ordinalen er borte med vilje. «Den tredje», «den på den sliden» og `3.png` er
+fakta om et *sett*, og en vert der bildeverktøyet utleder prompten fra samtalen
+i stedet for å ta den som parameter ville hatt dem i konteksten i det bildet
+lages. De trengs ikke for å lage bildet, bare for å arkivere det, så
+koblingskontrollen svarer med navnet filen skal lagres under (`files`) i stedet.
+Kontrollen tar imot `imagePlanItemId`, filendelsen og avtrykket, og henter
+nummer, sone og filnavn fra bildeplanen; en klient som selv har holdt styr på
+dem kan fortsatt sende dem, og da kontrolleres de mot planen som før.
 
 Køen er dokumentet, ikke en teller: «neste» avledes av planen og de lagrede
-koblingene hver gang, så en avbrutt samtale plukker opp der dekket står. Og
-fordi neste jobb først finnes når den forrige er kontrollert, blir «hvor mange
-er det» aldri et spørsmål som må besvares — `all-generated` er slutten på
-løkken, ikke et tall.
+koblingene hver gang, så en avbrutt samtale plukker opp der dekket står.
+
+**Bare en kobling med avtrykk tar en oppføring ut av køen.** En kobling uten
+avtrykk er en rad en agent kan skrive av planen alene, og lot den konsumere en
+jobb, kunne hele løkken vandres uten å kalle en bildegenerator én eneste gang —
+og ende på det sterkeste ordet flyten har, `all-generated`. Slaids kan ikke
+bevise at et bilde ble laget, så den sier det den vet: `status` blir
+`unverified-claim`, jobben tilbys igjen, og instruksen navngir de tre tilfellene
+bare leseren kan skille — bildet er laget og bytene er lesbare (regn ut
+avtrykket), bildet er laget og bytene er utilgjengelige (si at leveransen er
+uverifisert, ikke lag det om igjen), eller bildet er ikke laget (da er prompten
+her). `all-generated` krever at hver oppføring har et avtrykk.
 
 Planens egne kontroller går foran: er `checkImagePlan` ikke tom, leveres ingen
 jobb, og svaret sier hva som skal rettes. Det gjelder særlig

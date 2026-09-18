@@ -317,9 +317,10 @@ const GENERATION_STEPS: readonly string[] = [
  * duplicate work the rest of this module exists to prevent.
  */
 const UNVERIFIED_STEPS: readonly string[] = [
-  'Har du bytene til bildefilene: regn ut SHA-256 av hver av dem og kjør koblingskontrollen på nytt med avtrykkene. Det er den ene veien til en verifisert generering, og den krever ingen nye bilder.',
+  'Har du bytene til bildefilene: regn ut SHA-256 av hver av dem og kjør koblingskontrollen på nytt med avtrykkene. Det er den ene veien til en kontrollerbar leveranse, og den krever ingen nye bilder.',
   'Har du dem ikke – vertsklienten gir deg ikke tilgang til bytene fra sitt eget bildeverktøy – si uttrykkelig til brukeren at leveransen er uverifisert: metadataene kan stemme samtidig som filene er forvekslet. Lever filene med manifestet, og si at bildene må ses gjennom manuelt.',
-  'Uansett hvilken av de to: ikke omtal leveransen som kontrollert, og ikke generer bildene om igjen for å få en kontroll – det som mangler er avtrykket, ikke bildet.',
+  'Er bildene i virkeligheten ikke laget – koblingene er skrevet av bildeplanen – finnes det ingen leveranse her. Da er det å generere dem som gjenstår: hent neste bildejobb, som fortsatt tilbyr hver oppføring uten avtrykk.',
+  'I de to første tilfellene: ikke generer bildene om igjen for å få en kontroll, og ikke omtal leveransen som kontrollert uansett hvilket av de tre som gjelder.',
 ]
 
 const DEPOSIT_STEPS: readonly string[] = [
@@ -672,14 +673,18 @@ export function composeImageWorkflowStatus(presentation: Presentation): ImageWor
  * the file's name rather than a position in a set.
  */
 export interface ImageGenerationJob {
-  /** What the finished file is bound to. Copied into the binding check, never into the prompt. */
+  /**
+   * What the finished file is bound to: an opaque name for this one order.
+   *
+   * The only identifier in a job, and deliberately the only one. The entry's
+   * number, its file name and its zone are all facts about a *set* — «the third
+   * of them», «the one on that slide» — and a host whose image tool reads the
+   * conversation rather than an explicit prompt string would have them in
+   * context at the moment it generates. An `imgplan_…` digest says nothing
+   * about how many there are or where this one sits. The number comes back
+   * from the binding check afterwards, as the name to save the file under.
+   */
   imagePlanItemId: string
-  /** The entry's own number, which is what its file is called. */
-  number: number
-  /** `<number>.<filendelse>`: the name the file must carry. */
-  fileName: string
-  slideId: string
-  nodeId: string
   /**
    * The format, for a host whose image tool takes it as a parameter.
    *
@@ -701,10 +706,19 @@ export interface ImageGenerationJob {
  *    that does not describe the deck is how a picture gets made for a zone that
  *    has moved. It also covers the one finding that must never reach a
  *    generator: a text that refers to the other pictures.
- *  - `all-generated` — every entry has its own checked binding. The loop ends
- *    here, without anybody having been told how long it was.
+ *  - `unverified-claim` — this entry has a binding with no digest. Slaids has
+ *    no signal that a picture was ever made for it: every field in that binding
+ *    was in the plan beforehand. The job is handed out again with the three
+ *    cases named, rather than being counted as done.
+ *  - `all-generated` — every entry has a binding that carries a digest. The
+ *    loop ends here, without anybody having been told how long it was.
  */
-export type ImageJobStatus = 'job' | 'no-plan' | 'plan-needs-repair' | 'all-generated'
+export type ImageJobStatus =
+  | 'job'
+  | 'unverified-claim'
+  | 'no-plan'
+  | 'plan-needs-repair'
+  | 'all-generated'
 
 /** The next job, or what stands in its way. */
 export interface NextImageJob {
@@ -755,14 +769,30 @@ export function nextImageJob(presentation: Presentation): NextImageJob {
     )
   }
 
-  const bound = new Set(
-    plannedGeneratedImages(presentation).map((record) => record.imagePlanItemId),
+  /*
+   * Only a binding that carries a digest takes an entry out of the queue, and
+   * that is the difference between «reported» and «made».
+   *
+   * A binding without one is a row an agent can write from the plan alone: the
+   * id, the number, the zone and the file name were all in it before any
+   * picture existed. Letting such a row consume a job meant the whole loop
+   * could be walked without calling an image generator once, and the queue
+   * would end by reporting `all-generated` — the strongest word the flow has —
+   * on the strength of nothing. Slaids cannot prove a picture was made, so it
+   * says what it knows instead: this entry is claimed, not shown.
+   */
+  const records = plannedGeneratedImages(presentation)
+  const shown = new Set(
+    records.filter((record) => record.contentHash !== undefined).map((r) => r.imagePlanItemId),
   )
-  const next = images.find((image) => !bound.has(image.id))
+  const claimed = new Set(
+    records.filter((record) => record.contentHash === undefined).map((r) => r.imagePlanItemId),
+  )
+  const next = images.find((image) => !shown.has(image.id))
   if (!next) {
     return none(
       'all-generated',
-      'Hver planlagt oppføring har sin egen kobling, så det er ingen bildejobb igjen. Er koblingene kontrollert med avtrykk, er genereringsoppgaven ferdig; `workflow` på de andre svarene sier hva som eventuelt gjenstår.',
+      'Hver planlagt oppføring har en kobling med avtrykk, så det er ingen bildejobb igjen. Avtrykkene sammenlignes med filenes egne bytes når brukeren deponerer dem; `workflow` på de andre svarene sier hva som gjenstår.',
     )
   }
 
@@ -805,19 +835,34 @@ export function nextImageJob(presentation: Presentation): NextImageJob {
     )
   }
 
+  const job: ImageGenerationJob = {
+    imagePlanItemId: next.id,
+    aspectRatio: next.aspectRatio,
+    prompt,
+  }
+
+  if (claimed.has(next.id)) {
+    /*
+     * Reported without a digest, which is a row and not a picture. Handed out
+     * again rather than skipped, because Slaids cannot tell the two honest
+     * readers apart — the one that made the picture and cannot reach its bytes,
+     * and the one that made nothing — so it names both cases and lets whoever
+     * is here answer the one that is true.
+     */
+    return {
+      status: 'unverified-claim',
+      job,
+      instruction:
+        'Denne oppføringen har en kobling uten avtrykk. Slaids har da ingen holdepunkt for at et bilde faktisk ble laget for den: id, nummer, sone og filnavn sto alle i bildeplanen fra før. Tre tilfeller, og du vet hvilket som gjelder: laget du bildet og kan lese bytene, regn ut SHA-256 og kjør koblingskontrollen på nytt – da er jobben gjort uten et nytt bilde. Laget du bildet og får ikke tilgang til bytene, blir denne oppføringen stående uverifisert: ikke generer den om igjen, men si uttrykkelig til brukeren at leveransen ikke kan kontrolleres. Er bildet ikke laget, er `prompt` her, og da er det nå det skal genereres.',
+      issues: [],
+    }
+  }
+
   return {
     status: 'job',
-    job: {
-      imagePlanItemId: next.id,
-      number: next.number,
-      fileName: `${next.fileNameStem}.<filendelse>`,
-      slideId: next.plan.slideId,
-      nodeId: next.plan.nodeId,
-      aspectRatio: next.aspectRatio,
-      prompt,
-    },
+    job,
     instruction:
-      'Dette er én bildegenereringsoppgave. Kall bildegeneratoren nøyaktig én gang med `prompt` ordrett – ikke legg til id, nummer, filnavn, slide eller noe om andre bilder. Regn ut SHA-256 av bytene som kommer tilbake med en gang, gi filen navnet `fileName` oppgir, og kjør koblingskontrollen for denne oppføringen med `imagePlanItemId`, `number`, `slideId`, `nodeId`, filnavnet og avtrykket. Hent deretter neste jobb.',
+      'Dette er én bildegenereringsoppgave. Kall bildegeneratoren nøyaktig én gang med `prompt` ordrett, og legg ingenting til den – heller ikke `imagePlanItemId`, som bare er din egen bokføring. Regn ut SHA-256 av bytene som kommer tilbake med en gang, og kjør koblingskontrollen for denne oppføringen med `imagePlanItemId`, filendelsen filen har og avtrykket. Kontrollen svarer med navnet filen skal lagres under. Hent deretter neste jobb.',
     issues: [],
   }
 }

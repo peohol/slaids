@@ -233,7 +233,9 @@ Når Slaids brukes fra en vertsklient som ChatGPT, og dekket har planlagte raste
 
 Å komponere prompten per oppføring var ikke nok alene: svarene bar fortsatt hele planen – hvert motiv, hver ferdige prompt, antallet – så agenten hadde settet foran seg i det første bildekallet ble skrevet.
 
-**Grensen for hva Slaids kan håndheve går her, og den er verdt å si rett ut.** Agenten skriver bildeplanen, så motivene har vært i samtalen dens uansett hva Slaids svarer etterpå; og arver vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten, ikke ved dette API-et. At bildegeneratoren bare ser den ene prompten er derfor et **krav til vertsklienten**: gjør bildekallet i en isolert kontekst, og kan klienten ikke det, si det til brukeren i stedet for å love en isolasjon den ikke har. Kontrollen mot kryssreferanser hjelper mot kjente formuleringer, men den er lint – «viderefør uttrykket fra resten av presentasjonen» går klar av enhver mønsterliste.
+**Grensen for hva Slaids kan håndheve går her, og den er verdt å si rett ut.** Agenten skriver bildeplanen, så motivene har vært i samtalen dens uansett hva Slaids svarer etterpå; og arver vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten, ikke ved dette API-et.
+
+Verktøyflatene er ikke like, og instruksen dekker begge. Tar bildeverktøyet en prompt som parameter, sendes `prompt` ordrett, ett kall, uten noe annet. Utleder verktøyet prompten fra samtalen – det gjelder flere verter, blant dem ChatGPT – er agentens siste melding i praksis prompten: da skrives `prompt` ordrett som den meldingen, alene, uten noe annet om bilder i samme tur. Derfor bærer jobben verken nummer, filnavn eller sone, og derfor gjentar ingen Slaids-respons planen etter at den er skrevet: det som ligger nærmest generatoren skal være nøyaktig det ene motivet. Kan klienten ikke begrense hva bildeverktøyet ser, skal agenten si det til brukeren i stedet for å love en isolasjon den ikke har. Kontrollen mot kryssreferanser hjelper mot kjente formuleringer, men den er lint – «viderefør uttrykket fra resten av presentasjonen» går klar av enhver mønsterliste.
 
 Agenten oppgir aldri aspect ratio i fritekst, og skriver aldri prompten eller den samlede briefen selv. Det er nettopp den doble beskrivelsen som gjorde at brede prompter ble skrevet til nær kvadratiske soner.
 
@@ -272,7 +274,7 @@ Det finnes to gyldige stopp, og ingen andre: brukeren har uttrykkelig bedt om å
 Svaret fra `plan_deck_images` og `get_image_brief` har to halvdeler av den samme planen, og de har hver sin jobb:
 
 - **`images`** er den strukturerte listen, én oppføring per bilde: `imagePlanItemId`, nummer, filnavn, sone, format og de fire tekstfeltene. Den beskriver planen — den utfører den ikke. Selve prompten ligger ikke her.
-- **Bildejobben** er det genereringen leser, én om gangen: én ferdig **`prompt`** — dekkets felles `imageContext` og bare denne oppføringens motiv, komposisjon, faglige krav og «unngå», med formatet målt fra sonen — pluss koblingsdataene kontrollen etterpå ber om. Ingen søskenoppføring, ingen samlet brief, intet antall. Prompten sendes ordrett og bygges aldri av agenten selv; `imagePlanItemId`, nummeret og filnavnet er bokføring ved siden av kallet, for hvert av dem sier «ett av flere».
+- **Bildejobben** er det genereringen leser, én om gangen: `imagePlanItemId`, formatet, og én ferdig **`prompt`** — dekkets felles `imageContext` og bare denne oppføringens motiv, komposisjon, faglige krav og «unngå», med formatet målt fra sonen. Ingen søskenoppføring, ingen samlet brief, intet antall — og intet nummer, filnavn eller sone, for «den tredje» og `3.png` er fakta om et sett. Koblingskontrollen svarer med navnet filen skal lagres under etterpå. Prompten sendes ordrett og bygges aldri av agenten selv; `imagePlanItemId` er bokføring ved siden av kallet.
 - **`brief`** er intern og følger ikke med med mindre kallet ber om den: hele planen som én menneskelesbar tekst, til Slaids sin egen bildebrief-dialog, til dokumentasjon, til feilsøking og til manuell kopiering. Den er ikke et steg i normalflyten, ikke én bildegenereringsprompt, og skal ikke skrives ut i samtalen. Å ligge i svaret er å ligge i konteksten det neste bildekallet skrives fra.
 
 Dette er ikke en smakssak. En plan på åtte bilder ble sendt videre som én jobb, og det som kom tilbake var ett storyboard: åtte motiv på ett lerret, én fil, ingen nummerering, og ingenting bildedeponeringen kunne plassere.
@@ -292,10 +294,10 @@ Id-en dekker **hele bestillingen**, ikke bare motivet: dekket, sonen, nummeret, 
 Arbeidsflyten er eksplisitt sekvensiell, og rekkefølgen på stegene er selve mekanismen. For hver oppføring, i stigende `number`:
 
 1. Hent den ene bildejobben som står for tur. `prompt` er hele instruksen, og ingenting skal legges til den.
-2. Kall bildegeneratoren nøyaktig én gang, med bare den teksten.
-3. Regn ut SHA-256 av bytene som kom tilbake, med en gang, og knytt filen til den samme `imagePlanItemId`.
-4. Gi filen navnet jobben oppgir: `<number>.<filendelse>`, der `number` er oppføringens eget nummer.
-5. Kjør koblingskontrollen for denne ene oppføringen, med avtrykket. Uten avtrykk blir genereringen aldri verifisert.
+2. Kall bildegeneratoren nøyaktig én gang, med bare den teksten – som parameter der verktøyet tar en, ellers som din egen melding rett før kallet.
+3. Regn ut SHA-256 av bytene som kom tilbake, med en gang.
+4. Kjør koblingskontrollen for denne ene oppføringen: `imagePlanItemId`, filendelsen og avtrykket.
+5. Lagre filen under navnet kontrollen svarer med (`files`). Uten avtrykk regnes oppføringen aldri som generert, og jobben kommer tilbake som `unverified-claim`.
 6. Hent først deretter neste jobb, uten å kommentere i samtalen at du gjør det.
 
 En agent som samler alle filene først og navngir dem etterpå har ingenting igjen å knytte dem fra. Rekkefølgen bildegeneratoren produserer, returnerer eller *viser* bildene i er ikke en identitetskilde: «det første bildet som kom tilbake» er aldri bilde 1, og et bilde skal aldri nummereres etter når det ble ferdig.

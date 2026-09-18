@@ -1069,9 +1069,12 @@ describe('én jobb om gangen', () => {
     expect(answer).not.toMatch(/BILDE \d+ AV \d+/)
     expect(answer).not.toMatch(/separate bilder/i)
     expect(answer).not.toMatch(/\b8\b/)
-    // The one ordinal that survives is the file's own name, which the deposit
-    // matches zones by — it is what the file is called, not a place in a set.
-    expect(next.job?.fileName).toBe('1.<filendelse>')
+    // No ordinal survives at all: a number is a fact about a set, and the file
+    // name is answered by the binding check afterwards instead.
+    expect(next.job).not.toHaveProperty('number')
+    expect(next.job).not.toHaveProperty('fileName')
+    expect(next.job).not.toHaveProperty('slideId')
+    expect(answer).not.toMatch(/\bbildeslide-\d/)
   })
 
   it('gir neste jobb først når den forrige er bundet', () => {
@@ -1141,7 +1144,64 @@ describe('én jobb om gangen', () => {
     expect(composeImageWorkflowStatus(rewritten.value).stage).toBe('plan-outdated')
     const next = nextImageJob(rewritten.value)
     expect(next.status).toBe('job')
-    expect(next.job?.number).toBe(1)
+    expect(next.job?.prompt).toContain(MOTIFS[0])
+  })
+
+  it('lar ikke en kobling uten avtrykk spise opp jobben', () => {
+    /*
+     * The shortcut this closes, walked end to end: fetch a job, send its own id
+     * straight back without a digest, fetch the next. Every field in that
+     * binding was in the plan before any picture existed, so nothing in it is
+     * evidence — and a queue that counted it as done could be emptied without
+     * calling an image generator once, ending on the strongest word the flow
+     * has: `all-generated`.
+     *
+     * Only a binding that carries a digest takes an entry out of the queue. The
+     * claim is not thrown away — a host that cannot reach its own bytes has
+     * made the pictures and must not be sent back to make them again — it just
+     * never becomes «generated».
+     */
+    const start = awaiting(3)
+    const first = nextImageJob(start)
+    if (!first.job) throw new Error('Forventet en jobb')
+
+    // Report that one job back without a digest — the whole shortcut in one
+    // call — and the queue is exactly where it was.
+    const claim = claims(start).find(
+      (record) => record.imagePlanItemId === first.job?.imagePlanItemId,
+    )
+    if (!claim) throw new Error('Forventet en kobling for jobben')
+    const claimed = recordGeneratedImages(start, [claim])
+    if (!claimed.ok) throw new Error(claimed.error.message)
+    expect(nextImageJob(claimed.value).job?.imagePlanItemId).toBe(first.job.imagePlanItemId)
+
+    // The same for the rest: every entry claimed, and the loop has not ended.
+    const written = recordGeneratedImages(start, claims(start))
+    if (!written.ok) throw new Error(written.error.message)
+    const deck: Presentation = written.value
+    expect(deck.generatedImages).toHaveLength(3)
+    const after = nextImageJob(deck)
+    expect(after.status).toBe('unverified-claim')
+    expect(after.status).not.toBe('all-generated')
+    expect(after.job?.prompt).toContain(MOTIFS[0])
+    // The three cases only the reader can tell apart, named rather than guessed.
+    expect(after.instruction).toMatch(/laget du bildet og kan lese bytene/i)
+    expect(after.instruction).toMatch(/får ikke tilgang til bytene/i)
+    expect(after.instruction).toMatch(/Er bildet ikke laget/i)
+
+    // A digest on one entry moves exactly that one out of the queue.
+    const proven = recordGeneratedImages(deck, records(deck).slice(0, 1))
+    if (!proven.ok) throw new Error(proven.error.message)
+    const second = nextImageJob(proven.value)
+    expect(second.status).toBe('unverified-claim')
+    expect(second.job?.prompt).toContain(MOTIFS[1])
+
+    // And the loop ends only when every entry carries one.
+    const all = recordGeneratedImages(proven.value, records(proven.value))
+    if (!all.ok) throw new Error(all.error.message)
+    const done = nextImageJob(all.value)
+    expect(done.status).toBe('all-generated')
+    expect(done.instruction).toMatch(/kobling med avtrykk/i)
   })
 
   it('gir ingen jobb til et dekk som ikke planlegger bilder', () => {

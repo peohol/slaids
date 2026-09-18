@@ -903,16 +903,83 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(answer).not.toMatch(/separate bilder/i)
     expect(answer).not.toMatch(/\b8\b/)
 
-    // And the binding data is beside the prompt rather than inside it: the
-    // check needs it afterwards, a generator must never see it.
+    // The only identifier is the opaque one, and it is beside the prompt
+    // rather than inside it: the check needs it afterwards, a generator must
+    // never see it. No number, no file name, no zone — those are facts about a
+    // set, and a host whose image tool reads the conversation would have them
+    // in context while it generates.
     expect(job.job?.imagePlanItemId).toBe(brief.images[0].imagePlanItemId)
     expect(job.job?.prompt).not.toContain(brief.images[0].imagePlanItemId)
-    expect(job.job?.fileName).toBe('1.<filendelse>')
+    expect(Object.keys(job.job ?? {}).sort()).toEqual(['aspectRatio', 'imagePlanItemId', 'prompt'])
 
     // The plan surfaces carry no prompt at all, so there is nothing there to
     // assemble a second, set-aware instruction from.
     expect(JSON.stringify(brief.images)).not.toContain('Lag ett bilde')
     expect(brief.brief).toBeNull()
+  })
+
+  it('navngir filen etter kontrollen, ikke i jobben', async () => {
+    /*
+     * The number is a fact about a set — «the third one» — and a host whose
+     * image tool reads the conversation rather than an explicit prompt string
+     * would have it in context while it generates. It is not needed to make a
+     * picture, only to file one, so the job carries an opaque id and the check
+     * answers with the name.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 3)
+    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    if (!job.job) throw new Error('Forventet en jobb')
+
+    const checked = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: [
+        {
+          imagePlanItemId: job.job.imagePlanItemId,
+          fileExtension: 'png',
+          contentHash: '1'.repeat(64),
+        },
+      ],
+    })
+    expect(checked.ok).toBe(true)
+    expect(checked.files).toEqual([{ imagePlanItemId: job.job.imagePlanItemId, fileName: '1.png' }])
+    // And Slaids filled in what the job never said: the entry's own number and
+    // zone, taken from the plan rather than from the caller.
+    expect(checked.workflow.stage).toBe('awaiting-generation')
+
+    // The next job is the next entry, so the binding was recorded in full.
+    const second = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    expect(second.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
+  })
+
+  it('lar ikke en kobling uten avtrykk tømme genereringsløkken', async () => {
+    // The shortcut, on the agent surface: fetch a job, send its own id back
+    // with no digest, fetch the next. Nothing in that binding is evidence, so
+    // the queue does not move on and never reports `all-generated`.
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 3)
+    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    if (!job.job) throw new Error('Forventet en jobb')
+
+    const claimed = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+      presentationId: brief.presentationId,
+      images: [{ imagePlanItemId: job.job.imagePlanItemId, fileExtension: 'png' }],
+    })
+    expect(claimed.ok).toBe(true)
+    expect(claimed.check).toBe('unchecked')
+
+    const again = await ok<ImageJobView>(context, 'get_next_image_job', {
+      presentationId: brief.presentationId,
+    })
+    expect(again.status).toBe('unverified-claim')
+    expect(again.job?.imagePlanItemId).toBe(job.job.imagePlanItemId)
+    expect(again.instruction).toMatch(/Er bildet ikke laget/i)
   })
 
   it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', async () => {
@@ -1168,7 +1235,7 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
       presentationId: brief.presentationId,
     })
     expect(job.status).toBe('job')
-    expect(job.job?.number).toBe(8)
+    expect(job.job?.imagePlanItemId).toBe(brief.images[7].imagePlanItemId)
   })
 
   it('avviser en bildeplan-id som ikke har formen Slaids lager', async () => {
