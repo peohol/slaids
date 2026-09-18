@@ -746,7 +746,12 @@ export interface GeneratedImagesView {
   /** Whether the files may be handed over. False means something is named below. */
   ok: boolean
   /**
-   * What this delivery said about its own bytes.
+   * What the delivery the deck now holds said about its own bytes.
+   *
+   * The *merged* set, not this call's argument — the same set the manifest is
+   * written from. The loop reports one picture at a time, so a call that
+   * carried a digest would otherwise answer for a whole delivery that also
+   * holds bindings without one.
    *
    * Reported beside `ok`, never folded into it, because the two answer
    * different questions and the difference is the whole point: `ok` says the
@@ -955,7 +960,6 @@ export const verifyImageHandoff = defineOperation({
        */
       const outstanding = checkGeneratedImages(presentation, completed)
       const issues = outstanding.filter((issue) => issue.code !== 'MISSING_ITEM')
-      const reporting = deliveryReporting(completed)
       /*
        * A check that passes is written down, and that is what makes this a
        * mutation at all. Slaids never sees a generated file, so the deck cannot
@@ -981,6 +985,18 @@ export const verifyImageHandoff = defineOperation({
       const stored = plannedGeneratedImages(written)
       const planCovered =
         stored.length > 0 && checkGeneratedImages(written, stored).length === 0
+      /*
+       * And so is `reporting`: it answers for the delivery the *deck* now
+       * holds, never for the argument of this one call.
+       *
+       * The normal flow calls this once per picture, so the two are routinely
+       * different sets. Computed from the argument, a last call that happened
+       * to carry a digest answered `hash-reported` — «hver kobling bærer et
+       * avtrykk» — for a merged manifest holding an earlier binding with none.
+       * That is the overstatement this field exists to prevent, arrived at from
+       * the inside. The manifest is the stored set; so is the answer about it.
+       */
+      const reporting = deliveryReporting(stored)
       return ok({
         presentation: written,
         value: {

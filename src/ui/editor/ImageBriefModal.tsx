@@ -48,8 +48,13 @@ import { useEditorStore } from '../../state/store'
 const PLACEHOLDER =
   'Beskriv det visuelle uttrykket som skal være felles for alle bildene i dekket: fotografisk eller illustrert, realismegrad, lyssetting, fargeholdning, komposisjonsprinsipper og hva som konsekvent skal unngås. Ikke beskriv motivene — de hører hjemme i bildeplanen, ett motiv per bildesone.'
 
-/** The one thing a copy button may be doing at a time, so feedback lands on it. */
-type CopyState = { key: string; ok: boolean } | null
+/**
+ * The one thing a copy button may be doing at a time, so feedback lands on it.
+ *
+ * The text is kept beside the outcome because a refused copy has to offer
+ * *that* text to select by hand — the one that failed, never some other one.
+ */
+type CopyState = { key: string; ok: boolean; text: string } | null
 
 export function ImageBriefModal({
   onClose,
@@ -117,12 +122,12 @@ export function ImageBriefModal({
 
   const copy = async (key: string, text: string): Promise<void> => {
     const ok = await copyToClipboard(text)
-    setCopied({ key, ok })
+    setCopied({ key, ok, text })
     if (timer.current) clearTimeout(timer.current)
     if (ok) timer.current = setTimeout(() => setCopied(null), COPIED_FEEDBACK_MS)
   }
 
-  const copyFailed = copied?.ok === false
+  const refused = copied?.ok === false ? copied : null
 
   return (
     <Modal
@@ -245,6 +250,34 @@ export function ImageBriefModal({
         </ul>
       )}
 
+      {refused && (
+        /*
+         * The browser said no, and the manual way out has to be the *same* text
+         * the button would have copied.
+         *
+         * It used to point at the whole-plan brief under it — «åpne den samlede
+         * briefen, merk teksten og kopier den selv» — which hands a person the
+         * one message this dialog
+         * exists to keep away from an image generator: every motif at once,
+         * numbered and counted. A refused copy of one picture's prompt is
+         * exactly when the clean single prompt matters most, so it is put right
+         * here to select.
+         */
+        <>
+          <p className="hint" data-testid="image-brief-modal-copy-failed">
+            Nettleseren tillot ikke kopiering. Teksten står her under – merk den og kopier den selv.
+          </p>
+          <textarea
+            className="editorial-text editorial-text--generated"
+            data-testid="image-brief-modal-copy-fallback"
+            value={refused.text}
+            readOnly
+            spellCheck={false}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        </>
+      )}
+
       {/*
         The whole plan as one text, one fold down and named for what it is. It
         counts the pictures, numbers them and shows every motif at once, which
@@ -285,14 +318,6 @@ export function ImageBriefModal({
         )}
       </details>
 
-      {copyFailed && (
-        // The browser said no. Rather than claiming success, the text is still
-        // right there to select by hand — which is what the field already is.
-        <p className="hint" data-testid="image-brief-modal-copy-failed">
-          Nettleseren tillot ikke kopiering. Åpne den samlede briefen under, merk teksten og kopier
-          den selv.
-        </p>
-      )}
     </Modal>
   )
 }

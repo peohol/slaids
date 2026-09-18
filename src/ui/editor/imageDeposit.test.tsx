@@ -198,12 +198,39 @@ function captureClipboard(): { text: () => string } {
   return { text: () => written.at(-1) ?? '' }
 }
 
+/**
+ * A clipboard that refuses, the way a browser without permission does.
+ *
+ * `document.execCommand` is stubbed too: `copyToClipboard` falls back to it,
+ * and a test that relied on jsdom simply not implementing it would be testing
+ * the environment rather than the refusal path.
+ */
+function refuseClipboard(): void {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: () => Promise.reject(new Error('Denied')) },
+    configurable: true,
+  })
+  clipboardInstalled = true
+  Object.defineProperty(document, 'execCommand', {
+    value: () => false,
+    configurable: true,
+    writable: true,
+  })
+  execCommandInstalled = true
+}
+
 let clipboardInstalled = false
+let execCommandInstalled = false
 
 afterEach(() => {
-  if (!clipboardInstalled) return
-  Reflect.deleteProperty(navigator, 'clipboard')
-  clipboardInstalled = false
+  if (clipboardInstalled) {
+    Reflect.deleteProperty(navigator, 'clipboard')
+    clipboardInstalled = false
+  }
+  if (execCommandInstalled) {
+    Reflect.deleteProperty(document, 'execCommand')
+    execCommandInstalled = false
+  }
 })
 
 /** Three genuinely different pictures, so a swap between two of them is real. */
@@ -369,6 +396,44 @@ describe('ImageBriefModal', () => {
     expect(clipboard.text()).toBe(
       composeImageGenerationPrompt(resolveImagePlan(shown)[0], shown.imageContext ?? ''),
     )
+  })
+
+  it('tilbyr den samme rene prompten når nettleseren nekter å kopiere', async () => {
+    /*
+     * The failure path, and it is the moment the clean single prompt matters
+     * most. It used to say «åpne den samlede briefen under, merk teksten og
+     * kopier den selv» — which hands a person the one message this dialog
+     * exists to keep away from an image generator: every motif at once,
+     * numbered and counted. What has to be offered instead is the exact text
+     * the button would have copied.
+     */
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    refuseClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    click('[data-testid="image-brief-modal-copy-prompt-2"]')
+    await settle()
+
+    const message = find('[data-testid="image-brief-modal-copy-failed"]').textContent ?? ''
+    expect(message).toMatch(/tillot ikke kopiering/i)
+    // Never towards the whole-plan brief, and the fold stays shut.
+    expect(message).not.toMatch(/samlede brief|samlet brief/i)
+    expect(find<HTMLDetailsElement>('[data-testid="image-brief-modal-full"]').open).toBe(false)
+
+    // The text on offer is this one picture's order, and nothing else.
+    const offered = find<HTMLTextAreaElement>('[data-testid="image-brief-modal-copy-fallback"]')
+    const shown = useEditorStore.getState().presentation
+    if (!shown) throw new Error('Forventet et dekk i editoren')
+    expect(offered.value).toBe(
+      composeImageGenerationPrompt(resolveImagePlan(shown)[1], shown.imageContext ?? ''),
+    )
+    expect(offered.readOnly).toBe(true)
+    expect(offered.value).toContain('Motiv nummer 2')
+    expect(offered.value).not.toContain('Motiv nummer 1')
+    expect(offered.value).not.toContain('imgplan_')
+    expect(offered.value).not.toMatch(/Bildeplan-ID|Filnavn|Skal brukes på slide/i)
+    expect(offered.value).not.toMatch(/BILDE \d+ AV \d+/i)
   })
 
   it('holder den samlede briefen adskilt fra genereringshandlingen', () => {

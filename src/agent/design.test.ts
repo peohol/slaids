@@ -1146,6 +1146,57 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(reported.workflow.complete).toBe(false)
   })
 
+  it('svarer for hele den lagrede leveransen, ikke for det ene kallet', async () => {
+    /*
+     * The overstatement this closes, and it is a property of the *loop* rather
+     * than of any one call. The flow reports one picture at a time, so the
+     * bindings accumulate on the deck while each call only carries one. With
+     * `reporting` computed from the argument, a last call that happened to
+     * carry a digest answered `hash-reported` — «hver kobling bærer et
+     * avtrykk» — for a merged manifest that still held an earlier binding with
+     * none.
+     *
+     * The manifest is the stored set, so the answer about it has to be too.
+     */
+    const context = freshContext()
+    const brief = await plannedPictureDeck(context, 3)
+    const report = (index: number, contentHash?: string): Promise<GeneratedImagesView> =>
+      ok<GeneratedImagesView>(context, 'verify_image_handoff', {
+        presentationId: brief.presentationId,
+        images: [
+          {
+            imagePlanItemId: brief.images[index].imagePlanItemId,
+            fileExtension: 'png',
+            ...(contentHash ? { contentHash } : {}),
+          },
+        ],
+      })
+
+    // The ordinary host: no bytes for the first picture.
+    const first = await report(0)
+    expect(first.reporting).toBe('self-reported')
+
+    // Then two that *do* carry a digest. The last call's own argument is fully
+    // hashed; the delivery it is part of is not.
+    await report(1, '1'.repeat(64))
+    const last = await report(2, '2'.repeat(64))
+
+    expect(last.planCovered).toBe(true)
+    expect(last.reporting).toBe('self-reported')
+    expect(last.reportingMeans).not.toMatch(/Hver kobling bærer et avtrykk/i)
+    // And the manifest it hands over says the same thing: one binding in it has
+    // no digest, which is exactly why the answer may not claim otherwise.
+    const manifest = JSON.parse(last.manifest ?? '{}')
+    expect(manifest.images).toHaveLength(3)
+    expect(
+      manifest.images.filter((record: { contentHash?: string }) => !record.contentHash),
+    ).toHaveLength(1)
+
+    // Fill the gap and the answer moves, from the same merged set.
+    const repaired = await report(0, '3'.repeat(64))
+    expect(repaired.reporting).toBe('hash-reported')
+  })
+
   it('rapporterer avtrykk bare når hver kobling bærer ett', async () => {
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
