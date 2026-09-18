@@ -686,22 +686,25 @@ rasterbilder, skal den endelige bildegenereringen vente til presentasjonen er
 ferdig validert og bildesonene er stabile; klienten leser da bildeplanen på nytt
 fra den endelige presentasjonstilstanden. Har vertsklienten innebygd
 bildegenerering, skal den starte bildegenereringen umiddelbart: Slaids gir én
-bildejobb om gangen — én ferdig `prompt` og koblingsdataene for akkurat den
-oppføringen — og neste jobb finnes først når den forrige er generert og
-kontrollert. Både antallet ferdige
+bildejobb om gangen — én ferdig, selvstendig `prompt` og koblingsdataene for
+akkurat den oppføringen — og neste jobb finnes først når den forrige er generert
+og meldt. Både antallet ferdige
 bildefiler og koblingen mellom
 hver fil og bildeplanoppføringen den ble generert fra kontrolleres mot planen før
 deponering; verktøyresponsen alene er ikke handoff. Hvis
-klienten ikke kan generere direkte, kan den samlede briefen fortsatt kopieres
-manuelt. Uten
-en egen filbro tilbake til Slaids går de ferdige bildefilene fortsatt via
-bildedeponeringen.
+klienten ikke kan generere direkte, kopierer brukeren én prompt om gangen fra
+bildeplanen i editoren og limer den inn i en ny samtale. De ferdige bildefilene
+går via bildedeponeringen uansett: Slaids har ingen egen bildegenerering, ingen
+bilde-API og ingen filbro, og planlegger ingen.
 
-**Hver bildegenerering er en isolert oppgave, strukturelt.** Prompten Slaids
-setter sammen inneholder dekkets felles bildekontekst og bare den ene
-oppføringen — ingen opptelling, ingen nummerering, ingen andre motiver — og
-selve genereringssteget leser én jobb om gangen, så settet er ikke i konteksten
-når bildekallet skrives. Bildeplanens svar bærer ingen ferdige prompter, den
+**Hver bildegenerering er en selvstendig oppgave, strukturelt — og best
+effort.** Prompten Slaids setter sammen inneholder dekkets felles bildekontekst
+og bare den ene oppføringen — ingen opptelling, ingen nummerering, ingen andre
+motiver, ingen bildeplan-id, intet filnavn, ingen slide — og selve
+genereringssteget leser én jobb om gangen, så settet er ikke i konteksten når
+bildekallet skrives. ChatGPTs bildeverktøy kan likevel bruke resten av samtalen,
+og det kan Slaids verken hindre eller etterprøve, så dette er en reduksjon av
+lekkasje og ikke en garanti. Bildeplanens svar bærer ingen ferdige prompter, den
 samlede briefen følger bare med når noen ber om den, og normalflyten skriver
 verken den, en oppsummering av bildeplanen eller antallet bilder ut i samtalen.
 En bildegenerator som får se at oppgaven er et sett, lager et sett: collage,
@@ -709,32 +712,41 @@ kontaktark eller storyboard i stedet for N separate bilder. Tekster som viser
 til de andre bildene — «samme utsnitt som forrige bilde» — meldes som funn i
 bildeplanen, fordi de ellers ville reist inni selve ordren.
 
+**Svikter det — flere planlagte motiver kommer tilbake som ett collage- eller
+storyboard-bilde — er fallbacken enkel og støttet:** brukeren åpner bildeplanen
+i editoren, trykker **«Kopier prompt»** på det bildet, åpner en ny, tom
+ChatGPT-samtale og limer inn. Den nye samtalen gir den reelle
+kontekstisolasjonen. Prompten kommer fra den samme compose-funksjonen som
+`get_next_image_job`, så automatisk og manuell generering bestiller nøyaktig det
+samme bildet.
+
 **Ingenting agenten skriver kan fullføre dekket.** En kobling består av id,
-nummer, sone, filnavn og `contentHash` — de fire første sto i bildeplanen før
-bildet ble laget, og avtrykket har Slaids ingen fil å sammenligne med, for
-API-et er aldri i rommet når et bilde lages. Fullføring hviler derfor på det ene
-som ikke kan påstås: en fil i dekket. `complete` blir true når hver planlagte
-bildesone holder en fil, og det er brukerens deponering i nettleseren som setter
-dem der — og det eneste stedet avtrykkene faktisk sammenlignes med bytes. En
-kobling uten avtrykk lagres, men da kan ingenting noensinne sammenlignes, og
-dekket sier det (`generation-unverified`).
+nummer, sone, filnavn og — når verten har bytene — `contentHash`. De fire første
+sto i bildeplanen før bildet ble laget, og avtrykket har Slaids ingen fil å
+sammenligne med, for API-et er aldri i rommet når et bilde lages. Genereringen
+er derfor **selvrapportert**, og fullføring hviler på det ene som ikke kan
+påstås: en fil i dekket. `complete` blir true når hver planlagte bildesone holder
+en fil, og det er brukerens deponering i nettleseren som setter dem der — og det
+eneste stedet et avtrykk faktisk sammenlignes med bytes.
 
 **Isolasjonen har en grense Slaids ikke kan håndheve.** Agenten skriver
 bildeplanen, så motivene har vært i samtalen dens uansett; og arver
 vertsklientens bildeverktøy den samtalen, er det en egenskap ved verten. At
-generatoren bare ser den ene prompten er derfor et krav til vertsklienten, ikke
-en garanti Slaids kan gi. Instruksen dekker begge verktøyformer: sendes prompten
+generatoren bare ser den ene prompten er derfor noe agenten forsøker, ikke noe
+Slaids kan love — og når det ikke holder, er den rene prompten i en ny samtale
+veien videre. Instruksen dekker begge verktøyformer: sendes prompten
 som parameter, går den ordrett; utleder verktøyet prompten fra samtalen — som i
 ChatGPT — skrives den som agentens egen melding rett før kallet, alene. Derfor
 bærer bildejobben heller ikke nummer, filnavn eller sone: koblingskontrollen
 svarer med filnavnet etterpå.
 
-**En kobling må svare for bytene.** Enten et avtrykk, eller en uttrykkelig
-erklæring om at vertsklienten ikke gir agenten tilgang til dem. Sier koblingen
-ingenting, avvises den og oppføringen blir stående som ubesvart bildejobb — ellers
-kunne hele løkken vandres uten å kalle en bildegenerator. Et oppdiktet avtrykk
-er ingen snarvei: deponeringen sammenligner det med filens egne bytes og avviser
-hele settet, og det er der den eneste ikke-forfalskbare kontrollen finnes.
+**Avtrykket er en ekstra kontroll, ikke et vilkår.** Kan vertsklienten lese
+bytene bildegenereringen returnerte, sendes SHA-256 av dem med koblingen; de
+færreste kan, og da går flyten videre til neste bilde uten. Kravet om avtrykk
+låste tidligere køen på et bilde som faktisk var laget, med duplikatgenerering
+som eneste vei ut. Et oppdiktet avtrykk er ingen snarvei: deponeringen
+sammenligner det med filens egne bytes og avviser hele settet, og det er der den
+eneste ikke-forfalskbare kontrollen finnes.
 
 **Genereringsrekkefølge er aldri identitet.** Hver bildeplanoppføring har en
 stabil id (`imagePlanItemId`, på formen `imgplan_…`) som følger bildet fra plan
@@ -745,23 +757,21 @@ bildegenerator som produserer bildene i en annen rekkefølge enn planen er helt 
 orden — men et bilde skal aldri nummereres etter når det ble ferdig, og «det
 første bildet som kom tilbake» er aldri bilde 1.
 
-**Koblingen går til filens egne bytes, ikke bare til filnavnet.** Agenten oppgir
-`contentHash` — SHA-256 av bytene bildegenereringen returnerte — regnet ut i det
-hver fil kommer tilbake. Avtrykket følger `slaids-bilder.json`, og nettleseren
-sammenligner det med filens innhold før noe settes inn, så to filer som har
-byttet innhold under uendrede navn blir avvist. Et avtrykk som stemmer sier
-hvilken fil som hører til hvilken bildeplass — det sier ingenting om hva bildet
-viser. Kan vertsklienten ikke lese bytene, er leveransen *uverifisert*: den blir
-ikke avvist, men den blir ikke kalt kontrollert heller, og deponeringen ber
-brukeren bekrefte manuelt — for det konkrete settet, så en bekreftelse ikke
-overlever at et bilde byttes ut etterpå.
+**Finnes avtrykket, går koblingen til filens egne bytes og ikke bare til
+filnavnet.** Avtrykket følger `slaids-bilder.json`, og nettleseren sammenligner
+det med filens innhold før noe settes inn, så to filer som har byttet innhold
+under uendrede navn blir avvist. Et avtrykk som stemmer sier hvilken fil som
+hører til hvilken bildeplass — det sier ingenting om hva bildet viser. Uten
+avtrykk — det vanlige — blir leveransen ikke avvist og ikke kalt kontrollert, og
+deponeringen ber brukeren bekrefte manuelt: for det konkrete settet, så en
+bekreftelse ikke overlever at et bilde byttes ut etterpå.
 
 | Operasjon                                | Hva den gjør                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | `plan_deck_images`                       | hele bildeplanen: én oppføring per bildesone som venter på en fil    |
 | `get_image_brief`                        | bildeplanen slik den står, kontrollene og deponeringsstatusen |
 | `get_next_image_job`                     | den ene bildejobben som står for tur: én ferdig prompt, formatet og en ugjennomsiktig id – intet nummer, filnavn eller sone |
-| `verify_image_handoff`                   | sluttkontrollen: at hver ferdige fil hører til den oppføringen den ble generert fra, og lagrer koblingen på dekket når den holder |
+| `verify_image_handoff`                   | meldingen om at én fil er laget: at den hører til den oppføringen den ble generert fra, og lagring av koblingen på dekket når den holder |
 
 Agenten reserverer en sone ved å gi den innholdstypen `image` eller
 `titled-image-card` uten fil, og beskriver motivet i bildeplanen. Slaids
@@ -776,8 +786,10 @@ Det samme kallet åpner **bildedeponeringen**, og da ser brukeren dette:
    kan fylles automatisk. Enten «Generer og legg inn bilder», eller «Gå til
    editoren» – det siste avslutter ingenting, og knappen for bildebriefen fører
    tilbake hit når som helst.
-2. Bildebriefen kopieres med én knapp og limes inn der bildene lages. Under den
-   står de samme bildene som en nummerert liste med format og motiv.
+2. Bildeplanen vises som en nummerert liste med format, motiv, slide og
+   filnavn. Hver rad har «Kopier prompt», som kopierer bare den rene prompten
+   for det ene bildet — den limes inn i en ny, tom samtale der bildet lages.
+   Den samlede briefen ligger nedfoldet under, som dokumentasjon.
 3. Bildene lagres som **`1`, `2`, `3` … opp til *N***, med den filendelsen de
    får: `1.png`, `2.jpg`, `3.webp`. Formatene kan gjerne blandes. `01.png`,
    `bilde1.png` og `1a.png` godtas ikke, og to filer med samme nummer meldes som

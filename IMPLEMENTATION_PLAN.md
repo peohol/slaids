@@ -331,27 +331,39 @@ endelige presentasjonstilstanden. Har vertsklienten innebygd bildegenerering,
 skal den starte umiddelbart, og den henter **én jobb om gangen**: en jobb er én
 ferdig `prompt` og koblingsdataene for akkurat den oppføringen, uten de andre
 oppføringene og uten noe antall. Neste jobb finnes først når den forrige er
-generert og kontrollert. At planen finnes i
+generert og meldt. At planen finnes i
 verktøyresponsen er ikke en fullført handoff; genereringen er
 først startet når bildegenereringsverktøyet faktisk er kalt, og oppgaven skal
 ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må den leses
 på nytt og de bildene genereres på nytt. Hvis direkte overlevering ikke finnes,
-er den samlede briefen fortsatt normal leveranse til stedet bildene produseres —
-der er den en tekst et menneske limer inn selv, og det er ikke en fallback.
-Denne direkte overleveringen gjelder starten på genereringen, ikke
-filreturen: uten en filbro tilbake til Slaids går de ferdige bildefilene fortsatt
-gjennom bildedeponeringen i 7.3.
+genererer brukeren bildene selv: hver oppføring i bildebrief-dialogen har en
+**«Kopier prompt»**-knapp, og den ene rene prompten limt inn i en ny, tom
+ChatGPT-samtale lager akkurat det bildet. Denne direkte overleveringen gjelder
+starten på genereringen, ikke filreturen: de ferdige bildefilene går gjennom
+bildedeponeringen i 7.3 uansett. Slaids har ingen egen bildegenerering, ingen
+bilde-API og ingen filbro, og planlegger ingen — issue #89 er lukket som
+`not planned`.
 
 **Slaids eksponerer ikke settet i genereringssteget.** Hver generering skal se
 ut som en fullstendig selvstendig oppgave, i kallet og i samtalen rundt det:
 ingen utskrevet samlet brief, ingen oppsummering av bildeplanen, ingen
 punktliste over bildene, ingen opptelling, ingen «bilde 1 av 10» og ingen «nå
-går jeg videre til neste bilde». Det er hovedgrepet mot sammenslåtte bilder: en
-bildegenerator som får se at oppgaven er et sett, lager et sett — collage,
-kontaktark, storyboard eller ett helt slide-oppsett — og ingen regel mot collage
-veier opp for å ha vist den at settet finnes. Antallet finnes fortsatt i svaret,
-som kontroll av den ferdige leveransen (`expectedFileCount`), aldri som noe
-agenten gjentar.
+går jeg videre til neste bilde». Det er det beste grepet mot sammenslåtte
+bilder: en bildegenerator som får se at oppgaven er et sett, lager et sett —
+collage, kontaktark, storyboard eller ett helt slide-oppsett — og ingen regel
+mot collage veier opp for å ha vist den at settet finnes. Antallet finnes
+fortsatt i svaret, som kontroll av den ferdige leveransen
+(`expectedFileCount`), aldri som noe agenten gjentar.
+
+**Og det er best effort, ikke en garanti.** Dette er en produktbeslutning og
+ikke en midlertidig begrensning: ChatGPTs bildeverktøy kan bruke den
+eksisterende samtalekonteksten, og Slaids kan verken hindre det eller bevise hva
+verktøyet faktisk så. Standardflyten reduserer lekkasjen så langt det er
+praktisk mulig — én bildejobb om gangen, én komplett selvstendig prompt, ingen
+søskenmotiver, ingen samlet brief nær genereringen, ingen opptelling, ingen
+intern bokføring inn i selve bildekallet — og instruksene sier dette som best
+effort. Slaids bygger ikke state-maskineri for å late som om det kan bevise noe
+annet.
 
 Å komponere prompten per oppføring var ikke nok alene: svarene bar fortsatt hele
 planen — hvert motiv, hver ferdige prompt, antallet — så agenten hadde settet
@@ -377,11 +389,42 @@ generatoren skal være nøyaktig det ene motivet.
 
 Det er så langt dette API-et rekker. Kan klienten ikke begrense hva
 bildeverktøyet ser, skal agenten si det til brukeren i stedet for å love en
-isolasjon den ikke har — og en faktisk garanti ville krevd at bildet ble
-generert bak en filbro Slaids selv styrer, noe §7.2 i dag uttrykkelig ikke gjør.
-`CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene som ellers ville reist
-inni ordren, men den er lint på kjente mønstre — «viderefør uttrykket fra resten
-av presentasjonen» går klar av enhver regex.
+isolasjon den ikke har. `CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene
+som ellers ville reist inni ordren, men den er lint på kjente mønstre —
+«viderefør uttrykket fra resten av presentasjonen» går klar av enhver regex.
+
+### Fallbacken: én ren prompt i en ny samtale
+
+Når best effort likevel svikter — flere planlagte motiver kommer tilbake som ett
+collage- eller storyboard-bilde — er svaret ikke flere advarsler i den samme
+samtalen. Det er en **støttet, førsteklasses brukerflyt**:
+
+1. brukeren åpner bildeplanen i Slaids;
+2. finner bildet som skal genereres;
+3. trykker **«Kopier prompt»** på den raden;
+4. åpner en helt ny ChatGPT-samtale;
+5. limer inn prompten;
+6. genererer akkurat det ene bildet der.
+
+Den nye samtalen gir den reelle kontekstisolasjonen ingen instruks kan gi.
+
+**Den kopierbare prompten er selvstendig.** Den kommer fra
+`composeImageGenerationPrompt`, den samme funksjonen `get_next_image_job`
+bruker — én compose-funksjon, to flater, så automatisk best-effort-generering og
+manuell fresh-chat-fallback bestiller nøyaktig det samme bildet. Den inneholder
+felles stil og kvalitetskrav, motivet, komposisjon/utsnitt, faglige krav, hva
+som skal unngås, riktig aspect ratio og generelle krav som «ingen tekst i
+bildet». Den nevner ikke at bildet inngår i en serie, en presentasjon eller en
+flerbildeplan.
+
+**Intern bildeplan og brukerens genereringsprompt er to ting.** Slaids trenger
+fortsatt `imagePlanItemId`, bildenummer, filnavn, `slideId`, `nodeId`,
+slideetikett, bindingsdata og deponeringsmetadata — strukturert, internt og
+uendret. Ingenting av det skal inn i teksten brukeren kopierer: det er nyttig
+for Slaids og ren støy for en bildegenerator, og hvert av navnene sier «ett av
+flere». UI-et kan gjerne vise «Bilde 1», hvilken slide bildet hører til og hva
+filen skal hete — det er UI-metadata ved siden av knappen, ikke innhold på
+utklippstavlen.
 
 Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
 eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
@@ -502,16 +545,24 @@ gale filene. Bytt innholdet i `1.png` og `2.png` og la hvert navn og hver
 oppføring stå: id-er, numre, soner og navn stemmer fortsatt, og to bilder ligger
 fortsatt på feil slide.
 
-Derfor bærer en oppføring også `contentHash` — SHA-256 av bytene
-genereringsresponsen returnerte — og deponeringen sammenligner det med bytene i
-filen den får, **før** sanitering, optimalisering og innsetting.
+Derfor *kan* en oppføring bære `contentHash` — SHA-256 av bytene
+genereringsresponsen returnerte — og der den gjør det, sammenligner deponeringen
+avtrykket med bytene i filen den får, **før** sanitering, optimalisering og
+innsetting.
 
-To grenser står eksplisitt, fordi et avtrykk lett blir lest som mer enn det er:
+Tre grenser står eksplisitt, fordi et avtrykk lett blir lest som mer enn det er:
 
-- **Avtrykket må tas fra genereringsresponsen selv**, i det den ene filen kommer
-  tilbake, før neste bilde genereres. Et avtrykk beregnet i ettertid, fra en
-  mappe med ferdige filer, fingeravtrykker den forvekslingen som allerede har
-  skjedd og bekrefter den.
+- **Det er en ekstrakontroll, aldri et krav.** Den vanlige vertsklienten får
+  ikke tilgang til bytene sitt eget bildeverktøy produserte — ChatGPT gir et
+  bilde, ikke en buffer — så en flyt som ikke kunne gå videre uten avtrykk var
+  en flyt som ikke kunne fullføres: køen stoppet på et bilde som faktisk var
+  laget, og eneste vei ut var å lage det på nytt. En leveranse uten avtrykk er
+  en lovlig, **selvrapportert** leveranse: kontrollert mot planen, ikke mot en
+  fil, og omtalt slik. Manglende avtrykk låser aldri køen på samme bilde.
+- **Et avtrykk som finnes må tas fra genereringsresponsen selv**, i det den ene
+  filen kommer tilbake. Et avtrykk beregnet i ettertid, fra en mappe med ferdige
+  filer, fingeravtrykker den forvekslingen som allerede har skjedd og bekrefter
+  den.
 - **Det er filintegritet, aldri motivkontroll.** Et avtrykk som stemmer sier
   «dette er filen som kom tilbake for den oppføringen». Det kan ikke si at
   bildet viser det rette — ingenting her kan det, fordi Slaids aldri ser på
@@ -523,10 +574,11 @@ bytene og svarer på et annet spørsmål (deduplisering). Sanitering skriver om 
 SVG, så en korrekt fil ville sett ut som en utbyttet fil. Selve hashen er
 `domain/assetHash.ts` sin, ikke en ny implementasjon.
 
-Ikke alle vertsklienter får tilgang til bytene til det bildeverktøyet deres
-produserte. En leveranse uten avtrykk avvises derfor ikke — den er
-`'unchecked'`, og den som tilbyr den må si det og be om den kontrollen et
-menneske kan gjøre. Den skal aldri rapporteres som verifisert.
+`'unchecked'` er derfor det vanlige utfallet, ikke et avvik: den som tilbyr
+leveransen sier det og ber om den kontrollen et menneske kan gjøre. Ingen
+leveranse rapporteres som verifisert på agentsiden — der er det bare
+`reporting: 'self-reported' | 'hash-reported'`, og ingen av dem er et bevis på
+at et bilde ble laget.
 
 ### Plassholderen på sliden
 
@@ -740,37 +792,37 @@ fakta om et *sett*, og en vert der bildeverktøyet utleder prompten fra samtalen
 i stedet for å ta den som parameter ville hatt dem i konteksten i det bildet
 lages. De trengs ikke for å lage bildet, bare for å arkivere det, så
 koblingskontrollen svarer med navnet filen skal lagres under (`files`) i stedet.
-Kontrollen tar imot `imagePlanItemId`, filendelsen og avtrykket, og henter
-nummer, sone og filnavn fra bildeplanen; en klient som selv har holdt styr på
-dem kan fortsatt sende dem, og da kontrolleres de mot planen som før.
+Kontrollen tar imot `imagePlanItemId`, filendelsen og — når verten faktisk gir
+tilgang til bytene — avtrykket, og henter nummer, sone og filnavn fra
+bildeplanen; en klient som selv har holdt styr på dem kan fortsatt sende dem, og
+da kontrolleres de mot planen som før.
 
 Køen er dokumentet, ikke en teller: «neste» avledes av planen og de lagrede
 koblingene hver gang, så en avbrutt samtale plukker opp der dekket står.
 
-**En oppføring forlater køen når leveransen har *svart* for den**, og det finnes
-nøyaktig to svar: et avtrykk, eller vertsklientens uttrykkelige erklæring om at
-den ikke får tilgang til bytene (`bytesUnavailable`). En kobling som ikke sier
-noe om bytene er en rad en agent kan skrive av planen alene, og lot den
-konsumere en jobb, kunne hele løkken vandres uten å kalle en bildegenerator én
-eneste gang. Den avvises derfor i kontrollen, og oppføringen blir stående.
+**En oppføring forlater køen i det en kobling er lagret for den.** Noe sterkere
+finnes ikke, og noe sterkere er prøvd: oppføringen ble tidligere stående til
+koblingen bar et avtrykk av bytene, med en erklæring (`bytesUnavailable`) som
+eneste andre lovlige svar. Den vanlige vertsklienten får ikke tilgang til de
+bytene, så den samme jobben kom tilbake i det uendelige på et bilde som faktisk
+var laget, og eneste vei ut av løkken var å generere det på nytt. En kø som ikke
+kan fullføres er verre enn en kø som stoler på det den får vite.
 
-Ingen av de to svarene er et bevis, og ingenting later som. **Derfor heter enden
-på køen `all-answered`, ikke `all-generated`.** Begge svarene skrives av den
-samme parten som ville skrevet dem om den hoppet over generatoren, så en tom kø
-er et faktum om *koblingene*; et navn som sa «generert» ville vært det ene stedet
-denne flyten påsto noe den ikke kan se. Instruksen følger samme regel og sier
-hvilke svar som tomte køen: er noen av dem erklæringer, står det der, og
-leveransen skal omtales som uverifisert. Det som ville fortjent det sterke ordet,
-er en kvittering agenten ikke kan skrive selv — en artefakt-id fra vertens eget
-bildekall, eller en bro som observerer responsen. Det er samme integrasjon som
-gjør isolasjonen til en reell grense, og den er egen sak. Et avtrykk er en
-streng agenten oppgir; det som gjør det verdt å be om, er at **deponeringen
+Så en kobling er et **selvrapport**, og den behandles som det hele veien: køen
+går videre, `imageGenerationIsReported` sier «meldt» og ikke «verifisert», og
+ingenting gjør `complete` true annet enn at filene faktisk kommer inn i dekket.
+**Derfor heter enden på køen `all-reported`, ikke `all-generated`.** Koblingen
+skrives av den samme parten som ville skrevet den om den hoppet over
+generatoren, så en tom kø er et faktum om *koblingene*; et navn som sa «generert»
+ville vært det ene stedet denne flyten påsto noe den ikke kan se.
+
+Et avtrykk er fortsatt verdt å be om når verten har bytene: **deponeringen
 sammenligner det med filens egne bytes og avviser hele settet når det ikke
-stemmer** — et oppdiktet avtrykk kjøper altså en tur gjennom køen og en leveranse
-nettleseren nekter å ta imot. En erklæring kjøper ingenting i det hele tatt: den
-registreres som «aldri kontrollerbar», og den er den eneste veien videre for en
-vert som faktisk laget bildet og ikke kan hashe det. Det er det nærmeste denne
-arkitekturen kommer et ikke-forfalskbart signal, og det ligger der bytene er.
+stemmer**, så et oppdiktet avtrykk kjøper en tur gjennom køen og en leveranse
+nettleseren nekter å ta imot. Det er det nærmeste denne arkitekturen kommer et
+ikke-forfalskbart signal, og det ligger der bytene er. Men det er en
+ekstrakontroll, ikke et vilkår, og det er nettopp fordi det ikke er et vilkår at
+den ærlige verten kommer videre til neste bilde.
 
 Planens egne kontroller går foran: er `checkImagePlan` ikke tom, leveres ingen
 jobb, og svaret sier hva som skal rettes. Det gjelder særlig
@@ -797,8 +849,8 @@ svaret fra `plan_deck_images`, `get_image_brief` og `verify_image_handoff`.
 #### Hva dekket kan se, og hva det ikke kan
 
 Det avgjørende er å ikke besvare spørsmålet med det feil faktumet. **Slaids ser
-aldri en generert bildefil.** Bildene lages i vertsklienten, og uten en filbro
-kommer de inn gjennom *brukerens* deponering i nettleseren. «Denne sonen har en
+aldri en generert bildefil.** Bildene lages i vertsklienten, og de kommer inn
+gjennom *brukerens* deponering i nettleseren. «Denne sonen har en
 fil» er altså et faktum om deponeringen, ikke om genereringen, og det å bruke
 det som begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
 generert og korrekt verifisert mens dekket fortsatt har 0 `assetId`, og et
@@ -813,36 +865,39 @@ Derfor to separate tall og én sannhetskilde:
   har, hvor mange soner som holder en fil, og hvor mange som står tomme.
   `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
   skylder.
-- **Hva som er *meldt*, svarer `imageGenerationCoverage` på.** Den har tre
-  nivåer: `none` (planen er ikke dekket), `claimed` (hver oppføring har en
-  kobling, og minst én mangler avtrykket, så deponeringen kan aldri sammenligne
-  noe) og `checkable` (alle koblinger bærer et avtrykk deponeringen *kan*
-  sammenligne). Ingen av dem er et bevis på at et bilde er laget. Statusen leser
-  det heller aldri av en fylt sone alene.
+- **Hva som er *meldt*, svarer `imageGenerationIsReported` på:** har hver
+  planlagt oppføring en kobling som gjør rede for planen dekket har nå? Det er
+  et ja/nei om koblingene, aldri et bevis på at et bilde er laget, og statusen
+  leser det heller aldri av en fylt sone alene. Om koblingene i tillegg bærer
+  avtrykk er en egen opplysning på agentsvaret (`reporting`), ikke et eget
+  stadium: et stadium for «meldt uten avtrykk» fikk normalflyten til å se ut som
+  en defekt flyt og stoppet køen på et bilde som var laget.
 
 #### Ingenting agenten skriver kan fullføre dekket
 
-En kobling består av `imagePlanItemId`, nummeret, sonen, filnavnet og
-`contentHash`. De fire første sto i bildeplanen *før* noe bilde ble laget, og
-avtrykket er 64 tegn Slaids ikke har noen fil å sammenligne med — API-et er
-aldri i rommet når et bilde lages. En komplett, selvmotsigelsesfri koblingsliste
-med syntaktisk gyldige avtrykk kan derfor skrives av planen uten å kalle en
+En kobling består av `imagePlanItemId`, nummeret, sonen, filnavnet og — når
+verten har bytene — `contentHash`. De fire første sto i bildeplanen *før* noe
+bilde ble laget, og avtrykket er 64 tegn Slaids ikke har noen fil å sammenligne
+med — API-et er aldri i rommet når et bilde lages. En komplett,
+selvmotsigelsesfri koblingsliste kan derfor skrives av planen uten å kalle en
 bildegenerator i det hele tatt, og ingen kontroll på denne siden kan se
 forskjell.
 
-Derfor hviler fullføring på det ene som ikke kan påstås: **en fil i dekket.**
-`complete` blir true i `generation-verified` — hver planlagt bildesone holder en
-fil — og i `no-planned-images`. Filene kommer inn gjennom brukerens deponering i
-nettleseren, som er også det eneste stedet avtrykkene faktisk sammenlignes med
-bytes. `awaiting-deposit` og `generation-unverified` er derfor `complete: false`
-selv når agenten er ferdig med sitt: det er `remainingSteps` som sier hva som
-gjenstår for *den*, og den kan avslutte når grenen som gjelder er utført.
+Å kreve avtrykket var feil svar på det. Kravet gjorde normalflyten umulig å
+fullføre og stoppet køen på bilder som var laget, og eneste vei ut var
+duplikatgenerering. Det som faktisk lukker snarveien, er at **ingenting agenten
+skriver kan gjøre dekket ferdig**: fullføring hviler på det ene som ikke kan
+påstås — **en fil i dekket.** `complete` blir true i `images-in-deck`, der hver
+planlagt bildesone holder en fil, og i `no-planned-images`. Filene kommer inn
+gjennom brukerens deponering i nettleseren, som også er det eneste stedet et
+avtrykk faktisk sammenlignes med bytes. `awaiting-deposit` er derfor
+`complete: false` selv når agenten er ferdig med sitt: det er `remainingSteps`
+som sier hva som gjenstår for *den*, og den kan avslutte når grenen som gjelder
+er utført.
 
-En kobling uten avtrykk lagres likevel — ellers ville en vertsklient som ikke
-får tilgang til bytene fra sitt eget bildeverktøy blitt bedt om å generere alt
-på nytt ved hver lesning — men da kan deponeringen aldri sammenligne noe, og
-stadiet sier det: `generation-unverified`, med avtrykket som vei ut, ikke nye
-bilder.
+En kobling uten avtrykk er den vanlige leveransen, ikke en dårligere variant.
+Den lagres, oppføringen forlater køen, og genereringen omtales som
+selvrapportert — aldri som kontrollert.
 
 #### Koblingene lagres, fordi ett kall ikke er en tilstand
 
@@ -884,10 +939,9 @@ ut.
 | --- | --- | --- |
 | `no-planned-images` | ✔ | Dekket planlegger ingen bilder, og ingen bildesone venter. |
 | `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
-| `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kontroll har godkjent settet. |
-| `generation-verified` | ✔ | Koblingskontrollen svarte `ok`, og ingenting Slaids kan se er utestående: hver planlagt sone har fått sin fil. |
-| `generation-unverified` | ✗ | Minst én kobling mangler avtrykket — uteblitt eller erklært uhashbar — og én som ikke kan sjekkes gjør hele leveransen ukontrollerbar. Leveransesteg, ikke generering på nytt. |
-| `awaiting-deposit` | ✗ | Kontrollen godkjente settet, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. Agenten kan være ferdig; dekket er det ikke. |
+| `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kobling gjør rede for settet. |
+| `images-in-deck` | ✔ | Hver planlagt oppføring er meldt, og hver planlagt sone har fått sin fil: ingenting Slaids kan se er utestående. |
+| `awaiting-deposit` | ✗ | Hele planen er meldt, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. Agenten kan være ferdig; dekket er det ikke. |
 | `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
 
 Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
@@ -962,20 +1016,21 @@ at hver strukturell kommando husker å reconcile — er nettopp regelen
 
 #### Hva dekket aldri kan vite om en fil
 
-`generation-verified` betyr at genereringen er kontrollert og at ingenting
-dekket kan se er utestående. Det betyr **ikke** at hver sone holder nettopp sin
-kontrollerte fil, og det kan det ikke: Slaids ser aldri et bilde, og
+`images-in-deck` betyr at hele planen er meldt og at hver planlagt sone holder
+en fil. Det betyr **ikke** at hver sone holder nettopp den filen som ble laget
+for den, og det kan det ikke: Slaids ser aldri et bilde, og
 `assetHash.ts` slår fast at en registrert innholdshash er rådgivende og aldri
 bærende — det er derfor deduplisering avgjør på de lagrede bytene og ikke på
 hashen. Et bilde byttet for hånd etterpå er ikke til å skille fra det som ble
 deponert.
 
-Identitet blir bevist ett sted: i deponeringsdialogen, som sammenligner
-manifestets avtrykk mot bytene i filen den fikk før noe settes inn. Det er en
-egenskap ved den leveransen, ikke ved dokumentet etterpå. Derfor sier hvert
-terminalt stadium at bildene fortsatt skal ses gjennom.
+Identitet blir bevist ett sted, og bare når verten hadde bytene: i
+deponeringsdialogen, som sammenligner manifestets avtrykk mot bytene i filen den
+fikk før noe settes inn. Det er en egenskap ved den leveransen, ikke ved
+dokumentet etterpå, og de fleste leveranser har ingen avtrykk å sammenligne.
+Derfor sier hvert terminalt stadium at bildene fortsatt skal ses gjennom.
 
-**Den er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
+**Å være meldt er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
 reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
 senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang
 til bildene den forrige samtalen laget. Derfor er `awaiting-deposit` sitt eget
@@ -989,7 +1044,7 @@ ingenting står i veien for å lage dem på nytt for den som ikke har dem, og
 `remainingSteps` er ikke tom der, så den blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
 ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
 tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
-bildet fra forrige bestilling, mens ingen sone er tom i `generation-verified`.
+bildet fra forrige bestilling, mens ingen sone er tom i `images-in-deck`.
 Statusen sier hvilket av delene dekket har, og agenten gjentar den i stedet for en
 fast setning.
 
@@ -1016,8 +1071,8 @@ kontrollen forventer.
 
 - **`complete`** er et faktum om *dokumentet*, og bevisst om det ene ingen kan
   påstå fram: at bildene ligger i dekket. Det er aldri en rapport om agentens
-  arbeid, og false betyr ikke at agenten skylder noe — `awaiting-deposit` og
-  `generation-unverified` er begge false mens agenten godt kan være ferdig. Den
+  arbeid, og false betyr ikke at agenten skylder noe — `awaiting-deposit` er
+  false mens agenten godt kan være ferdig. Den
   asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
   det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
   holdt den samtalen. En senere økt kan lese de samme koblingene uten å ha en
@@ -1036,7 +1091,7 @@ kontrollen forventer.
   et kontrollert dekk uten dem — så begge stegene står, hver med betingelsen som
   velger det. En tom liste der ville sagt «ingenting å gjøre» til den halvparten
   som skylder alle bildene. Tom er den bare i `no-planned-images` og
-  `generation-verified`. Stoppen er derfor «du har gjort det steget som gjelder
+  `images-in-deck`. Stoppen er derfor «du har gjort det steget som gjelder
   deg», aldri «listen ble tom»: i `awaiting-deposit` blir den ikke tom av noe
   agenten gjør — å levere filene er ingen endring av dokumentet, og dekket går
   videre først når *brukeren* deponerer dem. En regel som ventet på en tom liste
@@ -1044,24 +1099,25 @@ kontrollen forventer.
   utføre, altså den samme feilen sett fra motsatt kant.
 - **`completionCriteria`** er hva fullført krever, målt på filene og koblingene:
   like mange separate filer som planen har oppføringer, én fil per
-  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, og **et svar om
-  bytene for hver av dem** — et avtrykk, eller `bytesUnavailable`. Kriteriet kan
-  ikke kreve SHA-256 av alle: da ville den ene lovlige veien for en vert uten
-  byte-tilgang vært umulig å oppfylle samtidig som dekket kunne bli
-  `complete: true` etter deponering — to definisjoner av ferdig i samme modell.
-  Det kriterielisten sier i stedet, er at kontrollen svarer `ok` for hele
-  planen, at `check: "file-checked"` krever avtrykk på hver eneste kobling, og
-  at én erklæring gjør hele leveransen `unchecked`: en lovlig, dårligere
-  leveranse som skal omtales som uverifisert — aldri en grunn til å lage bildene
-  om igjen. Den samlede briefen er uttrykkelig *ikke* et kriterium: den var det,
-  og det gjorde utskrift av hele bildeplanen til en betingelse for å bli ferdig.
+  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, meldt med den
+  `imagePlanItemId` filen ble generert fra. Avtrykket er nevnt som **en ekstra
+  kontroll når verten har bytene**, aldri som et vilkår: kriteriet kunne ikke
+  kreve SHA-256 av alle, for da ville agentens definisjon av ferdig vært umulig
+  å oppfylle for den vanlige vertsklienten samtidig som dekket kunne bli
+  `complete: true` etter deponering — to definisjoner av ferdig i samme modell,
+  og den uoppnåelige var agentens. Det listen sier i stedet, er at kontrollen
+  svarer `ok` for hele planen, og at genereringen da er *selvrapportert*: Slaids
+  har sammenlignet koblingen med bildeplanen, aldri med en fil, så den skal
+  omtales som meldt og ikke som verifisert. Den samlede briefen er uttrykkelig
+  *ikke* et kriterium: den var det, og det gjorde utskrift av hele bildeplanen
+  til en betingelse for å bli ferdig.
   De to siste linjene skiller de to spørsmålene: koblingskontrollen er så langt
   agentens arbeid rekker, mens `complete` først blir true når filene er
   deponert — og deponeringen er brukerens steg, aldri noe agenten venter på.
 - **`forbiddenClosings`** navngir avslutningene som er gale på *dette* stadiet,
   ikke de som er gale mens `complete` er false. Genereringslisten —
   «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er
-  klar», å be om en ny brukerbeskjed, og å kalle en leveranse uten avtrykk
+  klar», å be om en ny brukerbeskjed, og å kalle en selvrapportert generering
   kontrollert — gjelder der bildene fortsatt skal lages. De tre første er sanne
   setninger om et halvferdig dekk, og det er nettopp derfor de ble valgt.
   Leveransestegene har sin egen liste, fordi «bildene er ikke satt inn ennå, og
@@ -1118,21 +1174,24 @@ faktaene — og de oppgis likevel, fordi en feilkobling da har fem sjanser til �
 motsi seg selv i stedet for én, og fordi en id som ikke lenger svarer kan
 skilles fra en som aldri gjorde det.
 
-**`ok` og `check` svarer på to forskjellige spørsmål, og de rapporteres ved
-siden av hverandre.** `ok` sier at ingenting motsier seg selv; `check` sier hvor
-langt koblingen faktisk er kontrollert:
+**`ok` og `reporting` svarer på to forskjellige spørsmål, og de rapporteres ved
+siden av hverandre.** `ok` sier at ingenting motsier seg selv; `reporting` sier
+hva leveransen sa om sine egne bytes:
 
-| `check` | Hva det betyr |
+| `reporting` | Hva det betyr |
 | --- | --- |
-| `file-checked` | Hver kobling bærer et avtrykk, så nettleseren kan sammenligne hver fil med akkurat den filen genereringen returnerte. |
-| `unchecked` | Minst én kobling mangler avtrykk. Metadataene kan stemme samtidig som filene er forvekslet. |
+| `hash-reported` | Hver kobling bærer et avtrykk, så nettleseren *kan* sammenligne hver fil med akkurat de bytene genereringen returnerte. |
+| `self-reported` | Minst én kobling mangler avtrykk. Det er det vanlige — de fleste verter gir ikke agenten bytene — og koblingen er kontrollert mot planen, ikke mot en fil. |
 
-En leveranse uten avtrykk gir `ok: true` og `check: 'unchecked'`. En agent som
-bare leste `ok` ville kalt den verifisert — som er nøyaktig den samme feilen ett
-lag opp. `checkMeans` følger med og sier hva nivået dekker, i Slaids' egne ord,
-fordi formuleringen er halve leveransen: «kontrollert» sagt om et sett ingen
-kunne kontrollere er hvordan en flyt som ikke ser sine egne bilder ender opp med
-å hevde at den gjør det. Ingen av nivåene sier at bildet viser det rette.
+Navnene er valgt for det som faktisk har skjedd på dette punktet: ingenting er
+sammenlignet med noe. I nettleseren *kjøres* en sammenligning, og der heter
+nivåene fortsatt `file-checked`/`unchecked`. På agentsiden er det ærlige ordet
+det svakere. `reportingMeans` følger med og sier hva nivået dekker, i Slaids'
+egne ord, fordi formuleringen er halve leveransen: «kontrollert» sagt om et sett
+Slaids aldri holdt opp mot en fil er hvordan en flyt som ikke ser sine egne
+bilder ender opp med å hevde at den gjør det. `self-reported` er ikke et avvik og
+aldri en grunn til å lage bildene om igjen. Ingen av nivåene sier at bildet viser
+det rette.
 
 To ting kontrollen med vilje **ikke** er: den er ikke en mutasjon, og den er
 ikke en port Slaids kan håndheve — deponeringen er en brukerhandling i en

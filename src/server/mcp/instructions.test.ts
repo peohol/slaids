@@ -849,12 +849,12 @@ describe('én regel, ett sted', () => {
      * zones is `awaiting-deposit`.
      */
     const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
-    expect(guide).not.toMatch(/genereringsoppgaven er ferdig \(`stage: generation-verified`\)/i)
+    expect(guide).not.toMatch(/generation-verified/)
     expect(guide).toMatch(
       /ligger filene ennå ikke i sonene, er `workflow\.stage` `awaiting-deposit`/i,
     )
     expect(guide).toMatch(
-      /`generation-verified` kommer først når ingenting Slaids kan se er utestående/i,
+      /`images-in-deck` kommer først når ingenting Slaids kan se er utestående/i,
     )
   })
 

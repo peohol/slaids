@@ -182,11 +182,19 @@ test.describe('bildedeponering', () => {
     await page.getByTestId('image-deposit-intro-generate').click()
 
     // The brief lists the same three pictures, numbered, so «bilde 2» can be
-    // checked before two files are made.
+    // checked before two files are made — and each row carries its own prompt
+    // to copy, which is the action the dialog exists for.
     const list = page.getByTestId('image-brief-modal-list')
     await expect(list).toBeVisible()
     await expect(list.locator('li')).toHaveCount(3)
     await expect(list).toContainText('Homo erectus')
+    await expect(page.getByTestId('image-brief-modal-copy-prompt-2')).toBeVisible()
+    // The whole-plan brief is still there, folded away and labelled: it counts
+    // the pictures and lists every motif, which is what one generation must not
+    // see, so it is documentation rather than the way to order pictures.
+    const full = page.getByTestId('image-brief-modal-full')
+    await expect(page.getByTestId('image-brief-modal-text')).toBeHidden()
+    await full.locator('summary').click()
     await expect(page.getByTestId('image-brief-modal-text')).toContainText('Lag nøyaktig 3')
     await page.getByTestId('image-brief-modal-deposit').click()
 
