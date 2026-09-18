@@ -214,7 +214,7 @@ export function ImageBriefModal({
                   </span>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn deposit-row__action"
                     data-testid={`image-brief-modal-copy-prompt-${image.number}`}
                     onClick={() => void copy(image.id, prompt)}
                   >
@@ -231,8 +231,9 @@ export function ImageBriefModal({
       {ready && (
         <p className="hint" data-testid="image-brief-modal-next">
           Slik gjør du det: kopier prompten til ett bilde, lim den inn i en ny samtale der du lager
-          bilder, og lagre bildet som <code>{'<nummeret på raden>'}</code> — med den filendelsen det
-          får. Gjenta for hvert bilde, og trykk så «Bildene er klare».
+          bilder, og lagre bildet under filnavnet raden oppgir — <code>1</code>, <code>2</code>,{' '}
+          <code>3</code> … med den filendelsen det får. Gjenta for hvert bilde, og trykk så «Bildene
+          er klare».
         </p>
       )}
 
@@ -250,7 +251,7 @@ export function ImageBriefModal({
         is exactly what one image generation must not see — so it is here for
         reading and debugging, not as the way to order pictures.
       */}
-      <details data-testid="image-brief-modal-full">
+      <details className="image-brief__fold" data-testid="image-brief-modal-full">
         <summary className="hint">Samlet bildebrief — til dokumentasjon og feilsøking</summary>
         <p className="hint">
           Hele bildeplanen som én tekst, med bildeplan-id-er og filnavn. Den er nyttig når du vil se

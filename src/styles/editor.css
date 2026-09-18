@@ -1633,9 +1633,17 @@
  * Bildebrief: plain editorial text in a dialog
  * ----------------------------------------------------------------- */
 
+/*
+ * The shared context, as a field to write a paragraph in.
+ *
+ * Deliberately short. It used to be 300px of mostly empty textarea, and in a
+ * dialog whose primary action is now «Kopier prompt» on a picture that pushed
+ * the pictures themselves below the fold — the one thing a person opens this
+ * dialog to reach. It is resizable for the author who wants more room.
+ */
 .editorial-text {
   width: 100%;
-  min-height: 300px;
+  min-height: 110px;
   resize: vertical;
   padding: 10px 12px;
   border: 1px solid var(--chrome-border);
@@ -1651,14 +1659,39 @@
 }
 
 /*
- * The generated half of the brief: read-only, and shorter than the field above
- * it. It is there to be recognised and copied, not written in, so it shows a
- * screenful rather than pushing the field that *is* editable off the dialog.
+ * The whole-plan brief: read-only, and behind a fold.
+ *
+ * It is there to be recognised and read, never to be the way pictures are
+ * ordered — that is the per-picture «Kopier prompt» further up — so it must not
+ * push the list of pictures off the dialog. The field above it is shorter for
+ * the same reason: the shared context is a paragraph, and 300px of empty
+ * textarea used to bury the primary action below the fold.
  */
 .editorial-text--generated {
   min-height: 220px;
   font-size: 13px;
   white-space: pre;
+}
+
+/*
+ * The fold itself. A summary that reads as a control rather than as a stray
+ * line of text, with room around it so it is not mistaken for the row above.
+ */
+.image-brief__fold {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--chrome-border);
+}
+
+.image-brief__fold > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* The per-picture copy, aligned with the row it belongs to. */
+.deposit-row__action {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 /*
