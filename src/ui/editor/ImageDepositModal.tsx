@@ -88,31 +88,25 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    * rather than at file names.
    *
    * Object URLs rather than data URLs: the browser reads the blob it already
-   * holds, so a folder of full-size pictures costs nothing to show. Keyed by the
-   * `File` itself, and every URL this made is released when the dialog goes —
-   * a revoked URL on a live `<img>` is a broken image, so they are only let go
-   * when the file is no longer in the list.
+   * holds, so a folder of full-size pictures costs nothing to show. Minted when
+   * a file is picked and kept by the `File` itself, because the list is rebuilt
+   * on every removal and every drag — a URL made per render would flicker the
+   * pictures each time one is moved, which is the one moment the person is
+   * looking at them.
+   *
+   * Released together when the dialog goes, rather than the moment a file is
+   * removed: revoking a URL an `<img>` is still showing draws a broken image,
+   * and a handful of blobs living until the dialog closes is the cheaper of the
+   * two mistakes.
    */
   const [thumbnails, setThumbnails] = useState<ReadonlyMap<File, string>>(new Map())
+  const live = useRef<ReadonlyMap<File, string>>(thumbnails)
   useEffect(() => {
-    setThumbnails((current) => {
-      const next = new Map<File, string>()
-      for (const file of files) {
-        const existing = current.get(file)
-        next.set(file, existing ?? URL.createObjectURL(file))
-      }
-      for (const [file, url] of current) if (!next.has(file)) URL.revokeObjectURL(url)
-      return next
-    })
-  }, [files])
+    live.current = thumbnails
+  })
   useEffect(() => {
     return () => {
-      /* The map at unmount, read off the setter so the cleanup does not capture
-         an older one and leave the last batch's URLs behind. */
-      setThumbnails((current) => {
-        for (const url of current.values()) URL.revokeObjectURL(url)
-        return new Map()
-      })
+      for (const url of live.current.values()) URL.revokeObjectURL(url)
     }
   }, [])
 
@@ -129,6 +123,13 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    */
   const addFiles = (picked: readonly File[]): void => {
     if (picked.length === 0) return
+    setThumbnails((current) => {
+      const next = new Map(current)
+      for (const file of picked) {
+        if (!next.has(file)) next.set(file, URL.createObjectURL(file))
+      }
+      return next
+    })
     setFiles((current) => [...current, ...picked])
   }
 

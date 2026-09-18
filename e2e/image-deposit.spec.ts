@@ -15,7 +15,6 @@
  * failure this workflow exists to prevent.
  */
 
-import { createHash } from 'node:crypto'
 import { zipSync, strToU8 } from 'fflate'
 import { expect, test, type Page } from './fixtures'
 import {
@@ -29,11 +28,6 @@ import {
 import { setImagePlan } from '../src/domain/commands'
 import { createImage } from '../src/domain/content'
 import { createLeaf, createSplit } from '../src/domain/layout'
-import {
-  composeImageGenerationManifest,
-  IMAGE_MANIFEST_FILE_NAME,
-} from '../src/domain/imageGeneration'
-import { resolveImagePlan } from '../src/domain/imagePlan'
 import { createPresentation } from '../src/domain/presentation'
 import { titleDoc } from '../src/domain/richdoc'
 import { realImages } from '../src/domain/testImages'
@@ -118,33 +112,39 @@ const DELIVERY = [
   { name: '3.webp', mimeType: 'image/webp', bytes: realImages.webp() },
 ]
 
-/** The bindings an agent would record, over the bytes it actually returned. */
-function manifestFor(deck: Presentation, bytesFor: (index: number) => Uint8Array): string {
-  const images = resolveImagePlan(deck).map((image, index) => ({
-    imagePlanItemId: image.id,
-    number: image.number,
-    slideId: image.plan.slideId,
-    nodeId: image.plan.nodeId,
-    fileName: DELIVERY[index].name,
-    contentHash: createHash('sha256').update(bytesFor(index)).digest('hex'),
+/** The three pictures as files to drop, under whatever names they were given. */
+function filesFor(names: readonly string[]) {
+  return DELIVERY.map((file, index) => ({
+    name: names[index] ?? file.name,
+    mimeType: file.mimeType,
+    buffer: Buffer.from(file.bytes),
   }))
-  return composeImageGenerationManifest({ presentationId: deck.id, images })
 }
 
-/** The files to drop: the three pictures, plus the manifest beside them. */
-function filesFor(manifest: string, bytesFor: (index: number) => Uint8Array) {
-  return [
-    ...DELIVERY.map((file, index) => ({
-      name: file.name,
-      mimeType: file.mimeType,
-      buffer: Buffer.from(bytesFor(index)),
-    })),
-    {
-      name: IMAGE_MANIFEST_FILE_NAME,
-      mimeType: 'application/json',
-      buffer: Buffer.from(manifest, 'utf8'),
-    },
-  ]
+/**
+ * Drag one picture to another place in the list, with a real pointer.
+ *
+ * The gesture is the ideas list's own — a few pixels of movement with the
+ * button down lifts the row, and the placeholder goes before the first
+ * neighbour the pointer is past the middle of. Which is why a move down aims at
+ * the bottom of the target row and a move up at its top: that is where a hand
+ * actually ends up, and it is the only thing a test has to get right.
+ */
+async function dragPicture(page: Page, from: number, to: number): Promise<void> {
+  const rows = page.getByTestId('image-deposit-files').locator('li')
+  // Both rows have to be on screen before their rectangles mean anything: the
+  // dialog's body scrolls, and a row below the fold reports a position the
+  // pointer would land on the footer.
+  await rows.nth(Math.max(from, to)).scrollIntoViewIfNeeded()
+  const source = await rows.nth(from).boundingBox()
+  const target = await rows.nth(to).boundingBox()
+  if (!source || !target) throw new Error('Fant ikke radene å dra mellom')
+  const x = source.x + source.width / 2
+  const y = to > from ? target.y + target.height - 4 : target.y + 4
+  await page.mouse.move(x, source.y + source.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(x, y, { steps: 12 })
+  await page.mouse.up()
 }
 
 /** Whether the brief still offers to take the finished files. */
@@ -181,21 +181,20 @@ test.describe('bildedeponering', () => {
     await expect(intro).toContainText('3 bilder')
     await page.getByTestId('image-deposit-intro-generate').click()
 
-    // The brief lists the same three pictures, numbered, so «bilde 2» can be
-    // checked before two files are made — and each row carries its own prompt
-    // to copy, which is the action the dialog exists for.
-    const list = page.getByTestId('image-brief-modal-list')
-    await expect(list).toBeVisible()
-    await expect(list.locator('li')).toHaveCount(3)
-    await expect(list).toContainText('Homo erectus')
+    // The brief is the whole order for the series, as one text to copy: this is
+    // what a person pastes into a conversation that from that point makes
+    // nothing but pictures.
+    const brief = page.getByTestId('image-brief-modal-text')
+    await expect(brief).toBeVisible()
+    await expect(brief).toHaveValue(/^Lag nøyaktig 3 separate bilder/)
+    await expect(brief).toHaveValue(/Homo erectus/)
+    await expect(brief).toHaveValue(/BILDE 2 AV 3/)
+    // Ordering one picture again is the repair, folded away and named for it.
+    const single = page.getByTestId('image-brief-modal-single')
+    await expect(page.getByTestId('image-brief-modal-list')).toBeHidden()
+    await single.locator('summary').click()
+    await expect(page.getByTestId('image-brief-modal-list').locator('li')).toHaveCount(3)
     await expect(page.getByTestId('image-brief-modal-copy-prompt-2')).toBeVisible()
-    // The whole-plan brief is still there, folded away and labelled: it counts
-    // the pictures and lists every motif, which is what one generation must not
-    // see, so it is documentation rather than the way to order pictures.
-    const full = page.getByTestId('image-brief-modal-full')
-    await expect(page.getByTestId('image-brief-modal-text')).toBeHidden()
-    await full.locator('summary').click()
-    await expect(page.getByTestId('image-brief-modal-text')).toContainText('Lag nøyaktig 3')
     await page.getByTestId('image-brief-modal-deposit').click()
 
     const deposit = page.getByTestId('image-deposit-modal')
@@ -203,22 +202,31 @@ test.describe('bildedeponering', () => {
     const finish = page.getByTestId('image-deposit-finish')
     await expect(finish).toBeDisabled()
 
-    // A file named after something else is refused with a reason, never matched.
-    await page.getByTestId('image-deposit-input').setInputFiles([picture('01.png')])
-    await expect(page.getByTestId('image-deposit-problems')).toContainText('Feil filnavn')
+    // Files that are not pictures cannot take a picture's place, whatever they
+    // are called.
+    await page.getByTestId('image-deposit-input').setInputFiles([
+      { name: 'notat.txt', mimeType: 'text/plain', buffer: Buffer.from('ikke et bilde') },
+    ])
+    await expect(deposit).toContainText('Ikke en bildefil Slaids kan lagre')
     await expect(page.getByTestId('image-deposit-progress')).toContainText('0 av 3')
     await expect(finish).toBeDisabled()
+    await page.getByRole('button', { name: 'Fjern notat.txt' }).click()
 
-    // Two files for one number is a conflict, not a choice Slaids makes.
-    await page.getByTestId('image-deposit-input').setInputFiles([picture('1.png'), picture('1.jpg')])
-    await expect(page.getByTestId('image-deposit-problems')).toContainText('samme nummeret')
+    // The names say 1, 2 and 3 — in whatever order the folder handed them over.
+    await page
+      .getByTestId('image-deposit-input')
+      .setInputFiles([picture('3.png'), picture('1.png')])
+    await expect(page.getByTestId('image-deposit-order')).toHaveAttribute('data-mode', 'manual')
+    await expect(page.getByTestId('image-deposit-progress')).toContainText('2 av 3')
     await expect(finish).toBeDisabled()
 
-    // Remove one of them, add the rest, and the set is complete.
-    await page.getByRole('button', { name: 'Fjern 1.jpg' }).click()
-    await page.getByRole('button', { name: 'Fjern 01.png' }).click()
-    await page.getByTestId('image-deposit-input').setInputFiles([picture('2.png'), picture('3.png')])
+    // Adding the last one completes the set without discarding the first two.
+    await page.getByTestId('image-deposit-input').setInputFiles([picture('2.png')])
+    await expect(page.getByTestId('image-deposit-order')).toHaveAttribute('data-mode', 'numbered')
+    await expect(page.getByTestId('image-deposit-order')).toContainText('lest fra filnavnene')
     await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
+    // The names carried the answer, so nothing is asked of the person.
+    await expect(page.getByTestId('image-deposit-acknowledge')).toBeHidden()
     await expect(finish).toBeEnabled()
 
     await finish.click()
@@ -294,188 +302,129 @@ test.describe('bildedeponering', () => {
 })
 
 /**
- * The agent delivery, end to end, against the real deposit.
+ * The delivery nobody named for Slaids, end to end, in a real browser.
  *
  * The domain tests pin the rule and the jsdom tests pin the dialog. What only a
- * real browser can show is the rest of the chain actually working: a manifest
- * read off disk, every dropped file hashed by WebCrypto, and the comparison
- * deciding whether anything at all is written. The refusal is the more
- * important of the two — a delivery that is wrong about which picture is which
- * must leave the deck exactly as it was, not three-fifths filled.
+ * browser can show is the part that is a *gesture*: real pictures on screen,
+ * dragged into place with a real pointer, and the bytes that were dragged
+ * landing in the zones they were dragged to.
+ *
+ * It is the ordinary delivery now. A conversation that made the whole series at
+ * once calls its files whatever it likes, and refusing those was refusing the
+ * normal case — while guessing that `01.png` meant picture 1 is how a picture
+ * lands on the wrong slide.
  */
-test.describe('bildedeponering med manifest', () => {
-  test('setter bildene inn når koblingen stemmer mot filenes innhold', async ({ page }) => {
+test.describe('bildedeponering med vilkårlige filnavn', () => {
+  test('lar brukeren dra bildene i riktig rekkefølge, og setter dem inn slik', async ({ page }) => {
     const guard = watchForErrors(page)
-    const deck = pendingDeck()
     await page.goto('/')
     await page.getByTestId('import-input').setInputFiles({
       name: 'venter.slaids',
       mimeType: 'application/zip',
-      buffer: archiveOf(deck),
+      buffer: archiveOf(pendingDeck()),
     })
     await page.getByTestId('open-presentation').first().click()
     await page.getByTestId('image-deposit-intro-generate').click()
     await page.getByTestId('image-brief-modal-deposit').click()
 
-    const bytesFor = (index: number) => DELIVERY[index].bytes
+    // Three real pictures, under the names a generator would have given them.
     await page
       .getByTestId('image-deposit-input')
-      .setInputFiles(filesFor(manifestFor(deck, bytesFor), bytesFor))
+      .setInputFiles(filesFor(['IMG_4821.png', 'padmasambhava.jpg', 'Screenshot.webp']))
 
-    // The manifest was read, the files were hashed, and the two agree.
-    await expect(page.getByTestId('image-deposit-assurance')).toHaveAttribute(
-      'data-assurance',
-      'file-checked',
-    )
-    await expect(page.getByTestId('image-deposit-binding')).toBeHidden()
-    // Nothing extra is asked of the person when the bytes themselves check out.
-    await expect(page.getByTestId('image-deposit-acknowledge')).toBeHidden()
+    const order = page.getByTestId('image-deposit-order')
+    await expect(order).toHaveAttribute('data-mode', 'manual')
+    await expect(order).toContainText('Filnavnene angir ikke rekkefølgen')
+    await expect(order).toContainText('Dra bildene i riktig rekkefølge')
 
-    const finish = page.getByTestId('image-deposit-finish')
-    await expect(finish).toBeEnabled()
-    await finish.click()
-    await expect(page.getByTestId('image-deposit-modal')).toBeHidden()
-
-    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(3)
-    await expect(stage(page)).not.toContainText('Sett inn bilde')
-    await waitForSaved(page)
-    expect(guard.errors).toEqual([])
-  })
-
-  test('setter ingenting inn når to filer har byttet innhold', async ({ page }) => {
-    const guard = watchForErrors(page)
-    const deck = pendingDeck()
-    await page.goto('/')
-    await page.getByTestId('import-input').setInputFiles({
-      name: 'venter.slaids',
-      mimeType: 'application/zip',
-      buffer: archiveOf(deck),
-    })
-    await page.getByTestId('open-presentation').first().click()
-    await page.getByTestId('image-deposit-intro-generate').click()
-    await page.getByTestId('image-brief-modal-deposit').click()
-
-    // The manifest is built over the bytes the generator returned, and the files
-    // are then dropped with the first two exchanged. Every name, number and id
-    // still agrees — which is exactly the delivery that used to be accepted.
-    const manifest = manifestFor(deck, (index) => DELIVERY[index].bytes)
-    const swapped = (index: number) =>
-      index === 0 ? DELIVERY[1].bytes : index === 1 ? DELIVERY[0].bytes : DELIVERY[2].bytes
-    await page.getByTestId('image-deposit-input').setInputFiles(filesFor(manifest, swapped))
-
-    // Three files on place by name, and the binding refuses all three.
-    await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
-    await expect(page.getByTestId('image-deposit-problems')).toBeHidden()
-    const binding = page.getByTestId('image-deposit-binding')
-    await expect(binding).toContainText('inneholder ikke de bytene')
-    await expect(binding.locator('li')).toHaveCount(2)
-    await expect(page.getByTestId('image-deposit-finish')).toBeDisabled()
-
-    // And the deck is untouched: not one picture, not a partial deposit.
-    await page.getByRole('button', { name: 'Avbryt' }).click()
-    await expect(page.getByTestId('image-deposit-modal')).toBeHidden()
-    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(0)
-    await expect(stage(page)).toContainText('Sett inn bilde 1 her')
-
-    // Including after a reload: nothing was written on the way past either.
-    await page.reload()
-    await expect(page.getByTestId('image-deposit-intro')).toBeVisible()
-    await page.getByTestId('image-deposit-intro-edit').click()
-    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(0)
-    expect(guard.errors).toEqual([])
-  })
-
-  test('krever manuell bekreftelse når manifestet mangler avtrykk', async ({ page }) => {
-    const guard = watchForErrors(page)
-    const deck = pendingDeck()
-    await page.goto('/')
-    await page.getByTestId('import-input').setInputFiles({
-      name: 'venter.slaids',
-      mimeType: 'application/zip',
-      buffer: archiveOf(deck),
-    })
-    await page.getByTestId('open-presentation').first().click()
-    await page.getByTestId('image-deposit-intro-generate').click()
-    await page.getByTestId('image-brief-modal-deposit').click()
-
-    // A host that could not reach the bytes of what its image tool produced.
-    // Not refused — unverified, and said so, with the one check a person can
-    // still make asked for explicitly.
-    const bare = JSON.parse(manifestFor(deck, (index) => DELIVERY[index].bytes)) as {
-      images: Record<string, unknown>[]
+    // Every picture is on screen as a picture, which is what the order is given
+    // by looking at.
+    const rows = page.getByTestId('image-deposit-files').locator('li')
+    await expect(rows).toHaveCount(3)
+    await expect(rows.locator('img')).toHaveCount(3)
+    for (const source of await rows.locator('img').evaluateAll((nodes) =>
+      nodes.map((node) => (node as HTMLImageElement).currentSrc || node.getAttribute('src') || ''),
+    )) {
+      expect(source.startsWith('blob:')).toBe(true)
     }
-    for (const image of bare.images) delete image.contentHash
-    await page
-      .getByTestId('image-deposit-input')
-      .setInputFiles(filesFor(JSON.stringify(bare), (index) => DELIVERY[index].bytes))
+    await expect(rows.nth(0)).toContainText('Bilde 1')
+    await expect(rows.nth(0)).toContainText('IMG_4821.png')
 
-    await expect(page.getByTestId('image-deposit-assurance')).toHaveAttribute(
-      'data-assurance',
-      'unchecked',
-    )
-    await expect(page.getByTestId('image-deposit-assurance')).toContainText('ikke verifisert')
+    // The set is complete, and the one thing left is to say the order is right.
+    await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
     const finish = page.getByTestId('image-deposit-finish')
     await expect(finish).toBeDisabled()
 
-    await page.getByTestId('image-deposit-acknowledge').locator('input').check()
-    await expect(finish).toBeEnabled()
-    await finish.click()
-    await expect(page.getByTestId('image-deposit-modal')).toBeHidden()
-    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(3)
-    expect(guard.errors).toEqual([])
-  })
+    // Drag the last picture to the front: it becomes picture 1, and the motif
+    // beside it is picture 1's.
+    await dragPicture(page, 2, 0)
+    await expect(rows.nth(0)).toContainText('Screenshot.webp')
+    await expect(rows.nth(0)).toContainText('Bilde 1')
+    await expect(rows.nth(0)).toContainText('Australopithecus')
+    await expect(rows.nth(2)).toContainText('padmasambhava.jpg')
 
-  test('mister bekreftelsen når et bilde byttes ut etterpå', async ({ page }) => {
-    // A confirmation is about a set, not about a dialog. Swapping one picture
-    // for another under the same name leaves the set complete and unverified,
-    // with nobody having looked at what is now in it.
-    const guard = watchForErrors(page)
-    const deck = pendingDeck()
-    await page.goto('/')
-    await page.getByTestId('import-input').setInputFiles({
-      name: 'venter.slaids',
-      mimeType: 'application/zip',
-      buffer: archiveOf(deck),
-    })
-    await page.getByTestId('open-presentation').first().click()
-    await page.getByTestId('image-deposit-intro-generate').click()
-    await page.getByTestId('image-brief-modal-deposit').click()
-
-    const bare = JSON.parse(manifestFor(deck, (index) => DELIVERY[index].bytes)) as {
-      images: Record<string, unknown>[]
-    }
-    for (const image of bare.images) delete image.contentHash
-    const manifest = JSON.stringify(bare)
-    await page
-      .getByTestId('image-deposit-input')
-      .setInputFiles(filesFor(manifest, (index) => DELIVERY[index].bytes))
-
-    const finish = page.getByTestId('image-deposit-finish')
     const box = page.getByTestId('image-deposit-acknowledge').locator('input')
     await box.check()
     await expect(finish).toBeEnabled()
 
-    // Take `2.jpg` back out and put a different picture in under the same name.
-    await page.getByRole('button', { name: 'Fjern 2.jpg' }).click()
-    await expect(finish).toBeDisabled()
-    await page.getByTestId('image-deposit-input').setInputFiles([
-      {
-        name: '2.jpg',
-        mimeType: 'image/jpeg',
-        buffer: Buffer.from(realImages.webpLossless()),
-      },
-    ])
-
-    // Complete again, still unverified, and the box has unticked itself.
-    await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
-    await expect(page.getByTestId('image-deposit-assurance')).toHaveAttribute(
-      'data-assurance',
-      'unchecked',
-    )
+    // Moving a picture after confirming takes the confirmation with it.
+    await dragPicture(page, 0, 2)
     await expect(box).not.toBeChecked()
     await expect(finish).toBeDisabled()
+    await expect(rows.nth(0)).toContainText('IMG_4821.png')
 
     await box.check()
+    await finish.click()
+    await expect(page.getByTestId('image-deposit-modal')).toBeHidden()
+
+    // The three pictures are in the deck, in the arrangement that was dragged.
+    const images = stage(page).locator('img.image-panel__img')
+    await expect(images).toHaveCount(3)
+    await expect(stage(page)).not.toContainText('Sett inn bilde')
+
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await expect(page.getByTestId('image-deposit-intro')).toBeHidden()
+    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(3)
+    expect(guard.errors).toEqual([])
+  })
+
+  test('tolker aldri navn som bare ligner på tall, og stopper på for mange filer', async ({
+    page,
+  }) => {
+    const guard = watchForErrors(page)
+    await page.goto('/')
+    await page.getByTestId('import-input').setInputFiles({
+      name: 'venter.slaids',
+      mimeType: 'application/zip',
+      buffer: archiveOf(pendingDeck()),
+    })
+    await page.getByTestId('open-presentation').first().click()
+    await page.getByTestId('image-deposit-intro-generate').click()
+    await page.getByTestId('image-brief-modal-deposit').click()
+
+    // `01.png` is not picture 1, and it is not an error either: it is a file
+    // name that says nothing about the order.
+    await page
+      .getByTestId('image-deposit-input')
+      .setInputFiles(filesFor(['01.png', 'bilde1.jpg', '1-final.webp']))
+    await expect(page.getByTestId('image-deposit-order')).toHaveAttribute('data-mode', 'manual')
+    const rows = page.getByTestId('image-deposit-files').locator('li')
+    await expect(rows.nth(0)).toHaveAttribute('data-number', '1')
+    await expect(rows.nth(0)).toHaveAttribute('data-problem', '')
+    await expect(page.getByTestId('image-deposit-progress')).toContainText('3 av 3')
+
+    // One picture too many, and «Fullfør» waits until it is taken back out.
+    await page.getByTestId('image-deposit-input').setInputFiles([picture('ekstra.png')])
+    await expect(rows).toHaveCount(4)
+    await expect(rows.nth(3)).toHaveAttribute('data-problem', 'EXCESS')
+    const finish = page.getByTestId('image-deposit-finish')
+    await expect(finish).toBeDisabled()
+
+    await page.getByRole('button', { name: 'Fjern ekstra.png' }).click()
+    await expect(rows).toHaveCount(3)
+    await page.getByTestId('image-deposit-acknowledge').locator('input').check()
     await expect(finish).toBeEnabled()
     expect(guard.errors).toEqual([])
   })

@@ -78,6 +78,18 @@ interface Drag {
   pointerId: number
   grabX: number
   grabY: number
+  /**
+   * Where `left: 0; top: 0` actually puts the lifted element, in the viewport.
+   *
+   * Zero for a row lifted out of an ordinary ancestor, and *not* zero inside a
+   * dialog: a `transform` anywhere above makes that ancestor the containing
+   * block for `position: fixed`, so viewport coordinates written into `left`
+   * and `top` would be measured from the dialog's corner instead of the
+   * screen's — and the card would fly off to one side of the pointer. Measured
+   * once, at the moment of lifting, rather than assumed either way.
+   */
+  originX: number
+  originY: number
   x: number
   y: number
   stop: () => void
@@ -124,8 +136,8 @@ export function useReorderDrag(options: ReorderOptions): Reorder {
   const moveDragged = useCallback((): void => {
     const drag = dragRef.current
     if (!drag) return
-    drag.el.style.left = `${drag.x - drag.grabX}px`
-    drag.el.style.top = `${drag.y - drag.grabY}px`
+    drag.el.style.left = `${drag.x - drag.grabX - drag.originX}px`
+    drag.el.style.top = `${drag.y - drag.grabY - drag.originY}px`
   }, [])
 
   /**
@@ -207,6 +219,7 @@ export function useReorderDrag(options: ReorderOptions): Reorder {
     drag.el.style.width = ''
     drag.el.style.left = ''
     drag.el.style.top = ''
+    drag.el.style.transform = ''
     drag.placeholder.remove()
     setDragging(false)
   }, [])
@@ -257,6 +270,23 @@ export function useReorderDrag(options: ReorderOptions): Reorder {
         if (dragRef.current && event.cancelable) event.preventDefault()
       }
 
+      /*
+       * Lift it first, then ask where the top left corner of the viewport is
+       * from where it now hangs. The rotation is taken off while asking,
+       * because `getBoundingClientRect` on a rotated box returns the box around
+       * it — a couple of pixels of drift that would otherwise be baked into
+       * every position for the rest of the drag.
+       */
+      el.classList.remove('is-pressed')
+      el.classList.add('is-dragging')
+      el.style.width = `${rect.width}px`
+      const spin = el.style.transform
+      el.style.transform = 'none'
+      el.style.left = '0px'
+      el.style.top = '0px'
+      const origin = el.getBoundingClientRect()
+      el.style.transform = spin
+
       dragRef.current = {
         rowId,
         el,
@@ -264,6 +294,8 @@ export function useReorderDrag(options: ReorderOptions): Reorder {
         pointerId,
         grabX: point.x - rect.left,
         grabY: point.y - rect.top,
+        originX: origin.left,
+        originY: origin.top,
         x: point.x,
         y: point.y,
         stop: () => {
@@ -275,9 +307,6 @@ export function useReorderDrag(options: ReorderOptions): Reorder {
         },
       }
 
-      el.classList.remove('is-pressed')
-      el.classList.add('is-dragging')
-      el.style.width = `${rect.width}px`
       setDragging(true)
       moveDragged()
 
