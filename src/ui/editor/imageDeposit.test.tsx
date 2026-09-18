@@ -583,6 +583,31 @@ describe('ImageDepositModal – rekkefølgen fra brukeren', () => {
     expect(rowNames()).toEqual(['b.png', 'c.png', 'a.png'])
   })
 
+  it('ber om ingen bekreftelse når dekket bare venter på ett bilde', () => {
+    // Nothing can be in the wrong order when there is one picture, and a
+    // checkbox over a list of one is friction that teaches people to tick
+    // without looking.
+    const deck = pendingDeck()
+    const single = setImagePlan(deck, [
+      {
+        slideId: deck.slides[1].id,
+        nodeId: resolveImagePlan(deck)[0].plan.nodeId,
+        subject: SUBJECTS[0],
+        composition: 'Sentrert motiv, rolig bakgrunn.',
+        requirements: '',
+        avoid: '',
+      },
+    ])
+    if (!single.ok) throw new Error(single.error.message)
+    useEditorStore.getState().setPresentation(single.value)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['padmasambhava.webp'])
+    expect(find('[data-testid="image-deposit-order"]').getAttribute('data-mode')).toBe('manual')
+    expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
+  })
+
   it('ber om en bekreftelse på rekkefølgen, og mister den når rekkefølgen endres', async () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)

@@ -169,10 +169,14 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    * own answer, given by dragging, and a tick confirming it is cheap — but it
    * has to be about *this* order. The key is the arrangement itself, so moving
    * one picture unticks the box by itself.
+   *
+   * One expected picture is asked nothing either: there is no order to get
+   * wrong, and a checkbox over a list of one is friction that teaches people to
+   * tick without looking.
    */
   const orderKey = files.map((file, index) => `${index}:${file.name}:${file.size}`).join('|')
   const [acknowledgedFor, setAcknowledgedFor] = useState<string | null>(null)
-  const needsConfirmation = review.mode === 'manual' && review.ready
+  const needsConfirmation = review.mode === 'manual' && review.ready && expected > 1
   const confirmed = !needsConfirmation || acknowledgedFor === orderKey
 
   /**
