@@ -43,7 +43,37 @@ test.describe('rich text', () => {
     const accent = page.getByTestId('format-heading')
     await expect(accent).toHaveAttribute('aria-label', 'Aksent')
     await accent.click()
-    await expect(stage(page).locator('.subfield h1')).toHaveCount(1)
+    const heading = stage(page).locator('.subfield h1')
+    await expect(heading).toHaveCount(1)
+
+    // One line is a true pill. When the same accent wraps, the corner radius
+    // stays tied to one line instead of growing with the block, so it becomes
+    // a rounded card and the text stays clear of the corners.
+    await page.keyboard.type('Kort aksent')
+    const oneLine = await heading.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        height: element.getBoundingClientRect().height,
+        radius: Number.parseFloat(style.borderTopLeftRadius),
+      }
+    })
+    expect(oneLine.radius).toBeCloseTo(oneLine.height / 2, 0)
+
+    await page.keyboard.type(
+      ' som er lang nok til å brytes over flere linjer i feltet uten å endre typografi eller innholdstype',
+    )
+    await expect
+      .poll(() => heading.evaluate((element) => element.getBoundingClientRect().height))
+      .toBeGreaterThan(oneLine.height * 1.5)
+    const wrapped = await heading.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        height: element.getBoundingClientRect().height,
+        radius: Number.parseFloat(style.borderTopLeftRadius),
+      }
+    })
+    expect(wrapped.radius).toBeCloseTo(oneLine.radius, 0)
+    expect(wrapped.radius).toBeLessThan(wrapped.height / 2)
 
     // The colour control beside it is the accent's, and says so.
     await expect(page.getByTestId('heading-color')).toHaveAttribute('aria-label', /Aksentfarge/)
