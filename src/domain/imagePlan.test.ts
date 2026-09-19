@@ -888,6 +888,59 @@ describe('kontrollene', () => {
     expect(duplicate?.number).toBe(2)
   })
 
+  it('lar den felles bildekonteksten snakke om hele serien', () => {
+    /*
+     * The check that had to move when the brief did. `crossImageReferences` on
+     * the shared context was right while the context was copied into every
+     * single-picture prompt: there, «alle bildene» named pictures the prompt
+     * did not contain. In the series brief the context stands once under
+     * «FELLES BILDEKONTEKST», at the head of an order that is openly for N
+     * pictures — so that phrasing is what the heading is for, and refusing it
+     * would send an otherwise correct plan to `plan-needs-repair` and block the
+     * whole delivery.
+     */
+    const { deck, slideId, nodeIds } = threeColumns()
+    const series = [
+      'Alle bildene skal ha samme fotorealistiske uttrykk.',
+      'Hele bildeserien deler dempet jordfargepalett og naturlig dagslys.',
+      'Bildene i dette settet skal se ut som de er tatt samme dag.',
+    ]
+    for (const context of series) {
+      const withContext = setImageContext(deck, context)
+      expect(withContext.ok).toBe(true)
+      if (!withContext.ok) return
+      const written = planned(withContext.value, [
+        entry(slideId, nodeIds[0], 'Australopithecus afarensis i helfigur på en savanne.'),
+        entry(slideId, nodeIds[1], 'Et tilhugget steinredskap holdt frem mellom to fingre.'),
+        entry(slideId, nodeIds[2], 'En leirboplass med røyk mellom skinntelt i skumring.'),
+      ])
+      const codes = checkImagePlan(written).map((issue) => issue.code)
+      expect(codes, context).not.toContain('CROSS_IMAGE_REFERENCE')
+      // And the plan is clean, so the delivery is not held back by it.
+      expect(checkImagePlan(written), context).toEqual([])
+      // The phrasing still reaches the brief as the shared style it is.
+      expect(composeImageBrief(written)).toContain(`FELLES BILDEKONTEKST\n${context}`)
+    }
+  })
+
+  it('melder fortsatt en oppføring som beskriver seg i forhold til de andre', () => {
+    // The other half of the same rule, and the half that still holds: a
+    // numbered section describes the one picture that number is, so a
+    // reference to another number is a relation a generator resolves by
+    // merging two motifs into one file.
+    const { deck, slideId, nodeIds } = threeColumns()
+    const written = planned(deck, [
+      entry(slideId, nodeIds[0], 'Australopithecus afarensis i helfigur på en savanne.'),
+      entry(slideId, nodeIds[1], 'Et tilhugget steinredskap, samme utsnitt som forrige bilde.'),
+      entry(slideId, nodeIds[2], 'En leirboplass med røyk mellom skinntelt i skumring.'),
+    ])
+    const issue = checkImagePlan(written).find((found) => found.code === 'CROSS_IMAGE_REFERENCE')
+    expect(issue?.number).toBe(2)
+    expect(issue?.message).toContain('«forrige bilde»')
+    // And it points the author at where a series-wide statement belongs.
+    expect(issue?.message).toMatch(/felles bildekontekst/i)
+  })
+
   it('finner en felles kontekst som har overtatt motivet til ett enkelt bilde', () => {
     const { deck, slideId, nodeIds } = threeColumns()
     const subject = 'Vitenskapelig rekonstruksjon av Homo erectus i helfigur.'

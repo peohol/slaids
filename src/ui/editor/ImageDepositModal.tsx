@@ -170,14 +170,28 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    * has to be about *this* order. The key is the arrangement itself, so moving
    * one picture unticks the box by itself.
    *
+   * **Built from each file's own identity, not from what it is called.** The
+   * key was once `name:size` per position, and that is exactly the delivery
+   * this dialog goes out of its way to support: two folders can each hold an
+   * `IMG_4821.png`, and two pictures out of one generator are easily the same
+   * number of bytes. Swap that pair after ticking, and a name-and-size key does
+   * not move — the confirmation would survive a real change of order. The token
+   * is the file's own blob URL instead: `createObjectURL` mints a fresh one per
+   * call and this mints exactly one per picked file, so two files that are
+   * alike in every other way still have different tokens.
+   *
+   * `null` while any picked file has no token yet, which keeps «Fullfør» out of
+   * reach rather than letting an unknown file collapse into another one's key.
+   *
    * One expected picture is asked nothing either: there is no order to get
    * wrong, and a checkbox over a list of one is friction that teaches people to
    * tick without looking.
    */
-  const orderKey = files.map((file, index) => `${index}:${file.name}:${file.size}`).join('|')
+  const tokens = files.map((file) => thumbnails.get(file))
+  const orderKey = tokens.every((token) => token !== undefined) ? tokens.join('|') : null
   const [acknowledgedFor, setAcknowledgedFor] = useState<string | null>(null)
   const needsConfirmation = review.mode === 'manual' && review.ready && expected > 1
-  const confirmed = !needsConfirmation || acknowledgedFor === orderKey
+  const confirmed = !needsConfirmation || (orderKey !== null && acknowledgedFor === orderKey)
 
   /**
    * Store the files and put them in their zones, or leave nothing behind.

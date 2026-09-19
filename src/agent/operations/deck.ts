@@ -390,7 +390,7 @@ export const setPresentationTitleOperation = defineOperation({
 export const setImageContextOperation = defineOperation({
   name: 'set_image_context',
   summary:
-    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Slaids bruker den som stil- og kvalitetsdelen av den ferdige prompten for hvert enkelt bilde – du skriver aldri prompten selv, og du sier aldri til en bildegenerator at den samme konteksten gjelder flere bilder. ' +
+    'Sett dekkets felles bildekontekst: det visuelle uttrykket alle bildene i presentasjonen skal dele. Den vises aldri for publikum. Slaids setter den inn én gang, under «FELLES BILDEKONTEKST» øverst i seriebriefen, som stilen hele serien deler – du skriver aldri briefen selv. Her er det i orden å si at noe gjelder alle bildene; det som ikke hører hjemme her, er hva ett enkelt bilde skal vise. ' +
     IMAGE_BRIEF_RULE,
   mutates: true,
   scopes: ['presentations:write'],

@@ -383,22 +383,29 @@ const ORIENTATION_TERMS: readonly { pattern: RegExp; orientation: ImageOrientati
 const WRITTEN_RATIO = /\b(\d{1,2})\s*[:∶]\s*(\d{1,2})\b/g
 
 /**
- * Phrases that place a picture among others.
+ * Phrases that place one picture among the others.
  *
- * The plan's texts are copied verbatim into the prompt for one picture — that
- * is what makes the prompt the entry's own order rather than a paraphrase of it
- * — and it is also the one way the set can still reach a generator after
- * everything else about the flow was made one picture at a time. «Samme utsnitt
- * som forrige bilde», «alle bildene skal ha samme stil», «bilde 2 av 8»: each
- * of those is a complete instruction to compose a set, and no rule about what
- * an agent may *write in the conversation* touches them, because they travel
- * inside the order itself.
+ * Asked of **an entry's own four fields**, and of nothing else. A numbered
+ * section in the brief has one job — describe the one picture that number is —
+ * and «samme utsnitt som forrige bilde» under BILDE 3 does not describe a
+ * picture at all: it describes a relation, which a generator making eight files
+ * has to resolve by looking at another section and can just as easily resolve
+ * by merging the two. The same text is what the per-picture repair order is
+ * composed from, where a reference to a picture that is not in the text is
+ * simply unanswerable.
  *
- * So they are refused rather than warned about. Every pattern names a
- * *reference*: a number out of a total, another picture, the series, the set.
- * What is deliberately not here is the bare plural — «ingen tekst i bildene» is
- * how a person writes a style note, it names no other picture, and flagging it
- * would make the check something authors route around instead of read.
+ * **Not asked of the deck's shared context.** That was right while the context
+ * was copied into every single-picture prompt, and it is wrong now: the context
+ * stands once, under «FELLES BILDEKONTEKST», at the head of an order that is
+ * openly for N pictures. «Alle bildene skal ha samme fotorealistiske uttrykk»
+ * is what that heading is *for*, and refusing it would block the whole delivery
+ * on the phrasing the format invites.
+ *
+ * Every pattern names a *reference*: a number out of a total, another picture,
+ * the series, the set. What is deliberately not here is the bare plural —
+ * «ingen tekst i bildene» is how a person writes a style note, it names no
+ * other picture, and flagging it would make the check something authors route
+ * around instead of read.
  *
  * Norwegian and English both, because a motif gets written in either.
  */
@@ -421,12 +428,9 @@ const CROSS_IMAGE_REFERENCES: readonly RegExp[] = [
 /**
  * Every phrase in a text that refers to another picture, once each.
  *
- * Exported because two layers ask it of two different things and must not
- * disagree: `checkImagePlan` asks it of the fields an author wrote, so the
- * finding names what to rewrite, and the generation flow asks it of the
- * *composed prompt*, so a leak cannot be handed to a generator even if it
- * arrived some way the field check did not see. One list of patterns, two
- * questions.
+ * Exported so the rule can be asked of a text directly — and so a reader of
+ * `checkImagePlan` can see that the one thing it is asked of is an entry's own
+ * fields. See `CROSS_IMAGE_REFERENCES` for why the shared context is not.
  */
 export function crossImageReferences(text: string): string[] {
   const found = new Set<string>()
@@ -499,16 +503,12 @@ export function checkImagePlan(presentation: Presentation): ImagePlanIssue[] {
         'Dekket planlegger bilder, men har ingen felles bildekontekst. Uten den blir bildene ikke et sett.',
     })
   } else if (context !== '') {
+    /* Only overreach, and deliberately not `crossImageReferences`: the shared
+       context heads an order that is openly for N pictures, so «alle bildene
+       skal ha samme uttrykk» is the phrasing that heading asks for. What is
+       still wrong there is describing *one* picture's motif — see
+       `contextOverreachIssues`. */
     issues.push(...contextOverreachIssues(context, resolved))
-    const referenced = crossImageReferences(context)
-    if (referenced.length > 0 && resolved.length > 0) {
-      issues.push({
-        code: 'CROSS_IMAGE_REFERENCE',
-        message: `Den felles bildekonteksten viser til de andre bildene: ${quoted(
-          referenced,
-        )}. Konteksten går ordrett inn i prompten for hvert enkelt bilde, så en slik formulering forteller bildegeneratoren at oppgaven er flere bilder – og da lager den ett sammenslått bilde. Skriv den som ren stil: hvordan bildet skal se ut, uten å nevne antall, serie eller de andre bildene.`,
-      })
-    }
   }
   return issues
 }
@@ -529,7 +529,7 @@ function crossReferenceIssues(image: ResolvedPlannedImage): ImagePlanIssue[] {
       code: 'CROSS_IMAGE_REFERENCE',
       message: `Bilde ${image.number} beskriver seg selv i forhold til de andre bildene: ${quoted(
         referenced,
-      )}. Feltene går ordrett inn i prompten for dette ene bildet, som ikke skal vite at det finnes andre – en slik formulering er nettopp det som gjør at bildegeneratoren lager collage eller kontaktark. Skriv motivet, komposisjonen og kravene slik at de står alene.`,
+      )}. Feltene går ordrett inn i seksjonen «BILDE ${image.number}» i bildebriefen, og den seksjonen skal beskrive ett motiv som står på egne ben – en henvisning til et annet nummer er nettopp det som gjør at bildegeneratoren slår to motiver sammen i stedet for å lage to filer. Den samme teksten er også hele bestillingen når bildet lages om igjen alene. Skriv motivet, komposisjonen og kravene slik at de står alene. Gjelder det hele serien, hører det hjemme i den felles bildekonteksten.`,
       number: image.number,
       slideId: image.plan.slideId,
       nodeId: image.plan.nodeId,

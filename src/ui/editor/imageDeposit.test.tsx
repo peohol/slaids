@@ -627,6 +627,38 @@ describe('ImageDepositModal – rekkefølgen fra brukeren', () => {
   })
 })
 
+  it('mister bekreftelsen når to like navngitte filer bytter plass', async () => {
+    /*
+     * The delivery this dialog goes out of its way to support is also the one a
+     * name-based key cannot tell apart: two folders can each hold an
+     * `IMG_4821.png`, and two pictures out of one generator are easily the same
+     * number of bytes. Tick the box, swap that pair, and a `name:size` key does
+     * not move — the confirmation would survive a real change of order, which
+     * is the whole thing it exists to prevent.
+     */
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    // Same name, same size, different pictures.
+    const bytes = (first: number) => new Uint8Array([first, 2, 3, 4, 5, 6, 7, 8])
+    pickFiles([
+      picked(bytes(1), 'IMG_4821.png', 'image/png'),
+      picked(bytes(9), 'IMG_4821.png', 'image/png'),
+      picked(realImages.gif(), 'annet.gif', 'image/gif'),
+    ])
+    expect(rowNames()).toEqual(['IMG_4821.png', 'IMG_4821.png', 'annet.gif'])
+
+    const finish = () => find<HTMLButtonElement>('[data-testid="image-deposit-finish"]')
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(finish().disabled).toBe(false)
+
+    // The two indistinguishable names swap: picture 1 is now a different file.
+    await dragRow(1, 0)
+    expect(box().checked).toBe(false)
+    expect(finish().disabled).toBe(true)
+  })
+
 describe('ImageDepositModal – antallet filer', () => {
   it('lar brukeren legge til flere uten å miste dem hun alt har valgt', () => {
     useEditorStore.getState().setPresentation(pendingDeck())

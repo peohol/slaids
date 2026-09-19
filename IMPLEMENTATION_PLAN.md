@@ -567,15 +567,26 @@ nummerering, intet filnavn, ingen slide, ingen presentasjon og intet annet motiv
 En bestilling limt inn i en tom samtale er ett bilde; en leser som får se ni
 nummererte motiver har fått et sett å komponere.
 
-**Teksten kan lekke settet selv om bestillingen er isolert.** Feltene kopieres
-ordrett inn — det er det som gjør prompten til oppføringens egen bestilling — så
-«samme utsnitt som forrige bilde», «alle bildene skal ha samme stil» eller «bilde
-2 av 8» ville reist rett til generatoren inni selve ordren. `crossImageReferences`
-finner slike referanser, og `checkImagePlan` melder dem som
-`CROSS_IMAGE_REFERENCE` på oppføringen eller på den felles bildekonteksten. Det
-som med vilje *ikke* fanges, er den nakne flertallsformen — «ingen tekst i
-bildene» navngir ikke noe annet bilde, og å melde den ville gjort kontrollen til
-noe forfattere går utenom.
+**En oppføring skal beskrive ett motiv som står på egne ben.** Feltene kopieres
+ordrett inn i seksjonen «BILDE n» i briefen — og i den enkeltstående prompten når
+bildet lages om igjen — så «samme utsnitt som forrige bilde» eller «bilde 2 av 8»
+er ikke en beskrivelse av et motiv, men en relasjon en generator like gjerne
+løser ved å slå to motiver sammen som ved å lage to filer.
+`crossImageReferences` finner slike referanser, og `checkImagePlan` melder dem
+som `CROSS_IMAGE_REFERENCE` **på oppføringen**.
+
+Regelen gjelder med vilje *ikke* den felles bildekonteksten. Det var riktig så
+lenge konteksten ble kopiert inn i hver isolerte enkeltprompt: der navnga «alle
+bildene» bilder prompten ikke inneholdt. I seriebriefen står konteksten én gang,
+under «FELLES BILDEKONTEKST», øverst i en bestilling som åpent gjelder N bilder —
+«alle bildene skal ha samme fotorealistiske uttrykk» er nettopp det den
+overskriften er til for, og å avvise den ville sendt en ellers korrekt plan til
+`plan-needs-repair` og blokkert hele leveransen. Det konteksten fortsatt ikke får
+gjøre, er å beskrive ett enkelt bildes motiv; det er `CONTEXT_OVERREACH`.
+
+Det som med vilje heller ikke fanges noe sted, er den nakne flertallsformen —
+«ingen tekst i bildene» navngir ikke noe annet bilde, og å melde den ville gjort
+kontrollen til noe forfattere går utenom.
 
 Feltene «Unngå» viser hvorfor teksten genereres to steder fra samme data:
 briefen kaller seksjonen «Unngå i akkurat dette bildet», som bare betyr noe ved
