@@ -352,7 +352,14 @@
   max-width: 100%;
   margin: 0 0 var(--slaids-heading-spacing, 10px);
   padding: 2px 14px;
-  border-radius: 999px;
+  /*
+   * Half of one line's painted height: 1.3em line-height plus 2px padding on
+   * each side. A one-line accent is therefore still a true pill. Once the
+   * text wraps, the radius stays fixed while the box grows taller, so the
+   * accent becomes a rounded card instead of a tall capsule whose corners can
+   * cut into the glyphs.
+   */
+  border-radius: calc(0.65em + 2px);
   background: var(--slaids-heading-pill, #33475b);
   color: var(--slaids-heading-pill-text, #ffffff);
   font-size: var(--slaids-heading-font-size);
