@@ -23,16 +23,13 @@
 # ## Nettlesertestene er ikke med
 #
 # `npm run e2e` starter en ekte Chromium og klikker seg gjennom appen — 310
-# tester, rundt tolv minutter. De er utelatt her, og det er et bevisst valg
-# framfor en forglemmelse:
+# tester, rundt tolv minutter. De er utelatt her fordi de er trege, ikke fordi
+# de er røde: de går grønt. Tolv minutter er lenge nok til at en PR ville ventet
+# på dem, og en port folk venter på er en port folk finner veier rundt.
 #
-#  - de er trege nok til at en PR ville ventet på dem, og
-#  - to av dem (`align.spec.ts` og `shortcuts.spec.ts`) feiler på `main` i dag.
-#    En rød sjekk som alltid er rød lærer folk å ignorere sjekker, og da er den
-#    verre enn ingen.
-#
-# Blir de to rettet, hører suiten hjemme i en nattlig kjøring — ikke i denne
-# porten, som skal være rask nok til at ingen fristes til å gå rundt den.
+# Suiten hører derfor hjemme i en nattlig kjøring, ikke her. Inntil den finnes,
+# er den noe man kjører for hånd før en UI-endring leveres — som `CLAUDE.md`
+# allerede sier.
 name: Tester
 
 on:
