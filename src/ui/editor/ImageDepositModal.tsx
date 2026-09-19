@@ -8,28 +8,23 @@
  *
  * Three things follow from that, and they are the whole design:
  *
- *  - **The file name is the instruction a person gives.** `1.png`, `2.jpg`,
- *    `3.webp`. Nothing else is asked — no dragging file onto slot, no matching
- *    by eye — because the numbering already exists, in the brief they pasted
- *    and in the placeholder on every slide. `domain/imageDeposit.ts` owns the
- *    rule; this shows its verdicts.
- *  - **An agent's delivery states its bindings instead.** A file name is a
- *    perfectly good instruction from a person, and a poor one from a generator
- *    that produced the pictures out of order: nine files named by arrival are
- *    nine well-formed names for the wrong pictures. So a generated set brings
- *    `slaids-bilder.json` with it, every binding is checked against the deck's
- *    own plan, and a conflict refuses the whole set rather than placing what it
- *    was handed. See `domain/imageGeneration.ts`.
- *  - **Nothing is guessed.** `01.png` and `bilde1.png` are named, with the
- *    reason, rather than quietly matched to picture 1 — and two files claiming
- *    the same number are both flagged, because choosing between somebody's two
- *    pictures is not Slaids' to do. A manifest that cannot be read is the same
- *    kind of refusal: it is never treated as no manifest at all.
+ *  - **There are two ways to say the order, and the dialog picks between them
+ *    by itself.** Files called exactly `1`, `2`, `3` … say it in their names,
+ *    whatever order they were dropped in. Anything else does not, and then the
+ *    person says it by dragging the pictures into place — with the actual
+ *    pictures on screen, because the one thing they can answer instantly is
+ *    «which picture is which», and the one thing they cannot is what a
+ *    generator decided to call its output.
+ *  - **Nothing is guessed.** `01.png`, `bilde1.png` and `1-final.png` are
+ *    ordinary file names, not broken numbers: they go into the manual order
+ *    like everything else rather than being quietly matched to picture 1 or
+ *    rejected for their names. Only a complete, unambiguous 1‥N is read as a
+ *    numbering. `domain/imageDeposit.ts` owns that rule; this shows its
+ *    verdicts.
  *  - **«Fullfør» is the last check, not the first.** It stays disabled until
- *    the set is exactly 1‥N with nothing rejected and no binding in conflict,
- *    and the same domain predicate that greys it out is what the command
- *    refuses on, so the button cannot be enabled for a set the write would turn
- *    down.
+ *    there are exactly N usable pictures with a place each, and the same domain
+ *    predicate that greys it out is what the command refuses on, so the button
+ *    cannot be enabled for a set the write would turn down.
  *
  * The write itself goes outside the undo history, exactly as the image
  * optimiser's does and for the same reason: files are stored on the way, so a
@@ -39,13 +34,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { completeImageDeposit, registerAsset, type DepositPlacement } from '../../domain/commands'
-import { depositImages, reviewDeposit, reviewDepositFiles } from '../../domain/imageDeposit'
 import {
-  IMAGE_MANIFEST_FILE_NAME,
-  isImageManifestFileName,
-  type DeliveredImageFile,
-} from '../../domain/imageGeneration'
-import { hashBytes } from '../../domain/assetHash'
+  depositImages,
+  reviewDepositFiles,
+  type DepositFileProblem,
+} from '../../domain/imageDeposit'
 import { IMAGE_FILE_ACCEPT } from '../../domain/imageBytes'
 import { describeError } from '../../domain/result'
 import {
@@ -58,12 +51,12 @@ import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
 import { Modal } from '../components/Modal'
+import { useReorderDrag } from '../components/reorderDrag'
 
 /** What to say about a file that cannot be used, in the user's own terms. */
-const PROBLEM_TEXT: Record<'NAME' | 'RANGE' | 'DUPLICATE', string> = {
-  NAME: 'Feil filnavn. Filen må hete et tall og ingenting mer, for eksempel 1.png.',
-  RANGE: 'Nummeret er ikke blant bildene som skal settes inn.',
-  DUPLICATE: 'To filer har det samme nummeret. Behold én av dem.',
+const PROBLEM_TEXT: Record<DepositFileProblem, string> = {
+  TYPE: 'Ikke en bildefil Slaids kan lagre. Bruk PNG, JPG, WEBP, AVIF, GIF eller SVG.',
+  EXCESS: 'Det er flere bilder enn presentasjonen har plass til. Fjern de som ikke skal inn.',
 }
 
 export function ImageDepositModal({ onClose }: { onClose: () => void }) {
@@ -73,165 +66,49 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLOListElement | null>(null)
+  /* The list as the drag sees it: the gesture reports a position, and the
+     position has to be read against the array that was on screen. */
+  const filesRef = useRef<File[]>(files)
 
   const images = useMemo(() => (presentation ? depositImages(presentation) : []), [presentation])
   const expected = images.length
 
-  /*
-   * The manifest is one of the dropped files, and it is not a picture.
-   *
-   * Separated here rather than in the domain because only this side holds
-   * `File` objects: the rule for *which* file it is belongs to
-   * `imageGeneration.ts`, and the reading of it is the browser's job.
-   */
-  /* The first one, if somebody managed to drop two. That is not a guess with a
-     wrong answer available: bindings from one delivery checked against another
-     delivery's files come back as files missing and files unaccounted for, so
-     the outcome is a refusal with a reason rather than a misplaced picture. */
-  const manifestFile = files.find((file) => isImageManifestFileName(file.name)) ?? null
-  const pictures = useMemo(
-    () => files.filter((file) => !isImageManifestFileName(file.name)),
-    [files],
-  )
-  /*
-   * The manifest that has been read, with the file it was read from.
-   *
-   * Keyed by the file rather than kept as a bare string, so «no manifest» and
-   * «a manifest nobody has read yet» are different states. They have to be:
-   * the first is an ordinary manual upload, and the second is a set whose
-   * binding is not known yet — and treating the second as the first is exactly
-   * how a picture ends up on the wrong slide.
-   *
-   * A file that cannot be read off the disk is read as empty text, which the
-   * domain reports as an unreadable manifest. Falling back to the file names
-   * there would be the original failure with a loading spinner in front of it.
-   */
-  const [read, setRead] = useState<{ file: File; text: string } | null>(null)
-  useEffect(() => {
-    if (!manifestFile || read?.file === manifestFile) return
-    let live = true
-    manifestFile
-      .text()
-      .then((text) => {
-        if (live) setRead({ file: manifestFile, text })
-      })
-      .catch(() => {
-        if (live) setRead({ file: manifestFile, text: '' })
-      })
-    return () => {
-      live = false
-    }
-  }, [manifestFile, read])
-
-  const manifestText = manifestFile && read?.file === manifestFile ? read.text : null
-
-  /*
-   * A digest of every picked picture's own bytes.
-   *
-   * Taken here, from the `File` the person dropped, and deliberately *before*
-   * `storeUploadedFile` runs: that one hashes what it is about to store, which
-   * for an SVG is the sanitised document and for a raster is a file the
-   * optimiser may yet rewrite. The question a manifest asks is about the bytes
-   * the generator produced, so it has to be asked of the bytes that arrived.
-   *
-   * Keyed by the `File` itself, so a second drop does not rehash the first
-   * batch and a removed file's digest goes with it.
-   */
-  const [digests, setDigests] = useState<ReadonlyMap<File, string | null>>(new Map())
-  useEffect(() => {
-    /* Only when there is a manifest to compare against. A manual upload has no
-       digests to check, so hashing its files would be work whose only visible
-       effect is a dialog that says «0 av 3» for a moment. */
-    const unread = manifestFile === null ? [] : pictures.filter((file) => !digests.has(file))
-    if (unread.length === 0) return
-    let live = true
-    void Promise.all(
-      unread.map(async (file) => {
-        /* `null` for a file whose bytes cannot be read at all. It then counts as
-           a file that did not arrive — which it did not, in every way that
-           matters — rather than leaving the dialog disabled forever waiting for
-           a read that already failed. */
-        try {
-          return [file, await hashBytes(new Uint8Array(await file.arrayBuffer()))] as const
-        } catch {
-          return [file, null] as const
-        }
-      }),
-    ).then((entries) => {
-      if (live) setDigests((current) => new Map([...current, ...entries]))
-    })
-    return () => {
-      live = false
-    }
-  }, [manifestFile, pictures, digests])
-
-  const delivered = useMemo(
-    (): DeliveredImageFile[] =>
-      pictures.map((file) => {
-        const contentHash = digests.get(file)
-        return contentHash ? { fileName: file.name, contentHash } : { fileName: file.name }
-      }),
-    [pictures, digests],
-  )
-
-  /**
-   * Something in the drop has not been read yet, so nothing may land.
-   *
-   * Both halves are the same kind of state: a file whose bytes nobody has
-   * looked at yet is not a file with no binding, and treating it as one for the
-   * fraction of a second before the read finishes is exactly how a picture
-   * could still land on the wrong slide.
-   */
-  const pending =
-    manifestFile !== null &&
-    (manifestText === null || pictures.some((file) => !digests.has(file)))
-
   const review = useMemo(
-    () =>
-      presentation ? reviewDeposit(presentation, delivered, manifestText) : reviewDepositFiles([], 0),
-    [presentation, delivered, manifestText],
+    () => reviewDepositFiles(files.map((file) => file.name), expected),
+    [files, expected],
   )
-  /* By name rather than by position: the verdict list is the files whose bytes
-     have been read, which while a drop is still hashing is a subset of the
-     pictures. A name is what a verdict is about, and a name that is not unique
-     is already flagged as a duplicate. */
-  const byName = useMemo(() => new Map(pictures.map((file) => [file.name, file])), [pictures])
-  const byIndex = useMemo(() => {
-    const map = new Map<number, File>()
-    for (const verdict of review.files) {
-      const file = byName.get(verdict.name)
-      if (verdict.problem === null && verdict.index !== null && file) map.set(verdict.index, file)
-    }
-    return map
-  }, [review, byName])
-  const problems = review.files
-    .map((verdict) => ({ verdict, file: byName.get(verdict.name) }))
-    .filter((entry) => entry.verdict.problem !== null)
+
+  useEffect(() => {
+    filesRef.current = files
+  })
 
   /*
-   * The check only a person can make, demanded exactly when nothing else can.
+   * A thumbnail per picked file, so the order is chosen by looking at pictures
+   * rather than at file names.
    *
-   * An `'unchecked'` delivery is not wrong — it is unverified, and the honest
-   * response is to say so and ask for the one check that is still available
-   * rather than to refuse the host or to present the metadata as proof. A
-   * manual upload asks for nothing extra: the person who named the files made
-   * the binding themselves, and a `'file-checked'` one has been compared
-   * against the files' own bytes.
-   */
-  const needsConfirmation = review.assurance === 'unchecked'
-  /*
-   * *Which* delivery was confirmed, not merely that something was.
+   * Object URLs rather than data URLs: the browser reads the blob it already
+   * holds, so a folder of full-size pictures costs nothing to show. Minted when
+   * a file is picked and kept by the `File` itself, because the list is rebuilt
+   * on every removal and every drag — a URL made per render would flicker the
+   * pictures each time one is moved, which is the one moment the person is
+   * looking at them.
    *
-   * A boolean here outlived the set it was given for: tick the box, then swap
-   * one picture for another under the same name, and «Fullfør» came back within
-   * reach for a set nobody had looked at. The key is derived from the manifest
-   * and the files' own bytes (`DepositReview.deliveryKey`), so changing the
-   * delivery unticks the box by itself and picking the same files again in
-   * another order does not.
+   * Released together when the dialog goes, rather than the moment a file is
+   * removed: revoking a URL an `<img>` is still showing draws a broken image,
+   * and a handful of blobs living until the dialog closes is the cheaper of the
+   * two mistakes.
    */
-  const [acknowledgedFor, setAcknowledgedFor] = useState<string | null>(null)
-  const acknowledged = acknowledgedFor === review.deliveryKey
-  const confirmed = !needsConfirmation || acknowledged
+  const [thumbnails, setThumbnails] = useState<ReadonlyMap<File, string>>(new Map())
+  const live = useRef<ReadonlyMap<File, string>>(thumbnails)
+  useEffect(() => {
+    live.current = thumbnails
+  })
+  useEffect(() => {
+    return () => {
+      for (const url of live.current.values()) URL.revokeObjectURL(url)
+    }
+  }, [])
 
   /**
    * Added, never replaced: the pictures may well arrive in two goes — a folder
@@ -246,15 +123,75 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
    */
   const addFiles = (picked: readonly File[]): void => {
     if (picked.length === 0) return
+    setThumbnails((current) => {
+      const next = new Map(current)
+      for (const file of picked) {
+        if (!next.has(file)) next.set(file, URL.createObjectURL(file))
+      }
+      return next
+    })
     setFiles((current) => [...current, ...picked])
   }
 
-  /* By identity rather than by position: the verdict list is the *pictures*, and
-     the manifest sits in the same array, so an index into one is not an index
-     into the other. */
+  /* By identity rather than by position: two folders can both hold an
+     `IMG_4821.png`, and removing by name would remove the wrong one. */
   const remove = (file: File): void => {
     setFiles((current) => current.filter((item) => item !== file))
   }
+
+  /*
+   * Dragging a picture to its place, with the ideas list's own gesture: a quick
+   * drag with a mouse, press-and-hold on touch, a placeholder showing the gap,
+   * and the list scrolling at its edges. Position *is* the picture number, so
+   * the move is an ordinary array move and nothing else has to be decided.
+   */
+  const drag = useReorderDrag({
+    scrollParent: () => listRef.current?.closest<HTMLElement>('.dialog__body') ?? null,
+    placeholderClass: 'deposit-row deposit-row--placeholder',
+    canStart: () => !busy,
+    onDrop: ({ rowId, index }) => {
+      const from = Number(rowId)
+      const current = filesRef.current
+      if (!Number.isInteger(from) || from < 0 || from >= current.length) return
+      if (index === from) return
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      next.splice(index, 0, moved)
+      setFiles(next)
+    },
+  })
+
+  /**
+   * The check only a person can make, demanded exactly when nothing else can.
+   *
+   * A numbered delivery needs nothing extra: whoever named the files `1`‥`N`
+   * made the binding, and Slaids only read it. A manual order is the person's
+   * own answer, given by dragging, and a tick confirming it is cheap — but it
+   * has to be about *this* order. The key is the arrangement itself, so moving
+   * one picture unticks the box by itself.
+   *
+   * **Built from each file's own identity, not from what it is called.** The
+   * key was once `name:size` per position, and that is exactly the delivery
+   * this dialog goes out of its way to support: two folders can each hold an
+   * `IMG_4821.png`, and two pictures out of one generator are easily the same
+   * number of bytes. Swap that pair after ticking, and a name-and-size key does
+   * not move — the confirmation would survive a real change of order. The token
+   * is the file's own blob URL instead: `createObjectURL` mints a fresh one per
+   * call and this mints exactly one per picked file, so two files that are
+   * alike in every other way still have different tokens.
+   *
+   * `null` while any picked file has no token yet, which keeps «Fullfør» out of
+   * reach rather than letting an unknown file collapse into another one's key.
+   *
+   * One expected picture is asked nothing either: there is no order to get
+   * wrong, and a checkbox over a list of one is friction that teaches people to
+   * tick without looking.
+   */
+  const tokens = files.map((file) => thumbnails.get(file))
+  const orderKey = tokens.every((token) => token !== undefined) ? tokens.join('|') : null
+  const [acknowledgedFor, setAcknowledgedFor] = useState<string | null>(null)
+  const needsConfirmation = review.mode === 'manual' && review.ready && expected > 1
+  const confirmed = !needsConfirmation || (orderKey !== null && acknowledgedFor === orderKey)
 
   /**
    * Store the files and put them in their zones, or leave nothing behind.
@@ -286,6 +223,13 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
   const deposit = async (written: string[]): Promise<boolean> => {
     const source = useEditorStore.getState().presentation
     if (!source || !review.ready) return false
+
+    const byIndex = new Map<number, File>()
+    review.files.forEach((verdict, position) => {
+      if (verdict.problem === null && verdict.index !== null) {
+        byIndex.set(verdict.index, files[position])
+      }
+    })
 
     let next = source
     const placements: DepositPlacement[] = []
@@ -358,6 +302,13 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
 
   if (!presentation) return null
 
+  /* The slot a file is about to become, so a row can say what the picture is
+     supposed to show without the plan being looked up twice. */
+  const slotOf = (index: number | null) =>
+    index === null ? null : (images.find((image) => image.index === index) ?? null)
+  const missing = review.missing.map(slotOf).flatMap((slot) => (slot ? [slot] : []))
+  const draggable = review.mode === 'manual' && files.length > 1
+
   return (
     <Modal
       open
@@ -365,7 +316,7 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
         if (!next && !busy) onClose()
       }}
       title="Legg inn bildene"
-      description={`Presentasjonen venter på ${expected} ${expected === 1 ? 'bilde' : 'bilder'}. Slipp filene her, så havner hvert bilde på riktig plass av seg selv.`}
+      description={`Presentasjonen venter på ${expected} ${expected === 1 ? 'bilde' : 'bilder'}. Slipp filene her, så havner hvert bilde på riktig plass.`}
       testId="image-deposit-modal"
       width={640}
       footer={
@@ -380,7 +331,7 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
             type="button"
             className="btn btn--primary"
             data-testid="image-deposit-finish"
-            disabled={!review.ready || busy || pending || !confirmed}
+            disabled={!review.ready || busy || !confirmed}
             onClick={() => void complete()}
           >
             {busy ? 'Setter inn …' : 'Fullfør'}
@@ -388,83 +339,36 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <p className="hint">
-        Filene må hete tallet sitt og ingenting mer: <code>1.png</code>, <code>2.jpg</code>,{' '}
-        <code>3.webp</code> og så videre opp til {expected}. Formatene kan gjerne være forskjellige.
-      </p>
-      <p className="hint" data-testid="image-deposit-manifest">
-        {manifestFile ? (
+      {/*
+        * Where the order came from, said plainly, because it is the one thing
+        * the person has to understand to trust the result. Three sentences for
+        * three states: nothing picked yet, a numbering read off the names, and
+        * an order that is theirs to give.
+        */}
+      <p className="hint" data-testid="image-deposit-order" data-mode={review.mode}>
+        {files.length === 0 ? (
           <>
-            <code>{IMAGE_MANIFEST_FILE_NAME}</code> ligger blant filene
-            {pending ? ' (leser filene …)' : ''}.{' '}
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={() => remove(manifestFile)}
-              disabled={busy}
-              aria-label={`Fjern ${manifestFile.name}`}
-            >
-              Fjern <Icon name="close" size={14} />
-            </button>
+            Heter filene <code>1</code>, <code>2</code>, <code>3</code> … opp til {expected}, leser
+            Slaids rekkefølgen av navnene. Heter de noe annet, setter du rekkefølgen selv etterpå.
+            Formatene kan gjerne være forskjellige.
+          </>
+        ) : review.mode === 'numbered' ? (
+          <>
+            Rekkefølgen er lest fra filnavnene 1–{expected}. Rekkefølgen du valgte filene i betyr
+            ingenting.
           </>
         ) : (
           <>
-            Ble bildene laget automatisk, legg <code>{IMAGE_MANIFEST_FILE_NAME}</code> ved siden av
-            dem. Da kontrolleres koblingen mellom hvert bilde og bildeplassen, i stedet for at
-            filnavnet er alt Slaids har å gå etter.
+            Filnavnene angir ikke rekkefølgen. Dra bildene i riktig rekkefølge — det øverste blir
+            bilde 1, det neste bilde 2, og så videre.
           </>
         )}
       </p>
-
-      {/*
-        * What was actually checked, said in the words it deserves.
-        *
-        * Three different sentences for three different situations, because the
-        * failure this dialog exists for was a delivery that *looked* correct.
-        * «Kontrollert» on a set nobody could check would be the same mistake
-        * one layer up, so the unchecked case says what is missing and asks for
-        * the one check a person can still make — and in every case the text
-        * keeps «which file» apart from «what the picture shows», which nothing
-        * in Slaids can see.
-        */}
-      <p className="hint" data-testid="image-deposit-assurance" data-assurance={review.assurance}>
-        {review.assurance === 'manual' && (
-          <>Numrene i filnavnene bestemmer hvor bildene havner. Kontroller selv at de stemmer.</>
-        )}
-        {review.assurance === 'file-checked' && (
-          <>
-            Koblingen er kontrollert mot filenes eget innhold: hver fil er den filen
-            bildegeneratoren returnerte for sin bildeplass. Det sier hvilken fil som er hvilken,
-            ikke hva bildet viser — se gjennom bildene etterpå.
-          </>
-        )}
-        {review.assurance === 'unchecked' && (
-          <>
-            Koblingen er <strong>ikke verifisert</strong> mot filenes innhold: manifestet mangler
-            avtrykk av bytene bildegeneratoren returnerte. Metadataene kan stemme og filene likevel
-            være forvekslet, så dette må kontrolleres manuelt.
-          </>
-        )}
-      </p>
-
-      {needsConfirmation && (
-        <label className="hint" data-testid="image-deposit-acknowledge">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            disabled={busy}
-            onChange={(event) =>
-              setAcknowledgedFor(event.target.checked ? review.deliveryKey : null)
-            }
-          />{' '}
-          Jeg har sett gjennom bildene og bekrefter at hvert nummer viser det motivet det skal.
-        </label>
-      )}
 
       <input
         ref={inputRef}
         type="file"
-        accept={`${IMAGE_FILE_ACCEPT},application/json,.json`}
+        accept={IMAGE_FILE_ACCEPT}
         multiple
         style={{ display: 'none' }}
         data-testid="image-deposit-input"
@@ -500,109 +404,110 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
         <span className="hint">Du kan legge til flere filer i flere omganger</span>
       </div>
 
-      <h3 className="inspector__heading">Bildene som skal inn</h3>
-      <ul className="deposit-list" data-testid="image-deposit-status">
-        {images.map((image) => {
-          const picked = byIndex.get(image.index)
-          return (
-            <li
-              key={image.index}
-              className={picked ? 'deposit-row deposit-row--ready' : 'deposit-row'}
-              data-testid={`image-deposit-row-${image.index}`}
-              data-state={picked ? 'ready' : 'missing'}
-            >
-              <span className="deposit-row__mark" aria-hidden="true">
-                {picked ? <Icon name="check" size={15} /> : image.index}
-              </span>
-              <span className="deposit-row__text">
-                <strong>
-                  Bilde {image.index}
-                  {image.desiredAspectRatio ? ` · ${image.desiredAspectRatio}` : ''}
-                </strong>
-                <span className="hint">{image.generationBrief || 'Ingen beskrivelse'}</span>
-              </span>
-              {picked ? (
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() => remove(picked)}
-                  disabled={busy}
-                  aria-label={`Fjern ${picked.name}`}
-                >
-                  {picked.name} <Icon name="close" size={14} />
-                </button>
-              ) : (
-                <span className="deposit-row__file hint">Mangler</span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-
-      {problems.length > 0 && (
+      {files.length > 0 && (
         <>
-          <h3 className="inspector__heading">Filer som ikke kan brukes</h3>
-          <ul className="deposit-list" data-testid="image-deposit-problems">
-            {problems.map(({ verdict, file }, position) => (
-              <li
-                key={`${verdict.name}:${position}`}
-                className="deposit-row deposit-row--problem"
-              >
-                <span className="deposit-row__text">
-                  <strong>{verdict.name}</strong>
-                  <span className="hint">
-                    {verdict.problem === null ? '' : PROBLEM_TEXT[verdict.problem]}
+          <h3 className="inspector__heading">Bildene du har lagt inn</h3>
+          <ol
+            ref={listRef}
+            className={drag.dragging ? 'deposit-list is-dragging' : 'deposit-list'}
+            data-testid="image-deposit-files"
+          >
+            {files.map((file, position) => {
+              const verdict = review.files[position]
+              const slot = slotOf(verdict?.index ?? null)
+              const problem = verdict?.problem ?? null
+              return (
+                <li
+                  key={`${position}:${file.name}`}
+                  className={problem ? 'deposit-row deposit-row--problem' : 'deposit-row'}
+                  data-testid={`image-deposit-file-${position}`}
+                  data-number={verdict?.index ?? ''}
+                  data-problem={problem ?? ''}
+                  // The whole row is the handle, the remove button excepted: the
+                  // picture *is* the row, and a drag that had to start on a
+                  // narrow strip beside it is a drag you never find.
+                  onPointerDown={(event) => {
+                    if (!draggable) return
+                    drag.arm(event, String(position), event.currentTarget, '.deposit-row__remove')
+                  }}
+                  onClickCapture={drag.swallowClick}
+                >
+                  <span className="deposit-row__mark" aria-hidden="true">
+                    {verdict?.index ?? '!'}
                   </span>
-                </span>
-                {file && (
+                  <img
+                    className="deposit-row__thumb"
+                    src={thumbnails.get(file)}
+                    alt=""
+                    draggable={false}
+                  />
+                  <span className="deposit-row__text">
+                    <strong>
+                      {verdict?.index === undefined || verdict.index === null
+                        ? 'Uten plass'
+                        : `Bilde ${verdict.index}`}
+                      {slot?.desiredAspectRatio ? ` · ${slot.desiredAspectRatio}` : ''}
+                    </strong>
+                    <span className="hint">{file.name}</span>
+                    {problem ? (
+                      <span className="hint">{PROBLEM_TEXT[problem]}</span>
+                    ) : (
+                      slot?.subject && <span className="hint">{slot.subject}</span>
+                    )}
+                  </span>
                   <button
                     type="button"
-                    className="btn btn--sm"
+                    className="btn btn--sm deposit-row__remove"
                     onClick={() => remove(file)}
-                    aria-label={`Fjern ${verdict.name}`}
+                    disabled={busy}
+                    aria-label={`Fjern ${file.name}`}
                   >
                     <Icon name="close" size={14} />
                   </button>
-                )}
+                </li>
+              )
+            })}
+          </ol>
+        </>
+      )}
+
+      {missing.length > 0 && (
+        <>
+          <h3 className="inspector__heading">Bildene som mangler</h3>
+          <ul className="deposit-list" data-testid="image-deposit-missing">
+            {missing.map((slot) => (
+              <li
+                key={slot.index}
+                className="deposit-row"
+                data-testid={`image-deposit-missing-${slot.index}`}
+              >
+                <span className="deposit-row__mark" aria-hidden="true">
+                  {slot.index}
+                </span>
+                <span className="deposit-row__text">
+                  <strong>
+                    Bilde {slot.index}
+                    {slot.desiredAspectRatio ? ` · ${slot.desiredAspectRatio}` : ''}
+                  </strong>
+                  <span className="hint">{slot.subject || 'Ingen beskrivelse'}</span>
+                </span>
+                <span className="deposit-row__file hint">Mangler</span>
               </li>
             ))}
           </ul>
         </>
       )}
 
-      {/*
-        * The binding conflicts, verbatim from the domain.
-        *
-        * Shown as their own section rather than folded in with the file-name
-        * problems, because they are a different kind of wrong: the files are
-        * fine, and what does not hold is which picture each one is *for*. That
-        * is the failure this whole section exists to surface — pictures that
-        * would otherwise have landed, silently, on the wrong slides.
-        */}
-      {review.binding.length > 0 && (
-        <>
-          <h3 className="inspector__heading">Koblingen mot bildeplanen stemmer ikke</h3>
-          <ul className="deposit-list" data-testid="image-deposit-binding">
-            {review.binding.map((issue, position) => (
-              <li
-                key={`${issue.code}:${issue.imagePlanItemId ?? issue.fileName ?? position}`}
-                className="deposit-row deposit-row--problem"
-              >
-                <span className="deposit-row__text">
-                  <strong>
-                    {issue.number === undefined ? 'Koblingen' : `Bilde ${issue.number}`}
-                  </strong>
-                  <span className="hint">{issue.message}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="hint">
-            Bildene settes ikke inn så lenge dette står — verken helt eller delvis. Lag de bildene
-            det gjelder på nytt, og legg dem inn sammen med en oppdatert{' '}
-            <code>{IMAGE_MANIFEST_FILE_NAME}</code>.
-          </p>
-        </>
+      {needsConfirmation && (
+        <label className="hint" data-testid="image-deposit-acknowledge">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            disabled={busy}
+            onChange={(event) => setAcknowledgedFor(event.target.checked ? orderKey : null)}
+          />{' '}
+          Rekkefølgen stemmer: bildet øverst er bilde 1, det neste bilde 2, og så videre.
+        </label>
       )}
     </Modal>
   )

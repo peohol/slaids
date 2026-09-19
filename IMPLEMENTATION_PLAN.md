@@ -311,124 +311,108 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 
 ---
 
-## 7.2\. Bildekontekst, bildeplan og bildeprompt
+## 7.2\. Bildekontekst, bildeplan og seriebrief
 
 Slaids-agent-API-et genererer ikke rasterfiler; det er et bevisst skille mellom
 presentasjonsplanlegging og bildegenerering. Arbeidsflyten for rasterbilder er
 alltid den samme: agenten reserverer bildesonene, skriver bildeplan og felles
-bildekontekst, og Slaids setter sammen den ferdige bildeprompten for hver enkelt
-oppføring. **Bildeplanen er et
-mellomsteg, aldri en ferdig leveranse.** Har dekket planlagte rasterbilder, skal
-de genereres — det gjelder alltid når brukerbestillingen forutsetter bilder for
-å være oppfylt, også formuleringer som «med bilder», «bruk bilder» eller
-«bilder i hvert steg», men planlagte bildesoner er i seg selv nok. Selve
-bildegenereringen startes fra en endelig bildeplan etter at citations, øvrige
-innholdsendringer,
-validering/reparasjoner og visuell QA som kan endre bildesonene er ferdige. En
-plan lest tidligere i arbeidsflyten er foreløpig, og bildene skal ikke genereres
-fra den. Når bildesonene er stabile, leser klienten planen på nytt fra den
-endelige presentasjonstilstanden. Har vertsklienten innebygd bildegenerering,
-skal den starte umiddelbart, og den henter **én jobb om gangen**: en jobb er én
-ferdig `prompt` og koblingsdataene for akkurat den oppføringen, uten de andre
-oppføringene og uten noe antall. Neste jobb finnes først når den forrige er
-generert og meldt. At planen finnes i
-verktøyresponsen er ikke en fullført handoff; genereringen er
-først startet når bildegenereringsverktøyet faktisk er kalt, og oppgaven skal
-ikke avsluttes før det har skjedd. Endres bildeplanen etterpå, må den leses
-på nytt og de bildene genereres på nytt. Hvis direkte overlevering ikke finnes,
-genererer brukeren bildene selv: hver oppføring i bildebrief-dialogen har en
-**«Kopier prompt»**-knapp, og den ene rene prompten limt inn i en ny, tom
-ChatGPT-samtale lager akkurat det bildet. Denne direkte overleveringen gjelder
-starten på genereringen, ikke filreturen: de ferdige bildefilene går gjennom
-bildedeponeringen i 7.3 uansett. Slaids har ingen egen bildegenerering, ingen
-bilde-API og ingen filbro, og planlegger ingen — issue #89 er lukket som
-`not planned`.
+bildekontekst, og Slaids setter sammen den ferdige **seriebriefen** for hele
+dekket. **Bildeplanen er et mellomsteg, aldri en ferdig leveranse.** Har dekket
+planlagte rasterbilder, skal de bestilles — det gjelder alltid når
+brukerbestillingen forutsetter bilder for å være oppfylt, også formuleringer som
+«med bilder», «bruk bilder» eller «bilder i hvert steg», men planlagte
+bildesoner er i seg selv nok.
 
-**Slaids eksponerer ikke settet i genereringssteget.** Hver generering skal se
-ut som en fullstendig selvstendig oppgave, i kallet og i samtalen rundt det:
-ingen utskrevet samlet brief, ingen oppsummering av bildeplanen, ingen
-punktliste over bildene, ingen opptelling, ingen «bilde 1 av 10» og ingen «nå
-går jeg videre til neste bilde». Det er det beste grepet mot sammenslåtte
-bilder: en bildegenerator som får se at oppgaven er et sett, lager et sett —
-collage, kontaktark, storyboard eller ett helt slide-oppsett — og ingen regel
-mot collage veier opp for å ha vist den at settet finnes. Antallet finnes
-fortsatt i svaret, som kontroll av den ferdige leveransen
-(`expectedFileCount`), aldri som noe agenten gjentar.
+Briefen gis videre fra en **endelig** bildeplan, etter at citations, øvrige
+innholdsendringer, validering/reparasjoner og visuell QA som kan endre
+bildesonene er ferdige. En plan lest tidligere i arbeidsflyten er foreløpig, og
+briefen fra den er feil. Når bildesonene er stabile, leser agenten planen på nytt
+fra den endelige presentasjonstilstanden og gir brukeren `brief` **ordrett**, som
+én sammenhengende tekst. At planen finnes i verktøyresponsen er ikke en
+overlevering; leveransen er først gjort når briefen faktisk står i svaret til
+brukeren, sammen med hva hun skal gjøre med den. Endres bildeplanen etterpå,
+hentes briefen på nytt. Slaids har ingen egen bildegenerering, ingen bilde-API og
+ingen filbro, og planlegger ingen — issue #89 er lukket som `not planned`.
 
-**Og det er best effort, ikke en garanti.** Dette er en produktbeslutning og
-ikke en midlertidig begrensning: ChatGPTs bildeverktøy kan bruke den
-eksisterende samtalekonteksten, og Slaids kan verken hindre det eller bevise hva
-verktøyet faktisk så. Standardflyten reduserer lekkasjen så langt det er
-praktisk mulig — én bildejobb om gangen, én komplett selvstendig prompt, ingen
-søskenmotiver, ingen samlet brief nær genereringen, ingen opptelling, ingen
-intern bokføring inn i selve bildekallet — og instruksene sier dette som best
-effort. Slaids bygger ikke state-maskineri for å late som om det kan bevise noe
-annet.
+### Én bildeoppgave, N separate filer
 
-Å komponere prompten per oppføring var ikke nok alene: svarene bar fortsatt hele
-planen — hvert motiv, hver ferdige prompt, antallet — så agenten hadde settet
-foran seg i det første bildekallet ble skrevet. Derfor leser genereringssteget
-én jobb om gangen, bærer bildeplanens svar ingen ferdige prompter, følger den
-samlede briefen bare med når noen ber om den, og gjentar ikke skrivekallet
-tekstene det nettopp fikk.
+Skillet som avgjør alt i dette kapittelet er ikke «ett bilde om gangen» mot
+«alle på én gang». Det er:
 
-**Og her går grensen for hva Slaids kan håndheve, sagt rett ut.** Agenten
-*skriver* bildeplanen, så motivene har vært i samtalen dens uansett hva Slaids
-svarer etterpå; og om vertsklientens bildeverktøy arver den samtalen, er det en
-egenskap ved verten, ikke ved dette API-et. Slaids kontrollerer hva det selv
-eksponerer og når.
+- **én bildegenereringsoppgave som produserer N separate bildefiler** — ønsket;
+- **N bildegenereringsoppgaver med annet arbeid mellom seg** — ikke ønsket.
 
-Verktøyflatene er ikke like, og instruksen dekker begge. **Tar bildeverktøyet en
-prompt som parameter**, sendes `prompt` ordrett, ett kall, uten noe annet.
-**Utleder verktøyet prompten fra samtalen** — det gjelder flere verter, blant
-dem ChatGPT — er agentens siste melding i praksis prompten: da skrives `prompt`
-ordrett som den meldingen, alene, uten noe annet om bilder i samme tur. Det er
-grunnen til at jobben ikke bærer nummer, filnavn eller sone, og til at Slaids
-ikke gjentar planen i noe svar etter at den er skrevet: det som ligger nærmest
-generatoren skal være nøyaktig det ene motivet.
+Begge feilene er observert, og den andre overstyrte svaret på den første.
 
-Det er så langt dette API-et rekker. Kan klienten ikke begrense hva
-bildeverktøyet ser, skal agenten si det til brukeren i stedet for å love en
-isolasjon den ikke har. `CROSS_IMAGE_REFERENCE` hjelper mot de formuleringene
-som ellers ville reist inni ordren, men den er lint på kjente mønstre —
-«viderefør uttrykket fra resten av presentasjonen» går klar av enhver regex.
+**Den første:** en plan på åtte bilder ble sendt videre som én jobb, og det som
+kom tilbake var ett storyboard — åtte motiv på ett lerret, én fil, ingen
+nummerering, ingenting bildedeponeringen kunne plassere. Svaret på den var å
+slutte å vise noen hele planen: Slaids delte ut én ferdig, selvstendig prompt om
+gangen, agenten meldte koblingen tilbake etter hvert bilde, og neste jobb fantes
+først når den forrige var meldt.
 
-### Fallbacken: én ren prompt i en ny samtale
+**Den andre:** den løkken. Å veksle mellom ordinært agentarbeid og
+bildegenerering — hent jobb, generer, meld, hent neste — viste seg å være den
+upålitelige delen i praksis, og maskineriet som ble bygget rundt den
+(genereringsrekkefølge som egen tilstand, bindingsdata, manifest, avtrykk,
+workflow-stadier for meldte bilder) gjorde den ikke mer pålitelig. Det gjorde
+den bare vanskeligere å forstå, og det lot dekket bære påstander om bilder Slaids
+aldri hadde sett.
 
-Når best effort likevel svikter — flere planlagte motiver kommer tilbake som ett
-collage- eller storyboard-bilde — er svaret ikke flere advarsler i den samme
-samtalen. Det er en **støttet, førsteklasses brukerflyt**:
+Det som fungerer er det første problemet løst ordentlig: **én oppgave, N filer.**
+Seriebriefen er skrevet for nettopp det. Den åpner med å telle filene, gjentar
+tallet i hver seksjonstittel («BILDE 3 AV 8»), og avslutter med å be om dem som
+separate filer. Reglene under åpningslinjen svarer på den ordinære oppførselen
+til en bildegenerator som får en nummerert liste: ett bredt bilde med alle
+motivene ved siden av hverandre.
 
-1. brukeren åpner bildeplanen i Slaids;
-2. finner bildet som skal genereres;
-3. trykker **«Kopier prompt»** på den raden;
-4. åpner en helt ny ChatGPT-samtale;
-5. limer inn prompten;
-6. genererer akkurat det ene bildet der.
+Agentens del er liten og streng:
 
-Den nye samtalen gir den reelle kontekstisolasjonen ingen instruks kan gi.
+- briefen gis **ordrett**, som én tekst — ikke forkortet, ikke delt opp, ikke
+  oppsummert til agentens egen bestilling;
+- agenten kaller ikke et bildegenereringsverktøy selv, ber ikke om ett bilde om
+  gangen, og veksler ikke mellom presentasjonsarbeid og bildegenerering;
+- brukeren limer briefen inn i **én samtale** — gjerne en ny — som fra det
+  punktet bare er en bildegenereringsoppgave.
+
+En egen samtale gir isolasjonen ingen instruks kan gi: den har ingen annen
+kontekst enn bestillingen, og bestillingen sier selv, i første linje, i hver
+seksjonstittel og i siste linje, at N bilder betyr N separate filer.
+
+### Briefen bærer ingen Slaids-bokføring
+
+Den kopierbare teksten er optimalisert for én ting: at en bildegenerator lager
+den komplette serien riktig. Alt annet er støy som forteller leseren at oppgaven
+er administrasjon i stedet for N bilder.
+
+Derfor er ingenting av dette i briefen: bildeplan-id-er, slide- eller sone-id-er,
+filnavn, «skal brukes på slide …», manifest- eller hashinstrukser, bindingsdata,
+«ett kall per bilde», eller beskjed om å komme tilbake til Slaids mellom bildene.
+Nummeret er den eneste identifikatoren serien trenger, og det er der fordi hver
+seksjon skal kunne kjennes igjen som ett bilde.
+
+Bildenummeret, sonen og slideetiketten blir liggende strukturert i `images` ved
+siden av briefen, der de hører hjemme: de svarer på spørsmål Slaids og agenten
+har, ikke spørsmål en bildegenerator har. `composeImageBrief` har en test som
+holder hver enkelt av disse ute av teksten.
+
+### Fallbacken: ett enkelt bilde om igjen
+
+Kommer ett av bildene feil ut, eller mangler det, er svaret ikke å bestille hele
+serien på nytt. Brukeren åpner bildeplanen i editoren, finner bildet, trykker
+**«Kopier prompt»** og limer den ene prompten inn i en ny, tom samtale. Den står
+alene og sier ingenting om de andre, så det som kommer tilbake er det ene bildet.
 
 **Den kopierbare prompten er selvstendig.** Den kommer fra
-`composeImageGenerationPrompt`, den samme funksjonen `get_next_image_job`
-bruker — én compose-funksjon, to flater, så automatisk best-effort-generering og
-manuell fresh-chat-fallback bestiller nøyaktig det samme bildet. Den inneholder
-felles stil og kvalitetskrav, motivet, komposisjon/utsnitt, faglige krav, hva
-som skal unngås, riktig aspect ratio og generelle krav som «ingen tekst i
-bildet». Den nevner ikke at bildet inngår i en serie, en presentasjon eller en
-flerbildeplan.
+`composeImageGenerationPrompt`, satt sammen av de samme feltene seriebriefen
+bruker for det bildet — samme bestilling, uttrykt for en samtale som bare skal
+lage ett bilde. Én compose-funksjon, så serien og reparasjonen ikke kan beskrive
+det samme bildet forskjellig.
 
 **Intern bildeplan og brukerens genereringsprompt er to ting.** Slaids trenger
-fortsatt `imagePlanItemId`, bildenummer, filnavn, `slideId`, `nodeId`,
-slideetikett, bindingsdata og deponeringsmetadata — strukturert, internt og
-uendret. Ingenting av det skal inn i teksten brukeren kopierer: det er nyttig
-for Slaids og ren støy for en bildegenerator, og hvert av navnene sier «ett av
-flere». UI-et kan gjerne vise «Bilde 1», hvilken slide bildet hører til og hva
-filen skal hete — det er UI-metadata ved siden av knappen, ikke innhold på
-utklippstavlen.
-
-Planleggingen skjer i tre deler, og de er tre fordi de har tre forskjellige
-eiere: sonen eier formatet, planen eier motivet, og konteksten eier det som er
-felles for hele dekket.
+fortsatt bildenummer, `slideId`, `nodeId`, slideetikett og deponeringsmetadata —
+men ingenting av det skal inn i teksten brukeren limer inn. Editoren viser
+nummeret og sliden på raden, som orientering, og kopierer bare prompten.
 
 ### Bildesonen er reservasjonen
 
@@ -471,9 +455,8 @@ interface Presentation {
 - **Lagret adressert av sone, ikke av en lagret id.** Sonen bestemmer formatet,
   bærer plassholderen forfatteren leser, og er der den ferdige filen havner. En
   lagret id ved siden av ville vært én ting mer å holde i takt. Oppføringens
-  *utadvendte* identitet — `imagePlanItemId` — er derfor avledet av oppføringen
-  i stedet for lagret ved siden av den. Se «Oppføringens stabile identitet»
-  under.
+  Nummeret briefen og deponeringen bruker er dekkets rekkefølge, avledet i én
+  pass av `resolveImagePlan` — ikke et felt som kan komme ut av takt.
 - **Fire felt, ikke ett.** Hvert felt er én seksjon i prompten — og i briefen —
   og kontrolleres hver for seg: motivet er det som må skille to bilder fra hverandre,
   komposisjonen er det som må passe sonens form, og «unngå» er det som må bli
@@ -485,100 +468,6 @@ interface Presentation {
 Planen skrives hel om gangen (`setImagePlan`, agentens `plan_deck_images`), fordi
 nummereringen er en egenskap ved *settet*: en oppføring lagt til alene ville
 renummerert alt etter seg likevel.
-
-### Oppføringens stabile identitet
-
-Hver løste bildeoppføring har en id på formen `imgplan_<digest>`, og den er
-**avledet**, ikke lagret:
-
-```ts
-imagePlanItemId({ presentationId, slideId, nodeId, number, subject })
-```
-
-`fields` er alle fire tekstfeltene, `imageContext` er dekkets felles kontekst, og
-`aspectRatio`/`orientation` er formatet som faktisk står i prompten. Til sammen er
-det **hele bestillingen** – ikke bare motivet. Det som med vilje står utenfor, er
-alt en generator aldri får høre om: dekkets tittel, slidens tittel, de andre
-slidene, temaet. En endring der skal ikke ugyldiggjøre ferdige bilder.
-
-Den finnes fordi genereringsrekkefølge ble brukt som identitet, og det gikk galt
-på en måte ingen del av flyten kunne se. Slaids planla ni bilder i slide-orden,
-bildegeneratoren produserte dem i rekkefølgen 1, 3, 9, 6, 5, 8, 2, 4, 7, og
-filene ble navngitt `1`‥`9` **etter rekkefølgen de kom tilbake i**. Sju av ni
-bilder havnet på en slide de aldri var laget for, og hvert enkelt steg så
-vellykket ut: planen var riktig, antallet var riktig, filnavnene var
-velformede, og deponeringen plasserte nøyaktig det den fikk.
-
-Regelen som følger av det, og som resten av 7.2 og 7.3 håndhever:
-**genereringsrekkefølge er aldri identitet.** Et bilde er identifisert av
-oppføringen det ble generert fra, og nummeret er hva *filen* heter — lest av den
-oppføringen, ikke tellet opp mens filene kommer inn.
-
-Avledet i stedet for mintet, av tre grunner:
-
-- **ingen migrasjon og ingen drift.** En lagret tilfeldig id måtte vært skrevet
-  inn i hvert eksisterende dokument, holdt i takt av hver kommando som skriver
-  en plan på nytt, og kunne likevel endt med å navngi en oppføring som var
-  omskrevet siden;
-- **den dekker hele bestillingen, ikke en del av den.** Id-en er det ene som
-  reiser ut til en generator og tilbake, så den må dekke alt generatoren ble
-  fortalt. Første versjon dekket bare `subject`, og det var ikke nok:
-  `composition`, `requirements`, `avoid`, den felles bildekonteksten og det
-  målte formatet kunne alle skrives om mens et bilde generert fra den gamle
-  ordlyden fortsatt passerte kontrollen. Endres noe av det, endres id-en — og
-  det er akkurat hendelsen en deponering må avvise i stedet for å absorbere;
-- **motivet normaliseres** som ellers i modulen, så en rettet stor bokstav eller
-  et dobbelt mellomrom ikke er et nytt bilde.
-
-Filnavnet er den andre halvdelen av samme par: `imageFileNameStem` skriver det
-(oppføringens eget nummer) og `imageFileNumber` leser det tilbake. De ligger ved
-siden av hverandre fordi det er én regel, ikke to.
-
-Det id-en ikke sier noe om, er om filen noen leverer faktisk *er* den filen
-generatoren laget for den oppføringen. Det er et spørsmål om bytes, og det
-besvares under.
-
-### Koblingen til filens egne bytes
-
-En oppføring alene er metadata om en fil, og metadata kan være konsistent om de
-gale filene. Bytt innholdet i `1.png` og `2.png` og la hvert navn og hver
-oppføring stå: id-er, numre, soner og navn stemmer fortsatt, og to bilder ligger
-fortsatt på feil slide.
-
-Derfor *kan* en oppføring bære `contentHash` — SHA-256 av bytene
-genereringsresponsen returnerte — og der den gjør det, sammenligner deponeringen
-avtrykket med bytene i filen den får, **før** sanitering, optimalisering og
-innsetting.
-
-Tre grenser står eksplisitt, fordi et avtrykk lett blir lest som mer enn det er:
-
-- **Det er en ekstrakontroll, aldri et krav.** Den vanlige vertsklienten får
-  ikke tilgang til bytene sitt eget bildeverktøy produserte — ChatGPT gir et
-  bilde, ikke en buffer — så en flyt som ikke kunne gå videre uten avtrykk var
-  en flyt som ikke kunne fullføres: køen stoppet på et bilde som faktisk var
-  laget, og eneste vei ut var å lage det på nytt. En leveranse uten avtrykk er
-  en lovlig, **selvrapportert** leveranse: kontrollert mot planen, ikke mot en
-  fil, og omtalt slik. Manglende avtrykk låser aldri køen på samme bilde.
-- **Et avtrykk som finnes må tas fra genereringsresponsen selv**, i det den ene
-  filen kommer tilbake. Et avtrykk beregnet i ettertid, fra en mappe med ferdige
-  filer, fingeravtrykker den forvekslingen som allerede har skjedd og bekrefter
-  den.
-- **Det er filintegritet, aldri motivkontroll.** Et avtrykk som stemmer sier
-  «dette er filen som kom tilbake for den oppføringen». Det kan ikke si at
-  bildet viser det rette — ingenting her kan det, fordi Slaids aldri ser på
-  bildet. `ImageBindingCheck` er navngitt etter hva den dekker, så de to ikke
-  stilltiende slås sammen.
-
-`AssetRef.contentHash` kan ikke brukes til dette: den er over de *lagrede*
-bytene og svarer på et annet spørsmål (deduplisering). Sanitering skriver om en
-SVG, så en korrekt fil ville sett ut som en utbyttet fil. Selve hashen er
-`domain/assetHash.ts` sin, ikke en ny implementasjon.
-
-`'unchecked'` er derfor det vanlige utfallet, ikke et avvik: den som tilbyr
-leveransen sier det og ber om den kontrollen et menneske kan gjøre. Ingen
-leveranse rapporteres som verifisert på agentsiden — der er det bare
-`reporting: 'self-reported' | 'hash-reported'`, og ingen av dem er et bevis på
-at et bilde ble laget.
 
 ### Plassholderen på sliden
 
@@ -664,36 +553,40 @@ Motivene hører hjemme i bildeplanen.
 
 ### Prompten for ett bilde genereres
 
-`composeImageGenerationPrompt` setter sammen den ene teksten et bildekall
-bærer, og den ser **én** oppføring. Den inneholder dekkets felles bildekontekst
-som ren stil- og kvalitetsinstruks, oppføringens eget motiv, komposisjon,
-faglige krav og hva som skal unngås, og formatet målt fra den sonen bildet skal
-ligge i. Den inneholder ikke noe som forutsetter et bilde til: ingen opptelling,
-ingen nummerering, ingen `imagePlanItemId`, intet filnavn, ingen slide, ingen
-presentasjon og intet annet motiv. Bokføringen agenten trenger — id, nummer,
-filnavn, sone — ligger ved siden av prompten i `images`, ikke inni den.
+Seriebriefen er hovedflyten. `composeImageGenerationPrompt` er **reparasjonen**:
+ett bilde bestilt på nytt, alene, når bilde 5 kom feil ut eller aldri kom. Det er
+teksten editorens «Kopier prompt» legger på utklippstavlen, og den komponeres i
+domenet slik at serien og reparasjonen ikke kan beskrive det samme bildet
+forskjellig.
 
-Dette er isolasjonen som stopper sammenslåtte bilder, og den er strukturell:
-bestillingen for ett bilde var tidligere bare tilgjengelig som del av en *plan*,
-så en generator kunne ikke få ett bilde uten å få settet. Å dele svaret i en
-maskinhalvdel og en menneskehalvdel rettet prompten og lot lekkasjen stå — en
-agent kan kalle generatoren én gang per oppføring og likevel ha vist den hele
-planen, ved å skrive ut briefen, liste motivene eller melde antallet. Derfor
-finnes prompten, og derfor sier `generation.isolation` hva samtalen rundt kallet
-ikke får røpe.
+Den ser **én** oppføring. Den inneholder dekkets felles bildekontekst som ren
+stil- og kvalitetsinstruks, oppføringens eget motiv, komposisjon, faglige krav og
+hva som skal unngås, og formatet målt fra den sonen bildet skal ligge i. Den
+inneholder ikke noe som forutsetter et bilde til: ingen opptelling, ingen
+nummerering, intet filnavn, ingen slide, ingen presentasjon og intet annet motiv.
+En bestilling limt inn i en tom samtale er ett bilde; en leser som får se ni
+nummererte motiver har fått et sett å komponere.
 
-**Teksten kan lekke settet selv om prompten er isolert.** Feltene kopieres
-ordrett inn i prompten — det er det som gjør den til oppføringens egen
-bestilling — så «samme utsnitt som forrige bilde», «alle bildene skal ha samme
-stil» eller «bilde 2 av 8» ville reist rett til generatoren inni selve ordren.
+**En oppføring skal beskrive ett motiv som står på egne ben.** Feltene kopieres
+ordrett inn i seksjonen «BILDE n» i briefen — og i den enkeltstående prompten når
+bildet lages om igjen — så «samme utsnitt som forrige bilde» eller «bilde 2 av 8»
+er ikke en beskrivelse av et motiv, men en relasjon en generator like gjerne
+løser ved å slå to motiver sammen som ved å lage to filer.
 `crossImageReferences` finner slike referanser, og `checkImagePlan` melder dem
-som `CROSS_IMAGE_REFERENCE` på oppføringen eller på den felles bildekonteksten.
-Funn stopper genereringen: `nextImageJob` leverer ingen jobb før teksten står
-alene, og den spør de samme mønstrene én gang til av den ferdige prompten, som
-er siste punkt der teksten fortsatt er Slaids sin egen. Det som med vilje *ikke*
-fanges, er den nakne flertallsformen — «ingen tekst i bildene» navngir ikke noe
-annet bilde, og å melde den ville gjort kontrollen til noe forfattere går
-utenom.
+som `CROSS_IMAGE_REFERENCE` **på oppføringen**.
+
+Regelen gjelder med vilje *ikke* den felles bildekonteksten. Det var riktig så
+lenge konteksten ble kopiert inn i hver isolerte enkeltprompt: der navnga «alle
+bildene» bilder prompten ikke inneholdt. I seriebriefen står konteksten én gang,
+under «FELLES BILDEKONTEKST», øverst i en bestilling som åpent gjelder N bilder —
+«alle bildene skal ha samme fotorealistiske uttrykk» er nettopp det den
+overskriften er til for, og å avvise den ville sendt en ellers korrekt plan til
+`plan-needs-repair` og blokkert hele leveransen. Det konteksten fortsatt ikke får
+gjøre, er å beskrive ett enkelt bildes motiv; det er `CONTEXT_OVERREACH`.
+
+Det som med vilje heller ikke fanges noe sted, er den nakne flertallsformen —
+«ingen tekst i bildene» navngir ikke noe annet bilde, og å melde den ville gjort
+kontrollen til noe forfattere går utenom.
 
 Feltene «Unngå» viser hvorfor teksten genereres to steder fra samme data:
 briefen kaller seksjonen «Unngå i akkurat dette bildet», som bare betyr noe ved
@@ -701,510 +594,177 @@ siden av de andre oppføringene, mens prompten kaller den `Unngå`. Overskriften
 er avledet av briefens (`IMAGE_PROMPT_SECTION_HEADINGS`), med nettopp den ene
 forskjellen skrevet der den gjøres.
 
-### Den samlede briefen genereres, som intern halvdel
 
-`composeImageBrief` setter sammen hele planen som én menneskelesbar tekst:
-Slaids sin egen bildebrief-dialog, dokumentasjon, feilsøking og manuell
-kopiering når brukeren ber om den. Den skrives ikke ut i samtalen og er ikke en
-prompt — den teller bildene, nummererer dem og viser alle motivene samtidig, og
-det er nøyaktig det én bildegenerering ikke skal se. Alt som kan telles eller
-måles er avledet:
+### Seriebriefen genereres: leveransen
 
-- **antallet** er lengden på listen, aldri et tall noen har skrevet;
-- **nummereringen** er listens egen rekkefølge, i dekkets rekkefølge, som er den
-  samme N plassholderen på sliden sier;
-- **aspect ratio** er målt fra sonens rektangel (`panelFrame` trekker fra
-  tittellinjen på et `titled-image-card`) og skrevet som det minste hele
-  forholdstallet som fortsatt beskriver det;
-- **reglene om separate bilder** står øverst, fordi standardoppførselen til en
-  bildegenerator som får en nummerert liste er ett bredt bilde med alle motivene
-  ved siden av hverandre.
+`composeImageBrief` setter sammen hele bestillingen som én tekst, og det er den
+teksten agenten gir brukeren. Alt i den er avledet: antallet er lengden på
+listen, nummereringen er listens egen rekkefølge, og hvert aspect ratio er målt
+fra sonen bildet skal fylle. En brief som sier «lag 7 bilder» og lister seks er
+en brief som produserer seks, eller åtte — her er tallet, nummereringen og listen
+det samme arrayet.
 
-Malen bor i `src/domain/imagePlan.ts` og er dekket av tester.
-`docs/AGENT_PRESENTATION_DESIGN.md` gjengir den for lesere, men er ikke en andre
-normativ kilde.
+Malen, med det som er avledet i klammer:
 
-### Planen er N genereringsjobber
+```
+Lag nøyaktig [ANTALL] separate bilder til én presentasjon.
 
-Svaret bærer to halvdeler av den samme planen, og de har hver sin jobb. Den
-strukturerte listen — én oppføring per bildesone, hver med sin egen ferdige
-`prompt` — er den autoritative kilden når bildene genereres: **ett element = én
-selvstendig bildegenerering = én bildefil**. Den samlede briefen er intern og
-skal verken sendes til en bildegenerator eller skrives ut i samtalen.
+VIKTIGE REGLER FOR LEVERANSEN
+Hvert nummer nedenfor er én selvstendig bildefil.
+[ANTALL] bilder betyr [ANTALL] separate bildefiler.
+Ikke kombiner flere nummer i samme bilde.
+Ikke lag collage, kontaktark, storyboard, diptyk, split-screen,
+før/etter-paneler eller ett bredt bilde som viser flere av motivene samtidig,
+med mindre dette uttrykkelig står i beskrivelsen av akkurat det bildet.
+Bilde 1 skal bare vise motivet til bilde 1, bilde 2 bare motivet til bilde 2 osv.
 
-Skillet er ikke redaksjonelt. Én lang tekst med en nummerert liste i seg er én
-melding, og en bildegenerator som får én melding lager ett bilde: en plan på
-åtte bilder kom tilbake som ett storyboard — åtte motiv på ett lerret, én fil,
-ingen nummerering, og ingenting bildedeponeringen kunne plassere. Ingenting i
-flyten kunne se forskjell på det og en vellykket leveranse.
+Aspect ratio for hvert bilde er spesifisert eksplisitt.
+Følg dette forholdet så nøyaktig som bildegeneratoren tillater.
+Ikke gjør et stående eller nær-kvadratisk bilde liggende bare fordi motivet
+også kunne vært fremstilt i landskapsformat.
 
-`composeImageGenerationContract` er det som gjør forskjellen synlig, og er
-avledet av den samme løste planen briefen bygges av, så de to kan ikke bli
-uenige om antallet:
+Ingen tekst, etiketter, rammer eller infografikkelementer i bildene
+med mindre dette eksplisitt er bedt om for det aktuelle bildet.
 
-- **`expectedFileCount`** er antall separate bildefiler planen krever — alltid
-  én per oppføring, og det samme tallet deponeringen åpnes med. Det er en
-  kontroll av den ferdige leveransen, aldri noe som sies i samtalen;
-- **`rule`** sier at én oppføring er én hel genereringsoppgave, og hva kallet
-  får inneholde: bare den ene oppføringens `prompt`;
-- **`perImageInstruction`** sier at instruksen for ett bilde *er* oppføringens
-  `prompt`, og hva som skal holdes utenfor kallet — andre oppføringer, resten av
-  planen, slidetekst, id, nummer, opptelling og innledninger;
-- **`perImageSteps`** er løkken, ett nummerert steg om gangen: velg oppføringen
-  som mangler sin fil i stigende `number`, bruk dens `prompt` som hele
-  instruksen, kall generatoren én gang med bare den, knytt filen til samme
-  `imagePlanItemId` **før** noe annet gjøres, gi filen oppføringens eget
-  filnavn, kontroller koblingen, og gjenta. Rekkefølgen på stegene er selve
-  mekanismen: en agent som samler alle filene først og navngir dem etterpå har
-  ingenting igjen å knytte dem fra;
-- **`isolation`** sier hva samtalen rundt kallet ikke får avsløre. Det er den
-  halvdelen som ikke handler om kallet: reglene mot sammenslåtte bilder var
-  fulgt, og planen nådde generatoren likevel — gjennom en utskrevet brief, en
-  oppsummering, en opptelling eller en framdriftsmelding;
-- **`orderIsNotIdentity`** sier hvorfor rekkefølgen ikke kan brukes: «det første
-  bildet som kom tilbake» er aldri bilde 1;
-- **`fileNamePattern`** og **`fileExtensions`** er deponeringens eget
-  filnavnprotokoll, ikke en kopi av det;
-- **`beforeDeposit`** er de kontrollerbare linjene: nøyaktig N filer, numrene
-  1‥N én gang hver, hver `imagePlanItemId` brukt nøyaktig én gang, hver fil
-  knyttet til den oppføringen den ble generert fra, riktig format per fil, og at
-  ett collage-, storyboard-, kontaktark-, split-screen- eller infografikkbilde
-  aldri teller som flere bilder;
-- **`briefRole`** sier at den samlede briefen er intern — dokumentasjon,
-  feilsøking og manuell kopiering — og verken en genereringsprompt eller et steg
-  i normalflyten.
+FELLES BILDEKONTEKST
+[imageContext, ordrett]
 
-Stemmer antallet ikke, er bildegenereringen ikke ferdig: de manglende bildene
-genereres enkeltvis på nytt før deponering. Kontrakten legger ingenting til
-planen — den sier bare det oppføringene ikke kan si om seg selv: hvor mange av
-dem som utgjør en ferdig leveranse, hvordan én av dem utføres, og hva som ikke
-får eksponeres mens det skjer.
+BILDE [n] AV [ANTALL]
+Aspect ratio: [målt fra sonen] ([orientering])
 
-### Genereringen leser én jobb om gangen
+Motiv:
+[subject]
 
-`nextImageJob` er genereringsstegets egen flate, og den kan bare si én ting. En
-jobb er `imagePlanItemId`, formatet sonen ble målt til, og den ferdige
-`prompt`-teksten. Det er alt: ingen søskenoppføring, intet annet motiv, ingen
-samlet brief, intet totalantall — og **intet nummer, filnavn eller sone**.
+Komposisjon og utsnitt:
+[composition]
 
-Ordinalen er borte med vilje. «Den tredje», «den på den sliden» og `3.png` er
-fakta om et *sett*, og en vert der bildeverktøyet utleder prompten fra samtalen
-i stedet for å ta den som parameter ville hatt dem i konteksten i det bildet
-lages. De trengs ikke for å lage bildet, bare for å arkivere det, så
-koblingskontrollen svarer med navnet filen skal lagres under (`files`) i stedet.
-Kontrollen tar imot `imagePlanItemId`, filendelsen og — når verten faktisk gir
-tilgang til bytene — avtrykket, og henter nummer, sone og filnavn fra
-bildeplanen; en klient som selv har holdt styr på dem kan fortsatt sende dem, og
-da kontrolleres de mot planen som før.
+Faglige krav:
+[requirements]
 
-Køen er dokumentet, ikke en teller: «neste» avledes av planen og de lagrede
-koblingene hver gang, så en avbrutt samtale plukker opp der dekket står.
+Unngå i akkurat dette bildet:
+[avoid]
 
-**En oppføring forlater køen i det en kobling er lagret for den.** Noe sterkere
-finnes ikke, og noe sterkere er prøvd: oppføringen ble tidligere stående til
-koblingen bar et avtrykk av bytene, med en erklæring (`bytesUnavailable`) som
-eneste andre lovlige svar. Den vanlige vertsklienten får ikke tilgang til de
-bytene, så den samme jobben kom tilbake i det uendelige på et bilde som faktisk
-var laget, og eneste vei ut av løkken var å generere det på nytt. En kø som ikke
-kan fullføres er verre enn en kø som stoler på det den får vite.
+… én slik seksjon per oppføring, i dekkets rekkefølge …
 
-Så en kobling er et **selvrapport**, og den behandles som det hele veien: køen
-går videre, `imageGenerationIsReported` sier «meldt» og ikke «verifisert», og
-ingenting gjør `complete` true annet enn at filene faktisk kommer inn i dekket.
-**Derfor heter enden på køen `all-reported`, ikke `all-generated`.** Koblingen
-skrives av den samme parten som ville skrevet den om den hoppet over
-generatoren, så en tom kø er et faktum om *koblingene*; et navn som sa «generert»
-ville vært det ene stedet denne flyten påsto noe den ikke kan se.
+FØR GENERERING
+Kontroller at det er nøyaktig [ANTALL] separate bilder i listen,
+at hvert bilde har ett eksplisitt aspect ratio,
+at hvert nummer beskriver ett entydig motiv,
+og at motivene ikke utilsiktet er slått sammen eller gjort til varianter
+av det samme bildet.
 
-Et avtrykk er fortsatt verdt å be om når verten har bytene: **deponeringen
-sammenligner det med filens egne bytes og avviser hele settet når det ikke
-stemmer**, så et oppdiktet avtrykk kjøper en tur gjennom køen og en leveranse
-nettleseren nekter å ta imot. Det er det nærmeste denne arkitekturen kommer et
-ikke-forfalskbart signal, og det ligger der bytene er. Men det er en
-ekstrakontroll, ikke et vilkår, og det er nettopp fordi det ikke er et vilkår at
-den ærlige verten kommer videre til neste bilde.
+Generer deretter alle [ANTALL] bildene i denne ene oppgaven, som [ANTALL]
+separate bildefiler – én fil per nummer, aldri ett bilde som inneholder
+flere av motivene.
+```
 
-Planens egne kontroller går foran: er `checkImagePlan` ikke tom, leveres ingen
-jobb, og svaret sier hva som skal rettes. Det gjelder særlig
-`CROSS_IMAGE_REFERENCE`, som er det ene funnet som ellers ville *reist* med
-ordren.
+**Den felles bildekonteksten står én gang**, under sin egen overskrift, øverst.
+Serien *er* én oppgave, så «slik skal alle se ut» er riktig å si der — og å si
+det én gang er det som hindrer at den gjentas i N litt forskjellige varianter
+nede i seksjonene.
 
-`plan_deck_images` og `get_image_brief` bærer derfor ingen `prompt` i det hele
-tatt, og `brief` er tom med mindre kallet ber om den (`includeBrief`). Å ligge i
-svaret er å ligge i konteksten det neste bildekallet skrives fra.
+**Tomme felter utelates.** En overskrift over ingenting er en instruks om å tegne
+ingenting bestemt, og den leses av forfatteren som en defekt i briefen i stedet
+for som et hull i planen. Bare valgfrie felter kan være tomme:
+`REQUIRED_PLANNED_IMAGE_FIELDS` avvises blanke av kommandoen og av skjemaet.
+
+**For ett planlagt bilde er teksten grammatisk riktig i entall.** «Lag nøyaktig 1
+bilde til én presentasjon», «Oppgaven er ett bilde, og leveransen er én
+bildefil», og reglene om å kombinere flere nummer utelates — det finnes ikke noe
+å kombinere det med. `BILDE 1 AV 1` står fortsatt, fordi seksjonsformen er den
+samme uansett antall.
+
+`null` når dekket ikke planlegger bilder. En brief for ingenting er en melding med
+«lag nøyaktig 0 bilder» øverst.
 
 ### Bildeplanen er et mellomsteg: `workflow`
 
-Kontrakten over sier hvordan bildene lages. Den sier ikke om de er laget, og det
-var nettopp det som manglet. En agent bedt om å lage et illustrert foredrag
-bygget dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og
-avsluttet samtalen med «presentasjonen er opprettet, bildene er ikke satt inn
-ennå». Alle reglene om bildegenerering lå i det svaret, som prosa. Det som ikke
-lå der, var det ene som betydde noe: at arbeidet ikke var over.
+Malene over sier hva bildene skal være. De sier ikke om de finnes, og det var
+nettopp det som manglet. En agent bedt om å lage et illustrert foredrag bygget
+dekket, skrev bildeplanen, leste et svar med tom `issues`-liste og avsluttet
+samtalen med «presentasjonen er opprettet, bildene er ikke satt inn ennå». Alle
+reglene om bildene lå i det svaret, som prosa. Det som ikke lå der, var det ene
+som betydde noe: at arbeidet ikke var over.
 
 En regel til ville ikke hjulpet — reglene fantes. Derfor er tilstanden **avledet
 av dekket** og returnert ved siden av planen, av `composeImageWorkflowStatus`, i
-svaret fra `plan_deck_images`, `get_image_brief` og `verify_image_handoff`.
+svaret fra `plan_deck_images` og `get_image_brief`.
 
-#### Hva dekket kan se, og hva det ikke kan
+#### Det eneste dekket kan observere
 
-Det avgjørende er å ikke besvare spørsmålet med det feil faktumet. **Slaids ser
-aldri en generert bildefil.** Bildene lages i vertsklienten, og de kommer inn
-gjennom *brukerens* deponering i nettleseren. «Denne sonen har en
-fil» er altså et faktum om deponeringen, ikke om genereringen, og det å bruke
-det som begge er en modellfeil med en konkret konsekvens: alle N bilder kan være
-generert og korrekt verifisert mens dekket fortsatt har 0 `assetId`, og et
-stoppkriterium bygget på fylte soner blir uoppnåelig i nøyaktig den
-arbeidsflyten det ble skrevet for — og ber i praksis om at bildene genereres om
-igjen.
+**Slaids ser aldri en generert bildefil, og er aldri i rommet når en lages.**
+Bildene lages i en samtale Slaids ikke er med i, og de kommer inn gjennom
+*brukerens* deponering i nettleseren. Det finnes derfor nøyaktig én observerbar
+hendelse i hele flyten: at en bildesone holder en fil.
 
-Derfor to separate tall og én sannhetskilde:
+Alt denne modulen rapporterer er avledet av det ene faktumet og av planen. Det er
+korreksjonen dette kapittelet bærer. Dekket lagret tidligere hva agenten *sa* den
+hadde generert — `Presentation.generatedImages`, én kobling per fil, med id,
+nummer, sone, filnavn og eventuelt et avtrykk — og en slik kobling var like
+billig å produsere ved å kopiere planen som ved å lage bildene. Alle feltene sto
+i planen før noe bilde fantes, og avtrykket hadde Slaids ingen fil å holde det
+opp mot. Feltet er fjernet (schemaVersion 17 dropper det), og Slaids later ikke
+lenger som om det vet at et bilde er laget.
 
-- **`plannedImageCount`**, **`depositedImageCount`** og **`awaitingFileCount`**
-  sier det Slaids kan observere, med de ordene: hvor mange oppføringer planen
-  har, hvor mange soner som holder en fil, og hvor mange som står tomme.
-  `awaitingFileCount` er hva Slaids mangler — aldri hvor mange bilder agenten
-  skylder.
-- **Hva som er *meldt*, svarer `imageGenerationIsReported` på:** har hver
-  planlagt oppføring en kobling som gjør rede for planen dekket har nå? Det er
-  et ja/nei om koblingene, aldri et bevis på at et bilde er laget, og statusen
-  leser det heller aldri av en fylt sone alene. Om koblingene i tillegg bærer
-  avtrykk er en egen opplysning på agentsvaret (`reporting`), ikke et eget
-  stadium: et stadium for «meldt uten avtrykk» fikk normalflyten til å se ut som
-  en defekt flyt og stoppet køen på et bilde som var laget.
+#### Stadiene
 
-#### Ingenting agenten skriver kan fullføre dekket
-
-En kobling består av `imagePlanItemId`, nummeret, sonen, filnavnet og — når
-verten har bytene — `contentHash`. De fire første sto i bildeplanen *før* noe
-bilde ble laget, og avtrykket er 64 tegn Slaids ikke har noen fil å sammenligne
-med — API-et er aldri i rommet når et bilde lages. En komplett,
-selvmotsigelsesfri koblingsliste kan derfor skrives av planen uten å kalle en
-bildegenerator i det hele tatt, og ingen kontroll på denne siden kan se
-forskjell.
-
-Å kreve avtrykket var feil svar på det. Kravet gjorde normalflyten umulig å
-fullføre og stoppet køen på bilder som var laget, og eneste vei ut var
-duplikatgenerering. Det som faktisk lukker snarveien, er at **ingenting agenten
-skriver kan gjøre dekket ferdig**: fullføring hviler på det ene som ikke kan
-påstås — **en fil i dekket.** `complete` blir true i `images-in-deck`, der hver
-planlagt bildesone holder en fil, og i `no-planned-images`. Filene kommer inn
-gjennom brukerens deponering i nettleseren, som også er det eneste stedet et
-avtrykk faktisk sammenlignes med bytes. `awaiting-deposit` er derfor
-`complete: false` selv når agenten er ferdig med sitt: det er `remainingSteps`
-som sier hva som gjenstår for *den*, og den kan avslutte når grenen som gjelder
-er utført.
-
-En kobling uten avtrykk er den vanlige leveransen, ikke en dårligere variant.
-Den lagres, oppføringen forlater køen, og genereringen omtales som
-selvrapportert — aldri som kontrollert.
-
-#### Koblingene lagres, fordi ett kall ikke er en tilstand
-
-Det holdt ikke å la kontrollen svare. Første forsøk lot bare
-`verify_image_handoff` kjenne utfallet, og da var sekvensen inkonsistent: planen
-ble skrevet, N filer generert, kontrollen svarte «ferdig» og
-`complete: true` — og neste `get_image_brief` på *nøyaktig samme dekk* svarte
-`awaiting-generation` og ba om N nye genereringskall, fordi sonene fortsatt var
-tomme. Det er den samme duplikatgenereringen regelen forbyr, ett kall senere.
-
-Derfor lagres koblingene på dokumentet (`Presentation.generatedImages`), og
-`verify_image_handoff` er en mutasjon: den skriver koblingene som gikk gjennom,
-og bare dem. Den tar imot **én oppføring om gangen** og fletter den inn i det
-dekket alt har, fordi løkken er «generer, kontroller, hent neste»:
-`MISSING_ITEM` er planen som venter på en jobb som ikke er gjort ennå, ikke noe
-galt med denne leveransen, mens alt annet — ukjent id, duplikat, feil nummer
-eller sone — avvises mot det *flettede* settet, slik at et andre kall ikke kan
-motsi det første. `planCovered` sier når hele planen er dekket, og manifestet
-skrives først da, av de lagrede koblingene: deponeringen tar imot 1‥N, og et
-manifest med én av dem er ingen leveranse. `imageGenerationIsVerified` spør `checkGeneratedImages` om de lagrede
-koblingene på nytt hver gang, mot planen dekket har *nå* — det er ikke et flagg.
-
-Det gir utløpet gratis, og det er egenskapen som gjør lagringen trygg å stole
-på: en oppførings `imagePlanItemId` dekker hele bestillingen, så et omskrevet
-motiv eller en omskrevet felles bildekontekst gjør de lagrede koblingene til
-`PLAN_CHANGED`, og et bilde laget for en bestilling dekket ikke lenger har kan
-ikke melde seg ferdig. `setImagePlan` rydder bort koblinger som ikke lenger
-resolverer, så dokumentet ikke samler påstander om bilder ingen har bestilt.
-
-Selve *formen* på en kobling bor i `domain/imageBinding.ts`, importert både av
-manifestet som kommer med filene og av dokumentskjemaet. To definisjoner ville
-vært den enkle veien og den gale: en kobling som er lovlig i et manifest og
-ulovlig på dokumentet er en leveranse som validerer på vei inn og feiler på vei
-ut.
-
-#### Stegene
-
-| `stage` | `complete` | Hva det betyr |
+| `stage` | `complete` | Betyr |
 | --- | --- | --- |
-| `no-planned-images` | ✔ | Dekket planlegger ingen bilder, og ingen bildesone venter. |
-| `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Gjelder foran alle ferdig-grener. |
-| `awaiting-generation` | ✗ | Oppføringer venter på bilder, og ingen kobling gjør rede for settet. |
-| `images-in-deck` | ✔ | Hver planlagt oppføring er meldt, og hver planlagt sone har fått sin fil: ingenting Slaids kan se er utestående. |
-| `awaiting-deposit` | ✗ | Hele planen er meldt, og filene er ikke i sonene ennå — tomme soner, eller soner som fortsatt viser forrige bilde. Agenten kan være ferdig; dekket er det ikke. |
-| `plan-outdated` | ✗ | En fil i en sone svarer ikke på den bestillingen som gjelder — eller ingen kobling gjør rede for den. |
+| `no-planned-images` | ✓ | Dekket planlegger ingen rasterbilder. Ingenting utestående. |
+| `plan-needs-repair` | ✗ | `checkImagePlan` har funn. Planen rettes og skrives på nytt først. |
+| `plan-outdated` | ✗ | Noen planlagte bildesoner har alt en fil, og andre ikke. Briefen bestiller hele planen, så slik den står bestiller den bilder dekket allerede har. |
+| `awaiting-images` | ✗ | Planen er i orden, og leveransen står igjen: gi brukeren briefen. |
+| `images-in-deck` | ✓ | Hver planlagt bildesone har fått en fil. |
 
-Planens egne kontroller leses **før** enhver ferdig-gren. Det er ikke en detalj:
-et dekk med reserverte bildesoner og ingen bildeplan planlegger null bilder, og
-rapportert som ferdig ville den billigste feilen som finnes — reservere sonene og
-aldri beskrive dem — lest som en leveranse. Samme rekkefølge gjør at et dekk med
-planfeil ikke kan bli `complete` selv om hver sone har fil, i tråd med statusens
-eget `completionCriteria` om at `issues` skal være tom.
+Rekkefølgen på grenene er designet. Planens egne kontroller leses først, så et
+dekk med ventende bildesoner og ingen plan i det hele tatt — som planlegger null
+bilder — ikke kan rapportere den billigste feilen som en leveranse. `plan-outdated`
+kommer før ferdig-grenene av samme grunn: en plan som holder en ferdig sone er en
+plan som ikke lenger beskriver det den påstår.
 
-#### To sannheter en lagret kontroll ikke er
-
-Persistensen løste at kontrollen var et faktum om ett kall, men den innførte to
-nye overdrivelser, og begge er rettet.
-
-**Den kan ikke slettes bort.** Reparasjonen statusen navnga i `plan-outdated` —
-«skriv planen på nytt med bare sonene som fortsatt venter» — er en *tom* plan på
-et fullt deponert dekk. `setImagePlan([])` prunet så koblingene, og resultatet
-var `no-planned-images` og `complete: true` med de gamle bildene stående under
-den nye bestillingen: reparasjonsveien gjeninnførte akkurat feilen den skulle
-forhindre. Dekket hadde informasjonen hele tiden, og nå brukes den.
-`staleGeneratedImages` skiller «ingen kjent proveniens» (en fil i en sone uten
-noen kobling — en manuell opplasting, et eldre dekk) fra «samme sone har en
-lagret kobling hvis oppføring siden er skrevet om», og `pruneGeneratedImages`
-beholder den andre så lenge bildet fortsatt ligger i sonen. En `PLAN_CHANGED`
-kan derfor ikke forsvinne ved at planen tømmes; den krever at bildene lages om,
-eller at brukeren uttrykkelig velger å beholde dem.
-
-**Den er ikke et bevis på at filene er lagt inn.** En kobling sier at bildet ble
-laget, ikke at det er bildet som ligger i sonen. Etter en omskrevet bestilling
-er reparasjonen å generere erstatningene — og i det øyeblikket holder sonene
-fortsatt de *gamle* filene, samtidig som hver planlagt sone har en fil. Å la de
-nye koblingene erstatte de gamle gjorde da dekket blindt for nettopp det, og
-statusen meldte erstatningene som «lagt inn i dekket». Derfor beholder
-`recordGeneratedImages` koblingen den erstatter, så lenge det gamle bildet
-fortsatt er det som står i sonen, og statusen skiller:
-
-- **superseded** — sonen er planlagt igjen, altså er en erstatning bestilt. Er
-  den laget og kontrollert, er dette `awaiting-deposit`; er den ikke laget ennå,
-  er det `plan-outdated` med beskjed om å generere **hele planen**. De to
-  gruppene — soner som viser forrige bilde og soner uten bilde — er disjunkte
-  deler av samme plan, og `checkGeneratedImages` venter én record per *planlagt*
-  oppføring uansett hvilken gruppe sonen er i. Et antall som bare dekket den
-  ene ville sendt agenten inn i `MISSING_ITEM` på resten.
-- **unaddressed** — ingen bestilling dekker sonen. Det stopper flyten, og det er
-  dette som må overleve en tømt bildeplan.
-
-Koblingen slutter å gjelde i det bildet i sonen faktisk byttes:
-`dropSupersededBinding` kalles fra både `setImageAsset` og `setZoneContent`, som
-er de to veiene et bilde kan komme inn i en sone. Det er det ene tidspunktet
-dekket kan vite det, siden ingenting på panelet husker hvilken bestilling filen
-kom fra.
-
-Og siden en re-planlagt sone faktisk skal få et nytt bilde, kan en **fullført
-deponering åpnes igjen**: `openImageDeposit` slipper til når dekket har
-planlagte soner som mangler fil eller holder et bilde fra en tidligere
-bestilling. Det gamle «ingenting kan sette den tilbake til `pending`» beskyttet
-mot at et *ferdig* dekk åpnet seg uten grunn — ikke mot et dekk som har nye
-bilder på vei. En `abandoned` deponering er fortsatt endelig: der har noen sagt
-nei til den automatiske flyten.
-
-Reåpningen skjer gjennom `syncImagePlaceholders`, og derfor kaller
-**`setImageContext` den også**: den felles bildekonteksten er del av hver
-oppførings identitet, så å skrive den om re-identifiserer hele planen på én
-gang. Uten det kunne konteksten endres på et ferdig dekk, statusen be om
-erstatninger, og deponeringen fortsatt være lukket — agenten bedt om å levere
-filer ingenting kunne ta imot. Andre endringer som re-identifiserer en
-bestilling uten å skrive planen (en flyttet slide, en delt sone) fanges ikke av
-et kall, men av statusen: `depositNote` sier at bildeplanen må skrives på nytt
-før filene leveres, og bare når deponeringen faktisk er lukket. Alternativet —
-at hver strukturell kommando husker å reconcile — er nettopp regelen
-`syncImagePlaceholders` finnes for å slippe.
-
-#### Hva dekket aldri kan vite om en fil
-
-`images-in-deck` betyr at hele planen er meldt og at hver planlagt sone holder
-en fil. Det betyr **ikke** at hver sone holder nettopp den filen som ble laget
-for den, og det kan det ikke: Slaids ser aldri et bilde, og
-`assetHash.ts` slår fast at en registrert innholdshash er rådgivende og aldri
-bærende — det er derfor deduplisering avgjør på de lagrede bytene og ikke på
-hashen. Et bilde byttet for hånd etterpå er ikke til å skille fra det som ble
-deponert.
-
-Identitet blir bevist ett sted, og bare når verten hadde bytene: i
-deponeringsdialogen, som sammenligner manifestets avtrykk mot bytene i filen den
-fikk før noe settes inn. Det er en egenskap ved den leveransen, ikke ved
-dokumentet etterpå, og de fleste leveranser har ingen avtrykk å sammenligne.
-Derfor sier hvert terminalt stadium at bildene fortsatt skal ses gjennom.
-
-**Å være meldt er heller ikke et bevis på at noen kan levere filene.** Koblingene overlever en
-reload; bildefilene gjør ikke det — Slaids lagrer aldri en generert fil. En
-senere samtale kan derfor åpne et verifisert, ikke deponert dekk uten tilgang
-til bildene den forrige samtalen laget. Derfor er `awaiting-deposit` sitt eget
-stadium: genereringen *var* agentens arbeid og er gjort, men handlingen må
-fungere for en økt som ikke har filene. Statusen sier begge veier — lever dem
-med manifestet hvis du har dem, si det og lag dem på nytt hvis du ikke har dem —
-og forbudet mot å regenerere et godkjent bilde gjelder bare så lenge man har
-filen. Leveransestegene har dessuten sin egen `forbiddenClosings`, der forbudet mot å
-generere om igjen bærer unntaket i seg selv — «så lenge du selv har filen» — så
-ingenting står i veien for å lage dem på nytt for den som ikke har dem, og
-`remainingSteps` er ikke tom der, så den blir ikke fortalt at den er ferdig. Det ene som aldri er lov, er å melde dekket
-ferdig til brukeren uten å si hva som faktisk gjenstår. Hva det er, avhenger av
-tilstanden: i `awaiting-deposit` står noen soner tomme og andre viser fortsatt
-bildet fra forrige bestilling, mens ingen sone er tom i `images-in-deck`.
-Statusen sier hvilket av delene dekket har, og agenten gjentar den i stedet for en
-fast setning.
-
-#### Hvorfor `plan-outdated` finnes
-
-`plan-outdated` gjør to jobber, og begge kommer av at bildeplanens kontrakt er
-«én oppføring per bildesone som *venter* på en fil».
-
-Den ene er ærlighet om proveniens: en fil i en sone er ikke i seg selv bevis for
-at den ble laget for bestillingen planen bærer nå, og ingenting på panelet
-husker hvilken bestilling filen kom fra — men de lagrede koblingene gjør det når
-de finnes, og et `PLAN_CHANGED` der er nettopp den påstanden. Den andre er en selvmotsigelse den fjerner. Tidligere
-brukte `awaiting-generation` `awaitingFileCount` som antall bilder å generere,
-mens `images` fortsatt listet alle oppføringene og `checkGeneratedImages`
-forventer én record per *planlagt* oppføring: med tre oppføringer der én sone
-alt hadde fil, sa statusen «kall bildegeneratoren 2 ganger», og en agent som
-fulgte den fikk `MISSING_ITEM` på den tredje. Nå er en slik plan `plan-outdated`
-i stedet, og veien videre er å skrive den på nytt med bare sonene som venter —
-aldri å generere den eksisterende filen om igjen. I `awaiting-generation` er
-`awaitingFileCount` derfor lik `plannedImageCount` ved konstruksjon, og lik det
-kontrollen forventer.
+**`images-in-deck` sier ikke at filen i sonen viser motivet som ble bestilt.** Det
+sier at hver planlagt sone holder en fil, og at ingenting dekket kan se er
+utestående. Slaids ser aldri et bilde, så et bilde byttet for hånd etterpå er
+ikke til å skille fra det som ble deponert — bildene skal ses gjennom i tillegg,
+og hver terminal tilstand sier det.
 
 #### Feltene agenten leser
 
-- **`complete`** er et faktum om *dokumentet*, og bevisst om det ene ingen kan
-  påstå fram: at bildene ligger i dekket. Det er aldri en rapport om agentens
-  arbeid, og false betyr ikke at agenten skylder noe — `awaiting-deposit` er
-  false mens agenten godt kan være ferdig. Den
-  asymmetrien er poenget: koblingene lagres på dekket, bildefilene gjør ikke
-  det, så et kontrollert dekk sier at bildene ble laget *én gang*, av den som
-  holdt den samtalen. En senere økt kan lese de samme koblingene uten å ha en
-  eneste av filene — og skylder bildene på nytt. Og false sier aldri av seg selv
-  at det er generering som gjenstår: `plan-needs-repair` og begge
-  `plan-outdated`-variantene er også false, og der skal planen repareres eller
-  skrives om først. Derfor henger genereringsteksten i agentregelen på stadiet
-  som krever den, ikke på boolskeverdien, og en stopp avgjøres på
-  `remainingSteps`.
-- **`nextAction`** navngir neste handling med dekkets eget tall i seg;
-  **`remainingSteps`** er det agenten fortsatt skylder, i rekkefølge, og peker
-  på `generation.perImageSteps` i stedet for å kopiere løkken. Det er
-  `remainingSteps` en stopp avgjøres på, fordi det er det eneste feltet som kan
-  bære en betingelse: i `awaiting-deposit` kan dekket ikke vite hvilken av to
-  lesere det svarer — den som har filene den nettopp laget, eller den som åpner
-  et kontrollert dekk uten dem — så begge stegene står, hver med betingelsen som
-  velger det. En tom liste der ville sagt «ingenting å gjøre» til den halvparten
-  som skylder alle bildene. Tom er den bare i `no-planned-images` og
-  `images-in-deck`. Stoppen er derfor «du har gjort det steget som gjelder
-  deg», aldri «listen ble tom»: i `awaiting-deposit` blir den ikke tom av noe
-  agenten gjør — å levere filene er ingen endring av dokumentet, og dekket går
-  videre først når *brukeren* deponerer dem. En regel som ventet på en tom liste
-  ville vært en regel om å vente på en nettleserhandling agenten ikke kan
-  utføre, altså den samme feilen sett fra motsatt kant.
-- **`completionCriteria`** er hva fullført krever, målt på filene og koblingene:
-  like mange separate filer som planen har oppføringer, én fil per
-  `imagePlanItemId`, i det aspect ratio oppføringen oppgir, meldt med den
-  `imagePlanItemId` filen ble generert fra. Avtrykket er nevnt som **en ekstra
-  kontroll når verten har bytene**, aldri som et vilkår: kriteriet kunne ikke
-  kreve SHA-256 av alle, for da ville agentens definisjon av ferdig vært umulig
-  å oppfylle for den vanlige vertsklienten samtidig som dekket kunne bli
-  `complete: true` etter deponering — to definisjoner av ferdig i samme modell,
-  og den uoppnåelige var agentens. Det listen sier i stedet, er at kontrollen
-  svarer `ok` for hele planen, og at genereringen da er *selvrapportert*: Slaids
-  har sammenlignet koblingen med bildeplanen, aldri med en fil, så den skal
-  omtales som meldt og ikke som verifisert. Den samlede briefen er uttrykkelig
-  *ikke* et kriterium: den var det, og det gjorde utskrift av hele bildeplanen
-  til en betingelse for å bli ferdig.
-  De to siste linjene skiller de to spørsmålene: koblingskontrollen er så langt
-  agentens arbeid rekker, mens `complete` først blir true når filene er
-  deponert — og deponeringen er brukerens steg, aldri noe agenten venter på.
-- **`forbiddenClosings`** navngir avslutningene som er gale på *dette* stadiet,
-  ikke de som er gale mens `complete` er false. Genereringslisten —
-  «presentasjonen er opprettet», «bildene er ikke satt inn ennå», «bildeplanen er
-  klar», å be om en ny brukerbeskjed, og å kalle en selvrapportert generering
-  kontrollert — gjelder der bildene fortsatt skal lages. De tre første er sanne
-  setninger om et halvferdig dekk, og det er nettopp derfor de ble valgt.
-  Leveransestegene har sin egen liste, fordi «bildene er ikke satt inn ennå, og
-  arbeidet er ditt» er stikk motsatt for filer som venter på brukerens
-  deponering: der er det å overdrive hva leveransen beviser, og å melde dekket
-  ferdig med tomme bildesoner, som er galt.
+- **`complete`** er en påstand om *dokumentet*: de planlagte bildene ligger
+  faktisk i dekket. Den kan bare bli sann av at brukeren deponerer filene. Den er
+  derfor aldri en kvittering for agentens arbeid, og `complete: false` er aldri i
+  seg selv en beskjed om at agenten skylder noe.
+- **`nextAction`** sier hva som skal gjøres nå, med dekkets egne tall i seg.
+- **`remainingSteps`** er det stoppet avgjøres på. Er listen tom, er agenten
+  ferdig. Er den ikke tom, gjør agenten det den sier og avslutter når **det** er
+  gjort — ikke når listen blir tom, for den blir ikke tom av noe agenten gjør:
+  det er brukerens deponering som endrer dekket, og den venter agenten aldri på.
+  Stegene i leveransestadiene er: hent briefen, gi den ordrett til brukeren, og
+  si hva hun skal gjøre med den.
+- **`completionCriteria`** er hva fullført krever, og listen er den samme
+  `IMAGE_WORKFLOW_COMPLETION_CRITERIA` agentinstruksen er bygget av. To kopier av
+  en definisjon av ferdig er nettopp hvordan en leveranse kommer til å oppfylle
+  den ene av dem.
+- **`forbiddenClosings`** navngir avslutningene som er gale: «presentasjonen er
+  opprettet» uten at briefen er gitt, «bildeplanen er klar», å be om en ny
+  brukerbeskjed, å vente på deponeringen, å skrive briefen om til sin egen
+  oppsummering, og å påstå at bildene er laget eller kontrollert.
 
-Listene bor i `domain/imageWorkflow.ts` sammen med statusen som rapporterer
-dem, og `agent/design.ts` importerer dem inn i agentinstruksen. Det er poenget:
-den stående instruksen og dekkets eget svar er samme liste, og en leveranse kan
-ikke tilfredsstille én av dem.
+Én liste med forbudte avslutninger, ikke to. Det fantes en egen liste for «etter
+at leveransen er gjort», og den krevde et stadium som visste at filene var
+overlevert — noe Slaids ikke kan vite, siden bildene lages i en annen samtale. Det
+er derfor ett utestående stadium og ett sett gale avslutninger for det.
 
-### Sluttkontrollen av koblingen
+#### Hvorfor `plan-outdated` finnes
 
-Antallet var ikke nok. Ni riktige bilder navngitt etter rekkefølgen de kom
-tilbake i er ni filer med velformede navn, riktig antall og feil kobling, og en
-kontroll som teller ser ingenting. Så koblingen kontrolleres for seg, og den
-kontrolleres av noen andre enn modellen som laget den:
+Briefen bestiller hele planen, og deponeringen venter én fil per planlagt
+oppføring. En plan som beholder en sone som allerede har fil, bestiller derfor et
+bilde dekket har, og ber brukeren om en fil å overskrive det med. Veien ut er å
+skrive planen på nytt med bare sonene som fortsatt venter — den samme
+reparasjonen deponeringens egen nummerering trenger.
 
-```ts
-interface GeneratedImageRecord {
-  imagePlanItemId: string
-  number: number
-  slideId: string
-  nodeId: string
-  fileName: string
-  /** SHA-256 av bytene genereringsresponsen returnerte. Valgfri. */
-  contentHash?: string
-}
-```
-
-Agenten oppgir én slik oppføring per ferdig fil — `verify_image_handoff` — og
-`checkGeneratedImages` sammenligner settet med planen dekket faktisk holder:
-
-| Kode | Hva den fanger |
-| --- | --- |
-| `WRONG_PRESENTATION` | Koblingene er laget for et annet dekk. |
-| `PLAN_CHANGED` | Oppføringen for sonen har fått en annen id: nummeret eller motivet er endret etter at bildet ble generert. |
-| `UNKNOWN_ITEM` | Id-en svarer til ingen oppføring, og ingen sone forklarer den. |
-| `DUPLICATE_ITEM` | To filer hevder samme oppføring. |
-| `MISSING_ITEM` | En planlagt oppføring har ingen fil. |
-| `NUMBER_MISMATCH` | Nummeret er ikke oppføringens nummer — feilen filnavn etter genereringsrekkefølge gir. |
-| `DUPLICATE_NUMBER` | To filer hevder samme nummer. |
-| `ZONE_MISMATCH` | Slide eller sone er ikke oppføringens. |
-| `FILE_NAME_MISMATCH` | Filen heter ikke det nummeret sitt sier. |
-| `FILE_MISSING` | En kobling navngir en fil som ikke ble levert. |
-| `FILE_UNACCOUNTED` | En levert fil hører ikke til noen kobling. |
-| `CONTENT_MISMATCH` | Filens egne bytes er ikke de bytene genereringsresponsen returnerte. Den ene koden som rekker forbi metadataene. |
-
-Kontrollen er **total**: den melder alt som er galt, ikke det første, fordi en
-agent som må rette én kobling per rundtur regenererer bilder som var i orden.
-Hver oppføring er redundant med id-en — id-en er avledet av nettopp de
-faktaene — og de oppgis likevel, fordi en feilkobling da har fem sjanser til å
-motsi seg selv i stedet for én, og fordi en id som ikke lenger svarer kan
-skilles fra en som aldri gjorde det.
-
-**`ok` og `reporting` svarer på to forskjellige spørsmål, og de rapporteres ved
-siden av hverandre.** `ok` sier at ingenting motsier seg selv; `reporting` sier
-hva leveransen sa om sine egne bytes:
-
-| `reporting` | Hva det betyr |
-| --- | --- |
-| `hash-reported` | Hver kobling bærer et avtrykk, så nettleseren *kan* sammenligne hver fil med akkurat de bytene genereringen returnerte. |
-| `self-reported` | Minst én kobling mangler avtrykk. Det er det vanlige — de fleste verter gir ikke agenten bytene — og koblingen er kontrollert mot planen, ikke mot en fil. |
-
-Navnene er valgt for det som faktisk har skjedd på dette punktet: ingenting er
-sammenlignet med noe. I nettleseren *kjøres* en sammenligning, og der heter
-nivåene fortsatt `file-checked`/`unchecked`. På agentsiden er det ærlige ordet
-det svakere. `reportingMeans` følger med og sier hva nivået dekker, i Slaids'
-egne ord, fordi formuleringen er halve leveransen: «kontrollert» sagt om et sett
-Slaids aldri holdt opp mot en fil er hvordan en flyt som ikke ser sine egne
-bilder ender opp med å hevde at den gjør det. `self-reported` er ikke et avvik og
-aldri en grunn til å lage bildene om igjen. Ingen av nivåene sier at bildet viser
-det rette.
-
-To ting kontrollen med vilje **ikke** er: den er ikke en mutasjon, og den er
-ikke en port Slaids kan håndheve — deponeringen er en brukerhandling i en
-nettleser, og Slaids ser aldri filene. Det den kjøper er at en feilkobling blir
-oppdaget *av agenten, før filene leveres*, med en melding som navngir hvilket
-bilde som skal lages på nytt.
-
-Holder koblingen, svarer kontrollen med et **manifest**: `slaids-bilder.json`,
-som legges ved siden av bildefilene. Det er den eneste måten koblingen kan
-overleve turen gjennom en nedlastingsmappe, og deponeringen i 7.3 leser nøyaktig
-den filen gjennom den samme modulen. Manifestet holdes tilbake når noe er galt:
-et manifest laget av koblinger som ikke stemmer ville vært nettopp den falske
-bekreftelsen kontrollen finnes for å fjerne.
+Et dekk der *alle* planlagte soner har fil er noe annet, og det er `images-in-deck`:
+der er planen oppfylt, ikke utdatert.
 
 ### Kontrollene
 
@@ -1233,14 +793,16 @@ ferdige.
 ### Editoren
 
 Én knapp, «Bildebrief», åpner én dialog med begge halvdelene: den felles
-konteksten som et redigerbart felt, og den genererte briefen under den med
+konteksten som et redigerbart felt, og den genererte seriebriefen under den med
 kopier-knappen. Kopier-knappen kopierer *briefen*, ikke feltet over den — det er
-ærendet dialogen finnes for. Kontrollene listes under briefen, fordi en brief
-som ikke lenger stemmer med sonene er nettopp den briefen noen er i ferd med å
-lime inn. Under briefen står de samme bildene som en nummerert liste — nummer,
-format og motiv — fordi det er den halvdelen et *menneske* leser: briefteksten er
-skrevet for en bildegenerator, listen er der for å kontrollere at «bilde 3» er
-det bildet man tror før man lager sju filer.
+ærendet dialogen finnes for, og hele bestillingen limt inn i én samtale er hele
+flyten. Kontrollene listes under briefen, fordi en brief som ikke lenger stemmer
+med sonene er nettopp den briefen noen er i ferd med å lime inn.
+
+Ett fold ned ligger de samme bildene som en nummerert liste — nummer, format,
+motiv og slide — med «Kopier prompt» på hver rad. Den listen er reparasjonen, og
+den er navngitt som det: kom ett bilde feil ut, kopieres den ene bestillingen inn
+i en ny, tom samtale i stedet for at hele serien bestilles på nytt.
 
 ### Notater er fjernet
 
@@ -1310,67 +872,86 @@ takt. Deponeringen åpnes av å skrive bildeplanen — det er ingenting en agent
 skru på i tillegg — og `plan_deck_images`/`get_image_brief` rapporterer
 tilstanden i `deposit`.
 
-**Filnavnet er hele protokollen når et menneske lagde bildene.** `1.png`,
-`2.jpg`, `3.webp`: et tall, et punktum, en støttet filendelse, ingenting annet.
-Det er den ene instruksen som overlever å bli båret mellom to programmer av et
-menneske. `01.png`, `bilde1.png`, `1a.png` og `1.txt` avvises med en begrunnelse
-i stedet for å gjettes på — ledende null trimmes ikke, fordi `01.png` og `1.png`
-i samme mappe er to filer til ett bilde — og to filer som krever samme nummer
-merkes *begge*, fordi å velge mellom to av noens bilder ikke er Slaids sin
-oppgave. Regelen er `imageFileNumber`, ved siden av regelen som skriver navnet.
+**Det er to måter å si rekkefølgen på, og ingen tredje.** `DepositReview.mode`
+sier hvilken:
 
-**Det er tre situasjoner, og det er tre fordi det å slå sammen to av dem ville
-overdrevet den ene.** `DepositReview.assurance` sier hvilken:
-
-| `assurance` | Hva som er autoritativt | Hva som er kontrollert |
+| `mode` | Hva som er autoritativt | Når |
 | --- | --- | --- |
-| `manual` | nummeret i filnavnet | filnavn, antall, duplikater |
-| `file-checked` | `imagePlanItemId` i manifestet | koblingen mot planen **og** hver fils egne bytes |
-| `unchecked` | `imagePlanItemId` i manifestet | bare koblingen mot planen; filene er ikke sammenlignet med noe |
+| `numbered` | nummeret i filnavnet | filnavnene utgjør nøyaktig `1`…`N`, hver én gang |
+| `manual` | posisjonen brukeren har dratt filen til | alt annet |
 
-Et filnavn er en utmerket instruks fra et menneske og en dårlig instruks fra en
-generator som produserte bildene i en annen rekkefølge enn de ble planlagt: ni
-filer navngitt etter ankomst er ni velformede navn på de gale bildene. Derfor
-bringer et agentgenerert sett `slaids-bilder.json` med seg, hver kobling
-kontrolleres mot dekkets egen plan (7.2), og en konflikt avviser **hele** settet
-i stedet for å plassere det som ble levert. Et manifest som ikke kan leses er
-ikke det samme som ingen manifest: det er et sett med ukjent kobling, og å falle
-tilbake på filnavnene der ville vært den opprinnelige feilen med et ekstra steg
-foran.
+Den første er den opprinnelige protokollen: `1.png`, `2.jpg`, `3.webp` — et tall,
+et punktum, en støttet filendelse, ingenting annet. Den ene instruksen som
+overlever å bli båret mellom to programmer av et menneske. Rekkefølgen filene ble
+valgt, droppet eller returnert av operativsystemet i er irrelevant: navnene bærer
+svaret.
 
-**Bytene sammenlignes i nettleseren, og de sammenlignes før alt annet.** Hver
-sluppet bildefil hashes med `hashBytes` slik den kom — før sanitering og før
-optimalisering, som begge skriver om filen og ville fått en korrekt fil til å se
-utbyttet ut. Hashingen skjer bare når det ligger et manifest der: en manuell
-opplasting har ingen avtrykk å sammenligne med, og skal ikke vente på en hash
-den aldri bruker.
+Den andre er det denne modulen fikk da bildene sluttet å bli generert ett om
+gangen. En samtale som lager hele serien kaller filene `IMG_4821.png` og
+`padmasambhava.webp` like gjerne som `1.png`, og å avvise dem var å avvise den
+ordinære leveransen. Rekkefølgen er noe et menneske kan gi på to sekunder ved å
+dra — og den er det ene de er sikre på — så dialogen spør om den, med de faktiske
+bildene på skjermen.
 
-`'unchecked'` er ikke en avvisning. En vertsklient som ikke kan lese bytene til
-det bildeverktøyet sitt produserte skal ikke stenges ute, og et sett den
-leverer skal ikke vaskes gjennom heller: dialogen sier at koblingen ikke er
-verifisert, og «Fullfør» krever at brukeren uttrykkelig bekrefter at hvert
-nummer viser det motivet det skal. Manuell opplasting krever ingen slik
-bekreftelse — den som navnga filene laget koblingen selv, og å kreve et
-avkrysningsfelt for det ville vært en regresjon forkledd som grundighet.
+**Slaids gjetter aldri.** Et sett leses som nummerert bare når det er komplett og
+entydig: N filer med basenavnene `1`…`N`, hver nøyaktig én gang. `1.png, 2.jpg,
+3.webp` er en nummerering; `1.png, bilde2.png, 3.webp` er ikke en nummerering med
+en defekt i seg — det er et sett med vanlige navn, og da spørres brukeren i
+stedet for å få vite at én av tre filer er «feil». `01.png`, `bilde1.png`,
+`1-final.png` og `slide2.jpg` er nettopp vanlige navn: ledende null trimmes ikke,
+fordi `01.png` og `1.png` i samme mappe er to filer til ett bilde, og et navn
+Slaids ikke kjenner igjen som et tall er et navn som ikke sier noe om rekkefølgen
+— ikke et navn som er ødelagt. Regelen er `imageFileNumber`, ved siden av regelen
+som skriver navnet.
 
-**Bekreftelsen gjelder ett sett, ikke dialogens levetid.** Den ble først lagret
-som en boolean, og en boolean overlevde settet den ble gitt for: kryss av, bytt
-så ut ett bilde med et annet under samme filnavn, og settet er komplett og
-uverifisert igjen mens «Fullfør» fortsatt er aktiv for et bilde ingen har sett
-på. Derfor bærer `DepositReview` en `deliveryKey` — avledet av manifestet og av
-hver leverte fils navn sammen med avtrykket av bytene — og dialogen husker
-*hvilken* nøkkel som ble bekreftet. Endres leveransen materielt, krysses boksen
-av seg selv; plukkes de samme filene i en annen rekkefølge, gjør den det ikke.
-En bekreftelse som kostet brukeren en ny avkrysning for ingenting er hvordan man
-lærer folk å krysse av uten å se.
+**Verdiktene er posisjonelle, ikke navnebaserte.** `DepositReview.files` har én
+oppføring per valgt fil, på samme plass som navnet ble gitt inn. To mapper kan
+begge holde en `IMG_4821.png`, så et oppslag på navn ville plassert den ene to
+ganger — og posisjonen er dessuten nettopp det brukeren arrangerer i manuell
+modus, så den er det eneste som kan bære svaret deres.
 
-Ingen av nivåene sier noe om hva bildet *viser*. Dialogen holder de to fra
-hverandre i ordlyden, fordi et avtrykk som stemmer er lett å lese som en
-godkjenning av motivet.
+To ting kan være galt med en fil, og ingen av dem handler om navnets *form*:
+`TYPE` er en fil som ikke er et bilde Slaids lagrer i det hele tatt, og `EXCESS`
+er et bilde utover de N dekket har plass til — hvilke av dem som skal fjernes er
+brukerens valg, ikke Slaids'. En `TYPE`-fil tar ingen bildeplass: de tre bildene
+rundt den får fortsatt 1, 2 og 3, mens «Fullfør» venter til den er fjernet.
 
-`reviewDeposit` er den ene inngangen — filnavnene, og koblingen når det finnes en
-— og den er både det som gråer ut «Fullfør» og det `completeImageDeposit`
-avviser på, så knappen kan ikke være aktiv for et sett skrivingen ville nektet.
+`reviewDepositFiles` er den ene inngangen — navnene i den rekkefølgen de står — og
+den er både det som gråer ut «Fullfør» og det `completeImageDeposit` avviser på,
+så knappen kan ikke være aktiv for et sett skrivingen ville nektet.
+
+**Miniatyrbildene er hvordan rekkefølgen faktisk gis.** Hver valgt fil vises som
+et ekte bilde, fra en `URL.createObjectURL` over blobben nettleseren alt holder.
+URL-ene lages når filen plukkes og holdes på `File`-objektet, fordi listen bygges
+om ved hver fjerning og hvert drag — en URL laget per render ville fått bildene
+til å blafre nettopp i det øyeblikket brukeren ser på dem. De frigis samlet når
+dialogen lukkes, ikke i det en fil fjernes: å revoke en URL et `<img>` fortsatt
+viser tegner et ødelagt bilde.
+
+**Dragingen er idémodulens egen gest, ikke en ny.** `useReorderDrag` er den
+gesten trukket ut som én mekanisme: rask drag med mus, press-and-hold på touch så
+en vertikal sveip fortsatt scroller, en placeholder som viser gapet, et løftet
+element som følger pekeren, og autoscroll ved kantene. Idélisten og
+bildedeponeringen bruker den samme, så de to føles like — og der de skiller seg,
+skiller de seg i én ting hver: idélisten sier hvilken beholder en rad kan lande i
+(en kategori, eller roten), deponeringen har bare én. Utfallet bestemmes av
+kaller-en: her er posisjon bildeplass, så flyttingen er en vanlig array-flytting.
+
+Det løftede elementet regner om koordinatene sine mot nærmeste transformerte
+forfar. En `transform` hvor som helst over gjør den forfaren til containing block
+for `position: fixed`, og dialogen er sentrert med nettopp en transform — uten
+omregningen ville kortet fløyet til siden for pekeren i det det ble løftet.
+
+**Bekreftelsen gjelder ett arrangement, ikke dialogens levetid.** I manuell modus
+er rekkefølgen brukerens eget svar, og en avkrysning som bekrefter den er billig
+— men den må gjelde *dette* arrangementet. Nøkkelen er arrangementet selv, så det
+å flytte ett bilde krysser av boksen igjen av seg selv. En nummerert leveranse
+spør om ingenting: den som navnga filene `1`…`N` laget koblingen, og Slaids leste
+den bare.
+
+Ingenting av dette sier noe om hva bildet *viser*. Dialogen holder de to fra
+hverandre i ordlyden, fordi en rekkefølge som ser riktig ut er lett å lese som en
+godkjenning av motivene.
 
 **Deponeringen er én skriving.** Filene lagres først, og deretter settes hele
 settet inn i ett kall. Et dekk som tok tre av fem bilder er nøyaktig den
@@ -1413,15 +994,13 @@ som er der hele livssyklusen står.
   eller editoren. Å velge editoren avslutter **ingenting** — det lukker en
   dialog. Knappen for bildebriefen fører tilbake til flyten når som helst, så
   lenge grunnlaget er gyldig.
-- «Bildene er klare» åpner deponeringsdialogen: dra-og-slipp eller filvelger, en
-  statusliste over hvilke numre som er på plass, hvilke som mangler og hva som er
-  feil, og «Fullfør» deaktivert til nøyaktig 1‥N er der uten feil. Ligger
-  `slaids-bilder.json` blant filene, sier dialogen det, og koblingskonfliktene
-  får sin egen seksjon — de er en annen slags feil enn et galt filnavn: filene er
-  i orden, og det som ikke stemmer er hvilket bilde hver av dem er *for*. Én
-  linje sier hva som faktisk er kontrollert, i tre forskjellige ordlyder, og et
-  avkrysningsfelt ber om manuell gjennomgang når ingenting annet kunne
-  kontrollere koblingen.
+- «Bildene er klare» åpner deponeringsdialogen: dra-og-slipp eller filvelger, og
+  hver valgt fil som et ekte miniatyrbilde med nummeret den får. Én linje sier
+  hvor rekkefølgen kom fra — lest av filnavnene `1`–N, eller brukerens egen — og
+  i manuell modus dras bildene på plass og bekreftes med ett avkrysningsfelt.
+  «Fullfør» er deaktivert til nøyaktig N brukbare bilder er der: færre, og flere
+  kan legges til; flere, og de overskytende må fjernes først. En liste under
+  viser hvilke numre som fortsatt mangler, med motiv og format fra bildeplanen.
 
 ### Den strukturelle endringen
 
@@ -5254,10 +4833,8 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `operations/` er selve operasjonene.
 - Lesing: `list_presentations`, `list_folders`, `get_presentation` (som også
   bærer temaet, `sandboxCount` og den felles bildekonteksten), `get_image_brief`
-  (bildeplanen slik den står, og kontrollene mot sonene — uten prompter, og med
-  den samlede briefen bare når kallet ber om den), `get_next_image_job` (én
-  jobb om gangen: én `imagePlanItemId`, én aspect ratio og én ferdig prompt),
-  `inspect_slide`,
+  (bildeplanen slik den står, kontrollene mot sonene, og den ferdige
+  seriebriefen — leveransen agenten gir brukeren ordrett), `inspect_slide`,
   `list_assets`, `list_sandbox_items`, `validate_slide`,
   `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.

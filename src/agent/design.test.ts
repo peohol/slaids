@@ -42,7 +42,6 @@ import {
   NATIVE_COMPOSITION_RULE,
   REFERENCE_SYSTEM_RULE,
   REPEATED_FALLBACK_RULE,
-  SELF_CHECK_STOP,
   VECTOR_POLICY,
   VISUAL_QA_RULE,
 } from './design'
@@ -57,9 +56,7 @@ import { MCP_INSTRUCTIONS } from '../server/mcp/instructions'
 import { mcpTools } from '../server/mcp/tools'
 import type {
   ContentSlideInspection,
-  GeneratedImagesView,
   ImageBriefView,
-  ImageJobView,
   PresentationView,
   ZoneInspection,
 } from './operations/deck'
@@ -190,19 +187,6 @@ function freshContext(): AgentContext {
 afterEach(async () => {
   while (databases.length > 0) await databases.pop()?.delete()
 })
-
-/**
- * A later conversation over the same stored deck.
- *
- * The deck persists and the chat does not, so this is the reader the stored
- * verification is *not* about: a new session on the same database, holding none
- * of the picture files the previous one generated.
- */
-function laterConversation(): AgentContext {
-  const database = databases[databases.length - 1]
-  if (!database) throw new Error('Forventet en database fra freshContext')
-  return { repository: new DexieSlaidsRepository(database) }
-}
 
 async function ok<T>(
   context: AgentContext,
@@ -538,13 +522,13 @@ describe('formen reglene ber om, på det samme stoffet', () => {
 
     expect(brief.imageCount).toBe(3)
     expect(brief.issues).toEqual([])
-    // The brief is the human half, and it is fetched deliberately: being in
-    // the answer is being in the context the next image call is written from.
+    // The brief is the deliverable, so it comes back with the plan that was
+    // just written as well as with a later read of it.
     const asked = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
-      includeBrief: true,
     })
     const text = asked.brief ?? ''
+    expect(text).toBe(brief.brief)
     expect(text).toContain('Lag nøyaktig 3 separate bilder')
     expect(text).toContain(CONTEXT)
     for (const [index, species] of SPECIES.entries()) {
@@ -875,509 +859,91 @@ describe('reservasjonen sier fra når den ikke lenger holder', () => {
     expect(unplanned?.nodeId).toBe(slide.columnIds[1])
   })
 
-  it('gir bildegenereringen én jobb om gangen, og aldri settet', async () => {
+  it('svarer med hele bestillingen som én tekst, ferdig til å gis videre', async () => {
     /*
-     * The finding this closes, on the surface it was made about. Composing the
-     * prompt per entry was not enough: `plan_deck_images` and `get_image_brief`
-     * still answered with every prompt, every motif, the whole brief and the
-     * count, so an agent had the *set* in context when it wrote the first image
-     * call — and a generator that has read a set composes a set.
-     *
-     * Asserted over the serialized answers rather than over one field: what
-     * matters is everything a reader can see, not what it was told to repeat.
+     * The delivery, on the surface an agent actually reads. The plan operation
+     * used to answer with a structured list and withhold the brief, because the
+     * flow it served generated the pictures one at a time and had to keep the
+     * set out of the conversation. That flow is gone — a host client's image
+     * tool did not survive alternating between deck work and picture calls — so
+     * the answer carries the one thing the agent is supposed to hand over.
      */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const others = MOTIFS.slice(1)
-
-    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    expect(job.status).toBe('job')
-    expect(job.job?.prompt).toContain(MOTIFS[0])
-    expect(job.job?.prompt).toContain(CONTEXT)
-
-    const answer = JSON.stringify(job)
-    for (const motif of others) expect(answer).not.toContain(motif)
-    expect(answer).not.toMatch(/BILDE \d+ AV \d+/)
-    expect(answer).not.toMatch(/separate bilder/i)
-    expect(answer).not.toMatch(/\b8\b/)
-
-    // The only identifier is the opaque one, and it is beside the prompt
-    // rather than inside it: the check needs it afterwards, a generator must
-    // never see it. No number, no file name, no zone — those are facts about a
-    // set, and a host whose image tool reads the conversation would have them
-    // in context while it generates.
-    expect(job.job?.imagePlanItemId).toBe(brief.images[0].imagePlanItemId)
-    expect(job.job?.prompt).not.toContain(brief.images[0].imagePlanItemId)
-    expect(Object.keys(job.job ?? {}).sort()).toEqual(['aspectRatio', 'imagePlanItemId', 'prompt'])
-
-    // The plan surfaces carry no prompt at all, so there is nothing there to
-    // assemble a second, set-aware instruction from.
-    expect(JSON.stringify(brief.images)).not.toContain('Lag ett bilde')
-    expect(brief.brief).toBeNull()
-  })
-
-  it('lar ikke verktøybeskrivelsene love en annen jobb enn den som leveres', async () => {
-    /*
-     * The operation summary and the input-schema descriptions are text the
-     * model reads as part of the tool surface — standing instructions, the same
-     * way `IMAGE_JOB_RULE` is. When the job lost its number, file name and zone,
-     * the summary kept listing them; when `bytesUnavailable` became a legal
-     * answer, it kept asking for a digest unconditionally. Either one tells the
-     * model to work against the mechanism every other test here locks, and it
-     * names the three facts about a *set* this surface exists to withhold.
-     *
-     * Asserted against the delivered job rather than against a second copy of
-     * the field list: what the description may name is what the job has.
-     */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 3)
-    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    if (!job.job) throw new Error('Forventet en jobb')
-
-    const described = describeOperations()
-    const summary =
-      described.find((operation) => operation.name === 'get_next_image_job')?.summary ?? ''
-    expect(summary).not.toBe('')
-    for (const field of Object.keys(job.job)) expect(summary).toContain(`\`${field}\``)
-    for (const field of ['number', 'fileName', 'slideId', 'nodeId']) {
-      expect(job.job).not.toHaveProperty(field)
-      expect(summary).not.toContain(`\`${field}\``)
-    }
-    // The digest is offered as an extra and never as a condition, because the
-    // ordinary host cannot produce one — a summary that demanded it would send
-    // an honest host into a job it can never leave.
-    expect(summary).toMatch(/SHA-256/)
-    expect(summary).toMatch(/ekstra kontroll, ikke et vilkår for å gå videre/i)
-    expect(summary).not.toMatch(/bytesUnavailable/)
-
-    /*
-     * And the check's own field does not send the agent back to the plan for
-     * the id it was just handed. Re-reading `images` between two generations to
-     * find an id is exactly the step that puts the other motifs back in
-     * context, one call before the next picture is made.
-     */
-    const handoff = described.find((operation) => operation.name === 'verify_image_handoff')
-    const schema = JSON.stringify(handoff?.inputSchema ?? {})
-    expect(schema).toContain('ordrett fra jobben som ga deg prompten')
-    expect(schema).not.toMatch(/ordrett fra .images. i bildebriefen/)
-  })
-
-  it('navngir filen etter kontrollen, ikke i jobben', async () => {
-    /*
-     * The number is a fact about a set — «the third one» — and a host whose
-     * image tool reads the conversation rather than an explicit prompt string
-     * would have it in context while it generates. It is not needed to make a
-     * picture, only to file one, so the job carries an opaque id and the check
-     * answers with the name.
-     */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 3)
-    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    if (!job.job) throw new Error('Forventet en jobb')
-
-    const checked = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: [
-        {
-          imagePlanItemId: job.job.imagePlanItemId,
-          fileExtension: 'png',
-          contentHash: '1'.repeat(64),
-        },
-      ],
-    })
-    expect(checked.ok).toBe(true)
-    expect(checked.files).toEqual([{ imagePlanItemId: job.job.imagePlanItemId, fileName: '1.png' }])
-    // And Slaids filled in what the job never said: the entry's own number and
-    // zone, taken from the plan rather than from the caller.
-    expect(checked.workflow.stage).toBe('awaiting-generation')
-
-    // The next job is the next entry, so the binding was recorded in full.
-    const second = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    expect(second.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
-  })
-
-  it('lar en kobling uten avtrykk tømme sin egen plass i køen', async () => {
-    /*
-     * The dead end this replaces, on the agent surface. A binding with no
-     * digest used to be refused at the boundary, so the entry stayed in the
-     * queue — and the ordinary host cannot read the bytes its own image tool
-     * returned, which meant the only way past a picture it had really made was
-     * to make it again.
-     *
-     * The binding is enough now, and nothing pretends it is more than it is:
-     * `reporting` says self-reported, and the deck still finishes on the files.
-     */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 3)
-    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    if (!job.job) throw new Error('Forventet en jobb')
-
-    const reported = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: [{ imagePlanItemId: job.job.imagePlanItemId, fileExtension: 'png' }],
-    })
-    expect(reported.ok).toBe(true)
-    expect(reported.reporting).toBe('self-reported')
-    expect(reported.reportingMeans).toMatch(/selvrapportert/i)
-    expect(reported.reportingMeans).not.toMatch(/kontrollert mot bildefilene/i)
-
-    // The queue moves exactly one step, on a binding with no digest in it.
-    const next = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    expect(next.status).toBe('job')
-    expect(next.job?.imagePlanItemId).toBe(brief.images[1].imagePlanItemId)
-  })
-
-  it('gjør åtte planlagte bilder til åtte selvstendige genereringsjobber', async () => {
-    // The observed failure: eight pictures were planned correctly, the answer
-    // carried both halves of the plan, and the whole brief went to the image
-    // generator as one job. One storyboard came back — eight motifs, one file,
-    // nothing the deposit could place. What the answer has to say, before any
-    // prose is read, is a number: eight entries, eight files.
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
     expect(brief.issues).toEqual([])
-    expect(brief.imageCount).toBe(8)
-    // One job per entry, numbered 1‥8 in deck order: this is the list an agent
-    // executes, one call at a time.
-    expect(brief.images).toHaveLength(8)
-    expect(brief.images.map((image) => image.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    for (const image of brief.images) {
-      expect(image.aspectRatio).toMatch(/^\d+:\d+$/)
-      // The write does not hand the motifs back: they were its own argument,
-      // and a second copy is a second copy in the context the first image call
-      // is written from. The read carries them, for a session that repairs.
-      expect(image.subject).toBeUndefined()
-    }
-    const read = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(read.images.map((image) => image.subject)).toEqual(MOTIFS)
-
-    // And the count is stated separately from the prose, against the same plan
-    // the brief is composed from, so «are we finished» is a comparison.
-    expect(brief.generation?.expectedFileCount).toBe(brief.imageCount)
-    expect(brief.generation?.rule).toMatch(/én selvstendig bildegenereringsoppgave/i)
-    expect(brief.deposit).toEqual({ status: 'pending', expectedCount: 8 })
-
-    // No prompt rides along with the plan: the instruction for one picture
-    // comes one job at a time, from a surface that can only see one entry.
-    for (const image of brief.images) {
-      expect(image).not.toHaveProperty('prompt')
-    }
-    // And the whole-plan message is not in the answer at all unless a person
-    // asked for it. Being in the response is being in the context the next
-    // image call is written from.
-    expect(brief.brief).toBeNull()
-    expect(brief.generation?.briefRole).toMatch(/^Intern\./)
-
-    const onRequest = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-      includeBrief: true,
-    })
-    expect(onRequest.brief).toContain('Lag nøyaktig 8 separate bilder')
-    expect(onRequest.brief?.match(/^BILDE \d+ AV 8$/gm)).toHaveLength(8)
+    expect(brief.brief).not.toBeNull()
+    const text = brief.brief ?? ''
+    expect(text.startsWith(`Lag nøyaktig ${MOTIFS.length} separate bilder`)).toBe(true)
+    expect(text).toContain('FELLES BILDEKONTEKST')
+    expect(text).toContain(CONTEXT)
+    for (const motif of MOTIFS) expect(text).toContain(motif)
+    expect(text.match(/^BILDE \d+ AV \d+$/gm)).toHaveLength(MOTIFS.length)
   })
 
-  it('gir hver oppføring en stabil id, og et filnavn som kommer fra planen', async () => {
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-
-    // The identity every generated file is bound to. Nine pictures generated in
-    // a different order than they were planned is the failure this replaces,
-    // and `number` alone could not have caught it.
-    const ids = brief.images.map((image) => image.imagePlanItemId)
-    expect(new Set(ids).size).toBe(brief.imageCount)
-    for (const id of ids) expect(id).toMatch(/^imgplan_[0-9a-f]{16}$/)
-    // The file name is the entry's own number, stated by the entry rather than
-    // counted out while the files are being saved.
-    expect(brief.images.map((image) => image.fileName)).toEqual(
-      brief.images.map((image) => `${image.number}.<filendelse>`),
-    )
-    // And reading the same deck back gives the same ids.
-    const again = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(again.images.map((image) => image.imagePlanItemId)).toEqual(ids)
-  })
-
-  it('rapporterer selvrapportert når koblingene ikke bærer avtrykk', async () => {
-    // The ordinary delivery: nothing contradicts itself, and nobody compared
-    // the bindings to a single byte. `ok` and `reporting` answer different
-    // questions, and an agent that read only `ok` would call this verified.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-
-    const reported = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: brief.images.map((image) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: image.number,
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${image.number}.png`,
-      })),
-    })
-
-    expect(reported.ok).toBe(true)
-    expect(reported.reporting).toBe('self-reported')
-    expect(reported.reportingMeans).toMatch(/selvrapportert/i)
-    // And it is not framed as a defect: this is what most hosts can deliver, so
-    // «make the pictures again to get a check» would be the duplicate
-    // generation the whole flow exists to prevent.
-    expect(reported.reportingMeans).toMatch(/det vanlige/i)
-    expect(reported.reportingMeans).toMatch(/ikke lag bildene om igjen/i)
-    // The plan is covered, and the deck is still not finished: only the files
-    // can do that.
-    expect(reported.planCovered).toBe(true)
-    expect(reported.workflow.stage).toBe('awaiting-deposit')
-    expect(reported.workflow.complete).toBe(false)
-  })
-
-  it('svarer for hele den lagrede leveransen, ikke for det ene kallet', async () => {
-    /*
-     * The overstatement this closes, and it is a property of the *loop* rather
-     * than of any one call. The flow reports one picture at a time, so the
-     * bindings accumulate on the deck while each call only carries one. With
-     * `reporting` computed from the argument, a last call that happened to
-     * carry a digest answered `hash-reported` — «hver kobling bærer et
-     * avtrykk» — for a merged manifest that still held an earlier binding with
-     * none.
-     *
-     * The manifest is the stored set, so the answer about it has to be too.
-     */
+  it('holder Slaids sin egen bokføring utenfor teksten brukeren får', async () => {
+    // The brief is pasted into a conversation that makes pictures and nothing
+    // else. Every line below is something that conversation cannot use, and
+    // that tells it the task is administration rather than N pictures.
     const context = freshContext()
     const brief = await plannedPictureDeck(context, 3)
-    const report = (index: number, contentHash?: string): Promise<GeneratedImagesView> =>
-      ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-        presentationId: brief.presentationId,
-        images: [
-          {
-            imagePlanItemId: brief.images[index].imagePlanItemId,
-            fileExtension: 'png',
-            ...(contentHash ? { contentHash } : {}),
-          },
-        ],
-      })
+    const text = brief.brief ?? ''
 
-    // The ordinary host: no bytes for the first picture.
-    const first = await report(0)
-    expect(first.reporting).toBe('self-reported')
-
-    // Then two that *do* carry a digest. The last call's own argument is fully
-    // hashed; the delivery it is part of is not.
-    await report(1, '1'.repeat(64))
-    const last = await report(2, '2'.repeat(64))
-
-    expect(last.planCovered).toBe(true)
-    expect(last.reporting).toBe('self-reported')
-    expect(last.reportingMeans).not.toMatch(/Hver kobling bærer et avtrykk/i)
-    // And the manifest it hands over says the same thing: one binding in it has
-    // no digest, which is exactly why the answer may not claim otherwise.
-    const manifest = JSON.parse(last.manifest ?? '{}')
-    expect(manifest.images).toHaveLength(3)
-    expect(
-      manifest.images.filter((record: { contentHash?: string }) => !record.contentHash),
-    ).toHaveLength(1)
-
-    // Fill the gap and the answer moves, from the same merged set.
-    const repaired = await report(0, '3'.repeat(64))
-    expect(repaired.reporting).toBe('hash-reported')
+    for (const image of brief.images) {
+      expect(text).not.toContain(image.slideId)
+      expect(text).not.toContain(image.nodeId)
+      expect(text).not.toContain(image.slideLabel)
+    }
+    expect(text).not.toContain(brief.presentationId)
+    expect(text).not.toMatch(/imgplan_|imagePlanItemId|bildeplan-id/i)
+    expect(text).not.toMatch(/filnavn|<filendelse>/i)
+    expect(text).not.toMatch(/manifest|sha-256|\bavtrykk\b/i)
+    expect(text).not.toMatch(/slaids/i)
+    expect(text).not.toMatch(/ett kall per|enkeltvis|neste jobb/i)
   })
 
-  it('rapporterer avtrykk bare når hver kobling bærer ett', async () => {
+  it('gir den samme teksten igjen når planen leses tilbake', async () => {
+    // One composer, one plan: the brief is derived on every read rather than
+    // stored, so a deck cannot hand out a text its plan no longer says.
     const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const digest = (seed: number): string => seed.toString(16).padStart(2, '0').repeat(32)
-
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: brief.images.map((image, index) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: image.number,
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${image.number}.png`,
-        contentHash: digest(index + 1),
-      })),
+    const written = await plannedPictureDeck(context, 3)
+    const read = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: written.presentationId,
     })
-
-    expect(verified.reporting).toBe('hash-reported')
-    // What it covers, and what it does not — stated by Slaids rather than left
-    // to an agent to phrase.
-    expect(verified.reportingMeans).toMatch(/aldri hva bildet viser/i)
-    // And it does not overstate itself: the comparison happens in the browser,
-    // so at this point the digest is a string the caller supplied.
-    expect(verified.reportingMeans).toMatch(
-      /Selve sammenligningen skjer der, ikke her: Slaids ser aldri filene dine/i,
-    )
-    // The digests ride along in the manifest, which is the only way they reach
-    // the browser that can actually compare them.
-    expect(JSON.parse(verified.manifest ?? '{}').images[0].contentHash).toBe(digest(1))
-
-    // One missing out of eight is not «mostly hashed»: the deposit can only
-    // compare the whole delivery or none of it, so the answer is the weaker
-    // word. It is still a legal delivery, and still `ok`.
-    const partial = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: brief.images.map((image, index) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: image.number,
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${image.number}.png`,
-        ...(index === 3 ? {} : { contentHash: digest(index + 1) }),
-      })),
-    })
-    expect(partial.ok).toBe(true)
-    expect(partial.reporting).toBe('self-reported')
+    expect(read.brief).toBe(written.brief)
+    // The read carries the entries' own texts; the write does not repeat them.
+    expect(read.images[0].subject).toBe(MOTIFS[0])
+    expect(written.images[0].subject).toBeUndefined()
   })
 
-  it('avviser et avtrykk som ikke er en SHA-256', async () => {
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 1)
-    const refused = await fails(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: [
-        {
-          imagePlanItemId: brief.images[0].imagePlanItemId,
-          number: 1,
-          slideId: brief.images[0].slideId,
-          nodeId: brief.images[0].nodeId,
-          fileName: '1.png',
-          contentHash: 'ikke-en-hash',
-        },
-      ],
-    })
-    expect(refused.code).toBe('INVALID_INPUT')
-  })
-
-  it('godkjenner bilder som er generert i en annen rekkefølge enn planen', async () => {
-    // The whole point: a generator that answered out of order is fine, as long
-    // as every file went back to the entry it was generated from.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const scrambled = [2, 7, 0, 5, 1, 4, 3, 6].map((position) => brief.images[position])
-
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: scrambled.map((image) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: image.number,
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${image.number}.png`,
-        contentHash: image.number.toString(16).padStart(2, '0').repeat(32),
-      })),
-    })
-
-    expect(verified.ok).toBe(true)
-    expect(verified.issues).toEqual([])
-    // A manifest only exists once the binding checks out: one produced beside a
-    // conflict would be exactly the false reassurance this call removes.
-    expect(verified.manifestFileName).toBe('slaids-bilder.json')
-    expect(JSON.parse(verified.manifest ?? '{}')).toMatchObject({
-      presentationId: brief.presentationId,
-    })
-  })
-
-  it('stopper bilder som er nummerert etter genereringsrekkefølgen', async () => {
-    // The observed failure, written out: the files were named `1`‥`8` by the
-    // order they came back in. Every name is well-formed, the count is right,
-    // and most pictures are for the wrong slide.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const arrival = [2, 7, 0, 5, 1, 4, 3, 6].map((position) => brief.images[position])
-
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: arrival.map((image, index) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: index + 1,
-        contentHash: (index + 1).toString(16).padStart(2, '0').repeat(32),
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${index + 1}.png`,
-      })),
-    })
-
-    expect(verified.ok).toBe(false)
-    expect(verified.issues.map((issue) => issue.code)).toContain('NUMBER_MISMATCH')
-    expect(verified.manifest).toBeNull()
-    // And the answer says what the bindings should have been, so a fix does not
-    // need a second read.
-    expect(verified.expected.map((item) => item.imagePlanItemId)).toEqual(
-      brief.images.map((image) => image.imagePlanItemId),
-    )
-  })
-
-  it('kaller ikke sju av åtte en ferdig leveranse', async () => {
+  it('tilbyr ingen bildejobber og ingen koblingskontroll å gå i løkke på', async () => {
     /*
-     * A picture short is the normal state of the loop — the check runs after
-     * each job — so it is not a refusal. What it must never be is a finished
-     * delivery: no manifest, `planCovered` false, and the flow still asking
-     * for pictures.
+     * The machinery this replaces, asserted as the absence it has to be. An
+     * operation that hands out one picture at a time, or takes a report of a
+     * generated file back, is an invitation into exactly the loop that did not
+     * work — and a tool an agent can see is a tool an agent will call.
      */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const names = describeOperations().map((operation) => operation.name)
+    expect(names).not.toContain('get_next_image_job')
+    expect(names).not.toContain('verify_image_handoff')
+    expect(names).toContain('plan_deck_images')
+    expect(names).toContain('get_image_brief')
 
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: brief.images.slice(0, 7).map((image) => ({
-        imagePlanItemId: image.imagePlanItemId,
-        number: image.number,
-        slideId: image.slideId,
-        nodeId: image.nodeId,
-        fileName: `${image.number}.png`,
-        contentHash: image.number.toString(16).padStart(2, '0').repeat(32),
-      })),
-    })
-
-    expect(verified.ok).toBe(true)
-    expect(verified.planCovered).toBe(false)
-    expect(verified.manifest).toBeNull()
-    expect(verified.workflow.stage).toBe('awaiting-generation')
-    expect(verified.workflow.complete).toBe(false)
-
-    // And the job that is left is the eighth, which is the only thing the
-    // generation surface will say.
-    const job = await ok<ImageJobView>(context, 'get_next_image_job', {
-      presentationId: brief.presentationId,
-    })
-    expect(job.status).toBe('job')
-    expect(job.job?.imagePlanItemId).toBe(brief.images[7].imagePlanItemId)
+    const surface = `${MCP_INSTRUCTIONS}\n${mcpTools()
+      .map((tool) => `${tool.name}\n${tool.description}`)
+      .join('\n')}`
+    expect(surface).not.toMatch(/get_next_image_job|verify_image_handoff/)
+    expect(surface).not.toMatch(/imagePlanItemId|slaids-bilder\.json/)
+    expect(surface).not.toMatch(/koblingskontroll/i)
   })
 
-  it('avviser en bildeplan-id som ikke har formen Slaids lager', async () => {
-    // An argument error rather than a finding: an id an agent invented is a
-    // call that means nothing, not a delivery with a problem in it.
+  it('sier hvor mange filer deponeringen venter på, uten å be agenten telle dem opp', async () => {
     const context = freshContext()
-    const brief = await plannedPictureDeck(context, 1)
-    const refused = await fails(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: [
-        {
-          imagePlanItemId: 'bilde-1',
-          number: 1,
-          slideId: brief.images[0].slideId,
-          nodeId: brief.images[0].nodeId,
-          fileName: '1.png',
-        },
-      ],
-    })
-    expect(refused.code).toBe('INVALID_INPUT')
+    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    // The deposit is opened by writing the plan: the agent switches nothing on,
+    // and the count is the plan's own length.
+    expect(brief.deposit).toEqual({ status: 'pending', expectedCount: MOTIFS.length })
+    expect(brief.imageCount).toBe(MOTIFS.length)
   })
 
   it('avviser en bildeoppføring som peker på en tekstsone', async () => {
@@ -1570,32 +1136,19 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
    * What was missing was not a rule. It was a fact in the answer: that the work
    * was not over. So the plan operation reports where the raster flow stands.
    *
-   * The lifecycle that reporting has to respect is the whole difficulty. Slaids
-   * never sees a generated file — the pictures are made in the host client, and
-   * without a file bridge they arrive through the *user's* deposit in a browser
-   * — so a filled picture zone answers «has the file arrived», never «was the
-   * picture made». Asserted below in both directions: verified generation with
-   * every zone still empty is finished, and filled zones on their own are not.
+   * What that status may rest on is the whole difficulty. Slaids never sees a
+   * generated file — the pictures are made in a conversation of their own, and
+   * they arrive through the *user's* deposit in a browser — so the only thing
+   * the deck can observe is a picture zone holding a file. It used to store what
+   * an agent *said* it had generated, and a report written from the plan was as
+   * cheap to produce as the pictures were expensive. That is gone.
    */
-
-  /** What a host client holds after generating every planned picture. */
-  function generated(brief: ImageBriefView) {
-    return brief.images.map((image, index) => ({
-      imagePlanItemId: image.imagePlanItemId,
-      number: image.number,
-      slideId: image.slideId,
-      nodeId: image.nodeId,
-      fileName: `${image.number}.png`,
-      contentHash: (index + 1).toString(16).padStart(2, '0').repeat(32),
-    }))
-  }
 
   /**
    * One entry's file, deposited into that entry's own zone.
    *
-   * `bytes` so a *replacement* is a different file: the deposit that matters in
-   * the stale case puts a new picture where an old one is, and two uploads of
-   * identical bytes are deduplicated into the asset that is already there.
+   * `bytes` so a *replacement* is a different file: two uploads of identical
+   * bytes are deduplicated into the asset that is already there.
    */
   async function deposit(
     context: AgentContext,
@@ -1625,490 +1178,85 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     // The plan itself is sound — this is not a repair case, and that is the
     // point: a sound plan was exactly what made stopping look like finishing.
     expect(brief.issues).toEqual([])
-    expect(brief.workflow.stage).toBe('awaiting-generation')
+    expect(brief.workflow.stage).toBe('awaiting-images')
     expect(brief.workflow.complete).toBe(false)
     expect(brief.workflow.plannedImageCount).toBe(8)
     expect(brief.workflow.awaitingFileCount).toBe(8)
     expect(brief.workflow.depositedImageCount).toBe(0)
   })
 
-  it('navngir bildegenereringen som neste handling, i samme samtale', async () => {
+  it('navngir seriebriefen som neste handling, i samme arbeidsøkt', async () => {
     const context = freshContext()
     const brief = await plannedPictureDeck(context, MOTIFS.length)
 
     expect(brief.workflow.nextAction).toMatch(/mellomsteg, ikke leveransen/i)
-    expect(brief.workflow.nextAction).toMatch(/samme samtale/i)
-    // The next action is one picture, taken from the shared context and the
-    // entry that is next — not «call the generator eight times», which is a
-    // count for the agent to pass on to a generator.
-    expect(brief.workflow.nextAction).toMatch(
-      /generer neste planlagte bilde direkte fra `imageContext` og den aktuelle bildeoppføringen/i,
-    )
-    expect(brief.workflow.nextAction).toMatch(
-      /Ikke skriv ut samlet brief eller andre bildeoppføringer i samtalen/i,
-    )
-    expect(brief.workflow.nextAction).not.toContain('8')
-    expect(brief.workflow.awaitingFileCount).toBe(brief.generation?.expectedFileCount)
-    // And the steps left point at the loop rather than restating it.
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Hent neste bildejobb/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/uten de andre oppføringene/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/generation\.isolation/)
+    expect(brief.workflow.nextAction).toMatch(/samme arbeidsøkt/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Hent den ferdige seriebriefen/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/ordrett/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/bildedeponeringen/i)
   })
 
   it('forbyr avslutningene som beskriver arbeidet i stedet for å gjøre det', async () => {
     const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
+    const brief = await plannedPictureDeck(context, 3)
 
-    expect(brief.workflow.forbiddenClosings).toEqual(IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS)
+    // One definition of done, read from the domain rather than restated here:
+    // the standing instruction and this deck's own answer are the same list.
     expect(brief.workflow.completionCriteria).toEqual(IMAGE_WORKFLOW_COMPLETION_CRITERIA)
-    const closings = brief.workflow.forbiddenClosings.join(' ')
-    expect(closings).toContain('Presentasjonen er opprettet')
-    expect(closings).toContain('Bildene er ikke satt inn ennå')
-    expect(closings).toContain('Bildeplanen er klar')
+    expect(brief.workflow.forbiddenClosings).toEqual(IMAGE_WORKFLOW_FORBIDDEN_CLOSINGS)
+    const forbidden = brief.workflow.forbiddenClosings.join(' ')
+    expect(forbidden).toMatch(/Presentasjonen er opprettet/)
+    expect(forbidden).toMatch(/Bildeplanen er klar/)
+    expect(forbidden).toMatch(/Ikke vent på at brukeren deponerer/)
+    expect(forbidden).toMatch(/Ikke påstå at bildene er laget/)
   })
 
-  it('lar agenten stoppe uten å kalle dekket ferdig', async () => {
+  it('blir ikke ferdig av noe agenten kan si, bare av filer i sonene', async () => {
     /*
-     * The acceptance state of this whole change, checked against the stop rule
-     * that governs it: the handoff is verified and nothing is deposited, so the
-     * agent has nothing left — and the deck plainly does. `complete` may end the
-     * agent's loop; it must not be read as «the presentation is finished».
+     * The claim the whole flow now rests on. There is nothing an agent can
+     * write that turns the deck finished: the pictures are made elsewhere, and
+     * the deposit is the only event the document can observe.
      */
     const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
+    const brief = await plannedPictureDeck(context, 3)
+    expect(brief.workflow.complete).toBe(false)
 
-    expect(verified.workflow.stage).toBe('awaiting-deposit')
-    // Not complete: the pictures are not in the deck, and a report cannot put
-    // them there. The agent's own stop is `remainingSteps`.
-    expect(verified.workflow.complete).toBe(false)
-    expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
-    // Every picture zone is still empty, and the action says whose step that is.
-    expect(verified.workflow.nextAction).toMatch(/bildesoner står tomme/i)
-    expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
-    // The stop rule the agent reads alongside it does not turn that into
-    // «finished», and it is keyed on what is left for the agent rather than on
-    // `complete`, which answers for the document.
-    expect(verified.workflow.remainingSteps.join(' ')).toMatch(
-      /har du bildefilene fra genereringen/i,
-    )
-    expect(SELF_CHECK_STOP).toMatch(
-      /du har gjort det `workflow\.remainingSteps` krever av deg, er \*\*ditt\*\* arbeid ferdig/i,
-    )
-    expect(SELF_CHECK_STOP).toMatch(/ikke `complete` alene/i)
-    expect(SELF_CHECK_STOP).toMatch(
-      /har du bildefilene fra genereringen.*ikke si at presentasjonen er ferdig/i,
-    )
-    /*
-     * And it must say what `complete` is *about*, in the same terms the status
-     * uses. It once said the deck was complete when the plan was covered by a
-     * current generation check — a statement about something the agent supplies,
-     * and the check is stored on the document while the files are not. A stop
-     * rule keyed on that would let a deck with empty picture zones read as
-     * finished, which is the one reading this whole status exists to refuse.
-     */
-    expect(SELF_CHECK_STOP).toMatch(/at bildene faktisk ligger i dekket/i)
-    expect(SELF_CHECK_STOP).not.toMatch(/gyldig, gjeldende genereringskontroll/i)
-    // The one delivery stage is named, and so is the pair that is genuinely
-    // finished — a rule that named neither would leave the stop to a feeling.
-    expect(SELF_CHECK_STOP).toMatch(/`no-planned-images` og `images-in-deck`/)
-    expect(SELF_CHECK_STOP).toMatch(/I `awaiting-deposit` er den ikke tom/)
-    // And the stage that existed only to hold a missing digest is gone.
-    expect(SELF_CHECK_STOP).not.toMatch(/generation-unverified/)
-
-    /*
-     * And the ordinary case — this conversation has the files — must be able to
-     * end here. Handing them over is not a change to the document, so nothing
-     * the agent does empties this list: the deck moves on when the *user*
-     * deposits the files. A stop rule that waited for an empty list would
-     * therefore be a rule to wait for a browser action the agent cannot
-     * perform, which is the boundary this whole status exists to hold.
-     */
-    expect(verified.workflow.remainingSteps).not.toEqual([])
-    const afterHandoff = await ok<ImageBriefView>(context, 'get_image_brief', {
+    for (const image of brief.images.slice(0, 2)) {
+      await deposit(context, brief.presentationId, image)
+    }
+    const partial = await ok<ImageBriefView>(context, 'get_image_brief', {
       presentationId: brief.presentationId,
     })
-    expect(afterHandoff.workflow.stage).toBe('awaiting-deposit')
-    expect(afterHandoff.workflow.remainingSteps).toEqual(verified.workflow.remainingSteps)
-    expect(SELF_CHECK_STOP).toMatch(
-      /du velger den grenen som gjelder denne samtalen, utfører den, og avslutter når \*\*den\*\* er gjort/i,
-    )
-    expect(SELF_CHECK_STOP).toMatch(/ikke når listen blir tom/i)
-    expect(SELF_CHECK_STOP).toMatch(/ikke vente på at brukeren deponerer dem/i)
-    expect(SELF_CHECK_STOP).not.toMatch(/`workflow\.remainingSteps` er tom, er \*\*ditt\*\*/i)
+    // Some zones filled and some not is a plan that no longer describes what it
+    // claims to: the brief would order a picture the deck already has.
+    expect(partial.workflow.stage).toBe('plan-outdated')
+    expect(partial.workflow.complete).toBe(false)
+    expect(partial.workflow.depositedImageCount).toBe(2)
+
+    await deposit(context, brief.presentationId, brief.images[2])
+    const done = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: brief.presentationId,
+    })
+    expect(done.workflow.stage).toBe('images-in-deck')
+    expect(done.workflow.complete).toBe(true)
+    expect(done.workflow.remainingSteps).toEqual([])
+    expect(done.workflow.nextAction).toMatch(/ser aldri selve bildet/i)
   })
 
   it('gir samme svar når briefen leses på nytt', async () => {
-    // An agent that re-reads the deck cannot get a friendlier answer: the
-    // status is derived from the same deck by the same function.
+    // The status is derived from the deck every time, so it cannot be a fact
+    // about one call that the next read contradicts.
     const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const again = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
+    const written = await plannedPictureDeck(context, 3)
+    const read = await ok<ImageBriefView>(context, 'get_image_brief', {
+      presentationId: written.presentationId,
     })
-    expect(again.workflow).toEqual(brief.workflow)
-  })
-
-  it('er ferdig når koblingskontrollen godkjenner settet, uten at noe er deponert', async () => {
-    // The acceptance flow, end to end and without cheating: the pictures are
-    // generated outside Slaids, the bindings are verified, and *no*
-    // `set_zone_asset` is called. The generation task has to have a reachable
-    // finishing line here — the deposit is the user's step, in a browser.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-
-    expect(verified.ok).toBe(true)
-    expect(verified.reporting).toBe('hash-reported')
-    expect(verified.workflow.stage).toBe('awaiting-deposit')
-    expect(verified.workflow.complete).toBe(false)
-    // Slaids still has none of the files, and says so — it is just not the
-    // stop criterion, and it is never called «generation calls remaining».
-    expect(verified.workflow.awaitingFileCount).toBe(MOTIFS.length)
-    expect(verified.workflow.depositedImageCount).toBe(0)
-    expect(verified.workflow.nextAction).toMatch(/genereringsarbeidet ditt er gjort/i)
-    expect(verified.workflow.nextAction).toMatch(/brukerens steg/i)
-    // And it works for a session that does not hold the files: the deck keeps
-    // the check, never the pictures, so a later conversation is told to say so
-    // and make them again rather than to report a deck with empty zones done.
-    expect(verified.workflow.nextAction).toMatch(/generere bildene på nytt/i)
-    expect(verified.workflow.nextAction).toMatch(/aldri dekket ferdig til brukeren/i)
-    // Nothing left to generate for *this* conversation, which holds the files:
-    // the earlier model would have asked for eight more pictures here. What is
-    // left is the handover, and the branch for a session that does not have
-    // them — never an unconditional demand.
-    expect(verified.workflow.remainingSteps.join(' ')).toMatch(
-      /lever dem med manifestet/i,
-    )
-    expect(verified.workflow.remainingSteps.join(' ')).not.toMatch(
-      /^Generer de \d+ bildene/im,
-    )
-    // The delivery stage names its own wrong endings: overstating what a
-    // report proves, and calling the deck finished while its zones are empty.
-    expect(verified.workflow.forbiddenClosings.join(' ')).toMatch(
-      /Ikke si at bildene er kontrollert eller verifisert/i,
-    )
-    expect(verified.workflow.forbiddenClosings.join(' ')).not.toMatch(
-      /Bildene er ikke satt inn ennå/i,
-    )
-  })
-
-  it('lar ikke en lagret kontroll være en leveranse en senere samtale kan gjøre', async () => {
-    /*
-     * The two halves of this feature read together, by the reader they are both
-     * about. `verify_image_handoff` writes its result to the deck, so the
-     * answer survives the conversation — but the picture files were made in the
-     * host client and do not. A later session therefore opens a deck that is
-     * `awaiting-deposit` with `complete: true`, which is true of the document,
-     * while it owes every picture and has nothing to hand over.
-     *
-     * Asserted apart, both halves passed. Together they used to say «your work
-     * is done» and «generate them again» in the same answer, and an empty step
-     * list settled it. What is left for the agent is now `remainingSteps`, with
-     * the condition that selects each case — and the one it prescribes here is
-     * performable, not advice.
-     */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-
-    const later = laterConversation()
-    const reopened = await ok<ImageBriefView>(later, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(reopened.workflow.stage).toBe('awaiting-deposit')
-    expect(reopened.workflow.complete).toBe(false)
-
-    // The model-facing stop contract, run for this reader: work is owed, and
-    // `complete` is not what decides it.
-    expect(SELF_CHECK_STOP).toMatch(/Det er `remainingSteps` som avgjør det, ikke `complete` alene/i)
-    expect(SELF_CHECK_STOP).not.toMatch(/Er stadiet `awaiting-deposit`, har du gjort ditt/i)
-    expect(reopened.workflow.remainingSteps).not.toEqual([])
-    const owed = reopened.workflow.remainingSteps.join(' ')
-    expect(owed).toMatch(/har du dem ikke/i)
-    expect(owed).toMatch(/generer oppføringene i `images` på nytt, én av gangen/i)
-    expect(owed).toMatch(/meld koblingen igjen/i)
-
-    // And doing it gets this conversation out: the same entries, generated
-    // again, pass the check against the plan the deck still carries.
-    const again = await ok<GeneratedImagesView>(later, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(reopened),
-    })
-    expect(again.ok).toBe(true)
-    expect(again.workflow.stage).toBe('awaiting-deposit')
-  })
-
-  it('er ikke ferdig før den siste jobben er kontrollert', async () => {
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-
-    // One picture short: the loop's normal state, and never a delivery.
-    const short = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief).slice(0, -1),
-    })
-    expect(short.ok).toBe(true)
-    expect(short.planCovered).toBe(false)
-    expect(short.manifest).toBeNull()
-    expect(short.workflow.stage).toBe('awaiting-generation')
-    expect(short.workflow.complete).toBe(false)
-
-    // The last one closes it, and the manifest is the whole set rather than
-    // the binding that happened to be checked last.
-    const last = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief).slice(-1),
-    })
-    expect(last.planCovered).toBe(true)
-    expect(last.manifest).toContain(brief.images[0].imagePlanItemId)
-    expect(last.workflow.stage).toBe('awaiting-deposit')
-    expect(last.workflow.complete).toBe(false)
-  })
-
-  it('holder seg ferdig når briefen leses etter en godkjent kontroll', async () => {
-    // The regression: `verify_image_handoff` answered «done», and the very next
-    // `get_image_brief` on the unchanged deck answered «generate eight
-    // pictures» — the same duplicate generation, one call later. The check
-    // writes its result to the deck, so every later read agrees with it.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, MOTIFS.length)
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-    expect(verified.workflow.stage).toBe('awaiting-deposit')
-
-    const reread = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(reread.workflow.stage).toBe('awaiting-deposit')
-    expect(reread.workflow.complete).toBe(false)
-    expect(reread.workflow.remainingSteps.join(' ')).not.toMatch(/^Generer de \d+ bildene/im)
-    expect(reread.workflow.nextAction).not.toMatch(/kall deretter bildegeneratoren/i)
-    // Nothing was deposited, and the deck says so without treating it as work.
-    expect(reread.workflow.awaitingFileCount).toBe(MOTIFS.length)
-    expect(reread.workflow.depositedImageCount).toBe(0)
-  })
-
-  it('ber om bildene på nytt hvis bestillingen skrives om etter kontrollen', async () => {
-    // The stored answer is not a flag: it is the bindings, re-checked against
-    // the plan the deck carries now. Rewriting the shared context changes every
-    // order's identity, so the verification stops applying by itself.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 2)
-    await ok(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-    await ok(context, 'set_image_context', {
-      presentationId: brief.presentationId,
-      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
-    })
-
-    const reread = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(reread.images.map((image) => image.imagePlanItemId)).not.toEqual(
-      brief.images.map((image) => image.imagePlanItemId),
-    )
-    expect(reread.workflow.stage).toBe('awaiting-generation')
-    expect(reread.workflow.complete).toBe(false)
-  })
-
-  it('kan nå ferdig fra en delvis deponert plan uten å lage bildet om igjen', async () => {
-    // Three planned, one file already in its zone. The old status said «call
-    // the generator twice» while `images` still listed three and the binding
-    // check expected three records — so an agent that followed it walked into
-    // MISSING_ITEM. Now the plan is stale until it describes only what waits,
-    // and the way out never regenerates the picture that is already there.
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 3)
-    await deposit(context, brief.presentationId, brief.images[0])
-
-    const stale = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(stale.workflow.stage).toBe('plan-outdated')
-    expect(stale.workflow.complete).toBe(false)
-    expect(stale.workflow.depositedImageCount).toBe(1)
-    expect(stale.workflow.nextAction).toMatch(/skriv bildeplanen på nytt med bare de sonene/i)
-
-    // Follow it: re-plan the two zones that still wait.
-    const waiting = stale.images.filter((image) => !image.filled)
-    expect(waiting).toHaveLength(2)
-    const replanned = await ok<ImageBriefView>(context, 'plan_deck_images', {
-      presentationId: brief.presentationId,
-      images: waiting.map((image) =>
-        planned(image.slideId, image.nodeId, MOTIFS[image.number - 1]),
-      ),
-    })
-    expect(replanned.issues).toEqual([])
-    expect(replanned.workflow.stage).toBe('awaiting-generation')
-    // The number the status asks for is exactly the set the check expects.
-    expect(replanned.workflow.awaitingFileCount).toBe(2)
-    expect(replanned.images).toHaveLength(2)
-    expect(replanned.generation?.expectedFileCount).toBe(2)
-
-    const verified = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(replanned),
-    })
-    expect(verified.ok).toBe(true)
-    expect(verified.issues).toEqual([])
-    expect(verified.workflow.stage).toBe('awaiting-deposit')
-    expect(verified.workflow.complete).toBe(false)
-  })
-
-  it('lar ikke gamle filer i sonene gjøre en omskrevet bestilling ferdig', async () => {
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 2)
-    for (const image of brief.images) await deposit(context, brief.presentationId, image)
-
-    // Every planned zone now holds a file, and nothing waits — but the plan
-    // still describes those zones, so it is stale rather than delivered.
-    const filled = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(filled.workflow.awaitingFileCount).toBe(0)
-    expect(filled.workflow.stage).toBe('plan-outdated')
-    expect(filled.workflow.complete).toBe(false)
-
-    // Rewrite the shared context and every order changes identity. The files in
-    // the zones were made for orders the deck no longer has, and the binding
-    // check — not the filled zones — is what says so.
-    await ok(context, 'set_image_context', {
-      presentationId: brief.presentationId,
-      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
-    })
-    const rewritten = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(rewritten.images.map((image) => image.imagePlanItemId)).not.toEqual(
-      brief.images.map((image) => image.imagePlanItemId),
-    )
-    expect(rewritten.workflow.complete).toBe(false)
-
-    const stale = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-    expect(stale.ok).toBe(false)
-    expect(stale.issues.map((issue) => issue.code)).toContain('PLAN_CHANGED')
-    expect(stale.workflow.complete).toBe(false)
-  })
-
-  it('kan ikke gjøres ferdig ved å tømme bildeplanen etter en endret bestilling', async () => {
-    /*
-     * The laundering path, through the real operations. Plan, verify, deposit,
-     * rewrite the shared context — and then do exactly what the status names as
-     * the repair. «Rewrite the plan with only the zones that still wait» is an
-     * empty plan on a fully deposited deck, and emptying it used to delete the
-     * bindings and report `complete: true` with pictures made for orders the
-     * deck no longer had. The repair must not be the bug.
-     */
-    const context = freshContext()
-    const brief = await plannedPictureDeck(context, 2)
-    await ok(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(brief),
-    })
-    for (const image of brief.images) await deposit(context, brief.presentationId, image)
-
-    const delivered = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(delivered.workflow.stage).toBe('images-in-deck')
-    expect(delivered.workflow.complete).toBe(true)
-
-    await ok(context, 'set_image_context', {
-      presentationId: brief.presentationId,
-      context: 'Kullstifttegninger, høy kontrast, ingen farge, ingen tekst.',
-    })
-    const changed = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(changed.workflow.stage).toBe('plan-outdated')
-    expect(changed.workflow.complete).toBe(false)
-    expect(changed.workflow.nextAction).toMatch(/erstatningene er ikke laget ennå/i)
-
-    // Follow the repair literally: empty the plan. The deck must not forget why
-    // it was stale, and with nothing on order it says so plainly.
-    const emptied = await ok<ImageBriefView>(context, 'plan_deck_images', {
-      presentationId: brief.presentationId,
-      images: [],
-    })
-    expect(emptied.imageCount).toBe(0)
-    expect(emptied.workflow.stage).toBe('plan-outdated')
-    expect(emptied.workflow.complete).toBe(false)
-    expect(emptied.workflow.nextAction).toMatch(/ikke rettet ved å tømme bildeplanen/i)
-
-    // The way out orders those pictures again and makes them — and making them
-    // is still not the same as them being in the deck: the zones show the old
-    // pictures until the new files are put in.
-    const replanned = await ok<ImageBriefView>(context, 'plan_deck_images', {
-      presentationId: brief.presentationId,
-      images: changed.images.map((image) =>
-        planned(image.slideId, image.nodeId, MOTIFS[image.number - 1]),
-      ),
-    })
-    const remade = await ok<GeneratedImagesView>(context, 'verify_image_handoff', {
-      presentationId: brief.presentationId,
-      images: generated(replanned),
-    })
-    expect(remade.ok).toBe(true)
-    expect(remade.workflow.stage).toBe('awaiting-deposit')
-    expect(remade.workflow.nextAction).toMatch(/viser fortsatt bildet fra den forrige bestillingen/i)
-
-    for (const image of replanned.images) {
-      await deposit(context, brief.presentationId, image, realImages.jpeg())
-    }
-    const delivered2 = await ok<ImageBriefView>(context, 'get_image_brief', {
-      presentationId: brief.presentationId,
-    })
-    expect(delivered2.workflow.stage).toBe('images-in-deck')
-    expect(delivered2.workflow.complete).toBe(true)
-  })
-
-  it('beskriver `awaiting-deposit` i kontrakten koblingskontrollen selv bærer', async () => {
-    // The tool summary is part of what the model reads before it calls. It said
-    // a passing check lands on `images-in-deck` «also before the files are
-    // in» — the opposite of what the stages now mean, and this PR is about not
-    // giving an agent two definitions of the same thing.
-    const verify = mcpTools().find((tool) => tool.name.endsWith('verify_image_handoff'))
-    expect(verify).toBeDefined()
-    expect(verify?.description).toMatch(
-      /`workflow\.stage` blir `awaiting-deposit` når hele planen er dekket/i,
-    )
-    expect(verify?.description).toMatch(
-      /`images-in-deck` først når filene er lagt inn i sonene/i,
-    )
-    expect(verify?.description).not.toMatch(/`images-in-deck` også før filene er lagt inn/i)
-    // And what the check settles is what was *reported*: the files themselves
-    // are only ever seen in the browser.
-    expect(verify?.description).toMatch(
-      /Begge er `complete: false` til filene er inne, for kontrollen svarer på hva du har meldt, ikke på at bildene finnes/i,
-    )
-    expect(verify?.description).toMatch(/`reporting` og `reportingMeans` sier hvor langt svaret rekker/i)
-    // The digest is an extra check the ordinary host cannot produce, so the
-    // description must not read as a demand for one.
-    expect(verify?.description).toMatch(/ekstra kontroll deponeringen kan bruke/i)
-    expect(verify?.description).not.toMatch(/bytesUnavailable/)
+    expect(read.workflow).toEqual(written.workflow)
   })
 
   it('sender agenten gjennom reparasjonen uten å slippe den ut av flyten', async () => {
     // A plan the checks disagree with is still a plan that ends in pictures:
-    // repair first, then the same generation, never a hand-back.
+    // repair first, then the same delivery, never a hand-back.
     const context = freshContext()
     const slide = await slideWithThreeZones(context)
     for (const nodeId of slide.columnIds.slice(0, 2)) {
@@ -2132,7 +1280,7 @@ describe('et illustrert foredrag er ikke ferdig når bildeplanen er skrevet', ()
     expect(brief.workflow.stage).toBe('plan-needs-repair')
     expect(brief.workflow.complete).toBe(false)
     expect(brief.workflow.remainingSteps.join(' ')).toMatch(/skriv bildeplanen på nytt/i)
-    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/Hent neste bildejobb/i)
+    expect(brief.workflow.remainingSteps.join(' ')).toMatch(/seriebrief/i)
   })
 
   it('kaller ikke reserverte bildesoner uten bildeplan for ferdig', async () => {

@@ -9,7 +9,6 @@
  */
 
 import type { IdeaRow } from './ideas'
-import type { GeneratedImageRecord } from './imageGeneration'
 import type { ImageDeposit } from './imageDeposit'
 import type { PlannedImage } from './imagePlan'
 import type { InteractiveStyleContract } from './constants'
@@ -509,29 +508,6 @@ export interface Presentation extends DeckSource {
    * a deck that never planned pictures has nothing to abandon.
    */
   imageDeposit?: ImageDeposit
-  /**
-   * The bindings a generating agent wrote down for this deck's planned pictures.
-   *
-   * One record per finished file: which plan entry it was generated from, that
-   * entry's number and zone, the file's name, and — where the host could reach
-   * the bytes — a digest of them. See `domain/imageGeneration.ts`.
-   *
-   * Stored because it is the *only* answer to «were the pictures made». Slaids
-   * never sees a generated file, so the deck cannot observe generation: without
-   * this, the answer lived in one call's response and the next read of an
-   * unchanged deck asked for every picture again. See
-   * `domain/imageWorkflow.ts`.
-   *
-   * It expires on its own, which is what makes it safe to trust: an entry's
-   * `imagePlanItemId` covers the whole order, so rewriting a motif or the
-   * shared context leaves these records pointing at entries the deck no longer
-   * has, and `checkGeneratedImages` says so. `setImagePlan` drops the ones that
-   * no longer resolve.
-   *
-   * Absent means nothing has been verified, for the same reason `imagePlan` is
-   * optional: adding the field wrote nothing into a document that exists.
-   */
-  generatedImages?: GeneratedImageRecord[]
   sandbox: SandboxItem[]
   ideas: IdeaRow[]
   assets: AssetRef[]

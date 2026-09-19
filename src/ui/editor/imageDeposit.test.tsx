@@ -6,14 +6,16 @@
  *
  *  - the deck that is waiting for pictures offers *both* ways on, and going to
  *    the editor is not a decision about the deposit;
- *  - the brief lists the pictures by number, so «bilde 3» can be checked before
- *    three files are made;
- *  - «Fullfør» is not reachable for a set that is short, misnamed or in
- *    conflict — the disabled button is the same domain verdict the command
- *    refuses on, seen from the other side.
+ *  - the brief hands over the whole series as one text, because that is the one
+ *    thing a picture conversation can carry out in one go;
+ *  - the deposit reads the order off the file names when they say it, and asks
+ *    for it — with the pictures on screen — when they do not;
+ *  - «Fullfør» is not reachable for a set that is short, over-full or holds
+ *    something that is not a picture: the disabled button is the same domain
+ *    verdict the command refuses on, seen from the other side.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { abandonImageDeposit, addSlide, setImagePlan } from '../../domain/commands'
@@ -27,14 +29,11 @@ import { DexieSlaidsRepository } from '../../persistence/dexieRepository'
 import { SlaidsDatabase } from '../../persistence/db'
 import { setRepositoryOverride } from '../../persistence/activeRepository'
 import { depositIsOpen } from '../../domain/imageDeposit'
-import { hashBytes } from '../../domain/assetHash'
 import {
-  composeImageGenerationManifest,
-  IMAGE_MANIFEST_FILE_NAME,
-  type GeneratedImageRecord,
-} from '../../domain/imageGeneration'
-import { composeImageGenerationPrompt, resolveImagePlan } from '../../domain/imagePlan'
-import { nextImageJob } from '../../domain/imageWorkflow'
+  composeImageBrief,
+  composeImageGenerationPrompt,
+  resolveImagePlan,
+} from '../../domain/imagePlan'
 import type { Presentation } from '../../domain/types'
 import { useEditorStore } from '../../state/store'
 import { ImageBriefModal } from './ImageBriefModal'
@@ -46,6 +45,23 @@ let root: Root | null = null
 
 let counter = 0
 const databases: SlaidsDatabase[] = []
+
+/*
+ * jsdom has no blob URLs, and the deposit shows real thumbnails — so the one
+ * thing the dialog asks of the browser is stubbed, and the tests can then check
+ * that every picked file is actually given a picture to look at.
+ */
+const originalCreate = URL.createObjectURL
+const originalRevoke = URL.revokeObjectURL
+let objectUrls = 0
+beforeAll(() => {
+  URL.createObjectURL = () => `blob:slaids/${(objectUrls += 1)}`
+  URL.revokeObjectURL = () => {}
+})
+afterAll(() => {
+  URL.createObjectURL = originalCreate
+  URL.revokeObjectURL = originalRevoke
+})
 
 /**
  * A real Dexie store rather than a stub, for the same reason
@@ -75,9 +91,9 @@ afterEach(async () => {
 /**
  * Motifs that are genuinely different from each other.
  *
- * `checkImagePlan` refuses near-duplicates, and a plan with findings hands out
- * no image job at all — so three variations on one sentence would make the
- * fixture untestable against the generation flow.
+ * `checkImagePlan` refuses near-duplicates, and a plan with findings is a plan
+ * the workflow sends back for repair — so three variations on one sentence
+ * would make the fixture untestable against the delivery.
  */
 const SUBJECTS: readonly string[] = [
   'Motiv nummer 1: en savanne med akasietrær i lavt morgenlys',
@@ -131,8 +147,33 @@ function find<T extends Element>(selector: string): T {
   return element
 }
 
+function all<T extends Element>(selector: string): T[] {
+  return [...document.querySelectorAll<T>(selector)]
+}
+
 function click(selector: string): void {
   act(() => find<HTMLElement>(selector).click())
+}
+
+/** Let the dialog's asynchronous work finish. */
+async function settle(ms = 0): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  })
+}
+
+/** A picked file holding these exact bytes. */
+function picked(bytes: Uint8Array, name: string, type: string): File {
+  return new File([bytes.slice().buffer as ArrayBuffer], name, { type })
+}
+
+/** Hand the dialog files by object rather than by name. */
+function pickFiles(files: readonly File[]): void {
+  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
+  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
 }
 
 /**
@@ -144,40 +185,20 @@ function click(selector: string): void {
  * exactly what an array gives it.
  */
 function pick(names: readonly string[]): void {
-  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
-  const files = names.map((name) => new File([new Uint8Array([1, 2, 3])], name))
-  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
-  act(() => {
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  pickFiles(names.map((name) => new File([new Uint8Array([1, 2, 3])], name)))
 }
 
-/**
- * Hand the dialog pictures *and* a manifest, and let the read settle.
- *
- * The manifest is read asynchronously — it is a file on disk — so the dialog is
- * deliberately not ready until it has been. Flushing here is what lets a test
- * assert the state after the read rather than during it.
- */
-async function pickText(
-  pictures: readonly { name: string; bytes: Uint8Array }[],
-  manifest: string,
-): Promise<void> {
-  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
-  const files = [
-    ...pictures.map((file) => picked(file.bytes, file.name, 'image/png')),
-    new File([manifest], IMAGE_MANIFEST_FILE_NAME, { type: 'application/json' }),
-  ]
-  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
-  act(() => {
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  /* Two reads have to settle, not one: the manifest's text and every picture's
-     own digest. Both are async, and the dialog is deliberately not ready until
-     they land — so a test that asserted before them would be asserting on the
-     loading state. */
-  await settle()
-  await settle()
+/** The picked files, in the order the dialog will place them. */
+function rows(): HTMLElement[] {
+  return all<HTMLElement>('[data-testid="image-deposit-files"] > li')
+}
+
+function rowNumbers(): (string | null)[] {
+  return rows().map((row) => row.getAttribute('data-number'))
+}
+
+function rowNames(): string[] {
+  return rows().map((row) => row.querySelector('.hint')?.textContent ?? '')
 }
 
 /**
@@ -233,44 +254,94 @@ afterEach(() => {
   }
 })
 
-/** Three genuinely different pictures, so a swap between two of them is real. */
-const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
+/* ------------------------------------------------------------------ *
+ * A pointer that can actually drag
+ *
+ * jsdom lays nothing out and has no `elementFromPoint`, so a reorder gesture
+ * cannot be exercised without giving it a geometry to reason about. What is
+ * stubbed is exactly that and nothing else: each row gets a band of 50 pixels,
+ * and a point resolves to the row whose band holds it. Everything above —
+ * arming, the hold, the placeholder, the drop index, the array move — is the
+ * component's own code, driven by real pointer events.
+ * ------------------------------------------------------------------ */
 
-/** Let the dialog's asynchronous reads finish. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0))
+const ROW_HEIGHT = 50
+
+function layOutRows(): void {
+  const list = find<HTMLElement>('[data-testid="image-deposit-files"]')
+  const body = list.closest<HTMLElement>('.dialog__body')
+  if (!body) throw new Error('Fant ikke dialogens kropp')
+  const boxOf = (top: number, height: number): DOMRect =>
+    ({
+      top,
+      bottom: top + height,
+      left: 0,
+      right: 200,
+      width: 200,
+      height,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect
+
+  body.getBoundingClientRect = () => boxOf(0, 1000)
+  list.getBoundingClientRect = () => boxOf(0, rows().length * ROW_HEIGHT)
+  rows().forEach((row, index) => {
+    row.getBoundingClientRect = () => boxOf(index * ROW_HEIGHT, ROW_HEIGHT)
   })
+  document.elementFromPoint = (_x: number, y: number): Element | null => {
+    const hit = rows()[Math.floor(y / ROW_HEIGHT)]
+    return hit ?? list
+  }
+}
+
+function pointer(type: string, init: PointerEventInit & { pointerType?: string }): Event {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, ...init })
+  Object.defineProperty(event, 'pointerId', { value: init.pointerId ?? 1 })
+  Object.defineProperty(event, 'pointerType', { value: init.pointerType ?? 'mouse' })
+  Object.defineProperty(event, 'isPrimary', { value: true })
+  return event
 }
 
 /**
- * The same, with the manifest derived from the deck's own plan and then bent.
+ * Drag the row at `from` until the pointer sits inside the band of `to`.
  *
- * `bytesFor` is separate from `bend` on purpose: the failure worth testing here
- * is a manifest that is *right* about files whose contents were exchanged, so
- * the test has to be able to move the bytes without touching a record.
+ * `hold` is what makes it a touch gesture: the ideas list waits out a press
+ * before it lifts anything, so that a vertical swipe still scrolls, and the
+ * deposit inherits that. A mouse lifts as soon as the pointer has moved.
  */
-async function pickWithManifest(
-  deck: Presentation,
-  bend: (record: GeneratedImageRecord) => GeneratedImageRecord = (record) => record,
-  bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
+async function dragRow(
+  from: number,
+  to: number,
+  { touch = false }: { touch?: boolean } = {},
 ): Promise<void> {
-  const images = await Promise.all(
-    resolveImagePlan(deck).map(async (image, index) =>
-      bend({
-        imagePlanItemId: image.id,
-        number: image.number,
-        slideId: image.plan.slideId,
-        nodeId: image.plan.nodeId,
-        fileName: `${image.fileNameStem}.png`,
-        contentHash: await hashBytes(PICTURES[index % 3]()),
-      }),
-    ),
-  )
-  await pickText(
-    images.map((image, index) => ({ name: image.fileName, bytes: bytesFor(index) })),
-    composeImageGenerationManifest({ presentationId: deck.id, images }),
-  )
+  layOutRows()
+  const row = rows()[from]
+  const startY = from * ROW_HEIGHT + ROW_HEIGHT / 2
+  /* The placeholder goes before the first neighbour the pointer is past the
+     middle of, so a move up aims at the top of the target band and a move down
+     at the bottom of it — which is where a finger actually ends up. */
+  const endY = to > from ? to * ROW_HEIGHT + ROW_HEIGHT - 1 : to * ROW_HEIGHT + 1
+  const pointerType = touch ? 'touch' : 'mouse'
+
+  act(() => {
+    row.dispatchEvent(
+      pointer('pointerdown', { clientX: 10, clientY: startY, button: 0, pointerType }),
+    )
+  })
+  if (touch) await settle(260)
+  await act(async () => {
+    window.dispatchEvent(pointer('pointermove', { clientX: 10, clientY: endY, pointerType }))
+  })
+  // A touch drag lifts on the hold, so the first move is already the drag; a
+  // mouse lifts on that move, and needs a second one to place the row.
+  await act(async () => {
+    window.dispatchEvent(pointer('pointermove', { clientX: 10, clientY: endY, pointerType }))
+  })
+  await act(async () => {
+    window.dispatchEvent(pointer('pointerup', { clientX: 10, clientY: endY, pointerType }))
+  })
+  await settle()
 }
 
 describe('ImageDepositIntroModal', () => {
@@ -292,10 +363,55 @@ describe('ImageDepositIntroModal', () => {
 })
 
 describe('ImageBriefModal', () => {
-  it('lister bildene med nummer, format og beskrivelse, og fører videre til deponering', () => {
-    useEditorStore.getState().setPresentation(pendingDeck())
+  it('viser hele bestillingen som én tekst, og fører videre til deponering', () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
     let wentOn = false
     render(<ImageBriefModal onClose={() => {}} onDeposit={() => (wentOn = true)} />)
+
+    const shown = find<HTMLTextAreaElement>('[data-testid="image-brief-modal-text"]').value
+    expect(shown.startsWith('Lag nøyaktig 3 separate bilder')).toBe(true)
+    for (const subject of SUBJECTS) expect(shown).toContain(subject)
+    expect(find('[data-testid="image-brief-modal-count"]').textContent).toContain('3 bilder')
+
+    click('[data-testid="image-brief-modal-deposit"]')
+    expect(wentOn).toBe(true)
+  })
+
+  it('kopierer hele seriebriefen, ordrett, som primærhandling', async () => {
+    /*
+     * The errand the dialog exists for. Ordering the series is one task that
+     * produces N files, so what the main button puts on the clipboard is the
+     * whole brief — the same text the domain composes for the agent, not a
+     * rendering of it.
+     */
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    const clipboard = captureClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    click('[data-testid="image-brief-modal-copy"]')
+    await settle()
+
+    const shown = useEditorStore.getState().presentation
+    if (!shown) throw new Error('Forventet et dekk i editoren')
+    expect(clipboard.text()).toBe(composeImageBrief(shown))
+    expect(clipboard.text()).toContain('FELLES BILDEKONTEKST')
+    expect(clipboard.text()).toContain('BILDE 2 AV 3')
+    // And nothing of Slaids' own bookkeeping travels with it.
+    expect(clipboard.text()).not.toContain(deck.slides[1].id)
+    expect(clipboard.text()).not.toMatch(/imgplan_|Bildeplan-ID|Filnavn|Skal brukes på slide/i)
+  })
+
+  it('tilbyr å lage ett enkelt bilde om igjen, folded away som reparasjonen den er', async () => {
+    const deck = pendingDeck()
+    useEditorStore.getState().setPresentation(deck)
+    const clipboard = captureClipboard()
+    render(<ImageBriefModal onClose={() => {}} />)
+
+    const fold = find<HTMLDetailsElement>('[data-testid="image-brief-modal-single"]')
+    expect(fold.open).toBe(false)
+    expect(fold.textContent).toMatch(/feil ut, eller mangler det/i)
 
     const list = find('[data-testid="image-brief-modal-list"]')
     expect(list.children).toHaveLength(3)
@@ -303,153 +419,46 @@ describe('ImageBriefModal', () => {
     expect(list.textContent).toContain('Motiv nummer 2')
     expect(list.textContent).toMatch(/\d+:\d+/)
 
-    click('[data-testid="image-brief-modal-deposit"]')
-    expect(wentOn).toBe(true)
-  })
-
-  it('kopierer bare den rene prompten for det ene bildet', async () => {
-    /*
-     * The errand the dialog exists for, and the correction this pins. Copying
-     * «the whole brief» was the obvious button, and a whole brief pasted into
-     * an image generator is a generator that has been shown a set — which is
-     * what comes back. So the per-picture copy is the primary action, and what
-     * it puts on the clipboard is the entry's own order and nothing else.
-     */
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    const clipboard = captureClipboard()
-    render(<ImageBriefModal onClose={() => {}} />)
-
     click('[data-testid="image-brief-modal-copy-prompt-2"]')
     await settle()
     const copied = clipboard.text()
 
-    // Everything a generator actually needs: the deck's shared look, this one
-    // motif, how it is framed, what it must get right, what to avoid, and the
-    // format measured off the zone.
+    // One picture's whole order: the deck's shared look, this one motif, how it
+    // is framed, what it must get right, what to avoid, and the measured format.
     expect(copied).toContain('Fotorealistisk, dempet palett')
     expect(copied).toContain('Motiv nummer 2')
     expect(copied).toContain('Sentrert motiv, rolig bakgrunn.')
-    expect(copied).toContain('Anatomisk korrekt skjelettbygning')
-    expect(copied).toContain('Ingen moderne klær')
     expect(copied).toMatch(/Aspect ratio \d+:\d+/)
-
-    // And nothing that says «one of several». Each of these is bookkeeping
-    // Slaids needs and an image generator cannot use: an id, a file name, a
-    // slide, a count, another motif.
-    expect(copied).not.toContain('imgplan_')
-    expect(copied).not.toMatch(/Bildeplan-ID/i)
-    expect(copied).not.toMatch(/Filnavn/i)
-    expect(copied).not.toMatch(/Skal brukes på slide/i)
-    expect(copied).not.toContain(deck.slides[1].id)
-    expect(copied).not.toContain(resolveImagePlan(deck)[1].plan.nodeId)
-    expect(copied).not.toMatch(/BILDE \d+ AV \d+/i)
-    expect(copied).not.toMatch(/separate bilder/i)
+    // And nothing that says «one of several».
     expect(copied).not.toContain('Motiv nummer 1')
     expect(copied).not.toContain('Motiv nummer 3')
-  })
-
-  it('viser bildets plass i raden uten å legge den i teksten', async () => {
-    // The split the dialog rests on: a person needs the number, the slide and
-    // the file name to find their way, and none of it belongs in the order.
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    const clipboard = captureClipboard()
-    render(<ImageBriefModal onClose={() => {}} />)
-
-    const row = find('[data-testid="image-brief-modal-list"]').children[1]
-    expect(row.textContent).toContain('Bilde 2')
-    expect(row.textContent).toContain('Tre arter')
-    expect(row.textContent).toMatch(/Filnavn: 2\./)
-
-    click('[data-testid="image-brief-modal-copy-prompt-2"]')
-    await settle()
-    expect(clipboard.text()).not.toContain('Tre arter')
-    expect(clipboard.text()).not.toMatch(/\bBilde 2\b/)
-  })
-
-  it('kopierer nøyaktig den teksten agenten får som bildejobb', async () => {
-    /*
-     * One composer, two surfaces. The automatic flow and the manual fallback
-     * have to order the *same* picture — otherwise pasting the prompt into a
-     * fresh conversation, which is the supported way out when a host merges
-     * several motifs, would produce a different picture than the flow it is
-     * rescuing.
-     */
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    const clipboard = captureClipboard()
-    render(<ImageBriefModal onClose={() => {}} />)
-
-    click('[data-testid="image-brief-modal-copy-prompt-1"]')
-    await settle()
-
-    /* The dialog reconciles the placeholder captions as it opens, so the deck
-       an agent would be reading is the store's, not the fixture's. */
+    expect(copied).not.toMatch(/BILDE \d+ AV \d+/i)
+    expect(copied).not.toMatch(/separate bilder/i)
+    expect(copied).not.toContain('Tre arter')
     const shown = useEditorStore.getState().presentation
     if (!shown) throw new Error('Forventet et dekk i editoren')
-    const job = nextImageJob(shown)
-    expect(job.status).toBe('job')
-    expect(clipboard.text()).toBe(job.job?.prompt)
-    // And the same text again from the domain, so the parity is a property of
-    // the composer rather than a coincidence of this deck.
-    expect(clipboard.text()).toBe(
-      composeImageGenerationPrompt(resolveImagePlan(shown)[0], shown.imageContext ?? ''),
+    expect(copied).toBe(
+      composeImageGenerationPrompt(resolveImagePlan(shown)[1], shown.imageContext ?? ''),
     )
   })
 
-  it('tilbyr den samme rene prompten når nettleseren nekter å kopiere', async () => {
-    /*
-     * The failure path, and it is the moment the clean single prompt matters
-     * most. It used to say «åpne den samlede briefen under, merk teksten og
-     * kopier den selv» — which hands a person the one message this dialog
-     * exists to keep away from an image generator: every motif at once,
-     * numbered and counted. What has to be offered instead is the exact text
-     * the button would have copied.
-     */
+  it('tilbyr den samme teksten til å merke når nettleseren nekter å kopiere', async () => {
     const deck = pendingDeck()
     useEditorStore.getState().setPresentation(deck)
     refuseClipboard()
     render(<ImageBriefModal onClose={() => {}} />)
 
-    click('[data-testid="image-brief-modal-copy-prompt-2"]')
+    click('[data-testid="image-brief-modal-copy"]')
     await settle()
 
-    const message = find('[data-testid="image-brief-modal-copy-failed"]').textContent ?? ''
-    expect(message).toMatch(/tillot ikke kopiering/i)
-    // Never towards the whole-plan brief, and the fold stays shut.
-    expect(message).not.toMatch(/samlede brief|samlet brief/i)
-    expect(find<HTMLDetailsElement>('[data-testid="image-brief-modal-full"]').open).toBe(false)
-
-    // The text on offer is this one picture's order, and nothing else.
+    expect(find('[data-testid="image-brief-modal-copy-failed"]').textContent).toMatch(
+      /tillot ikke kopiering/i,
+    )
     const offered = find<HTMLTextAreaElement>('[data-testid="image-brief-modal-copy-fallback"]')
     const shown = useEditorStore.getState().presentation
     if (!shown) throw new Error('Forventet et dekk i editoren')
-    expect(offered.value).toBe(
-      composeImageGenerationPrompt(resolveImagePlan(shown)[1], shown.imageContext ?? ''),
-    )
+    expect(offered.value).toBe(composeImageBrief(shown))
     expect(offered.readOnly).toBe(true)
-    expect(offered.value).toContain('Motiv nummer 2')
-    expect(offered.value).not.toContain('Motiv nummer 1')
-    expect(offered.value).not.toContain('imgplan_')
-    expect(offered.value).not.toMatch(/Bildeplan-ID|Filnavn|Skal brukes på slide/i)
-    expect(offered.value).not.toMatch(/BILDE \d+ AV \d+/i)
-  })
-
-  it('holder den samlede briefen adskilt fra genereringshandlingen', () => {
-    // The whole plan is still generated and still reachable — documentation and
-    // debugging need it — but it is folded away and labelled, so it does not
-    // read as the way to order pictures.
-    useEditorStore.getState().setPresentation(pendingDeck())
-    render(<ImageBriefModal onClose={() => {}} />)
-
-    const details = find<HTMLDetailsElement>('[data-testid="image-brief-modal-full"]')
-    expect(details.open).toBe(false)
-    expect(details.textContent).toMatch(/dokumentasjon og feilsøking/i)
-    expect(details.textContent).toMatch(/ingen bildeprompt/i)
-    // The brief itself carries the bookkeeping the prompt must not: that is
-    // what makes it internal.
-    expect(find('[data-testid="image-brief-modal-text"]').textContent).toContain('Bildeplan-ID')
   })
 
   it('tilbyr ikke deponering når dekket har avsluttet den', () => {
@@ -460,244 +469,236 @@ describe('ImageBriefModal', () => {
 
     // The brief itself is still there — it is worth reading at any time — but
     // there is nothing left for «bildene er klare» to lead to.
-    expect(find('[data-testid="image-brief-modal-list"]').children).toHaveLength(3)
+    expect(find<HTMLTextAreaElement>('[data-testid="image-brief-modal-text"]').value).toContain(
+      'BILDE 1 AV 3',
+    )
     expect(document.querySelector('[data-testid="image-brief-modal-deposit"]')).toBeNull()
   })
 })
 
-describe('ImageDepositModal', () => {
+describe('ImageDepositModal – rekkefølgen fra filnavnene', () => {
   it('sier hvor mange bilder som forventes, og lar ikke fullføre et tomt sett', () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('0 av 3 på plass')
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-    expect(find('[data-testid="image-deposit-row-2"]').getAttribute('data-state')).toBe('missing')
+    expect(find('[data-testid="image-deposit-missing-2"]').textContent).toContain('Motiv nummer 2')
   })
 
-  it('godtar 1, 2, 3 med blandede filformater', () => {
+  it('leser 1, 2, 3 av navnene, med blandede filformater', () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
     pick(['1.png', '2.jpg', '3.webp'])
 
+    expect(find('[data-testid="image-deposit-order"]').getAttribute('data-mode')).toBe('numbered')
+    expect(find('[data-testid="image-deposit-order"]').textContent).toMatch(/lest fra filnavnene/i)
+    expect(rowNumbers()).toEqual(['1', '2', '3'])
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
-    expect(find('[data-testid="image-deposit-row-1"]').getAttribute('data-state')).toBe('ready')
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
+    // The names said it, so nothing is asked of the person.
+    expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
   })
 
-  it('avviser filnavn som ikke er et rent tall, og sier hvorfor', () => {
+  it('bryr seg ikke om hvilken rekkefølge de nummererte filene ble valgt i', () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
-    pick(['01.png', 'bilde1.png', '1a.png', '2.png', '3.png'])
+    pick(['3.webp', '1.png', '2.jpg'])
 
-    const problems = find('[data-testid="image-deposit-problems"]')
-    expect(problems.children).toHaveLength(3)
-    expect(problems.textContent).toContain('01.png')
-    expect(problems.textContent).toContain('Feil filnavn')
-    expect(find('[data-testid="image-deposit-row-1"]').getAttribute('data-state')).toBe('missing')
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+    expect(find('[data-testid="image-deposit-order"]').getAttribute('data-mode')).toBe('numbered')
+    expect(rowNumbers()).toEqual(['3', '1', '2'])
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
   })
 
-  it('oppdager to filer med det samme nummeret', () => {
+  it('viser et ekte miniatyrbilde for hver fil', () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
-    pick(['1.jpg', '1.png', '2.png', '3.png'])
+    pick(['1.png', '2.jpg', '3.webp'])
+    const thumbs = all<HTMLImageElement>('[data-testid="image-deposit-files"] img')
+    expect(thumbs).toHaveLength(3)
+    for (const thumb of thumbs) expect(thumb.getAttribute('src')).toMatch(/^blob:slaids\//)
+    // Every picture has its own, so no two rows show the same file.
+    expect(new Set(thumbs.map((thumb) => thumb.getAttribute('src'))).size).toBe(3)
+  })
+})
 
-    const problems = find('[data-testid="image-deposit-problems"]')
-    expect(problems.textContent).toContain('samme nummeret')
-    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('2 av 3 på plass')
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+describe('ImageDepositModal – rekkefølgen fra brukeren', () => {
+  it('går til manuell rekkefølge for vilkårlige filnavn, og sier hvorfor', () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['IMG_4821.png', 'padmasambhava.webp', 'Screenshot.jpg'])
+
+    const order = find('[data-testid="image-deposit-order"]')
+    expect(order.getAttribute('data-mode')).toBe('manual')
+    expect(order.textContent).toMatch(/Filnavnene angir ikke rekkefølgen/i)
+    expect(order.textContent).toMatch(/Dra bildene i riktig rekkefølge/i)
+    expect(rowNumbers()).toEqual(['1', '2', '3'])
+    // Each row says which picture it will become, and what that picture is of.
+    expect(rows()[1].textContent).toContain('Bilde 2')
+    expect(rows()[1].textContent).toContain('Motiv nummer 2')
+    expect(rows()[1].textContent).toContain('padmasambhava.webp')
   })
 
-  it('kontrollerer koblingen mot filenes innhold når manifestet følger med', async () => {
-    // The manifest is the agent flow's binding, and the dialog's job is to
-    // check it rather than trust the file names: nine pictures named by arrival
-    // are nine well-formed names for the wrong pictures.
+  it('behandler navn som bare ligner på tall som vanlige navn', () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['01.png', 'bilde1.png', '1-final.png'])
+
+    expect(find('[data-testid="image-deposit-order"]').getAttribute('data-mode')).toBe('manual')
+    expect(rowNumbers()).toEqual(['1', '2', '3'])
+    // Not a single one of them is an error.
+    expect(rows().every((row) => row.getAttribute('data-problem') === '')).toBe(true)
+  })
+
+  it('lar musedrag bytte hvilken fil som blir bilde 1', async () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['IMG_4821.png', 'padmasambhava.webp', 'Screenshot.jpg'])
+    expect(rowNames()[0]).toBe('IMG_4821.png')
+
+    await dragRow(2, 0)
+
+    expect(rowNames()).toEqual(['Screenshot.jpg', 'IMG_4821.png', 'padmasambhava.webp'])
+    expect(rowNumbers()).toEqual(['1', '2', '3'])
+    // Position is the picture number, so the motif beside each row moved too.
+    expect(rows()[0].textContent).toContain('Motiv nummer 1')
+    expect(rows()[0].textContent).toContain('Screenshot.jpg')
+  })
+
+  it('lar det samme skje med en finger, etter et langtrykk', async () => {
+    // The ideas list waits out a hold on touch so a swipe still scrolls, and
+    // the deposit inherits that: the same gesture, the same feel.
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['a.png', 'b.png', 'c.png'])
+    await dragRow(0, 2, { touch: true })
+
+    expect(rowNames()).toEqual(['b.png', 'c.png', 'a.png'])
+  })
+
+  it('ber om ingen bekreftelse når dekket bare venter på ett bilde', () => {
+    // Nothing can be in the wrong order when there is one picture, and a
+    // checkbox over a list of one is friction that teaches people to tick
+    // without looking.
     const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
+    const single = setImagePlan(deck, [
+      {
+        slideId: deck.slides[1].id,
+        nodeId: resolveImagePlan(deck)[0].plan.nodeId,
+        subject: SUBJECTS[0],
+        composition: 'Sentrert motiv, rolig bakgrunn.',
+        requirements: '',
+        avoid: '',
+      },
+    ])
+    if (!single.ok) throw new Error(single.error.message)
+    useEditorStore.getState().setPresentation(single.value)
     render(<ImageDepositModal onClose={() => {}} />)
 
-    await pickWithManifest(deck)
-    expect(find('[data-testid="image-deposit-manifest"]').textContent).toContain(
-      'slaids-bilder.json',
-    )
-    const assurance = find('[data-testid="image-deposit-assurance"]')
-    expect(assurance.getAttribute('data-assurance')).toBe('file-checked')
-    // And the dialog keeps «which file» apart from «what the picture shows».
-    expect(assurance.textContent).toMatch(/ikke hva bildet viser/)
-    expect(document.querySelector('[data-testid="image-deposit-binding"]')).toBeNull()
+    pick(['padmasambhava.webp'])
+    expect(find('[data-testid="image-deposit-order"]').getAttribute('data-mode')).toBe('manual')
     expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
   })
 
-  it('stopper to filer som har byttet innhold, med navn og manifest urørt', async () => {
-    // The delivery every name-based check calls correct. The dialog must not,
-    // and the button must stay out of reach — there is no partial insertion to
-    // be had here, because «Fullfør» is the only way in.
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
+  it('ber om en bekreftelse på rekkefølgen, og mister den når rekkefølgen endres', async () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
-    await pickWithManifest(deck, (record) => record, (index) =>
-      index === 0 ? PICTURES[1]() : index === 1 ? PICTURES[0]() : PICTURES[2](),
-    )
+    pick(['a.png', 'b.png', 'c.png'])
+    const finish = () => find<HTMLButtonElement>('[data-testid="image-deposit-finish"]')
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    expect(finish().disabled).toBe(true)
 
-    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
-    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
-    const binding = find('[data-testid="image-deposit-binding"]')
-    expect(binding.textContent).toMatch(/inneholder ikke de bytene/)
-    expect(binding.children).toHaveLength(2)
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+    act(() => box().click())
+    expect(finish().disabled).toBe(false)
+
+    await dragRow(2, 0)
+    // A different arrangement is a different answer, so it has to be given again.
+    expect(box().checked).toBe(false)
+    expect(finish().disabled).toBe(true)
+  })
+})
+
+  it('mister bekreftelsen når to like navngitte filer bytter plass', async () => {
+    /*
+     * The delivery this dialog goes out of its way to support is also the one a
+     * name-based key cannot tell apart: two folders can each hold an
+     * `IMG_4821.png`, and two pictures out of one generator are easily the same
+     * number of bytes. Tick the box, swap that pair, and a `name:size` key does
+     * not move — the confirmation would survive a real change of order, which
+     * is the whole thing it exists to prevent.
+     */
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    // Same name, same size, different pictures.
+    const bytes = (first: number) => new Uint8Array([first, 2, 3, 4, 5, 6, 7, 8])
+    pickFiles([
+      picked(bytes(1), 'IMG_4821.png', 'image/png'),
+      picked(bytes(9), 'IMG_4821.png', 'image/png'),
+      picked(realImages.gif(), 'annet.gif', 'image/gif'),
+    ])
+    expect(rowNames()).toEqual(['IMG_4821.png', 'IMG_4821.png', 'annet.gif'])
+
+    const finish = () => find<HTMLButtonElement>('[data-testid="image-deposit-finish"]')
+    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
+    act(() => box().click())
+    expect(finish().disabled).toBe(false)
+
+    // The two indistinguishable names swap: picture 1 is now a different file.
+    await dragRow(1, 0)
+    expect(box().checked).toBe(false)
+    expect(finish().disabled).toBe(true)
   })
 
-  it('krever en uttrykkelig bekreftelse når koblingen ikke kan kontrolleres', async () => {
-    // A host that cannot reach the bytes of what its image tool produced is not
-    // refused — it is unverified, and the honest response is to say so and ask
-    // for the one check a person can still make.
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
+describe('ImageDepositModal – antallet filer', () => {
+  it('lar brukeren legge til flere uten å miste dem hun alt har valgt', () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
-    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
+    pick(['a.png', 'b.png'])
+    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
+    expect(find('[data-testid="image-deposit-missing-3"]').textContent).toContain('Motiv nummer 3')
 
-    const assurance = find('[data-testid="image-deposit-assurance"]')
-    expect(assurance.getAttribute('data-assurance')).toBe('unchecked')
-    expect(assurance.textContent).toMatch(/ikke verifisert/)
+    pick(['c.png'])
+    expect(rowNames()).toEqual(['a.png', 'b.png', 'c.png'])
+    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+  })
+
+  it('stopper «Fullfør» til den overskytende filen er fjernet', () => {
+    useEditorStore.getState().setPresentation(pendingDeck())
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pick(['a.png', 'b.png', 'c.png', 'd.png'])
+    expect(rowNumbers()).toEqual(['1', '2', '3', ''])
+    expect(rows()[3].getAttribute('data-problem')).toBe('EXCESS')
+    expect(rows()[3].textContent).toMatch(/flere bilder enn presentasjonen har plass til/i)
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
 
+    act(() => find<HTMLElement>('[aria-label="Fjern d.png"]').click())
     const box = find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
     act(() => box.click())
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
   })
 
-  it('krever ingen bekreftelse for vanlig manuell opplasting', async () => {
-    // The flow the deposit was built for, unchanged: a person who saved «bilde
-    // 3» as `3.png` made the binding, and asking them to tick a box for it
-    // would be a regression dressed as rigour.
+  it('avviser en fil som ikke er et bilde, uten å la den ta en bildeplass', () => {
     useEditorStore.getState().setPresentation(pendingDeck())
     render(<ImageDepositModal onClose={() => {}} />)
 
-    pick(['1.png', '2.jpg', '3.webp'])
-    await settle()
-
-    expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
-      'manual',
-    )
-    expect(document.querySelector('[data-testid="image-deposit-acknowledge"]')).toBeNull()
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-  })
-
-  it('stopper deponeringen når manifestet og bildeplanen er uenige', async () => {
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    render(<ImageDepositModal onClose={() => {}} />)
-
-    // Three well-formed files, the right count, the right names — and picture 2
-    // bound to the wrong entry. This is the delivery the dialog used to accept.
-    await pickWithManifest(deck, (image) =>
-      image.number === 2 ? { ...image, number: 3 } : image,
-    )
-
-    const binding = find('[data-testid="image-deposit-binding"]')
-    expect(binding.children.length).toBeGreaterThan(0)
-    expect(document.querySelector('[data-testid="image-deposit-problems"]')).toBeNull()
+    pick(['a.png', 'notat.txt', 'b.png', 'c.png'])
+    expect(rowNumbers()).toEqual(['1', '', '2', '3'])
+    expect(rows()[1].getAttribute('data-problem')).toBe('TYPE')
     expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
+    // Complete, and still refused: something in the drop cannot be used.
     expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-  })
-
-  it('mister bekreftelsen når leveransen endres etter at den ble gitt', async () => {
-    // The sequence a boolean survived: confirm an unverified set, then swap one
-    // picture for another under the same name. The set is complete again, still
-    // unverified, and nobody has looked at the picture that is now in it — so
-    // «Fullfør» has to be out of reach until it is confirmed again.
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    render(<ImageDepositModal onClose={() => {}} />)
-
-    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
-    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
-    act(() => box().click())
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-
-    // Swap `2.png`: the dialog adds rather than replaces, so the old one goes
-    // first — exactly what a person does when one picture came back wrong.
-    act(() => find<HTMLElement>('[aria-label="Fjern 2.png"]').click())
-    await settle()
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-
-    pickFiles([picked(realImages.webpLossless(), '2.png', 'image/png')])
-    await settle()
-    await settle()
-
-    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
-    expect(find('[data-testid="image-deposit-assurance"]').getAttribute('data-assurance')).toBe(
-      'unchecked',
-    )
-    // Complete again, and still refused: the box unticked itself with the set.
-    expect(box().checked).toBe(false)
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-
-    act(() => box().click())
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-  })
-
-  it('beholder bekreftelsen når ingenting materielt er endret', async () => {
-    // The other half: re-picking the same bytes under the same names is the same
-    // delivery, and a dialog that demanded a new tick for it would teach people
-    // to tick without looking.
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    render(<ImageDepositModal onClose={() => {}} />)
-
-    await pickWithManifest(deck, (record) => ({ ...record, contentHash: undefined }))
-    const box = () => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input')
-    act(() => box().click())
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-
-    // Remove one file and put the very same bytes back under the same name.
-    act(() => find<HTMLElement>('[aria-label="Fjern 3.png"]').click())
-    await settle()
-    /* Two settles, for the reason `pickWithManifest` gives: reading a picked
-       file's bytes and hashing them are two async hops, and `deliveryKey` — what
-       the acknowledgement is keyed to — is not the delivery's key until both
-       have landed. Asserting after one is asserting mid-read, which is why this
-       failed about a quarter of the time. */
-    pickFiles([picked(PICTURES[2](), '3.png', 'image/png')])
-    await settle()
-    await settle()
-
-    expect(find('[data-testid="image-deposit-progress"]').textContent).toBe('3 av 3 på plass')
-    expect(box().checked).toBe(true)
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
-  })
-
-  it('behandler et uleselig manifest som en ukjent kobling', async () => {
-    const deck = pendingDeck()
-    useEditorStore.getState().setPresentation(deck)
-    render(<ImageDepositModal onClose={() => {}} />)
-
-    await pickText(
-      ['1.png', '2.png', '3.png'].map((name, index) => ({ name, bytes: PICTURES[index]() })),
-      '{ ikke json',
-    )
-    expect(find('[data-testid="image-deposit-binding"]').children).toHaveLength(1)
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-  })
-
-  it('er fortsatt ikke klar når ett nummer mangler', () => {
-    useEditorStore.getState().setPresentation(pendingDeck())
-    render(<ImageDepositModal onClose={() => {}} />)
-
-    pick(['1.png', '2.png'])
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(true)
-
-    // Files arrive in more than one go, so a second pick adds rather than replaces.
-    pick(['3.png'])
-    expect(find<HTMLButtonElement>('[data-testid="image-deposit-finish"]').disabled).toBe(false)
   })
 })
 
@@ -709,26 +710,12 @@ describe('ImageDepositModal', () => {
  * to count what is actually in it afterwards.
  * ------------------------------------------------------------------ */
 
-/** A picked file holding these exact bytes. */
-function picked(bytes: Uint8Array, name: string, type: string): File {
-  return new File([bytes.slice().buffer as ArrayBuffer], name, { type })
-}
-
 /** Put a deck waiting for three pictures in the store and in the editor. */
 async function openPendingDeck(repository: DexieSlaidsRepository): Promise<Presentation> {
   const deck = pendingDeck()
   await repository.savePresentation(deck)
   act(() => useEditorStore.getState().setPresentation(deck))
   return deck
-}
-
-/** Hand the dialog files by object rather than by name. */
-function pickFiles(files: readonly File[]): void {
-  const input = find<HTMLInputElement>('[data-testid="image-deposit-input"]')
-  Object.defineProperty(input, 'files', { value: files, configurable: true, writable: true })
-  act(() => {
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  })
 }
 
 /**
@@ -772,6 +759,41 @@ describe('ImageDepositModal – fullføring', () => {
     expect(after.imageDeposit).toEqual({ status: 'completed', expectedCount: 3 })
     expect(after.assets).toHaveLength(3)
     expect(await database.assets.count()).toBe(3)
+  })
+
+  it('følger den manuelle rekkefølgen når filnavnene ikke sier noe', async () => {
+    /*
+     * The end-to-end claim of the manual mode: the person's arrangement is what
+     * decides which bytes land in which zone, and a name that says nothing has
+     * no say in it.
+     */
+    const { repository } = freshRepository()
+    await openPendingDeck(repository)
+    render(<ImageDepositModal onClose={() => {}} />)
+
+    pickFiles([
+      picked(realImages.png(), 'IMG_4821.png', 'image/png'),
+      picked(realImages.jpeg(), 'padmasambhava.jpg', 'image/jpeg'),
+      picked(realImages.gif(), 'Screenshot.gif', 'image/gif'),
+    ])
+    // The GIF is the first picture, not the third.
+    await dragRow(2, 0)
+    act(() => find<HTMLInputElement>('[data-testid="image-deposit-acknowledge"] input').click())
+    await runDeposit()
+
+    const after = useEditorStore.getState().presentation as Presentation
+    expect(after.imageDeposit).toEqual({ status: 'completed', expectedCount: 3 })
+    const slide = after.slides[1]
+    if (slide.kind !== 'content' || slide.root.kind !== 'split') throw new Error('Forventet split')
+    const assetOf = (index: number): string | null => {
+      const leaf = slide.root.kind === 'split' ? slide.root.children[index] : null
+      if (!leaf || leaf.kind !== 'leaf' || !leaf.content || !('image' in leaf.content)) return null
+      return leaf.content.image.assetId
+    }
+    const byId = new Map(after.assets.map((asset) => [asset.id, asset]))
+    expect(byId.get(assetOf(0) ?? '')?.mimeType).toBe('image/gif')
+    expect(byId.get(assetOf(1) ?? '')?.mimeType).toBe('image/png')
+    expect(byId.get(assetOf(2) ?? '')?.mimeType).toBe('image/jpeg')
   })
 
   it('skriver ingenting, og lar ingen filer ligge igjen, når dekket flyttes under opplastingen', async () => {

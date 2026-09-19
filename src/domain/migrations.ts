@@ -664,6 +664,30 @@ function retireNotes(node: unknown): unknown {
   return { ...row, content: { id: asString(content.id, 'c_note'), kind: 'negative-space' } }
 }
 
+/**
+ * v16 → v17: the deck stops remembering what an agent said it had generated.
+ *
+ * `generatedImages` was a record, written by the agent, of which file it had
+ * made for which planned picture — the bookkeeping of a flow that generated the
+ * pictures one at a time and reported each one back between the calls. That
+ * flow is gone: the deck is finished first, the whole series is ordered from one
+ * brief in one conversation somewhere else, and the files arrive together
+ * through the user's deposit.
+ *
+ * So the field is dropped rather than migrated, and there is nothing to migrate
+ * it *to*. Every fact in a record was already in the plan before any picture
+ * existed, which is precisely why it could not answer the question it was
+ * stored for: a complete set of bindings was exactly as cheap to produce by
+ * copying the plan as by making the pictures. What a deck can actually observe
+ * is a file in a picture zone, and that lives on the zone.
+ *
+ * Nothing on a slide changes, and no picture already deposited is touched.
+ */
+const migrate16to17: MigrationFn = (data) => {
+  const { generatedImages: _dropped, ...rest } = data
+  return { ...rest, schemaVersion: 17 }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -682,6 +706,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   13: migrate13to14,
   14: migrate14to15,
   15: migrate15to16,
+  16: migrate16to17,
 }
 
 /**

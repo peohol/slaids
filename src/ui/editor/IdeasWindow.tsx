@@ -55,32 +55,7 @@ import { DEFAULT_IDEAS_GEOMETRY } from '../../state/prefs'
 import { ColorSwatchButton } from '../components/ColorPicker'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { Icon } from '../components/Icon'
-
-/*
- * Drag thresholds. On touch the drag waits out a hold, so that a vertical swipe
- * still scrolls the list; on a mouse it starts as soon as the pointer has moved
- * a little with the button down. The distance is measured as the crow flies
- * from the press, so a diagonal counts as much as a straight one.
- */
-const HOLD_MS = 200
-const HOLD_MOVE = 10
-const HOLD_MOVE_MOUSE = 5
-
-/** The zone at the top and bottom of the list that scrolls while you drag over it. */
-const SCROLL_EDGE = 30
-const SCROLL_STEP = 10
-
-interface Drag {
-  rowId: string
-  el: HTMLElement
-  placeholder: HTMLLIElement
-  pointerId: number
-  grabX: number
-  grabY: number
-  x: number
-  y: number
-  stop: () => void
-}
+import { useReorderDrag } from '../components/reorderDrag'
 
 interface Editing {
   id: string
@@ -99,26 +74,16 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
   const run = useEditorStore((state) => state.run)
 
   const rows = presentation?.ideas ?? []
-  /* The list as the pointer and the keyboard see it. Both act after a paint, so
-     an effect-synced mirror is always the list that is on screen. */
   const rowsRef = useRef<IdeaRow[]>(rows)
 
   const listRef = useRef<HTMLUListElement | null>(null)
   const fieldRef = useRef<HTMLTextAreaElement | null>(null)
   const editFieldRef = useRef<HTMLTextAreaElement | null>(null)
-  const dragRef = useRef<Drag | null>(null)
-  const scrollFrameRef = useRef(0)
-  /** A finished drag swallows the click that would otherwise follow it. */
-  const draggedRef = useRef(false)
-
   const [editing, setEditing] = useState<Editing | null>(null)
   const editingRef = useRef<Editing | null>(null)
-  const [dragging, setDragging] = useState(false)
-
-  useEffect(() => {
-    rowsRef.current = rows
-    editingRef.current = editing
-  })
+  /* Read by `beginEdit`, which runs a frame after a row is added and must not
+     open an editor on a card that is in the air. */
+  const draggingRef = useRef(false)
 
   const full = countRows(rows) >= MAX_IDEAS
   const ideaCount = countIdeas(rows)
@@ -171,261 +136,41 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
   )
 
   const beginEdit = useCallback((id: string, selectAll = false): void => {
-    if (editingRef.current || dragRef.current) return
+    if (editingRef.current || draggingRef.current) return
     setEditing({ id, selectAll })
   }, [])
 
   /* -------------------------------------------------------------------- drag */
 
-  const moveDragged = useCallback((): void => {
-    const drag = dragRef.current
-    if (!drag) return
-    drag.el.style.left = `${drag.x - drag.grabX}px`
-    drag.el.style.top = `${drag.y - drag.grabY}px`
-  }, [])
-
-  /**
-   * Put the placeholder where the row would land if you let go now.
-   *
-   * The container is the one you are hovering: an idea may end up in a
-   * category, a category only at the root. Within the container the row goes
-   * before the first neighbour the pointer is past the middle of — and last if
-   * it is below all of them.
+  /*
+   * The gesture is the shared one; what is local is where an idea may *land*.
+   * An idea dropped over a category goes into it, a category only ever sits at
+   * the root, and that one rule is the whole of this list's nesting.
    */
-  const placePlaceholder = useCallback((): void => {
-    const drag = dragRef.current
-    const body = bodyOf()
-    if (!drag || !body) return
-    const under = document.elementFromPoint(drag.x, drag.y)
-    // Outside the list the placeholder stays put, so a drag that swings out of
-    // the window does not lose the place you were aiming at.
-    if (!under || !body.contains(under)) return
-
-    const category = drag.el.classList.contains('idea-cat') ? null : under.closest('.idea-cat')
-    const container = category
-      ? category.querySelector<HTMLElement>('.idea-cat-items')
-      : listRef.current
-    if (!container) return
-
-    let before: Element | null = null
-    for (const child of container.children) {
-      if (child === drag.placeholder || child === drag.el) continue
-      const rect = child.getBoundingClientRect()
-      if (drag.y < rect.top + rect.height / 2) {
-        before = child
-        break
-      }
-    }
-    if (drag.placeholder.parentNode === container && drag.placeholder.nextElementSibling === before) {
-      return
-    }
-    container.insertBefore(drag.placeholder, before)
-  }, [bodyOf])
-
-  /** How many pixels the list should scroll now: 0 outside the edge zones. */
-  const edgeStep = useCallback((): number => {
-    const drag = dragRef.current
-    const body = bodyOf()
-    if (!drag || !body) return 0
-    const box = body.getBoundingClientRect()
-    if (drag.y < box.top + SCROLL_EDGE && body.scrollTop > 0) return -SCROLL_STEP
-    const rest = body.scrollHeight - body.clientHeight - body.scrollTop
-    if (drag.y > box.bottom - SCROLL_EDGE && rest > 0) return SCROLL_STEP
-    return 0
-  }, [bodyOf])
-
-  /** Keep the list rolling for as long as the pointer sits in an edge zone. */
-  const autoScroll = useCallback((): void => {
-    if (scrollFrameRef.current || !edgeStep()) return
-    const tick = (): void => {
-      scrollFrameRef.current = 0
-      const body = bodyOf()
-      if (!dragRef.current || !body) return
-      const step = edgeStep()
-      if (!step) return
-      body.scrollTop += step
-      // The rows have moved under the pointer, so the place has to be worked out
-      // again even though nothing was moved.
-      placePlaceholder()
-      scrollFrameRef.current = requestAnimationFrame(tick)
-    }
-    scrollFrameRef.current = requestAnimationFrame(tick)
-  }, [bodyOf, edgeStep, placePlaceholder])
-
-  /** Clean up after the drag. The row itself is redrawn by React, not put back. */
-  const endDrag = useCallback((): void => {
-    const drag = dragRef.current
-    if (!drag) return
-    dragRef.current = null
-    cancelAnimationFrame(scrollFrameRef.current)
-    scrollFrameRef.current = 0
-    drag.stop()
-    drag.el.classList.remove('is-dragging', 'is-pressed')
-    drag.el.style.width = ''
-    drag.el.style.left = ''
-    drag.el.style.top = ''
-    drag.placeholder.remove()
-    setDragging(false)
-  }, [])
-
-  const startDrag = useCallback(
-    (el: HTMLElement, rowId: string, point: { x: number; y: number }, pointerId: number): void => {
-      const body = bodyOf()
-      if (!body || !el.parentNode) return
-
-      const rect = el.getBoundingClientRect()
-      const placeholder = document.createElement('li')
-      placeholder.className = 'idea-ph'
-      placeholder.style.height = `${rect.height}px`
-      el.parentNode.insertBefore(placeholder, el)
-
-      const onMove = (event: PointerEvent): void => {
-        const drag = dragRef.current
-        if (!drag || event.pointerId !== drag.pointerId) return
-        drag.x = event.clientX
-        drag.y = event.clientY
-        moveDragged()
-        placePlaceholder()
-        autoScroll()
-      }
-      const onUp = (event: PointerEvent): void => {
-        const drag = dragRef.current
-        if (!drag || event.pointerId !== drag.pointerId) return
-        const container = drag.placeholder.parentElement
-        const categoryId = container?.dataset.category ?? null
-        // Where the placeholder stands, without the lifted row: exactly the
-        // index `moveIdeaRow` reads.
-        const index = [...(container?.children ?? [])]
-          .filter((child) => child !== drag.el)
-          .indexOf(drag.placeholder)
-        endDrag()
-        if (index > -1) {
-          run('idea-move', (state) => moveIdeaRow(state, rowId, categoryId, index))
-        }
-      }
-      const onCancel = (event: PointerEvent): void => {
-        const drag = dragRef.current
-        if (drag && event.pointerId === drag.pointerId) endDrag()
-      }
-      const onKey = (event: KeyboardEvent): void => {
-        if (event.key !== 'Escape' || !dragRef.current) return
-        event.preventDefault()
-        event.stopPropagation()
-        endDrag()
-      }
-      const blockTouchScroll = (event: TouchEvent): void => {
-        if (dragRef.current && event.cancelable) event.preventDefault()
-      }
-
-      dragRef.current = {
-        rowId,
-        el,
-        placeholder,
-        pointerId,
-        grabX: point.x - rect.left,
-        grabY: point.y - rect.top,
-        x: point.x,
-        y: point.y,
-        stop: () => {
-          window.removeEventListener('pointermove', onMove)
-          window.removeEventListener('pointerup', onUp)
-          window.removeEventListener('pointercancel', onCancel)
-          window.removeEventListener('keydown', onKey, true)
-          body.removeEventListener('touchmove', blockTouchScroll)
-        },
-      }
-
-      el.classList.remove('is-pressed')
-      el.classList.add('is-dragging')
-      el.style.width = `${rect.width}px`
-      setDragging(true)
-      moveDragged()
-
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
-      window.addEventListener('pointercancel', onCancel)
-      window.addEventListener('keydown', onKey, true)
-      // The finger started on a surface that scrolls normally, so the browser
-      // has to be stopped actively while the drag is on. Non-passive, or
-      // `preventDefault` does not bite.
-      body.addEventListener('touchmove', blockTouchScroll, { passive: false })
+  const drag = useReorderDrag({
+    scrollParent: bodyOf,
+    placeholderClass: 'idea-ph',
+    canStart: () => !editingRef.current,
+    containerFor: (under, dragged) => {
+      const category = dragged.classList.contains('idea-cat') ? null : under.closest('.idea-cat')
+      return category
+        ? category.querySelector<HTMLElement>('.idea-cat-items')
+        : listRef.current
     },
-    [autoScroll, bodyOf, endDrag, moveDragged, placePlaceholder, run],
-  )
-
-  /**
-   * Arm a drag: press-and-hold on touch, movement with the button down on a mouse.
-   *
-   * `dragEl` is what gets lifted: for an idea that is the card you pressed, for
-   * a category the whole category, heading and contents.
-   */
-  const armDrag = useCallback(
-    (event: React.PointerEvent, rowId: string, dragEl: HTMLElement | null, except: string): void => {
-      draggedRef.current = false
-      if (event.button !== 0 || event.isPrimary === false) return
-      if ((event.target as Element).closest(`.idea-edit, ${except}`)) return
-      if (!dragEl) return
-      event.preventDefault() // no text selection while you hold
-
-      const pointerId = event.pointerId
-      const mouse = event.pointerType === 'mouse'
-      const start = { x: event.clientX, y: event.clientY }
-      let last = start
-      let timer = 0
-
-      const disarm = (): void => {
-        clearTimeout(timer)
-        timer = 0
-        dragEl.classList.remove('is-pressed')
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        window.removeEventListener('pointercancel', onUp)
-      }
-      function startNow(): void {
-        disarm()
-        // Anything may have changed between the press and now: the list may have
-        // been redrawn, another drag may have begun, the editor may have opened.
-        if (!dragEl?.isConnected || dragRef.current || editingRef.current) return
-        draggedRef.current = true
-        startDrag(dragEl, rowId, last, pointerId)
-      }
-      function onMove(move: PointerEvent): void {
-        if (move.pointerId !== pointerId) return
-        last = { x: move.clientX, y: move.clientY }
-        const limit = mouse ? HOLD_MOVE_MOUSE : HOLD_MOVE
-        const dx = last.x - start.x
-        const dy = last.y - start.y
-        if (dx * dx + dy * dy <= limit * limit) return
-        // Mouse: the movement *is* the drag. Touch: movement before the hold is
-        // out is a swipe, and then the list should scroll as it otherwise does.
-        if (mouse) startNow()
-        else disarm()
-      }
-      function onUp(up: PointerEvent): void {
-        if (up.pointerId === pointerId) disarm()
-      }
-
-      if (!mouse) {
-        dragEl.classList.add('is-pressed')
-        timer = window.setTimeout(startNow, HOLD_MS)
-      }
-      // The pointer may be released outside the zone. Without the window
-      // listening, the hold would stay armed and start a drag after the finger
-      // had already been lifted.
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
-      window.addEventListener('pointercancel', onUp)
+    onDrop: ({ rowId, container, index }) => {
+      const categoryId = container.dataset.category ?? null
+      run('idea-move', (state) => moveIdeaRow(state, rowId, categoryId, index))
     },
-    [startDrag],
-  )
+  })
 
-  /** Swallow the click a finished drag would otherwise deliver to the row. */
-  const swallowClick = useCallback((event: React.MouseEvent): void => {
-    if (!draggedRef.current) return
-    draggedRef.current = false
-    event.stopPropagation()
-    event.preventDefault()
-  }, [])
+  /* The list, the open edit and the drag as the pointer and the keyboard see
+     them. All three act after a paint, so an effect-synced mirror is always
+     what is on screen. */
+  useEffect(() => {
+    rowsRef.current = rows
+    editingRef.current = editing
+    draggingRef.current = drag.dragging
+  })
 
   /**
    * A click on the row focuses it, so Alt + arrow works on the one you just
@@ -576,11 +321,9 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
   /* A drag or an open edit must not outlive the window being closed. */
   useEffect(() => {
     if (open) return
-    endDrag()
+    drag.cancel()
     if (editingRef.current) finishEdit(true)
-  }, [open, endDrag, finishEdit])
-
-  useEffect(() => () => endDrag(), [endDrag])
+  }, [open, drag, finishEdit])
 
   if (!presentation) return null
 
@@ -637,8 +380,8 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
       // The whole row is the handle, the cross excepted: the text *is* the row,
       // and a drag that had to start on a narrow strip beside it is a drag you
       // never find.
-      onPointerDown={(event) => armDrag(event, idea.id, event.currentTarget, '.idea-remove')}
-      onClickCapture={swallowClick}
+      onPointerDown={(event) => drag.arm(event, idea.id, event.currentTarget, '.idea-edit, .idea-remove')}
+      onClickCapture={drag.swallowClick}
       onClick={focusOnClick}
     >
       <Icon name="grip" size={13} className="idea-grip" />
@@ -678,14 +421,14 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
         // the surface belongs to the ideas — there a drag should lift the idea
         // you hit, not the category around it.
         onPointerDown={(event) =>
-          armDrag(
+          drag.arm(
             event,
             category.id,
             event.currentTarget.closest<HTMLElement>('.idea-cat'),
-            '.idea-cat-color, .idea-cat-add, .idea-remove',
+            '.idea-edit, .idea-cat-color, .idea-cat-add, .idea-remove',
           )
         }
-        onClickCapture={swallowClick}
+        onClickCapture={drag.swallowClick}
         onClick={focusOnClick}
       >
         <Icon name="grip" size={13} className="idea-grip" />
@@ -771,7 +514,7 @@ export function IdeasWindow({ open, onClose }: { open: boolean; onClose: () => v
         </div>
       }
     >
-      <div className={dragging ? 'ideas-inner is-dragging' : 'ideas-inner'}>
+      <div className={drag.dragging ? 'ideas-inner is-dragging' : 'ideas-inner'}>
         {rows.length === 0 && (
           <p className="ideas-empty">
             Ingenting her ennå. Skriv en idé nedenfor, og slett den når den står i presentasjonen.

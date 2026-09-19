@@ -24,7 +24,6 @@ import { quantizeRatios } from '../ratios'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
 import { fitContextFor, guardFit } from './fitGuard'
-import { dropSupersededBinding } from './imageGeneration'
 import { contentSlide, contentTooBigForZone, geometryFor, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
@@ -415,17 +414,7 @@ export function setZoneContent(
     'Innholdet endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
   )
   if (!guarded.ok) return guarded
-  /* Whatever was in this zone is not what is in it now, so a binding that
-     described its *previous* picture has nothing left to be about. Only a
-     superseded binding is dropped — the one the plan still orders is the
-     delivery. See `dropSupersededBinding`. */
-  return ok(
-    outcome(
-      dropSupersededBinding(guarded.value, input.slideId, input.nodeId),
-      disposed.movedToSandbox,
-      disposed.discarded,
-    ),
-  )
+  return ok(outcome(guarded.value, disposed.movedToSandbox, disposed.discarded))
 }
 
 /**

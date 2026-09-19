@@ -29,7 +29,6 @@ import {
   withoutDepositNumbers,
   type ImageDeposit,
 } from '../imageDeposit'
-import { staleGeneratedImages } from '../imageGeneration'
 import { resolveImagePlan, imageZoneKey } from '../imagePlan'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
@@ -169,23 +168,16 @@ export function completeImageDeposit(
 /**
  * Whether the deck is waiting for pictures it does not have.
  *
- * Two ways, and the second is why this exists. A planned zone with no file is
- * plainly waiting. A planned zone whose file was generated for an order the
- * deck has since rewritten is waiting too — it holds a picture, and not the one
- * it now asks for. Without the second case a finished deck could be re-planned
- * and never receive the replacements: the workflow would say the pictures are
- * owed, and the deposit dialog would have nothing open to put them in.
+ * A planned zone with no file in it, and nothing cleverer than that. It exists
+ * because a *finished* deck can order pictures again: rewrite a motif or add a
+ * picture zone, and the plan asks for a file no deposit would otherwise accept.
+ * The old rule read «nothing can put a completed deposit back into pending»,
+ * and what it protected against was a finished deck reopening for no reason —
+ * not a deck that genuinely has new pictures coming.
  */
 function awaitsPictures(presentation: Presentation): boolean {
   const planned = resolveImagePlan(presentation)
-  if (planned.length === 0) return false
-  if (planned.some((image) => !image.filled)) return true
-  const plannedZones = new Set(
-    planned.map((image) => imageZoneKey(image.plan.slideId, image.plan.nodeId)),
-  )
-  return staleGeneratedImages(presentation).some((record) =>
-    plannedZones.has(imageZoneKey(record.slideId, record.nodeId)),
-  )
+  return planned.length > 0 && planned.some((image) => !image.filled)
 }
 
 /** The document with a deposit, or with none. Absent means «never had one». */

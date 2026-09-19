@@ -1,19 +1,21 @@
 /**
- * The image deposit: the numbers, the file names, and the one-way door.
+ * The image deposit: the numbers, the order, and the one-way door.
  *
  * Three claims are worth pinning, because each of them is a way the workflow
  * could quietly do the wrong thing rather than fail:
  *
  *  - **the numbering is the brief's own.** Writing the plan stamps the
  *    placeholder caption, the brief section and the panel's deposit number from
- *    one pass, so a file called `3.png` cannot land in the zone the brief calls
- *    picture 2;
- *  - **nothing is guessed from a file name.** `01.png` and `bilde1.png` are
- *    rejected rather than matched, and two files claiming one number are both
- *    flagged rather than one of them silently winning;
- *  - **`completed` and `abandoned` are final.** Re-planning, re-syncing and
- *    calling the commands again all leave a closed deposit closed, which is the
- *    promise the dialog on the structural edit is making.
+ *    one pass, so the file the dialog calls picture 3 cannot land in the zone
+ *    the brief calls picture 2;
+ *  - **nothing is guessed.** A set is read as numbered only when it is a
+ *    complete, unambiguous 1‥N; `01.png`, `bilde1.png` and `1-final.png` are
+ *    ordinary names that say nothing about the order, so the person is asked
+ *    for it rather than being told their files are wrong;
+ *  - **`abandoned` is final, and `completed` closes its own round.** Re-planning,
+ *    re-syncing and calling the commands again all leave a closed deposit
+ *    closed unless the deck is genuinely waiting for pictures again, which is
+ *    the promise the dialog on the structural edit is making.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -34,21 +36,13 @@ import { createPresentation } from './presentation'
 import { titleDoc } from './richdoc'
 import { validatePresentation } from './schema'
 import { contentAt, sectionAt } from './testDecks'
-import { realImages } from './testImages'
 import {
   depositImages,
   depositIsOpen,
   depositIsWaiting,
   depositSlots,
-  reviewDeposit,
   reviewDepositFiles,
 } from './imageDeposit'
-import { hashBytes } from './assetHash'
-import {
-  composeImageGenerationManifest,
-  type DeliveredImageFile,
-  type GeneratedImageRecord,
-} from './imageGeneration'
 import { imageFileNumber, resolveImagePlan } from './imagePlan'
 import type { AssetRef, PlannedImage, Presentation } from './types'
 
@@ -238,210 +232,117 @@ describe('filnavnene', () => {
   })
 })
 
-describe('gjennomgangen av de valgte filene', () => {
-  it('sier hvilke numre som er på plass og hvilke som mangler', () => {
-    const review = reviewDepositFiles(['1.png', '3.webp'], 3)
-    expect(review.present).toEqual([1, 3])
-    expect(review.missing).toEqual([2])
-    expect(review.ready).toBe(false)
+describe('rekkefølgen leses av filnavnene når de faktisk sier den', () => {
+  it('plasserer 1, 2, 3 der de hører hjemme', () => {
+    const review = reviewDepositFiles(['1.png', '2.jpg', '3.webp'], 3)
+    expect(review.mode).toBe('numbered')
+    expect(review.files.map((file) => file.index)).toEqual([1, 2, 3])
+    expect(review.present).toEqual([1, 2, 3])
+    expect(review.missing).toEqual([])
+    expect(review.ready).toBe(true)
   })
 
-  it('markerer begge filene når to krever det samme nummeret', () => {
-    const review = reviewDepositFiles(['1.jpg', '1.png', '2.png', '3.png'], 3)
-    expect(review.files.filter((file) => file.problem === 'DUPLICATE').map((file) => file.name)).toEqual([
-      '1.jpg',
-      '1.png',
-    ])
-    // Neither is chosen, so the number is not present and the set is not ready.
-    expect(review.present).toEqual([2, 3])
-    expect(review.ready).toBe(false)
+  it('bryr seg ikke om hvilken rekkefølge filene ble valgt i', () => {
+    /*
+     * The order a file picker or an operating system hands a folder over in is
+     * not a fact about the pictures, and this is the case the numbering exists
+     * for: the names carry the answer, so the arrangement cannot change it.
+     */
+    const review = reviewDepositFiles(['3.webp', '1.png', '2.jpg'], 3)
+    expect(review.mode).toBe('numbered')
+    expect(review.files.map((file) => file.index)).toEqual([3, 1, 2])
+    expect(review.ready).toBe(true)
   })
 
-  it('skiller mellom feil navn og feil nummer', () => {
-    const review = reviewDepositFiles(['01.png', '9.png'], 3)
-    expect(review.files.map((file) => file.problem)).toEqual(['NAME', 'RANGE'])
-    expect(review.ready).toBe(false)
-  })
-
-  it('er klar først når nøyaktig 1..N er der uten feil', () => {
-    expect(reviewDepositFiles(['1.png', '2.jpg', '3.webp'], 3).ready).toBe(true)
-    // Blandede formater er hele poenget, men en ekstra fil er fortsatt en feil.
-    expect(reviewDepositFiles(['1.png', '2.jpg', '3.webp', 'notat.txt'], 3).ready).toBe(false)
-    expect(reviewDepositFiles([], 3).ready).toBe(false)
-    expect(reviewDepositFiles([], 0).ready).toBe(false)
+  it('krever et komplett og entydig sett, aldri en delvis lesning', () => {
+    // One name short of complete is not a numbering with a hole in it: it is a
+    // set of ordinary names, and the person is asked for the order instead.
+    expect(reviewDepositFiles(['1.png', '3.webp'], 3).mode).toBe('manual')
+    // Two files claiming the same number say nothing either.
+    expect(reviewDepositFiles(['1.jpg', '1.png', '2.png'], 3).mode).toBe('manual')
+    // And a number outside the range is not this deck's numbering.
+    expect(reviewDepositFiles(['1.png', '2.png', '9.png'], 3).mode).toBe('manual')
   })
 })
 
-describe('de to flytene: manuell opplasting og agentgenererte bilder', () => {
-  /** Three different pictures, so a swap between two of them is a real swap. */
-  const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
-
-  /** The files as the dialog hands them over: a name and a digest of the bytes. */
-  async function files(
-    names: readonly string[],
-    bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
-  ): Promise<DeliveredImageFile[]> {
-    return Promise.all(
-      names.map(async (fileName, index) => ({
-        fileName,
-        contentHash: await hashBytes(bytesFor(index)),
-      })),
-    )
-  }
-
-  /** The manifest an agent would hand over, with the bindings it recorded. */
-  async function manifest(
-    deck: Presentation,
-    bind: (
-      image: ReturnType<typeof resolveImagePlan>[number],
-      index: number,
-    ) => Partial<GeneratedImageRecord> = () => ({}),
-  ): Promise<string> {
-    const images = await Promise.all(
-      resolveImagePlan(deck).map(async (image, index) => ({
-        imagePlanItemId: image.id,
-        number: image.number,
-        slideId: image.plan.slideId,
-        nodeId: image.plan.nodeId,
-        fileName: `${image.fileNameStem}.png`,
-        contentHash: await hashBytes(PICTURES[index % 3]()),
-        ...bind(image, index),
-      })),
-    )
-    return composeImageGenerationManifest({ presentationId: deck.id, images })
-  }
-
-  it('lar manuell opplasting uten metadata fungere som før', async () => {
-    // The file name *is* the binding when a person made it, and there is nothing
-    // to cross-check it against. Demanding a manifest here would break the flow
-    // the deposit was built for.
-    const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, await files(['1.png', '2.jpg', '3.webp']), null)
-    expect(review.assurance).toBe('manual')
-    expect(review.binding).toEqual([])
-    expect(review.ready).toBe(true)
-  })
-
-  it('kontrollerer koblingen mot filenes innhold når manifestet følger med', async () => {
-    const { deck } = pendingDeck()
-    const review = reviewDeposit(
-      deck,
-      await files(['1.png', '2.png', '3.png']),
-      await manifest(deck),
-    )
-    expect(review.assurance).toBe('file-checked')
-    expect(review.binding).toEqual([])
-    expect(review.ready).toBe(true)
-  })
-
-  it('stopper deponeringen når manifestet og planen er uenige', () => {
-    // Well-formed files, the right count, the right names — and one picture
-    // bound to the wrong entry. This is the delivery the old dialog accepted.
-    const { deck } = pendingDeck()
-    return manifest(deck, (image) => (image.number === 2 ? { number: 3 } : {})).then(
-      async (text) => {
-        const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), text)
-        expect(review.missing).toEqual([])
-        expect(review.files.every((file) => file.problem === null)).toBe(true)
-        expect(review.binding.length).toBeGreaterThan(0)
-        expect(review.ready).toBe(false)
-      },
-    )
-  })
-
-  it('stopper to filer som har byttet innhold, med navn og manifest urørt', async () => {
-    // Nothing in the metadata has moved: the same three names, the same three
-    // records, the same count. Only the bytes behind `1.png` and `2.png` have
-    // changed places — which is the whole delivery the names cannot see.
-    const { deck } = pendingDeck()
-    const swapped = await files(['1.png', '2.png', '3.png'], (index) =>
-      index === 0 ? PICTURES[1]() : index === 1 ? PICTURES[0]() : PICTURES[2](),
-    )
-    const review = reviewDeposit(deck, swapped, await manifest(deck))
-
+describe('rekkefølgen er brukerens når filnavnene ikke sier den', () => {
+  it('tar imot tre vilkårlig navngitte filer og plasserer dem etter posisjon', () => {
+    const review = reviewDepositFiles(['IMG_4821.png', 'padmasambhava.webp', 'Screenshot.jpg'], 3)
+    expect(review.mode).toBe('manual')
+    expect(review.files.map((file) => file.index)).toEqual([1, 2, 3])
     expect(review.files.every((file) => file.problem === null)).toBe(true)
-    expect(review.missing).toEqual([])
-    expect(review.binding.map((issue) => issue.code)).toEqual([
-      'CONTENT_MISMATCH',
-      'CONTENT_MISMATCH',
-    ])
-    // The whole set, not the two files: `ready` is what the dialog gates on and
-    // what the command refuses, so nothing lands — not even the one that matched.
-    expect(review.ready).toBe(false)
+    expect(review.ready).toBe(true)
   })
 
-  it('avviser avtrykk som aldri kom fra en bildegenerator', async () => {
+  it('lar omrokering endre hvilken fil som blir bilde 1', () => {
+    const picked = ['IMG_4821.png', 'padmasambhava.webp', 'Screenshot.jpg']
+    const moved = [picked[2], picked[0], picked[1]]
+    expect(reviewDepositFiles(moved, 3).files.map((file) => file.name)).toEqual(moved)
+    expect(reviewDepositFiles(moved, 3).files.map((file) => file.index)).toEqual([1, 2, 3])
+    // Position is the picture number, so the same three files in another order
+    // are three different placements.
+    expect(reviewDepositFiles(picked, 3).files[0].name).not.toBe(
+      reviewDepositFiles(moved, 3).files[0].name,
+    )
+  })
+
+  it('behandler navn som bare ligner på tall som vanlige navn, ikke som feil', () => {
     /*
-     * The question the agent boundary cannot answer, asked where it can be.
-     *
-     * A digest an agent states is a string: Slaids never sees the bytes, so
-     * `verify_image_handoff` can only check that it *looks* like SHA-256. An
-     * agent that skipped the image generator and wrote `00…00` for every entry
-     * therefore gets a consistent-looking delivery — and this is where that
-     * ends. The browser holds the files, hashes them itself, and compares. The
-     * set does not land, so the one state that means «the pictures are in the
-     * deck» is not reachable by writing strings.
+     * The whole point of the rule: `01.png` is not picture 1 and it is not a
+     * broken file either. Guessing would put a picture on the wrong slide;
+     * rejecting would refuse a perfectly ordinary delivery.
      */
-    const { deck } = pendingDeck()
-    const invented = await manifest(deck, () => ({ contentHash: '0'.repeat(64) }))
-    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), invented)
-
-    // Nothing in the metadata is wrong: three names, three records, right count.
-    expect(review.missing).toEqual([])
+    const review = reviewDepositFiles(['01.png', 'bilde1.png', '1-final.png'], 3)
+    expect(review.mode).toBe('manual')
     expect(review.files.every((file) => file.problem === null)).toBe(true)
-    // And every binding fails against the bytes it claims to be about.
-    expect(review.binding.map((issue) => issue.code)).toEqual([
-      'CONTENT_MISMATCH',
-      'CONTENT_MISMATCH',
-      'CONTENT_MISMATCH',
-    ])
-    expect(review.ready).toBe(false)
-  })
-
-  it('kaller en levering uten avtrykk uverifisert, ikke kontrollert', async () => {
-    const { deck } = pendingDeck()
-    const bare = await manifest(deck, () => ({ contentHash: undefined }))
-    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), bare)
-
-    // Consistent, complete, and nobody compared it to anything. It may still be
-    // deposited — refusing every host that cannot reach its own bytes would push
-    // people back to naming files by hand — but it is never called checked.
-    expect(review.binding).toEqual([])
+    expect(review.files.map((file) => file.index)).toEqual([1, 2, 3])
     expect(review.ready).toBe(true)
-    expect(review.assurance).toBe('unchecked')
   })
 
-  it('behandler et uleselig manifest som en ukjent kobling, ikke som ingen kobling', async () => {
-    const { deck } = pendingDeck()
-    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), '{ ikke json')
-    expect(review.assurance).toBe('unchecked')
-    expect(review.binding).toHaveLength(1)
+  it('går til manuell rekkefølge for en blanding som ikke utgjør 1..N', () => {
+    const review = reviewDepositFiles(['1.png', 'slide2.jpg', '3.webp'], 3)
+    expect(review.mode).toBe('manual')
+    // And then `1.png` is simply the first file, not «picture 1 by name».
+    expect(review.files.map((file) => file.index)).toEqual([1, 2, 3])
+    expect(review.ready).toBe(true)
+  })
+})
+
+describe('antallet filer', () => {
+  it('er ikke klart med færre enn N, og sier hvilke som mangler', () => {
+    const review = reviewDepositFiles(['IMG_1.png', 'IMG_2.png'], 3)
+    expect(review.present).toEqual([1, 2])
+    expect(review.missing).toEqual([3])
     expect(review.ready).toBe(false)
   })
 
-  it('stopper et manifest som hører til et annet dekk', async () => {
-    const { deck } = pendingDeck()
-    const other = composeImageGenerationManifest({
-      ...JSON.parse(await manifest(deck)),
-      presentationId: 'p_et_annet_dekk',
-    })
-    const review = reviewDeposit(deck, await files(['1.png', '2.png', '3.png']), other)
-    expect(review.binding.map((issue) => issue.code)).toEqual(['WRONG_PRESENTATION'])
+  it('er ikke klart med flere enn N, og navngir de overskytende', () => {
+    const review = reviewDepositFiles(['a.png', 'b.png', 'c.png', 'd.png'], 3)
+    expect(review.files.map((file) => file.problem)).toEqual([null, null, null, 'EXCESS'])
+    expect(review.files.map((file) => file.index)).toEqual([1, 2, 3, null])
     expect(review.ready).toBe(false)
   })
 
-  it('melder en fil som er levert uten å høre til noe generert bilde', async () => {
-    const { deck } = pendingDeck()
-    const review = reviewDeposit(
-      deck,
-      await files(['1.png', '2.png', '3.png', '4.png']),
-      await manifest(deck),
-    )
-    // `4.png` is out of range as a name *and* unaccounted for as a binding, and
-    // both are said: the two answers are «remove it» and «it was never made».
-    expect(review.files.map((file) => file.problem)).toContain('RANGE')
-    expect(review.binding.map((issue) => issue.code)).toContain('FILE_UNACCOUNTED')
+  it('er klart igjen når den overskytende filen er fjernet', () => {
+    const picked = ['a.png', 'b.png', 'c.png', 'd.png']
+    expect(reviewDepositFiles(picked, 3).ready).toBe(false)
+    expect(reviewDepositFiles(picked.slice(0, 3), 3).ready).toBe(true)
+  })
+
+  it('avviser en fil som ikke er et bilde, uten å la den ta en bildeplass', () => {
+    const review = reviewDepositFiles(['a.png', 'notat.txt', 'b.png', 'c.png'], 3)
+    expect(review.files.map((file) => file.problem)).toEqual([null, 'TYPE', null, null])
+    // The text file occupies nothing: the three pictures still get 1, 2 and 3.
+    expect(review.files.map((file) => file.index)).toEqual([1, null, 2, 3])
+    expect(review.present).toEqual([1, 2, 3])
+    // …and «Fullfør» still waits, because something in the drop cannot be used.
     expect(review.ready).toBe(false)
+  })
+
+  it('er aldri klart uten en eneste plass å fylle', () => {
+    expect(reviewDepositFiles([], 3).ready).toBe(false)
+    expect(reviewDepositFiles([], 0).ready).toBe(false)
+    expect(reviewDepositFiles(['a.png'], 0).ready).toBe(false)
   })
 })
 
@@ -450,7 +351,7 @@ describe('listen brukeren leser', () => {
     const { deck } = pendingDeck()
     const images = depositImages(deck)
     expect(images.map((image) => image.index)).toEqual([1, 2, 3])
-    expect(images[1].generationBrief).toBe('Homo erectus som bearbeider en håndøks')
+    expect(images[1].subject).toBe('Homo erectus som bearbeider en håndøks')
     expect(images[1].desiredAspectRatio).toMatch(/^\d+:\d+$/)
     expect(images[0].slideLabel).toBe('Tre arter')
     expect(images.every((image) => !image.filled)).toBe(true)
@@ -608,79 +509,5 @@ describe('den enveis døren', () => {
     expect(depositSlots(replanned.value)).toEqual([])
     // And the second abandonment has nothing to abandon.
     expect(abandonImageDeposit(done.value).ok).toBe(false)
-  })
-})
-
-describe('identiteten til leveransen en bekreftelse gjelder', () => {
-  const PICTURES = [realImages.png, realImages.jpeg, realImages.webp]
-
-  async function files(
-    names: readonly string[],
-    bytesFor: (index: number) => Uint8Array = (index) => PICTURES[index % 3](),
-  ): Promise<DeliveredImageFile[]> {
-    return Promise.all(
-      names.map(async (fileName, index) => ({
-        fileName,
-        contentHash: await hashBytes(bytesFor(index)),
-      })),
-    )
-  }
-
-  async function bareManifest(deck: Presentation): Promise<string> {
-    return composeImageGenerationManifest({
-      presentationId: deck.id,
-      images: resolveImagePlan(deck).map((image) => ({
-        imagePlanItemId: image.id,
-        number: image.number,
-        slideId: image.plan.slideId,
-        nodeId: image.plan.nodeId,
-        fileName: `${image.fileNameStem}.png`,
-      })),
-    })
-  }
-
-  it('endrer seg når en fil byttes til et annet bilde under samme navn', async () => {
-    // The change a confirmation must not survive. Same names, same manifest,
-    // same count — a different picture behind `2.png`.
-    const { deck } = pendingDeck()
-    const manifest = await bareManifest(deck)
-    const names = ['1.png', '2.png', '3.png']
-
-    const before = reviewDeposit(deck, await files(names), manifest)
-    const after = reviewDeposit(
-      deck,
-      await files(names, (index) => (index === 1 ? realImages.webpLossless() : PICTURES[index]())),
-      manifest,
-    )
-    expect(after.deliveryKey).not.toBe(before.deliveryKey)
-  })
-
-  it('endrer seg når settet eller manifestet endres', async () => {
-    const { deck } = pendingDeck()
-    const manifest = await bareManifest(deck)
-    const full = await files(['1.png', '2.png', '3.png'])
-    const base = reviewDeposit(deck, full, manifest).deliveryKey
-
-    // One file removed, one file added, and a different manifest: three
-    // different deliveries, three different keys.
-    expect(reviewDeposit(deck, full.slice(0, 2), manifest).deliveryKey).not.toBe(base)
-    expect(
-      reviewDeposit(deck, [...full, { fileName: '4.png', contentHash: 'a'.repeat(64) }], manifest)
-        .deliveryKey,
-    ).not.toBe(base)
-    expect(reviewDeposit(deck, full, `${manifest} `).deliveryKey).not.toBe(base)
-  })
-
-  it('er upåvirket av rekkefølgen filene ble plukket i', async () => {
-    // The other half of the rule: an irrelevant change must not cost somebody
-    // their confirmation, or the dialog teaches people to tick the box blind.
-    const { deck } = pendingDeck()
-    const manifest = await bareManifest(deck)
-    const full = await files(['1.png', '2.png', '3.png'])
-
-    const reordered = [full[2], full[0], full[1]]
-    expect(reviewDeposit(deck, reordered, manifest).deliveryKey).toBe(
-      reviewDeposit(deck, full, manifest).deliveryKey,
-    )
   })
 })

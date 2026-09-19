@@ -3,27 +3,24 @@
  *
  * Two halves, and the split is the whole point of the dialog. The top is the
  * only text a person writes: the visual context every picture in the deck
- * shares — how they should look, never what any one of them shows. The bottom
- * is the list of planned pictures, and each row carries the one thing this
- * dialog exists to hand over: **that picture's own prompt**, composed by
- * `composeImageGenerationPrompt` from the shared context and that one entry.
+ * shares — how they should look, never what any one of them shows. Under it is
+ * the thing they came for: **the whole series as one finished order**, composed
+ * by `composeImageBrief`, to copy into one conversation that from that point
+ * makes nothing but pictures.
  *
- * The per-picture copy is the primary action, and that is a correction rather
- * than a preference. Copying «the whole brief» was the obvious button, and a
- * whole brief pasted into an image generator is a generator that has been shown
- * a set — which is what comes back: a collage, a contact sheet, a storyboard.
- * One clean prompt in a fresh conversation is the supported way to produce one
- * picture, so it is the button that looks like the errand.
+ * That the whole brief is the primary action is a correction, and it is the
+ * second one. Copying the whole brief was the obvious button; then a deck of
+ * eight came back as a storyboard, and the answer was to hand out one picture's
+ * prompt at a time with the agent looping back between them. The loop is what
+ * failed next — a host client's image tool does not survive alternating between
+ * deck work and image calls — and what works is the thing the storyboard was
+ * blamed on, stated properly: one task, N separate files. The brief says so in
+ * its first line, its numbering and its last line.
  *
- * What the clipboard gets is only the prompt. The row around it may say «Bilde
- * 3», which slide it belongs on and what the file is called — a person needs
- * that to find their way — but none of it is in the copied text: a plan id, a
- * file name or «skal brukes på slide» tells an image generator it is working on
- * one of several, and says nothing about what to draw.
- *
- * The whole-plan brief is still generated (`composeImageBrief`) and still
- * reachable, one fold down and labelled for what it is: documentation and
- * debugging, never the generation action.
+ * The per-picture prompt is still here, one fold down, as what it actually is:
+ * the repair. Picture 5 came back wrong, or never came back — copy that one
+ * order into an empty conversation and get that one picture, without ordering
+ * the series again.
  *
  * What is wrong with the plan is listed under the pictures rather than hidden
  * behind a validation step: a plan whose pictures no longer match the zones is
@@ -38,6 +35,7 @@ import {
   checkImagePlan,
   composeImageBrief,
   composeImageGenerationPrompt,
+  imageZoneKey,
   resolveImagePlan,
 } from '../../domain/imagePlan'
 import { COPIED_FEEDBACK_MS, copyToClipboard } from '../components/clipboard'
@@ -101,15 +99,15 @@ export function ImageBriefModal({
   const issues = useMemo(() => (presentation ? checkImagePlan(presentation) : []), [presentation])
   const images = useMemo(() => (presentation ? resolveImagePlan(presentation) : []), [presentation])
   /*
-   * The same function the agent's image job calls, so the text a person pastes
-   * into a fresh conversation and the text a host client is handed are one
-   * text. Two composers here would be two orders for the same picture.
+   * One order per picture, for the fold-down repair. Composed by the domain, so
+   * a picture ordered again on its own is ordered from the same fields the
+   * series brief states it with.
    */
   const prompts = useMemo(
     () =>
       new Map(
         images.map((image) => [
-          image.id,
+          image.number,
           composeImageGenerationPrompt(image, presentation?.imageContext ?? ''),
         ]),
       ),
@@ -136,7 +134,7 @@ export function ImageBriefModal({
         if (!next) onClose()
       }}
       title="Bildebrief"
-      description="Bildene dekket planlegger, med én ferdig prompt per bilde. Kopier prompten til ett bilde og lim den inn der bildet lages — helst i en ny, tom samtale. Dialogen vises aldri for publikum."
+      description="Hele bildebestillingen for dekket som én tekst. Kopier den og lim den inn i én samtale som fra det punktet bare lager bilder — så kommer alle bildene ut av den ene oppgaven. Dialogen vises aldri for publikum."
       testId="image-brief-modal"
       width={720}
       footer={
@@ -168,8 +166,8 @@ export function ImageBriefModal({
     >
       <h3 className="inspector__heading">Felles bildekontekst</h3>
       <p className="hint">
-        Hvordan bildene skal se ut — ikke hva de viser. Slaids legger denne teksten inn som stil- og
-        kvalitetsdelen av hver enkelt bildeprompt.
+        Hvordan bildene skal se ut — ikke hva de viser. Slaids legger denne teksten inn én gang
+        øverst i briefen, som stilen hele serien deler.
       </p>
       <textarea
         className="editorial-text"
@@ -186,59 +184,51 @@ export function ImageBriefModal({
         {context.length} / {MAX_IMAGE_CONTEXT_CHARS} tegn
       </p>
 
-      <h3 className="inspector__heading">Bildene som skal lages</h3>
+      <h3 className="inspector__heading">Bestillingen</h3>
       {images.length === 0 ? (
-        <p className="hint" data-testid="image-brief-modal-empty">
-          Dekket har ingen planlagte bilder ennå. Lag en bildesone og legg bildet inn i bildeplanen,
-          så står prompten klar her.
-        </p>
+        <>
+          <p className="hint" data-testid="image-brief-modal-empty">
+            Dekket har ingen planlagte bilder ennå. Lag en bildesone og legg bildet inn i
+            bildeplanen, så står bestillingen klar her.
+          </p>
+          <button type="button" className="btn" data-testid="image-brief-modal-copy" disabled>
+            <Icon name="copy" size={15} /> Kopier bildebrief
+          </button>
+        </>
       ) : (
         <>
           <p className="hint" data-testid="image-brief-modal-how">
-            Hvert bilde har sin egen ferdige prompt: felles stil, motivet, komposisjonen, kravene og
-            riktig aspect ratio, målt fra sonen bildet skal ligge i. Prompten står alene — lim den
-            inn i en ny, tom ChatGPT-samtale, så lages akkurat det ene bildet der. Lagre filen med
-            nummeret som står på raden.
+            Slik gjør du det: kopier teksten under, lim den inn i én samtale — gjerne en ny — og la
+            den samtalen bare handle om å lage bilder. Bestillingen ber om{' '}
+            {images.length === 1 ? 'ett bilde' : `${images.length} separate bilder`}, med riktig
+            aspect ratio på hvert av dem. Lagre {images.length === 1 ? 'bildet' : 'bildene'} som{' '}
+            {images.length === 1 ? 'en egen fil' : 'separate filer'}, og legg{' '}
+            {images.length === 1 ? 'den' : 'dem'} inn her etterpå.
           </p>
-          <ol className="deposit-list" data-testid="image-brief-modal-list">
-            {images.map((image) => {
-              const prompt = prompts.get(image.id) ?? ''
-              return (
-                <li key={image.id} className="deposit-row">
-                  <span className="deposit-row__mark" aria-hidden="true">
-                    {image.number}
-                  </span>
-                  <span className="deposit-row__text">
-                    <strong>
-                      Bilde {image.number} · {image.aspectRatio} ({image.orientation})
-                    </strong>
-                    <span className="hint">{image.plan.subject}</span>
-                    <span className="hint">På sliden «{image.slideLabel}»</span>
-                    <span className="hint">Filnavn: {image.fileNameStem}.&lt;filendelse&gt;</span>
-                    {image.filled && <span className="hint">Bildet ligger allerede i sonen</span>}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn deposit-row__action"
-                    data-testid={`image-brief-modal-copy-prompt-${image.number}`}
-                    onClick={() => void copy(image.id, prompt)}
-                  >
-                    <Icon name="copy" size={15} />{' '}
-                    {copied?.key === image.id && copied.ok ? 'Kopiert' : 'Kopier prompt'}
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
+          <textarea
+            className="editorial-text editorial-text--generated"
+            data-testid="image-brief-modal-text"
+            value={brief ?? ''}
+            readOnly
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="btn btn--primary"
+            data-testid="image-brief-modal-copy"
+            onClick={() => void copy('brief', brief ?? '')}
+          >
+            <Icon name="copy" size={15} />{' '}
+            {copied?.key === 'brief' && copied.ok ? 'Kopiert' : 'Kopier bildebrief'}
+          </button>
         </>
       )}
 
       {ready && (
         <p className="hint" data-testid="image-brief-modal-next">
-          Slik gjør du det: kopier prompten til ett bilde, lim den inn i en ny samtale der du lager
-          bilder, og lagre bildet under filnavnet raden oppgir — <code>1</code>, <code>2</code>,{' '}
-          <code>3</code> … med den filendelsen det får. Gjenta for hvert bilde, og trykk så «Bildene
-          er klare».
+          Når bildene er laget, trykk «Bildene er klare» og slipp alle filene inn på én gang. Heter
+          de <code>1</code>, <code>2</code>, <code>3</code> … havner de riktig av seg selv; heter de
+          noe annet, drar du dem i riktig rekkefølge.
         </p>
       )}
 
@@ -253,15 +243,8 @@ export function ImageBriefModal({
       {refused && (
         /*
          * The browser said no, and the manual way out has to be the *same* text
-         * the button would have copied.
-         *
-         * It used to point at the whole-plan brief under it — «åpne den samlede
-         * briefen, merk teksten og kopier den selv» — which hands a person the
-         * one message this dialog
-         * exists to keep away from an image generator: every motif at once,
-         * numbered and counted. A refused copy of one picture's prompt is
-         * exactly when the clean single prompt matters most, so it is put right
-         * here to select.
+         * the button would have copied — the series brief when that is what was
+         * refused, that one picture's order when it was not.
          */
         <>
           <p className="hint" data-testid="image-brief-modal-copy-failed">
@@ -278,46 +261,51 @@ export function ImageBriefModal({
         </>
       )}
 
-      {/*
-        The whole plan as one text, one fold down and named for what it is. It
-        counts the pictures, numbers them and shows every motif at once, which
-        is exactly what one image generation must not see — so it is here for
-        reading and debugging, not as the way to order pictures.
-      */}
-      <details className="image-brief__fold" data-testid="image-brief-modal-full">
-        <summary className="hint">Samlet bildebrief — til dokumentasjon og feilsøking</summary>
-        <p className="hint">
-          Hele bildeplanen som én tekst, med bildeplan-id-er og filnavn. Den er nyttig når du vil se
-          hva Slaids har bestilt, men den er ingen bildeprompt: den viser alle motivene samtidig, og
-          en bildegenerator som ser et sett lager et sett. Bruk «Kopier prompt» på det enkelte bildet
-          når et bilde skal lages.
-        </p>
-        {brief ? (
-          <>
-            <textarea
-              className="editorial-text editorial-text--generated"
-              data-testid="image-brief-modal-text"
-              value={brief}
-              readOnly
-              spellCheck={false}
-            />
-            <button
-              type="button"
-              className="btn"
-              data-testid="image-brief-modal-copy"
-              onClick={() => void copy('brief', brief)}
-            >
-              <Icon name="copy" size={15} />{' '}
-              {copied?.key === 'brief' && copied.ok ? 'Kopiert' : 'Kopier samlet brief'}
-            </button>
-          </>
-        ) : (
-          <button type="button" className="btn" data-testid="image-brief-modal-copy" disabled>
-            <Icon name="copy" size={15} /> Kopier samlet brief
-          </button>
-        )}
-      </details>
-
+      {images.length > 0 && (
+        /*
+          One picture at a time, one fold down, and named for the errand it is
+          for: something came back wrong, or did not come back. Ordering the
+          series again for one missing picture is the thing this avoids.
+        */
+        <details className="image-brief__fold" data-testid="image-brief-modal-single">
+          <summary className="hint">Lage ett enkelt bilde om igjen</summary>
+          <p className="hint">
+            Kom ett av bildene feil ut, eller mangler det? Kopier bestillingen for akkurat det ene
+            bildet og lim den inn i en ny, tom samtale. Den står alene og sier ingenting om de
+            andre, så du får det ene bildet — ikke serien på nytt.
+          </p>
+          <ol className="deposit-list" data-testid="image-brief-modal-list">
+            {images.map((image) => {
+              const prompt = prompts.get(image.number) ?? ''
+              const key = imageZoneKey(image.plan.slideId, image.plan.nodeId)
+              return (
+                <li key={key} className="deposit-row">
+                  <span className="deposit-row__mark" aria-hidden="true">
+                    {image.number}
+                  </span>
+                  <span className="deposit-row__text">
+                    <strong>
+                      Bilde {image.number} · {image.aspectRatio} ({image.orientation})
+                    </strong>
+                    <span className="hint">{image.plan.subject}</span>
+                    <span className="hint">På sliden «{image.slideLabel}»</span>
+                    {image.filled && <span className="hint">Bildet ligger allerede i sonen</span>}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn deposit-row__action"
+                    data-testid={`image-brief-modal-copy-prompt-${image.number}`}
+                    onClick={() => void copy(key, prompt)}
+                  >
+                    <Icon name="copy" size={15} />{' '}
+                    {copied?.key === key && copied.ok ? 'Kopiert' : 'Kopier prompt'}
+                  </button>
+                </li>
+              )
+            })}
+          </ol>
+        </details>
+      )}
     </Modal>
   )
 }

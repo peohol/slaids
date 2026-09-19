@@ -38,13 +38,12 @@ import {
   DESIGN_DOCS_PATH,
   IMAGE_BRIEF_RULE,
   IMAGE_GENERATION_RULE,
-  IMAGE_HANDOFF_RULE,
-  IMAGE_JOB_RULE,
   IMAGE_PLACEHOLDER_POLICY,
   IMAGE_PLAN_RULE,
   IMAGE_POLICY_SUMMARY,
   IMAGE_ROLES,
   IMAGE_USAGE_RULE,
+  IMAGE_WORKFLOW_CONTINUATION_RULE,
   IMPLICIT_CONTAINER_RULE,
   NAMED_UNITS,
   NATIVE_COMPOSITION_RULE,
@@ -67,7 +66,6 @@ import {
   VISUAL_SUBJECTS,
   ZONE_SELF_CHECK,
 } from '../../agent/design'
-import { PLANNED_IMAGE_FIELDS } from '../../domain/constants'
 import { MCP_INSTRUCTIONS } from './instructions'
 import { mcpTools } from './tools'
 
@@ -102,8 +100,6 @@ const NORMATIVE = [
   IMAGE_BRIEF_RULE,
   IMAGE_PLAN_RULE,
   IMAGE_GENERATION_RULE,
-  IMAGE_HANDOFF_RULE,
-  IMAGE_JOB_RULE,
   REFERENCE_SYSTEM_RULE,
   VISUAL_QA_RULE,
   SELF_CHECK_STOP,
@@ -201,7 +197,6 @@ describe('det agenten vet før første kall', () => {
       SPLIT_RULE,
       IMAGE_BRIEF_RULE,
       IMAGE_PLAN_RULE,
-      IMAGE_HANDOFF_RULE,
       ...IMAGE_PLACEHOLDER_POLICY,
       ...VECTOR_POLICY,
       ...RASTER_POLICY,
@@ -331,7 +326,7 @@ describe('raster og vektor', () => {
     expect(surface).toContain(RASTER_WORKFLOW_RULE)
     expect(RASTER_WORKFLOW_RULE).toMatch(/standardflyten/i)
     expect(RASTER_WORKFLOW_RULE).toMatch(/ikke en fallback eller nødløsning/i)
-    expect(RASTER_WORKFLOW_RULE).toMatch(/de ferdige filene legges inn gjennom bildedeponeringen/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/gjennom brukerens bildedeponering/i)
     // No file bridge and no image API is held out as available or planned: the
     // surface says there is none, and names the manual route that exists
     // instead. The old wording («uten en filbro», «med mindre klienten har en
@@ -340,8 +335,8 @@ describe('raster og vektor', () => {
       /ingen egen bildegenerering, ingen bilde-API og ingen filbro, og planlegger ingen/i,
     )
     expect(agentSurface()).not.toMatch(/uten en filbro|med mindre klienten har en filbro/i)
-    expect(RASTER_WORKFLOW_RULE).toMatch(/«Kopier prompt»-knapp i Slaids/i)
-    expect(RASTER_WORKFLOW_RULE).toMatch(/ny, tom ChatGPT-samtale/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/en egen samtale som fra det punktet bare er en bildegenereringsoppgave/i)
+    expect(RASTER_WORKFLOW_RULE).toMatch(/veksler aldri mellom presentasjonsarbeid og bildegenerering/i)
     expect(surface).not.toMatch(/Mangler du en rastergenerator|har du ingen[^.]*bildegenerator/i)
     expect(RASTER_POLICY.join(' ')).not.toMatch(/si tydelig fra om begrensningen/i)
   })
@@ -438,213 +433,98 @@ describe('raster og vektor', () => {
     expect(policy).toMatch(/Ikke skriv slike plassholdere for hånd/i)
   })
 
-  it('gjør hvert planlagt bilde til én selvstendig bildegenerering', () => {
-    // The observed failure: eight planned pictures, one storyboard back,
-    // because the composed brief is one message and was handed on as one job.
-    // The rule has to reach the agent, and it has to be unmistakable about
-    // which half of the answer drives generation.
-    expect(agentSurface()).toContain(IMAGE_GENERATION_RULE)
-    expect(IMAGE_GENERATION_RULE).toMatch(
-      /ett element i `images` = én selvstendig bildegenerering = én bildefil/i,
-    )
-    expect(IMAGE_GENERATION_RULE).toMatch(/send den aldri til bildegeneratoren som én samlet genereringsjobb/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/parse den aldri tilbake til enkeltbilder/i)
-    // The count is checked against the plan before the files are deposited,
-    // and one picture of many motifs never satisfies a plan of many pictures.
-    expect(IMAGE_GENERATION_RULE).toMatch(/generation\.expectedFileCount/)
-    expect(IMAGE_GENERATION_RULE).toMatch(/aldri et gyldig svar på en plan med flere bilder/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/generer de manglende bildene enkeltvis på nytt/i)
-    // And the count is a check on the finished delivery, not a task the agent
-    // restates. «Er `imageCount` 8, skal bildegeneratoren kalles 8 ganger» is
-    // gone: an agent that carries that sentence into the conversation has told
-    // the generator the job is eight pictures, which is the whole leak.
-    expect(IMAGE_GENERATION_RULE).not.toMatch(/`imageCount` 8/)
-    expect(IMAGE_GENERATION_RULE).not.toMatch(/kalles 8 ganger/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(
-      /Det tallet er en kontroll av det ferdige settet, ikke noe du sier i samtalen/i,
-    )
-  })
-
-  it('holder flerbildekonteksten ute av samtalen, ikke bare ute av prompten', () => {
+  it('gjør hele serien til én bildeoppgave som gir N separate filer', () => {
     /*
-     * The root cause. Separate prompts were already the rule and were already
-     * being followed: the plan still reached the generator, through the
-     * conversation — a printed brief, a summary of the plan, «nå lager jeg de
-     * ni bildene», a running count. A generator that has read a set composes a
-     * set, and the merged image that comes back is its ordinary behaviour, so
-     * the fix has to be what is exposed rather than another prohibition.
+     * The distinction the whole flow turns on, on the surface an agent reads.
+     * One generation task producing N files works; N generation tasks with
+     * other work between them does not — that was the loop, and a host
+     * client's image tool did not survive it.
      */
+    expect(agentSurface()).toContain(IMAGE_GENERATION_RULE)
+    expect(IMAGE_GENERATION_RULE).toMatch(/Bildene lages ikke av deg og ikke i denne samtalen/i)
     expect(IMAGE_GENERATION_RULE).toMatch(
-      /Hver enkelt generering skal se ut som en fullstendig selvstendig oppgave, også i samtalen/i,
+      /én bildeoppgave som produserer N separate bilder er det som fungerer/i,
     )
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke skriv ut `brief`/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke oppsummer bildeplanen/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke list opp bildene som skal lages/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke tell dem/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/nøytral og ikke røpe at flere bilder er planlagt/i)
-    // Named as the mechanism, so it does not read as etiquette around the
-    // warnings it replaces — and as best effort, because a host whose image
-    // tool reads the conversation can see more than the agent chose.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Dette er hovedgrepet, og det er best effort, ikke en garanti/i)
     expect(IMAGE_GENERATION_RULE).toMatch(
-      /vertsklienten kan gi bildeverktøyet mer av samtalen enn du styrer/i,
+      /N bildeoppgaver med annet arbeid mellom seg ikke gjør det/i,
     )
-    // And the supported way out, so the answer to a merged picture is an action
-    // rather than another warning.
+    expect(IMAGE_GENERATION_RULE).toMatch(/Ikke kall et bildegenereringsverktøy selv/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ikke be om ett bilde om gangen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /ikke veksle mellom presentasjonsarbeid og bildegenerering/i,
+    )
+  })
+
+  it('leverer briefen ordrett, ikke som agentens egen oppsummering', () => {
+    // The brief is composed by Slaids from the plan, and a summary of it is a
+    // different order for the same pictures.
+    expect(IMAGE_GENERATION_RULE).toMatch(/gitt til brukeren ordrett som én sammenhengende tekst/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /du skriver den aldri selv, forkorter den ikke, deler den ikke opp og oppsummerer den ikke/i,
+    )
+    expect(IMAGE_GENERATION_RULE).toMatch(/limes inn i én samtale/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(
+      /nøyaktig like mange separate bildefiler som planen har oppføringer/i,
+    )
+  })
+
+  it('sier hvordan bildene kommer inn i dekket, og at det er brukerens steg', () => {
+    expect(IMAGE_GENERATION_RULE).toMatch(/bildedeponeringen/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/`1`, `2`, `3`/)
+    expect(IMAGE_GENERATION_RULE).toMatch(/ordner hun dem selv i deponeringsdialogen/i)
+    expect(agentSurface()).toMatch(/venter aldri på deponeringen|aldri ditt arbeid/i)
+  })
+
+  it('navngir veien videre når ett bilde kommer feil ut, uten å bestille serien på nytt', () => {
     expect(IMAGE_GENERATION_RULE).toMatch(/«Kopier prompt»/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ny, tom ChatGPT-samtale/i)
-    // And the brief is labelled for what it is on the surface too.
-    expect(IMAGE_GENERATION_RULE).toMatch(/`brief` er intern/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/følger ikke med i normalflyten i det hele tatt/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/selvstendig prompt for akkurat det motivet/i)
+    expect(IMAGE_GENERATION_RULE).toMatch(/uten å måtte bestille hele serien på nytt/i)
   })
 
-  it('bevarer nummereringen fra planlagt bilde til bildefil', () => {
-    // The deposit matches `1.png`, `2.jpg`, … to the zones they were ordered
-    // for, so a renumbering anywhere in the flow puts pictures in the wrong
-    // zones rather than failing.
-    expect(IMAGE_GENERATION_RULE).toMatch(/planlagt bilde 1 blir fil `1`/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/med filendelsen til formatet/i)
-  })
-
-  it('sier at genereringsrekkefølgen aldri er en identitetskilde', () => {
-    // The second observed failure, and the one a count could not see: nine
-    // pictures generated in the order 1, 3, 9, 6, 5, 8, 2, 4, 7, named by
-    // arrival, seven of them on the wrong slide. The rule has to name the
-    // identity that replaces the order.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Genereringsrekkefølgen er aldri en identitetskilde/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/«det første bildet som kom tilbake» er aldri bilde 1/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/aldri nummereres etter når det ble ferdig/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/aldri fra en teller over de ferdige filene/i)
-  })
-
-  it('gjør arbeidsflyten eksplisitt sekvensiell, én jobb av gangen', () => {
-    // Order matters in the loop itself: the binding is written down before the
-    // next generation call exists to confuse it with. An agent that collects
-    // every file first has nothing left to bind them from — and one that holds
-    // several jobs at once has the set back in context.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Fullfør én jobb av gangen/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/knytt filen som kommer tilbake til den samme `imagePlanItemId`/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/hent først deretter neste jobb/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/ikke hent flere jobber på forskudd/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(
-      /ikke hent bildeplanen på nytt for å få tak i de andre motivene/i,
-    )
-    // And the rule that makes one job a whole task is on the call that hands
-    // one out, where an agent meets it.
-    expect(toolProse()).toContain(IMAGE_JOB_RULE)
-    expect(IMAGE_JOB_RULE).toMatch(/Dette er én bildegenereringsoppgave/i)
-    expect(IMAGE_JOB_RULE).toMatch(/Send `prompt` ordrett/i)
-    expect(IMAGE_JOB_RULE).toMatch(/`all-reported` er slutten på løkken, ikke et tall/i)
-    // And the name is not read as a receipt: the queue emptying says the
-    // bindings were reported, never that a generator ran.
-    expect(IMAGE_JOB_RULE).toMatch(/«meldt», ikke «generert»/i)
-  })
-
-  it('gjør sluttkontrollen av koblingen til et kall, ikke en huskeregel', () => {
-    // On the tool that performs it, because it is only writable once there are
-    // files to write about — and because the whole value of the check is that
-    // somebody other than the model does it.
-    expect(toolProse()).toContain(IMAGE_HANDOFF_RULE)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/for hver oppføring så snart bildet er laget/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/før du henter neste jobb/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/kopieres ordrett fra jobben/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/den utledes ikke fra rekkefølgen/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/nøyaktig én gang/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/`ok` false.*skal bildene ikke deponeres/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/`manifest`.*`manifestFileName`/)
-  })
-
-  it('tilbyr avtrykket som ekstra kontroll, aldri som et vilkår', () => {
-    // A record is otherwise a claim about a file *name*, and a name survives
-    // having its contents swapped — so the digest is worth asking for. What it
-    // must never be is a condition: the ordinary host cannot read the bytes its
-    // own image tool returned, and a flow that stopped there could not be
-    // finished at all except by generating the same picture again.
-    expect(IMAGE_HANDOFF_RULE).toMatch(/`contentHash`/)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/SHA-256 av dem/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/\*\*ekstra\*\* kontroll, ikke et vilkår/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/de fleste verter, ChatGPT blant dem, gir deg ikke bytene/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/utelater du feltet og går videre til neste bilde/i)
-    // The old model is gone from the prose as well as from the schema.
-    expect(IMAGE_HANDOFF_RULE).not.toMatch(/bytesUnavailable/)
-    expect(IMAGE_GENERATION_RULE).not.toMatch(/Avtrykket er ikke valgfritt bokholderi/i)
-    expect(agentSurface()).not.toMatch(/generation-unverified|unverified-claim|all-answered/)
-    // And a digest that *is* sent has to be taken from the response, not from
-    // the folder afterwards.
-    expect(IMAGE_HANDOFF_RULE).toMatch(/i det filen kommer tilbake/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/beregnet i ettertid.*fester.*allerede har skjedd/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/regn ut SHA-256 av dem med en gang/i)
-  })
-
-  it('sier best effort om isolasjonen, og lover ingen garanti', () => {
+  it('har ikke en eneste rest av per-bilde-løkken igjen på flaten', () => {
     /*
-     * The product decision this pins, stated as a property of the surface: the
-     * one-picture-at-a-time flow is the best available mechanism against merged
-     * pictures, and it is not a guarantee. A host whose image tool reads the
-     * conversation can hand it context the agent never chose, and Slaids can
-     * neither prevent that nor prove it did not happen — so an instruction that
-     * promised isolation would have the agent promise it to the user in turn.
+     * The machinery this replaces, asserted as the absence it has to be. A
+     * surface that still names a job queue, a binding check or a manifest is a
+     * surface that invites an agent back into the loop — and a tool an agent
+     * can see is a tool an agent will call.
      */
     const surface = agentSurface()
-    expect(surface).toMatch(/best effort/i)
-    expect(IMAGE_JOB_RULE).toMatch(/\*\*Dette er best effort, ikke en garanti\.\*\*/)
-    expect(IMAGE_JOB_RULE).toMatch(
-      /lov derfor aldri at generatoren bare har sett denne ene prompten/i,
-    )
-    // No hard claim about what ChatGPT's image tool can see, anywhere.
-    expect(surface).not.toMatch(/bare (?:kan )?se (?:den ene|én) prompt/i)
-    expect(surface).not.toMatch(/garantert isolasjon|isolasjonen er garantert/i)
-    expect(surface).not.toMatch(/kontekstisolert/i)
-
-    // And the supported fallback is named as a first-class step, so the answer
-    // to a merged picture is an action rather than another warning.
-    expect(surface).toMatch(/ny, tom ChatGPT-samtale/i)
-    expect(surface).toMatch(/«Kopier prompt»/)
+    expect(surface).not.toMatch(/get_next_image_job|verify_image_handoff/)
+    expect(surface).not.toMatch(/imagePlanItemId/)
+    expect(surface).not.toMatch(/slaids-bilder\.json|contentHash/)
+    expect(surface).not.toMatch(/koblingskontroll/i)
+    expect(surface).not.toMatch(/bildejobb/i)
+    expect(surface).not.toMatch(/ett kall per bilde|én jobb om gangen/i)
+    expect(surface).not.toMatch(/awaiting-generation|awaiting-deposit|all-reported/)
   })
 
-  it('sier hva en melding om generering ikke er', () => {
-    // The two overstatements this replaces. «Kontrollert» must not creep into
-    // meaning «the right picture», and a binding Slaids never held against a
-    // file must be described as what it is: a self-report.
-    expect(IMAGE_HANDOFF_RULE).toMatch(/sier ingenting om hva bildet viser/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/koblingen er selvrapportert/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/aldri at et bilde er laget eller kontrollert/i)
-    expect(IMAGE_HANDOFF_RULE).toMatch(/`reporting` og `reportingMeans`/)
+  it('bevarer nummereringen fra planlagt bilde til bildeplass', () => {
+    // The plan numbers the pictures in deck order, the brief heads each section
+    // with that number, and the deposit fills the zone stamped with it. One
+    // numbering, written once.
+    expect(IMAGE_PLAN_RULE).toMatch(/nummererer dem i dekkets rekkefølge/i)
+    expect(IMAGE_PLACEHOLDER_POLICY.join(' ')).toMatch(/følger nummereringen i bildeplanen/i)
   })
 
-  it('bruker oppføringens ferdige prompt som instruks, og holder resten utenfor kallet', () => {
-    // The instruction for one picture is composed by Slaids from the deck's
-    // shared context and that one entry — so there is nothing for the agent to
-    // assemble, and therefore no reason for it to have the rest of the plan
-    // open while it does. Every field that used to be part of the instruction
-    // is still named here, as something the call must *not* carry: each of them
-    // says «one of several» to whoever reads it.
-    expect(IMAGE_GENERATION_RULE).toMatch(/Slaids gir deg den ene jobben som står igjen/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(
-      /ingen andre oppføringer, ingen samlet brief, intet antall/i,
-    )
-    expect(IMAGE_GENERATION_RULE).toMatch(/hele instruksen for det ene bildet/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/Send den ordrett, ett kall per jobb, og bygg den aldri selv/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/Ingenting annet skal inn i kallet/i)
-    for (const field of ['number', 'slideId', 'nodeId', 'slideLabel', 'aspectRatio', 'orientation']) {
-      expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
-    }
-    for (const field of PLANNED_IMAGE_FIELDS) {
-      expect(IMAGE_GENERATION_RULE).toContain(`\`${field}\``)
-    }
-    expect(IMAGE_GENERATION_RULE).toMatch(/din egen bokføring ved siden av kallet/i)
-    expect(IMAGE_GENERATION_RULE).toMatch(/`imageContext`/)
-    expect(IMAGE_GENERATION_RULE).toMatch(/aldri et felles format for flere bilder/i)
-  })
-
-  it('sier at agenten ikke skriver den samlede briefen, antallet eller formatene selv', () => {
+  it('sier at agenten ikke skriver seriebriefen, antallet eller formatene selv', () => {
     // Everything derived is Slaids'. An aspect ratio an agent states in prose is
     // exactly what makes brief and zone disagree.
     expect(IMAGE_PLAN_RULE).toMatch(/Slaids teller bildene/i)
     expect(IMAGE_PLAN_RULE).toMatch(/måler aspect ratio fra hver sones faktiske geometri/i)
     expect(IMAGE_PLAN_RULE).toMatch(/verken skrive antall, nummer, formater/i)
+    expect(IMAGE_PLAN_RULE).toMatch(/setter sammen den ferdige seriebriefen/i)
     expect(IMAGE_BRIEF_RULE).toMatch(/aldri hva et enkelt bilde skal vise/i)
-    expect(IMAGE_BRIEF_RULE).toMatch(/aldri oppgir aspect ratio i fritekst|aldri aspect ratio i fritekst|du oppgir aldri aspect ratio i fritekst/i)
+    expect(IMAGE_BRIEF_RULE).toMatch(/du oppgir aldri aspect ratio i fritekst/i)
+    // The shared context is printed once, under its own heading, for the series.
+    expect(IMAGE_BRIEF_RULE).toMatch(/«FELLES BILDEKONTEKST» øverst i seriebriefen, én gang/i)
+  })
+
+  it('ber agenten skrive planen om når en planlagt sone alt har en fil', () => {
+    // The brief orders the whole plan, so a finished zone left in it is an
+    // order for a picture the deck already has.
+    expect(IMAGE_PLAN_RULE).toMatch(/Ikke ta med en bildesone som alt har en fil/i)
+    expect(IMAGE_WORKFLOW_CONTINUATION_RULE).toMatch(/`plan-outdated`/)
+    expect(IMAGE_WORKFLOW_CONTINUATION_RULE).toMatch(/bare de sonene som fortsatt venter/i)
   })
 
   it('gir kontrollene et sluttpunkt, så de ikke blir en åpen forbedringssløyfe', () => {
@@ -838,24 +718,27 @@ describe('én regel, ett sted', () => {
     for (const unit of NAMED_UNITS) expect(listed).toContain(unit)
   })
 
-  it('lar guiden si samme stadium som domenet etter en godkjent kontroll', () => {
+  it('lar guiden si de samme stadiene som domenet', () => {
     /*
      * The guide is what `CLAUDE.md` sends a developing agent to read before it
      * touches the agent's rules, so a wrong stage here is not cosmetic: it can
-     * put back the very confusion this flow spent its rounds removing. It said
-     * a passing check gave `stage: generation-verified`, and it does not —
-     * `composeImageWorkflowStatus` reaches that stage only when nothing the
-     * deck can see is outstanding. A verified set whose files are not in the
-     * zones is `awaiting-deposit`.
+     * put back the very confusion this flow spent its rounds removing. It named
+     * stages the domain no longer has, from a flow where an agent reported its
+     * own generation back to the deck.
      */
     const guide = readFileSync(join(process.cwd(), DESIGN_DOCS_PATH), 'utf8')
-    expect(guide).not.toMatch(/generation-verified/)
-    expect(guide).toMatch(
-      /ligger filene ennå ikke i sonene, er `workflow\.stage` `awaiting-deposit`/i,
-    )
-    expect(guide).toMatch(
-      /`images-in-deck` kommer først når ingenting Slaids kan se er utestående/i,
-    )
+    expect(guide).not.toMatch(/generation-verified|awaiting-generation|awaiting-deposit|all-reported/)
+    for (const stage of [
+      'no-planned-images',
+      'plan-needs-repair',
+      'plan-outdated',
+      'awaiting-images',
+      'images-in-deck',
+    ]) {
+      expect(guide).toContain(`\`${stage}\``)
+    }
+    expect(guide).toMatch(/`images-in-deck` den eneste ferdig-tilstanden som gjelder bildene/i)
+    expect(guide).toMatch(/Slaids later aldri som om det vet at et bilde finnes/i)
   })
 
   it('lar guiden og agentflaten lete etter de samme bildene', () => {
