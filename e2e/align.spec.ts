@@ -6,7 +6,7 @@
  */
 
 import { expect, test } from './fixtures'
-import { decodePng } from './png'
+import { inkMargins } from './png'
 import {
   addContentToZone,
   createPresentation,
@@ -250,39 +250,42 @@ test.describe('alignment', () => {
     await expect(stage(page).locator('.subfield li')).toHaveCount(2)
 
     /**
-     * Each item's own box against the list's content box.
+     * The empty space to either side of each item's ink, across the full width
+     * of the list.
      *
-     * A marker is drawn against its item's content edge, not against the line
-     * of words inside it — so the bug this pins down is a bullet stranded at
-     * the far left while its text moved to the middle. What has to be true is
-     * that the *item* moved: then the marker had no choice but to come along.
+     * Measured off the pixels, because the bug this pins down is about a
+     * *marker*: a bullet is painted by a pseudo-element, so there is no node to
+     * measure at all. It is painted outside its item too, out in the list's
+     * own padding — so the crop is the list's width and one item's worth of
+     * rows, and cropping to the item would crop the bug out of the picture.
+     * The ink is then the bullet and the words together, and that pair is what
+     * has to sit in the middle.
      */
-    const insets = async (): Promise<{ left: number; right: number }[]> =>
-      page.evaluate(() => {
-        const stage = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
-        // Everything back in logical pixels: the stage is drawn through a CSS
-        // scale, so a measured box and a computed padding are in different
-        // units until the scale is divided out of the first.
-        const scale = Number(stage.dataset.scale)
-        const list = stage.querySelector('.subfield :is(ul, .rd-ul)') as HTMLElement
-        const box = list.getBoundingClientRect()
-        const padding = Number.parseFloat(getComputedStyle(list).paddingLeft)
-        // `+ 0` turns a rounded `-0` — sub-pixel drift the wrong way — into 0,
-        // which is a needlessly surprising thing to read in a failure.
-        const round = (value: number): number => Math.round(value) + 0
-        return [...list.children].map((item) => {
+    const list = stage(page).locator('.subfield :is(ul, .rd-ul)')
+    const margins = async (): Promise<{ left: number; right: number }[]> => {
+      const bands = await list.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return [...element.children].map((item) => {
           const rect = item.getBoundingClientRect()
           return {
-            left: round((rect.left - box.left) / scale - padding),
-            right: round((box.right - rect.right) / scale),
+            x: box.left + scrollX,
+            y: rect.top + scrollY,
+            width: box.width,
+            height: rect.height,
           }
         })
       })
+      return Promise.all(
+        bands.map(async (clip) => inkMargins(await page.screenshot({ clip }))),
+      )
+    }
 
-    const centred = await insets()
+    const centred = await margins()
     for (const item of centred) {
       expect(item.left).toBeGreaterThan(0)
-      expect(Math.abs(item.left - item.right)).toBeLessThanOrEqual(1)
+      // Antialiasing and a glyph's own side bearing, not a difference in where
+      // the line was placed.
+      expect(Math.abs(item.left - item.right)).toBeLessThanOrEqual(4)
     }
     // Each line finds its own middle: a block shifted as a whole would move the
     // short item and the long one by the same amount.
@@ -291,17 +294,23 @@ test.describe('alignment', () => {
     // The static renderer — presentation mode, the filmstrip, the offscreen fit
     // measurement — puts them in the same places.
     await enterZoneMode(page)
-    const presented = await insets()
-    expect(presented.map((item) => item.left)).toEqual(centred.map((item) => item.left))
+    const presented = await margins()
+    for (const [index, item] of presented.entries()) {
+      expect(Math.abs(item.left - centred[index].left)).toBeLessThanOrEqual(4)
+    }
 
-    // And left-aligned they go back flush against the column, which is what
-    // says the centring was the alignment's doing rather than something done to
-    // every list.
+    // And left-aligned the words go back flush against the column, which is
+    // what says the centring was the alignment's doing rather than something
+    // done to every list. There the marker hangs outside the column the way a
+    // bullet always has, so it is the words that end up flush.
     await enterContentMode(page)
     await field.click()
     await page.keyboard.press('Control+a')
     await page.getByTestId('align-left').click()
-    await expect.poll(async () => (await insets()).map((item) => item.left)).toEqual([0, 0])
+    await expect.poll(async () => (await margins()).map((item) => item.left > 20)).toEqual([
+      false,
+      false,
+    ])
   })
 
   test('shows a placeholder where the text it stands in for will be', async ({ page }) => {
@@ -313,29 +322,11 @@ test.describe('alignment', () => {
      * A title is centred, so its placeholder has to be — it used to sit at the
      * far left and jump to the middle at the first keystroke.
      *
-     * Read off the pixels rather than off a style. The placeholder is a
-     * pseudo-element: there is no node to measure, and a `text-align` that
-     * computes to `center` says nothing about where a floated box is actually
-     * painted — which is exactly how this went unnoticed. Where the ink is, is
-     * the whole question.
+     * Where the ink is, is the whole question — the same `inkMargins` the
+     * centred list above is measured with.
      */
-    const ink = async (selector: string): Promise<{ left: number; right: number }> => {
-      const bitmap = decodePng(await stage(page).locator(selector).screenshot())
-      const background = bitmap.at(0, 0)
-      let left = bitmap.width
-      let right = -1
-      for (let x = 0; x < bitmap.width; x += 1) {
-        for (let y = 0; y < bitmap.height; y += 1) {
-          const pixel = bitmap.at(x, y)
-          const differs = pixel.some((value, index) => Math.abs(value - background[index]) > 12)
-          if (!differs) continue
-          left = Math.min(left, x)
-          right = Math.max(right, x)
-          break
-        }
-      }
-      return { left, right: bitmap.width - 1 - right }
-    }
+    const ink = async (selector: string) =>
+      inkMargins(await stage(page).locator(selector).screenshot())
 
     const empty = await ink('[data-testid="slide-title"]')
     expect(empty.left).toBeGreaterThan(10)

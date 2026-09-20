@@ -1,0 +1,82 @@
+# Typesjekken, linten, enhetstestene og byggingen, på hver PR og på main.
+#
+# Dette er porten et bidrag skal gjennom. Den kjører nøyaktig de fire
+# kommandoene `CLAUDE.md` ber en bidragsyter kjøre lokalt, i den rekkefølgen —
+# og den finnes fordi «jeg kjørte dem» ikke er noe et repo kan kontrollere.
+# Vercel-sjekken som allerede står på hver PR er en *deploy*: den kjører
+# `tsc --noEmit && vite build`, så den fanger typefeil og et bygg som brekker,
+# og den kjører null tester.
+#
+# Rekkefølgen er billigst og mest presis først. En typefeil er ett navn på én
+# linje; en testfeil er en påstand om oppførsel; et brudd i byggingen kan være
+# begge deler sett gjennom bundleren. Fail-fast er med vilje: den første feilen
+# er nesten alltid den som forklarer resten.
+#
+# `npm run build` gjentar riktignok typesjekken, og det er greit — den kjører på
+# sekunder, og som eget steg sier den hva som er galt i stedet for å skjule det
+# bak «bygget feilet». Det byggesteget legger til utover det, er
+# `scripts/check-agent-bundle.mjs`: den laster den ferdige agent-API-bundelen i
+# Node og kontrollerer at den faktisk svarer, med verktøyene, previewrendereren
+# og stilarket i seg. Det er den ene kontrollen som ser på det Vercel deployer
+# og ikke på kildekoden.
+#
+# ## Nettlesertestene er ikke med
+#
+# `npm run e2e` starter en ekte Chromium og klikker seg gjennom appen — 310
+# tester, rundt tolv minutter. De er utelatt her fordi de er trege, ikke fordi
+# de er røde: de går grønt. Tolv minutter er lenge nok til at en PR ville ventet
+# på dem, og en port folk venter på er en port folk finner veier rundt.
+#
+# Suiten hører derfor hjemme i en nattlig kjøring, ikke her. Inntil den finnes,
+# er den noe man kjører for hånd før en UI-endring leveres — som `CLAUDE.md`
+# allerede sier.
+name: Tester
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Ingenting her leser eller skriver repoet utover å sjekke det ut.
+permissions:
+  contents: read
+
+# En ny push gjør den forrige kjøringen på samme gren uendelig uinteressant.
+# `main` er unntaket: hver commit der er et svar noen kan komme til å slå opp
+# senere, så de får stå.
+concurrency:
+  group: tester-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: Typesjekk, lint, enhetstester og bygg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Samme Node som resten av repoets automatikk, og `cache: npm` gjenbruker
+      # nedlastede pakker mellom kjøringer — det er `package-lock.json` som er
+      # nøkkelen, så cachen byttes ut av seg selv når avhengighetene endres.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      # `npm ci` og ikke `npm install`: den installerer nøyaktig det låsefilen
+      # sier og feiler hvis den og `package.json` har kommet ut av takt, i
+      # stedet for å stille skrive en ny låsefil under kjøringen.
+      - name: Installer avhengigheter
+        run: npm ci
+
+      - name: Typesjekk
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Enhetstester
+        run: npm test
+
+      - name: Bygg
+        run: npm run build

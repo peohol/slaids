@@ -153,11 +153,18 @@ const WHEEL_STEP_DEADZONE = 4
 
 /*
  * One scroll gesture, one slide. A trackpad or a fast wheel fires many events
- * for a single motion; without a cooldown between steps the deck would fly
- * past several slides on one swipe instead of moving the one the arrow keys
- * would.
+ * for a single motion, so the deck would otherwise fly past several slides on
+ * one swipe instead of moving the one the arrow keys would.
+ *
+ * What ends a gesture is the quiet after it, not a stopwatch started at the
+ * last step: a flick keeps sending events for as long as its momentum lasts,
+ * and any fixed cooldown short enough to feel responsive is shorter than that
+ * momentum — so the tail of one swipe would step the deck again, and again.
+ * Every event instead pushes the end of the gesture ahead of itself, and only
+ * an event arriving into silence steps. A wheel turned notch by notch has that
+ * silence between the notches, so deliberate stepping still steps.
  */
-const WHEEL_STEP_COOLDOWN_MS = 350
+const WHEEL_GESTURE_GAP_MS = 150
 
 /**
  * Where the deck's picture errand is: explaining itself, handing over the
@@ -990,6 +997,9 @@ export function EditorView({
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [presenting, redo, runStructural, setMode, stepDeck, toggleMode, undo])
 
+  /** When the wheel gesture in progress last sent an event. See below. */
+  const lastWheelAt = useRef(0)
+
   /*
    * The mouse wheel steps through the deck, the same slide the up and down
    * arrow keys land on — but only while it hovers the stage itself. The
@@ -997,9 +1007,14 @@ export function EditorView({
    * stage variant (editor, section, read-only derived page) shares the same
    * `stage-viewport` root, so that's the one selector this checks against
    * rather than naming the panels to exclude.
+   *
+   * The gesture clock is a ref and not a variable in the effect: `stepDeck`
+   * changes with the slide it just moved to, so the effect re-subscribes on
+   * every step — and a clock kept in its closure would be reset by the one
+   * step it exists to be the only one of. That is what let a single swipe
+   * walk the whole deck.
    */
   useEffect(() => {
-    let lastStepAt = 0
     const onWheel = (event: WheelEvent): void => {
       if (presenting) return
       // Over a running miniapp the wheel is the app's, whatever it is over.
@@ -1009,8 +1024,9 @@ export function EditorView({
       event.preventDefault()
       if (Math.abs(event.deltaY) < WHEEL_STEP_DEADZONE) return
       const now = Date.now()
-      if (now - lastStepAt < WHEEL_STEP_COOLDOWN_MS) return
-      lastStepAt = now
+      const quiet = now - lastWheelAt.current
+      lastWheelAt.current = now
+      if (quiet < WHEEL_GESTURE_GAP_MS) return
       stepDeck(event.deltaY > 0 ? 1 : -1)
     }
     window.addEventListener('wheel', onWheel, { capture: true, passive: false })
