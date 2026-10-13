@@ -32,6 +32,12 @@ async function rightClickZone(page: Page, zone: ZoneRect): Promise<void> {
   await rightClickAt(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
 }
 
+/** The zones once the slide shows `count` of them: a choice lands on the next render, not at once. */
+async function zonesOnceThere(page: Page, count: number): Promise<ZoneRect[]> {
+  await expect.poll(async () => (await zoneRects(page)).length).toBe(count)
+  return zoneRects(page)
+}
+
 async function expectZoneMode(page: Page): Promise<void> {
   await expect(page.getByTestId('mode-zone')).toHaveClass(/btn--active/)
   await expect(page.getByTestId('zone-overlay')).toBeVisible()
@@ -52,8 +58,7 @@ test.describe('context menu in zone mode', () => {
     await page.getByTestId('menu-split-x').click()
     await expect(menu(page)).toBeHidden()
 
-    const zones = await zoneRects(page)
-    expect(zones).toHaveLength(2)
+    const zones = await zonesOnceThere(page, 2)
     expect(zones[0].w).toBeCloseTo(zones[1].w, 0)
     await expectZoneMode(page)
     expect(guard.errors).toEqual([])
@@ -69,8 +74,7 @@ test.describe('context menu in zone mode', () => {
     await rightClickZone(page, right)
     await page.getByTestId('menu-duplicate').click()
 
-    const zones = await zoneRects(page)
-    expect(zones).toHaveLength(3)
+    const zones = await zonesOnceThere(page, 3)
     expect(new Set(zones.map((zone) => zone.id)).size).toBe(3)
     // The copy sits right after the zone it was made from, and is selected.
     expect(zones[0].id).toBe(left.id)
@@ -92,8 +96,13 @@ test.describe('context menu in zone mode', () => {
     await page.getByTestId('menu-ratios').click()
     await page.getByTestId('menu-ratio-1-2').click()
 
+    await expect
+      .poll(async () => {
+        const [a, b] = await zoneRects(page)
+        return b.w / a.w
+      })
+      .toBeCloseTo(2, 1)
     const [a, b] = await zoneRects(page)
-    expect(b.w / a.w).toBeCloseTo(2, 1)
     expect(a.w + b.w).toBeCloseTo(left.w + right.w, 0)
   })
 
@@ -111,7 +120,7 @@ test.describe('context menu in zone mode', () => {
     expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
     expect(await zoneRects(page)).toHaveLength(2)
     await page.getByTestId('confirm-accept').click()
-    expect(await zoneRects(page)).toHaveLength(1)
+    await zonesOnceThere(page, 1)
   })
 
   test('opens from the keyboard on the selected zone and closes without leaving zone mode', async ({ page }) => {
