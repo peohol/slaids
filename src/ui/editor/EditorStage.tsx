@@ -31,6 +31,7 @@ import {
 } from '../../domain/commands'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
+import type { MenuAnchor } from '../components/contextMenu'
 import type { Editor } from '@tiptap/react'
 import type {
   Axis,
@@ -66,6 +67,19 @@ import { StageSurface } from './StageSurface'
 import { ZoneOverlay, type ZoneAction } from './ZoneOverlay'
 import { ZoneDropZone } from './ZoneDropZone'
 import { EmptyZone } from './EmptyZone'
+
+/**
+ * What a right-click landed on, as the stage sees it.
+ *
+ * `fieldId` is the geometry engine's answer — the slide title, or the deepest
+ * zone under the pointer — so a menu is always about the zone a click there
+ * would have selected. `target` is the element the browser hit, for the host to
+ * tell the parts of a zone apart (a caption, a picture, a field being typed in).
+ */
+export interface StageMenuHit {
+  fieldId: string
+  target: Element | null
+}
 
 /** A press in the gap between two zones: the boundary follows the pointer. */
 interface BoundaryGesture {
@@ -159,6 +173,11 @@ export interface EditorStageProps {
   /** A press lands content in a zone rather than selecting it. */
   onPlace?: ((nodeId: NodeId) => void) | null
   /**
+   * A right-click on the slide. Returns whether a menu was opened; when it
+   * was not, the browser's own menu is left alone.
+   */
+  onContextMenu?: (hit: StageMenuHit, anchor: MenuAnchor) => boolean
+  /**
    * Show this part of the slide filling the stage instead of the whole slide.
    *
    * A view transform and nothing else: the geometry, the document and every
@@ -212,6 +231,7 @@ export function EditorStage({
   caret = null,
   onLongPressField,
   onPlace = null,
+  onContextMenu,
   focusRect = null,
   zoom = NO_ZOOM,
   onZoomChange,
@@ -228,6 +248,8 @@ export function EditorStage({
    * whatever the pointer happens to have landed on.
    */
   const draggedRef = useRef(false)
+  /** The kind of pointer that last pressed the stage — see `handleContextMenu`. */
+  const pointerTypeRef = useRef<string>('mouse')
 
   const mode = useEditorStore((state) => state.mode)
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
@@ -350,6 +372,27 @@ export function EditorStage({
       return
     }
     selectNode(hit)
+  }
+
+  /**
+   * The menu for whatever is under the pointer.
+   *
+   * Hit-tested exactly like a click, so the menu is about the zone a click
+   * there would have chosen — never about whatever happened to be selected
+   * before. A finger resting on a compact stage already means «open this
+   * field» (`onLongPressField`), and the browser reports that same long press
+   * as a context menu too; there the press keeps its existing meaning.
+   */
+  const handleContextMenu = (event: React.MouseEvent): void => {
+    if (!onContextMenu || onPlace) return
+    if (onLongPressField && pointerTypeRef.current === 'touch') return
+    const point = toSlidePoint(event.clientX, event.clientY)
+    const fieldId = point ? fieldUnder(point) : null
+    if (!fieldId) return
+    const target = event.target instanceof Element ? event.target : null
+    if (onContextMenu({ fieldId, target }, { x: event.clientX, y: event.clientY })) {
+      event.preventDefault()
+    }
   }
 
   /**
@@ -623,6 +666,7 @@ export function EditorStage({
           : undefined
       }
       onPointerDown={(event) => {
+        pointerTypeRef.current = event.pointerType
         handlePointerDown(event)
         if (dragRef.current) {
           /* A ratio drag has taken this press. Stopping it here is how the
@@ -634,6 +678,7 @@ export function EditorStage({
       onPointerMove={handlePointerMove}
       onPointerLeave={() => setHovered(null)}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
     >
       {(scale) => (
         <>

@@ -23,6 +23,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + C', 'Kopier innholdet i sonen'],
       ['Ctrl + X', 'Klipp ut innholdet i sonen'],
       ['Ctrl + V', 'Lim inn i en tom sone'],
+      ['Shift + F10', 'Hurtigmeny for valgt sone (også høyreklikk)'],
     ],
   },
   {

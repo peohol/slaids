@@ -35,7 +35,8 @@ export interface ZoneAction {
   label: string
   icon: Parameters<typeof Icon>[0]['name']
   disabled?: boolean
-  onSelect: () => void
+  /** Called with the control that was pressed, for an action that opens beside it. */
+  onSelect: (control: HTMLElement) => void
   /** When present, the button opens this menu instead of acting directly. */
   menu?: ZoneActionMenuItem[]
   testId?: string
@@ -223,7 +224,7 @@ export function ZoneOverlay({
                       type="button"
                       className="btn btn--sm btn--icon"
                       disabled={action.disabled}
-                      onClick={action.onSelect}
+                      onClick={(event) => action.onSelect(event.currentTarget)}
                       data-testid={action.testId ?? `zone-action-${action.id}`}
                       aria-label={action.label}
                     >

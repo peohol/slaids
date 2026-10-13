@@ -79,6 +79,8 @@ export interface StageSurfaceProps {
   onPointerMove?: (event: React.PointerEvent) => void
   onPointerLeave?: (event: React.PointerEvent) => void
   onClick?: (event: React.MouseEvent) => void
+  /** A right-click, Shift+F10 or the menu key on the page. */
+  onContextMenu?: (event: React.MouseEvent) => void
   /** A line under the stage saying what this page is and where it came from. */
   note?: ReactNode
   /** The page itself, at 1600 × 900. The scale is passed for the few that need it. */
@@ -98,6 +100,7 @@ export function StageSurface({
   onPointerMove,
   onPointerLeave,
   onClick,
+  onContextMenu,
   note,
   children,
 }: StageSurfaceProps) {
@@ -210,6 +213,7 @@ export function StageSurface({
       onPointerMove={onPointerMove}
       onPointerLeave={onPointerLeave}
       onClick={onClick}
+      onContextMenu={onContextMenu}
     >
       <div
         className="stage-scaler"

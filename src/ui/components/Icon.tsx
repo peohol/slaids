@@ -67,6 +67,12 @@ export type IconName =
   | 'align-bottom-v'
   | 'interactive'
   | 'optimize'
+  | 'cut'
+  | 'paste'
+  | 'duplicate'
+  | 'equalize'
+  | 'more'
+  | 'reset'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -143,6 +149,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'align-middle-v': <path d="M4 12h16M8 5v4M8 15v4M12 3v6M12 15v6M16 5v4M16 15v4" />,
   'align-bottom-v': <path d="M4 20h16M8 4v12M12 8v8M16 4v12" />,
   'sign-out': <path d="M13 5H6v14h7M21 12H10m4-4l4 4-4 4" />,
+  /* Two blades crossing, and the rings they are held by. */
+  cut: <path d="M7 6.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM7 13a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM9 10.5L20 18M9 14L20 6" />,
+  /* A clipboard with a sheet on it. */
+  paste: <path d="M9 5H6v15h12V5h-3M9 3h6v4H9zM9 12h6M9 16h4" />,
+  /* The zone and its copy beside it. */
+  duplicate: <path d="M3 6h8v12H3zM13 6h8v12h-8zM17 10v4M15 12h4" />,
+  /* Three columns of the same width. */
+  equalize: <path d="M4 5h16v14H4zM9.33 5v14M14.67 5v14" />,
+  more: <path d="M6 12h.01M12 12h.01M18 12h.01" />,
+  /* Round and back to where it started. */
+  reset: <path d="M4 12a8 8 0 108-8 8 8 0 00-6.3 3M4 4v4h4" />,
 }
 
 export function Icon({

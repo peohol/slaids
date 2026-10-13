@@ -30,14 +30,15 @@ import {
   clearLayoutNode,
   deleteLayoutNode,
   deleteSlide,
+  duplicateLayoutNode,
   moveSlide,
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
-  registerAsset,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
+  setSplitWeights,
   setZoneContent,
   splitLeaf,
   updateSplit,
@@ -46,7 +47,7 @@ import { createContentOfKind, imagePanelOf } from '../../domain/content'
 import { contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
-import { computeSlideGeometry } from '../../domain/geometry'
+import { TITLE_NODE_ID, computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
 import {
   deckPages,
@@ -57,19 +58,24 @@ import {
 } from '../../domain/pages'
 import { sectionGoverning } from '../../domain/presentation'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import { cloneSubtreeWithNewIds, countContent, findLeaf, findNode } from '../../domain/layout'
+import {
+  cloneSubtreeWithNewIds,
+  countContent,
+  findLeaf,
+  findNode,
+  findParent,
+  findSplit,
+} from '../../domain/layout'
 import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore, type ActiveField } from '../../state/store'
-import { ok } from '../../domain/result'
 import { notify } from '../../state/toast'
 import { domFitCheckers, overflowingCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
-import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
-import { materializeClipboardContent } from '../../state/pasteAssets'
+import { copyZoneToClipboard, cutZoneToClipboard, pasteClipboardIntoZone } from './zoneClipboard'
 import type { InteractiveSource } from '../../domain/interactive'
 import type { OptimizationScope } from '../../domain/imageOptimization'
 import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
@@ -77,12 +83,20 @@ import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ContextMenuHost } from '../components/ContextMenuHost'
+import {
+  anchorBelow,
+  anchorInside,
+  useContextMenu,
+  type MenuAnchor,
+} from '../components/contextMenu'
+import { zoneModeMenu, type ZoneMenuHandlers } from './contextMenu/zoneMenu'
 import { Modal } from '../components/Modal'
 import { SectionInspector } from './SectionInspector'
 import { SectionStage } from './SectionStage'
 import { InteractiveInspector } from './InteractiveInspector'
 import { InteractiveStage } from './InteractiveStage'
-import { EditorStage } from './EditorStage'
+import { EditorStage, type StageMenuHit } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from './ReadOnlySlideStage'
@@ -134,14 +148,15 @@ const dropTargetUnderPointer: CollisionDetection = (args) => {
 }
 
 /**
- * Is a modal dialog on screen?
+ * Is a modal dialog — or a context menu — on screen?
  *
  * Asked of the DOM rather than of a list of open-state flags: every dialog in
  * the app is a Radix `Dialog`, which is what `role="dialog"` means here, and a
- * list would have to be remembered every time a new one is added.
+ * list would have to be remembered every time a new one is added. A menu owns
+ * Escape the same way a dialog does: closing it must not also leave zone mode.
  */
 function hasOpenDialog(): boolean {
-  return document.querySelector('[role="dialog"]') !== null
+  return document.querySelector('[role="dialog"], [role="menu"]') !== null
 }
 
 /*
@@ -196,6 +211,7 @@ export function EditorView({
   const cancelDepositBreak = useEditorStore((state) => state.cancelDepositBreak)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
+  const openContextMenu = useContextMenu((state) => state.open)
 
   const [splitOpen, setSplitOpen] = useState(false)
   const [newSlideOpen, setNewSlideOpen] = useState(false)
@@ -588,7 +604,7 @@ export function EditorView({
    * cancelling after that press did.
    */
   const addContentTo = useCallback(
-    (nodeId: string, kind: ZoneContentKind) => {
+    (nodeId: string, kind: ZoneContentKind, { keepMode = false }: { keepMode?: boolean } = {}) => {
       if (!contentSlide) return
       const content = createContentOfKind(kind)
       const placed = runStructural('content-add', (current) =>
@@ -606,17 +622,23 @@ export function EditorView({
        * is never typed on — the text is opened on its own surface — and the
        * zone panel the content was added from is still the panel on screen, so
        * dropping out of zone mode would take the outlines away from under it.
+       * And a context menu never changes the mode at all: it acts on the zone
+       * it was opened on, in the mode it was opened in.
        */
-      if (!compact) setMode('content')
+      if (!compact && !keepMode) setMode('content')
       if (placed && imagePanelOf(content)) setImageOpen('zone')
     },
     [compact, contentSlide, runStructural, setMode],
   )
 
-  const applyContentKind = useCallback(
-    (kind: ZoneContentKind) => {
-      if (!contentSlide || !selectedNodeId) return
-      const leaf = findLeaf(contentSlide.root, selectedNodeId)
+  /**
+   * Give a zone content of this kind: fresh content in an empty one, the same
+   * content converted in a full one.
+   */
+  const applyContentKindTo = useCallback(
+    (nodeId: string, kind: ZoneContentKind) => {
+      if (!contentSlide) return
+      const leaf = findLeaf(contentSlide.root, nodeId)
       if (!leaf) {
         notify.error('Velg en bladsone for å legge inn innhold.')
         return
@@ -625,16 +647,23 @@ export function EditorView({
         run('content-kind', (current) =>
           setContentKind(current, {
             slideId: contentSlide.id,
-            nodeId: selectedNodeId,
+            nodeId,
             kind,
             ...domFitCheckers,
           }),
         )
         return
       }
-      addContentTo(selectedNodeId, kind)
+      addContentTo(nodeId, kind)
     },
-    [addContentTo, contentSlide, run, selectedNodeId],
+    [addContentTo, contentSlide, run],
+  )
+
+  const applyContentKind = useCallback(
+    (kind: ZoneContentKind) => {
+      if (selectedNodeId) applyContentKindTo(selectedNodeId, kind)
+    },
+    [applyContentKindTo, selectedNodeId],
   )
 
   const handleSplitApply = useCallback(
@@ -831,171 +860,6 @@ export function EditorView({
     },
     [currentSlideId, pages, viewedDerivedPage],
   )
-
-  /* -------------------------------------------------------------- *
-   * Keyboard
-   * -------------------------------------------------------------- */
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (presenting) return
-      // A running miniapp owns the keyboard: no paging, no zone walking, no
-      // undo, no F5 — and no `preventDefault`, so a key on Slaids' own exit
-      // button is still a press on that button.
-      if (isInteractiveRuntimeActive()) return
-      const target = event.target as HTMLElement | null
-      const typing =
-        target?.isContentEditable ||
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.tagName === 'SELECT'
-
-      const meta = event.ctrlKey || event.metaKey
-
-      /*
-       * Undo and redo are the document's, always, and the editors inside it
-       * keep no history of their own (see `extensions.ts`). Capture phase and
-       * `stopImmediatePropagation` are what make that true no matter what has
-       * focus: a rich-text field, a dialog, a floating window — the deck is one
-       * document, so one Ctrl+Z steps back through one history.
-       */
-      if (meta && (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y')) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        if (event.key.toLowerCase() === 'y' || event.shiftKey) redo()
-        else undo()
-        return
-      }
-      if (meta && event.key.toLowerCase() === 'e') {
-        event.preventDefault()
-        toggleMode()
-        return
-      }
-      if (event.key === 'F5') {
-        event.preventDefault()
-        setPresenting(true)
-        return
-      }
-
-      const state = useEditorStore.getState()
-
-      /*
-       * Escape leaves zone editing for content editing.
-       *
-       * Only when nothing is stacked on top: a dialog owns Escape while it is
-       * open, and closing it *and* dropping out of zone mode from one press
-       * would undo a mode the user did not ask to leave.
-       */
-      if (event.key === 'Escape' && state.mode === 'zone' && !hasOpenDialog()) {
-        event.preventDefault()
-        setMode('content')
-        return
-      }
-
-      if (typing) return
-
-      /*
-       * Up and down move through the deck — but not over the shoulder of
-       * someone editing text, where they move the caret between lines, and not
-       * in zone mode, where they walk the layout tree.
-       */
-      if (state.mode !== 'zone' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-        event.preventDefault()
-        stepDeck(event.key === 'ArrowDown' ? 1 : -1)
-        return
-      }
-
-      if (state.mode !== 'zone') return
-
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-        event.preventDefault()
-        const direction =
-          event.key === 'ArrowUp'
-            ? 'up'
-            : event.key === 'ArrowDown'
-              ? 'down'
-              : event.key === 'ArrowLeft'
-                ? 'left'
-                : 'right'
-        state.navigate(direction)
-        return
-      }
-
-      if (!meta) return
-      const current = state.presentation
-      // Only a slide with zones has anything to cut, copy or paste into.
-      const activeSlide = current ? state.currentContentSlide() : null
-      if (!current || !activeSlide || !state.selectedNodeId) return
-      const leaf = findLeaf(activeSlide.root, state.selectedNodeId)
-
-      if (event.key.toLowerCase() === 'c' && leaf?.content) {
-        event.preventDefault()
-        writeStructuralClipboard(leaf.content, current.assets)
-        notify.info('Innholdet ble kopiert.')
-        return
-      }
-      if (event.key.toLowerCase() === 'x' && leaf?.content) {
-        event.preventDefault()
-        writeStructuralClipboard(leaf.content, current.assets)
-        runStructural('cut-content', (presentationState) =>
-          setZoneContent(presentationState, {
-            slideId: activeSlide.id,
-            nodeId: state.selectedNodeId as string,
-            content: null,
-            replace: true,
-            replacedDisposition: 'delete',
-          }),
-        )
-        return
-      }
-      if (event.key.toLowerCase() === 'v' && leaf && !leaf.content) {
-        event.preventDefault()
-        const targetNodeId = state.selectedNodeId
-        // The system clipboard is read first so a copy survives a reload or
-        // reaches another tab; it falls back to the in-memory payload.
-        void readStructuralClipboard().then(async (payload) => {
-          if (!payload) {
-            notify.warning('Utklippstavlen er tom.')
-            return
-          }
-          const live = useEditorStore.getState().presentation
-          if (!live || live.id !== current.id) return
-          // Copy any referenced assets into this presentation first, so a paste
-          // across presentations does not depend on the source surviving.
-          const { content, refs, missing } = await materializeClipboardContent(payload, live)
-          if (missing.length > 0) {
-            notify.warning(
-              missing.length === 1
-                ? `Filen «${missing[0].name}» finnes ikke lenger, så den ble ikke med.`
-                : `${missing.length} filer finnes ikke lenger, så de ble ikke med.`,
-            )
-          }
-          // Content and the metadata for the files it points at are one commit:
-          // undone separately, the document would reference assets the
-          // presentation no longer lists, and export would quietly drop them.
-          useEditorStore.getState().runStructural('paste-content', (presentationState) => {
-            const placed = setZoneContent(presentationState, {
-              slideId: activeSlide.id,
-              nodeId: targetNodeId,
-              content,
-              ...domFitCheckers,
-            })
-            if (!placed.ok) return placed
-            let next = placed.value.presentation
-            for (const ref of refs) {
-              const registered = registerAsset(next, ref)
-              if (!registered.ok) return registered
-              next = registered.value
-            }
-            return ok({ ...placed.value, presentation: next })
-          })
-        })
-      }
-    }
-
-    window.addEventListener('keydown', onKey, { capture: true })
-    return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [presenting, redo, runStructural, setMode, stepDeck, toggleMode, undo])
 
   /** When the wheel gesture in progress last sent an event. See below. */
   const lastWheelAt = useRef(0)
@@ -1222,10 +1086,112 @@ export function EditorView({
 
   /* -------------------------------------------------------------- *
    * Zone actions
+   *
+   * What can be done to a zone, said once and addressed by the zone it is
+   * done to. The toolbar over the selection, the inspector and the context
+   * menu all call these: the toolbar and the inspector with the selected zone,
+   * the menu with whichever zone was right-clicked.
    * -------------------------------------------------------------- */
 
+  const zoneHandlers: ZoneMenuHandlers | null = useMemo(() => {
+    if (!contentSlide) return null
+    const slideId = contentSlide.id
+    return {
+      addContent: (nodeId, kind) => addContentTo(nodeId, kind, { keepMode: true }),
+      setContentKind: applyContentKindTo,
+      copy: (nodeId) => void copyZoneToClipboard(nodeId),
+      cut: (nodeId) => void cutZoneToClipboard(nodeId),
+      paste: (nodeId) => void pasteClipboardIntoZone(nodeId),
+      placeSandboxItem: (nodeId, itemId) =>
+        void runStructural('place-sandbox-item', (current) =>
+          placeSandboxItem(current, { itemId, slideId, nodeId, ...domFitCheckers }),
+        ),
+      openSandbox: () => setSandboxOpen(true),
+      moveContent: (nodeId) => beginPlacement({ kind: 'zone', nodeId }),
+      moveToSandbox: (nodeId) => {
+        runStructural('to-sandbox', (current) =>
+          moveZoneContentToSandbox(current, { slideId, nodeId }),
+        )
+        setSandboxOpen(true)
+      },
+      split: (nodeId, axis) =>
+        void runStructural('split-leaf', (current) =>
+          splitLeaf(current, {
+            slideId,
+            nodeId,
+            axis,
+            weights: [1, 1],
+            contentTargetIndex: 0,
+            ...domFitCheckers,
+          }),
+        ),
+      openSplitDialog: (nodeId) => {
+        useEditorStore.getState().selectNode(nodeId)
+        setSplitOpen(true)
+      },
+      setWeights: (splitId, weights) =>
+        void runStructural('ratio', (current) =>
+          setSplitWeights(current, { slideId, nodeId: splitId, weights, ...domFitCheckers }),
+        ),
+      duplicate: (nodeId) => {
+        const parentId = findParent(contentSlide.root, nodeId)?.id
+        const done = runStructural('duplicate-zone', (current) =>
+          duplicateLayoutNode(current, { slideId, nodeId, ...domFitCheckers }),
+        )
+        // The copy is what the author is about to work on, so it is what is
+        // selected: the sibling right after the original.
+        const root = useEditorStore.getState().currentContentSlide()?.root
+        const parent = done && root && parentId ? findSplit(root, parentId) : null
+        const index = parent ? parent.children.findIndex((child) => child.id === nodeId) : -1
+        if (parent && index >= 0) useEditorStore.getState().selectNode(parent.children[index + 1].id)
+      },
+      clear: setClearingZoneId,
+      remove: setDeletingZoneId,
+    }
+  }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, runStructural])
+
+  /**
+   * Open the zone menu for one zone.
+   *
+   * The zone is selected first, so the outline and the inspector say which
+   * zone the menu is about — selecting is not a change of mode, and the mode
+   * is left exactly as it was. Whether each entry can be used is measured
+   * here, in an event handler, where the offscreen fit measurement may render.
+   */
+  const openZoneMenu = useCallback(
+    (nodeId: string, anchor: MenuAnchor, keyboard = false): boolean => {
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (!state.presentation || !slide || !zoneHandlers) return false
+      const menu = zoneModeMenu(
+        { presentation: state.presentation, slide, nodeId, checks: domFitCheckers },
+        zoneHandlers,
+      )
+      if (!menu) return false
+      state.selectNode(nodeId)
+      openContextMenu({ anchor, title: menu.title, entries: menu.entries, keyboard })
+      return true
+    },
+    [openContextMenu, zoneHandlers],
+  )
+
+  /**
+   * A right-click on the stage, with what the geometry found under it.
+   *
+   * Zone mode is about the zones, so a zone gets its menu wherever it was
+   * pressed. Anything this does not answer is left to the browser.
+   */
+  const handleStageMenu = useCallback(
+    (hit: StageMenuHit, anchor: MenuAnchor): boolean => {
+      if (useEditorStore.getState().mode !== 'zone') return false
+      if (hit.fieldId === TITLE_NODE_ID) return false
+      return openZoneMenu(hit.fieldId, anchor)
+    },
+    [openZoneMenu],
+  )
+
   const zoneActions: ZoneAction[] = useMemo(() => {
-    if (!contentSlide || !selectedNodeId || !selectedNode) return []
+    if (!contentSlide || !selectedNodeId || !selectedNode || !zoneHandlers) return []
     const isLeaf = selectedNode.kind === 'leaf'
     const hasContent = isLeaf && selectedLeaf?.content != null
     const isRoot = contentSlide.root.id === selectedNodeId
@@ -1236,7 +1202,7 @@ export function EditorView({
         label: 'Flytt innholdet til en annen sone',
         icon: 'target',
         disabled: !hasContent,
-        onSelect: () => beginPlacement({ kind: 'zone', nodeId: selectedNodeId }),
+        onSelect: () => zoneHandlers.moveContent(selectedNodeId),
         testId: 'zone-action-move',
       },
       {
@@ -1266,28 +1232,20 @@ export function EditorView({
         label: 'Flytt innhold til sandkassen',
         icon: 'sandbox',
         disabled: !hasContent,
-        onSelect: () => {
-          runStructural('to-sandbox', (current) =>
-            moveZoneContentToSandbox(current, {
-              slideId: contentSlide.id,
-              nodeId: selectedNodeId,
-            }),
-          )
-          setSandboxOpen(true)
-        },
+        onSelect: () => zoneHandlers.moveToSandbox(selectedNodeId),
       },
       {
         id: 'clear',
         label: 'Tøm sone',
         icon: 'eraser',
-        onSelect: () => setClearingZoneId(selectedNodeId),
+        onSelect: () => zoneHandlers.clear(selectedNodeId),
       },
       {
         id: 'delete',
         label: 'Slett sone',
         icon: 'trash',
         disabled: isRoot,
-        onSelect: () => setDeletingZoneId(selectedNodeId),
+        onSelect: () => zoneHandlers.remove(selectedNodeId),
       },
       {
         id: 'image',
@@ -1296,17 +1254,160 @@ export function EditorView({
         disabled: !isLeaf,
         onSelect: () => setImageOpen('ask'),
       },
+      /*
+       * Everything else the zone menu has, from a button: the way to it for a
+       * finger, which has no right button, and for anyone who did not know
+       * there was a menu to right-click for.
+       */
+      {
+        id: 'more',
+        label: 'Flere valg',
+        icon: 'more',
+        onSelect: (anchor) => void openZoneMenu(selectedNodeId, anchorBelow(anchor)),
+      },
     ]
   }, [
     applyContentKind,
-    beginPlacement,
     contentSlide,
-    runStructural,
+    openZoneMenu,
     selectedLeaf,
     selectedNode,
     selectedNodeId,
     selectionKindOptions,
+    zoneHandlers,
   ])
+
+  /* -------------------------------------------------------------- *
+   * Keyboard
+   * -------------------------------------------------------------- */
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (presenting) return
+      // A running miniapp owns the keyboard: no paging, no zone walking, no
+      // undo, no F5 — and no `preventDefault`, so a key on Slaids' own exit
+      // button is still a press on that button.
+      if (isInteractiveRuntimeActive()) return
+      const target = event.target as HTMLElement | null
+      // The open context menu has the keyboard: its arrows walk its entries,
+      // not the deck or the zones behind it.
+      if (target?.closest?.('[role="menu"]')) return
+      const typing =
+        target?.isContentEditable ||
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT'
+
+      const meta = event.ctrlKey || event.metaKey
+
+      /*
+       * Undo and redo are the document's, always, and the editors inside it
+       * keep no history of their own (see `extensions.ts`). Capture phase and
+       * `stopImmediatePropagation` are what make that true no matter what has
+       * focus: a rich-text field, a dialog, a floating window — the deck is one
+       * document, so one Ctrl+Z steps back through one history.
+       */
+      if (meta && (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y')) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (event.key.toLowerCase() === 'y' || event.shiftKey) redo()
+        else undo()
+        return
+      }
+      if (meta && event.key.toLowerCase() === 'e') {
+        event.preventDefault()
+        toggleMode()
+        return
+      }
+      if (event.key === 'F5') {
+        event.preventDefault()
+        setPresenting(true)
+        return
+      }
+
+      const state = useEditorStore.getState()
+
+      /*
+       * Escape leaves zone editing for content editing.
+       *
+       * Only when nothing is stacked on top: a dialog owns Escape while it is
+       * open, and closing it *and* dropping out of zone mode from one press
+       * would undo a mode the user did not ask to leave.
+       */
+      if (event.key === 'Escape' && state.mode === 'zone' && !hasOpenDialog()) {
+        event.preventDefault()
+        setMode('content')
+        return
+      }
+
+      if (typing) return
+
+      /*
+       * Up and down move through the deck — but not over the shoulder of
+       * someone editing text, where they move the caret between lines, and not
+       * in zone mode, where they walk the layout tree.
+       */
+      if (state.mode !== 'zone' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        stepDeck(event.key === 'ArrowDown' ? 1 : -1)
+        return
+      }
+
+      if (state.mode !== 'zone') return
+
+      /*
+       * Shift+F10 and the menu key open the selected zone's menu, the way a
+       * right-click on it would. It opens on the zone's own outline, so it
+       * visibly belongs to the zone it is about.
+       */
+      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+        const selected = state.selectedNodeId
+        const outline = selected
+          ? document.querySelector(`[data-node-outline="${CSS.escape(selected)}"]`)
+          : null
+        if (selected && outline) {
+          event.preventDefault()
+          openZoneMenu(selected, anchorInside(outline), true)
+        }
+        return
+      }
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault()
+        const direction =
+          event.key === 'ArrowUp'
+            ? 'up'
+            : event.key === 'ArrowDown'
+              ? 'down'
+              : event.key === 'ArrowLeft'
+                ? 'left'
+                : 'right'
+        state.navigate(direction)
+        return
+      }
+
+      if (!meta) return
+      // Only a slide with zones has anything to cut, copy or paste into.
+      const activeSlide = state.currentContentSlide()
+      if (!activeSlide || !state.selectedNodeId) return
+      const leaf = findLeaf(activeSlide.root, state.selectedNodeId)
+      const key = event.key.toLowerCase()
+
+      if ((key === 'c' || key === 'x') && leaf?.content) {
+        event.preventDefault()
+        if (key === 'c') copyZoneToClipboard(leaf.id)
+        else cutZoneToClipboard(leaf.id)
+        return
+      }
+      if (key === 'v' && leaf && !leaf.content) {
+        event.preventDefault()
+        void pasteClipboardIntoZone(leaf.id)
+      }
+    }
+
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [openZoneMenu, presenting, redo, setMode, stepDeck, toggleMode, undo])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -1483,6 +1584,7 @@ export function EditorView({
       {...stageFocusProps}
       {...stageZoomProps}
       onPlace={activePlacement ? commitPlacement : null}
+      onContextMenu={handleStageMenu}
     />
   ) : null
 
@@ -1701,6 +1803,8 @@ export function EditorView({
           )}
         </DragOverlay>
       </DndContext>
+
+      <ContextMenuHost />
 
       {splitOpen && selectedRect && (
         <SplitModal
