@@ -87,6 +87,27 @@ export interface StageSurfaceProps {
   children: (scale: number) => ReactNode
 }
 
+/**
+ * A right-press on text asks for a menu; it does not edit.
+ *
+ * On a field nobody is typing in, the focus stays where it is: the browser
+ * would put the caret in that field first, and the menu would then open over a
+ * field being typed in — which is where the browser's own menu belongs (see
+ * `contentTarget.ts`). Asking for a menu on some text is not starting to type in
+ * it; the menu's entries take the focus when they act.
+ *
+ * And the editor never hears of the press: ProseMirror treats any press as a
+ * click, and a click on a picture in the text selects it and takes the focus —
+ * away from the menu that has just opened, which closes it again.
+ */
+function secondaryPressInText(event: React.MouseEvent): void {
+  if (event.button !== 2 || !(event.target instanceof Element)) return
+  const field = event.target.closest('[contenteditable="true"]')
+  if (!field) return
+  event.stopPropagation()
+  if (!field.contains(document.activeElement)) event.preventDefault()
+}
+
 export function StageSurface({
   kind = 'content',
   base = FULL_SLIDE,
@@ -214,6 +235,7 @@ export function StageSurface({
       onPointerLeave={onPointerLeave}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseDownCapture={onContextMenu ? secondaryPressInText : undefined}
     >
       <div
         className="stage-scaler"

@@ -7,71 +7,50 @@
  */
 
 import { useEffect } from 'react'
-import type { Editor } from '@tiptap/react'
 import { setVerticalAlign } from '../../domain/commands'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
-import type { VerticalAlign } from '../../domain/types'
 import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
 import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
 import { useWorkspace } from '../workspace/WorkspaceContext'
-import { alignmentIsActive, type Alignment } from './extensions'
-import { Icon, type IconName } from '../components/Icon'
+import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
-import { IMAGE_WIDTH_PRESETS } from './SlaidsImageExtension'
 import { SymbolPickerButton } from './SymbolPicker'
+import {
+  VERTICAL_ALIGNMENTS,
+  actionTitle,
+  alignActions,
+  blockActions,
+  editLink,
+  imageWidthActions,
+  insertTableAction,
+  markActions,
+  scriptActions,
+  tableActions,
+  type TextAction,
+} from './textActions'
 
-interface MarkButton {
-  id: string
-  label: string
-  icon: IconName
-  isActive: () => boolean
-  run: () => void
-}
-
-/**
- * Sub- and superscript, offered wherever text can be typed: they only ever
- * shrink and shift a run of characters, never wrap a line or widen it by more
- * than the characters themselves would, so nothing about the geometry that
- * keeps a title zone predictable stands in the way of them.
- */
-function scriptButtons(editor: Editor): MarkButton[] {
-  return [
-    {
-      id: 'subscript',
-      label: 'Senket skrift (Ctrl+,)',
-      icon: 'subscript',
-      isActive: () => editor.isActive('subscript'),
-      run: () => editor.chain().focus().toggleSubscript().run(),
-    },
-    {
-      id: 'superscript',
-      label: 'Hevet skrift (Ctrl+.)',
-      icon: 'superscript',
-      isActive: () => editor.isActive('superscript'),
-      run: () => editor.chain().focus().toggleSuperscript().run(),
-    },
-  ]
-}
-
-function renderMarkButtons(buttons: MarkButton[]) {
-  return buttons.map((button) => (
-    <Tooltip key={button.id} label={button.label}>
-      <button
-        type="button"
-        className={button.isActive() ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={button.run}
-        data-testid={`format-${button.id}`}
-        aria-label={button.label}
-        aria-pressed={button.isActive()}
-      >
-        <Icon name={button.icon} size={15} />
-      </button>
-    </Tooltip>
-  ))
+function renderActionButtons(actions: TextAction[], testIdPrefix = 'format-') {
+  return actions.map((button) => {
+    const title = actionTitle(button)
+    return (
+      <Tooltip key={button.id} label={title}>
+        <button
+          type="button"
+          className={button.isActive() ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={button.run}
+          data-testid={`${testIdPrefix}${button.id}`}
+          aria-label={title}
+          aria-pressed={button.isActive()}
+        >
+          <Icon name={button.icon} size={15} />
+        </button>
+      </Tooltip>
+    )
+  })
 }
 
 export function TextToolbar({
@@ -120,7 +99,7 @@ export function TextToolbar({
         </span>
         {editor && (
           <div className="text-toolbar__group" data-testid="script-tools">
-            {renderMarkButtons(scriptButtons(editor))}
+            {renderActionButtons(scriptActions(editor))}
           </div>
         )}
         {editor && <SymbolPickerButton editor={editor} />}
@@ -143,31 +122,7 @@ export function TextToolbar({
 
   const alignButtons = (
     <div className="text-toolbar__group" data-testid="align-tools">
-      {(
-        [
-          ['left', 'Venstrestill', 'align-left'],
-          ['center', 'Midtstill', 'align-center'],
-          ['right', 'Høyrestill', 'align-right'],
-        ] as [Alignment, string, IconName][]
-      ).map(([value, label, icon]) => (
-        <Tooltip key={value} label={label}>
-          <button
-            type="button"
-            className={
-              alignmentIsActive(editor, value)
-                ? 'btn btn--sm btn--icon btn--active'
-                : 'btn btn--sm btn--icon'
-            }
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => editor.chain().focus().setTextAlign(value).run()}
-            data-testid={`align-${value}`}
-            aria-label={label}
-            aria-pressed={alignmentIsActive(editor, value)}
-          >
-            <Icon name={icon} size={15} />
-          </button>
-        </Tooltip>
-      ))}
+      {renderActionButtons(alignActions(editor), '')}
     </div>
   )
 
@@ -180,7 +135,7 @@ export function TextToolbar({
       <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
         <span className="hint">Overskrift</span>
         <div className="text-toolbar__group" data-testid="script-tools">
-          {renderMarkButtons(scriptButtons(editor))}
+          {renderActionButtons(scriptActions(editor))}
         </div>
         {alignButtons}
         <SymbolPickerButton editor={editor} />
@@ -188,94 +143,14 @@ export function TextToolbar({
     )
   }
 
-  const buttons: MarkButton[] = [
-    {
-      id: 'bold',
-      label: 'Fet (Ctrl+B)',
-      icon: 'bold',
-      isActive: () => editor.isActive('bold'),
-      run: () => editor.chain().focus().toggleBold().run(),
-    },
-    {
-      id: 'italic',
-      label: 'Kursiv (Ctrl+I)',
-      icon: 'italic',
-      isActive: () => editor.isActive('italic'),
-      run: () => editor.chain().focus().toggleItalic().run(),
-    },
-    {
-      id: 'underline',
-      label: 'Understreket (Ctrl+U)',
-      icon: 'underline',
-      isActive: () => editor.isActive('underline'),
-      run: () => editor.chain().focus().toggleUnderline().run(),
-    },
-    ...scriptButtons(editor),
-    {
-      /*
-       * «Aksent», not «Overskrift». The stored node is still a heading — it has
-       * always been one and renaming it would be a migration for nothing — but
-       * what it *is* in a slide is an accent: a subheading, a highlighted point,
-       * an internal division inside a card. A card's own main heading is its
-       * card title, and a button here called «Overskrift» is what taught
-       * authors and agents alike to write one instead of the other.
-       */
-      id: 'heading',
-      label: 'Aksent',
-      icon: 'heading',
-      isActive: () => editor.isActive('heading'),
-      run: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-    },
-    {
-      id: 'bullet',
-      label: 'Punktliste',
-      icon: 'bullet-list',
-      isActive: () => editor.isActive('bulletList'),
-      run: () => editor.chain().focus().toggleBulletList().run(),
-    },
-    {
-      id: 'ordered',
-      label: 'Nummerert liste',
-      icon: 'ordered-list',
-      isActive: () => editor.isActive('orderedList'),
-      run: () => editor.chain().focus().toggleOrderedList().run(),
-    },
-    {
-      id: 'quote',
-      label: 'Sitat',
-      icon: 'quote',
-      isActive: () => editor.isActive('blockquote'),
-      run: () => editor.chain().focus().toggleBlockquote().run(),
-    },
-    {
-      id: 'code',
-      label: 'Kode',
-      icon: 'code',
-      isActive: () => editor.isActive('codeBlock'),
-      run: () => editor.chain().focus().toggleCodeBlock().run(),
-    },
-    {
-      id: 'table',
-      label: 'Sett inn tabell',
-      icon: 'table',
-      isActive: () => editor.isActive('table'),
-      run: () =>
-        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-    },
-  ]
+  const buttons = [...markActions(editor), ...blockActions(editor), insertTableAction(editor)]
 
   // Only a body field reaches here (see the guard above), so it always names a
   // subfield — a card title and a caption have no flow to align.
   const subfieldId = activeField.subfieldId
   const verticalButtons = slideId && subfieldId ? (
     <div className="text-toolbar__group" data-testid="vertical-align-tools">
-      {(
-        [
-          ['top', 'Toppjuster innholdet', 'align-top-v'],
-          ['middle', 'Midtjuster innholdet', 'align-middle-v'],
-          ['bottom', 'Bunnjuster innholdet', 'align-bottom-v'],
-        ] as [VerticalAlign, string, IconName][]
-      ).map(([value, label, icon]) => (
+      {VERTICAL_ALIGNMENTS.map(([value, label, icon]) => (
         <Tooltip key={value} label={label}>
           <button
             type="button"
@@ -316,7 +191,7 @@ export function TextToolbar({
 
   return (
     <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
-      {renderMarkButtons(buttons)}
+      {renderActionButtons(buttons)}
 
       {alignButtons}
       {verticalButtons}
@@ -328,16 +203,7 @@ export function TextToolbar({
           onMouseDown={(event) => event.preventDefault()}
           data-testid="format-link"
           aria-label="Lenke"
-          onClick={() => {
-            const previous = (editor.getAttributes('link').href as string | undefined) ?? ''
-            const href = window.prompt('Lenkeadresse', previous)
-            if (href === null) return
-            if (href.trim() === '') {
-              editor.chain().focus().unsetLink().run()
-              return
-            }
-            editor.chain().focus().extendMarkRange('link').setLink({ href: href.trim() }).run()
-          }}
+          onClick={() => editLink(editor)}
         >
           <Icon name="link" size={15} />
         </button>
@@ -364,20 +230,16 @@ export function TextToolbar({
       {editor.isActive('slaidsImage') && (
         <div className="text-toolbar__table" data-testid="image-tools">
           <span className="hint">Bredde:</span>
-          {IMAGE_WIDTH_PRESETS.map((percent) => (
+          {imageWidthActions(editor).map((width) => (
             <button
-              key={percent}
+              key={width.id}
               type="button"
-              className={
-                editor.getAttributes('slaidsImage').widthPercent === percent
-                  ? 'btn btn--sm btn--active'
-                  : 'btn btn--sm'
-              }
+              className={width.isActive() ? 'btn btn--sm btn--active' : 'btn btn--sm'}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.chain().setSlaidsImageWidth(percent).focus().run()}
-              data-testid={`image-width-${percent}`}
+              onClick={width.run}
+              data-testid={width.id}
             >
-              {percent}%
+              {width.label}
             </button>
           ))}
           <button
@@ -398,27 +260,20 @@ export function TextToolbar({
       {editor.isActive('table') && (
         <div className="text-toolbar__table" data-testid="table-tools">
           <span className="hint">Tabell:</span>
-          {(
-            [
-              ['add-row', 'Rad under', () => editor.chain().focus().addRowAfter().run()],
-              ['del-row', 'Slett rad', () => editor.chain().focus().deleteRow().run()],
-              ['add-col', 'Kolonne etter', () => editor.chain().focus().addColumnAfter().run()],
-              ['del-col', 'Slett kolonne', () => editor.chain().focus().deleteColumn().run()],
-              ['header', 'Headerrad', () => editor.chain().focus().toggleHeaderRow().run()],
-              ['del-table', 'Slett tabell', () => editor.chain().focus().deleteTable().run()],
-            ] as const
-          ).map(([id, label, action]) => (
-            <button
-              key={id}
-              type="button"
-              className="btn btn--sm"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={action}
-              data-testid={`table-${id}`}
-            >
-              {label}
-            </button>
-          ))}
+          {tableActions(editor)
+            .filter((action) => action.toolbar)
+            .map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className="btn btn--sm"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={action.run}
+                data-testid={`table-${action.id}`}
+              >
+                {action.label}
+              </button>
+            ))}
         </div>
       )}
 

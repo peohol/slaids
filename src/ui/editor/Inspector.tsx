@@ -18,6 +18,7 @@ import {
   CAPTION_POSITION_LABELS,
   captionPositionsFor,
   imagePanelOf,
+  MAX_SUBFIELDS,
 } from '../../domain/content'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { findLeaf, findNode } from '../../domain/layout'
@@ -389,7 +390,7 @@ export function Inspector({
               className="input"
               type="number"
               min={1}
-              max={6}
+              max={MAX_SUBFIELDS}
               value={body.subfields.length}
               data-testid="subfield-count"
               onChange={(event) =>

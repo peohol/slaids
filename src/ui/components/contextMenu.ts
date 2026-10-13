@@ -43,6 +43,18 @@ export interface MenuAction extends EntryBase {
    * current alignment. `undefined` for an entry that is not a choice at all.
    */
   checked?: boolean
+  /**
+   * Asked before it runs, for what cannot be had back by looking: what is
+   * about to go, and the word on the button that lets it. Undo still works
+   * afterwards; the question is for the moment before.
+   */
+  confirm?: MenuConfirm
+}
+
+export interface MenuConfirm {
+  title: string
+  message: string
+  confirmLabel: string
 }
 
 /** A named group of entries, opened sideways. */
@@ -77,21 +89,27 @@ export const SEPARATOR: MenuSeparator = { kind: 'separator' }
  * of a zone that holds none, a layout part for the root — so the separators
  * between them are tidied here rather than reasoned about at every call site:
  * none first, none last, never two in a row, and a submenu with nothing left in
- * it is not offered at all.
+ * it is not offered at all. And whatever removes something comes last, after a
+ * separator, in every list — so the entry the hand reaches for first is never
+ * the one that deletes.
  */
 export function tidyMenu(entries: readonly MenuEntry[]): MenuEntry[] {
-  const out: MenuEntry[] = []
+  const kept: MenuEntry[] = []
+  const destructive: MenuEntry[] = []
   for (const entry of entries) {
-    if (entry.kind === 'separator') {
-      if (out.length > 0 && out[out.length - 1].kind !== 'separator') out.push(entry)
-      continue
-    }
     if (entry.kind === 'submenu') {
       const nested = tidyMenu(entry.entries)
-      if (nested.length > 0) out.push({ ...entry, entries: nested })
+      if (nested.length > 0) kept.push({ ...entry, entries: nested })
       continue
     }
     if (entry.kind === 'swatches' && entry.rows.every((row) => row.length === 0)) continue
+    if (entry.kind === 'action' && entry.danger) destructive.push(entry)
+    else kept.push(entry)
+  }
+  const out: MenuEntry[] = []
+  for (const entry of [...kept, SEPARATOR, ...destructive]) {
+    const previous = out[out.length - 1]
+    if (entry.kind === 'separator' && (!previous || previous.kind === 'separator')) continue
     out.push(entry)
   }
   while (out.length > 0 && out[out.length - 1].kind === 'separator') out.pop()

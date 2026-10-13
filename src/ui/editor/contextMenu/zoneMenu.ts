@@ -196,7 +196,10 @@ function clipboardEntries(
   ]
 }
 
-function sandboxSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuEntry {
+function sandboxSubmenu(
+  input: ZoneMenuInput,
+  handlers: Pick<ZoneMenuHandlers, 'placeSandboxItem' | 'openSandbox'>,
+): MenuEntry {
   const { presentation, slide, nodeId, checks } = input
   const items = presentation.sandbox.slice(0, SANDBOX_ITEMS_LISTED)
   const listed: MenuEntry[] = items.map((item) => {
@@ -237,6 +240,32 @@ function sandboxSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuE
             },
           ],
   }
+}
+
+/**
+ * What an empty zone can be filled with: new content, the clipboard, or
+ * something kept in the sandbox. The same in both modes — an empty zone is
+ * about what goes in it either way.
+ */
+export function fillEntries(
+  input: ZoneMenuInput,
+  handlers: Pick<
+    ZoneMenuHandlers,
+    'addContent' | 'setContentKind' | 'paste' | 'placeSandboxItem' | 'openSandbox'
+  >,
+): MenuEntry[] {
+  return [
+    contentKindSubmenu(input, handlers),
+    {
+      kind: 'action',
+      id: 'paste',
+      label: 'Lim inn',
+      icon: 'paste',
+      shortcut: 'Ctrl+V',
+      onSelect: () => handlers.paste(input.nodeId),
+    },
+    sandboxSubmenu(input, handlers),
+  ]
 }
 
 /**
@@ -452,16 +481,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
     return {
       title,
       entries: [
-        contentKindSubmenu(input, handlers),
-        {
-          kind: 'action',
-          id: 'paste',
-          label: 'Lim inn',
-          icon: 'paste',
-          shortcut: 'Ctrl+V',
-          onSelect: () => handlers.paste(nodeId),
-        },
-        sandboxSubmenu(input, handlers),
+        ...fillEntries(input, handlers),
         SEPARATOR,
         splitSubmenu(input, handlers),
         ...siblingEntries(input, handlers),

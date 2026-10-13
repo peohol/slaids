@@ -28,6 +28,21 @@ describe('tidyMenu', () => {
     expect(full.kind === 'submenu' && ids(full.entries)).toEqual(['c'])
   })
 
+  it('moves whatever removes something to the end, behind a separator', () => {
+    const remove: MenuAction = { ...action('remove'), danger: true }
+    const entries: MenuEntry[] = [
+      action('a'),
+      remove,
+      SEPARATOR,
+      action('b'),
+      { kind: 'submenu', id: 'sub', label: 'Sub', entries: [{ ...remove, id: 'inner' }, action('c')] },
+    ]
+    const tidy = tidyMenu(entries)
+    expect(ids(tidy)).toEqual(['a', '|', 'b', 'sub', '|', 'remove'])
+    const sub = tidy[3]
+    expect(sub.kind === 'submenu' && ids(sub.entries)).toEqual(['c', '|', 'inner'])
+  })
+
   it('leaves out a colour grid without colours', () => {
     const entries: MenuEntry[] = [
       { kind: 'swatches', id: 'colors', label: 'Farger', rows: [[]], value: null, onSelect: () => undefined },
