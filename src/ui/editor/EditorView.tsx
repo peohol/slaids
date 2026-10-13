@@ -1253,8 +1253,8 @@ export function EditorView({
    *
    * Zone mode is about the zones, so a zone gets its menu wherever it was
    * pressed. Content mode is about what is in them, so the menu is about
-   * whatever the pointer is on — or the browser's own, in a field that is being
-   * typed in. Anything this does not answer is left to the browser.
+   * whatever the pointer is on. Anything this does not answer is left to the
+   * browser.
    */
   const handleStageMenu = useCallback(
     (hit: StageMenuHit, anchor: MenuAnchor): boolean => {
@@ -1262,8 +1262,7 @@ export function EditorView({
         if (hit.fieldId === TITLE_NODE_ID) return false
         return openZoneMenu(hit.fieldId, anchor)
       }
-      const target = contentTargetAt(hit.target, anchor, hit.fieldId)
-      return target ? openContentMenu(hit.fieldId, target, anchor) : false
+      return openContentMenu(hit.fieldId, contentTargetAt(hit.target, anchor, hit.fieldId), anchor)
     },
     [openContentMenu, openZoneMenu],
   )
@@ -1292,8 +1291,7 @@ export function EditorView({
   /** A right-click on a section page: on one of its lines, or beside them. */
   const handleSectionMenu = useCallback(
     (fieldId: string | null, target: Element | null, anchor: MenuAnchor): boolean => {
-      const found: ContentTarget | null = fieldId ? contentTargetAt(target, anchor, fieldId) : { kind: 'zone' }
-      if (!found) return false
+      const found: ContentTarget = fieldId ? contentTargetAt(target, anchor, fieldId) : { kind: 'zone' }
       return openSectionMenu('at' in found ? found.at : null, anchor)
     },
     [openSectionMenu],

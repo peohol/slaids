@@ -4,8 +4,8 @@
  * What a menu offers is unit-tested against the domain commands it asks; what
  * is checked here is what only a browser can say: that the menu is about the
  * thing under the pointer, that choosing from it changes the slide and never
- * the mode, that the keyboard reaches it, that it stays on screen — and that a
- * field being typed in keeps the browser's own menu, for its spelling.
+ * the mode, that the keyboard reaches it, that it stays on screen — and that
+ * text marked in a field is still marked when the menu opens on it.
  */
 
 import type { Page } from '@playwright/test'
@@ -171,6 +171,17 @@ async function leaveField(page: Page): Promise<void> {
   await stage(page).getByTestId('slide-title').locator('.ProseMirror').click()
 }
 
+/** Wait until the editor has taken the browser's selection, which it does on its next turn. */
+async function selectionTaken(page: Page): Promise<void> {
+  await bodyField(page).evaluate((element) =>
+    new Promise<void>((resolve) => {
+      const editor = (element as HTMLElement & { editor: { state: { selection: { empty: boolean } } } }).editor
+      const check = () => (editor.state.selection.empty ? requestAnimationFrame(check) : resolve())
+      check()
+    }),
+  )
+}
+
 async function writeInContainer(page: Page, text: string): Promise<void> {
   const [zone] = await zoneRects(page)
   await addContentToZone(page, zone.id, 'container')
@@ -179,14 +190,19 @@ async function writeInContainer(page: Page, text: string): Promise<void> {
 }
 
 test.describe('context menu in content mode', () => {
-  test('keeps the browser’s menu in a field being typed in, and offers its own elsewhere', async ({ page }) => {
+  test('formats text marked in a field being typed in, and offers the same menu elsewhere', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Tekstmeny')
     await writeInContainer(page, 'Første punkt')
+    await page.keyboard.press('Shift+Home')
+    await selectionTaken(page)
 
-    await bodyField(page).click({ button: 'right' })
-    await page.waitForTimeout(200)
-    await expect(menu(page)).toHaveCount(0)
+    // The text marked is still what the menu acts on.
+    await bodyField(page).getByText('Første punkt').click({ button: 'right' })
+    await expect(menu(page)).toContainText('Tekst')
+    await page.getByTestId('menu-formatting').click()
+    await page.getByTestId('menu-bold').click()
+    await expect(stage(page).locator('.subfield strong')).toHaveText('Første punkt')
 
     await leaveField(page)
     await bodyField(page).click({ button: 'right' })
@@ -198,6 +214,7 @@ test.describe('context menu in content mode', () => {
     await page.getByTestId('menu-paragraph').click()
     await page.getByTestId('menu-bullet').click()
     await expect(stage(page).locator('.subfield ul li')).toHaveText('Første punkt')
+    await expect(stage(page).locator('.subfield ul strong')).toHaveText('Første punkt')
     await expect(page.getByTestId('mode-content')).toHaveClass(/btn--active/)
     expect(guard.errors).toEqual([])
   })
@@ -206,14 +223,7 @@ test.describe('context menu in content mode', () => {
     await createPresentation(page, 'Tekstmeny')
     await writeInContainer(page, 'Fet tekst')
     await page.keyboard.press('Shift+Home')
-    // The editor takes the browser's selection on its next turn; ask once it has.
-    await bodyField(page).evaluate((element) =>
-      new Promise<void>((resolve) => {
-        const editor = (element as HTMLElement & { editor: { state: { selection: { empty: boolean } } } }).editor
-        const check = () => (editor.state.selection.empty ? requestAnimationFrame(check) : resolve())
-        check()
-      }),
-    )
+    await selectionTaken(page)
 
     await page.keyboard.press('Shift+F10')
     await expect(page.getByTestId('menu-formatting')).toBeFocused()

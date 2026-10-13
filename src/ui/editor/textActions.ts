@@ -189,7 +189,9 @@ const ALIGNMENT_ACTIONS: readonly [Alignment, string, IconName][] = [
 
 /** Where a line sits across its field — none at all in a field that is always centred, like a section's. */
 export function alignActions(editor: Editor, start: ChainStart = focusChain(editor)): TextAction[] {
-  if (!('setTextAlign' in editor.commands)) return []
+  // A toolbar can still be drawn over an editor being torn down, which no
+  // longer has commands to ask about.
+  if (editor.isDestroyed || !('setTextAlign' in editor.commands)) return []
   return ALIGNMENT_ACTIONS.map(([value, label, icon]) =>
     action(editor, start, {
       id: `align-${value}`,
