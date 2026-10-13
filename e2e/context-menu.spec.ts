@@ -206,6 +206,14 @@ test.describe('context menu in content mode', () => {
     await createPresentation(page, 'Tekstmeny')
     await writeInContainer(page, 'Fet tekst')
     await page.keyboard.press('Shift+Home')
+    // The editor takes the browser's selection on its next turn; ask once it has.
+    await bodyField(page).evaluate((element) =>
+      new Promise<void>((resolve) => {
+        const editor = (element as HTMLElement & { editor: { state: { selection: { empty: boolean } } } }).editor
+        const check = () => (editor.state.selection.empty ? requestAnimationFrame(check) : resolve())
+        check()
+      }),
+    )
 
     await page.keyboard.press('Shift+F10')
     await expect(page.getByTestId('menu-formatting')).toBeFocused()
