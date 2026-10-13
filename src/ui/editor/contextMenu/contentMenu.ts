@@ -14,7 +14,6 @@
  * command itself gives.
  */
 
-import type { Editor } from '@tiptap/react'
 import {
   resetContentColors,
   setBodyAxis,
@@ -24,7 +23,6 @@ import {
   setSubfieldCount,
   setVerticalAlign,
 } from '../../../domain/commands'
-import { PALETTE } from '../../../domain/color'
 import { DEFAULT_VERTICAL_ALIGN } from '../../../domain/constants'
 import {
   bodyOf,
@@ -42,20 +40,16 @@ import { describeError, type Result } from '../../../domain/result'
 import { docToPlainText, isDocEmpty } from '../../../domain/richdoc'
 import type { ImagePanel, Presentation, ZoneContent } from '../../../domain/types'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
+import { VERTICAL_ALIGNMENTS } from '../textActions'
+import type { ContentTarget } from './contentTarget'
 import {
-  VERTICAL_ALIGNMENTS,
-  alignActions,
-  blockActions,
-  editLink,
-  imageWidthActions,
-  insertTableAction,
-  markActions,
-  scriptActions,
-  tableActions,
-  type ChainStart,
-  type TextAction,
-} from '../textActions'
-import type { ContentTarget, FieldTarget } from './contentTarget'
+  FIELD_TITLES,
+  colorSubmenu,
+  inlineImageEntries,
+  tableEntries,
+  textEntries,
+  type TextMenuHandlers,
+} from './textMenu'
 import {
   contentKindSubmenu,
   fillEntries,
@@ -70,25 +64,12 @@ export interface ContentMenuInput extends ZoneMenuInput {
 }
 
 export interface ContentMenuHandlers
-  extends Pick<ZoneMenuHandlers, 'addContent' | 'setContentKind' | 'paste' | 'placeSandboxItem' | 'openSandbox'> {
+  extends TextMenuHandlers,
+    Pick<ZoneMenuHandlers, 'addContent' | 'setContentKind' | 'paste' | 'placeSandboxItem' | 'openSandbox'> {
   /** The upload dialog, to put a file in this zone's picture. */
   pickImage: (nodeId: string) => void
   /** Shrink the file behind this zone's picture. */
   optimizePanel: (nodeId: string) => void
-  /** Shrink one file, wherever it is used. */
-  optimizeAsset: (assetId: string) => void
-  /** The reference dialog, which inserts at the caret of the field in focus. */
-  insertReference: () => void
-  copyText: (text: string) => void
-}
-
-const FIELD_TITLES: Record<FieldTarget['field']['kind'], string> = {
-  body: 'Tekst',
-  'card-title': 'Korttittel',
-  caption: 'Bildetekst',
-  'slide-title': 'Lysbildetittel',
-  'section-title': 'Overskrift',
-  'section-subtitle': 'Underoverskrift',
 }
 
 /** The refusal a dry run gives, or `null` when the change would go through. */
@@ -114,157 +95,6 @@ function change(
   }
 }
 
-/** A text action as an entry, with the state it is in where the selection is. */
-function textEntry(action: TextAction): MenuAction {
-  return {
-    kind: 'action',
-    id: action.id,
-    label: action.label,
-    icon: action.icon,
-    shortcut: action.shortcut,
-    checked: action.isActive(),
-    disabled: !action.can(),
-    onSelect: action.run,
-  }
-}
-
-/**
- * A colour choice: «Standard», when there is a colour to inherit instead —
- * `inherited` says from where — and the palette.
- */
-function colorSubmenu(
-  id: string,
-  label: string,
-  value: string | null,
-  inherited: string | null,
-  onSelect: (color: string | null) => void,
-): MenuEntry {
-  return {
-    kind: 'submenu',
-    id,
-    label,
-    icon: 'palette',
-    entries: [
-      ...(inherited !== null
-        ? [
-            {
-              kind: 'action',
-              id: `${id}-default`,
-              label: `Standard (${inherited})`,
-              checked: value === null,
-              onSelect: () => onSelect(null),
-            } satisfies MenuAction,
-          ]
-        : []),
-      { kind: 'swatches', id: `${id}-swatches`, label, rows: PALETTE, value, onSelect },
-    ],
-  }
-}
-
-/* ------------------------------------------------------------------ *
- * Text
- * ------------------------------------------------------------------ */
-
-function textSection(at: FieldTarget, input: ContentMenuInput, handlers: ContentMenuHandlers): MenuEntry[] {
-  const { editor, field } = at
-  const start: ChainStart = () => editor.chain().focus()
-  const body = field.kind === 'body'
-  const selected = !editor.state.selection.empty
-
-  const formatting: MenuEntry = {
-    kind: 'submenu',
-    id: 'formatting',
-    label: 'Formatering',
-    icon: 'bold',
-    // A mark goes on characters, and with nothing marked there are none.
-    disabled: !selected,
-    reason: selected ? null : 'Marker teksten først.',
-    entries: (body ? markActions(editor, start) : scriptActions(editor, start)).map(textEntry),
-  }
-
-  const alignment: MenuEntry = {
-    kind: 'submenu',
-    id: 'alignment',
-    label: 'Justering',
-    icon: 'align-left',
-    entries: [
-      ...alignActions(editor, start).map(textEntry),
-      ...(body && field.subfieldId ? [SEPARATOR, ...verticalEntries(input, field.subfieldId)] : []),
-    ],
-  }
-
-  if (!body) {
-    return [
-      {
-        kind: 'action',
-        id: 'copy-text',
-        label: 'Kopier tekst',
-        icon: 'copy',
-        disabled: editor.state.doc.textContent.trim() === '',
-        onSelect: () => handlers.copyText(editor.state.doc.textContent),
-      },
-      formatting,
-      alignment,
-    ]
-  }
-
-  const linked = editor.isActive('link')
-  const accent = editor.isActive('heading')
-  const pickedAccent: unknown = editor.getAttributes('heading').color
-  return [
-    formatting,
-    { kind: 'submenu', id: 'paragraph', label: 'Avsnitt', icon: 'heading', entries: blockActions(editor, start).map(textEntry) },
-    alignment,
-    ...(accent
-      ? [
-          colorSubmenu('accent-color', 'Aksentfarge', typeof pickedAccent === 'string' ? pickedAccent : null, 'fra forsiden', (color) =>
-            start().updateAttributes('heading', { color }).run(),
-          ),
-        ]
-      : []),
-    SEPARATOR,
-    {
-      kind: 'action',
-      id: 'link',
-      label: linked ? 'Endre lenke …' : 'Lenke …',
-      icon: 'link',
-      onSelect: () => editLink(editor, start),
-    },
-    ...(linked
-      ? [
-          {
-            kind: 'action',
-            id: 'unlink',
-            label: 'Fjern lenke',
-            icon: 'close',
-            onSelect: () => start().extendMarkRange('link').unsetLink().run(),
-          } satisfies MenuAction,
-        ]
-      : []),
-    {
-      kind: 'submenu',
-      id: 'insert',
-      label: 'Sett inn',
-      icon: 'plus',
-      entries: [
-        {
-          kind: 'action',
-          id: 'insert-reference',
-          label: 'Referanse …',
-          icon: 'reference',
-          // The dialog inserts at the caret of the field in focus, so the
-          // field is given the focus — and the caret — first.
-          onSelect: () => {
-            start().run()
-            handlers.insertReference()
-          },
-        },
-        { ...textEntry(insertTableAction(editor, start)), label: 'Tabell', checked: undefined },
-      ],
-    },
-  ]
-}
-
 function verticalEntries(input: ContentMenuInput, subfieldId: string): MenuEntry[] {
   const leaf = findLeaf(input.slide.root, input.nodeId)
   const current = (leaf?.content && bodyOf(leaf.content)?.subfields.find((field) => field.id === subfieldId))
@@ -284,66 +114,6 @@ function verticalEntries(input: ContentMenuInput, subfieldId: string): MenuEntry
       { id: `valign-${align}`, label, icon, checked: current === align },
     ),
   )
-}
-
-function tableSection(editor: Editor): MenuEntry[] {
-  const start: ChainStart = () => editor.chain().focus()
-  const entries: MenuEntry[] = []
-  let group: string | null = null
-  for (const action of tableActions(editor, start)) {
-    if (group !== null && action.group !== group) entries.push(SEPARATOR)
-    group = action.group
-    const entry = textEntry(action)
-    if (action.group !== 'header') entry.checked = undefined
-    if (action.group === 'table') {
-      entry.label = 'Slett tabell …'
-      entry.danger = true
-      entry.confirm = {
-        title: 'Slette tabellen?',
-        message: 'Hele tabellen og teksten i den fjernes. Du kan angre etterpå.',
-        confirmLabel: 'Slett tabellen',
-      }
-    }
-    entries.push(entry)
-  }
-  return entries
-}
-
-function inlineImageSection(editor: Editor, handlers: ContentMenuHandlers): MenuEntry[] {
-  const assetId: unknown = editor.getAttributes('slaidsImage').assetId
-  return [
-    {
-      kind: 'submenu',
-      id: 'image-width',
-      label: 'Størrelse',
-      icon: 'expand',
-      entries: imageWidthActions(editor).map((action) => ({ ...textEntry(action), icon: undefined })),
-    },
-    {
-      kind: 'action',
-      id: 'optimize-inline-image',
-      label: 'Optimaliser …',
-      icon: 'optimize',
-      disabled: typeof assetId !== 'string' || assetId === '',
-      onSelect: () => {
-        if (typeof assetId === 'string') handlers.optimizeAsset(assetId)
-      },
-    },
-    SEPARATOR,
-    {
-      kind: 'action',
-      id: 'remove-inline-image',
-      label: 'Fjern bildet …',
-      icon: 'trash',
-      danger: true,
-      confirm: {
-        title: 'Fjerne bildet?',
-        message: 'Bildet tas ut av teksten. Du kan angre etterpå.',
-        confirmLabel: 'Fjern bildet',
-      },
-      onSelect: () => editor.chain().focus().deleteSelection().run(),
-    },
-  ]
 }
 
 /* ------------------------------------------------------------------ *
@@ -531,9 +301,13 @@ export function contentModeMenu(
 ): ZoneMenu | null {
   if ('at' in target) {
     const { editor, field } = target.at
-    if (target.kind === 'table') return { title: 'Tabell', entries: tableSection(editor) }
-    if (target.kind === 'inline-image') return { title: 'Bilde i teksten', entries: inlineImageSection(editor, handlers) }
-    const text = textSection(target.at, input, handlers)
+    if (target.kind === 'table') return { title: 'Tabell', entries: tableEntries(editor) }
+    if (target.kind === 'inline-image') return { title: 'Bilde i teksten', entries: inlineImageEntries(editor, handlers) }
+    const text = textEntries(
+      target.at,
+      handlers,
+      field.kind === 'body' && field.subfieldId ? verticalEntries(input, field.subfieldId) : [],
+    )
     if (field.kind === 'slide-title') return { title: FIELD_TITLES[field.kind], entries: text }
     const content = findLeaf(input.slide.root, input.nodeId)?.content
     const panel = content ? imagePanelOf(content) : null

@@ -31,7 +31,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     items: [
       ['Ctrl + B / I / U', 'Fet / kursiv / understreket'],
       ['Ctrl + Shift + V', 'Lim inn som ren tekst'],
-      ['Shift + F10', 'Hurtigmeny for markeringen (høyreklikk gir nettleserens meny)'],
+      ['Shift + F10', 'Hurtigmeny for markeringen'],
       ['«mellomrom» - «mellomrom»', 'Blir til tankestrek (–)'],
       ['...', 'Blir til ellipse (…)'],
       ['«mellomrom» * «mellomrom»', 'Blir til punktseparator (·)'],

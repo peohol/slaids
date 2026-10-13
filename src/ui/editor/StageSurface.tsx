@@ -90,11 +90,11 @@ export interface StageSurfaceProps {
 /**
  * A right-press on text asks for a menu; it does not edit.
  *
- * On a field nobody is typing in, the focus stays where it is: the browser
- * would put the caret in that field first, and the menu would then open over a
- * field being typed in — which is where the browser's own menu belongs (see
- * `contentTarget.ts`). Asking for a menu on some text is not starting to type in
- * it; the menu's entries take the focus when they act.
+ * The browser would move the caret, or the focus, to the press — and lose the
+ * text marked before it, which is what the menu is about to format. Asking for
+ * a menu on some text is not starting to type in it; the menu puts the
+ * selection where it acts (see `contentTarget.ts`), and its entries take the
+ * focus when they act.
  *
  * And the editor never hears of the press: ProseMirror treats any press as a
  * click, and a click on a picture in the text selects it and takes the focus —
@@ -105,7 +105,7 @@ function secondaryPressInText(event: React.MouseEvent): void {
   const field = event.target.closest('[contenteditable="true"]')
   if (!field) return
   event.stopPropagation()
-  if (!field.contains(document.activeElement)) event.preventDefault()
+  event.preventDefault()
 }
 
 export function StageSurface({

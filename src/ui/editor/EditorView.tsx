@@ -96,7 +96,10 @@ import {
   contentTargetAt,
   contentTargetOfSelection,
   type ContentTarget,
+  type FieldTarget,
 } from './contextMenu/contentTarget'
+import { sectionMenu } from './contextMenu/sectionMenu'
+import type { TextMenuHandlers } from './contextMenu/textMenu'
 import { useActiveEditor } from '../../state/activeEditor'
 import { Modal } from '../components/Modal'
 import { SectionInspector } from './SectionInspector'
@@ -1182,10 +1185,26 @@ export function EditorView({
     [openContextMenu, zoneHandlers],
   )
 
+  /** What a menu about text opens: the dialogs the formatting toolbar opens. */
+  const textHandlers: TextMenuHandlers = useMemo(
+    () => ({
+      optimizeAsset: (assetId) => setOptimizeScope({ kind: 'asset', assetId }),
+      insertReference: () => setReferencesOpen(true),
+      copyText: (text) => {
+        void navigator.clipboard.writeText(text).then(
+          () => notify.info('Teksten ble kopiert.'),
+          () => notify.error('Teksten kunne ikke kopieres.'),
+        )
+      },
+    }),
+    [],
+  )
+
   /** What the content menu's entries open: the dialogs the toolbar and inspector open. */
   const contentHandlers: ContentMenuHandlers | null = useMemo(() => {
     if (!contentSlide || !zoneHandlers) return null
     return {
+      ...textHandlers,
       addContent: zoneHandlers.addContent,
       setContentKind: zoneHandlers.setContentKind,
       paste: zoneHandlers.paste,
@@ -1196,16 +1215,8 @@ export function EditorView({
         setImageOpen('zone')
       },
       optimizePanel: (nodeId) => setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId }),
-      optimizeAsset: (assetId) => setOptimizeScope({ kind: 'asset', assetId }),
-      insertReference: () => setReferencesOpen(true),
-      copyText: (text) => {
-        void navigator.clipboard.writeText(text).then(
-          () => notify.info('Teksten ble kopiert.'),
-          () => notify.error('Teksten kunne ikke kopieres.'),
-        )
-      },
     }
-  }, [contentSlide, zoneHandlers])
+  }, [contentSlide, textHandlers, zoneHandlers])
 
   /**
    * Open the content menu for something in one zone.
@@ -1242,8 +1253,8 @@ export function EditorView({
    *
    * Zone mode is about the zones, so a zone gets its menu wherever it was
    * pressed. Content mode is about what is in them, so the menu is about
-   * whatever the pointer is on — or the browser's own, in a field that is being
-   * typed in. Anything this does not answer is left to the browser.
+   * whatever the pointer is on. Anything this does not answer is left to the
+   * browser.
    */
   const handleStageMenu = useCallback(
     (hit: StageMenuHit, anchor: MenuAnchor): boolean => {
@@ -1251,10 +1262,39 @@ export function EditorView({
         if (hit.fieldId === TITLE_NODE_ID) return false
         return openZoneMenu(hit.fieldId, anchor)
       }
-      const target = contentTargetAt(hit.target, anchor, hit.fieldId)
-      return target ? openContentMenu(hit.fieldId, target, anchor) : false
+      return openContentMenu(hit.fieldId, contentTargetAt(hit.target, anchor, hit.fieldId), anchor)
     },
     [openContentMenu, openZoneMenu],
+  )
+
+  /** Open the menu for the section on screen, about one of its lines when `at` is one. */
+  const openSectionMenu = useCallback(
+    (at: FieldTarget | null, anchor: MenuAnchor, keyboard = false): boolean => {
+      const { presentation, currentSlideId } = useEditorStore.getState()
+      const section = presentation?.slides.find((each) => each.id === currentSlideId)
+      if (!presentation || section?.kind !== 'section') return false
+      const menu = sectionMenu(
+        {
+          section,
+          isFront: presentation.slides[0]?.id === section.id,
+          commit: (label, change) => useEditorStore.getState().run(label, change),
+        },
+        textHandlers,
+        at,
+      )
+      openContextMenu({ anchor, title: menu.title, entries: menu.entries, keyboard })
+      return true
+    },
+    [openContextMenu, textHandlers],
+  )
+
+  /** A right-click on a section page: on one of its lines, or beside them. */
+  const handleSectionMenu = useCallback(
+    (fieldId: string | null, target: Element | null, anchor: MenuAnchor): boolean => {
+      const found: ContentTarget = fieldId ? contentTargetAt(target, anchor, fieldId) : { kind: 'zone' }
+      return openSectionMenu('at' in found ? found.at : null, anchor)
+    },
+    [openSectionMenu],
   )
 
   const zoneActions: ZoneAction[] = useMemo(() => {
@@ -1352,15 +1392,17 @@ export function EditorView({
     const state = useEditorStore.getState()
     const { editor } = useActiveEditor.getState()
     const field = state.activeField
-    if (state.mode === 'content' && editor?.isFocused && field && state.currentContentSlide()) {
-      const { from } = editor.state.selection
-      const caret = editor.view.coordsAtPos(from)
-      return openContentMenu(
-        field.nodeId,
-        contentTargetOfSelection(editor, field),
-        { x: caret.left, y: caret.bottom },
-        true,
-      )
+    const typing = editor?.isFocused && field ? { editor, field } : null
+    const caret = typing ? typing.editor.view.coordsAtPos(typing.editor.state.selection.from) : null
+    const atCaret = caret ? { x: caret.left, y: caret.bottom } : null
+    const page = state.presentation?.slides.find((each) => each.id === state.currentSlideId)
+    if (page?.kind === 'section') {
+      const stageSlide = document.querySelector('[data-testid="stage-slide"]')
+      const anchor = atCaret ?? (stageSlide ? anchorInside(stageSlide) : null)
+      return anchor ? openSectionMenu(typing, anchor, true) : false
+    }
+    if (state.mode === 'content' && typing && atCaret && state.currentContentSlide()) {
+      return openContentMenu(typing.field.nodeId, contentTargetOfSelection(typing.editor, typing.field), atCaret, true)
     }
     const selected = state.selectedNodeId
     if (!selected) return false
@@ -1370,7 +1412,7 @@ export function EditorView({
     }
     const zone = document.querySelector(`.slide-zone[data-node-id="${CSS.escape(selected)}"]`)
     return zone ? openContentMenu(selected, { kind: 'zone' }, anchorInside(zone), true) : false
-  }, [openContentMenu, openZoneMenu])
+  }, [openContentMenu, openSectionMenu, openZoneMenu])
 
   /* -------------------------------------------------------------- *
    * Keyboard
@@ -1648,7 +1690,12 @@ export function EditorView({
       {...stageZoomProps}
     />
   ) : section ? (
-    <SectionStage section={section} {...stageFocusProps} {...stageZoomProps} />
+    <SectionStage
+      section={section}
+      {...stageFocusProps}
+      {...stageZoomProps}
+      onContextMenu={handleSectionMenu}
+    />
   ) : interactive ? (
     // Keyed by the slide, so moving between two interactive slides replaces
     // the surface — and closes whatever was running on it. The stage and the

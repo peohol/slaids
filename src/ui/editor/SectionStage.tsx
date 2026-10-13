@@ -46,6 +46,7 @@ import { StageSurface } from './StageSurface'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
 import type { StageZoom } from './stageView'
 import { RichTextEditor } from './RichTextEditor'
+import type { MenuAnchor } from '../components/contextMenu'
 
 const LINE_TEXT: Record<
   SectionLine,
@@ -73,6 +74,7 @@ export function SectionStage({
   onLongPressField,
   zoom,
   onZoomChange,
+  onContextMenu,
 }: {
   section: SectionSlide
   /**
@@ -93,6 +95,12 @@ export function SectionStage({
   /** The pinch, where the workspace offers one. See `StageSurface`. */
   zoom?: StageZoom
   onZoomChange?: (update: (current: StageZoom) => StageZoom) => void
+  /**
+   * A right-click on the page: the line it landed on, if any, and what was
+   * under the pointer. Returns whether a menu was opened; when it was not, the
+   * browser's own menu is left alone.
+   */
+  onContextMenu?: (fieldId: string | null, target: Element | null, anchor: MenuAnchor) => boolean
 }) {
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
   const run = useEditorStore((state) => state.run)
@@ -101,6 +109,26 @@ export function SectionStage({
   const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
     pillRefs.current[line] = element
   }, [])
+
+  /** The kind of pointer that last pressed the page — see `handleContextMenu`. */
+  const pointerTypeRef = useRef('mouse')
+
+  /**
+   * The menu for the page, about the line the pointer is on — the pill it is
+   * drawn in, not the half of the page a finger would be given. A finger's
+   * long press already opens a line, and the browser reports that same press as
+   * a context menu too; there the press keeps its meaning.
+   */
+  const handleContextMenu = (event: React.MouseEvent): void => {
+    if (!onContextMenu) return
+    if (onLongPressField && pointerTypeRef.current === 'touch') return
+    const target = event.target instanceof Element ? event.target : null
+    // The margin around the page is not the page: there the browser keeps its menu.
+    if (!target?.closest('.stage-slide')) return
+    const line = SECTION_LINES.find((each) => pillRefs.current[each]?.contains(target))
+    const fieldId = line ? LINE_TEXT[line].nodeId : null
+    if (onContextMenu(fieldId, target, { x: event.clientX, y: event.clientY })) event.preventDefault()
+  }
 
   /**
    * Which line one resting finger asked for.
@@ -128,6 +156,10 @@ export function SectionStage({
           ? (point) => onLongPressField(LINE_TEXT[lineUnder(point)].nodeId)
           : undefined
       }
+      onPointerDown={(event) => {
+        pointerTypeRef.current = event.pointerType
+      }}
+      onContextMenu={onContextMenu ? handleContextMenu : undefined}
     >
       {() => (
         <>

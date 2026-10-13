@@ -7,17 +7,15 @@
  * the DOM because that is where the answer is: which field the pointer is in is
  * a question about the rendered text, which no rectangle in the layout knows.
  *
- * One rule decides when the browser keeps its own menu: inside a text field the
- * author is typing in, a right-click is about the text — a misspelt word, a
- * paste — and the browser's menu is the one that knows about those. Everywhere
- * else the menu is the app's. A picture in the text and a block of selected
- * cells are not words, so they get the app's menu even there.
+ * The menu is always the app's, in a field being typed in as much as anywhere:
+ * text marked first and then right-clicked is what the formatting in the menu
+ * is for.
  */
 
 import type { Editor } from '@tiptap/react'
 import { CellSelection, cellAround } from '@tiptap/pm/tables'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
-import { TITLE_NODE_ID } from '../../../domain/geometry'
+import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID, TITLE_NODE_ID } from '../../../domain/geometry'
 import { IMAGE_NODE } from '../../../domain/richdoc'
 import type { ActiveField } from '../../../state/store'
 
@@ -45,8 +43,11 @@ function editorOf(root: Element): Editor | null {
   return editor && !editor.isDestroyed ? editor : null
 }
 
-/** Which field of the zone a node inside it belongs to. */
+/** Which field of the zone — or of the section page — a node inside it belongs to. */
 function fieldAt(element: Element, nodeId: string): ActiveField | null {
+  // A section's two lines are the page's only fields, and named by the page.
+  if (nodeId === SECTION_TITLE_NODE_ID) return { nodeId, subfieldId: null, kind: 'section-title' }
+  if (nodeId === SECTION_SUBTITLE_NODE_ID) return { nodeId, subfieldId: null, kind: 'section-subtitle' }
   if (element.closest('.slide-title')) return { nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' }
   if (element.closest('.image-caption')) return { nodeId, subfieldId: null, kind: 'caption' }
   if (element.closest('.card-header')) return { nodeId, subfieldId: null, kind: 'card-title' }
@@ -59,9 +60,11 @@ function fieldAt(element: Element, nodeId: string): ActiveField | null {
  *
  * The menu's entries act on the selection when they run, and they should act
  * on what was right-clicked. The focus stays where it was until an entry is
- * chosen — opening a menu is not starting to type. A selection that already
- * covers the point is left alone, so text marked first and then right-clicked
- * is still the text the menu acts on.
+ * chosen — opening a menu is not starting to type. A marking that covers the
+ * point is left alone, so text marked first and then right-clicked is still the
+ * text the menu acts on — but only in the field being typed in, the one place a
+ * marking shows: one left behind in a field the author has since left is not
+ * what they are pointing at.
  */
 function selectAt(editor: Editor, point: { x: number; y: number }, image: Element | null): void {
   const { view } = editor
@@ -81,7 +84,7 @@ function selectAt(editor: Editor, point: { x: number; y: number }, image: Elemen
   const found = view.posAtCoords({ left: point.x, top: point.y })
   if (!found) return
   const { from, to, empty } = editor.state.selection
-  if (!empty && found.pos >= from && found.pos <= to) return
+  if (editor.isFocused && !empty && found.pos >= from && found.pos <= to) return
   view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, found.pos)))
 }
 
@@ -103,17 +106,12 @@ function selectCellAt(editor: Editor, cell: Element): void {
   if (!inside) view.dispatch(state.tr.setSelection(CellSelection.create(state.doc, $cell.pos)))
 }
 
-/**
- * The target of a right-click at `point` on `element`, in the zone `nodeId`.
- *
- * `null` means the browser's own menu: the pointer is in the words of a field
- * that is being typed in.
- */
+/** The target of a right-click at `point` on `element`, in the zone `nodeId`. */
 export function contentTargetAt(
   element: Element | null,
   point: { x: number; y: number },
   nodeId: string,
-): ContentTarget | null {
+): ContentTarget {
   if (!element) return { kind: 'zone' }
   const root = element.closest(EDITOR_SELECTOR)
   const editor = root ? editorOf(root) : null
@@ -135,8 +133,6 @@ export function contentTargetAt(
     selectCellAt(editor, cell)
     return { kind: 'table', at }
   }
-  if (editor.isFocused) return null
-
   selectAt(editor, point, null)
   return { kind: cell ? 'table' : 'text', at }
 }
