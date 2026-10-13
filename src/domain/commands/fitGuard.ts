@@ -51,7 +51,8 @@
  *    when `setSlideTitle` edits it out of the text, and one way of dropping a
  *    citation must not be the way around the other —
  *    `setSectionTitle`, `setSectionSubtitle`,
- *    `updateSplit` / `setSplitWeights`,
+ *    `updateSplit` / `setSplitWeights`, `duplicateLayoutNode` (its siblings
+ *    give up room, and the copy adds citation occurrences),
  *    and — because they change first-occurrence order — `addSlide`,
  *    `moveSlide`, `setZoneContent`, `moveZoneContent`, `copyZoneContent` and
  *    `placeSandboxItem`. `copyZoneContent` belongs here and not with

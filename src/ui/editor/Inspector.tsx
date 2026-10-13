@@ -135,7 +135,7 @@ export function Inspector({
               type="button"
               className="btn btn--sm"
               disabled={action.disabled}
-              onClick={action.onSelect}
+              onClick={(event) => action.onSelect(event.currentTarget)}
               data-testid={`inspector-action-${action.id}`}
             >
               <Icon name={action.icon} size={14} /> {action.label}

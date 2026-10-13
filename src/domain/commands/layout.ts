@@ -10,10 +10,12 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../constants'
 import { areWeightsValid, previewSplit } from '../geometry'
 import {
   cloneContentWithNewIds,
+  cloneSubtreeWithNewIds,
   collectContent,
   createLeaf,
   findLeaf,
   findNode,
+  findParent,
   findSplit,
   normalizeTree,
   removeNode,
@@ -340,6 +342,82 @@ export function clearLayoutNode(
       disposed.discarded,
     ),
   )
+}
+
+/* ------------------------------------------------------------------ *
+ * duplicate
+ * ------------------------------------------------------------------ */
+
+export interface DuplicateNodeInput extends StructuralOptions {
+  slideId: string
+  nodeId: NodeId
+}
+
+/**
+ * Put a copy of a zone right after it, in the split it belongs to.
+ *
+ * The copy is the whole subtree — its splits, its ratios and its content — with
+ * every id renewed by `cloneSubtreeWithNewIds`, the same deep copy a template
+ * slide is made from. Sharing a node, content or subfield id between the two
+ * would be a corrupt document, not a convenience. The copy takes the original's
+ * own ratio, so the two are the same size and the siblings give up the room.
+ *
+ * Measured like every other change that takes room from content: the new
+ * sibling must be large enough for what it holds (`previewSplit`), and the
+ * siblings that shrink — and the copy itself, which has no earlier state to be
+ * compared with — may not end up hiding anything (`guardFit`). Copied citations
+ * add occurrences, so the guard runs across the deck, not just this slide.
+ *
+ * The root has no split to sit in, so it has nothing to be duplicated beside:
+ * splitting it is the way to get two of it.
+ */
+export function duplicateLayoutNode(
+  presentation: Presentation,
+  input: DuplicateNodeInput,
+): Result<StructuralOutcome> {
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
+  const node = findNode(slide.root, input.nodeId)
+  if (!node) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+  const parent = findParent(slide.root, input.nodeId)
+  if (!parent) {
+    return err('INVALID_ARGUMENT', 'Hovedsonen kan ikke dupliseres. Del den i stedet.', {
+      slideId: input.slideId,
+      nodeId: input.nodeId,
+    })
+  }
+  const countCheck = validateChildCount(parent.children.length + 1)
+  if (!countCheck.ok) return countCheck
+
+  const index = parent.children.findIndex((child) => child.id === node.id)
+  const children = [...parent.children]
+  children.splice(index + 1, 0, cloneSubtreeWithNewIds(node))
+  const weights = [...parent.weights]
+  weights.splice(index + 1, 0, parent.weights[index])
+
+  const geometry = geometryFor(presentation, input.geometry)
+  const area = rectForNode(slide, parent.id, geometry)
+  if (!area) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+  const preview = previewSplit(area, parent.axis, weights, geometry, children)
+  if (!preview.valid) {
+    return err('ZONE_TOO_SMALL', 'Det er ikke plass til en kopi av sonen her.', {
+      slideId: input.slideId,
+      nodeId: input.nodeId,
+      tooSmall: preview.tooSmall,
+    })
+  }
+
+  const root = replaceNode(slide.root, parent.id, { ...parent, weights, children })
+  const next = touch(withSlide(presentation, { ...slide, root }))
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Det er ikke plass til en kopi av sonen uten at innhold skjules.',
+  )
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value))
 }
 
 /* ------------------------------------------------------------------ *
