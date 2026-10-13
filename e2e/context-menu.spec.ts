@@ -229,6 +229,33 @@ test.describe('context menu in content mode', () => {
     await expect(stage(page).locator('.subfield table')).toHaveCount(0)
   })
 
+  test('acts on the cell right-clicked, not on cells marked elsewhere', async ({ page }) => {
+    await createPresentation(page, 'Tabellmeny')
+    await writeInContainer(page, 'Tabell')
+    await leaveField(page)
+    await bodyField(page).click({ button: 'right' })
+    await page.getByTestId('menu-insert').click()
+    await page.getByTestId('menu-table').click()
+    const rows = stage(page).locator('.subfield tr')
+    await expect(rows).toHaveCount(3)
+
+    const last = rows.last().locator('td').first()
+    await last.click()
+    await page.keyboard.type('Siste')
+    // Mark the cells of the middle row, then right-click the last row.
+    const middle = rows.nth(1).locator('td')
+    await middle.first().hover()
+    await page.mouse.down()
+    await middle.last().hover()
+    await page.mouse.up()
+    await expect(stage(page).locator('.subfield .selectedCell')).toHaveCount(await middle.count())
+
+    await last.click({ button: 'right' })
+    await page.getByTestId('menu-del-row').click()
+    await expect(rows).toHaveCount(2)
+    await expect(stage(page).locator('.subfield table')).not.toContainText('Siste')
+  })
+
   test('offers a picture, its crop and its caption their own menus', async ({ page }) => {
     await createPresentation(page, 'Bildemeny')
     const [zone] = await zoneRects(page)
