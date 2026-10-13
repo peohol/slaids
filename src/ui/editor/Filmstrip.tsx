@@ -5,7 +5,7 @@
  * thumbnail can never misrepresent the slide.
  */
 
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import {
   SortableContext,
   rectSortingStrategy,
@@ -108,13 +108,18 @@ export function centredScrollTop(geometry: ScrollGeometry): number {
  * be scrolled by hand to look at the rest of the deck. The first placement, and
  * any placement after the thumbnails are resized, is instant: there is nothing
  * to follow, only a place to be.
+ *
+ * A page that moves while it is the shown one keeps its id, so the call that
+ * moved it asks to be followed with the returned function. Only that call does:
+ * a slide dragged past the shown one moves it too, but nobody asked to look.
  */
 function useCentredActivePage(
   listRef: React.RefObject<HTMLDivElement | null>,
   activePageId: string | null,
   layout: StripLayout,
-): void {
-  const followed = useRef<string | null>(null)
+): () => void {
+  const [request, setRequest] = useState(0)
+  const followed = useRef<{ pageId: string; request: number } | null>(null)
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list || activePageId === null) return
@@ -131,11 +136,14 @@ function useCentredActivePage(
       itemTop: itemBox.top - listBox.top - list.clientTop,
       itemHeight: itemBox.height,
     })
-    const moved = followed.current !== null && followed.current !== activePageId
-    followed.current = activePageId
+    const previous = followed.current
+    const moved =
+      previous !== null && (previous.pageId !== activePageId || previous.request !== request)
+    followed.current = { pageId: activePageId, request }
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     list.scrollTo({ top, behavior: moved && !still ? 'smooth' : 'instant' })
-  }, [listRef, activePageId, layout.columns, layout.width])
+  }, [listRef, activePageId, request, layout.columns, layout.width])
+  return () => setRequest((count) => count + 1)
 }
 
 /**
@@ -389,7 +397,7 @@ export function Filmstrip({
   const box = useContainerBox(listRef)
   const layout = overview ? stripLayout(box) : { columns: 1, width: THUMB_WIDTH }
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
-  useCentredActivePage(listRef, viewingDerivedId ?? currentSlideId, layout)
+  const followActivePage = useCentredActivePage(listRef, viewingDerivedId ?? currentSlideId, layout)
   const selectSlide = useEditorStore((state) => state.selectSlide)
   const selectAuthored = (slideId: string): void => {
     onSelectAuthored()
@@ -408,8 +416,9 @@ export function Filmstrip({
    * drag commits, fit-validated for the same reason: moving a slide renumbers
    * citations, which can widen a label on a slide nobody touched.
    *
-   * The moved slide is selected afterwards, so the strip scrolls to where the
-   * page went instead of leaving the user looking at whatever took its place.
+   * The moved slide is selected and followed afterwards, so the strip scrolls
+   * to where the page went instead of leaving the user looking at whatever
+   * took its place.
    */
   const move = (slideId: string, index: number, delta: number): void => {
     const target = index + delta
@@ -418,6 +427,7 @@ export function Filmstrip({
       return
     }
     selectAuthored(slideId)
+    followActivePage()
   }
 
   return (

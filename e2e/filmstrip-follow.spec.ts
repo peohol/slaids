@@ -67,6 +67,14 @@ test('the filmstrip keeps the shown slide in its middle without fighting a manua
   await expect(page.getByTestId('statusbar')).toContainText('Slide 5 av 10')
   await expectCentred(page)
 
+  // Moving the shown slide keeps following it as it goes.
+  const moveDown = page.locator('.filmstrip__item--active').getByTestId('move-slide-down')
+  for (let i = 0; i < 3; i += 1) {
+    await moveDown.click()
+    await expect(page.getByTestId('statusbar')).toContainText(`Slide ${6 + i} av 10`)
+  }
+  await expectCentred(page)
+
   // At the top of the deck the strip stops at its start.
   await page.getByTestId('filmstrip-thumb').first().click()
   await expect(page.getByTestId('statusbar')).toContainText('Forside 1 av 10')
