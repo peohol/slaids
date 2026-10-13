@@ -5,7 +5,7 @@
  * thumbnail can never misrepresent the slide.
  */
 
-import { useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import {
   SortableContext,
   rectSortingStrategy,
@@ -73,6 +73,77 @@ export function stripLayout(box: ContainerBox): StripLayout {
   let columns = 1
   while (perColumn(columns) > widest && perColumn(columns + 1) >= THUMB_WIDTH) columns += 1
   return { columns, width: perColumn(columns) }
+}
+
+/** Where a scroll box and one of its entries currently are, in CSS pixels. */
+export interface ScrollGeometry {
+  /** The box's current `scrollTop`. */
+  scrollTop: number
+  /** How much of the content the box shows at once (`clientHeight`). */
+  viewHeight: number
+  /** The whole content's height (`scrollHeight`). */
+  contentHeight: number
+  /** The entry's top, measured from the top of the box's visible area. */
+  itemTop: number
+  itemHeight: number
+}
+
+/**
+ * The `scrollTop` that puts an entry in the middle of its scroll box — or as
+ * near the middle as the box can get, when the entry is so close to either end
+ * that centring it would mean scrolling past the content.
+ */
+export function centredScrollTop(geometry: ScrollGeometry): number {
+  const { scrollTop, viewHeight, contentHeight, itemTop, itemHeight } = geometry
+  const target = scrollTop + itemTop + itemHeight / 2 - viewHeight / 2
+  return Math.min(Math.max(0, target), Math.max(0, contentHeight - viewHeight))
+}
+
+/**
+ * Keeps the page being shown in the middle of the strip.
+ *
+ * It follows the page, not the scroll: it moves the list when a different page
+ * becomes the shown one — however that happened, a click, an arrow key, the
+ * wheel over the stage — and leaves it alone otherwise, so the strip can still
+ * be scrolled by hand to look at the rest of the deck. The first placement, and
+ * any placement after the thumbnails are resized, is instant: there is nothing
+ * to follow, only a place to be.
+ *
+ * A page that moves while it is the shown one keeps its id, so the call that
+ * moved it asks to be followed with the returned function. Only that call does:
+ * a slide dragged past the shown one moves it too, but nobody asked to look.
+ */
+function useCentredActivePage(
+  listRef: React.RefObject<HTMLDivElement | null>,
+  activePageId: string | null,
+  layout: StripLayout,
+): () => void {
+  const [request, setRequest] = useState(0)
+  const followed = useRef<{ pageId: string; request: number } | null>(null)
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list || activePageId === null) return
+    const item = Array.from(list.querySelectorAll<HTMLElement>('[data-page-id]')).find(
+      (element) => element.dataset.pageId === activePageId,
+    )
+    if (!item) return
+    const listBox = list.getBoundingClientRect()
+    const itemBox = item.getBoundingClientRect()
+    const top = centredScrollTop({
+      scrollTop: list.scrollTop,
+      viewHeight: list.clientHeight,
+      contentHeight: list.scrollHeight,
+      itemTop: itemBox.top - listBox.top - list.clientTop,
+      itemHeight: itemBox.height,
+    })
+    const previous = followed.current
+    const moved =
+      previous !== null && (previous.pageId !== activePageId || previous.request !== request)
+    followed.current = { pageId: activePageId, request }
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    list.scrollTo({ top, behavior: moved && !still ? 'smooth' : 'instant' })
+  }, [listRef, activePageId, request, layout.columns, layout.width])
+  return () => setRequest((count) => count + 1)
 }
 
 /**
@@ -174,6 +245,7 @@ function SlideThumb({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
       data-testid="filmstrip-item"
       data-slide-id={slide.id}
+      data-page-id={slide.id}
     >
       {/*
         The click is the handle's, not only the button's, so the number row
@@ -325,6 +397,7 @@ export function Filmstrip({
   const box = useContainerBox(listRef)
   const layout = overview ? stripLayout(box) : { columns: 1, width: THUMB_WIDTH }
   const currentSlideId = useEditorStore((state) => state.currentSlideId)
+  const followActivePage = useCentredActivePage(listRef, viewingDerivedId ?? currentSlideId, layout)
   const selectSlide = useEditorStore((state) => state.selectSlide)
   const selectAuthored = (slideId: string): void => {
     onSelectAuthored()
@@ -343,8 +416,9 @@ export function Filmstrip({
    * drag commits, fit-validated for the same reason: moving a slide renumbers
    * citations, which can widen a label on a slide nobody touched.
    *
-   * The moved slide is selected afterwards, so the strip scrolls to where the
-   * page went instead of leaving the user looking at whatever took its place.
+   * The moved slide is selected and followed afterwards, so the strip scrolls
+   * to where the page went instead of leaving the user looking at whatever
+   * took its place.
    */
   const move = (slideId: string, index: number, delta: number): void => {
     const target = index + delta
@@ -353,6 +427,7 @@ export function Filmstrip({
       return
     }
     selectAuthored(slideId)
+    followActivePage()
   }
 
   return (
@@ -407,6 +482,7 @@ export function Filmstrip({
                   : 'filmstrip__item filmstrip__item--derived'
               }
               data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
+              data-page-id={page.id}
             >
               <div className="filmstrip__index">
                 <span>{presentation.slides.length + index + 1}</span>

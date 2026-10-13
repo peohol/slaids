@@ -1432,6 +1432,9 @@ test.describe('kompakt arbeidsflate', () => {
     await createPresentation(page, 'Dra i gridet')
     await addSlides(page, 3)
     await openPanel(page, 'slides')
+    // The overview opens with the shown (last) slide in its middle; this test is
+    // about the first entries, so it scrolls back to them by hand first.
+    await page.getByTestId('filmstrip-list').evaluate((element) => element.scrollTo({ top: 0 }))
 
     const list = (await page.getByTestId('filmstrip-list').boundingBox())!
     const thumb = (await page.getByTestId('filmstrip-thumb').first().boundingBox())!
