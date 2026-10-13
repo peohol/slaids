@@ -160,7 +160,9 @@ export function CompactEditorShell(props: EditorShellProps) {
                 onClick={(event) => {
                   if (panel !== 'slides') return
                   const target = event.target instanceof Element ? event.target : null
-                  if (target?.closest('.filmstrip__thumb')) openPanel(null)
+                  // An authored slide navigates from its whole handle (the
+                  // number row too); a generated page from its thumbnail.
+                  if (target?.closest('.filmstrip__handle, .filmstrip__thumb')) openPanel(null)
                 }}
               >
                 {panel === 'slides' && props.filmstrip}
