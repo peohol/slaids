@@ -110,15 +110,6 @@ export function SectionStage({
     pillRefs.current[line] = element
   }, [])
 
-  /**
-   * Which line one resting finger asked for.
-   *
-   * Split at the midpoint between the two pills rather than tested against the
-   * lines themselves: a pill is a few dozen slide units tall and a fingertip is
-   * wider than that on the page, so testing the rects would leave most of the
-   * screen answering nothing at all. Above the seam is the heading, below it the
-   * subheading, and there is nowhere on the page that is neither.
-   */
   /** The kind of pointer that last pressed the page — see `handleContextMenu`. */
   const pointerTypeRef = useRef('mouse')
 
@@ -132,11 +123,22 @@ export function SectionStage({
     if (!onContextMenu) return
     if (onLongPressField && pointerTypeRef.current === 'touch') return
     const target = event.target instanceof Element ? event.target : null
-    const line = SECTION_LINES.find((each) => target && pillRefs.current[each]?.contains(target))
+    // The margin around the page is not the page: there the browser keeps its menu.
+    if (!target?.closest('.stage-slide')) return
+    const line = SECTION_LINES.find((each) => pillRefs.current[each]?.contains(target))
     const fieldId = line ? LINE_TEXT[line].nodeId : null
     if (onContextMenu(fieldId, target, { x: event.clientX, y: event.clientY })) event.preventDefault()
   }
 
+  /**
+   * Which line one resting finger asked for.
+   *
+   * Split at the midpoint between the two pills rather than tested against the
+   * lines themselves: a pill is a few dozen slide units tall and a fingertip is
+   * wider than that on the page, so testing the rects would leave most of the
+   * screen answering nothing at all. Above the seam is the heading, below it the
+   * subheading, and there is nowhere on the page that is neither.
+   */
   const lineUnder = (point: { x: number; y: number }): SectionLine => {
     const geometry = computeSectionGeometry(sectionGeometryForTheme(theme))
     const seam = (geometry.titleRect.y + geometry.titleRect.height + geometry.subtitleRect.y) / 2

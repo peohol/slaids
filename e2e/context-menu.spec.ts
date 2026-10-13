@@ -366,6 +366,19 @@ test.describe('context menu on a section page', () => {
     await page.getByTestId('menu-section-background').click()
     await page.getByTestId('menu-section-background-content').locator('[data-color="#4d4d80"]').click()
     await expect.poll(background).toBe('rgb(77, 77, 128)')
+    await page.keyboard.press('Escape')
+
+    // The margin around the page is not the page: no menu of ours there.
+    const viewport = await page.locator('.stage-viewport', { has: stage(page) }).boundingBox()
+    if (!viewport) throw new Error('the stage has no viewport')
+    const margin =
+      box.x - viewport.x > box.y - viewport.y
+        ? { x: viewport.x + (box.x - viewport.x) / 2, y: box.y + box.height / 2 }
+        : { x: box.x + box.width / 2, y: viewport.y + (box.y - viewport.y) / 2 }
+    expect(Math.max(box.x - viewport.x, box.y - viewport.y)).toBeGreaterThan(4)
+    await page.mouse.click(margin.x, margin.y, { button: 'right' })
+    await page.waitForTimeout(200)
+    await expect(menu(page)).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
 })
