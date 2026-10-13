@@ -312,3 +312,33 @@ test.describe('context menu in content mode', () => {
     await expect.poll(() => header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(before)
   })
 })
+
+test.describe('context menu on a section page', () => {
+  test('offers a line its text and the page its two colours', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Seksjonsmeny')
+    await page.getByTestId('filmstrip-item').first().getByTestId('filmstrip-thumb').click()
+    const title = stage(page).locator('[data-section-line="title"] .ProseMirror')
+    await expect(title).toBeVisible()
+
+    await title.click({ button: 'right' })
+    await expect(menu(page)).toContainText('Overskrift')
+    // A section's lines are always centred: there is no alignment to offer.
+    await expect(page.getByTestId('menu-alignment')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    const background = () =>
+      page.evaluate(() => {
+        const slide = document.querySelector('[data-testid="stage-slide"] .slide') as HTMLElement
+        return getComputedStyle(slide).backgroundColor
+      })
+    const box = await stage(page).boundingBox()
+    if (!box) throw new Error('the stage has no box')
+    await page.mouse.click(box.x + 24, box.y + 24, { button: 'right' })
+    await expect(menu(page)).toContainText('Forside')
+    await page.getByTestId('menu-section-background').click()
+    await page.getByTestId('menu-section-background-content').locator('[data-color="#4d4d80"]').click()
+    await expect.poll(background).toBe('rgb(77, 77, 128)')
+    expect(guard.errors).toEqual([])
+  })
+})

@@ -17,7 +17,7 @@
 import type { Editor } from '@tiptap/react'
 import { CellSelection } from '@tiptap/pm/tables'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
-import { TITLE_NODE_ID } from '../../../domain/geometry'
+import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID, TITLE_NODE_ID } from '../../../domain/geometry'
 import { IMAGE_NODE } from '../../../domain/richdoc'
 import type { ActiveField } from '../../../state/store'
 
@@ -45,8 +45,11 @@ function editorOf(root: Element): Editor | null {
   return editor && !editor.isDestroyed ? editor : null
 }
 
-/** Which field of the zone a node inside it belongs to. */
+/** Which field of the zone — or of the section page — a node inside it belongs to. */
 function fieldAt(element: Element, nodeId: string): ActiveField | null {
+  // A section's two lines are the page's only fields, and named by the page.
+  if (nodeId === SECTION_TITLE_NODE_ID) return { nodeId, subfieldId: null, kind: 'section-title' }
+  if (nodeId === SECTION_SUBTITLE_NODE_ID) return { nodeId, subfieldId: null, kind: 'section-subtitle' }
   if (element.closest('.slide-title')) return { nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' }
   if (element.closest('.image-caption')) return { nodeId, subfieldId: null, kind: 'caption' }
   if (element.closest('.card-header')) return { nodeId, subfieldId: null, kind: 'card-title' }

@@ -187,7 +187,9 @@ const ALIGNMENT_ACTIONS: readonly [Alignment, string, IconName][] = [
   ['right', 'Høyrestill', 'align-right'],
 ]
 
+/** Where a line sits across its field — none at all in a field that is always centred, like a section's. */
 export function alignActions(editor: Editor, start: ChainStart = focusChain(editor)): TextAction[] {
+  if (!('setTextAlign' in editor.commands)) return []
   return ALIGNMENT_ACTIONS.map(([value, label, icon]) =>
     action(editor, start, {
       id: `align-${value}`,
