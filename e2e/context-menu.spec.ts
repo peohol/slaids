@@ -3,19 +3,22 @@
  *
  * What a menu offers is unit-tested against the domain commands it asks; what
  * is checked here is what only a browser can say: that the menu is about the
- * zone under the pointer, that choosing from it changes the slide and never
- * the mode, that the keyboard reaches it, and that it stays on screen.
+ * thing under the pointer, that choosing from it changes the slide and never
+ * the mode, that the keyboard reaches it, that it stays on screen — and that a
+ * field being typed in keeps the browser's own menu, for its spelling.
  */
 
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import {
   G,
+  addContentToZone,
   clickZone,
   createPresentation,
   enterZoneMode,
   slidePoint,
   splitSelected,
+  stage,
   watchForErrors,
   zoneRects,
   type ZoneRect,
@@ -155,5 +158,201 @@ test.describe('context menu in zone mode', () => {
     expect(box.y).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+  })
+})
+
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200"><rect width="800" height="200" fill="#4070d0"/></svg>`
+
+/** The first body field on the stage. */
+const bodyField = (page: Page) => stage(page).locator('.subfield .ProseMirror').first()
+
+/** Put the focus somewhere that is not the field under test: the slide title. */
+async function leaveField(page: Page): Promise<void> {
+  await stage(page).getByTestId('slide-title').locator('.ProseMirror').click()
+}
+
+async function writeInContainer(page: Page, text: string): Promise<void> {
+  const [zone] = await zoneRects(page)
+  await addContentToZone(page, zone.id, 'container')
+  await bodyField(page).click()
+  await page.keyboard.type(text)
+}
+
+test.describe('context menu in content mode', () => {
+  test('keeps the browser’s menu in a field being typed in, and offers its own elsewhere', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Tekstmeny')
+    await writeInContainer(page, 'Første punkt')
+
+    await bodyField(page).click({ button: 'right' })
+    await page.waitForTimeout(200)
+    await expect(menu(page)).toHaveCount(0)
+
+    await leaveField(page)
+    await bodyField(page).click({ button: 'right' })
+    await expect(menu(page)).toContainText('Tekst')
+    // Opening a menu on some text is not starting to type in it.
+    await expect(bodyField(page)).not.toBeFocused()
+    await expect(page.getByTestId('menu-formatting')).toHaveAttribute('data-disabled', '')
+
+    await page.getByTestId('menu-paragraph').click()
+    await page.getByTestId('menu-bullet').click()
+    await expect(stage(page).locator('.subfield ul li')).toHaveText('Første punkt')
+    await expect(page.getByTestId('mode-content')).toHaveClass(/btn--active/)
+    expect(guard.errors).toEqual([])
+  })
+
+  test('formats the selection from the keyboard', async ({ page }) => {
+    await createPresentation(page, 'Tekstmeny')
+    await writeInContainer(page, 'Fet tekst')
+    await page.keyboard.press('Shift+Home')
+    // The editor takes the browser's selection on its next turn; ask once it has.
+    await bodyField(page).evaluate((element) =>
+      new Promise<void>((resolve) => {
+        const editor = (element as HTMLElement & { editor: { state: { selection: { empty: boolean } } } }).editor
+        const check = () => (editor.state.selection.empty ? requestAnimationFrame(check) : resolve())
+        check()
+      }),
+    )
+
+    await page.keyboard.press('Shift+F10')
+    await expect(page.getByTestId('menu-formatting')).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('menu-bold')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(stage(page).locator('.subfield strong')).toHaveText('Fet tekst')
+  })
+
+  test('edits a table from a cell, and asks before deleting it', async ({ page }) => {
+    await createPresentation(page, 'Tabellmeny')
+    await writeInContainer(page, 'Tabell')
+    await leaveField(page)
+    await bodyField(page).click({ button: 'right' })
+    await page.getByTestId('menu-insert').click()
+    await page.getByTestId('menu-table').click()
+    const rows = stage(page).locator('.subfield tr')
+    await expect(rows).toHaveCount(3)
+
+    await leaveField(page)
+    await stage(page).locator('.subfield td').first().click({ button: 'right' })
+    await expect(menu(page)).toContainText('Tabell')
+    await page.getByTestId('menu-add-row').click()
+    await expect(rows).toHaveCount(4)
+
+    await leaveField(page)
+    await stage(page).locator('.subfield td').first().click({ button: 'right' })
+    await page.getByTestId('menu-del-table').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(stage(page).locator('.subfield table')).toHaveCount(0)
+  })
+
+  test('acts on the cell right-clicked, not on cells marked elsewhere', async ({ page }) => {
+    await createPresentation(page, 'Tabellmeny')
+    await writeInContainer(page, 'Tabell')
+    await leaveField(page)
+    await bodyField(page).click({ button: 'right' })
+    await page.getByTestId('menu-insert').click()
+    await page.getByTestId('menu-table').click()
+    const rows = stage(page).locator('.subfield tr')
+    await expect(rows).toHaveCount(3)
+
+    const last = rows.last().locator('td').first()
+    await last.click()
+    await page.keyboard.type('Siste')
+    // Mark the cells of the middle row, then right-click the last row.
+    const middle = rows.nth(1).locator('td')
+    await middle.first().hover()
+    await page.mouse.down()
+    await middle.last().hover()
+    await page.mouse.up()
+    await expect(stage(page).locator('.subfield .selectedCell')).toHaveCount(await middle.count())
+
+    await last.click({ button: 'right' })
+    await page.getByTestId('menu-del-row').click()
+    await expect(rows).toHaveCount(2)
+    await expect(stage(page).locator('.subfield table')).not.toContainText('Siste')
+  })
+
+  test('offers a picture, its crop and its caption their own menus', async ({ page }) => {
+    await createPresentation(page, 'Bildemeny')
+    const [zone] = await zoneRects(page)
+    await page.getByTestId('empty-zone-image').click()
+    await page.getByTestId('image-modal').getByRole('button', { name: 'Avbryt' }).click()
+
+    // An empty picture asks for a file from the menu, not from the right-press.
+    const picture = stage(page).locator('.image-panel')
+    await picture.click({ button: 'right' })
+    await expect(page.getByTestId('image-modal')).toHaveCount(0)
+    await expect(menu(page)).toContainText('Tomt bilde')
+    await page.getByTestId('menu-pick-image').click()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'bånd.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+
+    await picture.click({ button: 'right' })
+    await expect(page.getByTestId('menu-reset-crop')).toHaveAttribute('data-disabled', '')
+    await page.getByTestId('menu-caption').click()
+    await page.getByTestId('menu-caption-bottom').click()
+    await expect(stage(page).locator('.image-caption .tiptap')).toBeFocused()
+    await page.keyboard.type('En bildetekst')
+
+    await leaveField(page)
+    await stage(page).locator('.image-caption').click({ button: 'right' })
+    await expect(menu(page)).toContainText('Bildetekst')
+    await page.getByTestId('menu-caption-remove').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(stage(page).locator(`.slide-zone[data-node-id="${zone.id}"] .image-caption`)).toHaveCount(0)
+  })
+
+  test('sizes and removes a picture in the text', async ({ page }) => {
+    await createPresentation(page, 'Bilde i tekst')
+    const [zone] = await zoneRects(page)
+    await addContentToZone(page, zone.id, 'untitled-card')
+    await bodyField(page).click()
+    await page.getByTestId('open-image').click()
+    await page.getByTestId('image-input').setInputFiles({
+      name: 'bilde.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(SVG),
+    })
+    const picture = stage(page).locator('.rd-image-wrapper')
+    await expect(picture).toBeVisible()
+    const share = () =>
+      picture.evaluate((element) => element.getBoundingClientRect().width / (element.parentElement as HTMLElement).getBoundingClientRect().width)
+
+    // A picture is not words: it gets the app's menu even in the field being typed in.
+    await picture.click({ button: 'right' })
+    await expect(menu(page)).toContainText('Bilde i teksten')
+    await page.getByTestId('menu-image-width').click()
+    await page.getByTestId('image-width-25').click()
+    await expect.poll(share).toBeCloseTo(0.25, 1)
+
+    await picture.click({ button: 'right' })
+    await page.getByTestId('menu-remove-inline-image').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(picture).toHaveCount(0)
+  })
+
+  test('puts colours picked by hand back to the section’s', async ({ page }) => {
+    await createPresentation(page, 'Fargemeny')
+    const [zone] = await zoneRects(page)
+    await addContentToZone(page, zone.id, 'titled-card')
+    const header = stage(page).locator('.card-header')
+    const before = await header.evaluate((element) => getComputedStyle(element).backgroundColor)
+
+    await leaveField(page)
+    await header.click({ button: 'right' })
+    await expect(page.getByTestId('menu-reset-colors')).toHaveAttribute('data-disabled', '')
+    await page.getByTestId('menu-card-color').click()
+    await page.getByTestId('menu-card-color-content').locator('[data-color]').first().click()
+    await expect.poll(() => header.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(before)
+
+    await leaveField(page)
+    await header.click({ button: 'right' })
+    await page.getByTestId('menu-reset-colors').click()
+    await expect.poll(() => header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(before)
   })
 })

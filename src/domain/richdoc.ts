@@ -151,6 +151,39 @@ export function walkRichNodes(doc: RichDoc, visit: (node: RichNode) => void): vo
   if (doc.content) for (const child of doc.content) go(child)
 }
 
+/**
+ * The document with each node passed through `change`, children first.
+ *
+ * The very same object comes back when `change` changed nothing, all the way
+ * up — so a caller can tell «nothing to do» from an edit without comparing.
+ */
+export function mapRichNodes(doc: RichDoc, change: (node: RichNode) => RichNode): RichDoc {
+  const mapAll = (nodes: RichNode[] | undefined): RichNode[] | undefined => {
+    if (!nodes) return nodes
+    let changed = false
+    const next = nodes.map((node) => {
+      const content = mapAll(node.content)
+      const mapped = change(content === node.content ? node : { ...node, content })
+      if (mapped !== node) changed = true
+      return mapped
+    })
+    return changed ? next : nodes
+  }
+  const content = mapAll(doc.content)
+  return content === doc.content ? doc : { ...doc, content }
+}
+
+/**
+ * The document with every accent's own colour taken off, so each is painted
+ * with its section's again — the «Standard» the colour picker offers.
+ */
+export function withoutAccentColors(doc: RichDoc): RichDoc {
+  return mapRichNodes(doc, (node) => {
+    if (node.type !== ACCENT_NODE || node.attrs?.color == null) return node
+    return { ...node, attrs: { ...node.attrs, color: null } }
+  })
+}
+
 export function docToPlainText(doc: RichDoc | null | undefined): string {
   if (!doc) return ''
   const parts: string[] = []

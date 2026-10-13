@@ -4,7 +4,14 @@
 
 import { WHITE } from './color'
 import { newContentId, newSubfieldId } from './ids'
-import { collectCitationIds, collectDocAssetIds, emptyDoc, isDocEmpty, titleDoc } from './richdoc'
+import {
+  collectCitationIds,
+  collectDocAssetIds,
+  emptyDoc,
+  isDocEmpty,
+  titleDoc,
+  withoutAccentColors,
+} from './richdoc'
 import type {
   Axis,
   CaptionPosition,
@@ -288,12 +295,47 @@ export function withBody<T extends ZoneContent>(content: T, body: CardBody): T {
   return bodyOf(content) ? { ...content, body } : content
 }
 
+/**
+ * The content with every colour somebody picked for it put back.
+ *
+ * Back to what it would have had without the choice: a title panel, a caption
+ * and an accent follow their section again, and a card without a title — which
+ * has nothing to inherit from — goes back to the colour a new one gets. The very
+ * same object comes back when nothing was picked, so «is there anything to
+ * reset?» is the question `withDefaultColors(content) !== content`.
+ */
+export function withDefaultColors(content: ZoneContent): ZoneContent {
+  let next = content
+  if (next.kind === 'untitled-card' && next.backgroundColor !== DEFAULT_CARD_BACKGROUND) {
+    next = { ...next, backgroundColor: DEFAULT_CARD_BACKGROUND }
+  }
+  if (hasCardTitle(next) && next.headerColor !== null) next = { ...next, headerColor: null }
+  const body = bodyOf(next)
+  if (body) {
+    const subfields = body.subfields.map((field) => {
+      const doc = withoutAccentColors(field.doc)
+      return doc === field.doc ? field : { ...field, doc }
+    })
+    if (subfields.some((field, index) => field !== body.subfields[index])) {
+      next = withBody(next, { ...body, subfields })
+    }
+  }
+  const panel = imagePanelOf(next)
+  if (panel?.caption && panel.caption.color !== null) {
+    next = withImagePanel(next, { ...panel, caption: { ...panel.caption, color: null } })
+  }
+  return next
+}
+
 /* ------------------------------------------------------------------ *
  * Subfield editing (pure)
  * ------------------------------------------------------------------ */
 
+/** The most subfields one body is divided into. */
+export const MAX_SUBFIELDS = 6
+
 export function withSubfieldCount(body: CardBody, count: number): CardBody {
-  const target = Math.max(1, Math.min(6, Math.round(count)))
+  const target = Math.max(1, Math.min(MAX_SUBFIELDS, Math.round(count)))
   if (target === body.subfields.length) return body
   if (target < body.subfields.length) {
     return {

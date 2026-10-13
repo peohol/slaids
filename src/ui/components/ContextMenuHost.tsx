@@ -15,11 +15,12 @@
  * reader, since a menu is labelled by its trigger.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { bestTextColor } from '../../domain/color'
+import { ConfirmDialog } from './ConfirmDialog'
 import { Icon } from './Icon'
-import { useContextMenu, type MenuEntry } from './contextMenu'
+import { useContextMenu, type MenuAction, type MenuEntry } from './contextMenu'
 
 /** Space kept between a menu and the edge of the window. */
 const VIEWPORT_MARGIN = 8
@@ -38,7 +39,14 @@ function afterClose(run: () => void): () => void {
   }
 }
 
-function Entries({ entries }: { entries: MenuEntry[] }) {
+function Entries({
+  entries,
+  onConfirm,
+}: {
+  entries: MenuEntry[]
+  /** An entry that asks first hands itself here instead of running. */
+  onConfirm: (entry: MenuAction) => void
+}) {
   return (
     <>
       {entries.map((entry, index) => {
@@ -100,7 +108,7 @@ function Entries({ entries }: { entries: MenuEntry[] }) {
                     collisionPadding={VIEWPORT_MARGIN}
                     data-testid={`menu-${entry.id}-content`}
                   >
-                    <Entries entries={entry.entries} />
+                    <Entries entries={entry.entries} onConfirm={onConfirm} />
                   </DropdownMenu.SubContent>
                 </DropdownMenu.Portal>
               </DropdownMenu.Sub>
@@ -114,7 +122,7 @@ function Entries({ entries }: { entries: MenuEntry[] }) {
               disabled: entry.disabled,
               textValue: entry.label,
               'data-testid': entry.testId ?? `menu-${entry.id}`,
-              onSelect: afterClose(entry.onSelect),
+              onSelect: afterClose(entry.confirm ? () => onConfirm(entry) : entry.onSelect),
             }
             const body = (
               <>
@@ -159,6 +167,8 @@ export function ContextMenuHost() {
   const menu = useContextMenu((state) => state.menu)
   const close = useContextMenu((state) => state.close)
   const contentRef = useRef<HTMLDivElement>(null)
+  /** The entry whose question is on screen, once its menu has gone. */
+  const [asking, setAsking] = useState<MenuAction | null>(null)
 
   /*
    * A menu is about something at a place on screen. When the page moves under
@@ -199,55 +209,72 @@ export function ContextMenuHost() {
     return () => window.cancelAnimationFrame(frame)
   }, [menu])
 
-  if (!menu) return null
+  const question = asking?.confirm ? (
+    <ConfirmDialog
+      open
+      title={asking.confirm.title}
+      message={asking.confirm.message}
+      confirmLabel={asking.confirm.confirmLabel}
+      onConfirm={() => {
+        setAsking(null)
+        asking.onSelect()
+      }}
+      onCancel={() => setAsking(null)}
+    />
+  ) : null
+
+  if (!menu) return question
 
   return (
-    <DropdownMenu.Root
-      key={menu.serial}
-      open
-      // Not modal: a right-click elsewhere while one menu is open should open
-      // the next one there, not land on a page that ignores the pointer.
-      modal={false}
-      onOpenChange={(open) => {
-        if (!open) close()
-      }}
-    >
-      <DropdownMenu.Trigger
-        className="context-menu__anchor"
-        style={{ left: menu.anchor.x, top: menu.anchor.y }}
-        tabIndex={-1}
+    <>
+      {question}
+      <DropdownMenu.Root
+        key={menu.serial}
+        open
+        // Not modal: a right-click elsewhere while one menu is open should open
+        // the next one there, not land on a page that ignores the pointer.
+        modal={false}
+        onOpenChange={(open) => {
+          if (!open) close()
+        }}
       >
-        {menu.title ?? 'Hurtigmeny'}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          ref={contentRef}
-          className="context-menu"
-          data-testid="context-menu"
-          side="bottom"
-          align="start"
-          sideOffset={2}
-          collisionPadding={VIEWPORT_MARGIN}
-          loop
-          // The browser's own menu has no business on top of this one.
-          onContextMenu={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault()
-            // Back where it was — unless the chosen entry has sent the focus
-            // somewhere on purpose: a dialog, or the caret in a field.
-            const active = document.activeElement
-            const lost =
-              !active ||
-              active === document.body ||
-              !active.isConnected ||
-              (contentRef.current?.contains(active) ?? false)
-            if (lost && menu.returnFocus?.isConnected) menu.returnFocus.focus({ preventScroll: true })
-          }}
+        <DropdownMenu.Trigger
+          className="context-menu__anchor"
+          style={{ left: menu.anchor.x, top: menu.anchor.y }}
+          tabIndex={-1}
         >
-          {menu.title && <DropdownMenu.Label className="context-menu__title">{menu.title}</DropdownMenu.Label>}
-          <Entries entries={menu.entries} />
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+          {menu.title ?? 'Hurtigmeny'}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            ref={contentRef}
+            className="context-menu"
+            data-testid="context-menu"
+            side="bottom"
+            align="start"
+            sideOffset={2}
+            collisionPadding={VIEWPORT_MARGIN}
+            loop
+            // The browser's own menu has no business on top of this one.
+            onContextMenu={(event) => event.preventDefault()}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              // Back where it was — unless the chosen entry has sent the focus
+              // somewhere on purpose: a dialog, or the caret in a field.
+              const active = document.activeElement
+              const lost =
+                !active ||
+                active === document.body ||
+                !active.isConnected ||
+                (contentRef.current?.contains(active) ?? false)
+              if (lost && menu.returnFocus?.isConnected) menu.returnFocus.focus({ preventScroll: true })
+            }}
+          >
+            {menu.title && <DropdownMenu.Label className="context-menu__title">{menu.title}</DropdownMenu.Label>}
+            <Entries entries={menu.entries} onConfirm={setAsking} />
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    </>
   )
 }

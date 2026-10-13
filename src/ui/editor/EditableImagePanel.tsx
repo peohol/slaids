@@ -132,7 +132,9 @@ export function EditableImagePanel({
       selectNode(nodeId)
 
       if (!panel.assetId) {
-        onPickImage()
+        // Only the main button asks for a file: a right-press is asking for
+        // the menu, which offers the same thing among the rest.
+        if (event.button === 0) onPickImage()
         return
       }
       if (event.button !== 0 || !geometry || !cropped) return

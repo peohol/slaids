@@ -26,6 +26,8 @@ import {
   withImagePanel,
   withSubfieldCount,
   withSubfieldDoc,
+  withDefaultColors,
+  MAX_SUBFIELDS,
 } from '../content'
 import { areWeightsValid, resolveOptions } from '../geometry'
 import { zoneKindRefusal } from '../contentSize'
@@ -324,8 +326,8 @@ export function setBodyLayout(
       if (!body) return err('INVALID_CONTENT', 'Innholdet har ingen subfelt.')
 
       const count = input.subfieldCount ?? body.subfields.length
-      if (input.subfieldCount !== undefined && (!Number.isInteger(count) || count < 1 || count > 6)) {
-        return err('INVALID_ARGUMENT', 'Antall subfelt må være mellom 1 og 6.')
+      if (input.subfieldCount !== undefined && (!Number.isInteger(count) || count < 1 || count > MAX_SUBFIELDS)) {
+        return err('INVALID_ARGUMENT', `Antall subfelt må være mellom 1 og ${MAX_SUBFIELDS}.`)
       }
       // Against the count the call *ends* with, not the one it started with: a
       // call that both adds a subfield and re-proportions the body describes the
@@ -453,6 +455,22 @@ export function setCardColor(
     if (hasCardTitle(content)) return ok({ ...content, headerColor: color })
     return err('INVALID_CONTENT', 'Denne innholdstypen har ingen fargeflate.')
   })
+}
+
+/**
+ * Put every colour picked for one zone's content back to what it inherits.
+ *
+ * The card or title panel, the caption over a picture and each accent in the
+ * text, in one step — the way back from a slide that was coloured by hand to
+ * one that follows its section. A colour changes nothing about how much fits,
+ * so there is nothing for the fit gate to refuse; it still runs, as it does for
+ * every content command.
+ */
+export function resetContentColors(
+  presentation: Presentation,
+  input: ZoneContentTarget,
+): Result<Presentation> {
+  return updateZoneContent(presentation, input, (content) => ok(withDefaultColors(content)))
 }
 
 /**

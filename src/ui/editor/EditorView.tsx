@@ -91,6 +91,13 @@ import {
   type MenuAnchor,
 } from '../components/contextMenu'
 import { zoneModeMenu, type ZoneMenuHandlers } from './contextMenu/zoneMenu'
+import { contentModeMenu, type ContentMenuHandlers } from './contextMenu/contentMenu'
+import {
+  contentTargetAt,
+  contentTargetOfSelection,
+  type ContentTarget,
+} from './contextMenu/contentTarget'
+import { useActiveEditor } from '../../state/activeEditor'
 import { Modal } from '../components/Modal'
 import { SectionInspector } from './SectionInspector'
 import { SectionStage } from './SectionStage'
@@ -1175,19 +1182,79 @@ export function EditorView({
     [openContextMenu, zoneHandlers],
   )
 
+  /** What the content menu's entries open: the dialogs the toolbar and inspector open. */
+  const contentHandlers: ContentMenuHandlers | null = useMemo(() => {
+    if (!contentSlide || !zoneHandlers) return null
+    return {
+      addContent: zoneHandlers.addContent,
+      setContentKind: zoneHandlers.setContentKind,
+      paste: zoneHandlers.paste,
+      placeSandboxItem: zoneHandlers.placeSandboxItem,
+      openSandbox: zoneHandlers.openSandbox,
+      pickImage: (nodeId) => {
+        useEditorStore.getState().selectNode(nodeId)
+        setImageOpen('zone')
+      },
+      optimizePanel: (nodeId) => setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId }),
+      optimizeAsset: (assetId) => setOptimizeScope({ kind: 'asset', assetId }),
+      insertReference: () => setReferencesOpen(true),
+      copyText: (text) => {
+        void navigator.clipboard.writeText(text).then(
+          () => notify.info('Teksten ble kopiert.'),
+          () => notify.error('Teksten kunne ikke kopieres.'),
+        )
+      },
+    }
+  }, [contentSlide, zoneHandlers])
+
+  /**
+   * Open the content menu for something in one zone.
+   *
+   * The zone is selected, as a click in it would, so the inspector shows what
+   * the menu is about; the slide title belongs to no zone and selects none.
+   */
+  const openContentMenu = useCallback(
+    (nodeId: string, target: ContentTarget, anchor: MenuAnchor, keyboard = false): boolean => {
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (!state.presentation || !slide || !contentHandlers) return false
+      const menu = contentModeMenu(
+        {
+          presentation: state.presentation,
+          slide,
+          nodeId,
+          checks: domFitCheckers,
+          commit: (label, change) => useEditorStore.getState().run(label, change),
+        },
+        contentHandlers,
+        target,
+      )
+      if (!menu) return false
+      if (nodeId !== TITLE_NODE_ID) state.selectNode(nodeId)
+      openContextMenu({ anchor, title: menu.title, entries: menu.entries, keyboard })
+      return true
+    },
+    [contentHandlers, openContextMenu],
+  )
+
   /**
    * A right-click on the stage, with what the geometry found under it.
    *
    * Zone mode is about the zones, so a zone gets its menu wherever it was
-   * pressed. Anything this does not answer is left to the browser.
+   * pressed. Content mode is about what is in them, so the menu is about
+   * whatever the pointer is on — or the browser's own, in a field that is being
+   * typed in. Anything this does not answer is left to the browser.
    */
   const handleStageMenu = useCallback(
     (hit: StageMenuHit, anchor: MenuAnchor): boolean => {
-      if (useEditorStore.getState().mode !== 'zone') return false
-      if (hit.fieldId === TITLE_NODE_ID) return false
-      return openZoneMenu(hit.fieldId, anchor)
+      if (useEditorStore.getState().mode === 'zone') {
+        if (hit.fieldId === TITLE_NODE_ID) return false
+        return openZoneMenu(hit.fieldId, anchor)
+      }
+      const target = contentTargetAt(hit.target, anchor, hit.fieldId)
+      return target ? openContentMenu(hit.fieldId, target, anchor) : false
     },
-    [openZoneMenu],
+    [openContentMenu, openZoneMenu],
   )
 
   const zoneActions: ZoneAction[] = useMemo(() => {
@@ -1277,6 +1344,34 @@ export function EditorView({
     zoneHandlers,
   ])
 
+  /**
+   * The menu the keyboard asks for. Whether one opened, so the key is only
+   * taken from the browser when it did.
+   */
+  const openKeyboardMenu = useCallback((): boolean => {
+    const state = useEditorStore.getState()
+    const { editor } = useActiveEditor.getState()
+    const field = state.activeField
+    if (state.mode === 'content' && editor?.isFocused && field && state.currentContentSlide()) {
+      const { from } = editor.state.selection
+      const caret = editor.view.coordsAtPos(from)
+      return openContentMenu(
+        field.nodeId,
+        contentTargetOfSelection(editor, field),
+        { x: caret.left, y: caret.bottom },
+        true,
+      )
+    }
+    const selected = state.selectedNodeId
+    if (!selected) return false
+    if (state.mode === 'zone') {
+      const outline = document.querySelector(`[data-node-outline="${CSS.escape(selected)}"]`)
+      return outline ? openZoneMenu(selected, anchorInside(outline), true) : false
+    }
+    const zone = document.querySelector(`.slide-zone[data-node-id="${CSS.escape(selected)}"]`)
+    return zone ? openContentMenu(selected, { kind: 'zone' }, anchorInside(zone), true) : false
+  }, [openContentMenu, openZoneMenu])
+
   /* -------------------------------------------------------------- *
    * Keyboard
    * -------------------------------------------------------------- */
@@ -1340,6 +1435,17 @@ export function EditorView({
         return
       }
 
+      /*
+       * Shift+F10 and the menu key open the menu for what the keyboard is on,
+       * the way a right-click there would: in a field being typed in, for the
+       * selection; otherwise for the selected zone. Opened on the thing
+       * itself, so the menu visibly belongs to it.
+       */
+      if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && !hasOpenDialog()) {
+        if (openKeyboardMenu()) event.preventDefault()
+        return
+      }
+
       if (typing) return
 
       /*
@@ -1354,23 +1460,6 @@ export function EditorView({
       }
 
       if (state.mode !== 'zone') return
-
-      /*
-       * Shift+F10 and the menu key open the selected zone's menu, the way a
-       * right-click on it would. It opens on the zone's own outline, so it
-       * visibly belongs to the zone it is about.
-       */
-      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-        const selected = state.selectedNodeId
-        const outline = selected
-          ? document.querySelector(`[data-node-outline="${CSS.escape(selected)}"]`)
-          : null
-        if (selected && outline) {
-          event.preventDefault()
-          openZoneMenu(selected, anchorInside(outline), true)
-        }
-        return
-      }
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault()
@@ -1407,7 +1496,7 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [openZoneMenu, presenting, redo, setMode, stepDeck, toggleMode, undo])
+  }, [openKeyboardMenu, presenting, redo, setMode, stepDeck, toggleMode, undo])
 
   /* -------------------------------------------------------------- *
    * Render
