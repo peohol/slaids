@@ -5,30 +5,53 @@
  * holds two kinds of drag surface with opposite needs. A dedicated handle
  * should drag on the first millimetre of movement — there is nothing else it
  * could mean. A surface that *also* answers a click — a slide in the filmstrip
- * navigates to that slide — must not: the smallest tremor between press and
- * release would then swallow the click and start reordering the deck instead.
+ * navigates to that slide — must not: a press that wobbles a pixel must stay a
+ * click, and on a touch screen a swipe across it must still scroll the strip.
  *
  * So the constraint is read from the DOM the press landed on rather than fixed
  * on the sensor: any element may carry `data-drag-activation`, and the nearest
  * one wins. The sensor knows nothing about slides, sandbox items or anything
  * else it might one day carry — it reads an attribute, and the component that
  * owns the surface decides what that surface means.
+ *
+ * And the constraint depends on what pressed. A mouse has no swipe to protect,
+ * so a surface drags as soon as the pointer has clearly moved; a finger has to
+ * rest first, or every scroll of the strip would pick up a slide.
  */
 
-import { PointerSensor, type PointerActivationConstraint, type PointerSensorProps } from '@dnd-kit/core'
+import {
+  PointerSensor,
+  type PointerActivationConstraint,
+  type PointerSensorProps,
+} from '@dnd-kit/core'
+import { DRAG_THRESHOLDS } from '../components/reorderDrag'
 
 export const DRAG_ACTIVATION_ATTRIBUTE = 'data-drag-activation'
 
+/** One activation per kind of pointer: a mouse or pen, and a finger. */
+interface Activation {
+  pointer: PointerActivationConstraint
+  touch: PointerActivationConstraint
+}
+
+const IMMEDIATE: PointerActivationConstraint = { distance: 4 }
+
 export const DRAG_ACTIVATION = {
   /** A handle and nothing else: the smallest movement is a drag. */
-  immediate: { distance: 4 },
+  immediate: { pointer: IMMEDIATE, touch: IMMEDIATE },
   /**
-   * A surface that also answers a click. The press has to be held before it
-   * becomes a drag, and moving away during the hold cancels it — so a click
-   * stays a click and a drag stays deliberate.
+   * A surface that also answers a click. A mouse drags it once it has moved
+   * further than a click wobbles; a finger has to hold it first, and moving
+   * away during the hold is a swipe, which scrolls instead.
    */
-  hold: { delay: 200, tolerance: 6 },
-} as const satisfies Record<string, PointerActivationConstraint>
+  surface: {
+    pointer: { distance: DRAG_THRESHOLDS.mouseMove },
+    touch: {
+      delay: DRAG_THRESHOLDS.holdMs,
+      tolerance: DRAG_THRESHOLDS.holdMove,
+    },
+  },
+} as const satisfies Record<string, Activation>
 
 export type DragActivation = keyof typeof DRAG_ACTIVATION
 
@@ -42,7 +65,9 @@ function activationFor(event: Event): PointerActivationConstraint | undefined {
   if (!(target instanceof Element)) return undefined
   const host = target.closest(`[${DRAG_ACTIVATION_ATTRIBUTE}]`)
   const asked = host?.getAttribute(DRAG_ACTIVATION_ATTRIBUTE) ?? null
-  return isActivation(asked) ? DRAG_ACTIVATION[asked] : undefined
+  if (!isActivation(asked)) return undefined
+  const touch = 'pointerType' in event && event.pointerType === 'touch'
+  return DRAG_ACTIVATION[asked][touch ? 'touch' : 'pointer']
 }
 
 /**
@@ -53,6 +78,13 @@ function activationFor(event: Event): PointerActivationConstraint | undefined {
 export class SurfacePointerSensor extends PointerSensor {
   constructor(props: PointerSensorProps) {
     const asked = activationFor(props.event)
-    super(asked ? { ...props, options: { ...props.options, activationConstraint: asked } } : props)
+    super(
+      asked
+        ? {
+            ...props,
+            options: { ...props.options, activationConstraint: asked },
+          }
+        : props,
+    )
   }
 }

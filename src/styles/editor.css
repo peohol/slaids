@@ -300,22 +300,37 @@
 }
 
 /*
- * The thumbnail is a click target and a drag surface at once, so it says so:
- * `grab` on hover, and `touch-action: manipulation` to keep a press that turns
- * into a drag from also scrolling the strip under it.
+ * Everything above an entry's tools is a click target, and on a slide that can
+ * be moved also a drag surface — and it says which: `grab` on hover only where
+ * a drag can start, so the front page and the generated pages read as what
+ * they are. `touch-action: manipulation` keeps a press that turns into a drag
+ * from also scrolling the strip under it.
  */
+.filmstrip__handle {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.filmstrip__handle[data-draggable] {
+  cursor: grab;
+}
+
+.filmstrip__handle[data-draggable]:active {
+  cursor: grabbing;
+}
+
 .filmstrip__thumb {
   border: none;
   padding: 0;
   background: #000;
-  cursor: grab;
+  cursor: pointer;
   overflow: hidden;
   display: block;
   touch-action: manipulation;
 }
 
-.filmstrip__thumb:active {
-  cursor: grabbing;
+.filmstrip__handle .filmstrip__thumb {
+  cursor: inherit;
 }
 
 .filmstrip__tools {
