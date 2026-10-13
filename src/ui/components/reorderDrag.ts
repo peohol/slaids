@@ -32,10 +32,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * still scrolls the list; on a mouse it starts as soon as the pointer has moved
  * a little with the button down. The distance is measured as the crow flies
  * from the press, so a diagonal counts as much as a straight one.
+ *
+ * Exported because they are the feel of every drag surface that also answers
+ * a click, not of this gesture alone: the filmstrip's dnd-kit sensor reads the
+ * same numbers (see `dragActivation.ts`), so the two cannot drift apart.
  */
-const HOLD_MS = 200
-const HOLD_MOVE = 10
-const HOLD_MOVE_MOUSE = 5
+export const DRAG_THRESHOLDS = {
+  /** How long a finger has to rest before the press becomes a drag. */
+  holdMs: 200,
+  /** How far a finger may wander during the hold before it is a swipe instead. */
+  holdMove: 10,
+  /** How far a mouse has to move with the button down before it is a drag. */
+  mouseMove: 5,
+} as const
+const { holdMs: HOLD_MS, holdMove: HOLD_MOVE, mouseMove: HOLD_MOVE_MOUSE } = DRAG_THRESHOLDS
 
 /** The zone at the top and bottom of the list that scrolls while you drag over it. */
 const SCROLL_EDGE = 30

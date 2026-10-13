@@ -864,6 +864,14 @@ test.describe('kompakt arbeidsflate', () => {
       'true',
     )
 
+    // The number row above a thumbnail is part of the same press: it chooses
+    // the page and gives the stage back just the same.
+    await thumbs.nth(1).locator('.filmstrip__index').click()
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+    await openPanel(page, 'slides')
+    thumbs = page.getByTestId('filmstrip-item')
+    await expect(thumbs.nth(1)).toHaveClass(/filmstrip__item--active/)
+
     // And the discrete way to reorder is still right there on every entry.
     const order = await slideOrder(page)
     await thumbs.nth(2).getByTestId('move-slide-up').click()

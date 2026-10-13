@@ -910,11 +910,11 @@ export function EditorView({
 
   /*
    * The constraint here is the default for a surface that asks for nothing.
-   * A slide thumbnail is both a link and a drag handle and asks for `hold`
-   * instead — see `dragActivation.ts`.
+   * A slide in the strip is both a link and a drag handle and asks for
+   * `surface` instead — see `dragActivation.ts`.
    */
   const sensors = useSensors(
-    useSensor(SurfacePointerSensor, { activationConstraint: DRAG_ACTIVATION.immediate }),
+    useSensor(SurfacePointerSensor, { activationConstraint: DRAG_ACTIVATION.immediate.pointer }),
   )
 
   const handleDragStart = (event: DragStartEvent): void => {

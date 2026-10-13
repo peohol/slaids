@@ -113,18 +113,20 @@ function thumbLabel(slide: Slide, index: number): string {
 /**
  * One authored slide in the strip.
  *
- * The thumbnail is both the way to the slide and the way to move it: a click
- * navigates, a press held for a moment starts the drag. Which of the two a
+ * Everything above the tools — the number row and the thumbnail — is both the
+ * way to the slide and the way to move it: a click navigates, a press that
+ * moves (or, on a touch screen, rests) starts the drag. Which of the two a
  * press becomes is decided by `data-drag-activation` — see
- * `dragActivation.ts` — so the button can carry the drag listeners without
+ * `dragActivation.ts` — so the surface can carry the drag listeners without
  * ever swallowing an ordinary click. The grip keeps the immediate activation a
- * dedicated handle should have, and is the affordance that says the strip can
- * be reordered at all.
+ * dedicated handle should have, and is the affordance that says this entry
+ * can be moved at all.
  *
- * A section is an authored slide like any other here: same grip, same tools,
- * same reordering. The front page happens to be one, and what stops it being
- * dragged away or deleted is not chrome the strip leaves out but the commands
- * themselves, which refuse a deck that would stop opening with a section.
+ * The front page is the one authored slide that is neither a drag surface nor
+ * a place to drop one: it is what the deck opens with, so it has no grip and
+ * nothing lands in its place by dragging. The commands still own the rule — a
+ * section moved up there with the arrows becomes the front page — but a
+ * gesture that could only ever be refused is not offered.
  */
 function SlideThumb({
   slide,
@@ -158,9 +160,11 @@ function SlideThumb({
   // Content slides are what the strip is mostly made of; the other kinds wear
   // a badge that says which they are.
   const badged = slide.kind !== 'content'
+  const frontPage = index === 0
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: slide.id,
     data: { kind: 'slide' },
+    disabled: frontPage,
   })
 
   return (
@@ -171,47 +175,56 @@ function SlideThumb({
       data-testid="filmstrip-item"
       data-slide-id={slide.id}
     >
-      <div className="filmstrip__index">
-        <span>{index + 1}</span>
-        {badged && <span className="filmstrip__badge">{label}</span>}
-        <span
-          className="filmstrip__grip"
-          aria-hidden="true"
-          data-drag-activation="immediate"
-          {...listeners}
-        >
-          <Icon name="grip" size={14} />
-        </span>
-      </div>
-      <button
-        type="button"
-        className="filmstrip__thumb"
-        style={{ width, height: (width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
+      {/*
+        The click is the handle's, not only the button's, so the number row
+        navigates as well; the button's own click — a tap, or Enter from the
+        keyboard — bubbles up to it.
+      */}
+      <div
+        className="filmstrip__handle"
         onClick={onSelect}
-        data-testid="filmstrip-thumb"
-        data-drag-activation="hold"
-        aria-label={label}
-        // Semantic rather than merely outlined: which page the editor is on has
-        // to be readable by something that cannot see the accent border.
-        aria-current={active ? 'true' : undefined}
-        {...attributes}
+        data-drag-activation="surface"
+        data-draggable={frontPage ? undefined : ''}
         {...listeners}
       >
-        <Thumb width={width}>
-          {slide.kind === 'content' ? (
-            <SlideView slide={slide}>
-              {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
-              <SlideProgressBar pageId={slide.id} />
-            </SlideView>
-          ) : (
-            /* A section, or the cover of an interactive slide: the same page
-               the audience sees, indicator and all. Nothing here has an
-               activation, so the cover's button is drawn inert — a thumbnail
-               can show a miniapp and can never start one. */
-            <DeckPageView page={authoredPage(slide)} />
+        <div className="filmstrip__index">
+          <span>{index + 1}</span>
+          {badged && <span className="filmstrip__badge">{label}</span>}
+          {!frontPage && (
+            <span className="filmstrip__grip" aria-hidden="true" data-drag-activation="immediate">
+              <Icon name="grip" size={14} />
+            </span>
           )}
-        </Thumb>
-      </button>
+        </div>
+        <button
+          type="button"
+          className="filmstrip__thumb"
+          style={{ width, height: (width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
+          data-testid="filmstrip-thumb"
+          aria-label={label}
+          // Semantic rather than merely outlined: which page the editor is on has
+          // to be readable by something that cannot see the accent border.
+          aria-current={active ? 'true' : undefined}
+          // Only a slide that can be dragged is announced as sortable: on the
+          // front page these would also mark the button disabled, which it is not.
+          {...(frontPage ? {} : attributes)}
+        >
+          <Thumb width={width}>
+            {slide.kind === 'content' ? (
+              <SlideView slide={slide}>
+                {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
+                <SlideProgressBar pageId={slide.id} />
+              </SlideView>
+            ) : (
+              /* A section, or the cover of an interactive slide: the same page
+                 the audience sees, indicator and all. Nothing here has an
+                 activation, so the cover's button is drawn inert — a thumbnail
+                 can show a miniapp and can never start one. */
+              <DeckPageView page={authoredPage(slide)} />
+            )}
+          </Thumb>
+        </button>
+      </div>
       <div className="filmstrip__tools">
         <Tooltip label={`Flytt ${label.toLowerCase()} opp`}>
           <button

@@ -65,9 +65,15 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(8)
   })
 
-  test('clicking a thumbnail navigates, holding it reorders', async ({ page }) => {
+  test('clicking a slide navigates, dragging anywhere above its tools reorders', async ({
+    page,
+  }) => {
+    // Tall enough that the whole strip is on screen: every drag below aims at
+    // entries it has measured, and a strip that scrolled to the selection
+    // would move them away.
+    await page.setViewportSize({ width: 1280, height: 1200 })
     await createPresentation(page, 'Dra slides')
-    for (let i = 0; i < 2; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       await page.getByTestId('add-slide').click()
       await page.getByTestId('new-slide-without-title').click()
     }
@@ -77,27 +83,54 @@ test.describe('slides and content', () => {
           (item) => (item as HTMLElement).dataset.slideId as string,
         ),
       )
+    const items = page.getByTestId('filmstrip-item')
+    const handle = (index: number) => items.nth(index).locator('.filmstrip__handle')
+    /** A plain mouse drag: no hold, just a press that moves. */
+    const drag = async (
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+    ): Promise<void> => {
+      await page.mouse.move(from.x, from.y)
+      await page.mouse.down()
+      await page.mouse.move(from.x, from.y + 20, { steps: 4 })
+      await page.mouse.move(to.x, to.y, { steps: 10 })
+      await page.mouse.up()
+    }
+    const centre = async (index: number) => {
+      const box = (await items.nth(index).getByTestId('filmstrip-thumb').boundingBox())!
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    }
     const before = await order()
 
-    // A plain click is navigation, not a drag.
+    // A plain click is navigation, not a drag — on the thumbnail and on the
+    // number row above it alike.
     await page.getByTestId('filmstrip-thumb').nth(3).click()
-    await expect(page.getByTestId('statusbar')).toContainText('Slide 4 av 4')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 4 av 5')
+    await items.nth(2).locator('.filmstrip__index').click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 5')
     expect(await order()).toEqual(before)
 
-    // The same surface, pressed and held, is the drag handle. The front page
-    // stays where it is: index 1 is the first slide that can be moved.
-    const first = await page.getByTestId('filmstrip-thumb').nth(1).boundingBox()
-    const third = await page.getByTestId('filmstrip-thumb').nth(3).boundingBox()
-    if (!first || !third) throw new Error('Fant ikke miniatyrene.')
-    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2)
-    await page.mouse.down()
-    await page.waitForTimeout(350)
-    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2 + 20, { steps: 4 })
-    await page.mouse.move(third.x + third.width / 2, third.y + third.height / 2, { steps: 10 })
-    await page.mouse.up()
-
+    // The number row is as much a handle as the thumbnail: from the row's left
+    // edge, nowhere near the grip, a slide moves without being held first.
+    const row = (await items.nth(1).locator('.filmstrip__index').boundingBox())!
+    await drag({ x: row.x + 8, y: row.y + row.height / 2 }, await centre(3))
     await expect.poll(order).not.toEqual(before)
     expect((await order()).sort()).toEqual([...before].sort())
+
+    // The front page is not a drag surface at all: no grip, no `grab`, and a
+    // drag on it moves nothing.
+    const moved = await order()
+    await expect(handle(0)).not.toHaveAttribute('data-draggable')
+    await expect(items.nth(0).locator('.filmstrip__grip')).toHaveCount(0)
+    expect(await handle(0).evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer')
+    expect(await handle(1).evaluate((element) => getComputedStyle(element).cursor)).toBe('grab')
+    await drag(await centre(0), await centre(3))
+    expect(await order()).toEqual(moved)
+
+    // Nor is it a place to drop one: a slide dragged onto it stays below it.
+    await drag(await centre(2), await centre(0))
+    await page.waitForTimeout(250)
+    expect((await order())[0]).toEqual(moved[0])
   })
 
   /*
