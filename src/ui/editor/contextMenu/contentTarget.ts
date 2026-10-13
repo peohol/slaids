@@ -15,7 +15,7 @@
  */
 
 import type { Editor } from '@tiptap/react'
-import { CellSelection } from '@tiptap/pm/tables'
+import { CellSelection, cellAround } from '@tiptap/pm/tables'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID, TITLE_NODE_ID } from '../../../domain/geometry'
 import { IMAGE_NODE } from '../../../domain/richdoc'
@@ -89,6 +89,24 @@ function selectAt(editor: Editor, point: { x: number; y: number }, image: Elemen
 }
 
 /**
+ * Keep a block of selected cells that includes the clicked one; otherwise
+ * select just the clicked cell. Either way the table entries act on cells the
+ * right-click actually landed on, never on a block marked somewhere else.
+ */
+function selectCellAt(editor: Editor, cell: Element): void {
+  const { view, state } = editor
+  const $cell = cellAround(state.doc.resolve(view.posAtDOM(cell, 0)))
+  if (!$cell) return
+  let inside = false
+  if (state.selection instanceof CellSelection) {
+    state.selection.forEachCell((_, pos) => {
+      if (pos === $cell.pos) inside = true
+    })
+  }
+  if (!inside) view.dispatch(state.tr.setSelection(CellSelection.create(state.doc, $cell.pos)))
+}
+
+/**
  * The target of a right-click at `point` on `element`, in the zone `nodeId`.
  *
  * `null` means the browser's own menu: the pointer is in the words of a field
@@ -109,22 +127,21 @@ export function contentTargetAt(
     return { kind: 'zone' }
   }
 
-  const image = element.closest(INLINE_IMAGE_SELECTOR)
-  const cell = element.closest(TABLE_CELL_SELECTOR)
   const at = { editor, field }
-  if (editor.isFocused) {
-    if (image) {
-      selectAt(editor, point, image)
-      return { kind: 'inline-image', at }
-    }
-    if (cell && editor.state.selection instanceof CellSelection) return { kind: 'table', at }
-    return null
+  const image = element.closest(INLINE_IMAGE_SELECTOR)
+  if (image) {
+    selectAt(editor, point, image)
+    return { kind: 'inline-image', at }
   }
+  const cell = element.closest(TABLE_CELL_SELECTOR)
+  if (cell && editor.state.selection instanceof CellSelection) {
+    selectCellAt(editor, cell)
+    return { kind: 'table', at }
+  }
+  if (editor.isFocused) return null
 
-  selectAt(editor, point, image)
-  if (image) return { kind: 'inline-image', at }
-  if (cell) return { kind: 'table', at }
-  return { kind: 'text', at }
+  selectAt(editor, point, null)
+  return { kind: cell ? 'table' : 'text', at }
 }
 
 /**
