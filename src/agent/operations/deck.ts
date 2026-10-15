@@ -289,7 +289,7 @@ export const getPresentation = defineOperation({
 export const createPresentationOperation = defineOperation({
   name: 'create_presentation',
   summary:
-    'Opprett en ny presentasjon: en seksjonsslide som forside, og én tom slide etter den. Forsiden er alltid første slide, og fargene den settes i arves av slidene fram til neste seksjon.',
+    'Opprett en ny presentasjon: en inndelingsslide som forside, og én tom slide etter den. Forsiden er alltid første slide, og fargene den settes i arves av slidene fram til neste inndeling.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -313,12 +313,12 @@ export const createPresentationOperation = defineOperation({
       .string()
       .optional()
       .describe(
-        'Hex-farge for piller og overskrifter uten egen farge, fra forsiden og fram til neste seksjon.',
+        'Hex-farge for piller og overskrifter uten egen farge, fra forsiden og fram til neste inndeling.',
       ),
     backgroundColor: z
       .string()
       .optional()
-      .describe('Hex-farge for sidene, fra forsiden og fram til neste seksjon.'),
+      .describe('Hex-farge for sidene, fra forsiden og fram til neste inndeling.'),
   }),
   async run(context, input): Promise<AgentResult<PresentationView>> {
     // A named folder has to be one the library actually has, for the same reason

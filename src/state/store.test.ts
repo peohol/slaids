@@ -7,6 +7,7 @@ import { createImage, createUntitledCard } from '../domain/content'
 import {
   addSlide,
   deleteLayoutNode,
+  deleteSlide,
   setContentKind,
   setImagePlan,
   setInteractiveSlideHtml,
@@ -181,18 +182,51 @@ describe('selection reconciliation', () => {
     expect(useEditorStore.getState().activeField).toBeNull()
   })
 
-  it('moves to the deck’s first page when the current slide is deleted', () => {
+  it('moves to the slide before it when the current slide is deleted', () => {
     const presentation = seed()
     useEditorStore.getState().setPresentation(presentation)
     useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
-    const second = useEditorStore.getState().presentation?.slides[2]
-    expect(second).toBeDefined()
-    useEditorStore.getState().selectSlide(second!.id)
+    const third = useEditorStore.getState().presentation?.slides[2]
+    expect(third).toBeDefined()
+    useEditorStore.getState().selectSlide(third!.id)
+    useEditorStore.getState().run('delete-slide', (current) => deleteSlide(current, third!.id))
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[1].id)
+  })
+
+  it('moves to the nearest earlier slide that survived, when several went at once', () => {
+    const presentation = seed()
+    useEditorStore.getState().setPresentation(presentation)
+    useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+    useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+    const slides = useEditorStore.getState().presentation!.slides
+    useEditorStore.getState().selectSlide(slides[3].id)
     useEditorStore.getState().run('delete', (current) => ({
       ok: true,
       value: { ...current, slides: [current.slides[0], current.slides[1]] },
     }))
-    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[0].id)
+    expect(useEditorStore.getState().currentSlideId).toBe(slides[1].id)
+  })
+
+  it('moves to the deck’s first page when nothing before the current slide is left', () => {
+    const presentation = seed()
+    const replacement = { ...sectionAt(presentation, 0), id: 'new-front' }
+    useEditorStore.getState().setPresentation(presentation)
+    useEditorStore.getState().selectSlide(presentation.slides[0].id)
+    useEditorStore.getState().run('delete', (current) => ({
+      ok: true,
+      value: { ...current, slides: [replacement, current.slides[1]] },
+    }))
+    expect(useEditorStore.getState().currentSlideId).toBe('new-front')
+  })
+
+  it('goes back to the slide it was added after when adding it is undone', () => {
+    const presentation = seed()
+    useEditorStore.getState().setPresentation(presentation)
+    useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
+    const added = useEditorStore.getState().presentation!.slides[2]
+    useEditorStore.getState().selectSlide(added.id)
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().currentSlideId).toBe(presentation.slides[1].id)
   })
 })
 

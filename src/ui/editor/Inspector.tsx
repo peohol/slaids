@@ -110,7 +110,7 @@ export function Inspector({
   const captionInheritedColor =
     content?.kind === 'titled-image-card' ? (content.headerColor ?? pillColor) : pillColor
   const captionInheritedLabel =
-    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra seksjonen)'
+    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra inndelingen)'
 
   return (
     <aside className="inspector" data-testid="inspector">
@@ -266,7 +266,7 @@ export function Inspector({
                 ? undefined
                 : {
                     color: pillColor,
-                    label: 'Standard (fra seksjonen)',
+                    label: 'Standard (fra inndelingen)',
                     active: coloured.headerColor === null,
                     onSelect: () =>
                       run('card-color', (current) =>

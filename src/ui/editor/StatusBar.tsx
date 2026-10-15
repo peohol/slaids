@@ -2,19 +2,8 @@
 
 import { breadcrumbLabels } from '../../domain/layout'
 import { useEditorStore } from '../../state/store'
-import type { Presentation, Slide } from '../../domain/types'
-
-/** What the bar calls the current page, by kind and position. */
-function pageLabel(kind: Slide['kind'] | undefined, index: number): string {
-  switch (kind) {
-    case 'section':
-      return index === 0 ? 'Forside' : 'Seksjon'
-    case 'interactive':
-      return 'Interaktiv'
-    default:
-      return 'Slide'
-  }
-}
+import { pageKindName } from './pageKinds'
+import type { Presentation } from '../../domain/types'
 
 const SAVE_LABELS: Record<string, string> = {
   saved: 'Lagret',
@@ -70,7 +59,7 @@ export function StatusBar({
       <SaveIndicator />
       <span className="statusbar__sep">·</span>
       <span>
-        {`${pageLabel(slide?.kind, index)} ${index + 1} av ${presentation.slides.length}`}
+        {`${pageKindName(slide?.kind ?? 'content', index)} ${index + 1} av ${presentation.slides.length}`}
       </span>
       {mode === 'zone' && breadcrumb.length > 0 && (
         <>

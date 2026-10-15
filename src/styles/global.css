@@ -15,9 +15,7 @@
   --chrome-text-dim: #96a1af;
   --chrome-accent: #4f8ef7;
   /* The other kind of page: a new section, told apart from a new slide. */
-  --chrome-section: #7b52cc;
   /* And the third: an interactive slide, a page that runs a miniapp. */
-  --chrome-interactive: #1f8577;
   --chrome-accent-soft: rgba(79, 142, 247, 0.18);
   --chrome-danger: #e5484d;
   --chrome-warning: #e0a03a;
@@ -221,44 +219,6 @@ textarea {
 .btn--primary:hover:not(:disabled) {
   background: #3f7ce4;
   border-color: #3f7ce4;
-}
-
-/*
- * Adding a section is not adding a slide.
- *
- * The two buttons sit side by side and do different things — one adds a page to
- * the part you are in, the other starts a new part — so the section button
- * carries its own colour rather than a second primary. It is the accent's
- * neighbour, not its rival: strong enough to be told apart at a glance, quiet
- * enough that "Ny slide" is still the one the eye lands on.
- */
-.btn--section {
-  background: var(--chrome-section);
-  border-color: var(--chrome-section);
-  color: #fff;
-  font-weight: 600;
-}
-
-.btn--section:hover:not(:disabled) {
-  background: #8b62d8;
-  border-color: #8b62d8;
-}
-
-/*
- * Adding a miniapp is a third thing again: a page that runs rather than one
- * that is read. Its own colour, a step warmer than the other two, so the three
- * doors in the strip read as three doors.
- */
-.btn--interactive {
-  background: var(--chrome-interactive);
-  border-color: var(--chrome-interactive);
-  color: #fff;
-  font-weight: 600;
-}
-
-.btn--interactive:hover:not(:disabled) {
-  background: #2f9c8a;
-  border-color: #2f9c8a;
 }
 
 .btn--danger {

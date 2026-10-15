@@ -54,13 +54,13 @@ const LINE_TEXT: Record<
 > = {
   title: {
     placeholder: 'Overskrift',
-    overflow: 'Overskriften får ikke plass på seksjonssliden.',
+    overflow: 'Overskriften får ikke plass på inndelingssliden.',
     nodeId: SECTION_TITLE_NODE_ID,
     field: 'section-title',
   },
   subtitle: {
     placeholder: 'Underoverskrift (valgfri)',
-    overflow: 'Underoverskriften får ikke plass på seksjonssliden.',
+    overflow: 'Underoverskriften får ikke plass på inndelingssliden.',
     nodeId: SECTION_SUBTITLE_NODE_ID,
     field: 'section-subtitle',
   },

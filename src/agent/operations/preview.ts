@@ -82,7 +82,7 @@ export interface SlidePreviewView {
 export const renderSlidePreviewOperation = defineOperation({
   name: 'render_slide_preview',
   summary:
-    'Rendre én side av dekket til et PNG-bilde med Slaids’ egen renderer, slik den vises for et publikum, og se på resultatet. Endrer ingenting. Over REST kommer bildet som binær respons (`Content-Type: image/png`); send `Accept: application/json` for konvolutten med bildet som base64. Over MCP kommer det som en image-blokk. `slideId` er en slide – vanlig eller seksjon, forsiden inkludert – eller en avledet referanseside.',
+    'Rendre én side av dekket til et PNG-bilde med Slaids’ egen renderer, slik den vises for et publikum, og se på resultatet. Endrer ingenting. Over REST kommer bildet som binær respons (`Content-Type: image/png`); send `Accept: application/json` for konvolutten med bildet som base64. Over MCP kommer det som en image-blokk. `slideId` er en slide – vanlig eller inndeling, forsiden inkludert – eller en avledet referanseside.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({

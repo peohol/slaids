@@ -29,7 +29,7 @@ import { useTypedSubstitution } from './useTypedSubstitution'
 /** What the author is told before a file becomes a slide. */
 export const INTERACTIVE_UPLOAD_NOTES: readonly string[] = [
   'Alt appen trenger må ligge i denne ene filen: HTML, CSS og JavaScript. Eksterne skript, stilark, fonter, bilder og tjenester er ikke støttet i denne versjonen.',
-  'Appen arver presentasjonens farger, fonter og mål. Den som skriver appen bruker Slaids\u2019 CSS-variabler, og da følger den temaet og seksjonen den ligger i.',
+  'Appen arver presentasjonens farger, fonter og mål. Den som skriver appen bruker Slaids\u2019 CSS-variabler, og da følger den temaet og inndelingen den ligger i.',
   'Appen kjører bare når noen trykker «Aktiver miniapp», og starter på nytt hver gang den avsluttes.',
   'Hele HTML-kilden følger med når presentasjonen deles.',
   'Aktiver bare filer du stoler på. Slaids sjekker at filen er en HTML-fil, ikke hva den gjør.',
@@ -108,8 +108,8 @@ export function NewInteractiveModal({
       onOpenChange={(next) => {
         if (!next) close()
       }}
-      title="Ny interaktiv slide"
-      description="En interaktiv slide viser én selvstendig miniapp fra én HTML-fil. Publikum ser en forside med navnet, og starter appen selv."
+      title="Ny miniapp"
+      description="En miniapp er én selvstendig app fra én HTML-fil. Publikum ser en forside med navnet, og starter appen selv."
       testId="new-interactive-modal"
       width={520}
       footer={

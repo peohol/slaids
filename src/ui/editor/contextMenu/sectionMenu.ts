@@ -41,7 +41,7 @@ export function sectionMenu(input: SectionMenuInput, handlers: TextMenuHandlers,
       if (picked) commit(id, (presentation) => set(presentation, section.id, picked))
     })
   return {
-    title: at ? FIELD_TITLES[at.field.kind] : input.isFront ? 'Forside' : 'Seksjon',
+    title: at ? FIELD_TITLES[at.field.kind] : input.isFront ? 'Forside' : 'Inndeling',
     entries: [
       ...(at ? [...textEntries(at, handlers), SEPARATOR] : []),
       color('section-accent', 'Aksentfarge', section.accentColor, setSectionAccentColor),

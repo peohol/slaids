@@ -259,7 +259,7 @@ function findSectionIssues(
     if (overflow <= FIT_TOLERANCE) continue
     issues.push({
       code: 'TITLE_DOES_NOT_FIT',
-      message: 'Teksten får ikke plass på seksjonssliden.',
+      message: 'Teksten får ikke plass på inndelingssliden.',
       slideId: section.id,
       nodeId: nodeIdOfKey(key),
       details: { overflow },

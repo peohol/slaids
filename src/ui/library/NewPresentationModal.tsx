@@ -65,7 +65,7 @@ export function NewPresentationModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Ny presentasjon"
-      description="Fontene gjelder hele presentasjonen. Bakgrunnsfargen setter forsiden, og arves av slidene fram til neste seksjon."
+      description="Fontene gjelder hele presentasjonen. Bakgrunnsfargen setter forsiden, og arves av slidene fram til neste inndeling."
       testId="new-presentation-modal"
       footer={
         <>

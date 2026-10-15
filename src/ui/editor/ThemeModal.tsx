@@ -86,7 +86,7 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Fonter, luft og skriftstørrelse gjelder hele presentasjonen. Farger velges per seksjon."
+      description="Fonter, luft og skriftstørrelse gjelder hele presentasjonen. Farger velges per inndeling."
       testId="theme-modal"
       width={560}
       footer={

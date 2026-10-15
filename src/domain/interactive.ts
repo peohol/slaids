@@ -209,7 +209,7 @@ function tooLarge(byteSize: number): Refusal | null {
   if (byteSize <= MAX_INTERACTIVE_HTML_BYTES) return null
   return err(
     'INTERACTIVE_HTML_TOO_LARGE',
-    `HTML-filen er ${formatByteSize(byteSize)}, som er mer enn grensen på ${formatByteSize(MAX_INTERACTIVE_HTML_BYTES)} per interaktiv slide.`,
+    `HTML-filen er ${formatByteSize(byteSize)}, som er mer enn grensen på ${formatByteSize(MAX_INTERACTIVE_HTML_BYTES)} per miniapp.`,
     { byteSize, maxByteSize: MAX_INTERACTIVE_HTML_BYTES },
   )
 }

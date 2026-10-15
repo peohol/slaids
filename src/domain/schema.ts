@@ -346,7 +346,7 @@ export const presentationSchema = z.object({
     .array(slideSchema)
     .min(1)
     .refine((slides) => slides[0]?.kind === 'section', {
-      message: 'Første slide må være en seksjon',
+      message: 'Første slide må være en inndeling',
     }),
   references: z.array(referenceSchema),
   sandbox: z.array(sandboxItemSchema),

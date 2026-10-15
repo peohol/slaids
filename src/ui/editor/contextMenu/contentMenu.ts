@@ -123,7 +123,7 @@ function verticalEntries(input: ContentMenuInput, subfieldId: string): MenuEntry
 /* A caption with no colour of its own reads its picture's title panel when
    there is one, and the section otherwise — as the inspector says. */
 function captionInherits(content: ZoneContent): string {
-  return content.kind === 'titled-image-card' ? 'fra tittelpanelet' : 'fra seksjonen'
+  return content.kind === 'titled-image-card' ? 'fra tittelpanelet' : 'fra inndelingen'
 }
 
 function captionPositionEntries(input: ContentMenuInput, content: ZoneContent, panel: ImagePanel): MenuEntry[] {
@@ -228,7 +228,7 @@ function cardSection(input: ContentMenuInput, handlers: ContentMenuHandlers, con
         'card-color',
         untitled ? 'Kortfarge' : 'Tittelfarge',
         untitled ? content.backgroundColor : content.headerColor,
-        untitled ? null : 'fra seksjonen',
+        untitled ? null : 'fra inndelingen',
         (color) => input.commit('card-color', (presentation) => setCardColor(presentation, { ...target, color })),
       ),
     )

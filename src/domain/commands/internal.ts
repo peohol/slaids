@@ -26,7 +26,7 @@ export function withSlides(presentation: Presentation, slides: readonly Slide[])
   if (!deckSlides) {
     return err(
       'FIRST_SLIDE_MUST_BE_SECTION',
-      'Første slide må være en seksjon, så presentasjonen alltid har en forside.',
+      'Første slide må være en inndeling, så presentasjonen alltid har en forside.',
     )
   }
   const overBudget = budgetRefusal(presentation, slides)

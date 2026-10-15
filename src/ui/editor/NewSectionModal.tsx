@@ -35,8 +35,8 @@ export function NewSectionModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Ny seksjon"
-      description="En seksjon åpner en del av dekket, og gir slidene etter seg farger og bakgrunn. Fargene arves fra forrige seksjon – du kan endre dem etterpå."
+      title="Ny inndeling"
+      description="En inndeling åpner en del av dekket, og gir slidene etter seg farger og bakgrunn. Fargene arves fra forrige inndeling – du kan endre dem etterpå."
       testId="new-section-modal"
       width={460}
       footer={
@@ -78,7 +78,7 @@ export function NewSectionModal({
           placeholder="F.eks. Resultater"
         />
         <p className="hint">
-          Underoverskriften er valgfri og skrives rett inn i plassholderen på seksjonssliden.
+          Underoverskriften er valgfri og skrives rett inn i plassholderen på inndelingssliden.
         </p>
       </div>
     </Modal>

@@ -64,7 +64,7 @@ function section(presentation: Presentation, slideId: string): Result<SectionSli
   const found = findSectionSlide(presentation, slideId)
   if (found) return ok(found)
   return presentation.slides.some((slide) => slide.id === slideId)
-    ? err('NOT_A_SECTION_SLIDE', 'Sliden er ikke en seksjon.')
+    ? err('NOT_A_SECTION_SLIDE', 'Sliden er ikke en inndeling.')
     : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
 }
 
@@ -75,7 +75,7 @@ function section(presentation: Presentation, slideId: string): Result<SectionSli
 export const addSectionOperation = defineOperation({
   name: 'add_section',
   summary:
-    'Legg til en seksjonsslide: en side med en stor overskrift og en valgfri underoverskrift i fargede piller. En seksjon åpner en del av dekket, og gir slidene etter seg – fram til neste seksjon – sin aksentfarge og sin bakgrunnsfarge. Fargene arves fra forrige seksjon når de ikke oppgis.',
+    'Legg til en inndelingsslide: en side med en stor overskrift og en valgfri underoverskrift i fargede piller. En inndeling åpner en del av dekket, og gir slidene etter seg – fram til neste inndeling – sin aksentfarge og sin bakgrunnsfarge. Fargene arves fra forrige inndeling når de ikke oppgis.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -86,19 +86,19 @@ export const addSectionOperation = defineOperation({
       .int()
       .min(0)
       .optional()
-      .describe('Posisjon i dekket. Utelatt legger seksjonen sist.'),
+      .describe('Posisjon i dekket. Utelatt legger inndelingen sist.'),
     title: sectionLineSchema.describe('Hovedoverskriften. Én linje, alltid midtstilt.'),
     subtitle: sectionLineSchema
       .optional()
-      .describe('Underoverskriften. Utelatt gir en seksjon med bare hovedoverskrift.'),
+      .describe('Underoverskriften. Utelatt gir en inndeling med bare hovedoverskrift.'),
     accentColor: z
       .string()
       .optional()
-      .describe('Hex-farge. Utelatt arver forrige seksjons aksentfarge.'),
+      .describe('Hex-farge. Utelatt arver forrige inndelings aksentfarge.'),
     backgroundColor: z
       .string()
       .optional()
-      .describe('Hex-farge. Utelatt arver forrige seksjons bakgrunnsfarge.'),
+      .describe('Hex-farge. Utelatt arver forrige inndelings bakgrunnsfarge.'),
   }),
   run(context, input): Promise<AgentResult<SectionView>> {
     return mutatePresentation(context, input, (presentation) => {
@@ -116,7 +116,7 @@ export const addSectionOperation = defineOperation({
       const before = new Set(presentation.slides.map((slide) => slide.id))
       const created = added.value.slides.find((slide) => !before.has(slide.id))
       if (!created || created.kind !== 'section') {
-        return err('INVALID_CONTENT', 'Seksjonen ble ikke lagt til.')
+        return err('INVALID_CONTENT', 'Inndelingen ble ikke lagt til.')
       }
       return ok({ presentation: added.value, value: sectionView(added.value, created) })
     })
@@ -130,7 +130,7 @@ export const addSectionOperation = defineOperation({
 export const setSectionOperation = defineOperation({
   name: 'set_section',
   summary:
-    'Sett overskrift og/eller underoverskrift på en seksjonsslide. Begge er alltid midtstilt, og avvises hvis de ikke får plass på én linje. En tom underoverskrift fjerner pillen, og overskriften står da midtstilt alene.',
+    'Sett overskrift og/eller underoverskrift på en inndelingsslide. Begge er alltid midtstilt, og avvises hvis de ikke får plass på én linje. En tom underoverskrift fjerner pillen, og overskriften står da midtstilt alene.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -172,7 +172,7 @@ export const setSectionOperation = defineOperation({
 export const setSectionColorsOperation = defineOperation({
   name: 'set_section_colors',
   summary:
-    'Sett aksentfargen og/eller bakgrunnsfargen på en seksjonsslide. Begge gjelder seksjonen og slidene etter den, fram til neste seksjon: aksentfargen maler pillene her og alle overskrifter, kortheadere og bildetekster uten egen farge; bakgrunnsfargen er sidefargen. Overskrifter som har fått en egen farge, beholder den.',
+    'Sett aksentfargen og/eller bakgrunnsfargen på en inndelingsslide. Begge gjelder inndelingen og slidene etter den, fram til neste inndeling: aksentfargen maler pillene her og alle overskrifter, kortheadere og bildetekster uten egen farge; bakgrunnsfargen er sidefargen. Overskrifter som har fått en egen farge, beholder den.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

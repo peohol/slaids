@@ -341,32 +341,73 @@
 }
 
 /*
- * The two ways to add a page, side by side.
+ * The three ways to add a page, on one row.
  *
- * A new slide and a new section are different things, so they are two buttons
- * rather than one with a menu — and they share the row evenly, because neither
- * is the exception. The strip is narrow, so the labels are kept on one line and
- * the padding gives way before the text does.
+ * A new slide, a new section and a new miniapp are different things, so they
+ * are three doors rather than one with a menu — each an icon that says which,
+ * with its name in the tooltip, so all three fit the narrow strip side by side.
  */
 .filmstrip__footer {
-  padding: 10px;
+  padding: 6px 10px;
   border-top: 1px solid var(--chrome-border);
   display: flex;
-  flex-wrap: wrap;
+  justify-content: space-around;
   gap: 6px;
 }
 
-.filmstrip__footer .btn {
-  flex: 1;
-  min-width: 0;
-  padding-inline: 8px;
-  justify-content: center;
-  white-space: nowrap;
+/*
+ * The slot an entry sits in: what a reorder moves, and what holds the gap
+ * above the entry — the entry clips, so the gap cannot live inside it.
+ */
+.filmstrip__slot {
+  position: relative;
+  --insert-open-room: 36px;
 }
 
-/* The third door takes a row of its own, under the two it is not one of. */
-.filmstrip__footer .btn--interactive {
-  flex-basis: 100%;
+/*
+ * The gap between two slides, as a place to put a page.
+ *
+ * It covers exactly the strip's gap — `--strip-gap`, set from `STRIP_GAP` — and
+ * lights up the moment the pointer is in it. Opened, the entry below moves
+ * down to make room, and the gap grows with it, so the pointer that opened it
+ * is still in it.
+ */
+.filmstrip-insert {
+  --insert-room: 0px;
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--strip-gap));
+  height: calc(var(--strip-gap) + var(--insert-room));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition:
+    height 180ms ease,
+    background-color 120ms ease;
+}
+
+.filmstrip-insert:hover,
+.filmstrip-insert[data-open] {
+  background: color-mix(in srgb, var(--chrome-accent) 22%, transparent);
+}
+
+.filmstrip-insert[data-open] {
+  --insert-room: var(--insert-open-room);
+}
+
+.filmstrip__slot > .filmstrip__item {
+  transition: margin-top 180ms ease;
+}
+
+.filmstrip-insert[data-open] + .filmstrip__item {
+  margin-top: var(--insert-open-room);
+}
+
+.filmstrip-insert__button {
+  border-radius: 999px;
+  background: var(--chrome-bg-raised);
+  border-color: var(--chrome-border-strong);
 }
 
 /* ----------------------------------------------------------------- *
@@ -2482,21 +2523,8 @@
   box-shadow: 0 0 0 2px var(--chrome-accent);
 }
 
-/*
- * The three doors, side by side.
- *
- * The strip is a narrow column and gives the interactive slide a row of its
- * own; an overview is as wide as the screen, and the height a second row would
- * cost is exactly the height a landscape phone has to give the pages.
- */
 .filmstrip[data-overview] .filmstrip__footer {
   padding: 6px;
-  gap: 6px;
-  flex-wrap: nowrap;
-}
-
-.filmstrip[data-overview] .filmstrip__footer .btn--interactive {
-  flex-basis: 0;
 }
 
 /* The list of text on the page: the portrait workspace's main surface. */
