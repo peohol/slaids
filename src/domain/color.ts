@@ -3,7 +3,8 @@
  *
  * The palette is intentionally small: 12 hues x 4 lightness steps at a fixed
  * saturation, plus black and white. Text colour is never chosen by hand — it is
- * derived from the background by contrast.
+ * derived from the background's lightness, so every swatch in a palette row
+ * gets the same text colour.
  */
 
 export const PALETTE_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
@@ -93,9 +94,19 @@ export function contrastRatio(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-/** Black or white, whichever has the higher contrast against `background`. */
+/** HSL lightness (0..100) — the same scale the palette rows are built on. */
+export function hslLightness(hex: string): number {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return 0
+  return ((Math.max(rgb.r, rgb.g, rgb.b) + Math.min(rgb.r, rgb.g, rgb.b)) / 2 / 255) * 100
+}
+
+/** Backgrounds darker than this get white text; the rest get black. */
+export const TEXT_LIGHTNESS_THRESHOLD = 50
+
+/** White on dark backgrounds, black on light ones, judged by lightness alone. */
 export function bestTextColor(background: string): string {
-  return contrastRatio(background, BLACK) >= contrastRatio(background, WHITE) ? BLACK : WHITE
+  return hslLightness(background) < TEXT_LIGHTNESS_THRESHOLD ? WHITE : BLACK
 }
 
 /** Decorative only — legibility never depends on the shadow. */

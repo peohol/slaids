@@ -2149,7 +2149,7 @@ Forslag fra visjonen:
 - lightness: `20%, 40%, 60%, 80%`;
 - samt svart og hvitt.
 
-Tekst på bakgrunn velges mellom svart og hvitt ved å beregne kontrast og velge alternativet med høyest kontrast.
+Tekst på bakgrunn velges mellom svart og hvitt ut fra bakgrunnens lyshet (HSL-lightness) alene: under 50 % gir hvit tekst, ellers svart. Alle farger på samme palettrad har samme lyshet og får derfor samme tekstfarge – rad 1–2 hvit, rad 3–4 svart.
 
 Tekstskygge kan brukes dekorativt på mørke bakgrunner, men skal ikke være forutsetningen for lesbarhet.
 
