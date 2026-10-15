@@ -47,7 +47,7 @@ export function SectionInspector({ section }: { section: SectionSlide }) {
         />
         <p className="hint">
           Fargen på pillene her, og standardfargen for overskrifter, kortheadere og
-          bildetekster på slidene fram til neste seksjon. De du har gitt en egen farge,
+          bildetekster på slidene fram til neste inndeling. De du har gitt en egen farge,
           beholder den.
         </p>
       </section>
@@ -63,7 +63,7 @@ export function SectionInspector({ section }: { section: SectionSlide }) {
           }
         />
         <p className="hint">
-          Bakgrunnen på denne siden og på slidene fram til neste seksjon.
+          Bakgrunnen på denne siden og på slidene fram til neste inndeling.
         </p>
       </section>
     </aside>

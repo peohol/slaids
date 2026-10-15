@@ -78,7 +78,7 @@ export function NewSectionModal({
           placeholder="F.eks. Resultater"
         />
         <p className="hint">
-          Underoverskriften er valgfri og skrives rett inn i plassholderen på seksjonssliden.
+          Underoverskriften er valgfri og skrives rett inn i plassholderen på inndelingssliden.
         </p>
       </div>
     </Modal>
