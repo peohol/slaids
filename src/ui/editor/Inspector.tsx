@@ -23,12 +23,15 @@ import {
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme } from '../../domain/metrics'
+import { panelFrame } from '../../domain/imageOptimization'
+import { aspectRatioLabel } from '../../domain/imagePlan'
+import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
 import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
 import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
+import { CopyTextButton } from '../components/CopyTextButton'
 import { Icon } from '../components/Icon'
 import { formatBytes, formatPixels } from '../format'
 import { contentKindOptions } from './contentKinds'
@@ -68,6 +71,12 @@ export function Inspector({
   const file = panel?.assetId ? (assets?.find((asset) => asset.id === panel.assetId) ?? null) : null
   const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
+  // Measured the way the image brief measures it — the picture's own frame,
+  // a titled card's header removed — so the ratio copied here is the one the
+  // prompt for this zone would print.
+  const aspectRatio = rect
+    ? aspectRatioLabel(content ? panelFrame(content, rect, themeMetrics(theme).cardHeaderHeight) : rect)
+    : null
   /* Which split the size controls act on: the selected one, or the one the
      selected zone is a child of. A root leaf belongs to neither and gets none. */
   const splitContext = splitContextFor(slide, selectedNodeId)
@@ -127,6 +136,13 @@ export function Inspector({
             <span className="hint" data-testid="inspector-size">
               {Math.round(rect.width)} × {Math.round(rect.height)} px
             </span>
+            {aspectRatio && (
+              <CopyTextButton
+                text={aspectRatio}
+                tooltip="Kopier sideforholdet"
+                testId="inspector-aspect-ratio"
+              />
+            )}
           </div>
         )}
         <div className="inspector__actions">
