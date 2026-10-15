@@ -475,8 +475,31 @@ function holdDepositBreak(
 }
 
 /**
- * Selection can point at a node that a command removed. Fall back to the slide
- * root rather than leaving a stale id behind.
+ * The page to land on when the current one is gone: the nearest one before it
+ * that is still there.
+ *
+ * Deleting the page you are on — or undoing the one you just added — should
+ * leave you where you were in the deck, not send you back to the front page.
+ * Only when nothing before it survived is the deck's first page the answer.
+ */
+function survivingNeighbour(
+  previous: Presentation | null,
+  next: Presentation,
+  slideId: string | null,
+): Slide {
+  const slides = previous?.slides ?? []
+  const index = slides.findIndex((slide) => slide.id === slideId)
+  for (let at = index - 1; at >= 0; at -= 1) {
+    const survivor = findSlide(next, slides[at].id)
+    if (survivor) return survivor
+  }
+  return next.slides[0]
+}
+
+/**
+ * Selection can point at a slide or a node that a command removed. Fall back to
+ * the slide before it, and to the slide root, rather than leaving a stale id
+ * behind.
  */
 function reconcileSelection(
   presentation: Presentation,
@@ -484,7 +507,7 @@ function reconcileSelection(
 ): Partial<EditorStore> {
   const slide =
     (state.currentSlideId ? findSlide(presentation, state.currentSlideId) : null) ??
-    presentation.slides[0]
+    survivingNeighbour(state.presentation, presentation, state.currentSlideId)
 
   const patch: Partial<EditorStore> = {}
   if (slide.id !== state.currentSlideId) patch.currentSlideId = slide.id
