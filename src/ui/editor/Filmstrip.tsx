@@ -240,16 +240,15 @@ function SlideThumb({
   })
 
   return (
-    // The slot is what moves when slides are reordered, and what holds the gap
-    // above the entry: the entry itself clips, and the gap is outside it.
-    <div
-      ref={setNodeRef}
-      className="filmstrip__slot"
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-    >
+    // The slot is what the sort measures, and what holds the gap above the
+    // entry: the entry itself clips, and the gap is outside it. The entry is
+    // what is drawn moving — no gap is offered while a slide is dragged, so the
+    // two are the same box whenever there is a transform to apply.
+    <div ref={setNodeRef} className="filmstrip__slot">
       {insert}
       <div
         className={active ? 'filmstrip__item filmstrip__item--active' : 'filmstrip__item'}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
         data-testid="filmstrip-item"
         data-slide-id={slide.id}
         data-page-id={slide.id}
