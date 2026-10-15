@@ -4,9 +4,10 @@ import { acceptsInlineImage } from './SlaidsImageExtension'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { alignmentIsActive, bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
-import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
+import { DEFAULT_TEXT_ALIGN, type AlignableBlock } from '../../domain/constants'
 import { RichDocView } from '../slide/RichDocView'
 import { dropAssetIds } from '../../domain/docs'
+import type { DocField } from '../../domain/richdoc'
 import { containerWithDoc } from '../../domain/content'
 import { createLeaf } from '../../domain/layout'
 import { createPresentation } from '../../domain/presentation'
@@ -175,10 +176,10 @@ describe('subscript and superscript: everywhere text can be typed', () => {
 describe('alignment: what is stored versus what is drawn', () => {
   const mounted: { editor: Editor; element: HTMLElement }[] = []
 
-  function editorWith(content: RichDoc): Editor {
+  function editorWith(content: RichDoc, extensions: Extensions = bodyExtensions({})): Editor {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    const editor = new Editor({ element, extensions: bodyExtensions({}), content })
+    const editor = new Editor({ element, extensions, content })
     mounted.push({ editor, element })
     return editor
   }
@@ -190,68 +191,90 @@ describe('alignment: what is stored versus what is drawn', () => {
     }
   })
 
-  const unaligned: RichDoc = {
-    type: 'doc',
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hei' }] }],
+  function docOfOne(type: string): RichDoc {
+    return { type: 'doc', content: [{ type, content: [{ type: 'text', text: 'Hei' }] }] }
   }
 
-  /** The alignment a paragraph of the emitted document actually carries. */
+  /**
+   * Every kind of block that stores an alignment as text, in the field it is
+   * written in. Each is drawn with its own kind's default when it stores none,
+   * so every rule below has to hold for each of them, whatever the defaults are.
+   */
+  const KINDS: { name: string; block: AlignableBlock; doc: RichDoc; field: DocField; extensions: () => Extensions }[] = [
+    { name: 'running text', block: 'text', doc: docOfOne('paragraph'), field: 'body', extensions: () => bodyExtensions({}) },
+    { name: 'an accent', block: 'accent', doc: docOfOne('heading'), field: 'body', extensions: () => bodyExtensions({}) },
+    { name: 'a title', block: 'title', doc: docOfOne('paragraph'), field: 'title', extensions: () => titleExtensions() },
+  ]
+
+  /** The alignment the first block of the emitted document actually carries. */
   function storedAlign(editor: Editor): unknown {
     const doc = editor.getJSON() as RichDoc
     return doc.content?.[0]?.attrs?.textAlign
   }
 
-  it('leaves an unaligned paragraph unaligned after it is edited', () => {
-    // The whole point of the default living in one constant is that it can be
-    // moved later without rewriting documents — which only holds if absent
-    // stays absent. A schema default would not: ProseMirror fills it into
-    // every node and `getJSON` writes it straight back out, so the first
-    // keystroke in an old field would freeze today's default into it forever.
-    const editor = editorWith(unaligned)
-    expect(storedAlign(editor)).toBeNull()
+  describe.each(KINDS)('$name', ({ block, doc, field, extensions }) => {
+    const fallback = DEFAULT_TEXT_ALIGN[block]
+    const other = (['left', 'center', 'right'] as const).find((value) => value !== fallback)!
 
-    editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'x')
-    expect(editor.getText()).toBe('Heix')
-    expect(storedAlign(editor)).toBeNull()
+    it('stays unaligned after it is edited', () => {
+      // The whole point of the default living in one constant is that it can be
+      // moved later without rewriting documents — which only holds if absent
+      // stays absent. A schema default would not: ProseMirror fills it into
+      // every node and `getJSON` writes it straight back out, so the first
+      // keystroke in an old field would freeze today's default into it forever.
+      const editor = editorWith(doc, extensions())
+      expect(storedAlign(editor)).toBeNull()
+
+      editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'x')
+      expect(editor.getText()).toBe('Heix')
+      expect(storedAlign(editor)).toBeNull()
+    })
+
+    it('stores an alignment somebody picked, the default one included', () => {
+      // Default-by-absence and the same value on purpose are two different
+      // documents: the first follows the default wherever it goes, the second
+      // does not.
+      const editor = editorWith(doc, extensions())
+      editor.commands.setTextAlign(fallback)
+      expect(storedAlign(editor)).toBe(fallback)
+
+      editor.commands.setTextAlign(other)
+      expect(storedAlign(editor)).toBe(other)
+
+      // And taking the choice back stores nothing again, rather than a third
+      // state that means the same as the first.
+      editor.commands.unsetTextAlign()
+      expect(storedAlign(editor)).toBeNull()
+    })
+
+    it('is drawn with its own default by both renderers when it stores nothing', () => {
+      // Both renderers write the same inline style, so one stylesheet can place a
+      // heading pill and a picture — which are positioned by `margin-inline`
+      // through selectors that read it — without knowing which one drew them.
+      const editor = editorWith(doc, extensions())
+      expect(editor.getHTML()).toContain(`text-align: ${fallback}`)
+      expect(renderToStaticMarkup(createElement(RichDocView, { doc, field }))).toContain(`text-align:${fallback}`)
+    })
+
+    it('lights up the button for the alignment it is drawn with', () => {
+      // The toolbar says what is on screen, not what is in the file: a block
+      // nobody aligned reads as aligned the way its default draws it.
+      const editor = editorWith(doc, extensions())
+      expect(alignmentIsActive(editor, fallback)).toBe(true)
+      expect(alignmentIsActive(editor, other)).toBe(false)
+
+      editor.commands.setTextAlign(other)
+      expect(alignmentIsActive(editor, other)).toBe(true)
+      expect(alignmentIsActive(editor, fallback)).toBe(false)
+    })
   })
 
-  it('stores an alignment somebody picked, the default one included', () => {
-    // Centred-by-default and centred-on-purpose are two different documents:
-    // the first follows the default wherever it goes, the second does not.
-    const editor = editorWith(unaligned)
-    editor.commands.setTextAlign(DEFAULT_TEXT_ALIGN)
-    expect(storedAlign(editor)).toBe(DEFAULT_TEXT_ALIGN)
-
-    editor.commands.setTextAlign('right')
-    expect(storedAlign(editor)).toBe('right')
-
-    // And taking the choice back stores nothing again, rather than a third
-    // state that means the same as the first.
-    editor.commands.unsetTextAlign()
-    expect(storedAlign(editor)).toBeNull()
-  })
-
-  it('draws the default for a paragraph that stores nothing', () => {
-    // Both renderers write the same inline style, so one stylesheet can place a
-    // heading pill and a picture — which are positioned by `margin-inline`
-    // through selectors that read it — without knowing which one drew them.
-    const editor = editorWith(unaligned)
-    expect(editor.getHTML()).toContain(`text-align: ${DEFAULT_TEXT_ALIGN}`)
-    expect(renderToStaticMarkup(createElement(RichDocView, { doc: unaligned }))).toContain(
-      `text-align:${DEFAULT_TEXT_ALIGN}`,
-    )
-  })
-
-  it('lights up the button for the alignment the text is drawn with', () => {
-    // A block nobody aligned is drawn centred, so the centre button has to read
-    // as pressed: the toolbar says what is on screen, not what is in the file.
-    const editor = editorWith(unaligned)
-    expect(alignmentIsActive(editor, DEFAULT_TEXT_ALIGN)).toBe(true)
-    expect(alignmentIsActive(editor, 'right')).toBe(false)
-
-    editor.commands.setTextAlign('right')
-    expect(alignmentIsActive(editor, 'right')).toBe(true)
-    expect(alignmentIsActive(editor, DEFAULT_TEXT_ALIGN)).toBe(false)
+  it('reads running text from the left, and sets titles and accents apart in the middle', () => {
+    // The product decision itself, stated once: the defaults above are free to
+    // be anything, but these are the ones a new field starts from.
+    expect(DEFAULT_TEXT_ALIGN.text).toBe('left')
+    expect(DEFAULT_TEXT_ALIGN.accent).toBe('center')
+    expect(DEFAULT_TEXT_ALIGN.title).toBe('center')
   })
 })
 

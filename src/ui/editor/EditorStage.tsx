@@ -736,7 +736,7 @@ export function EditorStage({
                     }
                   />
                 ) : (
-                  slide.title && <RichDocView doc={slide.title} className="rich-doc--title" />
+                  slide.title && <RichDocView doc={slide.title} className="rich-doc--title" field="title" />
                 )}
               </div>
             )}

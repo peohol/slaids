@@ -147,7 +147,7 @@ export function SectionPageView({ section }: { section: SectionSlide }) {
       backgroundColor={colors.background}
       lines={lines}
       renderLine={(line) => (
-        <RichDocView doc={sectionLineDoc(section, line)} className="rich-doc--title" />
+        <RichDocView doc={sectionLineDoc(section, line)} className="rich-doc--title" field="title" />
       )}
     />
   )

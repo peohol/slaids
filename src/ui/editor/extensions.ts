@@ -8,12 +8,13 @@
 
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
-import TextAlign from '@tiptap/extension-text-align'
+import TextAlign, { type TextAlignOptions } from '@tiptap/extension-text-align'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import { Placeholder } from '@tiptap/extensions'
 import { bestTextColor } from '../../domain/color'
 import { DEFAULT_TEXT_ALIGN } from '../../domain/constants'
+import { ACCENT_NODE, alignableBlockOf, drawnAlign, IMAGE_NODE, type DocField } from '../../domain/richdoc'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import type { Editor, Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
@@ -122,24 +123,34 @@ export type Alignment = (typeof ALIGNMENTS)[number]
  * are placed by `margin-inline` through selectors that read the inline style. A
  * centred pill would sit at the left while it was being edited and centred
  * everywhere else.
+ *
+ * What "absent" is drawn as depends on the block — running text, an accent and
+ * a picture have different defaults, and a title has its own — so the
+ * attribute is declared once per node type, each rendering its own type's
+ * default, rather than once for all of them as Tiptap does. `field` says
+ * whether this is a body field or a title.
  */
-const SlaidsTextAlign = TextAlign.extend({
+interface SlaidsTextAlignOptions extends TextAlignOptions {
+  field: DocField
+}
+
+const SlaidsTextAlign = TextAlign.extend<SlaidsTextAlignOptions>({
+  addOptions() {
+    return { ...(this.parent?.() as TextAlignOptions), field: 'body' }
+  },
   addGlobalAttributes() {
-    return (this.parent?.() ?? []).map((group) => ({
-      ...group,
+    const { types, field } = this.options
+    return types.map((type) => ({
+      types: [type],
       attributes: {
-        ...group.attributes,
         textAlign: {
-          ...(group.attributes as Record<string, object>).textAlign,
           default: null,
           parseHTML: (element: HTMLElement) => {
             const value = element.style.textAlign
             return (ALIGNMENTS as readonly string[]).includes(value) ? value : null
           },
           renderHTML: (attributes: Record<string, unknown>) => ({
-            style: `text-align: ${
-              typeof attributes.textAlign === 'string' ? attributes.textAlign : DEFAULT_TEXT_ALIGN
-            }`,
+            style: `text-align: ${drawnAlign(attributes.textAlign, alignableBlockOf(type, field))}`,
           }),
         },
       },
@@ -156,21 +167,28 @@ const SlaidsTextAlign = TextAlign.extend({
  * Passing it here would only set the schema default this extension exists to
  * keep at `null`.
  */
-function textAlignFor(types: string[]) {
-  return SlaidsTextAlign.configure({ types, alignments: [...ALIGNMENTS] })
+function textAlignFor(types: string[], field: DocField) {
+  return SlaidsTextAlign.configure({ types, alignments: [...ALIGNMENTS], field })
 }
 
 /**
  * Whether the caret sits in a block that is drawn with this alignment.
  *
  * Not the same question as "does it store this alignment": a block nobody has
- * aligned stores nothing and is drawn with `DEFAULT_TEXT_ALIGN`, so the toolbar
- * has to light that button up — it says what the text on screen looks like, and
- * the button and the slide would otherwise disagree.
+ * aligned stores nothing and is drawn with its kind's `DEFAULT_TEXT_ALIGN`, so
+ * the toolbar has to light that button up — it says what the text on screen
+ * looks like, and the button and the slide would otherwise disagree.
  */
 export function alignmentIsActive(editor: Editor, value: Alignment): boolean {
   if (editor.isActive({ textAlign: value })) return true
-  return value === DEFAULT_TEXT_ALIGN && editor.isActive({ textAlign: null })
+  const options = editor.extensionManager.extensions.find((extension) => extension.name === SlaidsTextAlign.name)
+    ?.options as SlaidsTextAlignOptions | undefined
+  if (!options) return false
+  return options.types.some(
+    (type) =>
+      DEFAULT_TEXT_ALIGN[alignableBlockOf(type, options.field)] === value &&
+      editor.isActive(type, { textAlign: null }),
+  )
 }
 
 /**
@@ -247,7 +265,7 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     // three paragraphs and a caret in one aligns that one. An image is a block
     // among the others, and is aligned the same way — it is narrower than the
     // column it sits in, so where it sits is a decision to make.
-    textAlignFor(['paragraph', 'heading', 'slaidsImage']),
+    textAlignFor(['paragraph', ACCENT_NODE, IMAGE_NODE], 'body'),
     CitationExtension,
     SlaidsImageExtension,
     PlainPasteExtension,
@@ -287,7 +305,7 @@ export function titleExtensions(placeholder?: string, variant: TitleVariant = 's
     Placeholder.configure({ placeholder: placeholder ?? '' }),
     // A title is one paragraph, but it is still a paragraph: the same alignment
     // attribute, so a title reads the same in the editor and on the slide.
-    ...(cover ? [] : [textAlignFor(['paragraph'])]),
+    ...(cover ? [] : [textAlignFor(['paragraph'], 'title')]),
     StarterKit.configure({
       heading: false,
       bold: false,

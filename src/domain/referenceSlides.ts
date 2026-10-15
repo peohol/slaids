@@ -38,9 +38,8 @@ function entryParagraph(entry: ReferenceEntry): RichNode {
     })
   }
   if (!entry.label && !entry.url) children.push({ type: 'text', text: '' })
-  // Explicit rather than left implicit, since an unaligned paragraph draws
-  // centered — see `DEFAULT_TEXT_ALIGN`. A bibliography is a list, and a list
-  // reads left-justified regardless of the deck's default alignment.
+  // Explicit rather than left implicit: a bibliography is a list, and a list
+  // reads left-justified whatever `DEFAULT_TEXT_ALIGN` says about text.
   return { type: 'paragraph', attrs: { textAlign: 'left' }, content: children }
 }
 

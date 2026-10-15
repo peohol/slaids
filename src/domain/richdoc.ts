@@ -10,6 +10,7 @@ import {
   DEFAULT_TEXT_ALIGN,
   INLINE_IMAGE_MAX_WIDTH_PERCENT,
   INLINE_IMAGE_MIN_WIDTH_PERCENT,
+  type AlignableBlock,
 } from './constants'
 import type { RichDoc, RichNode, TextAlign, TitleDoc } from './types'
 
@@ -69,20 +70,31 @@ export interface InlineImage {
   align: TextAlign | null
 }
 
+/** Which kind of document a block sits in: a body field, or a one-line title. */
+export type DocField = 'body' | 'title'
+
+/** Which default an unaligned block of this node type, in this kind of document, is drawn with. */
+export function alignableBlockOf(nodeType: string | undefined, field: DocField): AlignableBlock {
+  if (field === 'title') return 'title'
+  if (nodeType === ACCENT_NODE) return 'accent'
+  if (nodeType === IMAGE_NODE) return 'image'
+  return 'text'
+}
+
 /**
- * The alignment a block is *drawn* with: its own, or the default when it stores
- * none.
+ * The alignment a block is *drawn* with: its own, or its kind's default when it
+ * stores none.
  *
  * Separate from what a block stores, and deliberately the only place the two
  * meet. Every renderer resolves absent through here — the static one, the
- * editor's picture node view, and the fit measurement that reads the same
- * markup — so a block nobody aligned cannot end up drawn one way while it is
- * edited and another way on the slide. What is *stored* stays untouched: that
- * is what the agent's text format reports, and what lets the default move
+ * editor's markup and picture node view, and the fit measurement that reads the
+ * same markup — so a block nobody aligned cannot end up drawn one way while it
+ * is edited and another way on the slide. What is *stored* stays untouched:
+ * that is what the agent's text format reports, and what lets the default move
  * later without rewriting a single document.
  */
-export function drawnAlign(align: TextAlign | null | undefined): TextAlign {
-  return align === 'left' || align === 'center' || align === 'right' ? align : DEFAULT_TEXT_ALIGN
+export function drawnAlign(align: unknown, block: AlignableBlock): TextAlign {
+  return align === 'left' || align === 'center' || align === 'right' ? align : DEFAULT_TEXT_ALIGN[block]
 }
 
 export function imageNode(

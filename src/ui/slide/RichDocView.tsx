@@ -9,8 +9,8 @@
 import { Fragment, type ReactNode } from 'react'
 import { citationLabel } from '../../domain/references'
 import { bestTextColor } from '../../domain/color'
-import { drawnAlign, inlineImageOf } from '../../domain/richdoc'
-import type { RichDoc, RichMark, RichNode, TextAlign } from '../../domain/types'
+import { alignableBlockOf, drawnAlign, inlineImageOf, type DocField } from '../../domain/richdoc'
+import type { RichDoc, RichMark, RichNode } from '../../domain/types'
 import { useSlideRender } from './SlideRenderContext'
 import { InlineAssetImage } from './AssetImage'
 
@@ -87,7 +87,7 @@ function SlaidsImage({ node }: { node: RichNode }) {
         {
           width: `${image.widthPercent}%`,
           '--slaids-image-aspect': image.aspect === null ? undefined : String(image.aspect),
-          textAlign: drawnAlign(image.align),
+          textAlign: drawnAlign(image.align, 'image'),
         } as React.CSSProperties
       }
     >
@@ -105,16 +105,16 @@ function SlaidsImage({ node }: { node: RichNode }) {
  * written out with the default here too, never left bare. `drawnAlign` is the
  * one place absent becomes a value.
  */
-function alignStyle(node: RichNode): React.CSSProperties {
-  return { textAlign: drawnAlign(node.attrs?.textAlign as TextAlign | undefined) }
+function alignStyle(node: RichNode, field: DocField): React.CSSProperties {
+  return { textAlign: drawnAlign(node.attrs?.textAlign, alignableBlockOf(node.type, field)) }
 }
 
-function renderNodes(nodes: RichNode[] | undefined): ReactNode {
+function renderNodes(nodes: RichNode[] | undefined, field: DocField): ReactNode {
   if (!nodes) return null
-  return nodes.map((node, index) => <RichNodeView key={index} node={node} />)
+  return nodes.map((node, index) => <RichNodeView key={index} node={node} field={field} />)
 }
 
-function RichNodeView({ node }: { node: RichNode }): ReactNode {
+function RichNodeView({ node, field }: { node: RichNode; field: DocField }): ReactNode {
   switch (node.type) {
     case 'text':
       return <Fragment>{applyMarks(node, node.text ?? '')}</Fragment>
@@ -122,8 +122,8 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
       return <br />
     case 'paragraph':
       return (
-        <p className="rd-p" style={alignStyle(node)}>
-          {renderNodes(node.content) ?? <br />}
+        <p className="rd-p" style={alignStyle(node, field)}>
+          {renderNodes(node.content, field) ?? <br />}
         </p>
       )
     /*
@@ -140,25 +140,25 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
           className="rd-heading"
           style={{
             ...(color ? { background: color, color: bestTextColor(color) } : null),
-            ...alignStyle(node),
+            ...alignStyle(node, field),
           }}
         >
-          {renderNodes(node.content)}
+          {renderNodes(node.content, field)}
         </h1>
       )
     }
     case 'bulletList':
-      return <ul className="rd-ul">{renderNodes(node.content)}</ul>
+      return <ul className="rd-ul">{renderNodes(node.content, field)}</ul>
     case 'orderedList':
-      return <ol className="rd-ol">{renderNodes(node.content)}</ol>
+      return <ol className="rd-ol">{renderNodes(node.content, field)}</ol>
     case 'listItem':
-      return <li className="rd-li">{renderNodes(node.content)}</li>
+      return <li className="rd-li">{renderNodes(node.content, field)}</li>
     case 'blockquote':
-      return <blockquote className="rd-quote">{renderNodes(node.content)}</blockquote>
+      return <blockquote className="rd-quote">{renderNodes(node.content, field)}</blockquote>
     case 'codeBlock':
       return (
         <pre className="rd-pre">
-          <code>{renderNodes(node.content)}</code>
+          <code>{renderNodes(node.content, field)}</code>
         </pre>
       )
     case 'horizontalRule':
@@ -170,24 +170,37 @@ function RichNodeView({ node }: { node: RichNode }): ReactNode {
     case 'table':
       return (
         <table className="rd-table">
-          <tbody>{renderNodes(node.content)}</tbody>
+          <tbody>{renderNodes(node.content, field)}</tbody>
         </table>
       )
     case 'tableRow':
-      return <tr>{renderNodes(node.content)}</tr>
+      return <tr>{renderNodes(node.content, field)}</tr>
     case 'tableHeader':
-      return <th className="rd-th">{renderNodes(node.content)}</th>
+      return <th className="rd-th">{renderNodes(node.content, field)}</th>
     case 'tableCell':
-      return <td className="rd-td">{renderNodes(node.content)}</td>
+      return <td className="rd-td">{renderNodes(node.content, field)}</td>
     default:
-      return <Fragment>{renderNodes(node.content)}</Fragment>
+      return <Fragment>{renderNodes(node.content, field)}</Fragment>
   }
 }
 
-export function RichDocView({ doc, className }: { doc: RichDoc; className?: string }) {
+/**
+ * `field` says which defaults an unaligned block is drawn with: a body field's,
+ * or a title's — the one line of a slide title, a card title, a caption or a
+ * section, which is centred where running text is not.
+ */
+export function RichDocView({
+  doc,
+  className,
+  field = 'body',
+}: {
+  doc: RichDoc
+  className?: string
+  field?: DocField
+}) {
   return (
     <div className={className ? `rich-doc ${className}` : 'rich-doc'}>
-      {renderNodes(doc.content)}
+      {renderNodes(doc.content, field)}
     </div>
   )
 }
