@@ -104,9 +104,19 @@ export function hslLightness(hex: string): number {
 /** Backgrounds darker than this get white text; the rest get black. */
 export const TEXT_LIGHTNESS_THRESHOLD = 50
 
-/** White on dark backgrounds, black on light ones, judged by lightness alone. */
+/** WCAG AA for large text. Every palette colour clears it by lightness alone. */
+export const MIN_TEXT_CONTRAST = 3
+
+/**
+ * White on dark backgrounds, black on light ones, judged by lightness — so a
+ * palette row shares one text colour. Saturated colours outside the palette can
+ * mislead lightness (pure blue sits at 50 %); when the pick falls below
+ * {@link MIN_TEXT_CONTRAST}, the other colour is used, which then clears 7:1.
+ */
 export function bestTextColor(background: string): string {
-  return hslLightness(background) < TEXT_LIGHTNESS_THRESHOLD ? WHITE : BLACK
+  const byLightness = hslLightness(background) < TEXT_LIGHTNESS_THRESHOLD ? WHITE : BLACK
+  if (contrastRatio(background, byLightness) >= MIN_TEXT_CONTRAST) return byLightness
+  return byLightness === WHITE ? BLACK : WHITE
 }
 
 /** Decorative only — legibility never depends on the shadow. */
