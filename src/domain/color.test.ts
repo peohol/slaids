@@ -6,7 +6,11 @@ import {
   bestTextColor,
   buildPalette,
   contrastRatio,
+  hslLightness,
   hslToHex,
+  MIN_TEXT_CONTRAST,
+  PALETTE_HUES,
+  PALETTE_LIGHTNESS,
   isDarkColor,
   normalizeHex,
   relativeLuminance,
@@ -53,7 +57,20 @@ describe('contrast', () => {
     expect(relativeLuminance(BLACK)).toBeCloseTo(0, 5)
   })
 
-  it('picks the higher-contrast text colour', () => {
+  it('derives HSL lightness from hex', () => {
+    expect(hslLightness(BLACK)).toBe(0)
+    expect(hslLightness(WHITE)).toBe(100)
+    for (const l of PALETTE_LIGHTNESS) expect(hslLightness(hslToHex(90, 25, l))).toBeCloseTo(l, 0)
+  })
+
+  it('gives every swatch in a palette row the same text colour, chosen by lightness', () => {
+    expect(PALETTE[0].map(bestTextColor)).toEqual(PALETTE[0].map(() => WHITE))
+    expect(PALETTE[1].map(bestTextColor)).toEqual(PALETTE[1].map(() => WHITE))
+    expect(PALETTE[2].map(bestTextColor)).toEqual(PALETTE[2].map(() => BLACK))
+    expect(PALETTE[3].map(bestTextColor)).toEqual(PALETTE[3].map(() => BLACK))
+  })
+
+  it('picks white on dark and black on light backgrounds', () => {
     expect(bestTextColor('#ffffff')).toBe(BLACK)
     expect(bestTextColor('#000000')).toBe(WHITE)
     expect(bestTextColor('#667788')).toBe(WHITE)
@@ -61,11 +78,13 @@ describe('contrast', () => {
   })
 
   it('always picks a text colour that clears the WCAG AA large-text threshold', () => {
-    for (const row of PALETTE) {
-      for (const color of row) {
-        expect(contrastRatio(color, bestTextColor(color))).toBeGreaterThan(3)
-      }
+    const saturated = PALETTE_HUES.flatMap((h) =>
+      [30, 50, 70].flatMap((l) => [hslToHex(h, 100, l), hslToHex(h, 60, l)]),
+    )
+    for (const color of [...PALETTE.flat(), ...saturated]) {
+      expect(contrastRatio(color, bestTextColor(color))).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST)
     }
+    expect(bestTextColor('#0000ff')).toBe(WHITE)
   })
 
   it('classifies dark backgrounds', () => {

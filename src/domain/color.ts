@@ -3,7 +3,8 @@
  *
  * The palette is intentionally small: 12 hues x 4 lightness steps at a fixed
  * saturation, plus black and white. Text colour is never chosen by hand — it is
- * derived from the background by contrast.
+ * derived from the background's lightness, so every swatch in a palette row
+ * gets the same text colour.
  */
 
 export const PALETTE_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
@@ -93,9 +94,29 @@ export function contrastRatio(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-/** Black or white, whichever has the higher contrast against `background`. */
+/** HSL lightness (0..100) — the same scale the palette rows are built on. */
+export function hslLightness(hex: string): number {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return 0
+  return ((Math.max(rgb.r, rgb.g, rgb.b) + Math.min(rgb.r, rgb.g, rgb.b)) / 2 / 255) * 100
+}
+
+/** Backgrounds darker than this get white text; the rest get black. */
+export const TEXT_LIGHTNESS_THRESHOLD = 50
+
+/** WCAG AA for large text. Every palette colour clears it by lightness alone. */
+export const MIN_TEXT_CONTRAST = 3
+
+/**
+ * White on dark backgrounds, black on light ones, judged by lightness — so a
+ * palette row shares one text colour. Saturated colours outside the palette can
+ * mislead lightness (pure blue sits at 50 %); when the pick falls below
+ * {@link MIN_TEXT_CONTRAST}, the other colour is used, which then clears 7:1.
+ */
 export function bestTextColor(background: string): string {
-  return contrastRatio(background, BLACK) >= contrastRatio(background, WHITE) ? BLACK : WHITE
+  const byLightness = hslLightness(background) < TEXT_LIGHTNESS_THRESHOLD ? WHITE : BLACK
+  if (contrastRatio(background, byLightness) >= MIN_TEXT_CONTRAST) return byLightness
+  return byLightness === WHITE ? BLACK : WHITE
 }
 
 /** Decorative only — legibility never depends on the shadow. */
