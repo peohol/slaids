@@ -1,10 +1,13 @@
+import { aspectRatioLabel } from '../src/domain/imagePlan'
 import { expect, test } from './fixtures'
 import {
   G,
   addContentToZone,
+  clickZone,
   createPresentation,
   enterContentMode,
   enterZoneMode,
+  splitSelected,
   stage,
   waitForSaved,
   watchForErrors,
@@ -333,5 +336,43 @@ test.describe('slides and content', () => {
       () => getComputedStyle(document.querySelector('.slide') as HTMLElement).fontFamily,
     )
     expect(font).toContain('Merriweather')
+  })
+
+  /*
+   * The zone panel offers the zone's aspect ratio as the image brief prints it,
+   * and copies exactly that text. Checked against the size the panel shows for
+   * two different zones, so the button follows the selection rather than
+   * remembering the first ratio it was given.
+   */
+  test('copies the selected zone\'s aspect ratio from the zone panel', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: 'http://127.0.0.1:4173',
+    })
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Sideforhold')
+    await enterZoneMode(page)
+
+    const size = page.getByTestId('inspector-size')
+    const button = page.getByTestId('inspector-aspect-ratio')
+    const expectedRatio = async () => {
+      const match = /(\d+) × (\d+) px/.exec((await size.textContent()) ?? '')
+      if (!match) throw new Error('Fant ikke sonens størrelse i panelet')
+      return aspectRatioLabel({ width: Number(match[1]), height: Number(match[2]) })
+    }
+
+    const whole = await expectedRatio()
+    await expect(button).toHaveText(whole)
+
+    await splitSelected(page, [3, 1], 'x')
+    const [wide] = await zoneRects(page)
+    await clickZone(page, wide)
+    const part = await expectedRatio()
+    expect(part).not.toBe(whole)
+    await expect(button).toHaveText(part)
+
+    await button.click()
+    await expect(button).toHaveAttribute('data-copied', 'true')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(part)
+    expect(guard.errors).toEqual([])
   })
 })
