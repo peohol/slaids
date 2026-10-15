@@ -188,23 +188,38 @@ export const INLINE_IMAGE_DEFAULT_ASPECT = 16 / 9
 export const CARD_DIVIDER_COLOR = 'rgba(0, 0, 0, 0.14)'
 
 /**
+ * The kinds of block whose unaligned default differs: running text in a body
+ * field, an accent (the heading pill), a picture in the flow, and a one-line
+ * title — a slide title, a card title, a caption, a section's lines.
+ */
+export type AlignableBlock = 'text' | 'accent' | 'image' | 'title'
+
+/**
  * Where content sits when nobody has said otherwise, on both axes.
  *
- * A slide is not a page of prose: a field holds a few lines in a box that is
- * usually taller and wider than they are, and text pinned to the top-left
- * corner of it reads as an accident rather than as a decision. Centring is
- * therefore the default a new field starts from — the same default a slide
- * title and a card title have always had — and an author who wants something
- * else picks it, which is what stores an alignment.
+ * Running text reads from the left: a paragraph or a list is read line by line,
+ * and a ragged left edge makes every line start somewhere new. A label is the
+ * opposite case. A title and an accent are a line or two set apart from the
+ * text, and centring is what sets them apart — so they, and a picture standing
+ * among the text, start from the middle. Vertically every field starts from the
+ * middle: a field holds a few lines in a box that is usually taller than they
+ * are, and text pinned to the top of it reads as an accident rather than as a
+ * decision. An author who wants something else picks it, which is what stores
+ * an alignment.
  *
  * Both are read as the meaning of *absent*, never written into new content:
  * that is what lets the default move without rewriting a single document, and
  * what keeps a field that was deliberately aligned aligned. The editor, the
- * static renderer and the agent's reading all resolve absent through these two
+ * static renderer and the agent's reading all resolve absent through these
  * constants, so no two of them can disagree about what an unaligned field looks
  * like.
  */
-export const DEFAULT_TEXT_ALIGN: TextAlign = 'center'
+export const DEFAULT_TEXT_ALIGN: Readonly<Record<AlignableBlock, TextAlign>> = {
+  text: 'left',
+  accent: 'center',
+  image: 'center',
+  title: 'center',
+}
 export const DEFAULT_VERTICAL_ALIGN: VerticalAlign = 'middle'
 
 /** Body typography inside cards and containers. */

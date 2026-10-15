@@ -227,7 +227,7 @@ export function measureTitleFit(
             lineHeight: TITLE_LINE_HEIGHT,
           }}
         >
-          <RichDocView doc={doc} className="rich-doc--title" />
+          <RichDocView doc={doc} className="rich-doc--title" field="title" />
         </div>
       </SlideRenderProvider>
     ),

@@ -88,8 +88,8 @@ test.describe('alignment', () => {
         }
       })
 
-    // A picture is narrower than the column, and a block nobody has aligned is
-    // centred — the same default the words around it start from.
+    // A picture is narrower than the column, and one nobody has aligned is
+    // centred: it stands among the text, it is not a line of it.
     const start = await margins()
     expect(start.left).toBeGreaterThan(0)
     expect(Math.abs(start.left - start.right)).toBeLessThanOrEqual(1)
@@ -131,13 +131,13 @@ test.describe('alignment', () => {
     await page.getByTestId('align-right').click()
     const alignments = () =>
       field.locator('p').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).textAlign))
-    expect(await alignments()).toEqual(['center', 'right'])
+    expect(await alignments()).toEqual(['left', 'right'])
 
     // A selection across both aligns both.
     await field.click()
     await page.keyboard.press('Control+a')
-    await page.getByTestId('align-left').click()
-    expect(await alignments()).toEqual(['left', 'left'])
+    await page.getByTestId('align-center').click()
+    expect(await alignments()).toEqual(['center', 'center'])
   })
 
   test('moves content within the height its field is given', async ({ page }) => {
@@ -196,7 +196,7 @@ test.describe('alignment', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('starts a new field centred on both axes', async ({ page }) => {
+  test('starts a new field left-aligned and vertically centred', async ({ page }) => {
     await createPresentation(page, 'Standard i innhold')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
@@ -205,23 +205,22 @@ test.describe('alignment', () => {
     await page.keyboard.type('Uten at noen har valgt noe')
 
     /*
-     * Where the one line of text sits in the field it was given. Centred on
-     * both axes means the space left over is shared equally above and below it,
-     * and equally to the left and right — measured rather than read off a style,
-     * because that is the claim: a field nobody has aligned looks aligned.
+     * Where the one line of text sits in the field it was given: flush with
+     * the start of its line, and with the space left over shared equally above
+     * and below it — measured rather than read off a style, because that is
+     * the claim: a field nobody has aligned looks aligned.
      */
     const slack = async (): Promise<{ x: number; y: number }> =>
       page.evaluate(() => {
         const outer = (
           document.querySelector('[data-testid="stage-slide"] .subfield') as HTMLElement
         ).getBoundingClientRect()
+        const paragraph = document.querySelector('[data-testid="stage-slide"] .subfield p') as HTMLElement
         const line = document.createRange()
-        line.selectNodeContents(
-          document.querySelector('[data-testid="stage-slide"] .subfield p') as HTMLElement,
-        )
+        line.selectNodeContents(paragraph)
         const text = line.getBoundingClientRect()
         return {
-          x: text.left - outer.left - (outer.right - text.right),
+          x: text.left - paragraph.getBoundingClientRect().left,
           y: text.top - outer.top - (outer.bottom - text.bottom),
         }
       })
@@ -248,6 +247,11 @@ test.describe('alignment', () => {
     await page.keyboard.press('Enter')
     await page.keyboard.type('Et merkbart lengre punkt i den samme lista')
     await expect(stage(page).locator('.subfield li')).toHaveCount(2)
+    await page.keyboard.press('Control+a')
+    await page.getByTestId('align-center').click()
+    // Back to a caret where the typing left it: a painted selection is ink too.
+    await field.click()
+    await page.keyboard.press('Control+End')
 
     /**
      * The empty space to either side of each item's ink, across the full width

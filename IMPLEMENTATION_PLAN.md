@@ -2275,21 +2275,26 @@ skriver, så editoren og sliden ikke kan bli uenige. Innhold justeres også
 loddrett (topp/midt/bunn) i feltet det står i; det er en egenskap ved feltet,
 ikke ved teksten.
 
-### Standarden er midtstilt, begge veier
+### Standardjusteringen: brødtekst fra venstre, etiketter i midten
 
-En slide er ikke en side med brødtekst: et felt holder noen få linjer i en boks
-som stort sett er både høyere og bredere enn dem, og tekst festet i øvre venstre
-hjørne leser som et uhell heller enn som en beslutning. Derfor er *midtstilt*
-standarden et nytt felt starter fra – vannrett og loddrett – akkurat som en
-slidetittel og en korttittel alltid har vært midtstilt: en tittel er en etikett,
-ikke et avsnitt.
+Løpende tekst – avsnitt, lister, sitater og tabellceller i et innholdsfelt –
+står **venstrejustert** som standard: den leses linje for linje, og en ujevn
+venstrekant får hver linje til å begynne et nytt sted. En etikett er det
+motsatte tilfellet. En slidetittel, en korttittel, en bildetekst og en
+inndelings to linjer er etiketter, og en aksent (overskriftspillen i et felt)
+er en linje satt til side fra teksten – de står **midtstilt**, og det samme gjør
+et bilde som står mellom teksten. Loddrett starter hvert felt **midtstilt**: et
+felt holder noen få linjer i en boks som stort sett er høyere enn dem, og tekst
+festet øverst leser som et uhell heller enn som en beslutning.
 
-`DEFAULT_TEXT_ALIGN` og `DEFAULT_VERTICAL_ALIGN` i `src/domain/constants.ts` er
-de to eneste stedene det avgjøres, og de leses som betydningen av **fravær** –
-de skrives aldri inn i nytt innhold. Det er dét som gjør at standarden kan
-flyttes uten å skrive om ett eneste lagret dokument, og at et felt noen
-*har* justert beholder justeringen sin. Editoren, den statiske rendringen og
-agentens lesing løser alle fravær gjennom de samme to konstantene.
+`DEFAULT_TEXT_ALIGN` (én verdi per blokktype: tekst, aksent, bilde, tittel) og
+`DEFAULT_VERTICAL_ALIGN` i `src/domain/constants.ts` er de eneste stedene det
+avgjøres, og `drawnAlign` i `src/domain/richdoc.ts` er det ene stedet fravær
+blir en verdi. De leses som betydningen av **fravær** – de skrives aldri inn i
+nytt innhold. Det er dét som gjør at standarden kan flyttes uten å skrive om ett
+eneste lagret dokument, og at et felt noen *har* justert beholder justeringen
+sin. Editoren, den statiske rendringen og agentens lesing løser alle fravær
+gjennom de samme konstantene.
 
 Tiptaps egen justeringsattributt slår de to spørsmålene sammen, og må derfor
 deles opp: verdien man konfigurerer som standard blir både attributtets
@@ -2311,8 +2316,8 @@ med `margin-inline` gjennom selektorer som leser inline-stilen.
 
 Verktøylinja spør et tredje spørsmål, og skal ha det tredje svaret: knappen som
 lyser er den justeringen teksten *tegnes* med, ikke den som er lagret
-(`alignmentIsActive`). Ellers ville et midtstilt avsnitt ingen har justert vist
-ingen knapp som valgt.
+(`alignmentIsActive`). Ellers ville et avsnitt ingen har justert vist ingen
+knapp som valgt.
 
 **En justert listeboks flytter seg som én ting – kulepunkt og tekst sammen.**
 Å justere avsnittet inne i punktet er ikke nok, og ser ødelagt ut: et

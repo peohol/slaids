@@ -52,9 +52,11 @@
 import { z } from 'zod'
 import { normalizeHex } from '../domain/color'
 import {
+  DEFAULT_TEXT_ALIGN,
   INLINE_IMAGE_DEFAULT_WIDTH_PERCENT,
   INLINE_IMAGE_MAX_WIDTH_PERCENT,
   INLINE_IMAGE_MIN_WIDTH_PERCENT,
+  type AlignableBlock,
 } from '../domain/constants'
 import {
   ACCENT_NODE,
@@ -73,11 +75,22 @@ import type { AssetRef, RichDoc, RichMark, RichNode, TitleDoc } from '../domain/
  * The contract
  * ------------------------------------------------------------------ */
 
-export const alignSchema = z
-  .enum(['left', 'center', 'right'])
-  .describe('Justering av blokken. Utelatt betyr venstrejustert, som er standard.')
+export const alignSchema = z.enum(['left', 'center', 'right']).describe('Justering av blokken.')
 
 export type TextAlign = z.output<typeof alignSchema>
+
+const ALIGN_NAMES: Readonly<Record<TextAlign, string>> = {
+  left: 'venstrejustert',
+  center: 'midtstilt',
+  right: 'høyrejustert',
+}
+
+/** A block's alignment, described with the default this kind of block is drawn with when it stores none. */
+function blockAlignSchema(block: AlignableBlock) {
+  return alignSchema
+    .describe(`Justering av blokken. Utelatt betyr ${ALIGN_NAMES[DEFAULT_TEXT_ALIGN[block]]}, som er standard.`)
+    .optional()
+}
 
 /**
  * The emphasis a Slaids document can store, and nothing else.
@@ -161,11 +174,11 @@ const imageBlockSchema = z.strictObject({
     .describe(
       `Bredden som andel av kolonnen bildet står i. ${INLINE_IMAGE_MAX_WIDTH_PERCENT} er hele feltet; standarden er ${INLINE_IMAGE_DEFAULT_WIDTH_PERCENT}, som lar det stå tekst ved siden av. Høyden følger av bildets egne proporsjoner, men bildet tegnes aldri høyere enn feltet: en høy fil fyller feltet i stedet for å flyte over.`,
     ),
-  align: alignSchema.optional(),
+  align: blockAlignSchema('image'),
 })
 
 const textBlockSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('paragraph'), spans: spansSchema, align: alignSchema.optional() }),
+  z.strictObject({ type: z.literal('paragraph'), spans: spansSchema, align: blockAlignSchema('text') }),
   z.strictObject({
     type: z
       .literal('accent')
@@ -173,7 +186,7 @@ const textBlockSchema = z.discriminatedUnion('type', [
         'En aksent: underoverskrift, fremhevet poeng eller intern oppdeling i sonen. Ikke kortets hovedoverskrift – den er korttittelen på et `titled-card`.',
       ),
     spans: spansSchema,
-    align: alignSchema.optional(),
+    align: blockAlignSchema('accent'),
     color: z
       .string()
       .regex(HEX_COLOR)

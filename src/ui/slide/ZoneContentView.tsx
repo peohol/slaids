@@ -10,7 +10,7 @@ export function ZoneContentView({ content }: { content: ZoneContent }) {
   return (
     <ZoneContentFrame
       content={content}
-      renderTitle={(card) => <RichDocView doc={card.title} className="rich-doc--title" />}
+      renderTitle={(card) => <RichDocView doc={card.title} className="rich-doc--title" field="title" />}
       renderField={(field) => (
         <RichDocView
           doc={field.doc}

@@ -182,7 +182,7 @@ export function ImagePanelView({
             renderCaption(panel.caption)
           ) : (
             <CaptionBox caption={panel.caption}>
-              <RichDocView doc={panel.caption.doc} className="rich-doc--caption" />
+              <RichDocView doc={panel.caption.doc} className="rich-doc--caption" field="title" />
             </CaptionBox>
           ))}
       </div>

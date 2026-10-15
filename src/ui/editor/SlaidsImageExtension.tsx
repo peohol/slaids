@@ -16,7 +16,6 @@ import {
   INLINE_IMAGE_MIN_WIDTH_PERCENT,
 } from '../../domain/constants'
 import { drawnAlign, IMAGE_NODE } from '../../domain/richdoc'
-import type { TextAlign } from '../../domain/types'
 import { InlineAssetImage } from '../slide/AssetImage'
 
 declare module '@tiptap/core' {
@@ -226,7 +225,7 @@ function ImageNodeView({ node, updateAttributes, editor }: NodeViewProps) {
   // draws its own DOM, so `renderHTML` — and with it the alignment attribute's
   // own rendering — never runs here. A picture nobody aligned would otherwise
   // be the one block drawn one way while it is edited and another on the slide.
-  const align = drawnAlign(node.attrs.textAlign as TextAlign | undefined)
+  const align = drawnAlign(node.attrs.textAlign, 'image')
   const wrapperRef = useRef<HTMLDivElement>(null)
   /** Width while a drag is in flight; the document only learns about it on release. */
   const [dragPercent, setDragPercent] = useState<number | null>(null)
