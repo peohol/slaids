@@ -167,7 +167,7 @@ const fontChoices = GUARANTEED_FONT_IDS.join(', ')
 export const setThemeOperation = defineOperation({
   name: 'set_theme',
   summary:
-    'Sett presentasjonens tema: font for titler, font for brødtekst, luft og skriftstørrelse. Temaet er globalt – enkeltslides kan ikke avvike. Farger er ikke her: de settes per seksjon med set_section_colors, og arves av slidene fram til neste seksjon. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
+    'Sett presentasjonens tema: font for titler, font for brødtekst, luft og skriftstørrelse. Temaet er globalt – enkeltslides kan ikke avvike. Farger er ikke her: de settes per inndeling med set_section_colors, og arves av slidene fram til neste inndeling. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

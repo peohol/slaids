@@ -146,9 +146,9 @@ test.describe('ny interaktiv slide', () => {
     // Inserted right after the slide that was current, not at the end.
     const items = page.getByTestId('filmstrip-item')
     await expect(items).toHaveCount(4)
-    await expect(items.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Interaktiv')
-    await expect(items.nth(2).locator('.filmstrip__badge')).toHaveText('Interaktiv')
-    await expect(page.getByTestId('statusbar')).toContainText('Interaktiv 3 av 4')
+    await expect(items.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp')
+    await expect(items.nth(2).locator('.filmstrip__badge')).toHaveText('Miniapp')
+    await expect(page.getByTestId('statusbar')).toContainText('Miniapp 3 av 4')
 
     // The stage shows the cover in the deck's design: the name, and a play
     // button. Nothing else — the file name is the author's business and lives
@@ -506,7 +506,7 @@ test.describe('editoren', () => {
     await createPresentation(page, 'Prøv på scenen')
     await listenForApp(page)
     await addCounterSlide(page)
-    await expect(page.getByTestId('statusbar')).toContainText('Interaktiv 3 av 3')
+    await expect(page.getByTestId('statusbar')).toContainText('Miniapp 3 av 3')
 
     await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()
     const frame = stage(page).getByTestId('interactive-frame')
@@ -521,7 +521,7 @@ test.describe('editoren', () => {
     await page.keyboard.press('Control+e')
     await page.keyboard.press('F5')
     await page.waitForTimeout(150)
-    await expect(page.getByTestId('statusbar')).toContainText('Interaktiv 3 av 3')
+    await expect(page.getByTestId('statusbar')).toContainText('Miniapp 3 av 3')
     await expect(page.getByTestId('zone-overlay')).toHaveCount(0)
     await expect(page.getByTestId('present-view')).toHaveCount(0)
     await expect(frame).toBeVisible()
@@ -575,7 +575,7 @@ test.describe('editoren', () => {
     const items = page.getByTestId('filmstrip-item')
     await items.nth(2).getByTestId('duplicate-slide').click()
     await expect(items).toHaveCount(4)
-    await expect(items.nth(3).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Interaktiv')
+    await expect(items.nth(3).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp')
     await expect(items.nth(3).getByTestId('interactive-name')).toHaveText('Quiz')
     await items.nth(3).getByTestId('delete-slide').click()
     await page.getByTestId('confirm-accept').click()

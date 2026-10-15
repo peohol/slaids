@@ -13,6 +13,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useDndContext } from '@dnd-kit/core'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { canDeleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
 import { domFitCheckers } from '../../state/measure'
@@ -25,6 +26,8 @@ import { SlideView } from '../slide/SlideView'
 import { useContainerBox, type ContainerBox } from '../slide/useFitScale'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { FilmstripInsert } from './FilmstripInsert'
+import { NEW_PAGE_OPTIONS, pageKindName, type NewPageRequest } from './pageKinds'
 
 /**
  * The desktop strip's thumbnail, and the narrowest one anywhere.
@@ -171,14 +174,8 @@ function Thumb({ width, children }: { width: number; children: React.ReactNode }
 
 /** What a thumbnail is called: its kind, and for an ordinary slide its number. */
 function thumbLabel(slide: Slide, index: number): string {
-  switch (slide.kind) {
-    case 'section':
-      return index === 0 ? 'Forside' : 'Seksjon'
-    case 'interactive':
-      return 'Interaktiv'
-    case 'content':
-      return `Slide ${index + 1}`
-  }
+  const name = pageKindName(slide.kind, index)
+  return slide.kind === 'content' ? `${name} ${index + 1}` : name
 }
 
 /**
@@ -211,6 +208,7 @@ function SlideThumb({
   canMoveUp,
   canMoveDown,
   canDelete,
+  insert,
 }: {
   slide: Slide
   index: number
@@ -226,6 +224,9 @@ function SlideThumb({
   canMoveUp: boolean
   canMoveDown: boolean
   canDelete: boolean
+  /** The gap above this slide, where a page can be put between it and the one
+      before — when there is one to offer. See `FilmstripInsert`. */
+  insert?: React.ReactNode
 }) {
   const label = thumbLabel(slide, index)
   // Content slides are what the strip is mostly made of; the other kinds wear
@@ -239,112 +240,119 @@ function SlideThumb({
   })
 
   return (
+    // The slot is what moves when slides are reordered, and what holds the gap
+    // above the entry: the entry itself clips, and the gap is outside it.
     <div
       ref={setNodeRef}
-      className={active ? 'filmstrip__item filmstrip__item--active' : 'filmstrip__item'}
+      className="filmstrip__slot"
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      data-testid="filmstrip-item"
-      data-slide-id={slide.id}
-      data-page-id={slide.id}
     >
-      {/*
-        The click is the handle's, not only the button's, so the number row
-        navigates as well; the button's own click — a tap, or Enter from the
-        keyboard — bubbles up to it.
-      */}
+      {insert}
       <div
-        className="filmstrip__handle"
-        onClick={onSelect}
-        data-drag-activation="surface"
-        data-draggable={frontPage ? undefined : ''}
-        {...listeners}
+        className={active ? 'filmstrip__item filmstrip__item--active' : 'filmstrip__item'}
+        data-testid="filmstrip-item"
+        data-slide-id={slide.id}
+        data-page-id={slide.id}
       >
-        <div className="filmstrip__index">
-          <span>{index + 1}</span>
-          {badged && <span className="filmstrip__badge">{label}</span>}
-          {!frontPage && (
-            <span className="filmstrip__grip" aria-hidden="true" data-drag-activation="immediate">
-              <Icon name="grip" size={14} />
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          className="filmstrip__thumb"
-          style={{ width, height: (width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
-          data-testid="filmstrip-thumb"
-          aria-label={label}
-          // Semantic rather than merely outlined: which page the editor is on has
-          // to be readable by something that cannot see the accent border.
-          aria-current={active ? 'true' : undefined}
-          // Only a slide that can be dragged is announced as sortable: on the
-          // front page these would also mark the button disabled, which it is not.
-          {...(frontPage ? {} : attributes)}
+        {/*
+          The click is the handle's, not only the button's, so the number row
+          navigates as well; the button's own click — a tap, or Enter from the
+          keyboard — bubbles up to it.
+        */}
+        <div
+          className="filmstrip__handle"
+          onClick={onSelect}
+          data-drag-activation="surface"
+          data-draggable={frontPage ? undefined : ''}
+          {...listeners}
         >
-          <Thumb width={width}>
-            {slide.kind === 'content' ? (
-              <SlideView slide={slide}>
-                {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
-                <SlideProgressBar pageId={slide.id} />
-              </SlideView>
-            ) : (
-              /* A section, or the cover of an interactive slide: the same page
-                 the audience sees, indicator and all. Nothing here has an
-                 activation, so the cover's button is drawn inert — a thumbnail
-                 can show a miniapp and can never start one. */
-              <DeckPageView page={authoredPage(slide)} />
+          <div className="filmstrip__index">
+            <span>{index + 1}</span>
+            {badged && <span className="filmstrip__badge">{label}</span>}
+            {!frontPage && (
+              <span className="filmstrip__grip" aria-hidden="true" data-drag-activation="immediate">
+                <Icon name="grip" size={14} />
+              </span>
             )}
-          </Thumb>
-        </button>
-      </div>
-      <div className="filmstrip__tools">
-        <Tooltip label={`Flytt ${label.toLowerCase()} opp`}>
+          </div>
           <button
             type="button"
-            className="btn btn--ghost btn--icon btn--sm"
-            onClick={() => onMove(-1)}
-            disabled={!canMoveUp}
-            aria-label={`Flytt ${label.toLowerCase()} opp`}
-            data-testid="move-slide-up"
+            className="filmstrip__thumb"
+            style={{ width, height: (width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
+            data-testid="filmstrip-thumb"
+            aria-label={label}
+            // Semantic rather than merely outlined: which page the editor is on has
+            // to be readable by something that cannot see the accent border.
+            aria-current={active ? 'true' : undefined}
+            // Only a slide that can be dragged is announced as sortable: on the
+            // front page these would also mark the button disabled, which it is not.
+            {...(frontPage ? {} : attributes)}
           >
-            <Icon name="arrow-up" size={14} />
+            <Thumb width={width}>
+              {slide.kind === 'content' ? (
+                <SlideView slide={slide}>
+                  {/* A thumbnail shows the page, indicator and all — see `DeckPageView`. */}
+                  <SlideProgressBar pageId={slide.id} />
+                </SlideView>
+              ) : (
+                /* A section, or the cover of an interactive slide: the same page
+                   the audience sees, indicator and all. Nothing here has an
+                   activation, so the cover's button is drawn inert — a thumbnail
+                   can show a miniapp and can never start one. */
+                <DeckPageView page={authoredPage(slide)} />
+              )}
+            </Thumb>
           </button>
-        </Tooltip>
-        <Tooltip label={`Flytt ${label.toLowerCase()} ned`}>
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon btn--sm"
-            onClick={() => onMove(1)}
-            disabled={!canMoveDown}
-            aria-label={`Flytt ${label.toLowerCase()} ned`}
-            data-testid="move-slide-down"
-          >
-            <Icon name="arrow-down" size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip label={`Dupliser ${label.toLowerCase()}`}>
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon btn--sm"
-            onClick={onDuplicate}
-            aria-label={`Dupliser ${label.toLowerCase()}`}
-            data-testid="duplicate-slide"
-          >
-            <Icon name="copy" size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip label={`Slett ${label.toLowerCase()}`}>
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon btn--sm"
-            onClick={onDelete}
-            disabled={!canDelete}
-            aria-label={`Slett ${label.toLowerCase()}`}
-            data-testid="delete-slide"
-          >
-            <Icon name="trash" size={14} />
-          </button>
-        </Tooltip>
+        </div>
+        <div className="filmstrip__tools">
+          <Tooltip label={`Flytt ${label.toLowerCase()} opp`}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon btn--sm"
+              onClick={() => onMove(-1)}
+              disabled={!canMoveUp}
+              aria-label={`Flytt ${label.toLowerCase()} opp`}
+              data-testid="move-slide-up"
+            >
+              <Icon name="arrow-up" size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={`Flytt ${label.toLowerCase()} ned`}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon btn--sm"
+              onClick={() => onMove(1)}
+              disabled={!canMoveDown}
+              aria-label={`Flytt ${label.toLowerCase()} ned`}
+              data-testid="move-slide-down"
+            >
+              <Icon name="arrow-down" size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={`Dupliser ${label.toLowerCase()}`}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon btn--sm"
+              onClick={onDuplicate}
+              aria-label={`Dupliser ${label.toLowerCase()}`}
+              data-testid="duplicate-slide"
+            >
+              <Icon name="copy" size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={`Slett ${label.toLowerCase()}`}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon btn--sm"
+              onClick={onDelete}
+              disabled={!canDelete}
+              aria-label={`Slett ${label.toLowerCase()}`}
+              data-testid="delete-slide"
+            >
+              <Icon name="trash" size={14} />
+            </button>
+          </Tooltip>
+        </div>
       </div>
     </div>
   )
@@ -357,9 +365,7 @@ export function Filmstrip({
   onSelectDerived,
   onSelectAuthored,
   onRequestDelete,
-  onRequestNewSlide,
-  onRequestNewSection,
-  onRequestNewInteractive,
+  onRequestNewPage,
   overview = false,
 }: {
   presentation: Presentation
@@ -374,9 +380,8 @@ export function Filmstrip({
   /** Selecting an authored slide closes the derived view for good. */
   onSelectAuthored: () => void
   onRequestDelete: (slide: Slide) => void
-  onRequestNewSlide: () => void
-  onRequestNewSection: () => void
-  onRequestNewInteractive: () => void
+  /** Ask for a new page: where the author pointed, or after the current slide. */
+  onRequestNewPage: (request: NewPageRequest) => void
   /**
    * Whether this is the compact workspace's full-screen slide overview rather
    * than the desktop's side column.
@@ -404,6 +409,14 @@ export function Filmstrip({
     selectSlide(slideId)
   }
   const run = useEditorStore((state) => state.run)
+  /*
+   * The gap the pointer has opened, by the slide below it. "Between two slides"
+   * only means something in a single column — in a grid the page before is
+   * beside, not above — and nothing opens while a slide is being dragged.
+   */
+  const [openGap, setOpenGap] = useState<string | null>(null)
+  const dragging = useDndContext().active !== null
+  const offersGaps = layout.columns === 1 && !dragging
 
   const duplicate = (slideId: string, index: number): void => {
     if (!run('duplicate-slide', (current) => duplicateSlide(current, slideId))) return
@@ -439,6 +452,7 @@ export function Filmstrip({
         style={{
           gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
           gap: STRIP_GAP,
+          ['--strip-gap' as string]: `${STRIP_GAP}px`,
         }}
       >
         {/*
@@ -466,6 +480,19 @@ export function Filmstrip({
                 onMove={(delta) => move(slide.id, index, delta)}
                 canMoveUp={index > 0}
                 canMoveDown={index < presentation.slides.length - 1}
+                insert={
+                  offersGaps && index > 0 ? (
+                    <FilmstripInsert
+                      open={openGap === slide.id}
+                      onOpenChange={(open) =>
+                        setOpenGap((current) =>
+                          open ? slide.id : current === slide.id ? null : current,
+                        )
+                      }
+                      onChoose={(kind) => onRequestNewPage({ kind, before: slide.id })}
+                    />
+                  ) : undefined
+                }
               />
             ))}
         </SortableContext>
@@ -510,30 +537,19 @@ export function Filmstrip({
         })}
       </div>
       <div className="filmstrip__footer">
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={onRequestNewSlide}
-          data-testid="add-slide"
-        >
-          <Icon name="plus" /> Slide
-        </button>
-        <button
-          type="button"
-          className="btn btn--section"
-          onClick={onRequestNewSection}
-          data-testid="add-section"
-        >
-          <Icon name="plus" /> Seksjon
-        </button>
-        <button
-          type="button"
-          className="btn btn--interactive"
-          onClick={onRequestNewInteractive}
-          data-testid="add-interactive"
-        >
-          <Icon name="plus" /> Interaktiv
-        </button>
+        {NEW_PAGE_OPTIONS.map((option) => (
+          <Tooltip key={option.kind} label={option.label}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon"
+              onClick={() => onRequestNewPage({ kind: option.kind })}
+              aria-label={option.label}
+              data-testid={`add-${option.id}`}
+            >
+              <Icon name={option.icon} />
+            </button>
+          </Tooltip>
+        ))}
       </div>
     </aside>
   )

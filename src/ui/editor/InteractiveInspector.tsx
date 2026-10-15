@@ -75,7 +75,7 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
   return (
     <aside className="inspector" data-testid="inspector">
       <section className="inspector__section">
-        <h2 className="inspector__heading">Interaktiv slide</h2>
+        <h2 className="inspector__heading">Miniapp</h2>
         <p className="hint">
           Én selvstendig miniapp i én HTML-fil. Publikum ser forsiden med navnet, og starter appen
           med «Aktiver miniapp». Den kjører isolert fra Slaids og starter på nytt hver gang.

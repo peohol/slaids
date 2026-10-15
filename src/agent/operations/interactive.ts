@@ -208,7 +208,7 @@ function addInteractiveInput(content: z.ZodType<AgentFileContent>) {
 export const addInteractiveSlideOperation = defineOperation({
   name: 'add_interactive_slide',
   summary:
-    'Legg til en interaktiv slide: én selvstendig miniapp i én HTML-fil. Publikum ser en forside med navnet og starter appen selv, isolert fra Slaids, uten nettverk. Kilden lagres som data og kjøres aldri av Slaids. Skriv filen mot miniapp-kontrakten – rot, høydekjede, én rulleflate og Slaids-variablene for avstand – som hentes som data før du skriver HTML.',
+    'Legg til en miniapp: én selvstendig app i én HTML-fil. Publikum ser en forside med navnet og starter appen selv, isolert fra Slaids, uten nettverk. Kilden lagres som data og kjøres aldri av Slaids. Skriv filen mot miniapp-kontrakten – rot, høydekjede, én rulleflate og Slaids-variablene for avstand – som hentes som data før du skriver HTML.',
   mutates: true,
   scopes: ['presentations:write'],
   input: addInteractiveInput(contentSchema),
@@ -269,7 +269,7 @@ function setInteractiveInput(content: z.ZodType<AgentFileContent>) {
 export const setInteractiveSlideOperation = defineOperation({
   name: 'set_interactive_slide',
   summary:
-    'Endre navnet på en interaktiv slide og/eller bytt ut HTML-filen bak den. En fil som ikke kan brukes, avvises, og appen som ligger der beholdes uendret.',
+    'Endre navnet på en miniapp og/eller bytt ut HTML-filen bak den. En fil som ikke kan brukes, avvises, og appen som ligger der beholdes uendret.',
   mutates: true,
   scopes: ['presentations:write'],
   input: setInteractiveInput(contentSchema),
@@ -360,7 +360,7 @@ export interface InteractiveContractView {
 export const getInteractiveContractOperation = defineOperation({
   name: 'get_interactive_contract',
   summary:
-    'Hva en interaktiv slide er og hvordan en miniapp skal skrives: designkontrakten Slaids injiserer, CSS-variablene appen skal bruke, de obligatoriske struktur-, rulle- og avstandsreglene, et minimalt startskall som følger dem, størrelsen appen tegnes i, grensene og hva sandkassen nekter. Hent den før du skriver HTML.',
+    'Hva en miniapp er og hvordan den skal skrives: designkontrakten Slaids injiserer, CSS-variablene appen skal bruke, de obligatoriske struktur-, rulle- og avstandsreglene, et minimalt startskall som følger dem, størrelsen appen tegnes i, grensene og hva sandkassen nekter. Hent den før du skriver HTML.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({}),

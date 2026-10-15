@@ -226,7 +226,7 @@ export function addSection(
   presentation: Presentation,
   input: AddSectionInput = {},
 ): Result<Presentation> {
-  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny seksjon.')
+  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny inndeling.')
   if (!at.ok) return at
   const index = at.value
   const inherited = index === 0
@@ -263,7 +263,7 @@ export function addSection(
     presentation,
     next,
     input,
-    'Den nye seksjonen endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
+    'Den nye inndelingen endrer citation-nummereringen slik at innhold på en annen slide ikke lenger får plass.',
   )
 }
 

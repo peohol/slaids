@@ -27,11 +27,11 @@ export function SectionInspector({ section }: { section: SectionSlide }) {
   return (
     <aside className="inspector" data-testid="inspector">
       <section className="inspector__section">
-        <h2 className="inspector__heading">{isFront ? 'Forside' : 'Seksjon'}</h2>
+        <h2 className="inspector__heading">{isFront ? 'Forside' : 'Inndeling'}</h2>
         <p className="hint">
           {isFront
-            ? 'Første slide er alltid en seksjon, så presentasjonen har alltid en forside. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'
-            : 'En seksjon deler dekket i deler. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'}
+            ? 'Første slide er alltid en inndeling, så presentasjonen har alltid en forside. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'
+            : 'En inndeling deler dekket i deler. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'}
         </p>
       </section>
 

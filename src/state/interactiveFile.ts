@@ -25,7 +25,7 @@ export async function readInteractiveFile(file: File): Promise<Result<Interactiv
   if (file.size > MAX_INTERACTIVE_HTML_BYTES) {
     return err(
       'INTERACTIVE_HTML_TOO_LARGE',
-      `HTML-filen er ${formatByteSize(file.size)}, som er mer enn grensen på ${formatByteSize(MAX_INTERACTIVE_HTML_BYTES)} per interaktiv slide.`,
+      `HTML-filen er ${formatByteSize(file.size)}, som er mer enn grensen på ${formatByteSize(MAX_INTERACTIVE_HTML_BYTES)} per miniapp.`,
       { byteSize: file.size, maxByteSize: MAX_INTERACTIVE_HTML_BYTES },
     )
   }

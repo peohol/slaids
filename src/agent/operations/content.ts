@@ -306,7 +306,7 @@ export const setZoneCard = defineOperation({
       .optional()
       .describe(
         'Bakgrunnsfarge på kortet, eller fargen på tittellinjen. Ikke for beholdere. ' +
-          '`null` nullstiller et kort med tittel til seksjonens aksentfarge; et kort uten ' +
+          '`null` nullstiller et kort med tittel til inndelingens aksentfarge; et kort uten ' +
           'tittel har ingen arvet farge å nullstille til.',
       ),
     subfieldCount: z
@@ -633,7 +633,7 @@ export const setImageCaptionOperation = defineOperation({
       .nullable()
       .optional()
       .describe(
-        'Bakgrunnsfargen som hex. `null` betyr aksentfargen fra seksjonen sliden hører til, som er utgangspunktet.',
+        'Bakgrunnsfargen som hex. `null` betyr aksentfargen fra inndelingen sliden hører til, som er utgangspunktet.',
       ),
     remove: z.boolean().optional().describe('Sett til true for å fjerne bildeteksten.'),
   }),

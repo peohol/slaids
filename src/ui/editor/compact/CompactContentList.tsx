@@ -34,7 +34,7 @@ export function CompactContentList({
         {!slide
           ? 'Denne siden lages automatisk fra presentasjonen og kan ikke redigeres. Velg en vanlig slide for å skrive.'
           : slide.kind === 'interactive'
-            ? 'Interaktive slides har ingen tekstfelt. Navn og fil endres i panelet under.'
+            ? 'Miniapper har ingen tekstfelt. Navn og fil endres i panelet under.'
             : 'Ingen tekstfelt på denne sliden ennå. Legg inn innhold i en sone først.'}
       </p>
     )

@@ -26,7 +26,7 @@ function section(presentation: Presentation, slideId: string): Result<SectionSli
   const found = findSectionSlide(presentation, slideId)
   if (found) return ok(found)
   return presentation.slides.some((slide) => slide.id === slideId)
-    ? err('NOT_A_SECTION_SLIDE', 'Sliden er ikke en seksjon.')
+    ? err('NOT_A_SECTION_SLIDE', 'Sliden er ikke en inndeling.')
     : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.')
 }
 
@@ -39,7 +39,7 @@ export function setSectionTitle(
   const found = section(presentation, slideId)
   if (!found.ok) return found
   const next = withSlide(presentation, { ...found.value, title: doc })
-  return guardFit(presentation, next, options, 'Overskriften får ikke plass på seksjonssliden.')
+  return guardFit(presentation, next, options, 'Overskriften får ikke plass på inndelingssliden.')
 }
 
 export function setSectionSubtitle(
@@ -51,7 +51,7 @@ export function setSectionSubtitle(
   const found = section(presentation, slideId)
   if (!found.ok) return found
   const next = withSlide(presentation, { ...found.value, subtitle: doc })
-  return guardFit(presentation, next, options, 'Underoverskriften får ikke plass på seksjonssliden.')
+  return guardFit(presentation, next, options, 'Underoverskriften får ikke plass på inndelingssliden.')
 }
 
 /**

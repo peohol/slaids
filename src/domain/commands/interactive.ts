@@ -39,7 +39,7 @@ export function interactiveSlide(
   const found = findInteractiveSlide(presentation, slideId)
   if (found) return ok(found)
   return presentation.slides.some((slide) => slide.id === slideId)
-    ? err('NOT_AN_INTERACTIVE_SLIDE', 'Sliden er ikke en interaktiv slide.', { slideId })
+    ? err('NOT_AN_INTERACTIVE_SLIDE', 'Sliden er ikke en miniapp.', { slideId })
     : err('SLIDE_NOT_FOUND', 'Fant ikke sliden.', { slideId })
 }
 
@@ -65,7 +65,7 @@ export function addInteractiveSlide(
   presentation: Presentation,
   input: AddInteractiveSlideInput,
 ): Result<Presentation> {
-  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny interaktiv slide.')
+  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for ny miniapp.')
   if (!at.ok) return at
 
   const source = acceptInteractiveHtml({ fileName: input.fileName, html: input.html })

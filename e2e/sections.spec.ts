@@ -134,7 +134,7 @@ test.describe('forsiden', () => {
     }
     await page.waitForTimeout(400)
 
-    await expect(toast(page, 'Overskriften får ikke plass på seksjonssliden.')).toHaveCount(1)
+    await expect(toast(page, 'Overskriften får ikke plass på inndelingssliden.')).toHaveCount(1)
     expect(await worstOverflow(page)).toBeLessThan(1)
 
     expect(guard.errors).toEqual([])

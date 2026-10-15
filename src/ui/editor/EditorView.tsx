@@ -78,7 +78,14 @@ import { ensureWebFonts, webFontsReady } from '../fonts'
 import { copyZoneToClipboard, cutZoneToClipboard, pasteClipboardIntoZone } from './zoneClipboard'
 import type { InteractiveSource } from '../../domain/interactive'
 import type { OptimizationScope } from '../../domain/imageOptimization'
-import type { LayoutTemplate, Slide, TitleDoc, ZoneContentKind } from '../../domain/types'
+import type {
+  LayoutTemplate,
+  Presentation,
+  Slide,
+  TitleDoc,
+  ZoneContentKind,
+} from '../../domain/types'
+import type { Result } from '../../domain/result'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
@@ -108,6 +115,7 @@ import { InteractiveInspector } from './InteractiveInspector'
 import { InteractiveStage } from './InteractiveStage'
 import { EditorStage, type StageMenuHit } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
+import type { NewPageRequest } from './pageKinds'
 import { Inspector } from './Inspector'
 import { ReadOnlySlideStage } from './ReadOnlySlideStage'
 import { ImageOptimizeModal } from './ImageOptimizeModal'
@@ -224,9 +232,11 @@ export function EditorView({
   const openContextMenu = useContextMenu((state) => state.open)
 
   const [splitOpen, setSplitOpen] = useState(false)
-  const [newSlideOpen, setNewSlideOpen] = useState(false)
-  const [newSectionOpen, setNewSectionOpen] = useState(false)
-  const [newInteractiveOpen, setNewInteractiveOpen] = useState(false)
+  /** Which new-page dialog is open, and where its page goes. */
+  const [newPage, setNewPage] = useState<NewPageRequest | null>(null)
+  const closeNewPage = (open: boolean): void => {
+    if (!open) setNewPage(null)
+  }
   const [referencesOpen, setReferencesOpen] = useState(false)
   /** Reference to scroll to and highlight when the list is opened from a pill. */
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
@@ -708,26 +718,43 @@ export function EditorView({
   )
 
   /**
-   * Insert a slide after the current one and move to it. Creating a slide you
-   * cannot see would be a trap.
+   * Put a new page in the deck and move to it — in front of the slide the author
+   * pointed at, between two slides in the strip, or otherwise after the current
+   * slide. Creating a page you cannot see would be a trap.
+   *
+   * The place is named by a slide rather than a number, and looked up when the
+   * page is created: the dialog in between can take a while, and the deck the
+   * page goes into is the one that is there then.
    */
-  const insertSlide = useCallback(
-    (hasTitle: boolean, root?: LayoutTemplate['root']) => {
+  const insertPage = useCallback(
+    (
+      label: string,
+      before: string | undefined,
+      command: (presentation: Presentation, index: number) => Result<Presentation>,
+    ): boolean => {
       const current = useEditorStore.getState().presentation
-      if (!current) return
+      if (!current) return false
+      const anchor = current.slides.findIndex((entry) => entry.id === before)
       const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
-      const insertAt = index >= 0 ? index + 1 : current.slides.length
-      const created = run('add-slide', (presentationState) =>
-        addSlide(presentationState, { index: insertAt, hasTitle, root }),
-      )
-      if (!created) return
+      const insertAt =
+        anchor >= 0 ? anchor : index >= 0 ? index + 1 : current.slides.length
+      if (!run(label, (presentationState) => command(presentationState, insertAt))) return false
       const next = useEditorStore.getState().presentation?.slides[insertAt]
       if (next) {
         setDerivedView(null)
         useEditorStore.getState().selectSlide(next.id)
       }
+      return true
     },
     [currentSlideId, run],
+  )
+
+  const insertSlide = useCallback(
+    (hasTitle: boolean, root?: LayoutTemplate['root'], before?: string) =>
+      insertPage('add-slide', before, (presentationState, index) =>
+        addSlide(presentationState, { index, hasTitle, root }),
+      ),
+    [insertPage],
   )
 
   /**
@@ -772,7 +799,7 @@ export function EditorView({
   }, [contentSlide, run])
 
   /**
-   * Insert a section after the current slide and move to it.
+   * A new section.
    *
    * The heading is asked for up front rather than left blank: a section is a
    * heading, and an empty one is a coloured page that says nothing. It is
@@ -781,27 +808,15 @@ export function EditorView({
    * author shortens it.
    */
   const insertSection = useCallback(
-    (title: string) => {
-      const current = useEditorStore.getState().presentation
-      if (!current) return false
-      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
-      const insertAt = index >= 0 ? index + 1 : current.slides.length
-      const created = run('add-section', (presentationState) =>
-        addSection(presentationState, { index: insertAt, title, ...domFitCheckers }),
-      )
-      if (!created) return false
-      const next = useEditorStore.getState().presentation?.slides[insertAt]
-      if (next) {
-        setDerivedView(null)
-        useEditorStore.getState().selectSlide(next.id)
-      }
-      return true
-    },
-    [currentSlideId, run],
+    (title: string, before?: string) =>
+      insertPage('add-section', before, (presentationState, index) =>
+        addSection(presentationState, { index, title, ...domFitCheckers }),
+      ),
+    [insertPage],
   )
 
   /**
-   * Insert an interactive slide after the current slide and move to it.
+   * A new interactive slide.
    *
    * The file has already passed the door in the dialog; the command checks it
    * again — the same rules, it is cheap — and the deck-wide budget, and a
@@ -810,28 +825,16 @@ export function EditorView({
    * never leaves an empty one behind.
    */
   const insertInteractive = useCallback(
-    (source: InteractiveSource, name: string) => {
-      const current = useEditorStore.getState().presentation
-      if (!current) return false
-      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
-      const insertAt = index >= 0 ? index + 1 : current.slides.length
-      const created = run('add-interactive', (presentationState) =>
+    (source: InteractiveSource, name: string, before?: string) =>
+      insertPage('add-interactive', before, (presentationState, index) =>
         addInteractiveSlide(presentationState, {
-          index: insertAt,
+          index,
           name,
           fileName: source.fileName,
           html: source.html,
         }),
-      )
-      if (!created) return false
-      const next = useEditorStore.getState().presentation?.slides[insertAt]
-      if (next) {
-        setDerivedView(null)
-        useEditorStore.getState().selectSlide(next.id)
-      }
-      return true
-    },
-    [currentSlideId, run],
+      ),
+    [insertPage],
   )
 
   const createSlideFromTemplate = useCallback(
@@ -1832,9 +1835,7 @@ export function EditorView({
         }
         onSelectAuthored={() => setDerivedView(null)}
         onRequestDelete={setDeletingSlide}
-        onRequestNewSlide={() => setNewSlideOpen(true)}
-        onRequestNewSection={() => setNewSectionOpen(true)}
-        onRequestNewInteractive={() => setNewInteractiveOpen(true)}
+        onRequestNewPage={setNewPage}
         // On a compact workspace the strip is the whole slide overview rather
         // than a column beside the stage, so its pages are drawn as big as the
         // panel allows. Same component, same commands.
@@ -1958,28 +1959,28 @@ export function EditorView({
       )}
 
       <NewSlideModal
-        open={newSlideOpen}
-        onOpenChange={setNewSlideOpen}
+        open={newPage?.kind === 'content'}
+        onOpenChange={closeNewPage}
         onCreate={(hasTitle) => {
-          insertSlide(hasTitle)
-          setNewSlideOpen(false)
+          insertSlide(hasTitle, undefined, newPage?.before)
+          setNewPage(null)
         }}
       />
 
       <NewSectionModal
-        open={newSectionOpen}
-        onOpenChange={setNewSectionOpen}
+        open={newPage?.kind === 'section'}
+        onOpenChange={closeNewPage}
         onCreate={(title) => {
-          const created = insertSection(title)
-          if (created) setNewSectionOpen(false)
+          const created = insertSection(title, newPage?.before)
+          if (created) setNewPage(null)
           return created
         }}
       />
 
       <NewInteractiveModal
-        open={newInteractiveOpen}
-        onOpenChange={setNewInteractiveOpen}
-        onCreate={insertInteractive}
+        open={newPage?.kind === 'interactive'}
+        onOpenChange={closeNewPage}
+        onCreate={(source, name) => insertInteractive(source, name, newPage?.before)}
       />
 
       <ReferenceModal
