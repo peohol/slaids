@@ -54,8 +54,8 @@
  *    `updateSplit` / `setSplitWeights`, `duplicateLayoutNode` (its siblings
  *    give up room, and the copy adds citation occurrences),
  *    and — because they change first-occurrence order — `addSlide`,
- *    `moveSlide`, `setZoneContent`, `moveZoneContent`, `copyZoneContent` and
- *    `placeSandboxItem`. `copyZoneContent` belongs here and not with
+ *    `moveSlide`, `reorderLayoutNode`, `setZoneContent`, `moveZoneContent`,
+ *    `copyZoneContent` and `placeSandboxItem`. `copyZoneContent` belongs here and not with
  *    `duplicateSlide` below: a copied slide lands right after its original, but
  *    copied *content* can land anywhere, so it can give a reference an earlier
  *    first occurrence and widen a pill on a slide nobody touched.

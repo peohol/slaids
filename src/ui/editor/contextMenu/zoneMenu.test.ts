@@ -7,7 +7,13 @@ import { makeSandboxItem, setZoneContent, splitLeaf } from '../../../domain/comm
 import { contentAt } from '../../../domain/testDecks'
 import type { Presentation, SplitNode, ZoneContent } from '../../../domain/types'
 import { tidyMenu, type MenuAction, type MenuEntry } from '../../components/contextMenu'
-import { ratioPresets, sandboxItemLabel, zoneModeMenu, type ZoneMenuHandlers } from './zoneMenu'
+import {
+  ratioPresets,
+  reorderStepForKey,
+  sandboxItemLabel,
+  zoneModeMenu,
+  type ZoneMenuHandlers,
+} from './zoneMenu'
 
 const checks = { fits: estimateFitChecker }
 
@@ -31,15 +37,16 @@ function handlers(): ZoneMenuHandlers {
     openSplitDialog: vi.fn(),
     setWeights: vi.fn(),
     duplicate: vi.fn(),
+    reorder: vi.fn(),
     clear: vi.fn(),
     remove: vi.fn(),
   }
 }
 
-function deckWithSplit(weights: number[]): Presentation {
+function deckWithSplit(weights: number[], axis: 'x' | 'y' = 'x'): Presentation {
   const deck = createPresentation({ title: 'Meny' })
   const slide = contentAt(deck, 1)
-  return unwrap(splitLeaf(deck, { slideId: slide.id, nodeId: slide.root.id, axis: 'x', weights }))
+  return unwrap(splitLeaf(deck, { slideId: slide.id, nodeId: slide.root.id, axis, weights }))
     .presentation
 }
 
@@ -123,6 +130,7 @@ describe('zoneModeMenu', () => {
     const deck = createPresentation({ title: 'Meny' })
     const menu = menuFor(deck, contentAt(deck, 1).root.id)
     expect(topIds(menu.entries)).not.toContain('duplicate')
+    expect(topIds(menu.entries)).not.toContain('reorder')
     expect(entry(menu.entries, 'delete')).toMatchObject({ disabled: true, reason: expect.any(String) })
   })
 
@@ -159,6 +167,42 @@ describe('zoneModeMenu', () => {
     expect(on.addContent).toHaveBeenCalledWith(nodeId, 'container')
   })
 
+  it('moves a zone to every other place among its siblings, and not to where it is', () => {
+    const deck = deckWithSplit([1, 2, 1, 3])
+    const ids = rootOf(deck).children.map((child) => child.id)
+    for (const [index, nodeId] of ids.entries()) {
+      const on = handlers()
+      const places = submenuActions(entry(menuFor(deck, nodeId, on).entries, 'reorder'))
+      const expected: Record<string, number> = {
+        'reorder-previous': Math.max(0, index - 1),
+        'reorder-next': Math.min(ids.length - 1, index + 1),
+        'reorder-first': 0,
+        'reorder-last': ids.length - 1,
+      }
+      expect(places.map((each) => each.id)).toEqual(Object.keys(expected))
+      for (const place of places) {
+        const toIndex = expected[place.id]
+        expect(place.disabled).toBe(toIndex === index)
+        if (place.disabled) {
+          expect(place.reason).toBeTruthy()
+          continue
+        }
+        place.onSelect()
+        expect(on.reorder).toHaveBeenLastCalledWith(nodeId, toIndex)
+      }
+    }
+  })
+
+  it('names the places by the way the split runs, and skips the ends when there are only two', () => {
+    const across = deckWithSplit([1, 1])
+    const row = submenuActions(entry(menuFor(across, rootOf(across).children[0].id).entries, 'reorder'))
+    expect(row.map((each) => each.label)).toEqual(['Til venstre', 'Til høyre'])
+
+    const down = deckWithSplit([1, 1, 1], 'y')
+    const column = submenuActions(entry(menuFor(down, rootOf(down).children[1].id).entries, 'reorder'))
+    expect(column.map((each) => each.label)).toEqual(['Opp', 'Ned', 'Øverst', 'Nederst'])
+  })
+
   it('lists sandbox items by what they say', () => {
     const base = deckWithSplit([1, 1])
     const item = makeSandboxItem(createTitledCard('Idé om salg'))
@@ -166,6 +210,16 @@ describe('zoneModeMenu', () => {
     const sandbox = entry(menuFor(deck, rootOf(deck).children[0].id).entries, `sandbox-${item.id}`)
     expect(sandbox.label).toBe(sandboxItemLabel(item))
     expect(sandbox.label).toContain('Idé om salg')
+  })
+})
+
+describe('reorderStepForKey', () => {
+  it('reads left and up as earlier, right and down as later, and nothing else as a move', () => {
+    expect(reorderStepForKey('ArrowLeft')).toBe(-1)
+    expect(reorderStepForKey('ArrowUp')).toBe(-1)
+    expect(reorderStepForKey('ArrowRight')).toBe(1)
+    expect(reorderStepForKey('ArrowDown')).toBe(1)
+    expect(reorderStepForKey('Enter')).toBeNull()
   })
 })
 

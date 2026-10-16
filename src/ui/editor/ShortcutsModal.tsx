@@ -20,6 +20,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['↑', 'Velg supersonen'],
       ['↓', 'Velg første subsone'],
       ['← / →', 'Velg forrige/neste søsken (går rundt)'],
+      ['Shift + ← / →', 'Flytt sonen ett hakk bakover/fremover blant søsknene'],
       ['Ctrl + C', 'Kopier innholdet i sonen'],
       ['Ctrl + X', 'Klipp ut innholdet i sonen'],
       ['Ctrl + V', 'Lim inn i en tom sone'],

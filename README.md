@@ -567,6 +567,7 @@ museklikk eller databasetilgang:
 | `create_presentation`, `add_slide`, `duplicate_slide`, `move_slide`, `delete_slide` | bygger dekket                     |
 | `inspect_slide`, `get_presentation`, `list_presentations`              | finner id-er, geometri, tekst, tema og revisjon |
 | `split_zone`, `adjust_split`, `delete_zone`, `clear_zone`              | soneinndelingen                               |
+| `reorder_zone`                                                         | flytter en sone til en annen plass blant søsknene; forholdstallet og alt under den følger med |
 | `move_zone_content`                                                    | flytter et helt innhold fra én sone til en annen, med id-ene i behold |
 | `copy_zone_content`                                                    | kopierer et helt innhold til en tom sone; kilden blir stående, kopien får nye id-er |
 | `set_zone_text`, `set_zone_card`, `set_vertical_alignment`, `set_slide_title`, `set_slide_has_title` | innholdet          |

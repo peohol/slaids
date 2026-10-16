@@ -421,6 +421,75 @@ export function duplicateLayoutNode(
 }
 
 /* ------------------------------------------------------------------ *
+ * reorder
+ * ------------------------------------------------------------------ */
+
+export interface ReorderNodeInput extends StructuralOptions {
+  slideId: string
+  nodeId: NodeId
+  /** The position the zone should have among its siblings afterwards. */
+  toIndex: number
+}
+
+/**
+ * Move a zone to another place among its siblings, taking its ratio with it.
+ *
+ * `A : B : C` at `1 : 2 : 1` with B moved first becomes `B : A : C` at
+ * `2 : 1 : 1`: every zone keeps its own share of the split, so every zone keeps
+ * its size, and a split zone's subtree comes along whole — its own ratios
+ * untouched. Nothing is copied or rebuilt, so every id survives and whoever is
+ * holding one (the selection, an agent mid-edit) can go on using it.
+ *
+ * Because no zone changes size, a reorder can never make a zone too small for
+ * what it holds. It is still measured: zones are read in tree order, so moving
+ * one changes which citation occurs first, and renumbering can push text out
+ * of view elsewhere in the deck — the same reason `moveSlide` is guarded.
+ *
+ * The root has no siblings, so there is nothing to reorder it among.
+ */
+export function reorderLayoutNode(
+  presentation: Presentation,
+  input: ReorderNodeInput,
+): Result<StructuralOutcome> {
+  const found = contentSlide(presentation, input.slideId)
+  if (!found.ok) return found
+  const slide = found.value
+  if (!findNode(slide.root, input.nodeId)) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+  const parent = findParent(slide.root, input.nodeId)
+  const where = { slideId: input.slideId, nodeId: input.nodeId }
+  if (!parent) {
+    return err('INVALID_ARGUMENT', 'Hovedsonen har ingen søsken å bytte plass med.', where)
+  }
+  const count = parent.children.length
+  if (!Number.isInteger(input.toIndex) || input.toIndex < 0 || input.toIndex >= count) {
+    return err('INVALID_ARGUMENT', `Plasseringen må være mellom 0 og ${count - 1}.`, {
+      ...where,
+      toIndex: input.toIndex,
+    })
+  }
+  const from = parent.children.findIndex((child) => child.id === input.nodeId)
+  if (from === input.toIndex) return ok(outcome(presentation))
+
+  const children = [...parent.children]
+  const weights = [...parent.weights]
+  const [child] = children.splice(from, 1)
+  const [weight] = weights.splice(from, 1)
+  children.splice(input.toIndex, 0, child)
+  weights.splice(input.toIndex, 0, weight)
+
+  const root = replaceNode(slide.root, parent.id, { ...parent, weights, children })
+  const next = touch(withSlide(presentation, { ...slide, root }))
+  const guarded = guardFit(
+    presentation,
+    next,
+    input,
+    'Flyttingen endrer citation-nummereringen slik at innhold ikke lenger får plass.',
+  )
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value))
+}
+
+/* ------------------------------------------------------------------ *
  * content placement
  * ------------------------------------------------------------------ */
 
