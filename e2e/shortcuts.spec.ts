@@ -39,6 +39,33 @@ test.describe('keyboard shortcuts', () => {
     expect(await zoneRects(page)).toHaveLength(2)
   })
 
+  test('Ctrl+Z and Ctrl+Y show the page a change is on before making it', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Angre på en annen side')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.type('Andre slide')
+    await expect(stage(page)).toContainText('Andre slide')
+
+    await page.getByTestId('filmstrip-thumb').nth(1).click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+
+    // The page comes first, with the change still on it; then the change.
+    await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+    await expect(stage(page)).toContainText('Andre slide')
+    await expect(stage(page)).not.toContainText('Andre slide')
+
+    await page.getByTestId('filmstrip-thumb').nth(1).click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+    await page.keyboard.press('Control+y')
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+    await expect(stage(page)).not.toContainText('Andre slide')
+    await expect(stage(page)).toContainText('Andre slide')
+    expect(guard.errors).toEqual([])
+  })
+
   /*
    * The regression this covers: the rich-text editors used to keep a
    * ProseMirror history of their own, so a Ctrl+Z with the caret in a field ran

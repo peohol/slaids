@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { useEditorStore } from './store'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HISTORY_REVEAL_DELAY_MS, useEditorStore } from './store'
 import { useToasts } from './toast'
 import { createInteractiveSlide, createPresentation } from '../domain/presentation'
 import { createLeaf, createSplit, findNode } from '../domain/layout'
@@ -10,9 +10,13 @@ import {
   deleteSlide,
   setContentKind,
   setImagePlan,
+  moveSlide,
   setInteractiveSlideHtml,
+  setSlideTitle,
+  setTheme,
   splitLeaf,
 } from '../domain/commands'
+import { docToPlainText, titleDoc } from '../domain/richdoc'
 import { depositIsOpen } from '../domain/imageDeposit'
 import { err, ok } from '../domain/result'
 import type { Presentation } from '../domain/types'
@@ -34,6 +38,9 @@ function seed(): Presentation {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  // No step left waiting from the test before.
+  useEditorStore.getState().setPresentation(null)
   useEditorStore.setState({
     presentation: null,
     currentSlideId: null,
@@ -49,6 +56,15 @@ beforeEach(() => {
   })
   useToasts.setState({ toasts: [] })
 })
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+/** Let an undo or redo whose change is on another page land. */
+function afterReveal(): void {
+  vi.advanceTimersByTime(HISTORY_REVEAL_DELAY_MS)
+}
 
 describe('store initialisation', () => {
   it('selects the first slide and its root node', () => {
@@ -114,10 +130,12 @@ describe('undo and redo', () => {
     expect(useEditorStore.getState().presentation?.slides).toHaveLength(3)
 
     useEditorStore.getState().undo()
+    afterReveal()
     expect(useEditorStore.getState().presentation?.slides).toHaveLength(2)
     expect(useEditorStore.getState().canRedo()).toBe(true)
 
     useEditorStore.getState().redo()
+    afterReveal()
     expect(useEditorStore.getState().presentation?.slides).toHaveLength(3)
   })
 
@@ -125,6 +143,7 @@ describe('undo and redo', () => {
     useEditorStore.getState().setPresentation(seed())
     useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
     useEditorStore.getState().undo()
+    afterReveal()
     expect(useEditorStore.getState().future).toHaveLength(1)
     useEditorStore.getState().run('add-slide', (current) => addSlide(current, {}))
     expect(useEditorStore.getState().future).toHaveLength(0)
@@ -136,6 +155,167 @@ describe('undo and redo', () => {
     useEditorStore.getState().undo()
     useEditorStore.getState().redo()
     expect(useEditorStore.getState().presentation).toBe(presentation)
+  })
+})
+
+describe('undo and redo of a change on another page', () => {
+  /** A deck of four pages: the front section and three content slides. */
+  function fourPages(): Presentation {
+    const deck = seed()
+    useEditorStore.getState().setPresentation(deck)
+    useEditorStore.getState().run('add', (current) => addSlide(current, {}))
+    useEditorStore.getState().run('add', (current) => addSlide(current, {}))
+    useEditorStore.setState({ past: [], future: [] })
+    return useEditorStore.getState().presentation!
+  }
+
+  function retitle(slideId: string, text: string): void {
+    useEditorStore.getState().run('title', (current) => setSlideTitle(current, slideId, titleDoc(text)))
+  }
+
+  function titleOf(slideId: string): string {
+    const slide = useEditorStore.getState().presentation!.slides.find((s) => s.id === slideId)
+    if (slide?.kind !== 'content') throw new Error('expected a content slide')
+    return docToPlainText(slide.title)
+  }
+
+  it('goes to the page first and makes the change after the delay', () => {
+    const deck = fourPages()
+    const [, here, there] = deck.slides
+    retitle(there.id, 'Endret')
+    useEditorStore.getState().selectSlide(here.id)
+
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().currentSlideId).toBe(there.id)
+    expect(titleOf(there.id)).toBe('Endret')
+
+    vi.advanceTimersByTime(HISTORY_REVEAL_DELAY_MS - 1)
+    expect(titleOf(there.id)).toBe('Endret')
+    vi.advanceTimersByTime(1)
+    expect(titleOf(there.id)).toBe('')
+    expect(useEditorStore.getState().currentSlideId).toBe(there.id)
+
+    useEditorStore.getState().selectSlide(here.id)
+    useEditorStore.getState().redo()
+    expect(useEditorStore.getState().currentSlideId).toBe(there.id)
+    expect(titleOf(there.id)).toBe('')
+    afterReveal()
+    expect(titleOf(there.id)).toBe('Endret')
+  })
+
+  it('makes a change on the page on screen at once', () => {
+    const deck = fourPages()
+    const there = deck.slides[2]
+    useEditorStore.getState().selectSlide(there.id)
+    retitle(there.id, 'Endret')
+
+    useEditorStore.getState().undo()
+    expect(titleOf(there.id)).toBe('')
+    useEditorStore.getState().redo()
+    expect(titleOf(there.id)).toBe('Endret')
+  })
+
+  it('makes a deck-wide change at once, without moving', () => {
+    const deck = fourPages()
+    const here = deck.slides[1]
+    useEditorStore.getState().selectSlide(here.id)
+    useEditorStore.getState().run('theme', (current) => setTheme(current, { spacing: deck.theme.spacing + 0.1 }))
+
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().presentation!.theme.spacing).toBe(deck.theme.spacing)
+    expect(useEditorStore.getState().currentSlideId).toBe(here.id)
+  })
+
+  it('shows the page a moved slide left from, and the page an added one will follow', () => {
+    const deck = fourPages()
+    const [, here, , last] = deck.slides
+    useEditorStore.getState().run('move', (current) => moveSlide(current, last.id, 1))
+    useEditorStore.getState().run('add', (current) => addSlide(current, { index: 2 }))
+    const added = useEditorStore.getState().presentation!.slides[2]
+    useEditorStore.getState().selectSlide(deck.slides[2].id)
+
+    // Undoing the add takes the new page away: it is shown before it goes.
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().currentSlideId).toBe(added.id)
+    afterReveal()
+    // Undoing the move puts the slide back: the slide that moved is shown.
+    useEditorStore.getState().selectSlide(here.id)
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().currentSlideId).toBe(last.id)
+    afterReveal()
+    expect(useEditorStore.getState().presentation!.slides.map((s) => s.id)).toEqual(
+      deck.slides.map((s) => s.id),
+    )
+
+    // Redoing the add brings it back next to the page it was added after.
+    useEditorStore.getState().redo()
+    afterReveal()
+    useEditorStore.getState().selectSlide(deck.slides[2].id)
+    useEditorStore.getState().redo()
+    expect(useEditorStore.getState().currentSlideId).toBe(last.id)
+    afterReveal()
+    expect(useEditorStore.getState().presentation!.slides[2].id).toBe(added.id)
+  })
+
+  it('takes presses made while waiting in order, losing none', () => {
+    const deck = fourPages()
+    const [front, , first, second] = deck.slides
+    retitle(first.id, 'En')
+    retitle(second.id, 'To')
+    useEditorStore.getState().selectSlide(front.id)
+
+    useEditorStore.getState().undo()
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().currentSlideId).toBe(second.id)
+    afterReveal()
+    expect(titleOf(second.id)).toBe('')
+    expect(titleOf(first.id)).toBe('En')
+    expect(useEditorStore.getState().currentSlideId).toBe(first.id)
+    afterReveal()
+    expect(titleOf(first.id)).toBe('')
+
+    // Redo, redo, undo: the first redo is in view and lands at once, the second
+    // waits for its page, and the undo behind it then takes it back in place.
+    useEditorStore.getState().redo()
+    useEditorStore.getState().redo()
+    useEditorStore.getState().undo()
+    expect(titleOf(first.id)).toBe('En')
+    expect(titleOf(second.id)).toBe('')
+    vi.runAllTimers()
+    expect(titleOf(first.id)).toBe('En')
+    expect(titleOf(second.id)).toBe('')
+    expect(useEditorStore.getState().currentSlideId).toBe(second.id)
+    expect(useEditorStore.getState().future).toHaveLength(1)
+    expect(useEditorStore.getState().past).toHaveLength(1)
+  })
+
+  it('lets a waiting step land before an edit made during the delay', () => {
+    const deck = fourPages()
+    const [, here, there] = deck.slides
+    retitle(there.id, 'Endret')
+    useEditorStore.getState().selectSlide(here.id)
+
+    useEditorStore.getState().undo()
+    retitle(there.id, 'Annet')
+    expect(titleOf(there.id)).toBe('Annet')
+    // The undo landed first, so the edit replaced the redo it would have left.
+    expect(useEditorStore.getState().future).toHaveLength(0)
+    expect(useEditorStore.getState().past).toHaveLength(1)
+    useEditorStore.getState().undo()
+    expect(titleOf(there.id)).toBe('')
+  })
+
+  it('forgets waiting steps when another deck is opened', () => {
+    const deck = fourPages()
+    const [, here, there] = deck.slides
+    retitle(there.id, 'Endret')
+    useEditorStore.getState().selectSlide(here.id)
+    useEditorStore.getState().undo()
+
+    const other = seed()
+    useEditorStore.getState().setPresentation(other)
+    vi.runAllTimers()
+    expect(useEditorStore.getState().presentation).toBe(other)
   })
 })
 
@@ -414,11 +594,13 @@ describe('an interactive slide', () => {
     expect(ok).toBe(true)
     expect(interactiveAt(useEditorStore.getState().presentation!, 2).html).toBe('<p>ny</p>')
     useEditorStore.getState().undo()
+    afterReveal()
     expect(interactiveAt(useEditorStore.getState().presentation!, 2)).toMatchObject({
       fileName: 'teller.html',
       html: '<p>x</p>',
     })
     useEditorStore.getState().redo()
+    afterReveal()
     expect(interactiveAt(useEditorStore.getState().presentation!, 2).fileName).toBe('quiz.html')
   })
 })
@@ -526,6 +708,7 @@ describe('image deposit guard', () => {
     useEditorStore.getState().undo()
 
     expect(useEditorStore.getState().pendingDepositBreak).toBeNull()
+    afterReveal()
     expect(useEditorStore.getState().presentation).toBe(deck)
     // And confirming afterwards cannot put the undone slide back.
     useEditorStore.getState().confirmDepositBreak()

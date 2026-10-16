@@ -18,6 +18,7 @@ import {
 } from '../domain/layout'
 import { SECTION_SUBTITLE_NODE_ID, SECTION_TITLE_NODE_ID, TITLE_NODE_ID } from '../domain/geometry'
 import { findSlide } from '../domain/presentation'
+import { slidesTouchedBy } from '../domain/slideChanges'
 import type { ContentSlide, NodeId, Presentation, Slide } from '../domain/types'
 import { notify } from './toast'
 
@@ -50,6 +51,12 @@ interface HistoryEntry {
 }
 
 const HISTORY_LIMIT = 100
+/**
+ * How long an undo or redo whose change is on another page shows that page
+ * before it changes it — long enough to see where you are, short enough not to
+ * wait for it.
+ */
+export const HISTORY_REVEAL_DELAY_MS = 300
 /** Idle gap that ends a typing run. */
 const COALESCE_IDLE_MS = 700
 /** Hard cap on a single coalesced run, so one Ctrl+Z cannot erase a paragraph. */
@@ -131,8 +138,23 @@ interface EditorStore {
    */
   replaceDocument: (presentation: Presentation) => void
 
+  /**
+   * Step back or forwards through the history.
+   *
+   * A step whose change is on another page goes to that page first and makes
+   * the change `HISTORY_REVEAL_DELAY_MS` later, so the user sees what is taken
+   * back or put back. Steps asked for meanwhile wait their turn, in order: none
+   * is lost and none overtakes another.
+   */
   undo: () => void
   redo: () => void
+  /**
+   * Make every waiting undo and redo now. For a caller about to put a document
+   * in place that it computed from the live one: the steps the user asked for
+   * meanwhile have to land first, or its check that the deck is still the one
+   * it started from would pass for a deck that is about to move.
+   */
+  settleHistory: () => void
   canUndo: () => boolean
   canRedo: () => boolean
 
@@ -179,6 +201,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     // A deck opens where the work is. The front page is page one and sits first
     // in the filmstrip, but it is two lines of text, not the thing being built.
     const opening = presentation ? openingSlide(presentation) : null
+    dropSteps()
     set({
       presentation,
       currentSlideId: opening?.id ?? null,
@@ -202,6 +225,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set(savedAt ? { saveStatus, lastSavedAt: savedAt } : { saveStatus }),
 
   run: (label, command) => {
+    settleSteps(set, get)
     const state = get()
     const current = state.presentation
     if (!current) return false
@@ -217,6 +241,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   runStructural: (label, command) => {
+    settleSteps(set, get)
     const state = get()
     const current = state.presentation
     if (!current) return false
@@ -244,6 +269,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   confirmDepositBreak: () => {
+    settleSteps(set, get)
     const state = get()
     const held = state.pendingDepositBreak
     if (!held || !state.presentation) return
@@ -266,8 +292,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   cancelDepositBreak: () => set({ pendingDepositBreak: null }),
 
   replaceDocument: (presentation) => {
+    if (get().presentation?.id !== presentation.id) return
+    // Steps asked for before this go first; the history they leave is cleared
+    // with the rest.
+    settleSteps(set, get)
     const state = get()
-    if (!state.presentation || state.presentation.id !== presentation.id) return
     set({
       presentation,
       past: [],
@@ -281,46 +310,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     })
   },
 
-  undo: () => {
-    const state = get()
-    const previous = state.past[state.past.length - 1]
-    if (!previous || !state.presentation) return
-    set({
-      presentation: previous.presentation,
-      past: state.past.slice(0, -1),
-      future: [
-        ...state.future,
-        { presentation: state.presentation, label: previous.label, at: Date.now() },
-      ],
-      saveStatus: 'dirty',
-      lastLabel: null,
-      lastChangeAt: 0,
-      coalesceStartedAt: 0,
-      // The held change was computed from the document that just went away.
-      pendingDepositBreak: null,
-      ...reconcileSelection(previous.presentation, state),
-    })
-  },
-
-  redo: () => {
-    const state = get()
-    const next = state.future[state.future.length - 1]
-    if (!next || !state.presentation) return
-    set({
-      presentation: next.presentation,
-      future: state.future.slice(0, -1),
-      past: clampHistory([
-        ...state.past,
-        { presentation: state.presentation, label: next.label, at: Date.now() },
-      ]),
-      saveStatus: 'dirty',
-      lastLabel: null,
-      lastChangeAt: 0,
-      coalesceStartedAt: 0,
-      pendingDepositBreak: null,
-      ...reconcileSelection(next.presentation, state),
-    })
-  },
+  undo: () => requestStep(set, get, 'undo'),
+  redo: () => requestStep(set, get, 'redo'),
+  settleHistory: () => settleSteps(set, get),
 
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
@@ -416,6 +408,102 @@ function modePatch(state: EditorStore, mode: EditorMode): Partial<EditorStore> {
 }
 
 type SetState = (partial: Partial<EditorStore>) => void
+type GetState = () => EditorStore
+type HistoryDirection = 'undo' | 'redo'
+
+/**
+ * Undo and redo presses waiting their turn, and the timer of the one whose page
+ * is on show. Kept beside the store rather than in it: nothing renders them,
+ * and a timer is not state a component could subscribe to.
+ */
+const historySteps: {
+  queued: HistoryDirection[]
+  timer: ReturnType<typeof setTimeout> | null
+} = { queued: [], timer: null }
+
+function requestStep(set: SetState, get: GetState, direction: HistoryDirection): void {
+  // The held change was computed from the document the user is stepping away
+  // from, so the question about it goes now, not when the step lands.
+  if (get().pendingDepositBreak) set({ pendingDepositBreak: null })
+  historySteps.queued.push(direction)
+  if (historySteps.timer === null) runSteps(set, get)
+}
+
+/**
+ * Make the waiting steps in order. One whose change is on another page goes
+ * there and makes the change after `HISTORY_REVEAL_DELAY_MS`; the ones behind
+ * it wait, and each of them is asked the same question when its turn comes.
+ */
+function runSteps(set: SetState, get: GetState): void {
+  while (historySteps.queued.length > 0) {
+    const state = get()
+    const entry = historyEntry(state, historySteps.queued[0])
+    const page = entry ? pageToReveal(state, entry.presentation) : null
+    if (page) {
+      state.selectSlide(page)
+      historySteps.timer = setTimeout(() => {
+        historySteps.timer = null
+        applyStep(set, get(), historySteps.queued.shift() as HistoryDirection)
+        runSteps(set, get)
+      }, HISTORY_REVEAL_DELAY_MS)
+      return
+    }
+    applyStep(set, state, historySteps.queued.shift() as HistoryDirection)
+  }
+}
+
+/**
+ * Make every waiting step now. A new edit belongs after the steps the user
+ * asked for before it, so it must not be computed from the document they were
+ * about to leave.
+ */
+function settleSteps(set: SetState, get: GetState): void {
+  if (historySteps.timer !== null) clearTimeout(historySteps.timer)
+  historySteps.timer = null
+  while (historySteps.queued.length > 0) {
+    applyStep(set, get(), historySteps.queued.shift() as HistoryDirection)
+  }
+}
+
+/** Forget the waiting steps: the history they would step through is gone. */
+function dropSteps(): void {
+  if (historySteps.timer !== null) clearTimeout(historySteps.timer)
+  historySteps.timer = null
+  historySteps.queued.length = 0
+}
+
+function historyEntry(state: EditorStore, direction: HistoryDirection): HistoryEntry | null {
+  const entries = direction === 'undo' ? state.past : state.future
+  return entries[entries.length - 1] ?? null
+}
+
+/** The page to show before going to `next`, or `null` when the change is in view already. */
+function pageToReveal(state: EditorStore, next: Presentation): string | null {
+  if (!state.presentation) return null
+  const touched = slidesTouchedBy(state.presentation, next)
+  if (touched.length === 0) return null
+  if (state.currentSlideId !== null && touched.includes(state.currentSlideId)) return null
+  return touched[0]
+}
+
+function applyStep(set: SetState, state: EditorStore, direction: HistoryDirection): void {
+  const entry = historyEntry(state, direction)
+  if (!entry || !state.presentation) return
+  const left = { presentation: state.presentation, label: entry.label, at: Date.now() }
+  set({
+    presentation: entry.presentation,
+    ...(direction === 'undo'
+      ? { past: state.past.slice(0, -1), future: [...state.future, left] }
+      : { future: state.future.slice(0, -1), past: clampHistory([...state.past, left]) }),
+    saveStatus: 'dirty',
+    lastLabel: null,
+    lastChangeAt: 0,
+    coalesceStartedAt: 0,
+    // The held change was computed from the document that just went away.
+    pendingDepositBreak: null,
+    ...reconcileSelection(entry.presentation, state),
+  })
+}
 
 function commit(
   set: SetState,
