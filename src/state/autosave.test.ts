@@ -3,7 +3,7 @@ import { leaveWhenSaved, startAutosave } from './autosave'
 import { useEditorStore } from './store'
 import { useToasts } from './toast'
 import { createPresentation } from '../domain/presentation'
-import { setPresentationTitle } from '../domain/commands'
+import { addSlide, setPresentationTitle } from '../domain/commands'
 import type { Presentation } from '../domain/types'
 import type { SlaidsRepository } from '../persistence/repository'
 
@@ -70,6 +70,24 @@ describe('autosave', () => {
     await controller.flush()
     expect(fake.saved.at(-1)?.title).toBe('B')
     expect(useEditorStore.getState().saveStatus).toBe('saved')
+    controller.stop()
+  })
+
+  it('stores an undo that is still waiting to show its page', async () => {
+    const fake = fakeRepository()
+    const controller = startAutosave(fake.repository, 5)
+    const deck = createPresentation({ title: 'A' })
+    useEditorStore.getState().setPresentation(deck)
+    const [, other] = deck.slides
+    useEditorStore.getState().run('add', (current) => addSlide(current, { index: 1 }))
+    useEditorStore.getState().selectSlide(other.id)
+    await controller.flush()
+
+    // The added page is not the one on screen, so the undo waits for it.
+    useEditorStore.getState().undo()
+    expect(useEditorStore.getState().presentation?.slides).toHaveLength(deck.slides.length + 1)
+    expect(await controller.flush()).toBe(true)
+    expect(fake.saved.at(-1)?.slides.map((slide) => slide.id)).toEqual(deck.slides.map((slide) => slide.id))
     controller.stop()
   })
 

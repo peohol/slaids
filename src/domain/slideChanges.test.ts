@@ -71,4 +71,16 @@ describe('slidesTouchedBy', () => {
     expect(slidesTouchedBy(deck(slides), deck([front, e, a, b, c, d]))).toEqual([e.id])
     expect(slidesTouchedBy(deck(slides), deck([front, b, c, d, a, e]))).toEqual([a.id])
   })
+
+  it('names both neighbours of a swap, since either could have been the one moved', () => {
+    const slides = pages(3)
+    const [front, a, b, c] = slides
+    expect(slidesTouchedBy(deck(slides), deck([front, b, a, c]))).toEqual([a.id, b.id])
+  })
+
+  it('names both groups when two runs of equal length trade places', () => {
+    const slides = pages(4)
+    const [front, a, b, c, d] = slides
+    expect(slidesTouchedBy(deck(slides), deck([front, c, d, a, b]))).toEqual([a.id, b.id, c.id, d.id])
+  })
 })

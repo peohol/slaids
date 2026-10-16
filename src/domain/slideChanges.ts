@@ -21,8 +21,7 @@ import type { Presentation, Slide } from './types'
  *   page it will appear next to: the nearest one before it that is in both,
  *   or after it when nothing before it is.
  * - When nothing was edited, added or removed but the order changed, the
- *   answer is the slides that moved: those outside the longest run of slides
- *   that kept their relative order.
+ *   answer is the slides that may have moved — see `movedSlideIds`.
  */
 export function slidesTouchedBy(from: Presentation, to: Presentation): string[] {
   if (from.slides === to.slides) return []
@@ -69,30 +68,41 @@ function nearestKept(
   return null
 }
 
-/** The slides of a reordering that are not in a longest common subsequence. */
+/**
+ * The slides of a reordering that may be the ones that moved: every slide
+ * outside at least one longest run that kept its relative order.
+ *
+ * A slide in every such run certainly stayed put. One that is left out of some
+ * of them is ambiguous at worst — swapping two neighbours is the same reorder
+ * whichever of the two was moved — and both candidates are named rather than
+ * one picked arbitrarily.
+ */
 function movedSlideIds(from: readonly Slide[], to: readonly Slide[]): string[] {
-  const rows = from.length
-  const columns = to.length
-  const lengths = Array.from({ length: rows + 1 }, () => new Array<number>(columns + 1).fill(0))
-  for (let i = rows - 1; i >= 0; i -= 1) {
-    for (let j = columns - 1; j >= 0; j -= 1) {
-      lengths[i][j] =
-        from[i].id === to[j].id
-          ? lengths[i + 1][j + 1] + 1
-          : Math.max(lengths[i + 1][j], lengths[i][j + 1])
+  const positionIn = new Map(to.map((slide, index) => [slide.id, index]))
+  const order = from.map((slide) => positionIn.get(slide.id) ?? -1)
+  const count = order.length
+  // Longest increasing run ending at, and starting from, each slide.
+  const ending = order.map(() => 1)
+  const starting = order.map(() => 1)
+  for (let i = 0; i < count; i += 1) {
+    for (let j = 0; j < i; j += 1) {
+      if (order[j] < order[i]) ending[i] = Math.max(ending[i], ending[j] + 1)
     }
   }
-  const stayed = new Set<string>()
-  for (let i = 0, j = 0; i < rows && j < columns; ) {
-    if (from[i].id === to[j].id) {
-      stayed.add(from[i].id)
-      i += 1
-      j += 1
-    } else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
-      i += 1
-    } else {
-      j += 1
+  for (let i = count - 1; i >= 0; i -= 1) {
+    for (let j = i + 1; j < count; j += 1) {
+      if (order[j] > order[i]) starting[i] = Math.max(starting[i], starting[j] + 1)
     }
   }
-  return from.filter((slide) => !stayed.has(slide.id)).map((slide) => slide.id)
+  const longest = Math.max(0, ...ending)
+  const onSomeRun = order.map((_, i) => ending[i] + starting[i] - 1 === longest)
+  // Every longest run holds exactly one slide at each length, so a slide is in
+  // all of them when it is the only candidate for its length.
+  const candidates = new Map<number, number>()
+  onSomeRun.forEach((on, i) => {
+    if (on) candidates.set(ending[i], (candidates.get(ending[i]) ?? 0) + 1)
+  })
+  return from
+    .filter((_, i) => !onSomeRun[i] || candidates.get(ending[i]) !== 1)
+    .map((slide) => slide.id)
 }

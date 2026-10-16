@@ -142,6 +142,9 @@ export function startAutosave(
   })
 
   const flush = async (): Promise<boolean> => {
+    // An undo or redo still waiting for its page is a change the user already
+    // made: a save point — leaving, hiding the tab, publishing — stores it too.
+    useEditorStore.getState().settleHistory()
     if (timer) {
       clearTimeout(timer)
       timer = null
