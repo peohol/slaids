@@ -255,7 +255,8 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
 
     // Identity, not id: the deck must be the very document the uploads were
     // computed against, or this would write a version of it that has since been
-    // stepped away from.
+    // stepped away from — including by an undo still waiting to land.
+    useEditorStore.getState().settleHistory()
     if (useEditorStore.getState().presentation !== source) {
       notify.warning(
         'Presentasjonen ble endret mens bildene ble lastet opp, så ingenting ble satt inn. Prøv igjen.',

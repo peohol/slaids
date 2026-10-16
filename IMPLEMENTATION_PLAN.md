@@ -3196,7 +3196,8 @@ Anbefaling:
 - command-/transaction-orientert historikk;
 - gruppér teksttyping på en fornuftig måte;
 - strukturelle operasjoner som split/delete/move skal være atomiske undo-trinn;
-- persistence lagrer aktuell state, ikke hele undo-historikken.
+- persistence lagrer aktuell state, ikke hele undo-historikken;
+- et angre- eller gjør om-steg som endrer en annen slide enn den som vises, navigerer først dit og gjør endringen `HISTORY_REVEAL_DELAY_MS` (300 ms) senere, så brukeren ser hva som skjer. Hvilken slide steget gjelder, avledes av dokumentet før og etter (`src/domain/slideChanges.ts`), ikke av kommandoen. Nye trykk i ventetiden køes i rekkefølge, og en ny redigering i ventetiden venter til køen er gjort.
 
 Hvis full undo/redo blir for stort i første pass, skal modell- og kommandolaget i det minste ikke gjøre senere implementasjon vanskelig.
 
