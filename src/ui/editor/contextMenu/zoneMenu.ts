@@ -20,6 +20,7 @@
 import {
   duplicateLayoutNode,
   placeSandboxItem,
+  reorderLayoutNode,
   splitLeaf,
   updateSplit,
   type StructuralOptions,
@@ -62,6 +63,8 @@ export interface ZoneMenuHandlers {
   openSplitDialog: (nodeId: NodeId) => void
   setWeights: (splitId: NodeId, weights: number[]) => void
   duplicate: (nodeId: NodeId) => void
+  /** Move a zone to `toIndex` among its siblings, keeping its ratio. */
+  reorder: (nodeId: NodeId, toIndex: number) => void
   /** Ask, then empty the zone. */
   clear: (nodeId: NodeId) => void
   /** Ask, then remove the zone. */
@@ -349,9 +352,87 @@ function equalizeAction(
   }
 }
 
+/** What the four places a zone can be moved to are called, along each axis. */
+const REORDER_LABELS: Record<Axis, { previous: string; next: string; first: string; last: string }> = {
+  x: { previous: 'Til venstre', next: 'Til høyre', first: 'Helt til venstre', last: 'Helt til høyre' },
+  y: { previous: 'Opp', next: 'Ned', first: 'Øverst', last: 'Nederst' },
+}
+
 /**
- * The layout part every zone but the root has: a copy beside it, and its
- * siblings made the same size.
+ * The keys that move the selected zone one place, as the menu shows them.
+ * The editor's key handler reads the same step from `reorderStepForKey`.
+ */
+const REORDER_SHORTCUTS = { previous: 'Shift+←', next: 'Shift+→' } as const
+
+/**
+ * Which way an arrow key moves the selected zone among its siblings, or `null`
+ * for a key that does not move it.
+ *
+ * Left and up both mean "earlier", right and down "later", whichever way the
+ * split runs — the same as the plain arrows walking the siblings, so a zone
+ * never has a dead key.
+ */
+export function reorderStepForKey(key: string): -1 | 1 | null {
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return -1
+  if (key === 'ArrowRight' || key === 'ArrowDown') return 1
+  return null
+}
+
+/**
+ * «Flytt sone»: the zone to another place among its siblings.
+ *
+ * One step either way, and — when there are more than two — straight to either
+ * end. Each place is asked of `reorderLayoutNode` itself, so one the command
+ * would refuse is greyed out with its words.
+ */
+function reorderSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers, parent: SplitNode): MenuEntry {
+  const { presentation, slide, nodeId, checks } = input
+  const index = parent.children.findIndex((child) => child.id === nodeId)
+  const last = parent.children.length - 1
+  const labels = REORDER_LABELS[parent.axis]
+  const place = (
+    id: string,
+    label: string,
+    toIndex: number,
+    icon: MenuAction['icon'],
+    shortcut?: string,
+  ): MenuAction => {
+    const reason =
+      toIndex === index
+        ? 'Sonen står allerede der.'
+        : refusalOf(reorderLayoutNode(presentation, { slideId: slide.id, nodeId, toIndex, ...checks }))
+    return {
+      kind: 'action',
+      id: `reorder-${id}`,
+      label,
+      icon,
+      ...(shortcut ? { shortcut } : {}),
+      disabled: reason !== null,
+      reason,
+      onSelect: () => handlers.reorder(nodeId, toIndex),
+    }
+  }
+  const [back, forward] =
+    parent.axis === 'x'
+      ? (['chevron-left', 'chevron-right'] as const)
+      : (['chevron-up', 'chevron-down'] as const)
+  const steps = [
+    place('previous', labels.previous, Math.max(0, index - 1), back, REORDER_SHORTCUTS.previous),
+    place('next', labels.next, Math.min(last, index + 1), forward, REORDER_SHORTCUTS.next),
+  ]
+  const ends = last > 1 ? [place('first', labels.first, 0, back), place('last', labels.last, last, forward)] : []
+  return {
+    kind: 'submenu',
+    id: 'reorder',
+    label: 'Flytt sone',
+    icon: 'move',
+    entries: [...steps, ...(ends.length > 0 ? [SEPARATOR, ...ends] : [])],
+  }
+}
+
+/**
+ * The layout part every zone but the root has: a copy beside it, a new place
+ * among its siblings, and its siblings made the same size.
  */
 function siblingEntries(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuEntry[] {
   const { presentation, slide, nodeId, checks } = input
@@ -370,6 +451,7 @@ function siblingEntries(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuE
       reason: duplicateRefusal,
       onSelect: () => handlers.duplicate(nodeId),
     },
+    reorderSubmenu(input, handlers, parent),
     equalizeAction(input, handlers, parent, 'equalize-siblings', 'Fordel søskensoner likt'),
   ]
 }

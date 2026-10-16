@@ -86,6 +86,39 @@ test.describe('context menu in zone mode', () => {
     await expectZoneMode(page)
   })
 
+  test('moves a zone among its siblings with its ratio, from the menu and the keyboard', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Hurtigmeny')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 2, 1], 'x')
+
+    const [a, b, c] = await zoneRects(page)
+    const order = async (): Promise<string[]> => (await zoneRects(page)).map((zone) => zone.id)
+    await rightClickZone(page, b)
+    await page.getByTestId('menu-reorder').click()
+    await page.getByTestId('menu-reorder-first').click()
+    await expect(menu(page)).toBeHidden()
+
+    await expect.poll(order).toEqual([b.id, a.id, c.id])
+    const moved = await zoneRects(page)
+    // Every zone kept its own width: the wide one is still the wide one.
+    expect(moved[0].w).toBeCloseTo(b.w, 0)
+    expect(moved[1].w).toBeCloseTo(a.w, 0)
+    expect(moved[2].w).toBeCloseTo(c.w, 0)
+    await expect(page.locator(`[data-node-outline="${b.id}"]`)).toHaveClass(/zone-outline--selected/)
+
+    // Shift+arrow moves the selected zone one place, and the selection follows it.
+    await page.keyboard.press('Shift+ArrowRight')
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect.poll(order).toEqual([a.id, c.id, b.id])
+    await expect(page.locator(`[data-node-outline="${b.id}"]`)).toHaveClass(/zone-outline--selected/)
+
+    await page.keyboard.press('Control+z')
+    await expect.poll(order).toEqual([a.id, b.id, c.id])
+    await expectZoneMode(page)
+    expect(guard.errors).toEqual([])
+  })
+
   test('sets a split’s ratio from the gap between its zones', async ({ page }) => {
     await createPresentation(page, 'Hurtigmeny')
     await enterZoneMode(page)

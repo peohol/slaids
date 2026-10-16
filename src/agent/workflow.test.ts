@@ -684,6 +684,63 @@ describe('layout', () => {
     if (stored_root.kind === 'split') expect(stored_root.weights).toEqual([3, 2])
   })
 
+  it('flytter en sone blant søsknene med forholdstallet og id-ene i behold', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const root = (
+      await ok<ContentSlideInspection>(context, 'inspect_slide', {
+        presentationId: deck.presentationId,
+        slideId,
+      })
+    ).rootNodeId
+
+    const split = await ok<ZoneChange & { childNodeIds: string[] }>(context, 'split_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      axis: 'x',
+      weights: [1, 2, 1],
+    })
+    const [a, b, c] = split.childNodeIds
+    await ok(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: b,
+      blocks: paragraph('Midten'),
+    })
+
+    const reordered = await ok<ZoneChange & { siblingNodeIds: string[] }>(context, 'reorder_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: b,
+      toIndex: 0,
+    })
+    expect(reordered.siblingNodeIds).toEqual([b, a, c])
+
+    const inspected = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId,
+    })
+    expect(inspected.zones.find((zone) => zone.nodeId === root)?.weights).toEqual([2, 1, 1])
+    expect(inspected.zones.find((zone) => zone.nodeId === b)?.empty).toBe(false)
+
+    const outside = await fails(context, 'reorder_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: b,
+      toIndex: 3,
+    })
+    expect(outside.code).toBe('INVALID_ARGUMENT')
+    const theRoot = await fails(context, 'reorder_zone', {
+      presentationId: deck.presentationId,
+      slideId,
+      nodeId: root,
+      toIndex: 0,
+    })
+    expect(theRoot.code).toBe('INVALID_ARGUMENT')
+  })
+
   it('tømmer en sone og fjerner en subsone', async () => {
     const context = freshContext()
     const deck = await newDeck(context)

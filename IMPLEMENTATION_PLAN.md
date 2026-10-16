@@ -1988,6 +1988,16 @@ kan dras, og et drag inni en sone endrer størrelsen på den symmetrisk (på tve
 av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
 trinnløs, ved slipp snapper layouten til nærmeste lovlige forhold. Se §11.5.
 
+**Omrokkering** (`reorderLayoutNode`) flytter en sone til en annen plass blant
+søsknene sine, og forholdstallet følger sonen: `A : B : C` i `1 : 2 : 1` med B
+flyttet først blir `B : A : C` i `2 : 1 : 1`. En delt sone flyttes med hele
+undertreet, egne forholdstall og alle id-er i behold, så ingen sone endrer
+størrelse og en omrokkering kan aldri gjøre en sone for liten. Den går likevel
+gjennom `guardFit`, fordi rekkefølgen i treet er leserekkefølgen citations
+nummereres i. Editoren tilbyr den i sonemenyen («Flytt sone»: ett hakk hver vei,
+og helt til hver ende når splitten har flere enn to soner) og med Shift +
+piltast i soneredigering; agenten bruker `reorder_zone`.
+
 ---
 
 ## 13\. Innholdstyper
@@ -3917,6 +3927,7 @@ set_slide_has_title
 
 split_zone
 adjust_split
+reorder_zone
 delete_zone
 
 set_zone_text
@@ -4849,7 +4860,7 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `set_theme`, `add_section`, `set_section`, `set_section_colors`, `add_slide`,
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,
-  `adjust_split`, `delete_zone`,
+  `adjust_split`, `reorder_zone`, `delete_zone`,
   `clear_zone`, `move_zone_content`, `copy_zone_content`, `set_zone_text`,
   `set_zone_card`, `adjust_subfields`,
   `set_image_focus`, `set_image_caption`, `set_vertical_alignment`,

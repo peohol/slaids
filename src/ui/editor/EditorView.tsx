@@ -35,6 +35,7 @@ import {
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
+  reorderLayoutNode,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
@@ -97,7 +98,7 @@ import {
   useContextMenu,
   type MenuAnchor,
 } from '../components/contextMenu'
-import { zoneModeMenu, type ZoneMenuHandlers } from './contextMenu/zoneMenu'
+import { reorderStepForKey, zoneModeMenu, type ZoneMenuHandlers } from './contextMenu/zoneMenu'
 import { contentModeMenu, type ContentMenuHandlers } from './contextMenu/contentMenu'
 import {
   contentTargetAt,
@@ -1158,6 +1159,11 @@ export function EditorView({
         const index = parent ? parent.children.findIndex((child) => child.id === nodeId) : -1
         if (parent && index >= 0) useEditorStore.getState().selectNode(parent.children[index + 1].id)
       },
+      // The zone keeps its id, so the selection follows it to its new place.
+      reorder: (nodeId, toIndex) =>
+        void runStructural('reorder-zone', (current) =>
+          reorderLayoutNode(current, { slideId, nodeId, toIndex, ...domFitCheckers }),
+        ),
       clear: setClearingZoneId,
       remove: setDeletingZoneId,
     }
@@ -1506,6 +1512,23 @@ export function EditorView({
 
       if (state.mode !== 'zone') return
 
+      /*
+       * Shift with an arrow moves the selected zone one place among its
+       * siblings instead of walking to the next one — the same step the zone
+       * menu's «Flytt sone» takes.
+       */
+      const step = event.shiftKey && !meta && !event.altKey ? reorderStepForKey(event.key) : null
+      if (step !== null) {
+        event.preventDefault()
+        const activeSlide = state.currentContentSlide()
+        const nodeId = state.selectedNodeId
+        const parent = activeSlide && nodeId ? findParent(activeSlide.root, nodeId) : null
+        if (!parent || !nodeId || !zoneHandlers) return
+        const toIndex = parent.children.findIndex((child) => child.id === nodeId) + step
+        if (toIndex >= 0 && toIndex < parent.children.length) zoneHandlers.reorder(nodeId, toIndex)
+        return
+      }
+
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault()
         const direction =
@@ -1541,7 +1564,7 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [openKeyboardMenu, presenting, redo, setMode, stepDeck, toggleMode, undo])
+  }, [openKeyboardMenu, presenting, redo, setMode, stepDeck, toggleMode, undo, zoneHandlers])
 
   /* -------------------------------------------------------------- *
    * Render

@@ -29,16 +29,18 @@
 
 import { z } from 'zod'
 import { SPLIT_RULE } from '../design'
+import { MAX_SPLIT_CHILDREN } from '../../domain/constants'
 import {
   clearLayoutNode,
   copyZoneContent,
   deleteLayoutNode,
   moveZoneContent,
+  reorderLayoutNode,
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
 import { bodyOf } from '../../domain/content'
-import { findLeaf, findSplit } from '../../domain/layout'
+import { findLeaf, findParent, findSplit } from '../../domain/layout'
 import { findContentSlide } from '../../domain/presentation'
 import { err, ok } from '../../domain/result'
 import type { StructuralOutcome } from '../../domain/commands'
@@ -270,6 +272,51 @@ export const clearZone = defineOperation({
 })
 
 /* ------------------------------------------------------------------ *
+ * reorder_zone
+ * ------------------------------------------------------------------ */
+
+export const reorderZone = defineOperation({
+  name: 'reorder_zone',
+  summary:
+    'Flytt en sone til en annen plass blant søsknene i splitten den ligger i. Sonen tar med seg forholdstallet sitt og alt under seg, så ' +
+    'A, B, C i 1 : 2 : 1 med B flyttet først blir B, A, C i 2 : 1 : 1. Ingen sone endrer størrelse, og alle id-er beholdes.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    slideId: slideIdSchema,
+    nodeId: nodeIdSchema.describe('Sonen som skal flyttes. Kan ikke være hovedsonen, som ikke har søsken.'),
+    toIndex: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_SPLIT_CHILDREN - 1)
+      .describe('Plassen sonen skal ha etterpå blant søsknene, talt fra 0. Må være mindre enn antall søsken.'),
+  }),
+  run(context, input): Promise<AgentResult<ZoneChange & { siblingNodeIds: string[] }>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const reordered = reorderLayoutNode(presentation, {
+        slideId: input.slideId,
+        nodeId: input.nodeId,
+        toIndex: input.toIndex,
+        ...structuralOptions(context),
+      })
+      if (!reordered.ok) return reordered
+      const slide = findContentSlide(reordered.value.presentation, input.slideId)
+      const parent = slide ? findParent(slide.root, input.nodeId) : null
+      return ok({
+        presentation: reordered.value.presentation,
+        value: {
+          ...zoneChange(presentation, input, reordered.value),
+          siblingNodeIds: parent?.children.map((child) => child.id) ?? [],
+        },
+      })
+    })
+  },
+})
+
+/* ------------------------------------------------------------------ *
  * move_zone_content / copy_zone_content
  * ------------------------------------------------------------------ */
 
@@ -450,6 +497,7 @@ export const layoutOperations = [
   adjustSplit,
   deleteZone,
   clearZone,
+  reorderZone,
   moveZoneContentOperation,
   copyZoneContentOperation,
 ]
