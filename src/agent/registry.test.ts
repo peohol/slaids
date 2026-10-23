@@ -284,6 +284,7 @@ describe('operasjonskatalogen', () => {
     const expected: Record<string, { mutates: boolean; scopes: string[] }> = {
       list_folders: { mutates: false, scopes: ['presentations:read'] },
       create_folder: { mutates: true, scopes: ['presentations:write'] },
+      rename_folder: { mutates: true, scopes: ['presentations:write'] },
       delete_folder: { mutates: true, scopes: ['presentations:write'] },
       move_presentation: { mutates: true, scopes: ['presentations:write'] },
       duplicate_presentation: {
@@ -363,8 +364,16 @@ describe('operasjonskatalogen', () => {
     expect(removedFolder.additionalProperties).toBe(false)
     expect(JSON.stringify(removedFolder)).not.toContain('force')
 
+    // A rename names the folder and the new name, with the same bounds as making
+    // one, and nothing else of the folder can be rewritten through it.
+    const renamed = schemaFor('rename_folder') as typeof move & { additionalProperties?: unknown }
+    expect(Object.keys(renamed.properties).sort()).toEqual(['folderId', 'name'])
+    expect([...(renamed.required ?? [])].sort()).toEqual(['folderId', 'name'])
+    expect(renamed.additionalProperties).toBe(false)
+    expect(renamed.properties.name).toEqual(made.properties.name)
+
     // And neither of them may touch the file store, in either direction.
-    for (const name of ['create_folder', 'delete_folder']) {
+    for (const name of ['create_folder', 'rename_folder', 'delete_folder']) {
       expect({ name, scopes: findOperation(name)?.scopes }).toEqual({
         name,
         scopes: ['presentations:write'],

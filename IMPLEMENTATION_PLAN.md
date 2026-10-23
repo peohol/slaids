@@ -3828,7 +3828,9 @@ Listen bærer mappens navn og, per publisert dekk, id, publisert tittel og antal
 slides – ingen eier, ingen datoer, ingen mappe-id, og ingenting om et dekk uten
 publisert kopi. En presentasjons-id åpner ingenting alene: den slås bare opp
 inne i mappen tokenet peker på. Et dekk åpnet fra en mappe har ingen QR-side;
-den hører til et dekk som er delt alene.
+den hører til et dekk som er delt alene. Navnet leses fra mapperaden ved hvert
+oppslag: gir eieren mappen nytt navn, viser lenken det nye navnet med en gang,
+og tokenet og delingen er de samme.
 
 `SharedFolderView` viser navnet og ett kort per dekk. Et trykk åpner dekket i
 `SharedDeck`, den samme komponenten `/s/<token>` bruker, med `onExit` tilbake
@@ -3976,6 +3978,7 @@ delete_presentation
 
 list_folders
 create_folder
+rename_folder
 delete_folder
 
 set_theme
@@ -4922,8 +4925,8 @@ Fase 1, 2, 3, 4 og 5 er på plass, og flaten er siden utvidet i to runder (se
   `validate_presentation`.
 - Lesing (forts.): `get_sharing`, `render_slide_preview`.
 - Skriving: `create_presentation`, `set_presentation_title`,
-  `set_image_context`, `plan_deck_images`, `create_folder`, `delete_folder`,
-  `move_presentation`, `duplicate_presentation`, `delete_presentation`,
+  `set_image_context`, `plan_deck_images`, `create_folder`, `rename_folder`,
+  `delete_folder`, `move_presentation`, `duplicate_presentation`, `delete_presentation`,
   `set_theme`, `add_section`, `set_section`, `set_section_colors`, `add_slide`,
   `duplicate_slide`, `move_slide`,
   `delete_slide`, `set_slide_title`, `set_slide_has_title`, `split_zone`,

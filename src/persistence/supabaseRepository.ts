@@ -1029,6 +1029,17 @@ export class SupabaseSlaidsRepository
     )
   }
 
+  async renameFolder(id: string, name: string): Promise<Folder | null> {
+    // An update and never an insert, so a folder deleted in the meantime stays
+    // deleted. Only `name`: the share columns are not this call's to write.
+    const { data, error } = await this.scoped(
+      this.client.from(FOLDERS_TABLE).update({ name }).eq('id', id),
+    ).select('id, name, created_at')
+    if (error) fail('Kunne ikke gi mappen nytt navn', error)
+    const row = ((data ?? []) as { id: string; name: string; created_at: string | null }[])[0]
+    return row ? { id: row.id, name: row.name, createdAt: toIso(row.created_at, EPOCH) } : null
+  }
+
   /**
    * The folder goes; the presentations in it stay, at the root.
    *

@@ -39,6 +39,14 @@ export type DomainErrorCode =
   | 'UNSAFE_SVG'
   | 'SUBFIELD_NOT_FOUND'
   | 'INVALID_ARGUMENT'
+  /**
+   * A folder id the library does not have: named by an agent, or renamed from a
+   * tab that still shows a folder deleted elsewhere. A move into a folder that
+   * does not exist would not be visible anywhere — not at the root, not in any
+   * folder — and a rename must not bring a deleted folder back, so both are
+   * refused rather than stored.
+   */
+  | 'FOLDER_NOT_FOUND'
   | 'TITLE_ALREADY_PRESENT'
   | 'TITLE_ABSENT'
 
@@ -115,6 +123,7 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   UNSAFE_SVG: 'SVG-en inneholder noe som ikke er trygt å lagre.',
   SUBFIELD_NOT_FOUND: 'Fant ikke subfeltet.',
   INVALID_ARGUMENT: 'Ugyldig verdi.',
+  FOLDER_NOT_FOUND: 'Fant ikke mappen.',
   TITLE_ALREADY_PRESENT: 'Sliden har allerede en overskrift.',
   TITLE_ABSENT: 'Sliden har ingen overskrift.',
 }

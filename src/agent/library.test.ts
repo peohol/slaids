@@ -34,7 +34,12 @@ import type { Folder, LayoutNode, Presentation } from '../domain/types'
 import { runOperation } from './registry'
 import type { AgentContext, AgentResult } from './types'
 import type { PresentationView } from './operations/deck'
-import type { DeletedFolder, DeletedPresentation, MovedPresentation } from './operations/library'
+import type {
+  DeletedFolder,
+  DeletedPresentation,
+  MovedPresentation,
+  RenamedFolder,
+} from './operations/library'
 import { contentAt } from '../domain/testDecks'
 
 let counter = 0
@@ -290,6 +295,87 @@ describe('create_folder', () => {
     expect(refused.code).toBe('STORAGE_FAILED')
     expect(refused.message).toBe('Basen svarer ikke.')
     expect(await context.repository.listFolders()).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * rename_folder
+ * ------------------------------------------------------------------ */
+
+describe('rename_folder', () => {
+  async function folderIn(context: AgentContext, name = 'Kundemøter'): Promise<Folder> {
+    return expectOk(await call<{ folder: Folder }>(context, 'create_folder', { name })).folder
+  }
+
+  it('gir mappen nytt navn og beholder alt annet, også presentasjonene i den', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context)
+    const other = await folderIn(context, 'Arkiv')
+    const deck = { ...createPresentation({ title: 'I mappen' }), folderId: folder.id }
+    await context.repository.savePresentation(deck)
+
+    expect(
+      expectOk(
+        await call<RenamedFolder>(context, 'rename_folder', { folderId: folder.id, name: '  Kunder ' }),
+      ),
+    ).toEqual({ folderId: folder.id, name: 'Kunder' })
+
+    // The same row under the same id and creation time, and nobody else's row.
+    const folders = await context.repository.listFolders()
+    expect(folders).toHaveLength(2)
+    expect(folders).toContainEqual({ ...folder, name: 'Kunder' })
+    expect(folders).toContainEqual(other)
+    // A folder is found by id, so what was in it is still in it.
+    expect((await context.repository.loadPresentation(deck.id)).folderId).toBe(folder.id)
+  })
+
+  it('avviser et navn biblioteket ikke godtar, uten å skrive noe', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context)
+
+    for (const name of ['', '   ', 'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1)]) {
+      const refused = expectErr(await call(context, 'rename_folder', { folderId: folder.id, name }))
+      expect({ length: name.length, code: refused.code }).toEqual({
+        length: name.length,
+        code: 'INVALID_INPUT',
+      })
+    }
+    expect(await context.repository.listFolders()).toEqual([folder])
+  })
+
+  it('avviser en mappe som ikke finnes, i stedet for å lage den', async () => {
+    // Also when it existed a moment ago: a rename that lost a race with a
+    // deletion must not bring the folder back.
+    const context = freshContext()
+    const gone = await folderIn(context)
+    expectOk(await call<DeletedFolder>(context, 'delete_folder', { folderId: gone.id }))
+    expect(
+      expectErr(await call(context, 'rename_folder', { folderId: gone.id, name: 'Ny' })).code,
+    ).toBe('FOLDER_NOT_FOUND')
+
+    const refused = expectErr(
+      await call(context, 'rename_folder', { folderId: 'fl_finnes_ikke', name: 'Ny' }),
+    )
+    expect(refused.code).toBe('FOLDER_NOT_FOUND')
+    expect(refused.details).toEqual({ folderId: 'fl_finnes_ikke' })
+    expect(await context.repository.listFolders()).toEqual([])
+  })
+
+  it('lar en lagringsfeil være en lagringsfeil', async () => {
+    const context = freshContext()
+    const folder = await folderIn(context)
+    const failing = overriding(context.repository, {
+      renameFolder: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
+    })
+
+    const refused = expectErr(
+      await call({ ...context, repository: failing }, 'rename_folder', {
+        folderId: folder.id,
+        name: 'Kunder',
+      }),
+    )
+    expect(refused.code).toBe('STORAGE_FAILED')
+    expect(await context.repository.listFolders()).toEqual([folder])
   })
 })
 

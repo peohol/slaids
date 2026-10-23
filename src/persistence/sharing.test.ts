@@ -528,6 +528,36 @@ describe('deling av mapper', () => {
     expect(String(values(fake.queries[0]).share_token)).toMatch(TOKEN_PATTERN)
   })
 
+  it('gir en delt mappe nytt navn uten å røre delingen, og uten å lage en ny', async () => {
+    // The link reads the name from the row, so a rename only has to write the
+    // name. Writing the share columns here would be a way to turn a link off, or
+    // to rotate its token, by renaming the folder; and an insert would bring a
+    // folder deleted in the meantime back.
+    const createdAt = '2026-10-01T08:00:00.000Z'
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => ({
+        data: [{ id: FOLDER, name: values(record).name, created_at: createdAt }],
+      }),
+    })
+
+    expect(await repository.renameFolder(FOLDER, 'Nytt navn')).toEqual({
+      id: FOLDER,
+      name: 'Nytt navn',
+      createdAt,
+    })
+    expect(fake.queries).toHaveLength(1)
+    expect(fake.queries[0].table).toBe(FOLDERS_TABLE)
+    expect(fake.queries[0].op).toBe('update')
+    expect(filterValue(fake.queries[0], 'id')).toBe(FOLDER)
+    expect(values(fake.queries[0])).toEqual({ name: 'Nytt navn' })
+  })
+
+  it('svarer null når mappen som skal få nytt navn ikke finnes', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [] }) })
+    expect(await repository.renameFolder(FOLDER, 'Nytt navn')).toBeNull()
+    expect(fake.queries.map((query) => query.op)).toEqual(['update'])
+  })
+
   it('sier fra når mappen ikke finnes', async () => {
     const { repository } = repositoryFor({ resolve: () => ({ data: [] }) })
     await expect(repository.disableFolderSharing(FOLDER)).rejects.toThrow(/Fant ikke mappen/)

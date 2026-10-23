@@ -9,7 +9,11 @@
 
 import { setFolder, setPresentationTitle } from '../domain/commands'
 import type { Result } from '../domain/result'
-import { createFolder as createFolderIn, duplicatePresentation as duplicateIn } from '../persistence/library'
+import {
+  createFolder as createFolderIn,
+  duplicatePresentation as duplicateIn,
+  renameFolder as renameFolderIn,
+} from '../persistence/library'
 import { repository } from '../persistence/activeRepository'
 import type { Folder, Presentation } from '../domain/types'
 
@@ -34,6 +38,11 @@ export async function duplicatePresentation(sourceId: string): Promise<Presentat
  */
 export async function createFolder(name: string): Promise<Result<Folder>> {
   return createFolderIn(repository, name)
+}
+
+/** Give a folder a new name; refused for the same reasons `createFolder` is. */
+export async function renameFolder(folderId: string, name: string): Promise<Result<Folder>> {
+  return renameFolderIn(repository, folderId, name)
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {

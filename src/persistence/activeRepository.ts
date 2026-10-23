@@ -190,6 +190,8 @@ export const repository: SlaidsRepository = {
 
   listFolders: (): Promise<Folder[]> => on((repo) => repo.listFolders()),
   saveFolder: (folder: Folder): Promise<void> => on((repo) => repo.saveFolder(folder)),
+  renameFolder: (id: string, name: string): Promise<Folder | null> =>
+    on((repo) => repo.renameFolder(id, name)),
   deleteFolder: (id: string): Promise<void> => on((repo) => repo.deleteFolder(id)),
 
   listTemplates: (): Promise<LayoutTemplate[]> => on((repo) => repo.listTemplates()),

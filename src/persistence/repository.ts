@@ -170,6 +170,13 @@ export interface SlaidsRepository {
    */
   saveFolder(folder: Folder): Promise<void>
   /**
+   * Give an existing folder a new name, and only that: unlike `saveFolder` this
+   * never creates a row, so a rename that lost a race with a deletion cannot
+   * bring the folder back. Answers with the folder as stored, or `null` when
+   * there is no such folder. The share state is not touched.
+   */
+  renameFolder(id: string, name: string): Promise<Folder | null>
+  /**
    * Take the folder away and leave everything that was in it.
    *
    * **The presentations survive, at the root.** That is the promise, not an

@@ -23,6 +23,7 @@ import {
   emptyTrash,
   isTrashExpired,
   purgeExpiredTrash,
+  renameFolder,
   trashExpiry,
 } from './library'
 
@@ -110,6 +111,63 @@ describe('createFolder', () => {
     })
 
     await expect(createFolder(failing, 'Kundemøter')).rejects.toBeInstanceOf(RepositoryError)
+    expect(await repository.listFolders()).toEqual([])
+  })
+})
+
+describe('renameFolder', () => {
+  async function folderIn(repository: DexieSlaidsRepository, name: string) {
+    const created = await createFolder(repository, name)
+    if (!created.ok) throw new Error(`forventet en mappe, fikk ${created.error.code}`)
+    return created.value
+  }
+
+  it('gir mappen et trimmet nytt navn under samme id og tidspunkt', async () => {
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+    const other = await folderIn(repository, 'Arkiv')
+    const deck = { ...createPresentation({ title: 'I mappen' }), folderId: folder.id }
+    await repository.savePresentation(deck)
+
+    const renamed = await renameFolder(repository, folder.id, '  Kunder  ')
+    expect(renamed).toEqual({ ok: true, value: { ...folder, name: 'Kunder' } })
+
+    const stored = await repository.listFolders()
+    expect(stored).toHaveLength(2)
+    expect(stored).toContainEqual({ ...folder, name: 'Kunder' })
+    expect(stored).toContainEqual(other)
+    expect((await repository.loadPresentation(deck.id)).folderId).toBe(folder.id)
+  })
+
+  it('avviser de samme navnene som createFolder, uten å skrive noe', async () => {
+    // One rule for what a folder may be called, whichever way it got its name.
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+
+    for (const name of ['', '   ', 'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1)]) {
+      const refused = await renameFolder(repository, folder.id, name)
+      const created = await createFolder(repository, name)
+      expect(refused.ok).toBe(false)
+      expect(created.ok).toBe(false)
+      if (!refused.ok && !created.ok) expect(refused.error).toEqual(created.error)
+    }
+    expect(await repository.listFolders()).toEqual([folder])
+  })
+
+  it('lager ikke en mappe som er slettet i mellomtiden', async () => {
+    // A tab that still shows the folder, or an agent that listed it a moment
+    // ago, renames after somebody else deleted it. That must not bring an empty
+    // folder back under the old id.
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+    await repository.deleteFolder(folder.id)
+
+    const refused = await renameFolder(repository, folder.id, 'Kunder')
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('FOLDER_NOT_FOUND')
+      expect(refused.error.details).toEqual({ folderId: folder.id })
+    }
     expect(await repository.listFolders()).toEqual([])
   })
 })

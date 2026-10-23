@@ -1096,7 +1096,7 @@ lese – skal aldri kunne holde en offentlig lenke i live.
 
 ### Biblioteket: mapper, kopier og sletting
 
-Seks operasjoner arbeider på presentasjonen utenfra i stedet for inni den, og de
+Sju operasjoner arbeider på presentasjonen utenfra i stedet for inni den, og de
 bruker bibliotekets egne regler – ikke en parallell modell for API-et.
 
 ```bash
@@ -1107,6 +1107,10 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
 # Lag en. Svaret er { "folder": { "id": "fl_…", "name": "…", "createdAt": "…" } }.
 curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
      -d '{"name":"Kundemøter"}' "$SLAIDS_API/operations/create_folder"
+
+# Gi den nytt navn. Svaret er { "folderId": "fl_…", "name": "…" }.
+curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"folderId":"fl_…","name":"Kunder"}' "$SLAIDS_API/operations/rename_folder"
 
 # Slett den igjen. Presentasjonene i den blir liggende, uten mappe.
 curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json' \
@@ -1128,23 +1132,26 @@ curl -H "Authorization: Bearer $SLAIDS_TOKEN" -H 'Content-Type: application/json
      "$SLAIDS_API/operations/delete_presentation"
 ```
 
-**Scopene er ikke de samme for de fire**, og forskjellene er med vilje:
+**Scopene er ikke de samme for alle**, og forskjellene er med vilje:
 
 | Operasjon                | Krever                                    |
 | ------------------------ | ----------------------------------------- |
 | `list_folders`           | `presentations:read`                      |
 | `create_folder`          | `presentations:write`                     |
+| `rename_folder`          | `presentations:write`                     |
 | `delete_folder`          | `presentations:write`                     |
 | `move_presentation`      | `presentations:write`                     |
 | `duplicate_presentation` | `presentations:read` + `presentations:write` + `assets:write` |
 | `delete_presentation`    | `presentations:write` + `assets:write`    |
 
-De to mappeoperasjonene har det minst privilegerte **eksisterende** scopet som
+De tre mappeoperasjonene har det minst privilegerte **eksisterende** scopet som
 faktisk dekker dem, og det er ikke et nytt mappescope: en mappe er ikke en fil,
 så `assets:write` ville delt ut filstoret på kjøpet, og ingenting her publiseres.
 `delete_folder` *er* en presentasjonsskriving – den fjerner `folderId` fra hvert
 dekk i mappen – og `create_folder` lager beholderen `move_presentation` allerede
-arkiverer dekk i med nøyaktig det samme scopet. Ingen av de to leser: kvitteringen
+arkiverer dekk i med nøyaktig det samme scopet; `rename_folder` skriver navnet
+på den samme raden. En delt mappe beholder lenken sin, og lenken viser det nye
+navnet. Ingen av de tre leser: kvitteringen
 til `delete_folder` er `{ "folderId": "…", "deleted": true }` og bærer verken
 mappens navn eller hva som lå i den.
 
@@ -1182,8 +1189,8 @@ kilden og betyr «kopier nøyaktig den lesingen jeg så».
 **En mappe må finnes.** En `folderId` som ikke finnes avvises med
 `FOLDER_NOT_FOUND` (404) før noe skrives – et dekk i en mappe som ikke finnes
 ville ikke vært synlig noe sted, verken på rotnivå eller i en mappe. Det gjelder
-alle tre dørene som navngir en mappe: `create_presentation`, `move_presentation`
-og `delete_folder` tar den samme sjekken, så de kan ikke bli uenige om hvorvidt
+alle dørene som navngir en mappe: `create_presentation`, `move_presentation`,
+`rename_folder` og `delete_folder` tar den samme sjekken, så de kan ikke bli uenige om hvorvidt
 mappen er der. Å slette en mappe som ikke finnes er derfor `FOLDER_NOT_FOUND` og
 ikke et stille `ok` – begge lagrene sletter på id og bryr seg ikke om at id-en
 ikke er der. Å flytte et dekk til mappen det allerede ligger i er en lovlig no-op
@@ -1197,7 +1204,8 @@ filtrerer på, i én transaksjon. I Supabase er den transaksjonen databasefunksj
 `slaids_delete_folder` – **den krever at migrasjonene er kjørt**
 (`scripts/deploy-migrations.sh`), og sier det med rene ord hvis de ikke er det.
 `create_folder` tar bare `name` (trimmet, ikke tomt, høyst 200 tegn – den samme
-grensen editoren har) – id-en lager Slaids – og `delete_folder` bare `folderId`.
+grensen editoren har) – id-en lager Slaids – `rename_folder` `folderId` og
+`name` med de samme reglene, og `delete_folder` bare `folderId`.
 Ingen av dem tar `expectedRevision`: en mappe er ikke et dokument og har ingen
 revisjon å skrive mot.
 

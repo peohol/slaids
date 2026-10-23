@@ -294,6 +294,16 @@ export class DexieSlaidsRepository implements SlaidsRepository {
     await this.database.folders.put(folder)
   }
 
+  async renameFolder(id: string, name: string): Promise<Folder | null> {
+    return this.database.transaction('rw', this.database.folders, async () => {
+      const folder = await this.database.folders.get(id)
+      if (!folder) return null
+      const renamed = { ...folder, name }
+      await this.database.folders.put(renamed)
+      return renamed
+    })
+  }
+
   /** Presentations in a deleted folder move back to the root rather than vanish. */
   async deleteFolder(id: string): Promise<void> {
     await this.database.transaction('rw', this.database.folders, this.database.presentations, async () => {
