@@ -103,7 +103,6 @@ import {
   presentationIdSchema,
 } from '../operation'
 import {
-  findFolder,
   loadPresentation,
   missingFolder,
   mutatePresentation,
@@ -193,13 +192,11 @@ export const renameFolderOperation = defineOperation({
     name: folderNameSchema,
   }),
   async run(context, input): Promise<AgentResult<RenamedFolder>> {
-    const found = await findFolder(context, input.folderId)
-    if (!found.ok) return found
-
     try {
       // The library's own function, so a name the sidebar refuses is a name an
-      // agent is refused too.
-      const renamed = await renameFolder(context.repository, found.value, input.name)
+      // agent is refused too, and a folder that is not there is refused with
+      // the same `FOLDER_NOT_FOUND` the other folder doors give — never made.
+      const renamed = await renameFolder(context.repository, input.folderId, input.name)
       if (!renamed.ok) return fromDomainError(renamed.error)
       // The id the caller sent and the name as stored. Not the creation time:
       // this operation holds no read scope, the same line `delete_folder` draws.

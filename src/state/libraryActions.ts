@@ -41,8 +41,8 @@ export async function createFolder(name: string): Promise<Result<Folder>> {
 }
 
 /** Give a folder a new name; refused for the same reasons `createFolder` is. */
-export async function renameFolder(folder: Folder, name: string): Promise<Result<Folder>> {
-  return renameFolderIn(repository, folder, name)
+export async function renameFolder(folderId: string, name: string): Promise<Result<Folder>> {
+  return renameFolderIn(repository, folderId, name)
 }
 
 export async function renamePresentation(id: string, title: string): Promise<void> {

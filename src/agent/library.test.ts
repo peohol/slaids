@@ -344,9 +344,15 @@ describe('rename_folder', () => {
   })
 
   it('avviser en mappe som ikke finnes, i stedet for å lage den', async () => {
-    // `saveFolder` is a put, so a rename that did not look first would mint a
-    // folder under an id the caller made up.
+    // Also when it existed a moment ago: a rename that lost a race with a
+    // deletion must not bring the folder back.
     const context = freshContext()
+    const gone = await folderIn(context)
+    expectOk(await call<DeletedFolder>(context, 'delete_folder', { folderId: gone.id }))
+    expect(
+      expectErr(await call(context, 'rename_folder', { folderId: gone.id, name: 'Ny' })).code,
+    ).toBe('FOLDER_NOT_FOUND')
+
     const refused = expectErr(
       await call(context, 'rename_folder', { folderId: 'fl_finnes_ikke', name: 'Ny' }),
     )
@@ -359,7 +365,7 @@ describe('rename_folder', () => {
     const context = freshContext()
     const folder = await folderIn(context)
     const failing = overriding(context.repository, {
-      saveFolder: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
+      renameFolder: () => Promise.reject(new RepositoryError('Basen svarer ikke.')),
     })
 
     const refused = expectErr(

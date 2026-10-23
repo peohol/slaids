@@ -62,16 +62,6 @@ export type AgentOwnErrorCode =
   | 'UNKNOWN_OPERATION'
   | 'INVALID_INPUT'
   | 'PRESENTATION_NOT_FOUND'
-  /**
-   * A folder id the library does not have.
-   *
-   * Only an agent can hit it, which is why it lives here rather than among the
-   * domain codes: the library picks a folder from a list, and a document knows
-   * nothing about folders beyond the `folderId` it carries. A move into a folder
-   * that does not exist would not be visible anywhere — not at the root, not in
-   * any folder — so it is refused rather than stored.
-   */
-  | 'FOLDER_NOT_FOUND'
   | 'STORAGE_FAILED'
   | 'CONFLICT'
   | 'SHARING_UNAVAILABLE'

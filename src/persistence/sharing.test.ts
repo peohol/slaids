@@ -528,25 +528,34 @@ describe('deling av mapper', () => {
     expect(String(values(fake.queries[0]).share_token)).toMatch(TOKEN_PATTERN)
   })
 
-  it('gir en delt mappe nytt navn uten å røre delingen', async () => {
+  it('gir en delt mappe nytt navn uten å røre delingen, og uten å lage en ny', async () => {
     // The link reads the name from the row, so a rename only has to write the
     // name. Writing the share columns here would be a way to turn a link off, or
-    // to rotate its token, by renaming the folder.
+    // to rotate its token, by renaming the folder; and an insert would bring a
+    // folder deleted in the meantime back.
+    const createdAt = '2026-10-01T08:00:00.000Z'
     const { repository, fake } = repositoryFor({
-      resolve: (record) =>
-        record.op === 'insert'
-          ? { error: { message: 'duplicate key value', code: '23505' } }
-          : { data: [{ id: FOLDER }] },
+      resolve: (record) => ({
+        data: [{ id: FOLDER, name: values(record).name, created_at: createdAt }],
+      }),
     })
 
-    await repository.saveFolder({ id: FOLDER, name: 'Nytt navn', createdAt: '2026-10-01T08:00:00.000Z' })
+    expect(await repository.renameFolder(FOLDER, 'Nytt navn')).toEqual({
+      id: FOLDER,
+      name: 'Nytt navn',
+      createdAt,
+    })
+    expect(fake.queries).toHaveLength(1)
+    expect(fake.queries[0].table).toBe(FOLDERS_TABLE)
+    expect(fake.queries[0].op).toBe('update')
+    expect(filterValue(fake.queries[0], 'id')).toBe(FOLDER)
+    expect(values(fake.queries[0])).toEqual({ name: 'Nytt navn' })
+  })
 
-    const update = fake.queries.find((query) => query.op === 'update')
-    expect(update?.table).toBe(FOLDERS_TABLE)
-    expect(filterValue(update as QueryRecord, 'id')).toBe(FOLDER)
-    expect(values(update).name).toBe('Nytt navn')
-    expect(Object.keys(values(update))).not.toContain('is_shared')
-    expect(Object.keys(values(update))).not.toContain('share_token')
+  it('svarer null når mappen som skal få nytt navn ikke finnes', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: [] }) })
+    expect(await repository.renameFolder(FOLDER, 'Nytt navn')).toBeNull()
+    expect(fake.queries.map((query) => query.op)).toEqual(['update'])
   })
 
   it('sier fra når mappen ikke finnes', async () => {

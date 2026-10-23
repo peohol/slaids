@@ -129,7 +129,7 @@ describe('renameFolder', () => {
     const deck = { ...createPresentation({ title: 'I mappen' }), folderId: folder.id }
     await repository.savePresentation(deck)
 
-    const renamed = await renameFolder(repository, folder, '  Kunder  ')
+    const renamed = await renameFolder(repository, folder.id, '  Kunder  ')
     expect(renamed).toEqual({ ok: true, value: { ...folder, name: 'Kunder' } })
 
     const stored = await repository.listFolders()
@@ -145,7 +145,7 @@ describe('renameFolder', () => {
     const folder = await folderIn(repository, 'Kundemøter')
 
     for (const name of ['', '   ', 'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1)]) {
-      const refused = await renameFolder(repository, folder, name)
+      const refused = await renameFolder(repository, folder.id, name)
       const created = await createFolder(repository, name)
       expect(refused.ok).toBe(false)
       expect(created.ok).toBe(false)
@@ -154,13 +154,21 @@ describe('renameFolder', () => {
     expect(await repository.listFolders()).toEqual([folder])
   })
 
-  it('skriver ingenting når navnet er det samme', async () => {
+  it('lager ikke en mappe som er slettet i mellomtiden', async () => {
+    // A tab that still shows the folder, or an agent that listed it a moment
+    // ago, renames after somebody else deleted it. That must not bring an empty
+    // folder back under the old id.
     const repository = freshRepository()
     const folder = await folderIn(repository, 'Kundemøter')
-    const saveFolder = vi.spyOn(repository, 'saveFolder')
+    await repository.deleteFolder(folder.id)
 
-    expect(await renameFolder(repository, folder, ' Kundemøter ')).toEqual({ ok: true, value: folder })
-    expect(saveFolder).not.toHaveBeenCalled()
+    const refused = await renameFolder(repository, folder.id, 'Kunder')
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('FOLDER_NOT_FOUND')
+      expect(refused.error.details).toEqual({ folderId: folder.id })
+    }
+    expect(await repository.listFolders()).toEqual([])
   })
 })
 

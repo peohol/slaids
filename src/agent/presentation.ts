@@ -32,7 +32,7 @@ import { findContentSlide } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import type { StructuralOptions } from '../domain/commands'
 import type { DomainError, Result } from '../domain/result'
-import type { Folder, Presentation, Rect } from '../domain/types'
+import type { Presentation, Rect } from '../domain/types'
 import {
   RepositoryConflictError,
   RepositoryError,
@@ -168,21 +168,8 @@ export async function missingFolder(
   folderId: string | null,
 ): Promise<AgentResult<never> | null> {
   if (folderId === null) return null
-  const found = await findFolder(context, folderId)
-  return found.ok ? null : found
-}
-
-/**
- * The folder with this id, or the same refusal `missingFolder` gives — for the
- * operation that needs the folder itself rather than only its existence.
- */
-export async function findFolder(
-  context: AgentContext,
-  folderId: string,
-): Promise<AgentResult<Folder>> {
   const folders = await context.repository.listFolders()
-  const folder = folders.find((candidate) => candidate.id === folderId)
-  if (folder) return agentOk(folder)
+  if (folders.some((folder) => folder.id === folderId)) return null
   return agentErr('FOLDER_NOT_FOUND', 'Biblioteket har ingen mappe med den id-en.', { folderId })
 }
 

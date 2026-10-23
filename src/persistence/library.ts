@@ -241,24 +241,25 @@ export async function createFolder(
  * Give a folder a new name, and nothing else.
  *
  * The same name rules as `createFolder`, for both callers — the sidebar and the
- * agent's `rename_folder`. The id and the creation time are the folder's own and
- * are carried over, and so is everything the stores keep beside the row: the
- * share state lives in columns `saveFolder` does not write, so a shared folder
- * stays shared under the same link and the link shows the new name.
- *
- * A name equal to the current one is answered without a write.
+ * agent's `rename_folder`. The id, the creation time and the share state stay
+ * as they are, so a shared folder keeps its link and the link shows the new
+ * name. A folder that is gone — deleted in another tab, or by an agent, since
+ * the caller last looked — is refused rather than recreated.
  */
 export async function renameFolder(
   repository: SlaidsRepository,
-  folder: Folder,
+  folderId: string,
   name: string,
 ): Promise<Result<Folder>> {
   const named = folderName(name)
   if (!named.ok) return named
-  if (named.value === folder.name) return ok(folder)
 
-  const renamed: Folder = { ...folder, name: named.value }
-  await repository.saveFolder(renamed)
+  const renamed = await repository.renameFolder(folderId, named.value)
+  if (!renamed) {
+    return err('FOLDER_NOT_FOUND', 'Mappen finnes ikke lenger – den kan være slettet et annet sted.', {
+      folderId,
+    })
+  }
   return ok(renamed)
 }
 

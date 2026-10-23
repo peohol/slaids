@@ -307,11 +307,14 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       if (renaming.kind === 'presentation') {
         await renamePresentation(renaming.summary.id, renameValue)
       } else {
-        const renamed = await renameFolder(renaming.folder, renameValue)
-        // An emptied field keeps the old name, as for a presentation. Any other
-        // refusal — a name that is too long — is one the typist has to see, and
-        // the dialog stays open with the name still in it to fix.
-        if (!renamed.ok && renameValue.trim()) {
+        const renamed = await renameFolder(renaming.folder.id, renameValue)
+        // An emptied field keeps the old name, as for a presentation. A folder
+        // deleted elsewhere is said and the library reloaded without it. Any
+        // other refusal — a name that is too long — is one the typist has to
+        // fix, so the dialog stays open with the name still in it.
+        if (!renamed.ok && renamed.error.code === 'FOLDER_NOT_FOUND') {
+          notify.error(describeError(renamed.error))
+        } else if (!renamed.ok && renameValue.trim()) {
           notify.error(describeError(renamed.error))
           return
         }

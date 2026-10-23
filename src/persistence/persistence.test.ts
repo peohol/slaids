@@ -133,6 +133,7 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
     purgePresentation: (id, deletedAt) => inner.purgePresentation(id, deletedAt),
     listFolders: () => inner.listFolders(),
     saveFolder: (folder) => inner.saveFolder(folder),
+    renameFolder: (id, name) => inner.renameFolder(id, name),
     deleteFolder: (id) => inner.deleteFolder(id),
     listTemplates: () => inner.listTemplates(),
     saveTemplate: async (template) => {
