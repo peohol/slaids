@@ -197,8 +197,26 @@ test.describe('presentation library', () => {
     await folder.click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
 
+    // Renaming keeps the folder, its contents and the selection; it survives a
+    // reload because it is stored, not just drawn.
+    await page.getByTestId('rename-folder').click()
+    await expect(page.getByTestId('rename-input')).toHaveValue('Kundemøter')
+    await page.getByTestId('rename-input').fill('  Kunder  ')
+    await page.getByTestId('rename-input').press('Enter')
+    await expect(folder).toHaveText(/Kunder \(1\)/)
+    await expect(page.getByTestId('presentation-card')).toHaveCount(1)
+    await expect(page.getByTestId('folder-select').locator('option:checked')).toHaveText('Kunder')
+    await page.reload()
+    await expect(page.getByTestId('folder-item')).toHaveText(/Kunder \(1\)/)
+
+    // An emptied field is not a rename: the old name stays.
+    await page.getByTestId('rename-folder').click()
+    await page.getByTestId('rename-input').fill('   ')
+    await page.getByTestId('rename-confirm').click()
+    await expect(page.getByTestId('folder-item')).toHaveText(/Kunder \(1\)/)
+
     // Deleting the folder keeps the presentation, just without a folder.
-    await page.getByLabel('Slett mappen Kundemøter').click()
+    await page.getByLabel('Slett mappen Kunder').click()
     await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
     await expect(page.getByTestId('folder-item')).toHaveCount(0)

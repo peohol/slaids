@@ -31,6 +31,7 @@ import {
   downloadBlob,
   duplicatePresentation,
   movePresentationToFolder,
+  renameFolder,
   renamePresentation,
 } from '../../state/libraryActions'
 import type { Folder, PresentationSummary } from '../../domain/types'
@@ -48,6 +49,11 @@ import { FolderShareButton } from './FolderShareButton'
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
 
+/** What the rename dialog is open for: one presentation, or one folder. */
+type RenameTarget =
+  | { kind: 'presentation'; summary: PresentationSummary }
+  | { kind: 'folder'; folder: Folder }
+
 function formatDate(value: string | Date, style: 'minute' | 'day' = 'minute'): string {
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
@@ -64,7 +70,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [scope, setScope] = useState<LibraryScope>({ kind: 'all' })
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [renaming, setRenaming] = useState<PresentationSummary | null>(null)
+  const [renaming, setRenaming] = useState<RenameTarget | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleting, setDeleting] = useState<PresentationSummary | null>(null)
   /** A trashed presentation about to be deleted for good. */
@@ -290,6 +296,33 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
     refresh()
   }
 
+  const startRenaming = (target: RenameTarget): void => {
+    setRenaming(target)
+    setRenameValue(target.kind === 'folder' ? target.folder.name : target.summary.title)
+  }
+
+  const handleRename = async (): Promise<void> => {
+    if (!renaming) return
+    try {
+      if (renaming.kind === 'presentation') {
+        await renamePresentation(renaming.summary.id, renameValue)
+      } else {
+        const renamed = await renameFolder(renaming.folder, renameValue)
+        // An emptied field keeps the old name, as for a presentation. Any other
+        // refusal — a name that is too long — is one the typist has to see, and
+        // the dialog stays open with the name still in it to fix.
+        if (!renamed.ok && renameValue.trim()) {
+          notify.error(describeError(renamed.error))
+          return
+        }
+      }
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke gi nytt navn.')
+    }
+    setRenaming(null)
+    refresh()
+  }
+
   const inTrash = scope.kind === 'trash'
   const visible = inTrash
     ? trashed
@@ -392,6 +425,17 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                 {summaries.filter((summary) => summary.folderId === folder.id).length})
               </button>
               <div className="folder-row__tools">
+                <Tooltip label="Gi nytt navn">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--sm folder-row__rename"
+                    aria-label={`Gi mappen ${folder.name} nytt navn`}
+                    data-testid="rename-folder"
+                    onClick={() => startRenaming({ kind: 'folder', folder })}
+                  >
+                    <Icon name="edit" size={14} />
+                  </button>
+                </Tooltip>
                 <button
                   type="button"
                   className="btn btn--ghost btn--icon btn--sm"
@@ -533,10 +577,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                       <button
                         type="button"
                         className="btn btn--ghost btn--icon btn--sm"
-                        onClick={() => {
-                          setRenaming(summary)
-                          setRenameValue(summary.title)
-                        }}
+                        onClick={() => startRenaming({ kind: 'presentation', summary })}
                         aria-label={`Gi ${summary.title} nytt navn`}
                         data-testid="rename-presentation"
                       >
@@ -657,7 +698,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
         onOpenChange={(open) => {
           if (!open) setRenaming(null)
         }}
-        title="Gi nytt navn"
+        title={renaming?.kind === 'folder' ? 'Gi mappen nytt navn' : 'Gi nytt navn'}
         width={460}
         footer={
           <>
@@ -668,19 +709,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
               type="button"
               className="btn btn--primary"
               data-testid="rename-confirm"
-              onClick={() => {
-                if (!renaming) return
-                void renamePresentation(renaming.id, renameValue)
-                  .catch((error: unknown) => {
-                    notify.error(
-                      error instanceof Error ? error.message : 'Kunne ikke gi nytt navn.',
-                    )
-                  })
-                  .finally(() => {
-                    setRenaming(null)
-                    refresh()
-                  })
-              }}
+              onClick={() => void handleRename()}
             >
               Lagre
             </button>
@@ -693,6 +722,9 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           autoFocus
           data-testid="rename-input"
           onChange={(event) => setRenameValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void handleRename()
+          }}
         />
       </Modal>
 

@@ -32,6 +32,12 @@
  *    one Slaids just minted, the name is the caller's own (trimmed), and the
  *    timestamp is the moment of the call. Nothing in it was in the library
  *    before the call, so there is nothing in it to have been read.
+ *  - **`rename_folder`** is `presentations:write`, for the same reasons as
+ *    `create_folder`: it writes the same row's name and nothing else. A shared
+ *    folder's link shows the new name, which is no more publishing than a
+ *    retitled deck in a shared folder is; whether the folder is shared at all
+ *    stays `sharing:write`'s. The receipt is the id and the stored name, both
+ *    the caller's own.
  *  - **`delete_folder`** is `presentations:write`, and here the scope is not a
  *    courtesy but a description: deleting a folder *rewrites every presentation
  *    in it*, clearing the `folderId` that pointed at it. That is a presentation
@@ -87,6 +93,7 @@ import {
   TRASH_RETENTION_DAYS,
   createFolder,
   duplicatePresentation,
+  renameFolder,
 } from '../../persistence/library'
 import {
   defineOperation,
@@ -96,6 +103,7 @@ import {
   presentationIdSchema,
 } from '../operation'
 import {
+  findFolder,
   loadPresentation,
   missingFolder,
   mutatePresentation,
@@ -159,6 +167,45 @@ export const createFolderOperation = defineOperation({
       // The caller's own name comes back with the failure, never a folder id —
       // nothing was minted that anybody could use.
       return storageFailure(error, 'Kunne ikke lagre mappen.', { name: input.name })
+    }
+  },
+})
+
+/* ------------------------------------------------------------------ *
+ * rename_folder
+ * ------------------------------------------------------------------ */
+
+export interface RenamedFolder {
+  folderId: string
+  name: string
+}
+
+export const renameFolderOperation = defineOperation({
+  name: 'rename_folder',
+  summary:
+    'Gi en mappe nytt navn. Presentasjonene i den og en eventuell delingslenke blir som før.',
+  mutates: true,
+  // A folder's name is a label on the library, written the same way
+  // `create_folder` writes it, so the same one scope.
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    folderId: folderIdSchema.describe('Mappen som skal få nytt navn, fra list_folders.'),
+    name: folderNameSchema,
+  }),
+  async run(context, input): Promise<AgentResult<RenamedFolder>> {
+    const found = await findFolder(context, input.folderId)
+    if (!found.ok) return found
+
+    try {
+      // The library's own function, so a name the sidebar refuses is a name an
+      // agent is refused too.
+      const renamed = await renameFolder(context.repository, found.value, input.name)
+      if (!renamed.ok) return fromDomainError(renamed.error)
+      // The id the caller sent and the name as stored. Not the creation time:
+      // this operation holds no read scope, the same line `delete_folder` draws.
+      return agentOk({ folderId: renamed.value.id, name: renamed.value.name })
+    } catch (error) {
+      return storageFailure(error, 'Kunne ikke lagre mappen.', { folderId: input.folderId })
     }
   },
 })
@@ -393,6 +440,7 @@ export const deletePresentationOperation = defineOperation({
 export const libraryOperations = [
   listFolders,
   createFolderOperation,
+  renameFolderOperation,
   deleteFolderOperation,
   movePresentation,
   duplicatePresentationOperation,

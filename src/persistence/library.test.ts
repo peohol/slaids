@@ -23,6 +23,7 @@ import {
   emptyTrash,
   isTrashExpired,
   purgeExpiredTrash,
+  renameFolder,
   trashExpiry,
 } from './library'
 
@@ -111,6 +112,55 @@ describe('createFolder', () => {
 
     await expect(createFolder(failing, 'Kundemøter')).rejects.toBeInstanceOf(RepositoryError)
     expect(await repository.listFolders()).toEqual([])
+  })
+})
+
+describe('renameFolder', () => {
+  async function folderIn(repository: DexieSlaidsRepository, name: string) {
+    const created = await createFolder(repository, name)
+    if (!created.ok) throw new Error(`forventet en mappe, fikk ${created.error.code}`)
+    return created.value
+  }
+
+  it('gir mappen et trimmet nytt navn under samme id og tidspunkt', async () => {
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+    const other = await folderIn(repository, 'Arkiv')
+    const deck = { ...createPresentation({ title: 'I mappen' }), folderId: folder.id }
+    await repository.savePresentation(deck)
+
+    const renamed = await renameFolder(repository, folder, '  Kunder  ')
+    expect(renamed).toEqual({ ok: true, value: { ...folder, name: 'Kunder' } })
+
+    const stored = await repository.listFolders()
+    expect(stored).toHaveLength(2)
+    expect(stored).toContainEqual({ ...folder, name: 'Kunder' })
+    expect(stored).toContainEqual(other)
+    expect((await repository.loadPresentation(deck.id)).folderId).toBe(folder.id)
+  })
+
+  it('avviser de samme navnene som createFolder, uten å skrive noe', async () => {
+    // One rule for what a folder may be called, whichever way it got its name.
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+
+    for (const name of ['', '   ', 'a'.repeat(FOLDER_NAME_MAX_LENGTH + 1)]) {
+      const refused = await renameFolder(repository, folder, name)
+      const created = await createFolder(repository, name)
+      expect(refused.ok).toBe(false)
+      expect(created.ok).toBe(false)
+      if (!refused.ok && !created.ok) expect(refused.error).toEqual(created.error)
+    }
+    expect(await repository.listFolders()).toEqual([folder])
+  })
+
+  it('skriver ingenting når navnet er det samme', async () => {
+    const repository = freshRepository()
+    const folder = await folderIn(repository, 'Kundemøter')
+    const saveFolder = vi.spyOn(repository, 'saveFolder')
+
+    expect(await renameFolder(repository, folder, ' Kundemøter ')).toEqual({ ok: true, value: folder })
+    expect(saveFolder).not.toHaveBeenCalled()
   })
 })
 

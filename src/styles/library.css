@@ -35,7 +35,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: 260px 1fr;
 }
 
 .library__folders {
@@ -75,11 +75,17 @@
   flex: 0 0 auto;
 }
 
-/* A folder's own buttons, one under the other: delete, then share. */
+/* Delete over share in one column; rename beside them, centred on the pair, so
+   a third tool does not make every folder row taller. */
 .folder-row__tools {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
   gap: 2px;
+}
+
+.folder-row__rename {
+  grid-row: span 2;
 }
 
 /* The popover a folder is shared from: one switch, a sentence, the link. */

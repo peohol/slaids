@@ -184,6 +184,28 @@ async function discardCopy(repository: SlaidsRepository, copyId: string): Promis
 export const FOLDER_NAME_MAX_LENGTH = 200
 
 /**
+ * What a folder may be called, from what somebody typed.
+ *
+ * The name is trimmed and an empty one is refused, because the library shows a
+ * folder by its name and nothing else: a folder called `"   "` is a row in the
+ * sidebar that cannot be told from any other, and the only way back out of it is
+ * to delete it. Refusing is not the editor being fussy about its own dialog, so
+ * it does not belong in the dialog — and it is one function so that making a
+ * folder and renaming one cannot come to disagree about what a name is.
+ */
+function folderName(name: string): Result<string> {
+  const trimmed = name.trim()
+  if (!trimmed) return err('INVALID_ARGUMENT', 'Mappen må ha et navn.')
+  if (trimmed.length > FOLDER_NAME_MAX_LENGTH) {
+    return err(
+      'INVALID_ARGUMENT',
+      `Mappenavnet kan ikke være lengre enn ${FOLDER_NAME_MAX_LENGTH} tegn.`,
+    )
+  }
+  return ok(trimmed)
+}
+
+/**
  * Make a folder and put it in the library.
  *
  * The one place that decides what a *new* folder is, for both callers. The
@@ -191,12 +213,6 @@ export const FOLDER_NAME_MAX_LENGTH = 200
  * of row — a trimmed name within the same bounds, an id from the domain's own
  * generator, the moment it was made — rather than two functions written to
  * match.
- *
- * The name is trimmed and an empty one is refused, because the library shows a
- * folder by its name and nothing else: a folder called `"   "` is a row in the
- * sidebar that cannot be told from any other, and the only way back out of it is
- * to delete it. Refusing is not the editor being fussy about its own dialog, so
- * it does not belong in the dialog.
  *
  * Two failure kinds, split the way the rest of the surface splits them: a name
  * that is not a name is a typed `Result` the caller answers with, and a store
@@ -206,25 +222,44 @@ export async function createFolder(
   repository: SlaidsRepository,
   name: string,
 ): Promise<Result<Folder>> {
-  const trimmed = name.trim()
-  if (!trimmed) return err('INVALID_ARGUMENT', 'Mappen må ha et navn.')
-  if (trimmed.length > FOLDER_NAME_MAX_LENGTH) {
-    return err(
-      'INVALID_ARGUMENT',
-      `Mappenavnet kan ikke være lengre enn ${FOLDER_NAME_MAX_LENGTH} tegn.`,
-    )
-  }
+  const named = folderName(name)
+  if (!named.ok) return named
 
   // Minted here rather than taken from the caller. An id is an identity in the
   // library, and letting either door name one would be letting it overwrite a
   // folder that already has that id — `saveFolder` is a `put`.
   const folder: Folder = {
     id: newFolderId(),
-    name: trimmed,
+    name: named.value,
     createdAt: new Date().toISOString(),
   }
   await repository.saveFolder(folder)
   return ok(folder)
+}
+
+/**
+ * Give a folder a new name, and nothing else.
+ *
+ * The same name rules as `createFolder`, for both callers — the sidebar and the
+ * agent's `rename_folder`. The id and the creation time are the folder's own and
+ * are carried over, and so is everything the stores keep beside the row: the
+ * share state lives in columns `saveFolder` does not write, so a shared folder
+ * stays shared under the same link and the link shows the new name.
+ *
+ * A name equal to the current one is answered without a write.
+ */
+export async function renameFolder(
+  repository: SlaidsRepository,
+  folder: Folder,
+  name: string,
+): Promise<Result<Folder>> {
+  const named = folderName(name)
+  if (!named.ok) return named
+  if (named.value === folder.name) return ok(folder)
+
+  const renamed: Folder = { ...folder, name: named.value }
+  await repository.saveFolder(renamed)
+  return ok(renamed)
 }
 
 /* ------------------------------------------------------------------ *
