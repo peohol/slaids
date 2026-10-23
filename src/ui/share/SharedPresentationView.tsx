@@ -1,7 +1,8 @@
 /**
  * A shared deck, as an anonymous visitor sees it.
  *
- * This is the whole public surface of Slaids. It mounts no editor, no toolbar,
+ * This and `SharedFolderView` are the whole public surface of Slaids, and the
+ * folder view plays its decks through `SharedDeck` here. It mounts no editor, no toolbar,
  * no filmstrip, no inspector, no status bar and no library — not hidden, not
  * disabled, simply never imported into this tree. There is no route from here
  * back into the workspace, and nothing here asks for a session.
@@ -11,21 +12,26 @@
  * comes through the share endpoint rather than the authenticated repository.
  */
 
-import { useEffect, useState } from 'react'
-import { fetchSharedSnapshot, type SharedDeckOutcome } from '../../sharing/shareClient'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  deckAddressKey,
+  fetchSharedSnapshot,
+  type SharedDeckAddress,
+  type SharedDeckOutcome,
+} from '../../sharing/shareClient'
 import { shareUrl } from '../../routing'
 import { AssetSourceProvider } from '../../state/assetSource'
 import { useSharedAssetSource } from '../../state/assetSources'
 import { PresentationPlayer } from '../present/PresentationPlayer'
 
 /**
- * The answer, keyed by the token it answers for.
+ * The answer, keyed by the address it answers for.
  *
- * Derived rather than reset: a new token makes the previous answer irrelevant
- * the moment it renders, with no effect in between that could show one deck's
- * result under another deck's address.
+ * Derived rather than reset: a new address makes the previous answer
+ * irrelevant the moment it renders, with no effect in between that could show
+ * one deck's result under another deck's address.
  */
-type LoadedDeck = { token: string; outcome: SharedDeckOutcome }
+type LoadedDeck = { key: string; outcome: SharedDeckOutcome }
 
 /**
  * Two things the page has to say about its own address, because the address is
@@ -40,7 +46,7 @@ type LoadedDeck = { token: string; outcome: SharedDeckOutcome }
  *    every link in a slide is `rel="noreferrer"` — this is the belt to those
  *    braces, and costs a shared deck nothing.
  */
-function useLinkPrivacyMeta(): void {
+export function useLinkPrivacyMeta(): void {
   useEffect(() => {
     const tags = (
       [
@@ -65,40 +71,80 @@ function useLinkPrivacyMeta(): void {
  * been deleted look the same from out here — and so does an address that cannot
  * be a token at all, which is why this is a component rather than a branch.
  */
-function SharedLinkNotFound() {
+export function SharedLinkNotFound({ what = 'presentasjonen' }: { what?: string }) {
   return (
     <div className="shared shared--message" data-testid="shared-not-found">
       <div className="shared__card">
         <h1 className="shared__title">Slaids</h1>
         <p>Denne delingslenken er ikke aktiv.</p>
         <p className="hint">
-          Lenken kan være skrevet feil eller ufullstendig, eller den som eier presentasjonen kan
-          ha slått av delingen. Be om en ny lenke.
+          Lenken kan være skrevet feil eller ufullstendig, eller den som eier {what} kan ha slått
+          av delingen. Be om en ny lenke.
         </p>
       </div>
     </div>
   )
 }
 
+/** Something the page has to say instead of showing a deck, with a way back when there is one. */
+export function SharedMessage({
+  testId,
+  children,
+  onBack,
+}: {
+  testId: string
+  children: ReactNode
+  onBack?: (() => void) | null
+}) {
+  return (
+    <div className="shared shared--message" data-testid={testId}>
+      <div className="shared__card">
+        <h1 className="shared__title">Slaids</h1>
+        {children}
+        {onBack && (
+          <button type="button" className="btn" onClick={onBack} data-testid="shared-back">
+            Tilbake til mappen
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
- * The deck itself. Mounted only once there is a token worth asking about, so a
- * malformed address never becomes a request to the share endpoint.
+ * One published deck, playing. Mounted only once there is an address worth
+ * asking about, so a malformed link never becomes a request to the share
+ * endpoint.
+ *
+ * `onExit` is where a viewer goes back to — the folder the deck was opened
+ * from — or `null` for a deck shared on its own, which has nowhere to go back
+ * to. `qrUrl` is what the derived QR page points at, and only a deck shared on
+ * its own has one: it is the link to *that* deck.
  */
-function SharedDeck({ token }: { token: string }) {
+export function SharedDeck({
+  address,
+  qrUrl,
+  onExit,
+}: {
+  address: SharedDeckAddress
+  qrUrl: string | null
+  onExit: (() => void) | null
+}) {
+  const key = deckAddressKey(address)
   const [loaded, setLoaded] = useState<LoadedDeck | null>(null)
-  const assetSource = useSharedAssetSource(token)
+  const assetSource = useSharedAssetSource(address)
 
   useEffect(() => {
     const controller = new AbortController()
-    void fetchSharedSnapshot(token, controller.signal).then((outcome) => {
+    void fetchSharedSnapshot(address, controller.signal).then((outcome) => {
       if (controller.signal.aborted) return
-      setLoaded({ token, outcome })
+      setLoaded({ key: deckAddressKey(address), outcome })
     })
     return () => controller.abort()
-  }, [token])
+  }, [address])
 
-  const outcome = loaded && loaded.token === token ? loaded.outcome : null
-  const title = outcome?.kind === 'ok' ? outcome.snapshot.title : null
+  const outcome = loaded && loaded.key === key ? loaded.outcome : null
+  const title = outcome?.kind === 'ok' ? outcome.value.title : null
 
   useEffect(() => {
     if (!title) return
@@ -113,16 +159,20 @@ function SharedDeck({ token }: { token: string }) {
     )
   }
 
-  if (outcome.kind === 'not-found') return <SharedLinkNotFound />
+  if (outcome.kind === 'not-found') {
+    if (!onExit) return <SharedLinkNotFound />
+    return (
+      <SharedMessage testId="shared-not-found" onBack={onExit}>
+        <p>Denne presentasjonen er ikke lenger delt.</p>
+      </SharedMessage>
+    )
+  }
 
   if (outcome.kind === 'unavailable') {
     return (
-      <div className="shared shared--message" data-testid="shared-unavailable">
-        <div className="shared__card">
-          <h1 className="shared__title">Slaids</h1>
-          <p role="alert">{outcome.message}</p>
-        </div>
-      </div>
+      <SharedMessage testId="shared-unavailable" onBack={onExit}>
+        <p role="alert">{outcome.message}</p>
+      </SharedMessage>
     )
   }
 
@@ -130,15 +180,27 @@ function SharedDeck({ token }: { token: string }) {
     <div className="shared" data-testid="shared-view">
       <AssetSourceProvider value={assetSource}>
         <PresentationPlayer
-          deck={outcome.snapshot}
-          // The QR page points at the page it is on, so a photograph of a
-          // screen is enough to open the deck on another device.
-          shareUrl={shareUrl(window.location.origin, token)}
+          deck={outcome.value}
+          shareUrl={qrUrl}
           startIndex={0}
-          onExit={null}
+          onExit={onExit}
         />
       </AssetSourceProvider>
     </div>
+  )
+}
+
+/** A deck shared on its own, at `/s/<token>`. */
+function SharedPresentation({ token }: { token: string }) {
+  const address = useMemo<SharedDeckAddress>(() => ({ kind: 'presentation', token }), [token])
+  return (
+    <SharedDeck
+      address={address}
+      // The QR page points at the page it is on, so a photograph of a
+      // screen is enough to open the deck on another device.
+      qrUrl={shareUrl(window.location.origin, token)}
+      onExit={null}
+    />
   )
 }
 
@@ -148,5 +210,5 @@ export function SharedPresentationView({ token }: { token: string | null }) {
   // Asking the server about it would tell it nothing it could act on, and would
   // turn a typo into a request that looks like a guess at somebody's link.
   if (!token) return <SharedLinkNotFound />
-  return <SharedDeck token={token} />
+  return <SharedPresentation token={token} />
 }

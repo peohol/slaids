@@ -159,3 +159,82 @@ describe('søppelkassen og lagringsstørrelsen', () => {
     expect(sql).toMatch(/revoke\s+all\s+on\s+table\s+public\.slaids_presentations\s+from\s+anon/i)
   })
 })
+
+/**
+ * Folder sharing.
+ *
+ * What a shared folder may show is decided in the database, so these are the
+ * properties that keep it from showing more: the flag the public reads is
+ * derived and never taken from a client, it is derived only from a folder of
+ * the *same* owner, a deck that stops being published loses its copy in the
+ * same statement, and nobody but the owner gains any access at all.
+ */
+describe('deling av mapper', () => {
+  const migration = migrationNamed('folder_sharing')
+  const sql = migration ? statementsIn(migration) : ''
+  const touch =
+    sql.match(/create\s+or\s+replace\s+function\s+public\.slaids_presentations_touch\(\)[\s\S]*?\$\$;/i)?.[0] ?? ''
+  const folderTouch =
+    sql.match(/create\s+or\s+replace\s+function\s+public\.slaids_folders_share_touch\(\)[\s\S]*?\$\$;/i)?.[0] ?? ''
+
+  it('finnes som en migrasjon som kan kjøres på nytt', () => {
+    expect(migration).not.toBe('')
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+is_shared\s+boolean\s+not\s+null\s+default\s+false/i)
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+share_token\s+uuid\s+not\s+null/i)
+    expect(sql).toMatch(/add\s+column\s+if\s+not\s+exists\s+is_published\s+boolean\s+not\s+null\s+default\s+false/i)
+    expect(sql).toMatch(/drop\s+trigger\s+if\s+exists\s+slaids_folders_share_touch/i)
+    expect(sql).toMatch(/drop\s+constraint\s+if\s+exists\s+slaids_presentations_share_state_check/i)
+    for (const created of sql.match(/create\s+(?:unique\s+)?index\s+if\s+not\s+exists\s+(\S+)/gi) ?? []) {
+      expect(created).toMatch(/slaids_/i)
+    }
+    for (const created of sql.match(/create\s+or\s+replace\s+function\s+(\S+)/gi) ?? []) {
+      expect(created).toMatch(/public\.slaids_/i)
+    }
+  })
+
+  it('utleder is_published fra raden selv og fra en delt mappe med samme eier', () => {
+    expect(touch).not.toBe('')
+    expect(touch).toMatch(/new\.is_published\s*:=\s*new\.is_shared\s+or\s+exists/i)
+    expect(touch).toMatch(/f\.id\s*=\s*new\.folder_id/i)
+    expect(touch).toMatch(/f\.owner_id\s*=\s*new\.owner_id/i)
+    expect(touch).toMatch(/and\s+f\.is_shared/i)
+  })
+
+  it('dropper kopien til en rad som ikke er publisert, i samme skriving', () => {
+    expect(touch).toMatch(/if\s+not\s+new\.is_published\s+then\s+new\.shared_document\s*:=\s*null/i)
+  })
+
+  it('lar versjonsregelen stå: bare dokumentendringer flytter versjonen', () => {
+    expect(touch).toMatch(/new\.document\s+is\s+distinct\s+from\s+old\.document/i)
+    expect(touch).not.toMatch(/is_published\s+is\s+distinct/i)
+    expect(touch).toMatch(/new\.version\s*:=\s*old\.version\s*;/i)
+  })
+
+  it('når presentasjonene i mappen når delingen endres, og bare eierens', () => {
+    expect(folderTouch).toMatch(/update\s+public\.slaids_presentations/i)
+    expect(folderTouch).toMatch(/p\.folder_id\s*=\s*new\.id/i)
+    expect(folderTouch).toMatch(/p\.owner_id\s*=\s*new\.owner_id/i)
+    // Bare flagget: ingen dokumentkolonne, så ingen versjon flytter seg.
+    const assigned =
+      folderTouch.match(/update\s+public\.slaids_presentations\s+p\s+set\s+([\s\S]*?)\bwhere\b/i)?.[1] ?? ''
+    expect(assigned.match(/\b\w+\s*=(?!=)/g)).toEqual(['is_published ='])
+    expect(sql).toMatch(/after\s+update\s+of\s+is_shared\s+on\s+public\.slaids_folders/i)
+  })
+
+  it('binder delingen sammen med kopien i en CHECK', () => {
+    expect(sql).toMatch(/not\s+is_shared\s+or\s+\(is_published\s+and\s+shared_document\s+is\s+not\s+null\)/i)
+    expect(sql).toMatch(/is_published\s+or\s+shared_document\s+is\s+null/i)
+  })
+
+  it('gir ingen ny tilgang til noen, og kjører som kalleren', () => {
+    expect(sql).not.toMatch(/create\s+policy|alter\s+policy|grant\s+/i)
+    expect(sql).not.toMatch(/security\s+definer/i)
+    expect(sql).toMatch(/revoke\s+all\s+on\s+table\s+public\.slaids_folders\s+from\s+anon/i)
+    expect(sql).toMatch(/revoke\s+all\s+on\s+table\s+public\.slaids_presentations\s+from\s+anon/i)
+    for (const fn of ['slaids_presentations_touch', 'slaids_folders_share_touch']) {
+      for (const role of ['public', 'anon', 'authenticated']) {
+        expect(sql).toMatch(new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${fn}\\(\\)\\s+from\\s+${role}`, 'i'))
+      }
+    }
+  })
+})

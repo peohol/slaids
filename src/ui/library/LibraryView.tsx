@@ -23,6 +23,7 @@ import {
   purgeExpiredTrash,
   trashExpiry,
 } from '../../persistence/library'
+import { useFolderSharing } from '../../state/folderSharing'
 import { notify } from '../../state/toast'
 import { useSessionStore } from '../../state/session'
 import {
@@ -35,13 +36,14 @@ import {
 import type { Folder, PresentationSummary } from '../../domain/types'
 import { copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
-import { formatBytes } from '../format'
+import { formatBytes, formatSlideCount } from '../format'
 import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AgentTokensModal } from './AgentTokensModal'
 import { FolderSelect } from './FolderSelect'
+import { FolderShareButton } from './FolderShareButton'
 
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
@@ -83,6 +85,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
 
   const activeFolder = scope.kind === 'folder' ? scope.id : null
+  const folderShares = useFolderSharing(reloadToken)
 
   useEffect(() => {
     let cancelled = false
@@ -388,14 +391,23 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                 <Icon name="folder" size={15} /> {folder.name} (
                 {summaries.filter((summary) => summary.folderId === folder.id).length})
               </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--icon btn--sm"
-                aria-label={`Slett mappen ${folder.name}`}
-                onClick={() => setDeletingFolder(folder)}
-              >
-                <Icon name="trash" size={14} />
-              </button>
+              <div className="folder-row__tools">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--icon btn--sm"
+                  aria-label={`Slett mappen ${folder.name}`}
+                  onClick={() => setDeletingFolder(folder)}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+                <FolderShareButton
+                  folderName={folder.name}
+                  status={folderShares.status}
+                  state={folderShares.stateOf(folder.id)}
+                  busy={folderShares.busyFolderId === folder.id}
+                  onSetShared={(shared) => void folderShares.setShared(folder.id, shared)}
+                />
+              </div>
             </div>
           ))}
           <div className="library__folders-divider" role="presentation" />
@@ -468,7 +480,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                   <div className="presentation-card__body">
                     <span className="presentation-card__name">{summary.title}</span>
                     <span className="presentation-card__meta">
-                      {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
+                      {formatSlideCount(summary.slideCount)} ·{' '}
                       <span data-testid="presentation-size">{formatBytes(summary.byteSize)}</span>
                     </span>
                     {summary.deletedAt && (
@@ -511,7 +523,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                   >
                     <span className="presentation-card__name">{summary.title}</span>
                     <span className="presentation-card__meta">
-                      {summary.slideCount} slide{summary.slideCount === 1 ? '' : 's'} ·{' '}
+                      {formatSlideCount(summary.slideCount)} ·{' '}
                       {formatDate(summary.updatedAt)} ·{' '}
                       <span data-testid="presentation-size">{formatBytes(summary.byteSize)}</span>
                     </span>
@@ -717,7 +729,11 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       <ConfirmDialog
         open={deletingFolder !== null}
         title="Slette mappen?"
-        message={`Mappen «${deletingFolder?.name ?? ''}» slettes. Presentasjonene i den blir liggende, men uten mappe.`}
+        message={`Mappen «${deletingFolder?.name ?? ''}» slettes. Presentasjonene i den blir liggende, men uten mappe.${
+          deletingFolder && folderShares.stateOf(deletingFolder.id).shared
+            ? ' Delingslenken til mappen slutter å virke.'
+            : ''
+        }`}
         onConfirm={() => {
           if (!deletingFolder) return
           void repository

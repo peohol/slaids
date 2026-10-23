@@ -189,3 +189,50 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     publishedAt: parsed.publishedAt,
   })
 }
+
+/** Marks a shared folder's listing as ours. Mirrored by the Edge Function. */
+export const SHARED_FOLDER_FORMAT = 'slaids-shared-folder'
+
+/** The listing's own version, bumped only if its fields change shape. */
+export const SHARED_FOLDER_VERSION = 1
+
+/**
+ * What a shared folder's link shows before any deck is opened: the folder's
+ * name, and the decks it publishes — each by the id to ask for it with, its
+ * published title and how many slides it has. Nothing else about the folder or
+ * the decks leaves the server; each deck is then fetched as its own snapshot.
+ */
+export interface SharedFolderListing {
+  name: string
+  presentations: SharedFolderEntry[]
+}
+
+export interface SharedFolderEntry {
+  id: string
+  title: string
+  slideCount: number
+}
+
+const folderListingSchema = z.object({
+  format: z.literal(SHARED_FOLDER_FORMAT),
+  folderVersion: z.literal(SHARED_FOLDER_VERSION),
+  name: z.string(),
+  presentations: z.array(
+    z.object({
+      id: z.string().min(1),
+      title: z.string(),
+      slideCount: z.number().int().nonnegative(),
+    }),
+  ),
+})
+
+/** Validate a shared folder's listing read back from the network. */
+export function parseSharedFolder(input: unknown): Result<SharedFolderListing> {
+  const parsed = folderListingSchema.safeParse(input)
+  if (!parsed.success) {
+    return err('INVALID_CONTENT', 'Mappedataene har et ukjent format.', {
+      issues: parsed.error.issues,
+    })
+  }
+  return ok({ name: parsed.data.name, presentations: parsed.data.presentations })
+}

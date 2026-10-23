@@ -26,6 +26,7 @@ import { getSupabaseClient } from '../supabase/client'
 import { DexieSlaidsRepository } from './dexieRepository'
 import { SupabaseSlaidsRepository } from './supabaseRepository'
 import type {
+  FolderSharingRepository,
   SaveGuard,
   ShareState,
   SharingRepository,
@@ -54,6 +55,7 @@ let dexieInstance: DexieSlaidsRepository | null = null
 let supabaseInstance: SupabaseSlaidsRepository | null = null
 let override: SlaidsRepository | null = null
 let sharingOverride: SharingRepository | null = null
+let folderSharingOverride: FolderSharingRepository | null = null
 
 export function resolveRepository(): SlaidsRepository {
   if (override) return override
@@ -83,7 +85,7 @@ export function setRepositoryOverride(next: SlaidsRepository | null): void {
  * the UI gives instead — the toggle is there, disabled, and says why.
  */
 export function isSharingSupported(): boolean {
-  return sharingOverride !== null || storageMode() === 'supabase'
+  return sharingOverride !== null || folderSharingOverride !== null || storageMode() === 'supabase'
 }
 
 export class SharingUnavailableError extends Error {
@@ -93,8 +95,8 @@ export class SharingUnavailableError extends Error {
   }
 }
 
-export function resolveSharing(): SharingRepository {
-  if (sharingOverride) return sharingOverride
+/** The repository that publishes, which is the Supabase one or none at all. */
+function publishingRepository(): SupabaseSlaidsRepository {
   const state = readSupabaseConfigState()
   if (state.kind === 'incomplete') throw new SupabaseConfigurationError(state.missing)
   if (state.kind !== 'configured') throw new SharingUnavailableError()
@@ -102,9 +104,26 @@ export function resolveSharing(): SharingRepository {
   return supabaseInstance
 }
 
+export function resolveSharing(): SharingRepository {
+  return sharingOverride ?? publishingRepository()
+}
+
 /** Test seam: pin the sharing backend, or pass `null` to go back to the mode. */
 export function setSharingOverride(next: SharingRepository | null): void {
   sharingOverride = next
+}
+
+/**
+ * Folder sharing, which lives where presentation sharing does: on the Supabase
+ * repository, in Supabase mode only.
+ */
+export function resolveFolderSharing(): FolderSharingRepository {
+  return folderSharingOverride ?? publishingRepository()
+}
+
+/** Test seam: pin the folder sharing backend, or pass `null` to go back to the mode. */
+export function setFolderSharingOverride(next: FolderSharingRepository | null): void {
+  folderSharingOverride = next
 }
 
 /**
@@ -135,6 +154,16 @@ function onSharing<T>(call: (repository: SharingRepository) => Promise<T>): Prom
   let resolved: SharingRepository
   try {
     resolved = resolveSharing()
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+  }
+  return call(resolved)
+}
+
+function onFolderSharing<T>(call: (repository: FolderSharingRepository) => Promise<T>): Promise<T> {
+  let resolved: FolderSharingRepository
+  try {
+    resolved = resolveFolderSharing()
   } catch (error) {
     return Promise.reject(error instanceof Error ? error : new Error(String(error)))
   }
@@ -190,4 +219,13 @@ export const sharing: SharingRepository = {
   ): Promise<ShareState> => onSharing((repo) => repo.enableSharing(presentationId, snapshot)),
   disableSharing: (presentationId: string): Promise<ShareState> =>
     onSharing((repo) => repo.disableSharing(presentationId)),
+}
+
+export const folderSharing: FolderSharingRepository = {
+  listFolderShareStates: (): Promise<Record<string, ShareState>> =>
+    onFolderSharing((repo) => repo.listFolderShareStates()),
+  enableFolderSharing: (folderId: string): Promise<ShareState> =>
+    onFolderSharing((repo) => repo.enableFolderSharing(folderId)),
+  disableFolderSharing: (folderId: string): Promise<ShareState> =>
+    onFolderSharing((repo) => repo.disableFolderSharing(folderId)),
 }

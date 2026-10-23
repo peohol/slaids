@@ -75,6 +75,87 @@
   flex: 0 0 auto;
 }
 
+/* A folder's own buttons, one under the other: delete, then share. */
+.folder-row__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The popover a folder is shared from: one switch, a sentence, the link. */
+.folder-share {
+  width: min(340px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.folder-share__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.folder-share__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.folder-share__hint {
+  margin: 0;
+}
+
+.folder-share__link {
+  display: flex;
+  gap: 6px;
+}
+
+.folder-share__link .input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+/* An on/off switch: the state is the thumb's side and the track's colour. */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--chrome-border-strong);
+  border-radius: 11px;
+  background: var(--chrome-bg-inset);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--chrome-accent);
+  border-color: var(--chrome-accent);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--chrome-text);
+  transition: transform 120ms ease;
+}
+
+.switch[aria-checked='true'] .switch__thumb {
+  transform: translateX(16px);
+}
+
 .folder-item {
   display: flex;
   align-items: center;

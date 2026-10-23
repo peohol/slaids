@@ -84,3 +84,55 @@ test.describe('ødelagte delingsadresser', () => {
     })
   }
 })
+
+/**
+ * Deling av en mappe, i lokal modus: knappen ligger under mappens
+ * søppelkasseknapp, popoveren åpner seg og sier hvorfor den ikke kan dele, og
+ * en mappeadresse – også en ødelagt – blir på den offentlige siden.
+ */
+test.describe('deling av mapper i lokal modus', () => {
+  test('knappen ligger under søppelkassen og er avslått med en forklaring', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'I en mappe')
+    await page.getByTestId('back-to-library').click()
+
+    page.once('dialog', (dialog) => void dialog.accept('Kurs'))
+    await page.getByTestId('new-folder').click()
+
+    const trash = page.getByLabel('Slett mappen Kurs')
+    const share = page.getByTestId('share-folder')
+    await expect(share).toBeVisible()
+    const [trashBox, shareBox] = await Promise.all([trash.boundingBox(), share.boundingBox()])
+    if (!trashBox || !shareBox) throw new Error('Kunne ikke måle mappeknappene.')
+    // Rett under: samme spalte, lavere ned.
+    expect(Math.abs(shareBox.x - trashBox.x)).toBeLessThanOrEqual(1)
+    expect(shareBox.y).toBeGreaterThanOrEqual(trashBox.y + trashBox.height - 1)
+
+    await share.click()
+    const toggle = page.getByTestId('toggle-folder-share')
+    await expect(toggle).toBeVisible()
+    await expect(toggle).toBeDisabled()
+    await expect(toggle).toHaveAttribute('data-state', 'unsupported')
+    await expect(page.getByTestId('folder-share-popover')).toContainText('Deling krever Supabase')
+    await expect(page.getByTestId('folder-share-link')).toHaveCount(0)
+
+    expect(guard.errors).toEqual([])
+  })
+
+  for (const path of ['/s/f/abc', '/s/f/', '/s/f']) {
+    test(`«${path}» blir på den offentlige siden`, async ({ page }) => {
+      const shareCalls: string[] = []
+      page.on('request', (request) => {
+        if (request.url().includes('slaids-share')) shareCalls.push(request.url())
+      })
+
+      await page.goto(path)
+
+      await expect(page.getByTestId('shared-not-found')).toBeVisible()
+      await expect(page.getByTestId('sign-in-password')).toHaveCount(0)
+      await expect(page.getByTestId('presentation-grid')).toHaveCount(0)
+      await expect(page.getByTestId('editor')).toHaveCount(0)
+      expect(shareCalls).toEqual([])
+    })
+  }
+})
