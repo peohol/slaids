@@ -39,7 +39,10 @@ export function FolderShareButton({ folderName, status, state, busy, onSetShared
   )
 
   const unsupported = status === 'unsupported'
-  const disabled = unsupported || busy || status === 'loading'
+  // Only a state the server confirmed may be acted on: while it is unknown, a
+  // shared folder would look like an unshared one, and switching it "on" would
+  // rotate the token and kill the link that is already out.
+  const disabled = status !== 'ready' || busy
   const shared = state.shared
 
   const hint = unsupported

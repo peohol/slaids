@@ -489,7 +489,7 @@ export class SupabaseSlaidsRepository
       const { data, error } = await this.client
         .from(PRESENTATIONS_TABLE)
         .insert({ ...row, created_at: document.createdAt, updated_at: document.updatedAt })
-        .select('version')
+        .select('version, is_published')
         .single()
       if (error) {
         if (error.code === UNIQUE_VIOLATION) {
@@ -500,13 +500,15 @@ export class SupabaseSlaidsRepository
         }
         fail('Kunne ikke lagre presentasjonen', error)
       }
-      this.knownVersions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
-      // A presentation that has just been created is not shared. Sharing is
-      // never inherited — not by a copy, not by an import, not by a new row. It
-      // may still be *published* if it was created in a shared folder; the
-      // next save finds that out from the row, as it would for any other
-      // reading that turned out to be stale, and publishes then.
-      this.knownPublished.set(document.id, false)
+      const inserted = data as (VersionRow & PublishedFlagRow) | null
+      const version = numberOr(inserted?.version, 1)
+      this.knownVersions.set(document.id, version)
+      // A presentation that has just been created is not shared on its own —
+      // sharing is never inherited, not by a copy, an import or a new row. It
+      // is still *published* when it was created in a shared folder, and then
+      // the folder's link must show it from the start, not after some later
+      // save that a duplicate may never get.
+      await this.settlePublication(document, version, inserted?.is_published === true, false)
       return
     }
 
@@ -559,18 +561,29 @@ export class SupabaseSlaidsRepository
     }
     const version = numberOr(updated[0]?.version, expectedVersion + 1)
     this.knownVersions.set(document.id, version)
+    await this.settlePublication(document, version, updated[0]?.is_published === true, believedPublished)
+  }
 
+  /**
+   * After a write: remember what the row said about being published, and fill
+   * in the copy when the write turned out to need one it did not carry.
+   *
+   * That happens when sharing was switched on elsewhere while this editor was
+   * open — for the deck, or for the folder it is in — or when this very write
+   * filed the deck in, or created it in, a shared folder. The audience would
+   * otherwise be looking at an older copy or none. The copy is published
+   * against the version it belongs to; a share-only update does not move the
+   * document version, so this cannot turn into a conflict for the next save.
+   */
+  private async settlePublication(
+    document: Presentation,
+    version: number,
+    published: boolean,
+    carriedSnapshot: boolean,
+  ): Promise<void> {
     // The row itself has the last word on whether it is published.
-    const actuallyPublished = updated[0]?.is_published === true
-    this.knownPublished.set(document.id, actuallyPublished)
-    if (actuallyPublished && !believedPublished) {
-      // Sharing was switched on elsewhere while this editor was open — for the
-      // deck, or for the folder it is in — or this very write filed it in a
-      // shared folder. Either way the write that just landed carried no
-      // snapshot, and the audience would be looking at an older one or none.
-      // Publish the one it should have carried, against the version it belongs
-      // to; a share-only update does not move the document version, so this
-      // cannot turn into a conflict for the next autosave.
+    this.knownPublished.set(document.id, published)
+    if (published && !carriedSnapshot) {
       await this.publishSnapshot(document.id, buildSharedSnapshot(document), version)
     }
   }

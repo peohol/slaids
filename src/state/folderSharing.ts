@@ -69,7 +69,6 @@ export function useFolderSharing(reloadToken: number): FolderSharing {
           ? await folderSharing.enableFolderSharing(folderId)
           : await folderSharing.disableFolderSharing(folderId)
         setStates((current) => ({ ...current, [folderId]: next }))
-        setStatus('ready')
       } catch (error) {
         notify.error(
           describe(error, shared ? 'Kunne ikke dele mappen.' : 'Kunne ikke slå av delingen av mappen.'),

@@ -344,6 +344,29 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
 describe('deling av mapper', () => {
   const FOLDER = 'fl_kurs'
 
+  it('publiserer en ny presentasjon som opprettes i en delt mappe med en gang', async () => {
+    // Laget eller duplisert rett inn i en delt mappe: lenken skal vise den fra start.
+    const presentation = { ...presentationWithSecrets(), folderId: FOLDER }
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'insert'
+          ? { data: { version: 1, is_published: true } }
+          : { data: [{ version: 2, is_published: true }] },
+    })
+
+    await repository.savePresentation(presentation)
+
+    const publish = fake.queries.find((query) => query.op === 'update')
+    expect(publish).toBeDefined()
+    expect(Object.keys(values(publish))).toEqual(['shared_document'])
+    expect(filterValue(publish!, 'version')).toBe(1)
+    expect(filterValue(publish!, 'is_published')).toBe(true)
+
+    // Den neste lagringen bærer kopien selv, uten en ekstra skriving.
+    await repository.savePresentation({ ...presentation, title: 'Endret' })
+    expect(Object.keys(values(fake.queries.at(-1)))).toContain('shared_document')
+  })
+
   it('lagrer en presentasjon som bare er publisert gjennom mappen med en fersk kopi', async () => {
     // Ikke delt alene, men i en delt mappe: lagringen må holde kopien oppdatert.
     const presentation = { ...presentationWithSecrets(), folderId: FOLDER }

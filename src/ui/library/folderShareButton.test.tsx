@@ -95,8 +95,13 @@ describe('FolderShareButton', () => {
     expect(onSetShared).toHaveBeenCalledWith(false)
   })
 
-  it('lar seg ikke trykke før statusen er lest, mens noe pågår, eller i lokal modus', async () => {
-    for (const props of [{ status: 'loading' as const }, { busy: true }, { status: 'unsupported' as const }]) {
+  it('lar seg bare trykke når statusen er bekreftet og ingenting pågår', async () => {
+    for (const props of [
+      { status: 'loading' as const },
+      { status: 'error' as const },
+      { status: 'unsupported' as const },
+      { busy: true },
+    ]) {
       const host = await render(button(props))
       await openPopover(host)
       expect((inPopover('toggle-folder-share') as HTMLButtonElement).disabled).toBe(true)
