@@ -815,3 +815,64 @@ textarea {
   font-size: 22px;
   letter-spacing: -0.01em;
 }
+
+/*
+ * A shared folder: the folder's name and a card per published deck, on the
+ * same surface the library uses. The cards are the library's own
+ * (`.presentation-card`), so a deck reads the same on both sides of the link.
+ */
+.shared-folder {
+  /* The page body does not scroll; a long folder scrolls inside itself. */
+  height: 100%;
+  overflow: auto;
+  background: var(--chrome-bg);
+  padding: 32px 28px;
+}
+
+.shared-folder__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1100px;
+  margin: 0 auto 22px;
+}
+
+.shared-folder__brand {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--chrome-text-dim);
+}
+
+.shared-folder__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.shared-folder__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.shared-folder__empty {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.shared-folder .presentation-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:root[data-compact='true'] .shared-folder {
+  padding: 20px 16px;
+}

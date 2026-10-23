@@ -3698,7 +3698,11 @@ GET .../slaids-share?token=<token>              → det saniterte snapshotet
 GET .../slaids-share?token=<token>&asset=<id>   → én fil dekket faktisk viser
 ```
 
-Det finnes ingen listeform og ingen skriveoperasjon. Ugyldig token, tilbakekalt
+pluss de tre tilsvarende spørsmålene for en delt mappe (se «Delte mapper»
+under).
+
+Det finnes ingen skriveoperasjon, og ingen listeform utover en delt mappes egen
+liste, med mappens eksakte token. Ugyldig token, tilbakekalt
 deling, slettet presentasjon og en fil som ikke er i snapshotet gir alle den
 samme generelle 404-en – ellers ville endepunktet vært en informasjonskanal om
 hvilke tokens som er ekte. Svarene har `Cache-Control: no-store` og
@@ -3718,6 +3722,7 @@ adskilt fra Deno-inngangspunktet, slik at de kan testes som det de er.
 ```text
 /                     → AuthGate → bibliotek/editor        (privat)
 /s/<token>            → SharedPresentationView             (offentlig)
+/s/f/<token>          → SharedFolderView                   (offentlig)
 ```
 
 `src/Root.tsx` velger én gang, **over** `AuthGate`. Den delte visningen «hopper
@@ -3774,18 +3779,79 @@ repositoryet, delt visning bruker det offentlige endepunktet. Valget tas av hvor
 komponenten er montert, ikke av en gren inne i rendereren, og en delt visning
 forsøker derfor aldri den autentiserte veien.
 
+### Delte mapper
+
+En mappe kan deles på samme måte som en presentasjon, ett nivå opp. Det er
+fortsatt publisering, ikke samarbeid: lenken gir lesetilgang i
+presentasjonsmodus og ingenting annet.
+
+`slaids_folders` har `is_shared` og `share_token`, og tokenet roteres ved både
+aktivering og deaktivering, som for en presentasjon. `slaids_presentations` har
+i tillegg `is_published`, som **utledes av triggeren** og aldri tas fra en
+klient: delt alene, *eller* arkivert i en delt mappe med samme eier. Invarianten
+er nå
+
+```text
+is_shared = true       →  is_published, og shared_document finnes
+is_published = false   →  shared_document er null
+```
+
+Det publikum ser er dekkets egen `shared_document`, det samme snapshotet som en
+presentasjon delt alene har – én sannhetskilde for hva «publisert» betyr.
+Lagring sender snapshotet når raden er publisert (`is_published`, ikke
+`is_shared`), og raden har siste ord: en lagring som flytter et dekk inn i en
+delt mappe, publiserer det i etterkant, på samme måte som når delingen ble slått
+på i en annen fane.
+
+Databasen gjør resten i samme transaksjon som endringen som utløste den. Å slå
+av mappen, slette den, flytte et dekk ut av den eller legge det i søppelkassen
+tar dekket av lenken med én gang; en mappe-trigger sørger for at en endring på
+mappen når dekkene i den. Det eneste databasen ikke kan gjøre alene er å
+*aktivere*, fordi et sanitert snapshot bare kan bygges i klienten: mappen slås
+på først (tokenet er fortsatt ukjent for alle), hvert dekks kopi skrives mot
+versjonen den ble skåret fra, og først når alt er inne gis lenken ut. Feiler noe,
+slås mappen av igjen med nytt token.
+
+Å legge et dekk i en delt mappe er å publisere det – også for en agent med
+`presentations:write`. Det er mappens deling som er beslutningen, tatt av eieren;
+flyttingen er bare arkivering.
+
+Det offentlige endepunktet:
+
+```text
+GET .../slaids-share?folder=<token>                               → mappens navn og publiserte dekk
+GET .../slaids-share?folder=<token>&presentation=<id>             → ett av dem
+GET .../slaids-share?folder=<token>&presentation=<id>&asset=<id>  → én fil det dekket viser
+```
+
+Listen bærer mappens navn og, per publisert dekk, id, publisert tittel og antall
+slides – ingen eier, ingen datoer, ingen mappe-id, og ingenting om et dekk uten
+publisert kopi. En presentasjons-id åpner ingenting alene: den slås bare opp
+inne i mappen tokenet peker på. Et dekk åpnet fra en mappe har ingen QR-side;
+den hører til et dekk som er delt alene.
+
+`SharedFolderView` viser navnet og ett kort per dekk. Et trykk åpner dekket i
+`SharedDeck`, den samme komponenten `/s/<token>` bruker, med `onExit` tilbake
+til mappen. Å åpne et dekk er et steg i nettleserhistorikken, så tilbakeknappen
+avslutter presentasjonen i stedet for å forlate mappen.
+
 ### Sikkerhetsinvariants
 
-1. `anon` får aldri generell `SELECT` på `slaids_presentations`.
-2. Et share-token gir eksakt lesetilgang til én presentasjon.
-3. Det finnes ikke noe API for å liste delte presentasjoner.
+1. `anon` får aldri generell `SELECT` på `slaids_presentations` eller
+   `slaids_folders`.
+2. Et share-token gir eksakt lesetilgang til én presentasjon, eller til de
+   publiserte dekkene i én mappe.
+3. Det finnes ikke noe API for å liste delte presentasjoner eller delte mapper;
+   den eneste listen er én delt mappes egen, med mappens token.
 4. Privat `document` returneres aldri til `anon`.
-5. `sandbox`, `ideas`, mapper og annet privat finnes ikke i snapshotet.
+5. `sandbox`, `ideas`, mapper og annet privat finnes ikke i snapshotet. En delt
+   mappe publiserer sitt eget navn, og ingenting annet om seg selv.
 6. Asset-endepunktet serverer bare filer som er i akkurat det publiserte snapshotet.
 7. Deling gir aldri skrivetilgang.
 8. En deaktivert eller slettet presentasjon kan ikke leses via et gammelt token,
    og heller ikke en som ligger i søppelkassen – den virker igjen først når den
-   gjenopprettes.
+   gjenopprettes. Det samme gjelder et dekk som er flyttet ut av en delt mappe,
+   og alle dekkene i en mappe som er slått av eller slettet.
 9. Reaktivering gir nytt token; det gamle forblir dødt.
 10. Delingsmetadata utløser aldri en falsk dokumentversjonskonflikt.
 11. Import og duplisering arver aldri delingsstatus eller token.

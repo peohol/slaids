@@ -1,16 +1,20 @@
 /**
  * `slaids-share` — the only public door into Slaids.
  *
- * Two GETs, both keyed on a share token that is a v4 UUID:
+ * GETs only, each keyed on a share token that is a v4 UUID — a presentation's
+ * own, or a shared folder's:
  *
- *   GET .../slaids-share?token=<token>              → the published snapshot
- *   GET .../slaids-share?token=<token>&asset=<id>   → one file that deck shows
+ *   GET .../slaids-share?token=<token>                               → the published snapshot
+ *   GET .../slaids-share?token=<token>&asset=<id>                    → one file that deck shows
+ *   GET .../slaids-share?folder=<token>                              → the folder's published decks
+ *   GET .../slaids-share?folder=<token>&presentation=<id>            → one of them
+ *   GET .../slaids-share?folder=<token>&presentation=<id>&asset=<id> → one file it shows
  *
- * There is no listing form, no write, and no third shape. Everything that is
- * not exactly one of those two — including a token that does not exist, a share
- * that has been turned off, and an asset the published snapshot does not
- * mention — gets the same generic 404, so the endpoint cannot be used to learn
- * whether a token is real.
+ * There is no write, and no listing beyond a shared folder's own. Everything
+ * that is not exactly one of those — including a token that does not exist, a
+ * share that has been turned off, a deck that is not in the folder, and an
+ * asset the published snapshot does not mention — gets the same generic 404,
+ * so the endpoint cannot be used to learn whether a token or an id is real.
  *
  * It runs with the service role because the tables it reads are closed to
  * `anon` entirely: sharing adds no row-level policy, so there is no widened
@@ -29,8 +33,15 @@ import {
   publishedAssetIds,
   publishedAssetMimeType,
   publishedDocument,
+  publishedFolderDocument,
+  publishedFolderListing,
   readShareRequest,
   shareHeaders,
+  sharedFolder,
+  type DeckAddress,
+  type FolderDeckRow,
+  type FolderListingRow,
+  type SharedFolderRow,
   type SharedRow,
 } from './access.ts'
 
@@ -40,14 +51,19 @@ declare const Deno: {
 }
 
 const PRESENTATIONS_TABLE = 'slaids_presentations'
+const FOLDERS_TABLE = 'slaids_folders'
 const ASSETS_TABLE = 'slaids_assets'
 const ASSETS_BUCKET = 'slaids-assets'
 
-function notFound(): Response {
-  return new Response(JSON.stringify(NOT_FOUND_BODY), {
-    status: NOT_FOUND_STATUS,
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
     headers: shareHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
   })
+}
+
+function notFound(): Response {
+  return json(NOT_FOUND_BODY, NOT_FOUND_STATUS)
 }
 
 // Both are injected by Supabase. Missing means the function was deployed into
@@ -63,6 +79,70 @@ const client = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
 
+/** A published deck, as far as the rest of the request needs to know it. */
+interface PublishedDeck {
+  /** Scopes the asset lookup to this presentation; it never leaves the function. */
+  id: string
+  document: unknown
+}
+
+/**
+ * The shared folder a token names, or `null`. `owner_id` is read so the decks
+ * can be looked up as the folder owner's and nobody else's; it is never
+ * returned.
+ */
+async function folderByToken(folderToken: string): Promise<SharedFolderRow | null> {
+  const { data, error } = await client
+    .from(FOLDERS_TABLE)
+    .select('id, owner_id, name, is_shared')
+    .eq('share_token', folderToken)
+    .eq('is_shared', true)
+    .maybeSingle()
+  if (error) return null
+  return sharedFolder(data as SharedFolderRow | null)
+}
+
+/**
+ * The published deck an address names, or `null` for every reason it might not.
+ *
+ * `owner_id`, `document` and `object_path` are not selected at all — what is
+ * not fetched cannot be leaked. A presentation in the trash is deleted as far
+ * as the public is concerned: its share columns are still on the row, so that
+ * a restore brings the link back, but while it is trashed the link is dead.
+ * Filtered here *and* checked again by the rules in `access.ts`.
+ */
+async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null> {
+  if (address.kind === 'presentation') {
+    const { data, error } = await client
+      .from(PRESENTATIONS_TABLE)
+      .select('id, is_shared, shared_document, deleted_at')
+      .eq('share_token', address.token)
+      .eq('is_shared', true)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (error) return null
+    const row = data as SharedRow | null
+    const document = publishedDocument(row)
+    return row && document ? { id: row.id, document } : null
+  }
+
+  const folder = await folderByToken(address.folderToken)
+  if (!folder) return null
+  const { data, error } = await client
+    .from(PRESENTATIONS_TABLE)
+    .select('id, folder_id, is_published, shared_document, deleted_at')
+    .eq('id', address.presentationId)
+    .eq('folder_id', folder.id)
+    .eq('owner_id', folder.owner_id)
+    .eq('is_published', true)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error) return null
+  const row = data as FolderDeckRow | null
+  const document = publishedFolderDocument(folder, row)
+  return row && document ? { id: row.id, document } : null
+}
+
 Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: shareHeaders() })
@@ -71,43 +151,36 @@ Deno.serve(async (request: Request): Promise<Response> => {
   const intent = readShareRequest(request.method, new URL(request.url))
   if (!intent) return notFound()
 
-  // `id` is needed to scope the asset lookup to this presentation; it never
-  // leaves the function. `owner_id`, `document` and `object_path` are not
-  // selected at all — what is not fetched cannot be leaked.
-  //
-  // A presentation in the trash is deleted as far as the public is concerned:
-  // its share columns are still on the row, so that a restore brings the link
-  // back, but while it is trashed the link is dead. Filtered here *and* checked
-  // again in `publishedDocument`, for the reason that function gives.
-  const { data, error } = await client
-    .from(PRESENTATIONS_TABLE)
-    .select('id, is_shared, shared_document, deleted_at')
-    .eq('share_token', intent.token)
-    .eq('is_shared', true)
-    .is('deleted_at', null)
-    .maybeSingle()
-  if (error) return notFound()
-
-  const row = data as SharedRow | null
-  const document = publishedDocument(row)
-  if (!row || !document) return notFound()
-
-  if (intent.kind === 'snapshot') {
-    return new Response(JSON.stringify(document), {
-      status: 200,
-      headers: shareHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
-    })
+  if (intent.kind === 'folder') {
+    const folder = await folderByToken(intent.folderToken)
+    if (!folder) return notFound()
+    // The published title, never the private one, and nothing for a deck that
+    // has no published copy: `publishedFolderListing` leaves those out.
+    const { data, error } = await client
+      .from(PRESENTATIONS_TABLE)
+      .select('id, is_published, deleted_at, slide_count, title:shared_document->>title')
+      .eq('folder_id', folder.id)
+      .eq('owner_id', folder.owner_id)
+      .eq('is_published', true)
+      .is('deleted_at', null)
+    if (error) return notFound()
+    return json(publishedFolderListing(folder, (data ?? []) as FolderListingRow[]))
   }
+
+  const deck = await publishedDeck(intent.deck)
+  if (!deck) return notFound()
+
+  if (intent.kind === 'snapshot') return json(deck.document)
 
   // The snapshot decides, not the presentation: a file that belongs to this
   // deck but is not part of what was published stays private.
-  if (!publishedAssetIds(document).has(intent.assetId)) return notFound()
+  if (!publishedAssetIds(deck.document).has(intent.assetId)) return notFound()
 
   const asset = await client
     .from(ASSETS_TABLE)
     .select('object_path')
     .eq('id', intent.assetId)
-    .eq('presentation_id', row.id)
+    .eq('presentation_id', deck.id)
     .maybeSingle()
   if (asset.error || !asset.data) return notFound()
 
@@ -119,6 +192,6 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   return new Response(file.data, {
     status: 200,
-    headers: assetHeaders(publishedAssetMimeType(document, intent.assetId)),
+    headers: assetHeaders(publishedAssetMimeType(deck.document, intent.assetId)),
   })
 })

@@ -1,8 +1,8 @@
 /**
  * The one fork in the application.
  *
- * `/s/<token>` is public and everything else is private, and this is where that
- * is decided — above `AuthGate`, above the store, above every component that
+ * `/s/<token>` and `/s/f/<token>` are public and everything else is private, and
+ * this is where that is decided — above `AuthGate`, above the store, above every component that
  * assumes a signed-in owner. A shared deck therefore does not "skip" the gate;
  * it is rendered by a tree the gate was never part of.
  *
@@ -22,6 +22,7 @@
 import App, { PrivatePage } from './App'
 import { parseRoute } from './routing'
 import { OAuthConsentView } from './ui/auth/OAuthConsentView'
+import { SharedFolderView } from './ui/share/SharedFolderView'
 import { SharedPresentationView } from './ui/share/SharedPresentationView'
 
 export function Root({
@@ -32,6 +33,7 @@ export function Root({
 }) {
   const route = parseRoute(pathname)
   if (route.kind === 'shared') return <SharedPresentationView token={route.token} />
+  if (route.kind === 'shared-folder') return <SharedFolderView token={route.token} />
   if (route.kind === 'oauth-consent') {
     return (
       <PrivatePage>

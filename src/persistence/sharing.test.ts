@@ -15,7 +15,7 @@ import { imageNode } from '../domain/richdoc'
 import { newAssetId, newSandboxId } from '../domain/ids'
 import type { AssetRef, Presentation } from '../domain/types'
 import { RepositoryConflictError, RepositoryError } from './repository'
-import { PRESENTATIONS_TABLE, SupabaseSlaidsRepository } from './supabaseRepository'
+import { FOLDERS_TABLE, PRESENTATIONS_TABLE, SupabaseSlaidsRepository } from './supabaseRepository'
 import {
   createFakeSupabase,
   type FakeSupabaseOptions,
@@ -273,8 +273,8 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
     const { repository, fake } = repositoryFor({
       resolve: (record) =>
         record.op === 'select'
-          ? { data: { document: presentation, version: 3, is_shared: true } }
-          : { data: [{ version: 4, is_shared: true }] },
+          ? { data: { document: presentation, version: 3, is_published: true } }
+          : { data: [{ version: 4, is_published: true }] },
     })
 
     await repository.loadPresentation(presentation.id)
@@ -294,8 +294,8 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
     const { repository, fake } = repositoryFor({
       resolve: (record) =>
         record.op === 'select'
-          ? { data: { document: presentation, version: 3, is_shared: false } }
-          : { data: [{ version: 4, is_shared: false }] },
+          ? { data: { document: presentation, version: 3, is_published: false } }
+          : { data: [{ version: 4, is_published: false }] },
     })
 
     await repository.loadPresentation(presentation.id)
@@ -310,9 +310,9 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
       resolve: (record) =>
         record.op === 'select'
           ? // Da vi leste var den ikke delt …
-            { data: { document: presentation, version: 3, is_shared: false } }
+            { data: { document: presentation, version: 3, is_published: false } }
           : // … men raden er delt nå.
-            { data: [{ version: 4, is_shared: true }] },
+            { data: [{ version: 4, is_published: true }] },
     })
 
     await repository.loadPresentation(presentation.id)
@@ -323,9 +323,9 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
     const followUp = writes[1]
     // Bare den delte kopien skrives — dokumentet er allerede lagret …
     expect(Object.keys(values(followUp))).toEqual(['shared_document'])
-    // … mot den versjonen snapshotet avbilder, og bare på en rad som er delt.
+    // … mot den versjonen snapshotet avbilder, og bare på en rad som er publisert.
     expect(filterValue(followUp, 'version')).toBe(4)
-    expect(filterValue(followUp, 'is_shared')).toBe(true)
+    expect(filterValue(followUp, 'is_published')).toBe(true)
   })
 
   it('behandler en helt ny presentasjon som udelt', async () => {
@@ -338,5 +338,176 @@ describe('deling – lagring holder den delte kopien oppdatert', () => {
     // Og den neste lagringen arver heller ikke deling fra noe sted.
     await repository.savePresentation({ ...presentation, title: 'Ny igjen' })
     expect(Object.keys(values(fake.queries.at(-1)))).not.toContain('shared_document')
+  })
+})
+
+describe('deling av mapper', () => {
+  const FOLDER = 'fl_kurs'
+
+  it('lagrer en presentasjon som bare er publisert gjennom mappen med en fersk kopi', async () => {
+    // Ikke delt alene, men i en delt mappe: lagringen må holde kopien oppdatert.
+    const presentation = { ...presentationWithSecrets(), folderId: FOLDER }
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: 3, is_shared: false, is_published: true } }
+          : { data: [{ version: 4, is_published: true }] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await repository.savePresentation({ ...presentation, title: 'Endret' })
+
+    const writes = fake.queries.filter((query) => query.op === 'update')
+    // Én skriving: dokumentet og kopien sammen, ingen etterslengt publisering.
+    expect(writes).toHaveLength(1)
+    expect((values(writes[0]).shared_document as { title: string }).title).toBe('Endret')
+  })
+
+  it('holder kopien oppdatert når presentasjonens egen deling slås av i en delt mappe', async () => {
+    const presentation = { ...presentationWithSecrets(), folderId: FOLDER }
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.op === 'select') {
+          return { data: { document: presentation, version: 3, is_shared: true, is_published: true } }
+        }
+        if (values(record).is_shared === false) {
+          // Mappen publiserer den fortsatt.
+          return { data: [{ is_shared: false, share_token: values(record).share_token, is_published: true }] }
+        }
+        return { data: [{ version: 4, is_published: true }] }
+      },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    expect(await repository.disableSharing(presentation.id)).toEqual({ shared: false, token: null })
+    await repository.savePresentation({ ...presentation, title: 'Fortsatt i mappen' })
+
+    const save = fake.queries.at(-1) as QueryRecord
+    expect((values(save).shared_document as { title: string }).title).toBe('Fortsatt i mappen')
+  })
+
+  it('publiserer i etterkant når presentasjonen ble lagt i en delt mappe', async () => {
+    const presentation = presentationWithSecrets()
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.op === 'select'
+          ? { data: { document: presentation, version: 3, is_published: false } }
+          : // Flyttet inn i en delt mappe av akkurat denne lagringen.
+            { data: [{ version: 4, is_published: true }] },
+    })
+
+    await repository.loadPresentation(presentation.id)
+    await repository.savePresentation({ ...presentation, folderId: FOLDER })
+
+    const writes = fake.queries.filter((query) => query.op === 'update')
+    expect(writes).toHaveLength(2)
+    expect(Object.keys(values(writes[1]))).toEqual(['shared_document'])
+    const snapshot = values(writes[1]).shared_document as Record<string, unknown>
+    // Den saniterte kopien, aldri arbeidskopien.
+    expect(snapshot.folderId).toBeUndefined()
+    expect(snapshot.sandbox).toBeUndefined()
+    expect(filterValue(writes[1], 'version')).toBe(4)
+    expect(filterValue(writes[1], 'is_published')).toBe(true)
+  })
+
+  it('lister bare delte mapper, med token', async () => {
+    const token = 'cccccccc-1111-4222-8333-444455556666'
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({ data: [{ id: FOLDER, is_shared: true, share_token: token }] }),
+    })
+
+    expect(await repository.listFolderShareStates()).toEqual({ [FOLDER]: { shared: true, token } })
+    expect(fake.queries[0].table).toBe(FOLDERS_TABLE)
+    expect(filterValue(fake.queries[0], 'is_shared')).toBe(true)
+  })
+
+  it('slår på mappen med et nytt token og publiserer hver presentasjon i den før lenken gis ut', async () => {
+    const first = presentationWithSecrets()
+    const second = { ...createPresentation({ title: 'Andre' }), folderId: FOLDER }
+    const documents: Record<string, { document: Presentation; version: number }> = {
+      [first.id]: { document: { ...first, folderId: FOLDER }, version: 5 },
+      [second.id]: { document: second, version: 2 },
+    }
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.table === FOLDERS_TABLE) {
+          return { data: [{ is_shared: values(record).is_shared, share_token: values(record).share_token }] }
+        }
+        if (record.op === 'select' && record.columns === 'id') {
+          return { data: Object.keys(documents).map((id) => ({ id })) }
+        }
+        if (record.op === 'select') return { data: documents[filterValue(record, 'id') as string] }
+        return { data: null }
+      },
+    })
+
+    const state = await repository.enableFolderSharing(FOLDER)
+
+    const folderWrite = fake.queries[0]
+    expect(folderWrite.table).toBe(FOLDERS_TABLE)
+    expect(folderWrite.op).toBe('update')
+    expect(values(folderWrite).is_shared).toBe(true)
+    expect(String(values(folderWrite).share_token)).toMatch(TOKEN_PATTERN)
+    expect(state).toEqual({ shared: true, token: values(folderWrite).share_token })
+
+    const publishes = fake.queries.filter(
+      (query) => query.table === PRESENTATIONS_TABLE && query.op === 'update',
+    )
+    expect(publishes.map((query) => filterValue(query, 'id'))).toEqual([first.id, second.id])
+    for (const publish of publishes) {
+      // Bare kopien, mot versjonen den ble skåret fra, og bare på en publisert rad.
+      expect(Object.keys(values(publish))).toEqual(['shared_document'])
+      expect(filterValue(publish, 'is_published')).toBe(true)
+      const snapshot = values(publish).shared_document as Record<string, unknown>
+      expect(snapshot.sandbox).toBeUndefined()
+      expect(snapshot.ideas).toBeUndefined()
+      expect(snapshot.folderId).toBeUndefined()
+    }
+    expect(filterValue(publishes[0], 'version')).toBe(5)
+    expect(filterValue(publishes[1], 'version')).toBe(2)
+    // Hele mappen, også det som ligger i søppelkassen, så en gjenoppretting
+    // kommer tilbake publisert.
+    const listing = fake.queries.find((query) => query.columns === 'id')
+    expect(listing?.filters.map((filter) => filter.column)).toEqual(['folder_id'])
+  })
+
+  it('slår mappen av igjen, med nytt token, når en presentasjon ikke kan publiseres', async () => {
+    const presentation = presentationWithSecrets()
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => {
+        if (record.table === FOLDERS_TABLE) {
+          return { data: [{ is_shared: values(record).is_shared, share_token: values(record).share_token }] }
+        }
+        if (record.op === 'select' && record.columns === 'id') return { data: [{ id: presentation.id }] }
+        if (record.op === 'select') return { data: { document: presentation, version: 1 } }
+        return { error: { message: 'nede' } }
+      },
+    })
+
+    await expect(repository.enableFolderSharing(FOLDER)).rejects.toBeInstanceOf(RepositoryError)
+
+    const folderWrites = fake.queries.filter((query) => query.table === FOLDERS_TABLE)
+    expect(folderWrites.map((query) => values(query).is_shared)).toEqual([true, false])
+    expect(values(folderWrites[1]).share_token).not.toBe(values(folderWrites[0]).share_token)
+  })
+
+  it('slår av med et nytt token, og overlater kopiene til databasen', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: (record) => ({
+        data: [{ is_shared: values(record).is_shared, share_token: values(record).share_token }],
+      }),
+    })
+
+    expect(await repository.disableFolderSharing(FOLDER)).toEqual({ shared: false, token: null })
+    expect(fake.queries).toHaveLength(1)
+    expect(fake.queries[0].table).toBe(FOLDERS_TABLE)
+    expect(values(fake.queries[0]).is_shared).toBe(false)
+    expect(String(values(fake.queries[0]).share_token)).toMatch(TOKEN_PATTERN)
+  })
+
+  it('sier fra når mappen ikke finnes', async () => {
+    const { repository } = repositoryFor({ resolve: () => ({ data: [] }) })
+    await expect(repository.disableFolderSharing(FOLDER)).rejects.toThrow(/Fant ikke mappen/)
+    await expect(repository.enableFolderSharing(FOLDER)).rejects.toThrow(/Fant ikke mappen/)
   })
 })

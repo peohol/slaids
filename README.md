@@ -286,8 +286,11 @@ Skjemaet ligger i `supabase/migrations/`:
   publisere eller trekke tilbake en lenke er ikke en redigering, og skal ikke
   gjøre den åpne editorens versjon utdatert;
 - kolonnene `is_shared`, `share_token` og `shared_document` for deling, med en
-  CHECK som binder dem sammen: delt betyr publisert, og ikke delt betyr at det
-  ikke finnes noe publisert;
+  CHECK som binder dem sammen: delt betyr publisert, og ikke publisert betyr at
+  det ikke finnes noe publisert;
+- `is_shared` og `share_token` på `slaids_folders`, og den utledede
+  `is_published` på presentasjonene: et dekk er publisert når det er delt alene
+  eller ligger i en delt mappe;
 - den private bucketen `slaids-assets` med policies som binder hver fil til
   `<owner_id>/<presentation_id>/<asset_id>` og den samme tillatte brukeren.
 
@@ -529,7 +532,12 @@ GET .../slaids-share?token=<token>              → det saniterte snapshotet
 GET .../slaids-share?token=<token>&asset=<id>   → én fil dekket faktisk viser
 ```
 
-Det finnes ingen listeform. Feil token, tilbakekalt deling, slettet presentasjon
+En hel mappe kan også deles, fra knappen under mappens søppelkasseknapp i
+biblioteket. Lenken er `/s/f/<token>`, og endepunktet svarer da på mappens liste
+(`?folder=<token>`), ett dekk i den (`&presentation=<id>`) og en fil det dekket
+viser (`&asset=<id>`). Se `IMPLEMENTATION_PLAN.md` § 43.5, «Delte mapper».
+
+Det finnes ingen listeform utover en delt mappes egen. Feil token, tilbakekalt deling, slettet presentasjon
 og en fil som ikke er i snapshotet gir alle den samme generelle 404-en, slik at
 endepunktet ikke kan brukes til å finne ut om et token er ekte. Svarene sendes
 med `Cache-Control: no-store` og `X-Robots-Tag: noindex, nofollow` – en cachet

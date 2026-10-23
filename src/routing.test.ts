@@ -6,6 +6,7 @@ import {
   OAUTH_CONSENT_PATH,
   SHARE_PATH_PREFIX,
   agentApiUrl,
+  folderShareUrl,
   isShareToken,
   parseRoute,
   shareUrl,
@@ -36,6 +37,28 @@ describe('parseRoute', () => {
     for (const junk of ['abc', `${TOKEN}extra`, `${TOKEN.slice(0, 20)}`, 'noe/mer', '../../etc/passwd']) {
       expect(parseRoute(`${SHARE_PATH_PREFIX}${junk}`)).toEqual({ kind: 'shared', token: null })
     }
+  })
+
+  it('kjenner igjen en delt mappe, under det samme offentlige prefikset', () => {
+    expect(parseRoute(`${SHARE_PATH_PREFIX}f/${TOKEN}`)).toEqual({
+      kind: 'shared-folder',
+      token: TOKEN,
+    })
+    expect(parseRoute(`${SHARE_PATH_PREFIX}f/${TOKEN.toUpperCase()}/`)).toEqual({
+      kind: 'shared-folder',
+      token: TOKEN,
+    })
+    expect(parseRoute(folderShareUrl('', TOKEN))).toEqual({ kind: 'shared-folder', token: TOKEN })
+  })
+
+  it('holder en ødelagt mappeadresse på den offentlige siden', () => {
+    for (const junk of ['', 'abc', `${TOKEN}x`, `${TOKEN}/mer`, '../etc']) {
+      expect(parseRoute(`${SHARE_PATH_PREFIX}f/${junk}`)).toEqual({
+        kind: 'shared-folder',
+        token: null,
+      })
+    }
+    expect(parseRoute(`${SHARE_PATH_PREFIX}f`)).toEqual({ kind: 'shared-folder', token: null })
   })
 
   it('behandler en avkortet delingsadresse som en delingsadresse', () => {
@@ -70,6 +93,14 @@ describe('share-token', () => {
   it('gir et nytt token hver gang', () => {
     const tokens = new Set(Array.from({ length: 50 }, () => newShareToken()))
     expect(tokens.size).toBe(50)
+  })
+})
+
+describe('folderShareUrl', () => {
+  it('bygger mappeadressen fra origin', () => {
+    expect(folderShareUrl('https://slaids.example/', TOKEN)).toBe(
+      `https://slaids.example/s/f/${TOKEN}`,
+    )
   })
 })
 

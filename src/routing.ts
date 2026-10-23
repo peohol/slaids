@@ -26,6 +26,14 @@
 export const SHARE_PATH_PREFIX = '/s/'
 
 /**
+ * A shared folder's address is `/s/f/<token>`: under the same public prefix,
+ * so it inherits everything the prefix already guarantees — the SPA rewrite,
+ * the `noindex` and `no-referrer` headers, and that it can never land on the
+ * owner's sign-in.
+ */
+export const FOLDER_SHARE_SEGMENT = 'f'
+
+/**
  * The agent REST API, versioned from the first day.
  *
  * It lives here with the other addresses rather than in `src/server/`, for the
@@ -127,6 +135,8 @@ export type AppRoute =
    * token — still the public side, just with nothing to fetch.
    */
   | { kind: 'shared'; token: string | null }
+  /** A shared folder's address; `token` is `null` for the same reason. */
+  | { kind: 'shared-folder'; token: string | null }
   /**
    * The OAuth consent screen. Private, and behind the same gate the workspace
    * is: only the owner may approve an application's access to their decks.
@@ -145,6 +155,11 @@ export function parseRoute(pathname: string): AppRoute {
   if (!isSharePath(pathname)) return { kind: 'workspace' }
   // A trailing slash is the same page; anything deeper is not a token.
   const rest = pathname.slice(SHARE_PATH_PREFIX.length).replace(/\/+$/, '')
+  const [first, ...deeper] = rest.split('/')
+  if (first === FOLDER_SHARE_SEGMENT) {
+    const token = deeper.join('/')
+    return { kind: 'shared-folder', token: isShareToken(token) ? token.toLowerCase() : null }
+  }
   return { kind: 'shared', token: isShareToken(rest) ? rest.toLowerCase() : null }
 }
 
@@ -155,6 +170,11 @@ export function isShareToken(value: string): boolean {
 /** The address to hand out. Built from the origin the editor is served from. */
 export function shareUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, '')}${SHARE_PATH_PREFIX}${token}`
+}
+
+/** A shared folder's address to hand out, built the same way. */
+export function folderShareUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/+$/, '')}${SHARE_PATH_PREFIX}${FOLDER_SHARE_SEGMENT}/${token}`
 }
 
 /**

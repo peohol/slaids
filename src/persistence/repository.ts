@@ -281,6 +281,36 @@ export interface SharingRepository {
   disableSharing(presentationId: string): Promise<ShareState>
 }
 
+/**
+ * Publishing a whole folder to a secret link.
+ *
+ * While a folder is shared, every presentation filed in it is published — the
+ * same sanitised snapshot a presentation shared on its own carries — and the
+ * folder's link lists them and opens them in presentation mode. Filing a deck
+ * in a shared folder publishes it; moving it out, trashing it or deleting the
+ * folder takes it off the link again. Nobody holding the link can change
+ * anything: the public side only ever reads.
+ *
+ * Separate from `SharingRepository` for the same reason that one is separate
+ * from `SlaidsRepository`: it exists in Supabase mode only, and a caller that
+ * shares single decks — the agent surface — has no business being handed it.
+ */
+export interface FolderSharingRepository {
+  /** The share state of every shared folder, by folder id. A folder not listed is not shared. */
+  listFolderShareStates(): Promise<Record<string, ShareState>>
+  /**
+   * Share the folder under a **new** token, and publish every deck in it before
+   * the token is handed out. If any deck cannot be published, the folder is
+   * switched off again and this rejects.
+   */
+  enableFolderSharing(folderId: string): Promise<ShareState>
+  /**
+   * Stop sharing: the token is rotated and every deck that was published only
+   * through the folder loses its published copy, in the same statement.
+   */
+  disableFolderSharing(folderId: string): Promise<ShareState>
+}
+
 export class RepositoryError extends Error {
   readonly detail?: unknown
 

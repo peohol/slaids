@@ -38,6 +38,7 @@ import {
   RepositoryConflictError,
   RepositoryError,
   RepositoryNotFoundError,
+  type FolderSharingRepository,
   type SaveGuard,
   type ShareState,
   type SharingRepository,
@@ -118,15 +119,31 @@ interface MovedOutRow {
   version: number | null
 }
 
-interface SharedFlagRow {
-  is_shared: boolean | null
+/**
+ * Whether the row is published — shared on its own, or filed in a shared
+ * folder. Derived by the database on every write, never sent by a client.
+ */
+interface PublishedFlagRow {
+  is_published: boolean | null
 }
 
-interface ShareRow extends SharedFlagRow {
+interface ShareRow {
+  is_shared: boolean | null
   share_token: string | null
 }
 
+interface PresentationShareRow extends ShareRow, PublishedFlagRow {}
+
+/** The columns a share write reads back. `is_published` keeps the save path honest. */
+const PRESENTATION_SHARE_COLUMNS = 'is_shared, share_token, is_published'
+
 type FailureDetail = PostgrestError | { message: string } | null | undefined
+
+/** A token is only ever handed out while the share it belongs to is live. */
+function shareStateOf(row: ShareRow): ShareState {
+  const shared = row.is_shared === true
+  return { shared, token: shared ? (row.share_token ?? null) : null }
+}
 
 function fail(what: string, error: FailureDetail): never {
   throw new RepositoryError(`${what} (${error?.message ?? 'ukjent feil'}).`, error)
@@ -157,7 +174,9 @@ function readingKey(id: string, revision: string): string {
   return `${id}@${revision}`
 }
 
-export class SupabaseSlaidsRepository implements SlaidsRepository, SharingRepository {
+export class SupabaseSlaidsRepository
+  implements SlaidsRepository, SharingRepository, FolderSharingRepository
+{
   /**
    * The `version` each presentation was last seen at. Every update is written
    * against that version, so a tab holding a stale copy is told it lost the
@@ -181,15 +200,16 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   private readonly versionOfReading = new Map<string, number>()
 
   /**
-   * Whether each presentation was shared the last time this repository looked.
+   * Whether each presentation was published — shared on its own, or filed in a
+   * shared folder — the last time this repository looked.
    *
    * It decides one thing only: whether a save carries a freshly built public
    * snapshot along with the private document. Being wrong is not dangerous in
    * either direction — the database refuses to keep a snapshot on a row that is
-   * not shared, and a save that finds the row shared after all publishes the
-   * snapshot it should have carried. See `savePresentation`.
+   * not published, and a save that finds the row published after all publishes
+   * the snapshot it should have carried. See `savePresentation`.
    */
-  private readonly knownShared = new Map<string, boolean>()
+  private readonly knownPublished = new Map<string, boolean>()
 
   /**
    * Storage paths whose removal failed after their row was already gone.
@@ -290,7 +310,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
   /** Test seam: forget every known row, as a fresh sign-in would. */
   forgetVersions(): void {
     this.knownVersions.clear()
-    this.knownShared.clear()
+    this.knownPublished.clear()
     this.versionOfReading.clear()
   }
 
@@ -377,11 +397,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     const { data, error } = await this.scoped(
       this.client
         .from(PRESENTATIONS_TABLE)
-        // `is_shared` comes along so a save knows whether it also has to publish,
-        // without a second round trip and without depending on the share UI
-        // having asked first. `deleted_at` comes along because a trashed deck is
-        // refused here, the same way Dexie refuses it: it is restored, not opened.
-        .select('document, version, is_shared, deleted_at')
+        // `is_published` comes along so a save knows whether it also has to
+        // publish, without a second round trip and without depending on the
+        // share UI having asked first. `deleted_at` comes along because a trashed
+        // deck is refused here, the same way Dexie refuses it: it is restored,
+        // not opened.
+        .select('document, version, is_published, deleted_at')
         .eq('id', id),
     ).maybeSingle()
     if (error) fail(`Kunne ikke hente presentasjonen «${id}»`, error)
@@ -398,7 +419,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // being inserted as if it were new.
     const version = numberOr((data as VersionRow).version, 0)
     this.knownVersions.set(id, version)
-    this.knownShared.set(id, (data as SharedFlagRow).is_shared === true)
+    this.knownPublished.set(id, (data as PublishedFlagRow).is_published === true)
     // Keyed by the document actually handed to the caller, so a guarded save of
     // *this* reading can find the version it belongs to no matter what the row
     // has moved on to since.
@@ -481,8 +502,11 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       }
       this.knownVersions.set(document.id, numberOr((data as VersionRow | null)?.version, 1))
       // A presentation that has just been created is not shared. Sharing is
-      // never inherited — not by a copy, not by an import, not by a new row.
-      this.knownShared.set(document.id, false)
+      // never inherited — not by a copy, not by an import, not by a new row. It
+      // may still be *published* if it was created in a shared folder; the
+      // next save finds that out from the row, as it would for any other
+      // reading that turned out to be stale, and publishes then.
+      this.knownPublished.set(document.id, false)
       return
     }
 
@@ -503,13 +527,14 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     row: Record<string, unknown>,
     expectedVersion: number,
   ): Promise<void> {
-    // A shared presentation is published by the same write that stores it, so a
-    // save that succeeded can never leave the audience on an older version than
-    // the owner just wrote. When the row turns out not to be shared, the
-    // database drops the snapshot again (see the migration's trigger), so
-    // sending one on a stale reading publishes nothing.
-    const believedShared = this.knownShared.get(document.id) === true
-    const payload = believedShared
+    // A published presentation is republished by the same write that stores it,
+    // so a save that succeeded can never leave the audience on an older version
+    // than the owner just wrote. When the row turns out not to be published —
+    // not shared, and not in a shared folder — the database drops the snapshot
+    // again (see the migrations' trigger), so sending one on a stale reading
+    // publishes nothing.
+    const believedPublished = this.knownPublished.get(document.id) === true
+    const payload = believedPublished
       ? { ...row, shared_document: buildSharedSnapshot(document) }
       : row
 
@@ -517,10 +542,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
       this.client.from(PRESENTATIONS_TABLE).update(payload).eq('id', document.id),
     )
       .eq('version', expectedVersion)
-      .select('version, is_shared')
+      .select('version, is_published')
     if (error) fail('Kunne ikke lagre presentasjonen', error)
 
-    const updated = (data ?? []) as (VersionRow & SharedFlagRow)[]
+    const updated = (data ?? []) as (VersionRow & PublishedFlagRow)[]
     if (updated.length === 0) {
       // Nothing matched: the row has either moved on since we read it or is
       // gone. The version stays exactly as it was — every retry keeps making
@@ -535,16 +560,17 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     const version = numberOr(updated[0]?.version, expectedVersion + 1)
     this.knownVersions.set(document.id, version)
 
-    // The row itself has the last word on whether it is shared.
-    const actuallyShared = updated[0]?.is_shared === true
-    this.knownShared.set(document.id, actuallyShared)
-    if (actuallyShared && !believedShared) {
-      // Sharing was switched on elsewhere while this editor was open, so the
-      // write that just landed carried no snapshot and the audience would be
-      // looking at the version published at the time. Publish the one it should
-      // have carried, against the version it belongs to; a share-only update
-      // does not move the document version, so this cannot turn into a conflict
-      // for the next autosave.
+    // The row itself has the last word on whether it is published.
+    const actuallyPublished = updated[0]?.is_published === true
+    this.knownPublished.set(document.id, actuallyPublished)
+    if (actuallyPublished && !believedPublished) {
+      // Sharing was switched on elsewhere while this editor was open — for the
+      // deck, or for the folder it is in — or this very write filed it in a
+      // shared folder. Either way the write that just landed carried no
+      // snapshot, and the audience would be looking at an older one or none.
+      // Publish the one it should have carried, against the version it belongs
+      // to; a share-only update does not move the document version, so this
+      // cannot turn into a conflict for the next autosave.
       await this.publishSnapshot(document.id, buildSharedSnapshot(document), version)
     }
   }
@@ -579,7 +605,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     // Deleting through this repository is a local decision, so this is the one
     // place the row may be forgotten: a later save of the same id really is new.
     this.knownVersions.delete(id)
-    this.knownShared.delete(id)
+    this.knownPublished.delete(id)
     await this.reclaimObjects(paths)
   }
 
@@ -618,7 +644,7 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     if (error) fail('Kunne ikke slette presentasjonen fra søppelkassen', error)
     if (((data ?? []) as unknown[]).length === 0) return false
     this.knownVersions.delete(id)
-    this.knownShared.delete(id)
+    this.knownPublished.delete(id)
     await this.reclaimObjects(paths)
     return true
   }
@@ -733,12 +759,12 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     const { data, error } = await this.scoped(
       this.client
         .from(PRESENTATIONS_TABLE)
-        .select('is_shared, share_token')
+        .select(PRESENTATION_SHARE_COLUMNS)
         .eq('id', presentationId),
     ).maybeSingle()
     if (error) fail('Kunne ikke lese delingsstatusen', error)
     if (!data) throw new RepositoryNotFoundError(`Fant ikke presentasjonen «${presentationId}».`)
-    return this.rememberShareState(presentationId, data as ShareRow)
+    return this.rememberShareState(presentationId, data as PresentationShareRow)
   }
 
   async enableSharing(
@@ -764,10 +790,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     const { data, error } = await (known === undefined
       ? guarded
       : guarded.eq('version', known)
-    ).select('is_shared, share_token')
+    ).select(PRESENTATION_SHARE_COLUMNS)
     if (error) fail('Kunne ikke dele presentasjonen', error)
 
-    const rows = (data ?? []) as ShareRow[]
+    const rows = (data ?? []) as PresentationShareRow[]
     if (rows.length === 0) throw await this.explainMissedShareWrite(presentationId)
     return this.rememberShareState(presentationId, rows[0])
   }
@@ -801,10 +827,10 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         .from(PRESENTATIONS_TABLE)
         .update({ is_shared: false, share_token: token, shared_document: null })
         .eq('id', presentationId),
-    ).select('is_shared, share_token')
+    ).select(PRESENTATION_SHARE_COLUMNS)
     if (error) fail('Kunne ikke slå av delingen', error)
 
-    const rows = (data ?? []) as ShareRow[]
+    const rows = (data ?? []) as PresentationShareRow[]
     if (rows.length === 0) {
       throw new RepositoryError(
         'Fant ikke presentasjonen i Supabase. Den kan være slettet et annet sted.',
@@ -813,18 +839,23 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
     return this.rememberShareState(presentationId, rows[0])
   }
 
-  /** A token is only ever handed out while the share it belongs to is live. */
-  private rememberShareState(presentationId: string, row: ShareRow): ShareState {
-    const shared = row.is_shared === true
-    this.knownShared.set(presentationId, shared)
-    return { shared, token: shared ? (row.share_token ?? null) : null }
+  /**
+   * A token is only ever handed out while the share it belongs to is live.
+   *
+   * What a save has to know is remembered from `is_published`, not from
+   * `is_shared`: turning a deck's own sharing off leaves it published while the
+   * folder it is in is shared, and its next save must keep that copy current.
+   */
+  private rememberShareState(presentationId: string, row: PresentationShareRow): ShareState {
+    this.knownPublished.set(presentationId, row.is_published === true)
+    return shareStateOf(row)
   }
 
   /**
    * Refresh the published copy without touching the private document.
    *
    * Guarded on the version the snapshot pictures, and on the row still being
-   * shared: publishing to an unshared row would violate the state invariant,
+   * published: a copy on an unpublished row would violate the state invariant,
    * and publishing over a newer document would put the audience behind. A guard
    * that matches nothing is not an error here — it means somebody else's write
    * got there first, and that write brings its own snapshot along.
@@ -841,8 +872,116 @@ export class SupabaseSlaidsRepository implements SlaidsRepository, SharingReposi
         .eq('id', presentationId),
     )
       .eq('version', version)
-      .eq('is_shared', true)
+      .eq('is_published', true)
     if (error) fail('Kunne ikke oppdatere den delte kopien', error)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Folder sharing
+   *
+   * The folder row holds the switch and the token; what the public is shown
+   * is each deck's own published copy, the same `shared_document` a deck
+   * shared on its own carries. The database derives which decks are published
+   * (`is_published`) whenever either side changes, and drops every copy that
+   * is no longer published in the same transaction — so turning a folder off,
+   * deleting it or moving a deck out of it takes the deck off the link at once,
+   * with nothing left for this side to clean up.
+   *
+   * Turning a folder *on* is the one thing the database cannot finish alone:
+   * a sanitised snapshot can only be built here, from the domain object. So
+   * the switch is flipped first — which marks the decks published, while the
+   * new token is still known to nobody — and each deck's copy is written next.
+   * Only when every copy is in is the token handed out. If any of it fails, the
+   * folder is switched off again, rotating the token, and nothing was shown to
+   * anybody.
+   * ---------------------------------------------------------------- */
+
+  async listFolderShareStates(): Promise<Record<string, ShareState>> {
+    const { data, error } = await this.scoped(
+      this.client.from(FOLDERS_TABLE).select('id, is_shared, share_token').eq('is_shared', true),
+    )
+    if (error) fail('Kunne ikke lese delingsstatusen til mappene', error)
+    const states: Record<string, ShareState> = {}
+    for (const row of (data ?? []) as (ShareRow & { id: string })[]) {
+      states[row.id] = shareStateOf(row)
+    }
+    return states
+  }
+
+  async enableFolderSharing(folderId: string): Promise<ShareState> {
+    const state = await this.writeFolderShare(folderId, true, 'Kunne ikke dele mappen')
+    try {
+      await this.publishFolderDecks(folderId)
+    } catch (error) {
+      // Best effort: the token was never handed out, and switching off rotates
+      // it, so even a rollback that fails leaves nothing anybody can open.
+      await this.writeFolderShare(folderId, false, 'Kunne ikke slå av delingen').catch(() => {})
+      throw error
+    }
+    return state
+  }
+
+  async disableFolderSharing(folderId: string): Promise<ShareState> {
+    return this.writeFolderShare(folderId, false, 'Kunne ikke slå av delingen av mappen')
+  }
+
+  /**
+   * Flip the folder's switch under a **new** token, either way: a link that
+   * was handed out is dead from the moment sharing is turned off, and stays
+   * dead when it is turned on again.
+   */
+  private async writeFolderShare(folderId: string, shared: boolean, what: string): Promise<ShareState> {
+    const { data, error } = await this.scoped(
+      this.client
+        .from(FOLDERS_TABLE)
+        .update({ is_shared: shared, share_token: newShareToken() })
+        .eq('id', folderId),
+    ).select('is_shared, share_token')
+    if (error) fail(what, error)
+    const rows = (data ?? []) as ShareRow[]
+    if (rows.length === 0) {
+      throw new RepositoryNotFoundError('Fant ikke mappen i Supabase. Den kan være slettet et annet sted.')
+    }
+    return shareStateOf(rows[0])
+  }
+
+  /**
+   * Write the published copy of every deck filed in the folder — the trashed
+   * ones too, so a deck restored from the trash comes back published like the
+   * rest of the folder.
+   *
+   * One deck at a time, read straight from the row and never through
+   * `loadPresentation`: reading here must not refresh the version an open
+   * editor is guarding its autosave with. Each copy is written against the
+   * version it was cut from, so a deck that changes in the meantime is left to
+   * the write that changed it, which publishes its own copy (see
+   * `updateGuarded`).
+   */
+  private async publishFolderDecks(folderId: string): Promise<void> {
+    const listed = await this.scoped(
+      this.client.from(PRESENTATIONS_TABLE).select('id').eq('folder_id', folderId),
+    )
+    if (listed.error) fail('Kunne ikke hente presentasjonene i mappen', listed.error)
+
+    for (const { id } of (listed.data ?? []) as { id: string }[]) {
+      const { data, error } = await this.scoped(
+        this.client.from(PRESENTATIONS_TABLE).select('document, version').eq('id', id),
+      ).maybeSingle()
+      if (error) fail('Kunne ikke hente en presentasjon i mappen', error)
+      // Deleted for good since the listing: nothing left to publish.
+      if (!data) continue
+
+      const migrated = migratePresentation((data as { document: unknown }).document)
+      if (!migrated.ok) {
+        throw new RepositoryError(
+          `Presentasjonen «${id}» i mappen kunne ikke leses, så mappen ble ikke delt (${migrated.error.message}).`,
+          migrated.error,
+        )
+      }
+      const version = numberOr((data as VersionRow).version, 0)
+      await this.publishSnapshot(id, buildSharedSnapshot(migrated.value), version)
+      this.knownPublished.set(id, true)
+    }
   }
 
   /* ---------------------------------------------------------------- *

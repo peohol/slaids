@@ -15,7 +15,7 @@
 
 import { useMemo } from 'react'
 import { loadAsset } from './assets'
-import { sharedAssetUrl } from '../sharing/shareClient'
+import { deckAddressKey, sharedAssetUrl, type SharedDeckAddress } from '../sharing/shareClient'
 import type { AssetUrlSource } from './assetSource'
 
 /**
@@ -37,24 +37,29 @@ export const repositoryAssetSource: AssetUrlSource = {
 }
 
 /**
- * The public source: one deck, by token, through the share endpoint.
+ * The public source: one published deck, by its address, through the share
+ * endpoint — a presentation's own token, or a shared folder's token and the
+ * deck's id.
  *
  * A plain URL owns nothing, so there is no `release`: the browser caches and
  * frees it like any other image. It is known without asking anybody, which is
  * why this one can answer synchronously.
  */
-export function sharedAssetSource(token: string): AssetUrlSource {
+export function sharedAssetSource(address: SharedDeckAddress): AssetUrlSource {
   return {
-    id: `shared:${token}`,
-    resolveSync: (assetId) => sharedAssetUrl(token, assetId),
+    id: `shared:${deckAddressKey(address)}`,
+    resolveSync: (assetId) => sharedAssetUrl(address, assetId),
     resolve: (assetId) => {
-      const url = sharedAssetUrl(token, assetId)
+      const url = sharedAssetUrl(address, assetId)
       return Promise.resolve(url ? { url } : null)
     },
   }
 }
 
-/** Convenience for the shared view: memoised so the context value is stable. */
-export function useSharedAssetSource(token: string): AssetUrlSource {
-  return useMemo(() => sharedAssetSource(token), [token])
+/**
+ * Convenience for the shared views: memoised so the context value is stable as
+ * long as the caller hands in the same address object.
+ */
+export function useSharedAssetSource(address: SharedDeckAddress): AssetUrlSource {
+  return useMemo(() => sharedAssetSource(address), [address])
 }

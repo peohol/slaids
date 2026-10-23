@@ -23,3 +23,8 @@ export function formatPercent(fraction: number): string {
 export function formatPixels(width: number, height: number): string {
   return `${Math.round(width)} × ${Math.round(height)} px`
 }
+
+/** `1 slide`, `4 slides`: how a deck's length reads on a card. */
+export function formatSlideCount(count: number): string {
+  return `${count} slide${count === 1 ? '' : 's'}`
+}
