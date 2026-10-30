@@ -1331,6 +1331,8 @@ export function EditorView({
           id: option.kind,
           label: option.label,
           icon: option.icon,
+          tone: option.tone,
+          checked: option.kind === selectedLeaf?.content?.kind,
           disabled: option.disabled,
           reason: option.reason,
           onSelect: () => applyContentKind(option.kind),
@@ -1366,7 +1368,8 @@ export function EditorView({
       {
         id: 'image',
         label: 'Sett inn bilde',
-        icon: 'image',
+        icon: 'image-add',
+        tone: 'media',
         disabled: !isLeaf,
         onSelect: () => setImageOpen('ask'),
       },
@@ -1802,6 +1805,7 @@ export function EditorView({
       selectionIsLeaf:
         viewedDerivedPage === null && contentSlide !== null && selectedNode?.kind === 'leaf',
       selectionHasContent: Boolean(selectedLeaf?.content),
+      selectedKind: viewedDerivedPage === null ? (selectedLeaf?.content?.kind ?? null) : null,
       canEditZones: viewedDerivedPage === null && contentSlide !== null,
       sandboxCount: presentation.sandbox.length,
       onBack: () => void handleBack(),

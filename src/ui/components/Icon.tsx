@@ -1,4 +1,12 @@
-/** Compact inline icon set (24x24 stroke icons). */
+/**
+ * Compact inline icon set (24x24 stroke icons).
+ *
+ * The four content kinds that hold something are drawn as one system, so they
+ * can be told apart at toolbar size: a **solid band** along the top always
+ * means «has a title», **lines** mean text and a **hill under a sun** means a
+ * picture. Untitled card, titled card, picture and titled picture card are the
+ * four combinations of those two marks.
+ */
 
 export type IconName =
   | 'plus'
@@ -23,6 +31,7 @@ export type IconName =
   | 'card-titled'
   | 'card-image'
   | 'image'
+  | 'image-add'
   | 'quote'
   | 'bullet-list'
   | 'ordered-list'
@@ -92,15 +101,37 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'split-y': <path d="M4 4h16v16H4zM4 12h16" />,
   edit: <path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" />,
   eraser: <path d="M5 15l6-6 8 8-4 4H9zM4 21h16" />,
+  /* A frame that holds zones rather than content: dashed, like a guide. */
   container: <path d="M4 5h16v14H4z" strokeDasharray="4 3" />,
   /* Deliberate air: the corners of a zone and nothing between them. */
   'negative-space': <path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3" />,
   /* Editorial text: a sheet with a folded corner and two written lines. */
   note: <path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h4" />,
-  card: <path d="M4 5h16v14H4z" />,
-  'card-titled': <path d="M4 5h16v14H4zM4 10h16" />,
-  'card-image': <path d="M4 5h16v14H4zM4 10h16M8 15l2.5 2 2-2.5L16 18H7z" />,
-  image: <path d="M4 5h16v14H4zM8 11l3 3 3-4 3 5H7z" />,
+  /* Text on a card: lines, no band. */
+  card: <path d="M6 5h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2zM8 9.5h8M8 12.5h8M8 15.5h5" />,
+  /* The same card with its title: the band across the top. */
+  'card-titled': (
+    <>
+      <path d="M6 5h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2zM8 13h8M8 16h5" />
+      <path d="M4 7a2 2 0 012-2h12a2 2 0 012 2v2.6H4z" fill="currentColor" />
+    </>
+  ),
+  /* A picture under a title band. */
+  'card-image': (
+    <>
+      <path d="M6 5h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2zM5 18.5l4.5-5 3 3 2-2 4.5 4" />
+      <path d="M4 7a2 2 0 012-2h12a2 2 0 012 2v2.6H4z" fill="currentColor" />
+    </>
+  ),
+  /* A picture: a hill under a sun, in a frame. */
+  image: (
+    <path d="M6 5h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2zM5 18.5l5-5.5 3.5 3.5 2-2 4 4M15.5 8.5a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" />
+  ),
+  /* Choosing a file for a picture, as opposed to making a zone a picture:
+     the same frame, opened at the corner by a plus. */
+  'image-add': (
+    <path d="M13 5H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2v-5M5 18.5l5-5.5 3.5 3.5 2-2 4 4M18 3v6M15 6h6" />
+  ),
   quote: <path d="M8 7C5 8 5 12 5 12h4v5H4V9M18 7c-3 1-3 5-3 5h4v5h-5V9" />,
   'bullet-list': <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />,
   'ordered-list': <path d="M9 6h11M9 12h11M9 18h11M4 5h1v3M4 11h2v1l-2 2h2M4 17h2v3H4" />,
@@ -168,18 +199,30 @@ const PATHS: Record<IconName, React.ReactNode> = {
   reset: <path d="M4 12a8 8 0 108-8 8 8 0 00-6.3 3M4 4v4h4" />,
 }
 
+/**
+ * The families of tools that carry a colour of their own; see
+ * docs/UX_DESIGN_SYSTEM.md. Deliberately few: presentation-wide tools, history
+ * and navigation stay untinted, and selection, danger and status are states,
+ * not families.
+ */
+export type IconTone = 'content' | 'zone' | 'media'
+
 export function Icon({
   name,
   size = 18,
   className,
+  tone,
 }: {
   name: IconName
   size?: number
   className?: string
+  /** Tint the icon with its function family's ink. Untinted when absent. */
+  tone?: IconTone
 }) {
   return (
     <svg
-      className={className}
+      className={className ? `icon ${className}` : 'icon'}
+      data-tone={tone}
       width={size}
       height={size}
       viewBox="0 0 24 24"

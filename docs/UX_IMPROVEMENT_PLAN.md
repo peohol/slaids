@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** Planlagt; ingen UX-endringer er implementert gjennom denne planen.  
+**Status:** U0 og U1 er gjennomført (se § 10); U2–U7 venter på godkjenning av designgrunnlaget.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -166,26 +166,30 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U0 — Baseline og beslutningsgrunnlag (først)
 
-- [ ] Kartlegg synlige innganger til handlinger og grupper dem etter nivå fra § 4.1.
-- [ ] Lag en kort oppgavematrise: ny presentasjon, ny slide, kort med tittel, sett inn bilde, rediger tekst, del/endre sone, endre størrelse, flytt/dupliser slide, angre/gjør om, del, vis, finn avansert valg.
-- [ ] Ta sammenlignbare skjermbilder av bibliotek, desktopeditor i innholds- og sonemodus, tekstfelt, kontekstmeny, smal desktop og kompakt mobil.
-- [ ] Kontroller minst viewport 1600x1000, 1366x768, 1180x820, 1025x768, 900x760, 412x892 og 892x412; test i tillegg berøring på større flate der praktisk mulig.
-- [ ] Noter antall klikk/trykk og eventuelle vanskelige valg for oppgavene. Før måling skal dagens flyt være baseline, ikke bare den nye.
-- [ ] Beskriv foreslått informasjonsarkitektur i en kort beslutningslogg, med alternativer og hvorfor ett er valgt.
-- [ ] Identifiser forhold som krever produktbeslutning før endring. Bevar ellers eksisterende oppførsel.
+- [x] Kartlegg synlige innganger til handlinger og grupper dem etter nivå fra § 4.1.
+- [x] Lag en kort oppgavematrise: ny presentasjon, ny slide, kort med tittel, sett inn bilde, rediger tekst, del/endre sone, endre størrelse, flytt/dupliser slide, angre/gjør om, del, vis, finn avansert valg.
+- [x] Ta sammenlignbare skjermbilder av bibliotek, desktopeditor i innholds- og sonemodus, tekstfelt, kontekstmeny, smal desktop og kompakt mobil.
+- [x] Kontroller minst viewport 1600x1000, 1366x768, 1180x820, 1025x768, 900x760, 412x892 og 892x412; test i tillegg berøring på større flate der praktisk mulig. *(Berøring på fysisk nettbrett er ikke testet; se UX_BASELINE.md.)*
+- [x] Noter antall klikk/trykk og eventuelle vanskelige valg for oppgavene. Før måling skal dagens flyt være baseline, ikke bare den nye.
+- [x] Beskriv foreslått informasjonsarkitektur i en kort beslutningslogg, med alternativer og hvorfor ett er valgt.
+- [x] Identifiser forhold som krever produktbeslutning før endring. Bevar ellers eksisterende oppførsel.
 
 **Aksept:** Baseline, oppgavematrise og informasjonsarkitektur finnes i repoet. De konkrete endringene som skal gjøres først er dokumentert.
 
+**Resultat:** [UX_BASELINE.md](UX_BASELINE.md), skjermbilder i [ux/baseline/](ux/baseline/).
+
 ### U1 — Visuell grunnmur med /frontend-design
 
-- [ ] Bruk Claude Code-skillen /frontend-design for en designretning som prioriterer arbeidsro, skille mellom funksjoner og tydelige tilstander.
-- [ ] Etabler UI-tokens for nøytrale flater, funksjonsfarger, aktiv/hover/fokus/deaktivert, grenser, mellomrom, typografisk hierarki.
-- [ ] Oppgrader Icon og felles knappe-/menymønstre slik at funksjonsfarge kan angis sentralt; ingen redesign av slide-tema.
-- [ ] Vis et begrenset, representativt sett av komponenter og tilstander før hele grensesnittet fargelegges.
-- [ ] Verifiser tekstkontrast minst 4,5:1 for vanlig tekst og ikke-tekstlig tilstandskontrast minst 3:1 der WCAG krever det.
-- [ ] Kontroller at tilstander fortsatt er lesbare uten farge.
+- [x] Bruk Claude Code-skillen /frontend-design for en designretning som prioriterer arbeidsro, skille mellom funksjoner og tydelige tilstander.
+- [x] Etabler UI-tokens for nøytrale flater, funksjonsfarger, aktiv/hover/fokus/deaktivert, grenser, mellomrom, typografisk hierarki.
+- [x] Oppgrader Icon og felles knappe-/menymønstre slik at funksjonsfarge kan angis sentralt; ingen redesign av slide-tema.
+- [x] Vis et begrenset, representativt sett av komponenter og tilstander før hele grensesnittet fargelegges.
+- [x] Verifiser tekstkontrast minst 4,5:1 for vanlig tekst og ikke-tekstlig tilstandskontrast minst 3:1 der WCAG krever det.
+- [x] Kontroller at tilstander fortsatt er lesbare uten farge.
 
 **Aksept:** Designsystemet er dokumentert, gjenbrukbart, testet og begrenset til appens chrome. Ingen presentasjonspiksler eller lagrede data er endret.
+
+**Resultat:** [UX_DESIGN_SYSTEM.md](UX_DESIGN_SYSTEM.md), før/etter-bilder i [ux/u1/](ux/u1/).
 
 ### U2 — Desktop: hovedverktøylinje og innholdstype
 
@@ -284,9 +288,9 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 
 | Arbeidspakke | Status | Merknad / PR |
 | --- | --- | --- |
-| U0 Baseline og informasjonsarkitektur | Ikke startet | Første oppgave |
-| U1 Designsystem og ikon-/fargespråk | Ikke startet | Etter U0; bruk /frontend-design |
-| U2 Hovedverktøylinje og innholdstype | Ikke startet | Første store brukerrettede forenkling |
+| U0 Baseline og informasjonsarkitektur | Ferdig 30.10.2026 | UX_BASELINE.md. Nytt funn N1: hovedlinjen flyter over under ca. 1366 px, «Vis» havner utenfor vinduet. |
+| U1 Designsystem og ikon-/fargespråk | Ferdig 30.10.2026 | UX_DESIGN_SYSTEM.md. Tokens, blekkfarger, ikonfamilie, felles tilstander, segmentert modusvalg. Samme PR som U0. |
+| U2 Hovedverktøylinje og innholdstype | Ikke startet | Anbefalt neste. Start med overflyten (N1). |
 | U3 Inspektør og soner | Ikke startet | Høy prioritet |
 | U4 Tekstverktøy | Ikke startet | Høy prioritet |
 | U5 Bibliotek og filmstripe | Ikke startet | Neste runde |

@@ -163,6 +163,7 @@ export function contentKindSubmenu(
       id: `kind-${option.kind}`,
       label: option.label,
       icon: option.icon,
+      tone: option.tone,
       disabled: option.disabled,
       reason: option.reason,
       ...(content ? { checked: content.kind === option.kind } : {}),

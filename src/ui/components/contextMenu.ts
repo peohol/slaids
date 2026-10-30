@@ -14,12 +14,14 @@
  */
 
 import { create } from 'zustand'
-import type { IconName } from './Icon'
+import type { IconName, IconTone } from './Icon'
 
 interface EntryBase {
   id: string
   label: string
   icon?: IconName
+  /** The function family the icon is inked with, as on every other surface. */
+  tone?: IconTone
   disabled?: boolean
   /**
    * Why the entry is disabled, shown under it. Only worth writing when the

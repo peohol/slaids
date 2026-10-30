@@ -33,6 +33,7 @@ import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { CopyTextButton } from '../components/CopyTextButton'
 import { Icon } from '../components/Icon'
+import { pressedButton } from '../components/pressed'
 import { formatBytes, formatPixels } from '../format'
 import { contentKindOptions } from './contentKinds'
 import { Tooltip } from '../components/Tooltip'
@@ -155,7 +156,7 @@ export function Inspector({
               onClick={(event) => action.onSelect(event.currentTarget)}
               data-testid={`inspector-action-${action.id}`}
             >
-              <Icon name={action.icon} size={14} /> {action.label}
+              <Icon name={action.icon} size={14} tone={action.tone} /> {action.label}
             </button>
           ))}
         </div>
@@ -201,7 +202,7 @@ export function Inspector({
                   disabled={option.disabled}
                   onClick={() => onAddContent(selectedNodeId, option.kind)}
                 >
-                  <Icon name={option.icon} size={14} /> {option.label}
+                  <Icon name={option.icon} size={14} tone={option.tone} /> {option.label}
                 </button>
               </Tooltip>
             ))}
@@ -221,9 +222,7 @@ export function Inspector({
               >
                 <button
                   type="button"
-                  className={
-                    content.kind === option.kind ? 'btn btn--sm btn--active' : 'btn btn--sm'
-                  }
+                  {...pressedButton('btn btn--sm', content.kind === option.kind)}
                   data-testid={`inspector-kind-${option.kind}`}
                   disabled={option.disabled}
                   onClick={() =>
@@ -237,7 +236,7 @@ export function Inspector({
                     )
                   }
                 >
-                  <Icon name={option.icon} size={14} /> {option.label}
+                  <Icon name={option.icon} size={14} tone={option.tone} /> {option.label}
                 </button>
               </Tooltip>
             ))}
@@ -300,9 +299,7 @@ export function Inspector({
               <button
                 key={position}
                 type="button"
-                className={
-                  panel.caption?.position === position ? 'btn btn--sm btn--active' : 'btn btn--sm'
-                }
+                {...pressedButton('btn btn--sm', panel.caption?.position === position)}
                 data-testid={`caption-position-${position}`}
                 onClick={() =>
                   run('caption-position', (current) =>
@@ -426,7 +423,7 @@ export function Inspector({
               <button
                 key={axis}
                 type="button"
-                className={body.axis === axis ? 'btn btn--sm btn--active' : 'btn btn--sm'}
+                {...pressedButton('btn btn--sm', body.axis === axis)}
                 data-testid={`subfield-axis-${axis}`}
                 onClick={() =>
                   run('subfield-axis', (current) =>

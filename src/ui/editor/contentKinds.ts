@@ -19,7 +19,7 @@ import { CONTENT_KIND_LABELS, ZONE_CONTENT_KINDS } from '../../domain/content'
 import { zoneKindRefusal } from '../../domain/contentSize'
 import { themeMetrics } from '../../domain/metrics'
 import type { PresentationTheme, Rect, ZoneContent, ZoneContentKind } from '../../domain/types'
-import type { IconName } from '../components/Icon'
+import type { IconName, IconTone } from '../components/Icon'
 
 export const CONTENT_KIND_ICONS: Record<ZoneContentKind, IconName> = {
   'titled-card': 'card-titled',
@@ -28,6 +28,22 @@ export const CONTENT_KIND_ICONS: Record<ZoneContentKind, IconName> = {
   image: 'image',
   'titled-image-card': 'card-image',
   'negative-space': 'negative-space',
+}
+
+/**
+ * Which family of tools each kind belongs to, for its icon's ink.
+ *
+ * Text cards are content; a picture — with or without a title band — is a
+ * picture; a container and deliberate air arrange other zones rather than
+ * holding anything, so they belong with the zone tools.
+ */
+export const CONTENT_KIND_TONES: Record<ZoneContentKind, IconTone> = {
+  'titled-card': 'content',
+  'untitled-card': 'content',
+  container: 'zone',
+  image: 'media',
+  'titled-image-card': 'media',
+  'negative-space': 'zone',
 }
 
 /**
@@ -48,6 +64,7 @@ export interface ContentKindOption {
   kind: ZoneContentKind
   label: string
   icon: IconName
+  tone: IconTone
   disabled: boolean
   /** Why it is disabled, for a tooltip. `null` when it is available. */
   reason: string | null
@@ -76,6 +93,7 @@ export function contentKindOptions(
       kind,
       label: CONTENT_KIND_LABELS[kind],
       icon: CONTENT_KIND_ICONS[kind],
+      tone: CONTENT_KIND_TONES[kind],
       disabled: refusal !== null,
       reason: refusal?.message ?? null,
     }

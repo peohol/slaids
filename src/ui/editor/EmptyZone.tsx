@@ -52,7 +52,7 @@ export function EmptyZone({
                 onAdd(nodeId, option.kind)
               }}
             >
-              <Icon name={option.icon} size={15} /> {option.label}
+              <Icon name={option.icon} size={15} tone={option.tone} /> {option.label}
             </button>
           </Tooltip>
         ))}

@@ -27,6 +27,21 @@
   flex: 0 0 auto;
 }
 
+/*
+ * Zone mode is the exceptional state: the page's structure is open for
+ * editing and a click selects zones instead of text. The toolbar's lower edge
+ * takes the zone ink for as long as it lasts, so the mode can be read from
+ * anywhere on screen, not only from the switch that set it. Content mode, the
+ * normal state, leaves the edge plain.
+ */
+.toolbar[data-mode='zone'] {
+  box-shadow: inset 0 -2px 0 var(--ink-zone);
+}
+
+.toolbar .segmented > .btn {
+  height: 26px;
+}
+
 .toolbar__title {
   border: none;
   background: transparent;
@@ -174,17 +189,19 @@
   gap: 8px;
 }
 
+/* Section names in sentence case and semibold: read as names, not shouted as
+   labels, and one step above the hints under them. */
 .inspector__heading {
   margin: 0;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--chrome-text-dim);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--chrome-text);
 }
 
 .inspector__subheading {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--chrome-text-dim);
 }
 
@@ -1517,12 +1534,13 @@
   flex: 0 0 auto;
 }
 
+/* Saving is progress, not a warning: plain text until it lands or fails. */
 .statusbar [data-state='saving'] {
-  color: var(--chrome-warning);
+  color: var(--chrome-text-dim);
 }
 
 .statusbar [data-state='error'] {
-  color: var(--chrome-danger);
+  color: var(--chrome-danger-text);
 }
 
 .statusbar [data-state='saved'] {
@@ -2614,6 +2632,22 @@
 .compact-tools__item:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+.compact-tools__item:disabled .icon[data-tone] {
+  color: inherit;
+}
+
+/* The choice in force: the same edge and tint as a pressed `.btn`. */
+.compact-tools__item[aria-pressed='true'] {
+  background: var(--chrome-accent-soft);
+  border-color: var(--chrome-accent);
+  color: var(--chrome-accent-text);
+}
+
+.compact-tools__check {
+  margin-left: auto;
+  color: var(--chrome-accent);
 }
 
 /* ----------------------------------------------------------------- *

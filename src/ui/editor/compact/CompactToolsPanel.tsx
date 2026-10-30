@@ -7,7 +7,7 @@
  */
 
 import { useSharingStore, useShareUrl } from '../../../state/sharing'
-import { Icon, type IconName } from '../../components/Icon'
+import { Icon, type IconName, type IconTone } from '../../components/Icon'
 import { ShareToggle } from '../ShareToggle'
 import type { TopToolbarProps } from '../TopToolbar'
 
@@ -15,6 +15,7 @@ interface ToolRow {
   id: string
   label: string
   icon: IconName
+  tone?: IconTone
   disabled?: boolean
   onSelect: () => void
 }
@@ -46,16 +47,17 @@ export function CompactToolsPanel({
     },
     {
       id: 'image',
-      label: 'Sett inn bilde',
-      icon: 'image',
+      label: 'Sett inn bilde fra fil',
+      icon: 'image-add',
+      tone: 'media',
       disabled: !toolbar.canEditZones,
       onSelect: toolbar.onOpenImage,
     },
     { id: 'templates', label: 'Maler', icon: 'template', disabled: !toolbar.canEditZones, onSelect: toolbar.onOpenTemplates },
     { id: 'references', label: 'Referanser', icon: 'reference', onSelect: toolbar.onOpenReferences },
     { id: 'theme', label: 'Tema', icon: 'palette', onSelect: toolbar.onOpenTheme },
-    { id: 'image-brief', label: 'Bildebrief', icon: 'note', onSelect: toolbar.onOpenImageBrief },
-    { id: 'optimize', label: 'Optimaliser bilder', icon: 'optimize', onSelect: toolbar.onOptimizeImages },
+    { id: 'image-brief', label: 'Bildebrief', icon: 'note', tone: 'media', onSelect: toolbar.onOpenImageBrief },
+    { id: 'optimize', label: 'Optimaliser bilder', icon: 'optimize', tone: 'media', onSelect: toolbar.onOptimizeImages },
     { id: 'ideas', label: 'Idéer', icon: 'ideas', onSelect: onOpenIdeas },
     {
       id: 'sandbox',
@@ -84,17 +86,24 @@ export function CompactToolsPanel({
           * none, so the reason is written out rather than hovered for.
           */}
         <ul className="compact-tools__list">
-          {toolbar.contentKinds.map((option) => (
+          {toolbar.contentKinds.map((option) => {
+            const disabled = !toolbar.selectionIsLeaf || option.disabled
+            const selected = !disabled && option.kind === toolbar.selectedKind
+            return (
             <li key={option.kind}>
+              {/* The kind in force is marked as it is on the desktop toolbar,
+                  in the inspector and in the zone menu: pressed, with a check. */}
               <button
                 type="button"
                 className="compact-tools__item"
-                disabled={!toolbar.selectionIsLeaf || option.disabled}
+                aria-pressed={selected}
+                disabled={disabled}
                 data-testid={`content-kind-${option.kind}`}
                 onClick={() => toolbar.onSetContentKind(option.kind)}
               >
-                <Icon name={option.icon} size={17} />
+                <Icon name={option.icon} size={17} tone={option.tone} />
                 {option.label}
+                {selected && <Icon name="check" size={16} className="compact-tools__check" />}
               </button>
               {option.disabled && option.reason && (
                 <p className="hint" data-testid={`content-kind-reason-${option.kind}`}>
@@ -102,7 +111,8 @@ export function CompactToolsPanel({
                 </p>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       </section>
 
@@ -130,7 +140,7 @@ export function CompactToolsPanel({
                 disabled={row.disabled}
                 onClick={row.onSelect}
               >
-                <Icon name={row.icon} size={17} />
+                <Icon name={row.icon} size={17} tone={row.tone} />
                 {row.label}
               </button>
             </li>

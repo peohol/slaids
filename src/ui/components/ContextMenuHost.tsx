@@ -153,12 +153,19 @@ function ItemBody({ entry }: { entry: Exclude<MenuEntry, { kind: 'separator' | '
   return (
     <>
       <span className="context-menu__icon" aria-hidden="true">
-        {checked ? <Icon name="check" size={15} /> : entry.icon ? <Icon name={entry.icon} size={15} /> : null}
+        {entry.icon ? <Icon name={entry.icon} size={15} tone={entry.tone} /> : null}
       </span>
       <span className="context-menu__text">
         <span className="context-menu__label">{entry.label}</span>
         {entry.disabled && entry.reason && <span className="context-menu__reason">{entry.reason}</span>}
       </span>
+      {/* The choice in force is marked the way every surface marks it: the
+          entry keeps its own icon, and the check sits at the end. */}
+      {checked && (
+        <span className="context-menu__check" aria-hidden="true">
+          <Icon name="check" size={15} />
+        </span>
+      )}
     </>
   )
 }
