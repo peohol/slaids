@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0, U1 og U2 er gjennomført (se § 10); U3–U7 venter.  
+**Status:** U0–U3 er gjennomført (se § 10); U4–U7 venter.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -203,16 +203,20 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 **Aksept:** Færre likeverdige toppnivåknapper, konsistent valgt-tilstand, alle kommandoer tilgjengelige, og normale oppgaver ikke tregere enn baseline.
 
+**Resultat:** Hovedlinjen har nå seks grupper i fast rekkefølge: tilbake, navn og lagringsstatus · modus og overskrift · angre/gjør om · innholdstype (én knapp som viser gjeldende type og åpner en meny med alle typer, utilgjengelige med domenets begrunnelse) og «Bilde fra fil» · menyene «Presentasjon» (navn, tema, maler, referanser, bildebrief, optimalisering) og «Verktøy» (idéer, sandkassen med antall, hurtigtaster) · «Del» og «Vis». Menyene er appens felles meny og virker med mus, tastatur og berøring. Ved smalere vindu viker etikettene for ikonene; ingen kontroll forlater vinduet ved 1025–1600 px (N1 løst, kontrollert av `e2e/toolbar.spec.ts`). Kompakt arbeidsflate er uendret, men leser de samme verktøylistene. Før/etter-bilder i [ux/u2/](ux/u2/).
+
 ### U3 — Inspektør og soneredigering
 
-- [ ] Gruppér relevante kontroller etter valgt objekt og handlingstype.
-- [ ] Lag gode tomtilstander for intet valg, avledet side og innholdsløs sone.
-- [ ] Vis aktive innholdstyper og gjeldende verdier eksplisitt.
-- [ ] Legg avanserte forholdstall og sjeldne tekniske valg i lett tilgjengelige utvidbare grupper, dersom dette fungerer i brukerflyt.
-- [ ] Behold størrelsesendring uten dragging og dyp sonenavigasjon.
-- [ ] Samordne med de eksisterende høyreklikkmenyene, ikke bygg konkurrerende menyer.
+- [x] Gruppér relevante kontroller etter valgt objekt og handlingstype.
+- [x] Lag gode tomtilstander for intet valg, avledet side og innholdsløs sone.
+- [x] Vis aktive innholdstyper og gjeldende verdier eksplisitt.
+- [x] Legg avanserte forholdstall og sjeldne tekniske valg i lett tilgjengelige utvidbare grupper, dersom dette fungerer i brukerflyt.
+- [x] Behold størrelsesendring uten dragging og dyp sonenavigasjon.
+- [x] Samordne med de eksisterende høyreklikkmenyene, ikke bygg konkurrerende menyer.
 
 **Aksept:** Bruker kan se målobjekt, endre det og forstå hvorfor en handling nektes, uten å lære to ulike innholdsmodeller.
+
+**Resultat:** Inspektøren leses ovenfra: et hode som sier hva som er valgt (ikon, innholdstype eller «Tom sone»/«Delt sone», plassering som «Sone 2 av 3, side ved side», stien og størrelsen), deretter **Innhold**, **Sone** og **Størrelse** i fast rekkefølge. Innholdstypen er én menyknapp som åpner den samme menyen som hovedlinjen og sonemenyen; en tom sone viser typene som direkteknapper. En delt sone lister sine egne soner ved navn, så dyp navigasjon går med ett trykk ned og stien opp. Forholdstall per sone (når én sone er valgt), forholdstall for delfelt og den lange forklaringen om dragging ligger i utvidbare grupper som husker om de er åpne. Utilgjengelige handlinger skriver grunnen under navnet sitt, synlig uten hover. Navn og ikoner for sonehandlingene kommer fra én kilde (`ZONE_ACTIONS` i `contextMenu/zoneMenu.ts`), og handlinger som fjerner noe står sist og er merket som fare. En handling som spør før den fjerner noe i menyen, spør likt fra inspektøren (samme menyoppføring, `InspectorEntryButton`), og «Tøm sone» tilbys for alle soner med innhold, også negativt rom, som ellers kunne bli stående uten vei tilbake i en liten sone. Inndeling, miniapp og avledede sider har samme hode. Før/etter-bilder i [ux/u3/](ux/u3/).
 
 ### U4 — Tekstredigering
 
@@ -282,7 +286,6 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 - Preserve touch-/keyboard-invarianter i eksisterende e2e; oppdater skjermbildetester etter reelle, tilsiktede UI-endringer.
 - Ved hver PR: oppgi berørte arbeidsflyter, før/etter-skjermbilder, testresultater, tilgjengelighetskontroll og eksplisitt om agent-API-/MCP-kontrakt er endret (forventet: nei).
 - Ikke flytt eller fjern eksisterende funksjoner i én stor PR uten testbar erstatning.
-**Resultat:** Hovedlinjen har nå seks grupper i fast rekkefølge: tilbake, navn og lagringsstatus · modus og overskrift · angre/gjør om · innholdstype (én knapp som viser gjeldende type og åpner en meny med alle typer, utilgjengelige med domenets begrunnelse) og «Bilde fra fil» · menyene «Presentasjon» (navn, tema, maler, referanser, bildebrief, optimalisering) og «Verktøy» (idéer, sandkassen med antall, hurtigtaster) · «Del» og «Vis». Menyene er appens felles meny og virker med mus, tastatur og berøring. Ved smalere vindu viker etikettene for ikonene; ingen kontroll forlater vinduet ved 1025–1600 px (N1 løst, kontrollert av `e2e/toolbar.spec.ts`). Kompakt arbeidsflate er uendret, men leser de samme verktøylistene. Før/etter-bilder i [ux/u2/](ux/u2/).
 
 - Hvis /frontend-design foreslår en annerledes struktur enn denne planen, dokumenter konkret nytte, risiko og konsekvenser for eksisterende arbeidsflyt før endring.
 
@@ -293,8 +296,8 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | U0 Baseline og informasjonsarkitektur | Ferdig 30.10.2026 | UX_BASELINE.md. Nytt funn N1: hovedlinjen flyter over under ca. 1366 px, «Vis» havner utenfor vinduet. |
 | U1 Designsystem og ikon-/fargespråk | Ferdig 30.10.2026 | UX_DESIGN_SYSTEM.md. Tokens, blekkfarger, ikonfamilie, felles tilstander, segmentert modusvalg. Samme PR som U0. |
 | U2 Hovedverktøylinje og innholdstype | Ferdig 30.10.2026 | N1 løst. Innholdstype som én meny, eget «Bilde fra fil», menyene «Presentasjon» og «Verktøy», lagringsstatus ved tittelen. |
-| U3 Inspektør og soner | Ikke startet | Anbefalt neste. Inspektørens egen liste over innholdstyper kan nå bruke samme meny som verktøylinjen. |
-| U4 Tekstverktøy | Ikke startet | Høy prioritet |
+| U3 Inspektør og soner | Ferdig 30.10.2026 | Hode med valgt objekt, faste grupper, innholdstype som felles meny, utvidbare grupper, synlige begrunnelser, felles navn for sonehandlinger. N8 løst. |
+| U4 Tekstverktøy | Ikke startet | Anbefalt neste. Høy prioritet |
 | U5 Bibliotek og filmstripe | Ikke startet | Neste runde |
 | U6 Mobil/responsivt | Ikke startet | Verifiser fortløpende, egen samlet gjennomgang |
 | U7 Samlet QA | Ikke startet | Tester kjøres også kontinuerlig |

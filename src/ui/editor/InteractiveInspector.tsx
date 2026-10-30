@@ -26,6 +26,7 @@ import { readInteractiveFile } from '../../state/interactiveFile'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
+import { InspectorFold, InspectorHeader } from './InspectorParts'
 import { INTERACTIVE_UPLOAD_NOTES } from './NewInteractiveModal'
 
 export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
@@ -74,13 +75,11 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
 
   return (
     <aside className="inspector" data-testid="inspector">
-      <section className="inspector__section">
-        <h2 className="inspector__heading">Miniapp</h2>
-        <p className="hint">
-          Én selvstendig miniapp i én HTML-fil. Publikum ser forsiden med navnet, og starter appen
-          med «Aktiver miniapp». Den kjører isolert fra Slaids og starter på nytt hver gang.
-        </p>
-      </section>
+      <InspectorHeader
+        icon="interactive"
+        title="Miniapp"
+        detail="Én HTML-fil med sin egen app. Siden har ingen soner; publikum ser forsiden med navnet og starter appen med «Aktiver miniapp»."
+      />
 
       <section className="inspector__section">
         <h2 className="inspector__heading">Navn</h2>
@@ -133,8 +132,7 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
         </p>
       </section>
 
-      <section className="inspector__section">
-        <h2 className="inspector__heading">Slik virker det</h2>
+      <InspectorFold id="interactive-notes" summary="Slik virker det" icon="info">
         <ul className="interactive-notes">
           {INTERACTIVE_UPLOAD_NOTES.map((note) => (
             <li key={note} className="hint">
@@ -142,7 +140,7 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
             </li>
           ))}
         </ul>
-      </section>
+      </InspectorFold>
     </aside>
   )
 }

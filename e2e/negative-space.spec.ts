@@ -17,13 +17,16 @@
 import { expect, test } from './fixtures'
 import {
   addContentToZone,
+  clickZone,
   createPresentation,
   enterZoneMode,
+  slidePoint,
   splitSelected,
   stage,
   toast,
   watchForErrors,
   zoneRects,
+  openInspectorKindMenu,
 } from './helpers'
 
 /** The picker's button for one kind, inside one zone. */
@@ -87,6 +90,58 @@ test.describe('negativt rom', () => {
     expect(guard.errors).toEqual([])
   })
 
+  test('empties air again, from the panel and from the menu, without a detour through the sandbox', async ({
+    page,
+  }) => {
+    // A sliver has room for air and nothing else, so converting it is no way
+    // back to the picker; and the root cannot be deleted. «Tøm sone» is the way.
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Luft tilbake')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 10, 1], 'y')
+    await page.getByTestId('mode-content').click()
+    const [sliver] = await zoneRects(page)
+    await choice(page, sliver.id, 'negative-space').click()
+    const air = (nodeId: string) =>
+      stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] [data-content-kind="negative-space"]`)
+    await expect(air(sliver.id)).toHaveCount(1)
+
+    await enterZoneMode(page)
+    await clickZone(page, sliver)
+    await page.getByTestId('inspector-action-clear').click()
+    const dialog = page.getByTestId('confirm-dialog')
+    await expect(dialog).toContainText('Sonen blir tom.')
+    await expect(page.getByTestId('confirm-alternative')).toHaveCount(0)
+    await page.getByTestId('confirm-accept').click()
+    await expect(air(sliver.id)).toHaveCount(0)
+    await page.getByTestId('mode-content').click()
+    await expect(choice(page, sliver.id, 'negative-space')).toBeEnabled()
+
+    // A split of nothing but empty zones and air: nothing to rescue either.
+    await enterZoneMode(page)
+    await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+    await page.getByTestId('inspector-action-clear').click()
+    await expect(dialog).toContainText('Delingen fjernes, og sonen blir tom.')
+    await expect(page.getByTestId('confirm-alternative')).toHaveCount(0)
+    await page.getByTestId('confirm-accept').click()
+
+    // Now the root itself is air, which has no «Slett sone»: the zone menu empties it.
+    await page.getByTestId('mode-content').click()
+    const [root] = await zoneRects(page)
+    await choice(page, root.id, 'negative-space').click()
+    await expect(air(root.id)).toHaveCount(1)
+    await enterZoneMode(page)
+    const centre = await slidePoint(page, root.x + root.w / 2, root.y + root.h / 2)
+    await page.mouse.click(centre.x, centre.y, { button: 'right' })
+    await page.getByTestId('menu-clear').click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(air(root.id)).toHaveCount(0)
+
+    // Air had nothing in it, so nothing was parked anywhere.
+    await expect(page.getByTestId('sandbox-count')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
+  })
+
   test('will not offer air for a zone that has something to lose', async ({ page }) => {
     // The other half of «the picker knows what fits»: air has no payload, so a
     // zone with text in it cannot become one until it is emptied. The picker
@@ -101,11 +156,12 @@ test.describe('negativt rom', () => {
     await page.keyboard.insertText('Noe som ikke skal forsvinne i stillhet')
 
     await enterZoneMode(page)
-    await expect(page.getByTestId('inspector-kind-negative-space')).toBeDisabled()
+    const kinds = await openInspectorKindMenu(page)
+    await expect(kinds.getByTestId('menu-kind-negative-space')).toHaveAttribute('aria-disabled', 'true')
     // Everything the zone has room for is still on offer, including the kind
     // it already is — only the one that would throw the text away is not.
-    await expect(page.getByTestId('inspector-kind-titled-card')).toBeEnabled()
-    await expect(page.getByTestId('inspector-kind-untitled-card')).toBeEnabled()
+    await expect(kinds.getByTestId('menu-kind-titled-card')).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(kinds.getByTestId('menu-kind-untitled-card')).not.toHaveAttribute('aria-disabled', 'true')
     expect(guard.errors).toEqual([])
   })
 

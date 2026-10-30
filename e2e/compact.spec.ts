@@ -659,6 +659,8 @@ test.describe('kompakt arbeidsflate', () => {
     await openPanel(page, 'zone')
     await expect(page.getByTestId('inspector-add-titled-card')).toBeDisabled()
     await expect(page.getByTestId('inspector-add-negative-space')).toBeEnabled()
+    // Written beside the choice here too, not kept for a hover.
+    await expect(page.getByTestId('inspector-add-titled-card')).toContainText('for liten')
 
     await page.getByTestId('inspector-add-negative-space').click()
     await expect(stage(page).locator('[data-content-kind="negative-space"]')).toHaveCount(1)
@@ -704,6 +706,42 @@ test.describe('kompakt arbeidsflate', () => {
     // And the one choice that is available carries no explanation at all.
     await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
     await expect(page.getByTestId('content-kind-reason-negative-space')).toHaveCount(0)
+  })
+
+  test('sonepanelet sier hva som er valgt, og alt i det nås med trykk', async ({ page }) => {
+    await createPresentation(page, 'Sonepanel')
+    await addCardToRootZone(page)
+
+    // What is selected, and where, before anything is done to it.
+    const head = page.getByTestId('inspector-selection')
+    await expect(head).toContainText('Kort uten tittel')
+    await expect(head).toContainText('Hovedsonen')
+
+    // The kind is changed from the same menu the desktop toolbar opens.
+    await page.getByTestId('inspector-content-kind').click()
+    await page.getByTestId('context-menu').getByTestId('menu-kind-titled-card').click()
+    await expect(stage(page).locator('[data-content-kind="titled-card"]')).toHaveCount(1)
+    await expect(head).toContainText('Kort med tittel')
+
+    // Split it, pick one half by name, and reach each ratio in its fold.
+    await page.getByTestId('inspector-action-split').click()
+    await page.getByTestId('split-apply').click()
+    await expect(page.getByTestId('split-modal')).toBeHidden()
+    await expect(page.getByTestId('inspector-child-0')).toContainText('Kort med tittel')
+    await page.getByTestId('inspector-child-1').click()
+    await expect(head).toContainText('Sone 2 av 2')
+    await page.getByTestId('inspector-fold-zone-ratios').locator('summary').click()
+    await page.getByTestId('zone-weight-up-1').click()
+    await expect(page.getByTestId('zone-ratios')).toHaveText('1 : 2')
+
+    // Nothing in the panel runs past its edge on this width.
+    const overflow = await page.getByTestId('inspector').evaluate((panel) => {
+      const edge = panel.getBoundingClientRect().right
+      return [...panel.querySelectorAll<HTMLElement>('button, summary')]
+        .filter((control) => control.getBoundingClientRect().right > edge + 0.5)
+        .map((control) => control.textContent ?? '')
+    })
+    expect(overflow).toEqual([])
   })
 
   /* ----------------------------------------------------------------- *

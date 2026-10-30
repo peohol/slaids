@@ -13,6 +13,7 @@ import {
   worstOverflow,
   zoneRects,
   chooseFromToolbarMenu,
+  chooseKindInInspector,
 } from './helpers'
 
 test.describe('content fit', () => {
@@ -117,7 +118,7 @@ test.describe('content fit', () => {
 
     await enterZoneMode(page)
     // A titled card spends the header height and the card padding on chrome.
-    await page.getByTestId('inspector-kind-titled-card').click()
+    await chooseKindInInspector(page, 'titled-card')
     await expect(toast(page, 'innholdstypen')).toBeVisible()
     await expect(
       stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] [data-content-kind]`),

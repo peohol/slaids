@@ -226,6 +226,27 @@ test.describe('pictures', () => {
     await expect(stage(page).locator('.image-caption')).toHaveCount(0)
   })
 
+  test('asks before the inspector removes a caption with words in it, as the menu does', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Fjern bildetekst')
+    await fillZoneWithPicture(page)
+    await captionWith(page, 'bottom', 'Fire bånd')
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+
+    const remove = page.getByTestId('caption-remove')
+    await expect(remove).toHaveText('Fjern bildeteksten …')
+    await remove.click()
+    const dialog = page.getByTestId('confirm-dialog')
+    await expect(dialog).toContainText('Fire bånd')
+    await dialog.getByRole('button', { name: 'Avbryt' }).click()
+    await expect(stage(page).locator('.image-caption')).toContainText('Fire bånd')
+
+    await remove.click()
+    await page.getByTestId('confirm-accept').click()
+    await expect(stage(page).locator('.image-caption')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
+  })
+
   test('will not send a file into a caption, which has nowhere to put it', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Bilde i bildetekst')

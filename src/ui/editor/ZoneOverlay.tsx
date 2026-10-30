@@ -39,7 +39,17 @@ export interface ZoneAction {
   label: string
   icon: Parameters<typeof Icon>[0]['name']
   tone?: IconTone
+  /**
+   * What the action is about: the content in the zone, or the zone itself.
+   * The inspector files each action under that heading; the icon row over the
+   * zone simply lists them.
+   */
+  group: 'content' | 'zone'
+  /** Removes something; offered last and marked as such. */
+  danger?: boolean
   disabled?: boolean
+  /** Why it is disabled, said beside it — not only in a tooltip a finger cannot raise. */
+  reason?: string | null
   /** Called with the control that was pressed, for an action that opens beside it. */
   onSelect: (control: HTMLElement) => void
   /** When present, the button opens this menu instead of acting directly. */
@@ -224,7 +234,11 @@ export function ZoneOverlay({
                     </Popover.Portal>
                   </Popover.Root>
                 ) : (
-                  <Tooltip key={action.id} label={action.label}>
+                  <Tooltip
+                    key={action.id}
+                    label={action.disabled && action.reason ? `${action.label}: ${action.reason}` : action.label}
+                    wrap={action.disabled}
+                  >
                     <button
                       type="button"
                       className="btn btn--sm btn--icon"

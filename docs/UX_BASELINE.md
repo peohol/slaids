@@ -60,7 +60,7 @@ Desktop med mus, 1600 × 1000. Klikk = trykk på kontroller; skriving og filvalg
 | N5 | Kontekstmenyen brukte samme blå for «markøren er her» og ingenting ekstra for «dette er valgt»; valgt innholdstype mistet sitt eget ikon og ble bare en hake. | `ContextMenuHost.tsx` | Løst i U1 |
 | N6 | På berøring fikk små ikonknapper 44 × 38 px i stedet for 44 × 44 px fordi `.btn--sm`-regelen overstyrte høyden (plan § 6). | `global.css` | Løst i U1 |
 | N7 | «Lagrer …» ble vist i advarselsfarge, selv om lagring ikke er et problem. | `editor.css` | Løst i U1 |
-| N8 | I inspektøren ble ikonet presset bort på knapper med lang tekst («Flytt innholdet til en annen sone»), og teksten går ut over kanten. | `baseline/desktop-1600-zone-mode.png` | Ikonet løst i U1; tekstbredden hører til U3 |
+| N8 | I inspektøren ble ikonet presset bort på knapper med lang tekst («Flytt innholdet til en annen sone»), og teksten går ut over kanten. | `baseline/desktop-1600-zone-mode.png` | Ikonet løst i U1, tekstbredden i U3 (lange navn brytes under seg selv) |
 | N9 | Hovedlinjen markerte ikke hvilken innholdstype valgt sone har; heller ikke den kompakte listen eller ikonradens meny (bekrefter F03). | Skjermbilder + kode | Løst i U1 |
 
 ## 4. Valgt informasjonsarkitektur

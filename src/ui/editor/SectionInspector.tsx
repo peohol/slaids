@@ -19,6 +19,7 @@ import { setSectionAccentColor, setSectionBackgroundColor } from '../../domain/c
 import { useEditorStore } from '../../state/store'
 import type { SectionSlide } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
+import { InspectorHeader } from './InspectorParts'
 
 export function SectionInspector({ section }: { section: SectionSlide }) {
   const run = useEditorStore((state) => state.run)
@@ -26,14 +27,15 @@ export function SectionInspector({ section }: { section: SectionSlide }) {
 
   return (
     <aside className="inspector" data-testid="inspector">
-      <section className="inspector__section">
-        <h2 className="inspector__heading">{isFront ? 'Forside' : 'Inndeling'}</h2>
-        <p className="hint">
-          {isFront
-            ? 'Første slide er alltid en inndeling, så presentasjonen har alltid en forside. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'
-            : 'En inndeling deler dekket i deler. Overskrift og underoverskrift er midtstilt av seg selv, og underoverskriften er valgfri.'}
-        </p>
-      </section>
+      <InspectorHeader
+        icon="section"
+        title={isFront ? 'Forside' : 'Inndeling'}
+        detail={
+          isFront
+            ? 'Presentasjonens første side. Den har ingen soner: bare en overskrift og en valgfri underoverskrift, begge midtstilt.'
+            : 'Begynner en ny del av presentasjonen. Den har ingen soner: bare en overskrift og en valgfri underoverskrift, begge midtstilt.'
+        }
+      />
 
       <section className="inspector__section">
         <h2 className="inspector__heading">Aksentfarge</h2>

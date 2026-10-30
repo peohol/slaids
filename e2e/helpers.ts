@@ -183,6 +183,25 @@ export async function chooseFromToolbarMenu(
   await expect(page.getByTestId('context-menu')).toBeHidden()
 }
 
+/**
+ * Open the inspector's «Innholdstype» menu for the selected zone. It is the
+ * same menu the toolbar and the zone menu open, so its entries are named
+ * `menu-kind-<kind>` there too.
+ */
+export async function openInspectorKindMenu(page: Page): Promise<Locator> {
+  await page.getByTestId('inspector-content-kind').click()
+  const menu = page.getByTestId('context-menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+/** Give the selected zone a content kind from the inspector. */
+export async function chooseKindInInspector(page: Page, kind: string): Promise<void> {
+  const menu = await openInspectorKindMenu(page)
+  await menu.getByTestId(`menu-kind-${kind}`).click()
+  await expect(menu).toBeHidden()
+}
+
 export async function waitForSaved(page: Page): Promise<void> {
   await expect(page.getByTestId('save-status')).toHaveAttribute('data-state', 'saved', {
     timeout: 10_000,

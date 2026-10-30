@@ -41,6 +41,7 @@ import { docToPlainText, isDocEmpty } from '../../../domain/richdoc'
 import type { ImagePanel, Presentation, ZoneContent } from '../../../domain/types'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
 import { VERTICAL_ALIGNMENTS } from '../textActions'
+import { AXIS_LABELS } from '../zoneDescription'
 import type { ContentTarget } from './contentTarget'
 import {
   FIELD_TITLES,
@@ -138,7 +139,15 @@ function captionPositionEntries(input: ContentMenuInput, content: ZoneContent, p
   )
 }
 
-function removeCaptionEntry(input: ContentMenuInput, panel: ImagePanel): MenuAction {
+/**
+ * Removing a picture's caption: asked first when it has words in it, with the
+ * words, and straight away when it has none. The inspector offers this same
+ * entry, so the question is the same from either place.
+ */
+export function removeCaptionEntry(
+  input: Pick<ContentMenuInput, 'slide' | 'nodeId' | 'commit'>,
+  panel: ImagePanel,
+): MenuAction {
   const written = panel.caption !== null && !isDocEmpty(panel.caption.doc)
   return {
     kind: 'action',
@@ -263,7 +272,7 @@ function cardSection(input: ContentMenuInput, handlers: ContentMenuHandlers, con
             (presentation) => setBodyAxis(presentation, { ...target, axis, ...input.checks }),
             {
               id: `subfields-${axis}`,
-              label: axis === 'x' ? 'Side ved side' : 'Over/under',
+              label: AXIS_LABELS[axis],
               icon: axis === 'x' ? 'split-x' : 'split-y',
               checked: body.axis === axis,
               disabled: body.axis === axis || body.subfields.length === 1,

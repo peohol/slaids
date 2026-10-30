@@ -1,15 +1,18 @@
 /**
  * Properties panel for the selected zone.
  *
- * This is where the zone-level and content-level domain commands are exposed:
- * split, clear, delete, content type, colours, subfields and captions.
+ * Read from the top: what is selected and where it sits in the tree, then what
+ * is in it, then what can be done to the zone itself, then its size. The
+ * controls are the zone-level and content-level domain commands — the same
+ * ones the zone menu and the content menu run, under the same names — and the
+ * long explanations and rarely needed numbers are folded away rather than
+ * printed under every selection.
  */
 
 import {
   setBodyAxis,
   setBodyWeights,
   setCardColor,
-  setContentKind,
   setImageCaption,
   setSubfieldCount,
 } from '../../domain/commands'
@@ -32,24 +35,56 @@ import { useEditorStore } from '../../state/store'
 import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
 import { CopyTextButton } from '../components/CopyTextButton'
-import { Icon } from '../components/Icon'
-import { pressedButton } from '../components/pressed'
+import { MenuButton } from '../components/MenuButton'
 import { formatBytes, formatPixels } from '../format'
-import { contentKindOptions } from './contentKinds'
-import { Tooltip } from '../components/Tooltip'
+import { contentKindEntries, type ContentKindOption } from './contentKinds'
+import { removeCaptionEntry } from './contextMenu/contentMenu'
+import {
+  InspectorButton,
+  InspectorEntryButton,
+  InspectorFold,
+  InspectorHeader,
+  InspectorSection,
+} from './InspectorParts'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
+import { AXIS_LABELS, splitSummary, zoneIcon, zonePosition, zoneTitle } from './zoneDescription'
 import { ZoneSizeControls, splitContextFor } from './ZoneSizeControls'
 import type { ZoneAction } from './ZoneOverlay'
+
+/** An action as the inspector draws it. */
+function ActionButton({ action }: { action: ZoneAction }) {
+  return (
+    <InspectorButton
+      icon={action.icon}
+      tone={action.tone}
+      label={action.label}
+      disabled={action.disabled}
+      reason={action.reason}
+      danger={action.danger}
+      testId={`inspector-action-${action.id}`}
+      onClick={action.onSelect}
+    />
+  )
+}
 
 export function Inspector({
   slide,
   actions,
-  onAddContent,
+  contentKinds,
+  onSetContentKind,
   onOptimizeImage,
 }: {
   slide: ContentSlide
+  /**
+   * The selected zone's actions, shared with the icon row over the zone. The
+   * one that opens a menu is the content-kind picker, which this panel draws
+   * as its own control from `contentKinds`.
+   */
   actions: ZoneAction[]
-  onAddContent: (nodeId: string, kind: ZoneContentKind) => void
+  /** The content kinds as they stand for the selected zone; see `contentKindOptions`. */
+  contentKinds: ContentKindOption[]
+  /** Fill the selected zone with a kind, or convert what it holds. */
+  onSetContentKind: (kind: ZoneContentKind) => void
   /** Shrink the file behind this zone's picture; see `ImageOptimizeModal`. */
   onOptimizeImage: (nodeId: string) => void
 }) {
@@ -81,17 +116,24 @@ export function Inspector({
   /* Which split the size controls act on: the selected one, or the one the
      selected zone is a child of. A root leaf belongs to neither and gets none. */
   const splitContext = splitContextFor(slide, selectedNodeId)
-  // The zone's own rectangle decides which kinds can be drawn in it — the very
-  // rule the commands refuse by, so no button offers what a click would fail.
-  const kindOptions = contentKindOptions(rect ?? null, theme, content)
 
   if (!node || !selectedNodeId) {
     return (
       <aside className="inspector" data-testid="inspector">
-        <p className="hint">Ingen sone er valgt.</p>
+        <InspectorHeader
+          icon="zones"
+          title="Ingen sone er valgt"
+          detail="Klikk en sone på sliden for å se hva den inneholder og hva du kan gjøre med den."
+        />
       </aside>
     )
   }
+
+  const contentActions = actions.filter((action) => action.group === 'content' && !action.menu)
+  const zoneActions = actions.filter((action) => action.group === 'zone' && !action.danger)
+  const dangerActions = actions.filter((action) => action.group === 'zone' && action.danger)
+  const currentKind = content ? (contentKinds.find((option) => option.kind === content.kind) ?? null) : null
+  const summary = splitSummary(node)
 
   /* A titled card and a titled image card carry the same header, down to the
      inheritance; a card without a title has no deck-wide colour to fall back on,
@@ -115,8 +157,11 @@ export function Inspector({
 
   return (
     <aside className="inspector" data-testid="inspector">
-      <section className="inspector__section">
-        <h2 className="inspector__heading">Sone</h2>
+      <InspectorHeader
+        {...zoneIcon(node)}
+        title={zoneTitle(node)}
+        detail={[zonePosition(slide.root, selectedNodeId), summary].filter(Boolean).join('. ')}
+      >
         {/* The path is the way up and down the tree — the only reliable one
             where a nested zone is too small to aim at. */}
         <ZoneBreadcrumb
@@ -125,13 +170,6 @@ export function Inspector({
           onSelect={selectNode}
           testId="inspector-breadcrumb"
         />
-        <div className="inspector__row">
-          <span className="hint">
-            {node.kind === 'split'
-              ? `Delt i ${node.children.length} (${node.axis === 'x' ? 'side ved side' : 'over/under'})`
-              : 'Bladsone'}
-          </span>
-        </div>
         {rect && (
           <div className="inspector__row">
             <span className="hint" data-testid="inspector-size">
@@ -146,330 +184,312 @@ export function Inspector({
             )}
           </div>
         )}
-        <div className="inspector__actions">
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className="btn btn--sm"
-              disabled={action.disabled}
-              onClick={(event) => action.onSelect(event.currentTarget)}
-              data-testid={`inspector-action-${action.id}`}
+      </InspectorHeader>
+
+      {leaf && (
+        <InspectorSection title="Innhold" testId="inspector-content">
+          {content ? (
+            <MenuButton
+              id="inspector-content-kind"
+              testId="inspector-content-kind"
+              className="inspector__kind"
+              label={`Innholdstype: ${currentKind?.label ?? ''}`}
+              title="Innholdstype for valgt sone"
+              tooltip="Endre innholdstype"
+              icon={currentKind?.icon ?? 'card'}
+              tone={currentKind?.tone}
+              entries={() => contentKindEntries(contentKinds, content.kind, onSetContentKind)}
             >
-              <Icon name={action.icon} size={14} tone={action.tone} /> {action.label}
-            </button>
+              <span className="inspector__kind-text">
+                <span className="inspector__kind-caption">Innholdstype</span>
+                <span>{currentKind?.label}</span>
+              </span>
+            </MenuButton>
+          ) : (
+            <>
+              <p className="hint">Sonen er tom. Velg hva den skal inneholde.</p>
+              <div className="inspector__actions inspector__actions--stack">
+                {contentKinds.map((option) => (
+                  <InspectorButton
+                    key={option.kind}
+                    icon={option.icon}
+                    tone={option.tone}
+                    label={option.label}
+                    disabled={option.disabled}
+                    reason={option.reason}
+                    testId={`inspector-add-${option.kind}`}
+                    onClick={() => onSetContentKind(option.kind)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {coloured && (
+            <div className="inspector__group">
+              <h3 className="inspector__subheading">
+                {coloured.kind === 'untitled-card' ? 'Kortfarge' : 'Tittelfarge'}
+              </h3>
+              <ColorSwatchGrid
+                value={
+                  coloured.kind === 'untitled-card'
+                    ? coloured.backgroundColor
+                    : (coloured.headerColor ?? pillColor)
+                }
+                onSelect={(color) =>
+                  run('card-color', (current) =>
+                    setCardColor(current, { slideId: slide.id, nodeId: selectedNodeId, color }),
+                  )
+                }
+                inherited={
+                  coloured.kind === 'untitled-card'
+                    ? undefined
+                    : {
+                        color: pillColor,
+                        label: 'Standard (fra inndelingen)',
+                        active: coloured.headerColor === null,
+                        onSelect: () =>
+                          run('card-color', (current) =>
+                            setCardColor(current, {
+                              slideId: slide.id,
+                              nodeId: selectedNodeId,
+                              color: null,
+                            }),
+                          ),
+                      }
+                }
+              />
+            </div>
+          )}
+
+          {body && (
+            <div className="inspector__group">
+              <h3 className="inspector__subheading">Delfelt</h3>
+              <div className="inspector__row">
+                <label htmlFor="subfield-count">Antall</label>
+                <input
+                  id="subfield-count"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={MAX_SUBFIELDS}
+                  value={body.subfields.length}
+                  data-testid="subfield-count"
+                  onChange={(event) =>
+                    run('subfield-count', (current) =>
+                      setSubfieldCount(current, {
+                        slideId: slide.id,
+                        nodeId: selectedNodeId,
+                        count: Number(event.target.value),
+                        ...domFitCheckers,
+                      }),
+                    )
+                  }
+                />
+              </div>
+              {/* One field runs in no direction, so the choice appears with the second. */}
+              {body.subfields.length > 1 && (
+                <div className="inspector__actions">
+                  {(['y', 'x'] as Axis[]).map((axis) => (
+                    <InspectorButton
+                      key={axis}
+                      icon={axis === 'x' ? 'split-x' : 'split-y'}
+                      label={AXIS_LABELS[axis]}
+                      pressed={body.axis === axis}
+                      testId={`subfield-axis-${axis}`}
+                      onClick={() =>
+                        run('subfield-axis', (current) =>
+                          setBodyAxis(current, {
+                            slideId: slide.id,
+                            nodeId: selectedNodeId,
+                            axis,
+                            ...domFitCheckers,
+                          }),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              {body.subfields.length > 1 && (
+                <InspectorFold id="subfield-weights" summary="Forholdstall for delfeltene">
+                  <div className="inspector__weights">
+                    {body.weights.map((weight, index) => (
+                      <input
+                        key={body.subfields[index].id}
+                        className="input"
+                        value={round(weight)}
+                        inputMode="decimal"
+                        aria-label={`Forholdstall for delfelt ${index + 1}`}
+                        data-testid={`subfield-weight-${index}`}
+                        onChange={(event) => {
+                          const parsed = Number(event.target.value.replace(',', '.'))
+                          if (!Number.isFinite(parsed) || parsed <= 0) return
+                          const weights = [...body.weights]
+                          weights[index] = parsed
+                          run('subfield-weights', (current) =>
+                            setBodyWeights(current, {
+                              slideId: slide.id,
+                              nodeId: selectedNodeId,
+                              weights,
+                              ...domFitCheckers,
+                            }),
+                          )
+                        }}
+                      />
+                    ))}
+                  </div>
+                </InspectorFold>
+              )}
+            </div>
+          )}
+
+          {/*
+            A picture's caption. Where it may hang is the content kind's rule — a
+            titled image card has a header along the top already — so the buttons
+            come from `captionPositionsFor` rather than from a list written here.
+          */}
+          {panel && content && (
+            <div className="inspector__group" data-testid="caption-panel">
+              <h3 className="inspector__subheading">Bildetekst</h3>
+              <p className="hint">
+                {panel.caption
+                  ? 'Klikk i bildeteksten på sliden for å skrive i den.'
+                  : 'Velg en plassering for å legge en tekst over bildet.'}
+              </p>
+              <div className="inspector__actions">
+                {captionPositionsFor(content.kind).map((position) => (
+                  <InspectorButton
+                    key={position}
+                    label={CAPTION_POSITION_LABELS[position]}
+                    pressed={panel.caption?.position === position}
+                    testId={`caption-position-${position}`}
+                    onClick={() =>
+                      run('caption-position', (current) =>
+                        setImageCaption(current, {
+                          slideId: slide.id,
+                          nodeId: selectedNodeId,
+                          position,
+                          ...domFitCheckers,
+                        }),
+                      )
+                    }
+                  />
+                ))}
+              </div>
+
+              {panel.caption && (
+                <>
+                  <h3 className="inspector__subheading">Bakgrunnsfarge for bildeteksten</h3>
+                  <ColorSwatchGrid
+                    value={panel.caption.color ?? captionInheritedColor}
+                    onSelect={(color) =>
+                      run('caption-color', (current) =>
+                        setImageCaption(current, {
+                          slideId: slide.id,
+                          nodeId: selectedNodeId,
+                          color,
+                        }),
+                      )
+                    }
+                    inherited={{
+                      color: captionInheritedColor,
+                      label: captionInheritedLabel,
+                      active: panel.caption.color === null,
+                      onSelect: () =>
+                        run('caption-color', (current) =>
+                          setImageCaption(current, {
+                            slideId: slide.id,
+                            nodeId: selectedNodeId,
+                            color: null,
+                          }),
+                        ),
+                    }}
+                  />
+                  <div className="inspector__actions">
+                    <InspectorEntryButton
+                      entry={removeCaptionEntry({ slide, nodeId: selectedNodeId, commit: run }, panel)}
+                      testId="caption-remove"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/*
+            The file behind the picture, and the way to make it smaller. Only once a
+            file is there: an empty panel has nothing to optimise.
+          */}
+          {panel?.assetId && (
+            <div className="inspector__group" data-testid="image-file-panel">
+              <h3 className="inspector__subheading">Bildefil</h3>
+              {file && (
+                <p className="hint inspector__file" data-testid="image-file-info">
+                  {file.name} · {formatPixels(file.width, file.height)} · {formatBytes(file.byteSize)}
+                </p>
+              )}
+              <div className="inspector__actions">
+                <InspectorButton
+                  icon="optimize"
+                  label="Optimaliser bildet …"
+                  testId="optimize-image"
+                  onClick={() => onOptimizeImage(selectedNodeId)}
+                />
+              </div>
+            </div>
+          )}
+
+          {contentActions.length > 0 && (
+            <div className="inspector__actions inspector__actions--stack">
+              {contentActions.map((action) => (
+                <ActionButton key={action.id} action={action} />
+              ))}
+            </div>
+          )}
+        </InspectorSection>
+      )}
+
+      <InspectorSection title="Sone" testId="inspector-zone">
+        {/* The way down the tree without aiming at the slide: a split's own
+            zones, by name, one press each. The path above is the way up. */}
+        {node.kind === 'split' && (
+          <div className="inspector__group">
+            <h3 className="inspector__subheading">Sonene i delingen</h3>
+            <div className="inspector__actions inspector__actions--stack">
+              {node.children.map((child, index) => (
+                <InspectorButton
+                  key={child.id}
+                  {...zoneIcon(child)}
+                  label={`Sone ${index + 1}: ${zoneTitle(child)}`}
+                  testId={`inspector-child-${index}`}
+                  onClick={() => selectNode(child.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="inspector__actions">
+          {zoneActions.map((action) => (
+            <ActionButton key={action.id} action={action} />
           ))}
         </div>
-      </section>
+        {/* What removes something comes last, on its own row. */}
+        <div className="inspector__actions">
+          {dangerActions.map((action) => (
+            <ActionButton key={action.id} action={action} />
+          ))}
+        </div>
+      </InspectorSection>
 
       {splitContext && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">Forholdstall</h2>
-          {/* Printed as they are stored, because they are whole numbers: a
-              zone ratio that needed rounding to be read would be a ratio the
-              author could not type back in. */}
-          <p className="hint" data-testid="zone-ratios">
-            {splitContext.split.weights.join(' : ')}
-          </p>
+        <InspectorSection title="Størrelse" testId="inspector-size-section">
           <ZoneSizeControls
             slide={slide}
             split={splitContext.split}
             childIndex={splitContext.childIndex}
           />
-          <p className="hint">
-            Knappene endrer forholdstallene direkte. Med mus kan du også dra i mellomrommet
-            mellom subsonene for å flytte grensen, eller dra inni en subsone på tvers av
-            retningen for å endre størrelsen symmetrisk og langs retningen for å forskyve den.
-            Layouten låses til nærmeste heltallsforhold uansett vei.
-          </p>
-        </section>
-      )}
-
-      {leaf && !content && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">Innhold</h2>
-          <div className="inspector__actions">
-            {kindOptions.map((option) => (
-              <Tooltip
-                key={option.kind}
-                label={option.reason ?? option.label}
-                wrap={option.disabled}
-              >
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  data-testid={`inspector-add-${option.kind}`}
-                  disabled={option.disabled}
-                  onClick={() => onAddContent(selectedNodeId, option.kind)}
-                >
-                  <Icon name={option.icon} size={14} tone={option.tone} /> {option.label}
-                </button>
-              </Tooltip>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {content && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">Innholdstype</h2>
-          <div className="inspector__actions">
-            {kindOptions.map((option) => (
-              <Tooltip
-                key={option.kind}
-                label={option.reason ?? option.label}
-                wrap={option.disabled}
-              >
-                <button
-                  type="button"
-                  {...pressedButton('btn btn--sm', content.kind === option.kind)}
-                  data-testid={`inspector-kind-${option.kind}`}
-                  disabled={option.disabled}
-                  onClick={() =>
-                    run('content-kind', (current) =>
-                      setContentKind(current, {
-                        slideId: slide.id,
-                        nodeId: selectedNodeId,
-                        kind: option.kind,
-                        ...domFitCheckers,
-                      }),
-                    )
-                  }
-                >
-                  <Icon name={option.icon} size={14} tone={option.tone} /> {option.label}
-                </button>
-              </Tooltip>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {coloured && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">
-            {coloured.kind === 'untitled-card' ? 'Kortfarge' : 'Tittelfarge'}
-          </h2>
-          <ColorSwatchGrid
-            value={
-              coloured.kind === 'untitled-card'
-                ? coloured.backgroundColor
-                : (coloured.headerColor ?? pillColor)
-            }
-            onSelect={(color) =>
-              run('card-color', (current) =>
-                setCardColor(current, { slideId: slide.id, nodeId: selectedNodeId, color }),
-              )
-            }
-            inherited={
-              coloured.kind === 'untitled-card'
-                ? undefined
-                : {
-                    color: pillColor,
-                    label: 'Standard (fra inndelingen)',
-                    active: coloured.headerColor === null,
-                    onSelect: () =>
-                      run('card-color', (current) =>
-                        setCardColor(current, {
-                          slideId: slide.id,
-                          nodeId: selectedNodeId,
-                          color: null,
-                        }),
-                      ),
-                  }
-            }
-          />
-        </section>
-      )}
-
-      {/*
-        A picture's caption. Where it may hang is the content kind's rule — a
-        titled image card has a header along the top already — so the buttons
-        come from `captionPositionsFor` rather than from a list written here.
-      */}
-      {content && panel && (
-        <section className="inspector__section" data-testid="caption-panel">
-          <h2 className="inspector__heading">Bildetekst</h2>
-          <p className="hint">
-            {panel.caption
-              ? 'Klikk i bildeteksten for å skrive. En tom bildetekst forsvinner av seg selv.'
-              : 'Legg en tekst over bildet. Den er alltid midtstilt.'}
-          </p>
-          <div className="inspector__actions">
-            {captionPositionsFor(content.kind).map((position) => (
-              <button
-                key={position}
-                type="button"
-                {...pressedButton('btn btn--sm', panel.caption?.position === position)}
-                data-testid={`caption-position-${position}`}
-                onClick={() =>
-                  run('caption-position', (current) =>
-                    setImageCaption(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      position,
-                      ...domFitCheckers,
-                    }),
-                  )
-                }
-              >
-                {CAPTION_POSITION_LABELS[position]}
-              </button>
-            ))}
-            {panel.caption && (
-              <button
-                type="button"
-                className="btn btn--sm"
-                data-testid="caption-remove"
-                onClick={() =>
-                  run('caption-remove', (current) =>
-                    setImageCaption(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      remove: true,
-                    }),
-                  )
-                }
-              >
-                <Icon name="trash" size={14} /> Fjern
-              </button>
-            )}
-          </div>
-
-          {panel.caption && (
-            <>
-              <h3 className="inspector__subheading">Bakgrunnsfarge</h3>
-              <ColorSwatchGrid
-                value={panel.caption.color ?? captionInheritedColor}
-                onSelect={(color) =>
-                  run('caption-color', (current) =>
-                    setImageCaption(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      color,
-                    }),
-                  )
-                }
-                inherited={{
-                  color: captionInheritedColor,
-                  label: captionInheritedLabel,
-                  active: panel.caption.color === null,
-                  onSelect: () =>
-                    run('caption-color', (current) =>
-                      setImageCaption(current, {
-                        slideId: slide.id,
-                        nodeId: selectedNodeId,
-                        color: null,
-                      }),
-                    ),
-                }}
-              />
-            </>
-          )}
-        </section>
-      )}
-
-      {/*
-        The file behind the picture, and the way to make it smaller. Only once a
-        file is there: an empty panel has nothing to optimise.
-      */}
-      {panel?.assetId && (
-        <section className="inspector__section" data-testid="image-file-panel">
-          <h2 className="inspector__heading">Bildefil</h2>
-          {file && (
-            <p className="hint" data-testid="image-file-info">
-              {file.name} · {formatPixels(file.width, file.height)} · {formatBytes(file.byteSize)}
-            </p>
-          )}
-          <div className="inspector__actions">
-            <button
-              type="button"
-              className="btn btn--sm"
-              data-testid="optimize-image"
-              onClick={() => onOptimizeImage(selectedNodeId)}
-            >
-              <Icon name="optimize" size={14} /> Optimaliser bildet …
-            </button>
-          </div>
-        </section>
-      )}
-
-      {body && (
-        <section className="inspector__section">
-          <h2 className="inspector__heading">Subfelt</h2>
-          <div className="inspector__row">
-            <label htmlFor="subfield-count">Antall</label>
-            <input
-              id="subfield-count"
-              className="input"
-              type="number"
-              min={1}
-              max={MAX_SUBFIELDS}
-              value={body.subfields.length}
-              data-testid="subfield-count"
-              onChange={(event) =>
-                run('subfield-count', (current) =>
-                  setSubfieldCount(current, {
-                    slideId: slide.id,
-                    nodeId: selectedNodeId,
-                    count: Number(event.target.value),
-                    ...domFitCheckers,
-                  }),
-                )
-              }
-            />
-          </div>
-          <div className="inspector__actions">
-            {(['y', 'x'] as Axis[]).map((axis) => (
-              <button
-                key={axis}
-                type="button"
-                {...pressedButton('btn btn--sm', body.axis === axis)}
-                data-testid={`subfield-axis-${axis}`}
-                onClick={() =>
-                  run('subfield-axis', (current) =>
-                    setBodyAxis(current, {
-                      slideId: slide.id,
-                      nodeId: selectedNodeId,
-                      axis,
-                      ...domFitCheckers,
-                    }),
-                  )
-                }
-              >
-                <Icon name={axis === 'x' ? 'split-x' : 'split-y'} size={14} />
-                {axis === 'x' ? ' Side ved side' : ' Over/under'}
-              </button>
-            ))}
-          </div>
-          {body.subfields.length > 1 && (
-            <div className="inspector__weights">
-              {body.weights.map((weight, index) => (
-                <input
-                  key={body.subfields[index].id}
-                  className="input"
-                  value={round(weight)}
-                  inputMode="decimal"
-                  aria-label={`Forholdstall for subfelt ${index + 1}`}
-                  data-testid={`subfield-weight-${index}`}
-                  onChange={(event) => {
-                    const parsed = Number(event.target.value.replace(',', '.'))
-                    if (!Number.isFinite(parsed) || parsed <= 0) return
-                    const weights = [...body.weights]
-                    weights[index] = parsed
-                    run('subfield-weights', (current) =>
-                      setBodyWeights(current, {
-                        slideId: slide.id,
-                        nodeId: selectedNodeId,
-                        weights,
-                        ...domFitCheckers,
-                      }),
-                    )
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        </InspectorSection>
       )}
     </aside>
   )

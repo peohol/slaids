@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createPresentation } from '../../../domain/presentation'
-import { createNegativeSpace, createTitledCard } from '../../../domain/content'
+import {
+  createContentOfKind,
+  createNegativeSpace,
+  createTitledCard,
+  ZONE_CONTENT_KINDS,
+} from '../../../domain/content'
 import { estimateFitChecker } from '../../../domain/fit'
 import { MAX_SPLIT_CHILDREN } from '../../../domain/constants'
 import { makeSandboxItem, setZoneContent, splitLeaf } from '../../../domain/commands'
@@ -8,6 +13,7 @@ import { contentAt } from '../../../domain/testDecks'
 import type { Presentation, SplitNode, ZoneContent } from '../../../domain/types'
 import { tidyMenu, type MenuAction, type MenuEntry } from '../../components/contextMenu'
 import {
+  canClearZone,
   ratioPresets,
   reorderStepForKey,
   sandboxItemLabel,
@@ -104,14 +110,27 @@ describe('zoneModeMenu', () => {
     expect(checked.map((each) => each.id)).toEqual(['kind-titled-card'])
   })
 
-  it('treats deliberate air as something to replace, not to cut or clear', () => {
+  it('treats deliberate air as something to replace or empty, not to cut', () => {
     let deck = deckWithSplit([1, 1])
     const nodeId = rootOf(deck).children[0].id
     deck = place(deck, nodeId, createNegativeSpace())
     const ids = topIds(menuFor(deck, nodeId).entries)
-    expect(ids).toEqual(expect.arrayContaining(['content-kind', 'copy', 'split', 'delete']))
+    // Emptying is the way back to the picker for a zone too small to convert.
+    expect(ids).toEqual(expect.arrayContaining(['content-kind', 'copy', 'split', 'clear', 'delete']))
     expect(ids).not.toContain('cut')
-    expect(ids).not.toContain('clear')
+  })
+
+  it('offers «Tøm sone» exactly where there is something to empty, whatever the content kind', () => {
+    const deck = deckWithSplit([1, 1])
+    const nodeId = rootOf(deck).children[0].id
+    expect(canClearZone(rootOf(deck))).toBe(true)
+    expect(canClearZone(rootOf(deck).children[0])).toBe(false)
+    expect(topIds(menuFor(deck, nodeId).entries)).not.toContain('clear')
+    for (const kind of ZONE_CONTENT_KINDS) {
+      const filled = place(deck, nodeId, createContentOfKind(kind))
+      expect(canClearZone(rootOf(filled).children[0]), kind).toBe(true)
+      expect(topIds(menuFor(filled, nodeId).entries), kind).toContain('clear')
+    }
   })
 
   it('offers a split its ratios, with the one in force checked and «equal» off when it already is', () => {

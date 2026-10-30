@@ -29,19 +29,20 @@ export function ZoneBreadcrumb({
   const labels = breadcrumbLabels(root, nodeId)
 
   return (
-    <div className="zone-breadcrumb" data-testid={testId}>
+    <nav className="zone-breadcrumb" aria-label="Plassering i sonetreet" data-testid={testId}>
       {labels.map((label, index) => (
         <Fragment key={ids[index] ?? index}>
-          {index > 0 && <span className="zone-breadcrumb__sep">›</span>}
+          {index > 0 && <span className="zone-breadcrumb__sep" aria-hidden="true">›</span>}
           <button
             type="button"
             className="zone-breadcrumb__item"
+            aria-current={index === labels.length - 1 ? 'location' : undefined}
             onClick={() => ids[index] && onSelect(ids[index])}
           >
             {label}
           </button>
         </Fragment>
       ))}
-    </div>
+    </nav>
   )
 }
