@@ -6658,6 +6658,48 @@ automatiseres. Denne planen er fortsatt den normative.
 
 ---
 
+## 44.6\. UX-arkitektur, farge og handlingshierarki
+
+Den faseinndelte handlings- og designplanen ligger i
+[docs/UX_IMPROVEMENT_PLAN.md](docs/UX_IMPROVEMENT_PLAN.md). Denne paragrafen
+fastsetter varige produktkrav; dokumentet har begrunnelser, kodefunn,
+arbeidspakker, sjekklister, oppgavetester og fremdriftslogg.
+
+Slaids' redigeringsgrensesnitt skal prioritere **det brukeren arbeider med
+akkurat nå**, fremfor å vise flest mulig handlinger samtidig. Det betyr:
+
+- **Handlingsnivå er eksplisitt:** presentasjon, slide, valgt sone, valgt
+  innhold og aktivt tekstfelt har gjenkjennelige og stabile handlingsflater.
+  Vanlige handlinger skal være lett tilgjengelige; sjeldne kan samles i
+  navngitte og tilgjengelige menyer.
+- **Samme kommando, samme svar:** navn, ikon, valgt/aktiv tilstand,
+  tilgjengelighet, feilbegrunnelse og resultat må være samordnet mellom
+  verktøylinjer, inspektør, kontekstmenyer og kompakt arbeidsflate. Ingen
+  UI-komponent skal innføre en egen regel for hva domenet kan utføre.
+- **Funksjonsfarger er begrensede og meningsbærende:** kategorier av verktøy
+  kan få distinkte ikonfarger, men aktiv tilstand, primærhandling og
+  feil/destruktiv handling er egne semantiske signaler. Farge alene er aldri
+  eneste indikator. Kontroller skal forbli forståelige ved redusert
+  fargesyn, tastaturbruk og høy kontrast.
+- **Valgt objekt skal kunne identifiseres:** den relevante sone- og
+  innholdstypen og gjeldende formateringsverdier skal fremgå der brukeren
+  handler; et valg som ikke kan utføres skal ha en forståelig grunn.
+- **App-chrome er forskjellig fra slideinnhold:** UI-farge, ikoner og
+  komponentstil skal ikke endre presentasjonenes egne tema, geometri,
+  renderer eller eksport/publikumsvisning.
+- **Likeverdig betjening:** ingen nødvendig kommando får bli avhengig av
+  hover, høyreklikk eller dragging alene. Alle invariantene for compact og
+  berøring i § 44.5 gjelder uendret, inklusive lagring og redigeringstilstand.
+
+Implementeringen skal starte med målbare arbeidsflyter og en visuell baseline,
+deretter et avgrenset designsystem og trinnvis forenkling av desktopeditor,
+inspektør, tekstverktøy, bibliotek og kompakt arbeidsflate. Endringer skal
+leveres i små, kontrollerbare PR-er med regresjonstester. Dette er et
+UI-/UX-arbeid; REST-/MCP-agent-API-et endres ikke uten en separat beslutning.
+
+---
+
+
 ## 45\. Arkivering av original visjon
 
 Når denne planen legges inn i repoet:
