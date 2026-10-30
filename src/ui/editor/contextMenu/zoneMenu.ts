@@ -109,6 +109,16 @@ export const ZONE_ACTIONS = {
 /** Why the root cannot be removed — said wherever «Slett sone» is offered. */
 export const ROOT_REMOVE_REASON = 'Hovedsonen kan ikke slettes. Bruk «Tøm sone».'
 
+/**
+ * Whether «Tøm sone» has anything to do here: a split to collapse, or content
+ * of any kind — deliberate air included. A zone too small for anything else
+ * cannot be converted out of air, and the root cannot be deleted, so emptying
+ * is the one way such a zone gets its picker back.
+ */
+export function canClearZone(node: LayoutNode): boolean {
+  return node.kind === 'split' || node.content !== null
+}
+
 /** How many sandbox items are offered by name before the sandbox itself is. */
 const SANDBOX_ITEMS_LISTED = 8
 /** How much of an item's text says which item it is. */
@@ -510,14 +520,10 @@ function ratioSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers, split: S
   }
 }
 
-function destructiveEntries(
-  input: ZoneMenuInput,
-  handlers: ZoneMenuHandlers,
-  { clear }: { clear: boolean },
-): MenuEntry[] {
+function destructiveEntries(input: ZoneMenuInput, handlers: ZoneMenuHandlers, node: LayoutNode): MenuEntry[] {
   const isRoot = input.slide.root.id === input.nodeId
   const entries: MenuEntry[] = []
-  if (clear) {
+  if (canClearZone(node)) {
     entries.push({
       kind: 'action',
       id: 'clear',
@@ -563,7 +569,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
         SEPARATOR,
         ...siblingEntries(input, handlers),
         SEPARATOR,
-        ...destructiveEntries(input, handlers, { clear: true }),
+        ...destructiveEntries(input, handlers, node),
       ],
     }
   }
@@ -577,7 +583,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
         splitSubmenu(input, handlers),
         ...siblingEntries(input, handlers),
         SEPARATOR,
-        ...destructiveEntries(input, handlers, { clear: false }),
+        ...destructiveEntries(input, handlers, node),
       ],
     }
   }
@@ -592,7 +598,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
         splitSubmenu(input, handlers),
         ...siblingEntries(input, handlers),
         SEPARATOR,
-        ...destructiveEntries(input, handlers, { clear: false }),
+        ...destructiveEntries(input, handlers, node),
       ],
     }
   }
@@ -619,7 +625,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
       splitSubmenu(input, handlers),
       ...siblingEntries(input, handlers),
       SEPARATOR,
-      ...destructiveEntries(input, handlers, { clear: true }),
+      ...destructiveEntries(input, handlers, node),
     ],
   }
 }

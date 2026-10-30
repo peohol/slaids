@@ -139,7 +139,15 @@ function captionPositionEntries(input: ContentMenuInput, content: ZoneContent, p
   )
 }
 
-function removeCaptionEntry(input: ContentMenuInput, panel: ImagePanel): MenuAction {
+/**
+ * Removing a picture's caption: asked first when it has words in it, with the
+ * words, and straight away when it has none. The inspector offers this same
+ * entry, so the question is the same from either place.
+ */
+export function removeCaptionEntry(
+  input: Pick<ContentMenuInput, 'slide' | 'nodeId' | 'commit'>,
+  panel: ImagePanel,
+): MenuAction {
   const written = panel.caption !== null && !isDocEmpty(panel.caption.doc)
   return {
     kind: 'action',

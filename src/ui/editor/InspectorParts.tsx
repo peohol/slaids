@@ -8,7 +8,9 @@
  */
 
 import { create } from 'zustand'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import type { MenuAction } from '../components/contextMenu'
 import { Icon, type IconName, type IconTone } from '../components/Icon'
 import { pressedButton } from '../components/pressed'
 
@@ -153,5 +155,42 @@ export function InspectorButton({
         {disabled && reason && <span className="inspector-button__reason">{reason}</span>}
       </span>
     </button>
+  )
+}
+
+/**
+ * A context-menu entry as an inspector button: the same name, icon, refusal
+ * and — for one that asks before it acts — the same question, so an action is
+ * exactly as safe from the panel as from the menu.
+ */
+export function InspectorEntryButton({ entry, testId }: { entry: MenuAction; testId?: string }) {
+  const [asking, setAsking] = useState(false)
+  const { confirm } = entry
+  return (
+    <>
+      <InspectorButton
+        icon={entry.icon}
+        tone={entry.tone}
+        label={entry.label}
+        reason={entry.reason}
+        disabled={entry.disabled}
+        danger={entry.danger}
+        testId={testId}
+        onClick={() => (confirm ? setAsking(true) : entry.onSelect())}
+      />
+      {confirm && (
+        <ConfirmDialog
+          open={asking}
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={() => {
+            setAsking(false)
+            entry.onSelect()
+          }}
+          onCancel={() => setAsking(false)}
+        />
+      )}
+    </>
   )
 }

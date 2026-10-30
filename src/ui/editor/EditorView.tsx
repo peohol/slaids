@@ -44,7 +44,7 @@ import {
   splitLeaf,
   updateSplit,
 } from '../../domain/commands'
-import { createContentOfKind, imagePanelOf } from '../../domain/content'
+import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
@@ -61,6 +61,7 @@ import { sectionGoverning } from '../../domain/presentation'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import {
   cloneSubtreeWithNewIds,
+  collectContent,
   countContent,
   findLeaf,
   findNode,
@@ -99,6 +100,7 @@ import {
   type MenuAnchor,
 } from '../components/contextMenu'
 import {
+  canClearZone,
   reorderStepForKey,
   ROOT_REMOVE_REASON,
   ZONE_ACTIONS,
@@ -1326,9 +1328,6 @@ export function EditorView({
     const content = selectedLeaf?.content ?? null
     const isRoot = contentSlide.root.id === selectedNodeId
     const panel = content ? imagePanelOf(content) : null
-    // The zone menu offers «Tøm sone» where there is something to empty: a
-    // split, or content other than deliberate air.
-    const clearable = !isLeaf || (content !== null && content.kind !== 'negative-space')
     const actions: ZoneAction[] = []
 
     if (isLeaf) {
@@ -1401,7 +1400,7 @@ export function EditorView({
         onSelect: (anchor) => void openZoneMenu(selectedNodeId, anchorBelow(anchor)),
       },
     )
-    if (clearable) {
+    if (canClearZone(selectedNode)) {
       actions.push({
         id: 'clear',
         group: 'zone',
@@ -1641,7 +1640,11 @@ export function EditorView({
   const deletingZoneHasContent = deletingZoneNode ? countContent(deletingZoneNode) > 0 : false
   const clearingZoneNode =
     contentSlide && clearingZoneId ? findNode(contentSlide.root, clearingZoneId) : null
-  const clearingZoneHasContent = clearingZoneNode ? countContent(clearingZoneNode) > 0 : false
+  // Only what has something in it is worth asking about or rescuing: deliberate
+  // air and an untouched card leave nothing behind when they go.
+  const clearingZoneKeeps = clearingZoneNode
+    ? collectContent(clearingZoneNode).some((content) => !contentIsEmpty(content))
+    : false
 
   const draggedItem = dragItemId
     ? presentation.sandbox.find((item) => item.id === dragItemId) ?? null
@@ -2213,30 +2216,38 @@ export function EditorView({
         open={clearingZoneId !== null}
         title="Tømme sonen?"
         message={
-          clearingZoneHasContent
+          clearingZoneKeeps
             ? 'Alle subsoner og alt innhold i denne sonen fjernes.'
-            : 'Sonen tømmes.'
+            : clearingZoneNode?.kind === 'split'
+              ? 'Delingen fjernes, og sonen blir tom.'
+              : 'Sonen blir tom.'
         }
-        confirmLabel="Tøm og slett innhold"
-        alternativeLabel="Flytt innhold til sandkassen"
-        onAlternative={() => {
-          if (!clearingZoneId) return
-          runStructural('clear-zone', (current) =>
-            clearLayoutNode(current, {
-              slideId: slide.id,
-              nodeId: clearingZoneId,
-              contentDisposition: 'sandbox',
-            }),
-          )
-          setClearingZoneId(null)
-        }}
+        confirmLabel={clearingZoneKeeps ? 'Tøm og slett innhold' : 'Tøm sone'}
+        alternativeLabel={clearingZoneKeeps ? 'Flytt innhold til sandkassen' : undefined}
+        onAlternative={
+          clearingZoneKeeps
+            ? () => {
+                if (!clearingZoneId) return
+                runStructural('clear-zone', (current) =>
+                  clearLayoutNode(current, {
+                    slideId: slide.id,
+                    nodeId: clearingZoneId,
+                    contentDisposition: 'sandbox',
+                  }),
+                )
+                setClearingZoneId(null)
+              }
+            : undefined
+        }
         onConfirm={() => {
           if (!clearingZoneId) return
+          // What the dialog said goes is what goes: with nothing worth keeping,
+          // there is nothing to park in the sandbox either.
           runStructural('clear-zone', (current) =>
             clearLayoutNode(current, {
               slideId: slide.id,
               nodeId: clearingZoneId,
-              contentDisposition: clearingZoneHasContent ? 'delete' : 'sandbox',
+              contentDisposition: 'delete',
             }),
           )
           setClearingZoneId(null)

@@ -38,7 +38,14 @@ import { CopyTextButton } from '../components/CopyTextButton'
 import { MenuButton } from '../components/MenuButton'
 import { formatBytes, formatPixels } from '../format'
 import { contentKindEntries, type ContentKindOption } from './contentKinds'
-import { InspectorButton, InspectorFold, InspectorHeader, InspectorSection } from './InspectorParts'
+import { removeCaptionEntry } from './contextMenu/contentMenu'
+import {
+  InspectorButton,
+  InspectorEntryButton,
+  InspectorFold,
+  InspectorHeader,
+  InspectorSection,
+} from './InspectorParts'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
 import { AXIS_LABELS, splitSummary, zoneIcon, zonePosition, zoneTitle } from './zoneDescription'
 import { ZoneSizeControls, splitContextFor } from './ZoneSizeControls'
@@ -400,20 +407,9 @@ export function Inspector({
                     }}
                   />
                   <div className="inspector__actions">
-                    <InspectorButton
-                      icon="trash"
-                      label="Fjern bildeteksten"
-                      danger
+                    <InspectorEntryButton
+                      entry={removeCaptionEntry({ slide, nodeId: selectedNodeId, commit: run }, panel)}
                       testId="caption-remove"
-                      onClick={() =>
-                        run('caption-remove', (current) =>
-                          setImageCaption(current, {
-                            slideId: slide.id,
-                            nodeId: selectedNodeId,
-                            remove: true,
-                          }),
-                        )
-                      }
                     />
                   </div>
                 </>
