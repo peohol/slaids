@@ -12,6 +12,7 @@ import {
   watchForErrors,
   worstOverflow,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 test.describe('content fit', () => {
@@ -65,7 +66,7 @@ test.describe('content fit', () => {
     // Monospace is wider than the default proportional font in every font
     // configuration, so this is the same text in a font it no longer fits.
     const before = await renderedBodyFont(page)
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Consolas' })
 
     await expect(toast(page, 'Denne fonten')).toBeVisible()
@@ -86,7 +87,7 @@ test.describe('content fit', () => {
     await page.keyboard.insertText('Kort tekst.')
     await page.waitForTimeout(200)
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Consolas' })
     await expect
       .poll(() => renderedBodyFont(page))

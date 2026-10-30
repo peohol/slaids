@@ -100,7 +100,8 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
         <Tooltip label={link}>
           <button
             type="button"
-            className="btn btn--sm"
+            className="btn btn--sm share-toggle__copy"
+            aria-label={copied ? 'Lenken er kopiert' : 'Kopier lenke'}
             data-testid="copy-share-link"
             onClick={() => {
               void copyToClipboard(link).then((ok) => {
@@ -121,8 +122,10 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
               })
             }}
           >
-            <Icon name={copied ? 'check' : 'copy'} size={15} />{' '}
-            {copied ? 'Kopiert' : 'Kopier lenke'}
+            <Icon name={copied ? 'check' : 'copy'} size={15} />
+            {/* In a narrow toolbar the words give way to the icon, as every
+                menu name there does; the name stays on the button. */}
+            <span className="toolbar__label">{copied ? 'Kopiert' : 'Kopier lenke'}</span>
           </button>
         </Tooltip>
       )}

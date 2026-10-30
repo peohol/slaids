@@ -9,6 +9,7 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 /**
@@ -264,7 +265,7 @@ test.describe('presentation mode', () => {
     await stage(page).locator('.subfield .tiptap').first().click()
     await page.keyboard.type('Påstand med flere kilder')
 
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     for (const title of ['Kilde A', 'Kilde B', 'Kilde C']) {
       await page.getByTestId('reference-title').fill(title)
       await page.getByTestId('save-reference').click()
@@ -285,7 +286,7 @@ test.describe('presentation mode', () => {
     await stage(page).locator('.subfield .tiptap').first().click()
     await page.keyboard.type('Påstand')
 
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden bak påstanden')
     await page.getByTestId('save-reference').click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()

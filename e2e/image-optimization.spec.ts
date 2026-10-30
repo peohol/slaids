@@ -20,6 +20,7 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 /** A picture far larger than any zone: the case the optimiser exists for. */
@@ -200,7 +201,7 @@ test.describe('optimising pictures', () => {
     expect(['image/webp', 'image/jpeg', 'image/png']).toContain(files[0].mimeType)
 
     // The whole-deck dialog now has nothing left to do.
-    await page.getByTestId('optimize-images').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'optimize-images')
     await expect(page.getByTestId('optimize-nothing')).toBeVisible()
     await expect(page.getByTestId('optimize-confirm')).toHaveCount(0)
     await page.getByTestId('optimize-cancel').click()
@@ -237,7 +238,7 @@ test.describe('optimising pictures', () => {
     // The whole deck: a file shown in two frames is downscaled to what the
     // wider one needs and cropped for neither — two frames show two different
     // parts of it. Both panels keep their crop, over one smaller file.
-    await page.getByTestId('optimize-images').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'optimize-images')
     await expect(page.getByTestId('optimize-summary')).toBeVisible()
     await expect(page.getByTestId('optimize-counts')).toContainText('skaleres ned')
     await expect(page.getByTestId('optimize-crop-warning')).toHaveCount(0)

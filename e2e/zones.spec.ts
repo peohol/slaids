@@ -16,6 +16,7 @@ import {
   watchForErrors,
   zoneRects,
   type ZoneRect,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
@@ -577,7 +578,7 @@ test.describe('zone editing', () => {
     })
     await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
     await expect(stage(page)).not.toContainText('Tekst som ikke skal forsvinne')
-    await page.getByTestId('open-sandbox').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-sandbox')
     await expect(
       page.getByTestId('sandbox-window').getByText('Tekst som ikke skal forsvinne'),
     ).toHaveCount(1)

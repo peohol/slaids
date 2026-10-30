@@ -24,6 +24,7 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 import { setImagePlan } from '../src/domain/commands'
 import { createImage } from '../src/domain/content'
@@ -149,7 +150,7 @@ async function dragPicture(page: Page, from: number, to: number): Promise<void> 
 
 /** Whether the brief still offers to take the finished files. */
 async function expectDepositOffered(page: Page, offered: boolean): Promise<void> {
-  await page.getByTestId('open-image-brief').click()
+  await chooseFromToolbarMenu(page, 'presentation', 'open-image-brief')
   await expect(page.getByTestId('image-brief-modal')).toBeVisible()
   const button = page.getByTestId('image-brief-modal-deposit')
   if (offered) await expect(button).toBeVisible()

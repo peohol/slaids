@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { addContentToZone, createPresentation, stage, watchForErrors, zoneRects } from './helpers'
+import { addContentToZone, createPresentation, stage, watchForErrors, zoneRects, chooseFromToolbarMenu } from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
 
@@ -164,7 +164,7 @@ test.describe('rich text', () => {
     await stage(page).locator('.card-header .tiptap').click()
     await page.keyboard.type('Kort med kilde')
 
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Tittelkilde')
     await page.getByTestId('save-reference').click()
     await page.getByRole('button', { name: 'Lukk' }).click()

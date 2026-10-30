@@ -15,6 +15,7 @@ import {
   watchForErrors,
   worstOverflow,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 /** What «Luftig» comes to: one step above the «Normal» a new deck opens in. */
@@ -63,7 +64,7 @@ test.describe('luft and skriftstørrelse', () => {
       })
     const beforePadding = await padding()
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
@@ -88,7 +89,7 @@ test.describe('luft and skriftstørrelse', () => {
     await page.keyboard.type('Litt tekst.')
 
     const before = await renderedBodySize(page)
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-font-scale-1.6').click()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
@@ -103,7 +104,7 @@ test.describe('luft and skriftstørrelse', () => {
     await fillZoneToCapacity(page, zones[0].id)
     const gapBefore = await renderedGap(page)
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
 
     await expect(toast(page, 'får ikke plass')).toBeVisible()
@@ -118,7 +119,7 @@ test.describe('luft and skriftstørrelse', () => {
     await fillZoneToCapacity(page, zones[0].id)
     const before = await renderedBodySize(page)
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-font-scale-1.75').click()
 
     await expect(toast(page, 'får ikke plass')).toBeVisible()
@@ -128,7 +129,7 @@ test.describe('luft and skriftstørrelse', () => {
 
   test('starts new presentations from the theme saved as the default', async ({ page }) => {
     await createPresentation(page, 'Standardtema')
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
     await page.getByTestId('theme-font-scale-1.6').click()
     await page.getByTestId('theme-as-default').click()

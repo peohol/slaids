@@ -10,6 +10,7 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 test.describe('sandbox drag and drop', () => {
@@ -91,7 +92,7 @@ test.describe('layout templates', () => {
     await splitSelected(page, [1, 2, 1], 'x')
 
     page.once('dialog', (dialog) => void dialog.accept('Tre kolonner'))
-    await page.getByTestId('open-templates').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-templates')
     await page.getByTestId('save-template').click()
     await expect(page.getByTestId('template-item')).toHaveCount(1)
 
@@ -107,7 +108,7 @@ test.describe('layout templates', () => {
 test.describe('ideas', () => {
   test('captures ideas that persist with the presentation', async ({ page }) => {
     await createPresentation(page, 'Idéer')
-    await page.getByTestId('open-ideas').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-ideas')
     await expect(page.getByTestId('ideas-window')).toBeVisible()
 
     await page.getByTestId('idea-input').fill('Husk å nevne geometrien')
@@ -124,7 +125,7 @@ test.describe('ideas', () => {
 
   test('edits an idea in place, and cancels without losing the old text', async ({ page }) => {
     await createPresentation(page, 'Idéretting')
-    await page.getByTestId('open-ideas').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-ideas')
     await page.getByTestId('idea-input').fill('Første utkast')
     await page.getByTestId('idea-input').press('Enter')
 
@@ -145,7 +146,7 @@ test.describe('ideas', () => {
   test('files ideas by dragging, and keeps them when a category goes', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Idéflytting')
-    await page.getByTestId('open-ideas').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-ideas')
     await expect(page.getByTestId('ideas-window')).toBeVisible()
 
     await addLooseIdea(page, 'Uten kategori')
@@ -221,7 +222,7 @@ test.describe('ideas', () => {
   test('colours a category without the swatch hijacking the drag', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Idéfarger')
-    await page.getByTestId('open-ideas').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-ideas')
     await addCategory(page, 'Kilder')
     await addCategory(page, 'Å gjøre')
     await addIdeaTo(page, 0, 'Finn artikkelen')
@@ -276,7 +277,7 @@ test.describe('ideas', () => {
 
   test('moves a row with the keyboard', async ({ page }) => {
     await createPresentation(page, 'Idétastatur')
-    await page.getByTestId('open-ideas').click()
+    await chooseFromToolbarMenu(page, 'tools', 'open-ideas')
     await addLooseIdea(page, 'en')
     await addLooseIdea(page, 'to')
     await addCategory(page, 'Kilder')

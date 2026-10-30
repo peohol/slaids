@@ -20,6 +20,7 @@ import { zoneKindRefusal } from '../../domain/contentSize'
 import { themeMetrics } from '../../domain/metrics'
 import type { PresentationTheme, Rect, ZoneContent, ZoneContentKind } from '../../domain/types'
 import type { IconName, IconTone } from '../components/Icon'
+import type { MenuAction } from '../components/contextMenu'
 
 export const CONTENT_KIND_ICONS: Record<ZoneContentKind, IconName> = {
   'titled-card': 'card-titled',
@@ -98,4 +99,30 @@ export function contentKindOptions(
       reason: refusal?.message ?? null,
     }
   })
+}
+
+/**
+ * The kinds as menu entries: one per kind, the unavailable ones disabled with
+ * the domain's reason under them, and — when the zone holds something — the
+ * kind in force checked.
+ *
+ * Shared by the toolbar's «Innholdstype» menu and the zone's context menu, so
+ * the two are the same list with the same marks, not two lists that agree today.
+ */
+export function contentKindEntries(
+  options: readonly ContentKindOption[],
+  current: ZoneContentKind | null,
+  onSelect: (kind: ZoneContentKind) => void,
+): MenuAction[] {
+  return options.map((option) => ({
+    kind: 'action',
+    id: `kind-${option.kind}`,
+    label: option.label,
+    icon: option.icon,
+    tone: option.tone,
+    disabled: option.disabled,
+    reason: option.reason,
+    ...(current !== null ? { checked: current === option.kind } : {}),
+    onSelect: () => onSelect(option.kind),
+  }))
 }

@@ -18,7 +18,7 @@
  */
 
 import { expect, test } from './fixtures'
-import { createPresentation, waitForSaved, watchForErrors } from './helpers'
+import { createPresentation, waitForSaved, watchForErrors, chooseFromToolbarMenu } from './helpers'
 
 const CONTEXT =
   'Fotorealistiske rekonstruksjoner, naturlig dagslys, dempet jordfargepalett, ingen tekst i bildene.'
@@ -28,7 +28,7 @@ test.describe('bildebrief', () => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Menneskets evolusjon')
 
-    await page.getByTestId('open-image-brief').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-image-brief')
     const dialog = page.getByTestId('image-brief-modal')
     await expect(dialog).toBeVisible()
 
@@ -44,7 +44,7 @@ test.describe('bildebrief', () => {
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
 
-    await page.getByTestId('open-image-brief').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-image-brief')
     await expect(page.getByTestId('image-brief-modal-context')).toHaveValue(CONTEXT)
     expect(guard.errors).toEqual([])
   })
@@ -55,7 +55,7 @@ test.describe('bildebrief', () => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Uten bilder')
 
-    await page.getByTestId('open-image-brief').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-image-brief')
     await expect(page.getByTestId('image-brief-modal-empty')).toBeVisible()
     await expect(page.getByTestId('image-brief-modal-text')).toHaveCount(0)
     await expect(page.getByTestId('image-brief-modal-count')).toContainText('Ingen bilder planlagt')
