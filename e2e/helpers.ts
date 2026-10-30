@@ -167,6 +167,22 @@ export async function enterContentMode(page: Page): Promise<void> {
   await expect(page.getByTestId('zone-overlay')).toBeHidden()
 }
 
+/**
+ * Choose a tool from one of the toolbar's menus: «Presentasjon» for what
+ * belongs to the whole deck, «Verktøy» for ideas, the sandbox and the shortcut
+ * list. Each entry keeps the test id its button had before it moved into a
+ * menu, so a test names the tool, and this opens the menu that holds it.
+ */
+export async function chooseFromToolbarMenu(
+  page: Page,
+  menu: 'presentation' | 'tools',
+  entryTestId: string,
+): Promise<void> {
+  await page.getByTestId(`toolbar-menu-${menu}`).click()
+  await page.getByTestId('context-menu').getByTestId(entryTestId).click()
+  await expect(page.getByTestId('context-menu')).toBeHidden()
+}
+
 export async function waitForSaved(page: Page): Promise<void> {
   await expect(page.getByTestId('save-status')).toHaveAttribute('data-state', 'saved', {
     timeout: 10_000,

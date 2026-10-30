@@ -1,14 +1,16 @@
 /**
- * The toolbar's selected state.
+ * The toolbar's state and its controls.
  *
  * The rule under test is that the choice in force is told, not just shown: the
- * selected zone's content kind and the editing mode are the pressed buttons,
- * exactly one of each, and nothing reads as pressed where it cannot be used.
+ * selected zone's content kind is named on the one control that changes it,
+ * the editing mode is exactly one pressed button, and nothing offers itself
+ * where it cannot be used. What the menus hold is checked where they are built
+ * (`toolbarMenus.test.ts`, `contentKinds.test.ts`).
  */
 
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ZONE_CONTENT_KINDS } from '../../domain/content'
+import { CONTENT_KIND_LABELS, ZONE_CONTENT_KINDS } from '../../domain/content'
 import type { ZoneContentKind } from '../../domain/types'
 import { TooltipProvider } from '../components/Tooltip'
 import { contentKindOptions } from './contentKinds'
@@ -29,6 +31,9 @@ function render(props: Partial<TopToolbarProps>): Document {
         selectedKind={null}
         contentKinds={contentKindOptions(null)}
         sandboxCount={0}
+        ideasOpen={false}
+        sandboxOpen={false}
+        onShowShortcuts={noop}
         onBack={noop}
         onRename={noop}
         onToggleTitle={noop}
@@ -50,31 +55,47 @@ function render(props: Partial<TopToolbarProps>): Document {
   return new DOMParser().parseFromString(markup, 'text/html')
 }
 
-function pressedKinds(doc: Document): string[] {
-  return [...doc.querySelectorAll('[data-testid^="content-kind-"][aria-pressed="true"]')].map(
-    (button) => button.getAttribute('data-testid') ?? '',
-  )
-}
+const kindButton = (doc: Document): Element | null => doc.querySelector('[data-testid="toolbar-menu-content-kind"]')
 
 describe('TopToolbar', () => {
-  it.each(ZONE_CONTENT_KINDS)('marks %s, and only it, as the kind in force', (kind: ZoneContentKind) => {
-    expect(pressedKinds(render({ selectedKind: kind }))).toEqual([`content-kind-${kind}`])
+  it.each(ZONE_CONTENT_KINDS)('names %s, inked with its family, as the kind in force', (kind: ZoneContentKind) => {
+    const button = kindButton(render({ selectedKind: kind }))
+    expect(button?.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe(kind)
+    expect(button?.textContent).toContain(CONTENT_KIND_LABELS[kind])
+    expect(button?.getAttribute('aria-label')).toContain(CONTENT_KIND_LABELS[kind])
+    expect(button?.querySelector('svg')?.getAttribute('data-tone')).toBeTruthy()
   })
 
-  it('marks no kind when the zone is empty', () => {
-    expect(pressedKinds(render({ selectedKind: null }))).toEqual([])
+  it('asks for a kind when the selected zone is empty', () => {
+    const button = kindButton(render({ selectedKind: null }))
+    expect(button?.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe('')
+    expect(button?.textContent).toContain('Velg innholdstype')
+    expect(button?.hasAttribute('disabled')).toBe(false)
   })
 
-  it('marks no kind when the kinds cannot be used', () => {
-    expect(pressedKinds(render({ selectedKind: 'image', selectionIsLeaf: false }))).toEqual([])
+  it('names no kind, and offers none, when the selection is not one zone', () => {
+    const button = kindButton(render({ selectedKind: 'image', selectionIsLeaf: false }))
+    expect(button?.hasAttribute('disabled')).toBe(true)
+    expect(button?.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe('')
   })
 
-  it('gives every kind its function ink', () => {
+  it('opens every menu from a button that says it has one', () => {
     const doc = render({})
-    for (const kind of ZONE_CONTENT_KINDS) {
-      const icon = doc.querySelector(`[data-testid="content-kind-${kind}"] svg`)
-      expect(icon?.getAttribute('data-tone')).toBeTruthy()
+    const menus = [...doc.querySelectorAll('[aria-haspopup="menu"]')].map((button) =>
+      button.getAttribute('data-testid'),
+    )
+    expect(menus).toEqual(['toolbar-menu-content-kind', 'toolbar-menu-presentation', 'toolbar-menu-tools'])
+    for (const button of doc.querySelectorAll('[aria-haspopup="menu"]')) {
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+      expect(button.getAttribute('aria-label')).toBeTruthy()
     }
+  })
+
+  it('counts the sandbox on the menu that holds it', () => {
+    expect(render({ sandboxCount: 0 }).querySelector('[data-testid="sandbox-count"]')).toBeNull()
+    const doc = render({ sandboxCount: 4 })
+    expect(doc.querySelector('[data-testid="sandbox-count"]')?.textContent).toBe('4')
+    expect(doc.querySelector('[data-testid="toolbar-menu-tools"]')?.getAttribute('aria-label')).toContain('4')
   })
 
   it('presses exactly the mode in force, inked with its family', () => {
@@ -88,9 +109,19 @@ describe('TopToolbar', () => {
   })
 
   it('tells the image file apart from the image content kind', () => {
+    const doc = render({ selectedKind: 'image' })
+    const file = doc.querySelector('[data-testid="open-image"]')
+    const kind = kindButton(doc)
+    expect(file?.getAttribute('aria-label')).not.toBe(kind?.getAttribute('aria-label'))
+    expect(file?.querySelector('svg')?.innerHTML).not.toBe(kind?.querySelector('svg')?.innerHTML)
+    expect(file?.hasAttribute('aria-haspopup')).toBe(false)
+  })
+
+  it('keeps sharing, presenting and the save state on the bar itself', () => {
     const doc = render({})
-    const file = doc.querySelector('[data-testid="open-image"] svg')
-    const kind = doc.querySelector('[data-testid="content-kind-image"] svg')
-    expect(file?.innerHTML).not.toBe(kind?.innerHTML)
+    for (const id of ['toggle-share', 'present', 'save-status', 'presentation-title', 'back-to-library']) {
+      expect(doc.querySelectorAll(`[data-testid="${id}"]`).length, id).toBe(1)
+      expect(doc.querySelector(`[data-testid="${id}"]`)?.closest('.context-menu'), id).toBeNull()
+    }
   })
 })

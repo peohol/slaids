@@ -1,4 +1,4 @@
-/** Status bar: save state, selection info and slide position. */
+/** Status bar: slide position, selection path and the keyboard hints. */
 
 import { breadcrumbLabels } from '../../domain/layout'
 import { useEditorStore } from '../../state/store'
@@ -56,8 +56,8 @@ export function StatusBar({
 
   return (
     <footer className="statusbar" data-testid="statusbar">
-      <SaveIndicator />
-      <span className="statusbar__sep">·</span>
+      {/* The save state sits under the title in the toolbar, beside the thing
+          it is about; one indicator, not two. */}
       <span>
         {`${pageKindName(slide?.kind ?? 'content', index)} ${index + 1} av ${presentation.slides.length}`}
       </span>

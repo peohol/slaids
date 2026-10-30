@@ -84,6 +84,8 @@ export type IconName =
   | 'equalize'
   | 'more'
   | 'reset'
+  | 'deck'
+  | 'tools'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -195,6 +197,10 @@ const PATHS: Record<IconName, React.ReactNode> = {
   /* Three columns of the same width. */
   equalize: <path d="M4 5h16v14H4zM9.33 5v14M14.67 5v14" />,
   more: <path d="M6 12h.01M12 12h.01M18 12h.01" />,
+  /* The whole presentation: a stack of pages, the front one in full. */
+  deck: <path d="M8 4h12v9M5 7h12v9M3 10h11v10H3z" />,
+  /* Aids to the work: a wrench. */
+  tools: <path d="M14.7 6.3a4 4 0 015 5l-2.2-2.2-2.3.5-.5 2.3 2.2 2.2a4 4 0 01-5-5zM12.8 11.2L4.5 19.5" />,
   /* Round and back to where it started. */
   reset: <path d="M4 12a8 8 0 108-8 8 8 0 00-6.3 3M4 4v4h4" />,
 }

@@ -26,6 +26,7 @@ import {
   topUpToCapacity,
   worstOverflow,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 /* ------------------------------------------------------------------ *
@@ -113,7 +114,7 @@ test.describe('fit measurement and web fonts', () => {
     await fillZoneToCapacity(page, zones[0].id)
 
     const before = await renderedBodyFont(page)
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     // Inter's fallback is the system font the zone was just filled with, so a
     // measurement taken before the face loads would accept this. The face that
     // actually arrives is monospace and far too wide.
@@ -134,7 +135,7 @@ test.describe('fit measurement and web fonts', () => {
     await page.keyboard.insertText('Kort.')
 
     const before = await renderedBodyFont(page)
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Inter' })
 
     // While the stylesheet is held back the app says so and changes nothing.
@@ -153,7 +154,7 @@ test.describe('fit measurement and web fonts', () => {
     await createPresentation(page, 'Fontfeil')
     const before = await renderedBodyFont(page)
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Inter' })
 
     await expect(toast(page, 'kunne ikke lastes')).toBeVisible()
@@ -227,7 +228,7 @@ test.describe('restoring a slide title', () => {
     await createPresentation(page, 'Tittelfont')
     await fillTitleToCapacity(page)
 
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-heading-font').selectOption({ label: 'Consolas' })
     await expect(toast(page, 'Denne fonten')).toBeVisible()
     expect(await renderedHeadingFont(page)).not.toContain('Consolas')
@@ -243,7 +244,7 @@ test.describe('restoring a slide title', () => {
     await removeTitle(page)
 
     // With the zone gone there is nothing to object, so this is allowed.
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-heading-font').selectOption({ label: 'Consolas' })
     await expect.poll(() => renderedHeadingFont(page)).toContain('Consolas')
     await page.getByRole('button', { name: 'Ferdig' }).click()
@@ -254,7 +255,7 @@ test.describe('restoring a slide title', () => {
     await expect(stage(page).locator('[data-testid="slide-title"]')).toHaveCount(0)
 
     // The text is not lost — with a narrower font it comes back intact.
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-heading-font').selectOption({ label: 'Times New Roman' })
     await expect.poll(() => renderedHeadingFont(page)).toContain('Times')
     await page.getByRole('button', { name: 'Ferdig' }).click()
@@ -298,7 +299,7 @@ test.describe('citation numbering and fit', () => {
    */
   async function citeNewReferences(page: Page, field: Locator, titles: string[]): Promise<void> {
     await field.click()
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     for (const title of titles) {
       await page.getByTestId('reference-title').fill(title)
       await page.getByTestId('save-reference').click()
@@ -309,7 +310,7 @@ test.describe('citation numbering and fit', () => {
   /** Cite references that already exist, side by side, so they merge into one pill. */
   async function citeExisting(page: Page, field: Locator, titles: string[]): Promise<void> {
     await caretInto(field)
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     for (const title of titles) {
       await page
         .getByTestId('reference-row')
@@ -322,7 +323,7 @@ test.describe('citation numbering and fit', () => {
 
   /** Create a reference and drop a citation for it where the caret is. */
   async function citeNewReference(page: Page, title: string): Promise<void> {
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill(title)
     await page.getByTestId('save-reference').click()
     await closeReferences(page)
@@ -452,7 +453,7 @@ test.describe('citation numbering and fit', () => {
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await stage(page).locator('.subfield .tiptap').first().click()
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden på slide 1')
     await page.getByTestId('save-reference').click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
@@ -464,7 +465,7 @@ test.describe('citation numbering and fit', () => {
     const second = await zoneRects(page)
     await addContentToZone(page, second[0].id, 'untitled-card')
     await stage(page).locator(`.slide-zone[data-node-id="${second[0].id}"] .tiptap`).first().click()
-    await page.getByTestId('open-references').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden på slide 2')
     await page.getByTestId('save-reference').click()
     await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()

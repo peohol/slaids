@@ -1,13 +1,31 @@
-/** Primary toolbar: modes, slide-level actions, insertion and presentation. */
+/**
+ * The desktop's main toolbar, arranged by what each control acts on
+ * (docs/UX_BASELINE.md § 4.1):
+ *
+ *   presentation  – back, title and save state;          (left, always)
+ *   the slide     – editing mode and its title zone;
+ *   history       – undo and redo;
+ *   the selection – its content kind, and a picture file;
+ *   tools         – the «Presentasjon» and «Verktøy» menus;
+ *   showing       – share and present.                    (right, always)
+ *
+ * Nothing is allowed to leave the window. As it narrows, labels give way to
+ * their icons, least needed first (see `.toolbar` in editor.css); the controls
+ * and their accessible names stay.
+ */
 
+import { useRef } from 'react'
 import type { ZoneContentKind } from '../../domain/types'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
-import { Icon } from '../components/Icon'
+import { anchorBelow, useContextMenu, type MenuEntry } from '../components/contextMenu'
+import { Icon, type IconName, type IconTone } from '../components/Icon'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
-import type { ContentKindOption } from './contentKinds'
+import { contentKindEntries, type ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
+import { SaveIndicator } from './StatusBar'
+import { helperToolEntries, presentationToolEntries } from './toolbarMenus'
 
 export interface TopToolbarProps {
   title: string
@@ -43,6 +61,10 @@ export interface TopToolbarProps {
   onOpenImage: () => void
   onToggleIdeas: () => void
   onToggleSandbox: () => void
+  /** Whether the floating windows are open, so their menu entries can say so. */
+  ideasOpen: boolean
+  sandboxOpen: boolean
+  onShowShortcuts: () => void
   onPresent: () => void
   onOpenTheme: () => void
   /** The deck's shared visual premise for its pictures; see `ImageBriefModal`. */
@@ -52,6 +74,82 @@ export interface TopToolbarProps {
   /** Publish or revoke the secret link. The toggle itself owns the state. */
   onToggleShare: () => void
   sandboxCount: number
+}
+
+/**
+ * A toolbar button that opens a menu of entries below itself.
+ *
+ * The menu is the app's one context menu, opened against the button: the same
+ * keyboard handling, focus return, placement and look as every other menu, and
+ * a press from the keyboard puts the focus on the first entry.
+ */
+function MenuButton({
+  id,
+  label,
+  title,
+  tooltip,
+  icon,
+  tone,
+  disabled = false,
+  className = '',
+  entries,
+  children,
+}: {
+  id: string
+  label: string
+  /** Said at the top of the open menu. */
+  title: string
+  tooltip: string
+  icon: IconName
+  tone?: IconTone
+  disabled?: boolean
+  className?: string
+  entries: () => MenuEntry[]
+  /** What the button shows besides its icon; the label by default. */
+  children?: React.ReactNode
+}) {
+  const open = useContextMenu((state) => state.open)
+  const expanded = useContextMenu((state) => state.menu?.owner === id)
+  /*
+   * A second press on the button closes its menu, as it would a native one.
+   * The press outside the menu has already closed it by the time the click
+   * lands, so whether it was open is noted as the press begins.
+   */
+  const wasOpen = useRef(false)
+  return (
+    <Tooltip label={tooltip} wrap={disabled}>
+      <button
+        type="button"
+        className={`btn btn--sm toolbar__menu-button ${className}`.trim()}
+        aria-haspopup="menu"
+        aria-expanded={expanded}
+        aria-label={label}
+        disabled={disabled}
+        data-testid={`toolbar-menu-${id}`}
+        onPointerDown={() => {
+          wasOpen.current = expanded
+        }}
+        onClick={(event) => {
+          if (wasOpen.current) {
+            wasOpen.current = false
+            return
+          }
+          open({
+            anchor: anchorBelow(event.currentTarget),
+            title,
+            entries: entries(),
+            // A click from Enter or Space has no pointer position.
+            keyboard: event.detail === 0,
+            owner: id,
+          })
+        }}
+      >
+        <Icon name={icon} size={15} tone={tone} />
+        {children ?? <span className="toolbar__label">{label}</span>}
+        <Icon name="chevron-down" size={13} className="toolbar__chevron" />
+      </button>
+    </Tooltip>
+  )
 }
 
 export function TopToolbar(props: TopToolbarProps) {
@@ -67,23 +165,44 @@ export function TopToolbar(props: TopToolbarProps) {
   const shareError = useSharingStore((state) => state.error)
   const shareLink = useShareUrl()
 
+  const current = props.selectionIsLeaf
+    ? (props.contentKinds.find((option) => option.kind === props.selectedKind) ?? null)
+    : null
+  const kindLabel = current?.label ?? (props.selectionIsLeaf ? 'Velg innholdstype' : 'Innholdstype')
+
   return (
     <header className="toolbar" data-testid="top-toolbar" data-mode={mode}>
-      <Tooltip label={props.backPending ? 'Lagrer før vi går …' : 'Tilbake til biblioteket'}>
-        <button
-          type="button"
-          className="btn btn--ghost btn--icon"
-          onClick={props.onBack}
-          disabled={props.backPending}
-          data-testid="back-to-library"
-        >
-          <Icon name="chevron-left" />
-        </button>
-      </Tooltip>
+      <div className="toolbar__start">
+        <Tooltip label={props.backPending ? 'Lagrer før vi går …' : 'Tilbake til biblioteket'}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon"
+            onClick={props.onBack}
+            disabled={props.backPending}
+            data-testid="back-to-library"
+            aria-label="Tilbake til biblioteket"
+          >
+            <Icon name="chevron-left" />
+          </button>
+        </Tooltip>
 
-      <button type="button" className="toolbar__title" onClick={props.onRename} data-testid="presentation-title">
-        {props.title}
-      </button>
+        {/* The name, and whether the work is safe, read as one thing. */}
+        <div className="toolbar__identity">
+          <Tooltip label="Gi presentasjonen nytt navn">
+            <button
+              type="button"
+              className="toolbar__title"
+              onClick={props.onRename}
+              data-testid="presentation-title"
+            >
+              {props.title}
+            </button>
+          </Tooltip>
+          <span className="toolbar__save">
+            <SaveIndicator />
+          </span>
+        </div>
+      </div>
 
       <div className="toolbar__group">
         {/* One control with two positions, not two buttons that might both be
@@ -96,8 +215,10 @@ export function TopToolbar(props: TopToolbarProps) {
               data-tone="content"
               onClick={() => setMode('content')}
               data-testid="mode-content"
+              aria-label="Innhold"
             >
-              <Icon name="text" size={15} tone="content" /> Innhold
+              <Icon name="text" size={15} tone="content" />
+              <span className="toolbar__label toolbar__label--mode">Innhold</span>
             </button>
           </Tooltip>
           <Tooltip label="Soneredigering (Ctrl+E)">
@@ -108,14 +229,13 @@ export function TopToolbar(props: TopToolbarProps) {
               onClick={() => setMode('zone')}
               disabled={!props.canEditZones}
               data-testid="mode-zone"
+              aria-label="Soner"
             >
-              <Icon name="zones" size={15} tone="zone" /> Soner
+              <Icon name="zones" size={15} tone="zone" />
+              <span className="toolbar__label toolbar__label--mode">Soner</span>
             </button>
           </Tooltip>
         </div>
-      </div>
-
-      <div className="toolbar__group">
         <Tooltip label={props.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone'}>
           <button
             type="button"
@@ -125,49 +245,10 @@ export function TopToolbar(props: TopToolbarProps) {
             onClick={props.onToggleTitle}
             disabled={!props.canToggleTitle}
             data-testid="toggle-title"
+            aria-label="Overskrift"
           >
-            <Icon name="heading" size={15} tone="content" /> Overskrift
-          </button>
-        </Tooltip>
-      </div>
-
-      <div className="toolbar__group">
-        {props.contentKinds.map((option) => {
-          const disabled = !props.selectionIsLeaf || option.disabled
-          return (
-            <Tooltip
-              key={option.kind}
-              label={option.reason ?? option.label}
-              wrap={disabled}
-            >
-              <button
-                type="button"
-                {...pressedButton(
-                  'btn btn--sm btn--icon',
-                  !disabled && option.kind === props.selectedKind,
-                )}
-                disabled={disabled}
-                onClick={() => props.onSetContentKind(option.kind)}
-                data-testid={`content-kind-${option.kind}`}
-                aria-label={option.label}
-              >
-                <Icon name={option.icon} size={15} tone={option.tone} />
-              </button>
-            </Tooltip>
-          )
-        })}
-        {/* Choosing a file, not a content kind: its own icon (the frame with a
-            plus), so it is not a seventh copy of «Bilde» beside the kinds. */}
-        <Tooltip label="Sett inn bilde fra fil">
-          <button
-            type="button"
-            className="btn btn--sm btn--icon"
-            onClick={props.onOpenImage}
-            disabled={!props.canEditZones}
-            data-testid="open-image"
-            aria-label="Sett inn bilde"
-          >
-            <Icon name="image-add" size={15} tone="media" />
+            <Icon name="heading" size={15} tone="content" />
+            <span className="toolbar__label toolbar__label--secondary">Overskrift</span>
           </button>
         </Tooltip>
       </div>
@@ -199,79 +280,98 @@ export function TopToolbar(props: TopToolbarProps) {
         </Tooltip>
       </div>
 
-      <div className="toolbar__spacer" />
-
-      <div className="toolbar__group">
-        <Tooltip label="Referanser">
-          <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenReferences} data-testid="open-references" aria-label="Referanser">
-            <Icon name="reference" size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label="Maler">
+      {/*
+        The selected zone: what it holds, and the way to change that — one
+        control that shows the kind in force rather than six look-alike icons.
+        Beside it, and deliberately unlike it, the picture *file*: choosing a
+        file is not choosing a kind.
+      */}
+      <div className="toolbar__group toolbar__group--selection">
+        <MenuButton
+          id="content-kind"
+          label={`Innholdstype: ${kindLabel}`}
+          title="Innholdstype for valgt sone"
+          tooltip={props.selectionIsLeaf ? 'Endre innholdstype' : 'Velg én sone for å velge innholdstype'}
+          icon={current?.icon ?? 'card'}
+          tone={current?.tone}
+          disabled={!props.selectionIsLeaf}
+          className="toolbar__kind"
+          entries={() =>
+            contentKindEntries(props.contentKinds, props.selectedKind, props.onSetContentKind)
+          }
+        >
+          <span className="toolbar__kind-label" data-kind={current?.kind ?? ''}>
+            {kindLabel}
+          </span>
+        </MenuButton>
+        <Tooltip label="Sett inn bilde fra fil">
           <button
             type="button"
-            className="btn btn--sm btn--icon"
-            onClick={props.onOpenTemplates}
+            className="btn btn--sm"
+            onClick={props.onOpenImage}
             disabled={!props.canEditZones}
-            data-testid="open-templates"
-            aria-label="Maler"
+            data-testid="open-image"
+            aria-label="Sett inn bilde fra fil"
           >
-            <Icon name="template" size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label="Idéer">
-          <button type="button" className="btn btn--sm btn--icon" onClick={props.onToggleIdeas} data-testid="open-ideas" aria-label="Idéer">
-            <Icon name="ideas" size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label="Sandkassen">
-          <button type="button" className="btn btn--sm" onClick={props.onToggleSandbox} data-testid="open-sandbox">
-            <Icon name="sandbox" size={15} /> {props.sandboxCount > 0 ? props.sandboxCount : ''}
-          </button>
-        </Tooltip>
-        <Tooltip label="Tema: bakgrunn, fonter, luft og skriftstørrelse">
-          <button type="button" className="btn btn--sm btn--icon" onClick={props.onOpenTheme} data-testid="open-theme" aria-label="Tema">
-            <Icon name="palette" size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label="Bildebrief: én samlet bestilling for alle bildene i dekket">
-          <button
-            type="button"
-            className="btn btn--sm btn--icon"
-            onClick={props.onOpenImageBrief}
-            data-testid="open-image-brief"
-            aria-label="Bildebrief"
-          >
-            <Icon name="note" size={15} tone="media" />
-          </button>
-        </Tooltip>
-        <Tooltip label="Optimaliser bilder: mindre filer uten synlig kvalitetstap">
-          <button
-            type="button"
-            className="btn btn--sm btn--icon"
-            onClick={props.onOptimizeImages}
-            data-testid="optimize-images"
-            aria-label="Optimaliser bilder"
-          >
-            <Icon name="optimize" size={15} tone="media" />
+            <Icon name="image-add" size={15} tone="media" />
+            <span className="toolbar__label toolbar__label--secondary">Bilde fra fil</span>
           </button>
         </Tooltip>
       </div>
 
-      <ShareToggle
-        status={shareStatus}
-        shared={shared}
-        busy={shareBusy}
-        error={shareError}
-        link={shareLink}
-        onToggle={props.onToggleShare}
-      />
+      <div className="toolbar__spacer" />
 
-      <Tooltip label="Vis presentasjon (F5)">
-        <button type="button" className="btn btn--primary btn--sm" onClick={props.onPresent} data-testid="present">
-          <Icon name="play" size={15} /> Vis
-        </button>
-      </Tooltip>
+      <div className="toolbar__group">
+        <MenuButton
+          id="presentation"
+          label="Presentasjon"
+          title="Presentasjon"
+          tooltip="Navn, tema, maler, referanser og bilder for hele presentasjonen"
+          icon="deck"
+          entries={() => presentationToolEntries(props)}
+        />
+        <MenuButton
+          id="tools"
+          label={props.sandboxCount > 0 ? `Verktøy, ${props.sandboxCount} i sandkassen` : 'Verktøy'}
+          title="Verktøy"
+          tooltip="Idéer, sandkassen og hurtigtaster"
+          icon="tools"
+          entries={() =>
+            helperToolEntries({
+              sandboxCount: props.sandboxCount,
+              ideasOpen: props.ideasOpen,
+              sandboxOpen: props.sandboxOpen,
+              onIdeas: props.onToggleIdeas,
+              onSandbox: props.onToggleSandbox,
+              onShowShortcuts: props.onShowShortcuts,
+            })
+          }
+        >
+          <span className="toolbar__label">Verktøy</span>
+          {props.sandboxCount > 0 && (
+            <span className="toolbar__badge" data-testid="sandbox-count">
+              {props.sandboxCount}
+            </span>
+          )}
+        </MenuButton>
+      </div>
+
+      <div className="toolbar__end">
+        <ShareToggle
+          status={shareStatus}
+          shared={shared}
+          busy={shareBusy}
+          error={shareError}
+          link={shareLink}
+          onToggle={props.onToggleShare}
+        />
+
+        <Tooltip label="Vis presentasjon (F5)">
+          <button type="button" className="btn btn--primary btn--sm" onClick={props.onPresent} data-testid="present">
+            <Icon name="play" size={15} /> Vis
+          </button>
+        </Tooltip>
+      </div>
     </header>
   )
 }

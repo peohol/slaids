@@ -16,7 +16,19 @@
   color: var(--chrome-text-dim);
 }
 
+/*
+ * The main toolbar.
+ *
+ * A container, so that what gives way as it narrows is decided by the room the
+ * toolbar actually has rather than by a guess about the window. Nothing in it
+ * may leave the window: the ends (back, title; share, present) never shrink,
+ * the title truncates, and labels give way to their icons in a fixed order —
+ * the secondary ones first («Overskrift», «Bilde fra fil»), then the two menus,
+ * then the mode names — while the content kind keeps its name longest, because
+ * it is the one label that says something the icon alone cannot.
+ */
 .toolbar {
+  container: toolbar / inline-size;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -25,6 +37,11 @@
   border-bottom: 1px solid var(--chrome-border);
   background: var(--chrome-bg-raised);
   flex: 0 0 auto;
+  min-width: 0;
+}
+
+.toolbar > * {
+  flex: none;
 }
 
 /*
@@ -42,22 +59,50 @@
   height: 26px;
 }
 
+.toolbar > .toolbar__start {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.toolbar__identity {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 72px;
+  max-width: 260px;
+  line-height: 1.2;
+}
+
 .toolbar__title {
   border: none;
   background: transparent;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 600;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 1px 6px;
+  margin-left: -2px;
   border-radius: var(--radius-sm);
-  max-width: 260px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 
 .toolbar__title:hover {
   background: rgba(255, 255, 255, 0.07);
+}
+
+.toolbar__save {
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  color: var(--chrome-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar__group {
@@ -67,6 +112,81 @@
   padding-left: 10px;
   border-left: 1px solid var(--chrome-border);
   height: 26px;
+}
+
+.toolbar > .toolbar__end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar__end > .share-toggle {
+  border-left: none;
+  padding-left: 0;
+}
+
+.toolbar__chevron {
+  color: var(--chrome-text-dim);
+  margin-left: -2px;
+}
+
+/* The selected zone's kind: its name stays as long as anything has a name. */
+.toolbar__kind-label {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar__badge {
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--chrome-primary);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 17px;
+  text-align: center;
+}
+
+@container toolbar (max-width: 1440px) {
+  .toolbar__label--secondary {
+    display: none;
+  }
+
+  .toolbar .toolbar__group > .btn:has(.toolbar__label--secondary),
+  .toolbar .toolbar__group > .tooltip-anchor > .btn:has(.toolbar__label--secondary) {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@container toolbar (max-width: 1260px) {
+  .toolbar__menu-button > .toolbar__label {
+    display: none;
+  }
+
+  .toolbar__identity {
+    max-width: 200px;
+  }
+}
+
+@container toolbar (max-width: 1120px) {
+  .toolbar__label--mode {
+    display: none;
+  }
+
+  .toolbar__group {
+    padding-left: 6px;
+  }
+
+  .toolbar__kind-label {
+    max-width: 120px;
+  }
+
+  .toolbar__identity {
+    max-width: 160px;
+  }
 }
 
 .toolbar__spacer,
@@ -1535,14 +1655,17 @@
 }
 
 /* Saving is progress, not a warning: plain text until it lands or fails. */
+.toolbar__save [data-state='saving'],
 .statusbar [data-state='saving'] {
   color: var(--chrome-text-dim);
 }
 
+.toolbar__save [data-state='error'],
 .statusbar [data-state='error'] {
   color: var(--chrome-danger-text);
 }
 
+.toolbar__save [data-state='saved'],
 .statusbar [data-state='saved'] {
   color: var(--chrome-success);
 }

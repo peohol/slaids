@@ -9,6 +9,7 @@
 import { useSharingStore, useShareUrl } from '../../../state/sharing'
 import { Icon, type IconName, type IconTone } from '../../components/Icon'
 import { ShareToggle } from '../ShareToggle'
+import { helperToolEntries, presentationToolEntries } from '../toolbarMenus'
 import type { TopToolbarProps } from '../TopToolbar'
 
 interface ToolRow {
@@ -37,11 +38,34 @@ export function CompactToolsPanel({
   const shareError = useSharingStore((state) => state.error)
   const shareLink = useShareUrl()
 
+  /*
+   * The two toolbar menus, as a list: the same entries the desktop draws, so a
+   * tool has one name, one icon and one ink wherever it is offered. Ideas and
+   * the sandbox only open here — the sheet they open in has its own close.
+   */
+  const menuRows: ToolRow[] = [
+    ...presentationToolEntries(toolbar),
+    ...helperToolEntries({
+      sandboxCount: toolbar.sandboxCount,
+      onIdeas: onOpenIdeas,
+      onSandbox: onOpenSandbox,
+      onShowShortcuts,
+    }),
+  ].map((entry) => ({
+    id: entry.id,
+    label: entry.label.replace(/ …$/, ''),
+    icon: entry.icon ?? 'more',
+    tone: entry.tone,
+    disabled: entry.disabled,
+    onSelect: entry.onSelect,
+  }))
+
   const rows: ToolRow[] = [
     {
       id: 'title',
       label: toolbar.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone',
       icon: 'heading',
+      tone: 'content',
       disabled: !toolbar.canToggleTitle,
       onSelect: toolbar.onToggleTitle,
     },
@@ -53,20 +77,7 @@ export function CompactToolsPanel({
       disabled: !toolbar.canEditZones,
       onSelect: toolbar.onOpenImage,
     },
-    { id: 'templates', label: 'Maler', icon: 'template', disabled: !toolbar.canEditZones, onSelect: toolbar.onOpenTemplates },
-    { id: 'references', label: 'Referanser', icon: 'reference', onSelect: toolbar.onOpenReferences },
-    { id: 'theme', label: 'Tema', icon: 'palette', onSelect: toolbar.onOpenTheme },
-    { id: 'image-brief', label: 'Bildebrief', icon: 'note', tone: 'media', onSelect: toolbar.onOpenImageBrief },
-    { id: 'optimize', label: 'Optimaliser bilder', icon: 'optimize', tone: 'media', onSelect: toolbar.onOptimizeImages },
-    { id: 'ideas', label: 'Idéer', icon: 'ideas', onSelect: onOpenIdeas },
-    {
-      id: 'sandbox',
-      label: toolbar.sandboxCount > 0 ? `Sandkassen (${toolbar.sandboxCount})` : 'Sandkassen',
-      icon: 'sandbox',
-      onSelect: onOpenSandbox,
-    },
-    { id: 'rename', label: 'Gi presentasjonen nytt navn', icon: 'edit', onSelect: toolbar.onRename },
-    { id: 'shortcuts', label: 'Hurtigtaster', icon: 'code', onSelect: onShowShortcuts },
+    ...menuRows,
   ]
 
   return (

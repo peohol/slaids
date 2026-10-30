@@ -12,6 +12,7 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseFromToolbarMenu,
 } from './helpers'
 
 test.describe('slides and content', () => {
@@ -324,7 +325,7 @@ test.describe('slides and content', () => {
 
   test('changes the presentation typography globally', async ({ page }) => {
     await createPresentation(page, 'Tema')
-    await page.getByTestId('open-theme').click()
+    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await expect(page.getByTestId('theme-modal')).toBeVisible()
     // Colour is a section's, so the theme modal offers none: what is global is
     // the two typefaces and the two scales.

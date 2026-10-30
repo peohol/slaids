@@ -135,6 +135,11 @@ export interface ContextMenuRequest {
    * opened by a pointer waits for the pointer instead, as a native one does.
    */
   keyboard?: boolean
+  /**
+   * The control that opened it, for a menu that belongs to a button: lets the
+   * button say `aria-expanded` while its own menu is the one on screen.
+   */
+  owner?: string
 }
 
 interface OpenMenu extends ContextMenuRequest {

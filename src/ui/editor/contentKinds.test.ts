@@ -15,7 +15,7 @@ import { themeMetrics } from '../../domain/metrics'
 import { contentConversionRefusal, createUntitledCard } from '../../domain/content'
 import { paragraphDoc } from '../../domain/richdoc'
 import type { Rect, ZoneContent } from '../../domain/types'
-import { contentKindOptions, CONTENT_KINDS } from './contentKinds'
+import { contentKindEntries, contentKindOptions, CONTENT_KINDS } from './contentKinds'
 
 const at = (width: number, height: number): Rect => ({ x: 0, y: 0, width, height })
 
@@ -150,5 +150,36 @@ describe('contentKindOptions', () => {
       options.find((option) => option.kind === 'titled-card')?.disabled ?? false
     expect(titled(small)).toBe(false)
     expect(titled(large)).toBe(true)
+  })
+})
+
+describe('contentKindEntries', () => {
+  const narrow = at(60, 40)
+
+  it('is the options as entries: same kinds, labels, inks and refusals', () => {
+    const options = contentKindOptions(narrow)
+    const entries = contentKindEntries(options, null, () => {})
+    expect(entries.map((entry) => [entry.label, entry.icon, entry.tone, entry.disabled, entry.reason])).toEqual(
+      options.map((option) => [option.label, option.icon, option.tone, option.disabled, option.reason]),
+    )
+  })
+
+  it.each(CONTENT_KINDS)('checks %s, and only it, when it is the kind in force', (kind) => {
+    const entries = contentKindEntries(contentKindOptions(ROOMY), kind, () => {})
+    expect(entries.filter((entry) => entry.checked).map((entry) => entry.id)).toEqual([`kind-${kind}`])
+  })
+
+  it('offers no check at all for an empty zone: there is no choice in force', () => {
+    for (const entry of contentKindEntries(contentKindOptions(ROOMY), null, () => {})) {
+      expect(entry.checked).toBeUndefined()
+    }
+  })
+
+  it('hands the chosen kind to the caller', () => {
+    const chosen: string[] = []
+    for (const entry of contentKindEntries(contentKindOptions(ROOMY), null, (kind) => chosen.push(kind))) {
+      entry.onSelect()
+    }
+    expect(chosen).toEqual(CONTENT_KINDS)
   })
 })

@@ -90,6 +90,10 @@ Valgt-utseendet tegnes fra `aria-pressed`, så skjermleseren og øyet får samme
 - Ikoner krymper aldri i en knapp med lang tekst (`.btn > .icon { flex: none }`).
 - Dekorative SVG-er er `aria-hidden`; navnet står på knappen.
 
+### Menyknapp (fra U2)
+
+En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-haspopup="menu"` og `aria-expanded`. Menyen er appens ene kontekstmeny åpnet under knappen, så tastatur, fokusretur og plassering er de samme som overalt. Et nytt trykk på knappen lukker menyen. Viser knappen et valg (innholdstypen), står gjeldende valg som knappens tekst og som avhaket linje i menyen. Når hovedlinjen blir smal, viker etikettene i fast rekkefølge (sekundære → menynavn → modusnavn) og ikonene blir stående; navnet ligger fortsatt i `aria-label` og verktøytipset.
+
 ## 5. Berøring
 
 `:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.

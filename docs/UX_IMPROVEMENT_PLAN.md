@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0 og U1 er gjennomført (se § 10); U2–U7 venter på godkjenning av designgrunnlaget.  
+**Status:** U0, U1 og U2 er gjennomført (se § 10); U3–U7 venter.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -193,13 +193,13 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U2 — Desktop: hovedverktøylinje og innholdstype
 
-- [ ] Del handlinger etter presentasjon, valgt sone og aktivt tekstfelt.
-- [ ] Reduser den permanente ikonrekken og innfør navngitte, semantiske grupper/menyer.
-- [ ] Vis hva som er valgt og hvilken innholdstype valgt sone har.
-- [ ] Ha én gjenkjennelig og korrekt inngang for å endre innholdstype.
-- [ ] Skille tydelig mellom å endre innhold til bildetype og å velge/erstatte bildefil.
-- [ ] Behold primærhandlinger og lagrings-/delingsstatus tilgjengelig.
-- [ ] Kontroller bredder i og like over desktop/compact-grensen, uten overflyt.
+- [x] Del handlinger etter presentasjon, valgt sone og aktivt tekstfelt. *(Hovedlinjen er ordnet etter nivå; tekstfeltets handlinger ligger fortsatt i tekstlinjen, som er U4.)*
+- [x] Reduser den permanente ikonrekken og innfør navngitte, semantiske grupper/menyer.
+- [x] Vis hva som er valgt og hvilken innholdstype valgt sone har.
+- [x] Ha én gjenkjennelig og korrekt inngang for å endre innholdstype.
+- [x] Skille tydelig mellom å endre innhold til bildetype og å velge/erstatte bildefil.
+- [x] Behold primærhandlinger og lagrings-/delingsstatus tilgjengelig.
+- [x] Kontroller bredder i og like over desktop/compact-grensen, uten overflyt.
 
 **Aksept:** Færre likeverdige toppnivåknapper, konsistent valgt-tilstand, alle kommandoer tilgjengelige, og normale oppgaver ikke tregere enn baseline.
 
@@ -282,6 +282,8 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 - Preserve touch-/keyboard-invarianter i eksisterende e2e; oppdater skjermbildetester etter reelle, tilsiktede UI-endringer.
 - Ved hver PR: oppgi berørte arbeidsflyter, før/etter-skjermbilder, testresultater, tilgjengelighetskontroll og eksplisitt om agent-API-/MCP-kontrakt er endret (forventet: nei).
 - Ikke flytt eller fjern eksisterende funksjoner i én stor PR uten testbar erstatning.
+**Resultat:** Hovedlinjen har nå seks grupper i fast rekkefølge: tilbake, navn og lagringsstatus · modus og overskrift · angre/gjør om · innholdstype (én knapp som viser gjeldende type og åpner en meny med alle typer, utilgjengelige med domenets begrunnelse) og «Bilde fra fil» · menyene «Presentasjon» (navn, tema, maler, referanser, bildebrief, optimalisering) og «Verktøy» (idéer, sandkassen med antall, hurtigtaster) · «Del» og «Vis». Menyene er appens felles meny og virker med mus, tastatur og berøring. Ved smalere vindu viker etikettene for ikonene; ingen kontroll forlater vinduet ved 1025–1600 px (N1 løst, kontrollert av `e2e/toolbar.spec.ts`). Kompakt arbeidsflate er uendret, men leser de samme verktøylistene. Før/etter-bilder i [ux/u2/](ux/u2/).
+
 - Hvis /frontend-design foreslår en annerledes struktur enn denne planen, dokumenter konkret nytte, risiko og konsekvenser for eksisterende arbeidsflyt før endring.
 
 ## 10. Fremdriftslogg
@@ -290,8 +292,8 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | --- | --- | --- |
 | U0 Baseline og informasjonsarkitektur | Ferdig 30.10.2026 | UX_BASELINE.md. Nytt funn N1: hovedlinjen flyter over under ca. 1366 px, «Vis» havner utenfor vinduet. |
 | U1 Designsystem og ikon-/fargespråk | Ferdig 30.10.2026 | UX_DESIGN_SYSTEM.md. Tokens, blekkfarger, ikonfamilie, felles tilstander, segmentert modusvalg. Samme PR som U0. |
-| U2 Hovedverktøylinje og innholdstype | Ikke startet | Anbefalt neste. Start med overflyten (N1). |
-| U3 Inspektør og soner | Ikke startet | Høy prioritet |
+| U2 Hovedverktøylinje og innholdstype | Ferdig 30.10.2026 | N1 løst. Innholdstype som én meny, eget «Bilde fra fil», menyene «Presentasjon» og «Verktøy», lagringsstatus ved tittelen. |
+| U3 Inspektør og soner | Ikke startet | Anbefalt neste. Inspektørens egen liste over innholdstyper kan nå bruke samme meny som verktøylinjen. |
 | U4 Tekstverktøy | Ikke startet | Høy prioritet |
 | U5 Bibliotek og filmstripe | Ikke startet | Neste runde |
 | U6 Mobil/responsivt | Ikke startet | Verifiser fortløpende, egen samlet gjennomgang |

@@ -42,7 +42,7 @@ import type {
   ZoneContentKind,
 } from '../../../domain/types'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
-import { contentKindOptions } from '../contentKinds'
+import { contentKindEntries, contentKindOptions } from '../contentKinds'
 
 export interface ZoneMenuHandlers {
   /** Fill an empty zone with fresh content of a kind. */
@@ -158,18 +158,9 @@ export function contentKindSubmenu(
     id: content ? 'content-kind' : 'add-content',
     label: label ?? (content ? 'Endre innholdstype' : 'Legg til innhold'),
     icon: content ? 'card' : 'plus',
-    entries: options.map((option) => ({
-      kind: 'action',
-      id: `kind-${option.kind}`,
-      label: option.label,
-      icon: option.icon,
-      tone: option.tone,
-      disabled: option.disabled,
-      reason: option.reason,
-      ...(content ? { checked: content.kind === option.kind } : {}),
-      onSelect: () =>
-        content ? handlers.setContentKind(nodeId, option.kind) : handlers.addContent(nodeId, option.kind),
-    })),
+    entries: contentKindEntries(options, content?.kind ?? null, (kind) =>
+      content ? handlers.setContentKind(nodeId, kind) : handlers.addContent(nodeId, kind),
+    ),
   }
 }
 

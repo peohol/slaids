@@ -53,7 +53,7 @@ Desktop med mus, 1600 × 1000. Klikk = trykk på kontroller; skriving og filvalg
 
 | ID | Funn | Bevis | Status |
 | --- | --- | --- | --- |
-| N1 | Hovedlinjen flyter over på smal desktop: ved 1180 px er «Vis» halvt synlig, ved 1025 px er både «Del» og «Vis» utenfor vinduet, og presentasjonstittelen krymper til én bokstav. | `baseline/desktop-1180x820.png`, `baseline/desktop-1025x768.png` | **Første oppgave i U2** |
+| N1 | Hovedlinjen flyter over på smal desktop: ved 1180 px er «Vis» halvt synlig, ved 1025 px er både «Del» og «Vis» utenfor vinduet, og presentasjonstittelen krymper til én bokstav. | `baseline/desktop-1180x820.png`, `baseline/desktop-1025x768.png` | **Løst i U2** |
 | N2 | Modusvalget («Innhold/Soner») og av/på-bryteren «Overskrift» hadde identisk aktiv stil. En modus («hvilken») og en bryter («på/av») så like ut. | `baseline/desktop-1600-text-editing.png` | Løst i U1 (segmentert kontroll) |
 | N3 | Hvit tekst på primærknappen («Vis», «Ny presentasjon») hadde kontrast 3,2:1; fareknappen 3,9:1; feiltekst 4,0:1. Alle under 4,5:1. | Beregnet fra tokenverdiene | Løst i U1 |
 | N4 | Flere valgknapper viste valgt tilstand bare visuelt, uten `aria-pressed`: modus, «Overskrift», innholdstype i inspektøren, bildetekstplassering, subfeltretning. | `TopToolbar.tsx`, `Inspector.tsx` | Løst i U1 for disse; tekstverktøylinjen gjenstår (U4) |
