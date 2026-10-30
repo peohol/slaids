@@ -4,6 +4,7 @@ import type { ZoneContentKind } from '../../domain/types'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
 import { Icon } from '../components/Icon'
+import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
 import type { ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
@@ -21,6 +22,8 @@ export interface TopToolbarProps {
   canEditZones: boolean
   selectionIsLeaf: boolean
   selectionHasContent: boolean
+  /** The selected zone's content kind, marked as the choice in force. */
+  selectedKind: ZoneContentKind | null
   onBack: () => void
   /** A save is being flushed before leaving; the button must not be pressed twice. */
   backPending?: boolean
@@ -65,7 +68,7 @@ export function TopToolbar(props: TopToolbarProps) {
   const shareLink = useShareUrl()
 
   return (
-    <header className="toolbar" data-testid="top-toolbar">
+    <header className="toolbar" data-testid="top-toolbar" data-mode={mode}>
       <Tooltip label={props.backPending ? 'Lagrer før vi går …' : 'Tilbake til biblioteket'}>
         <button
           type="button"
@@ -83,27 +86,33 @@ export function TopToolbar(props: TopToolbarProps) {
       </button>
 
       <div className="toolbar__group">
-        <Tooltip label="Innholdsredigering (Ctrl+E)">
-          <button
-            type="button"
-            className={mode === 'content' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-            onClick={() => setMode('content')}
-            data-testid="mode-content"
-          >
-            <Icon name="text" size={15} /> Innhold
-          </button>
-        </Tooltip>
-        <Tooltip label="Soneredigering (Ctrl+E)">
-          <button
-            type="button"
-            className={mode === 'zone' ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-            onClick={() => setMode('zone')}
-            disabled={!props.canEditZones}
-            data-testid="mode-zone"
-          >
-            <Icon name="zones" size={15} /> Soner
-          </button>
-        </Tooltip>
+        {/* One control with two positions, not two buttons that might both be
+            on: the mode is a «which», and it is inked with its family. */}
+        <div className="segmented" role="group" aria-label="Redigeringsmodus">
+          <Tooltip label="Innholdsredigering (Ctrl+E)">
+            <button
+              type="button"
+              {...pressedButton('btn btn--sm', mode === 'content')}
+              data-tone="content"
+              onClick={() => setMode('content')}
+              data-testid="mode-content"
+            >
+              <Icon name="text" size={15} tone="content" /> Innhold
+            </button>
+          </Tooltip>
+          <Tooltip label="Soneredigering (Ctrl+E)">
+            <button
+              type="button"
+              {...pressedButton('btn btn--sm', mode === 'zone')}
+              data-tone="zone"
+              onClick={() => setMode('zone')}
+              disabled={!props.canEditZones}
+              data-testid="mode-zone"
+            >
+              <Icon name="zones" size={15} tone="zone" /> Soner
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       <div className="toolbar__group">
@@ -112,16 +121,12 @@ export function TopToolbar(props: TopToolbarProps) {
             type="button"
             /* A disabled button never reads as "on": on a page with no title
                zone to toggle, the state of some other page's is not news. */
-            className={
-              props.hasTitleZone && props.canToggleTitle
-                ? 'btn btn--sm btn--active'
-                : 'btn btn--sm'
-            }
+            {...pressedButton('btn btn--sm', props.hasTitleZone && props.canToggleTitle)}
             onClick={props.onToggleTitle}
             disabled={!props.canToggleTitle}
             data-testid="toggle-title"
           >
-            <Icon name="heading" size={15} /> Overskrift
+            <Icon name="heading" size={15} tone="content" /> Overskrift
           </button>
         </Tooltip>
       </div>
@@ -137,18 +142,23 @@ export function TopToolbar(props: TopToolbarProps) {
             >
               <button
                 type="button"
-                className="btn btn--sm btn--icon"
+                {...pressedButton(
+                  'btn btn--sm btn--icon',
+                  !disabled && option.kind === props.selectedKind,
+                )}
                 disabled={disabled}
                 onClick={() => props.onSetContentKind(option.kind)}
                 data-testid={`content-kind-${option.kind}`}
                 aria-label={option.label}
               >
-                <Icon name={option.icon} size={15} />
+                <Icon name={option.icon} size={15} tone={option.tone} />
               </button>
             </Tooltip>
           )
         })}
-        <Tooltip label="Sett inn bilde">
+        {/* Choosing a file, not a content kind: its own icon (the frame with a
+            plus), so it is not a seventh copy of «Bilde» beside the kinds. */}
+        <Tooltip label="Sett inn bilde fra fil">
           <button
             type="button"
             className="btn btn--sm btn--icon"
@@ -157,7 +167,7 @@ export function TopToolbar(props: TopToolbarProps) {
             data-testid="open-image"
             aria-label="Sett inn bilde"
           >
-            <Icon name="image" size={15} />
+            <Icon name="image-add" size={15} tone="media" />
           </button>
         </Tooltip>
       </div>
@@ -232,7 +242,7 @@ export function TopToolbar(props: TopToolbarProps) {
             data-testid="open-image-brief"
             aria-label="Bildebrief"
           >
-            <Icon name="note" size={15} />
+            <Icon name="note" size={15} tone="media" />
           </button>
         </Tooltip>
         <Tooltip label="Optimaliser bilder: mindre filer uten synlig kvalitetstap">
@@ -243,7 +253,7 @@ export function TopToolbar(props: TopToolbarProps) {
             data-testid="optimize-images"
             aria-label="Optimaliser bilder"
           >
-            <Icon name="optimize" size={15} />
+            <Icon name="optimize" size={15} tone="media" />
           </button>
         </Tooltip>
       </div>

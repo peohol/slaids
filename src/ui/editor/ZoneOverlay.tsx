@@ -16,7 +16,8 @@ import { collectNodes, findNode } from '../../domain/layout'
 import type { ContentSlide, LayoutNode, NodeId, Rect } from '../../domain/types'
 import type { SlideGeometry } from '../../domain/geometry'
 import { absoluteStyle } from '../slide/SlideView'
-import { Icon } from '../components/Icon'
+import { Icon, type IconTone } from '../components/Icon'
+import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
 
@@ -24,6 +25,9 @@ export interface ZoneActionMenuItem {
   id: string
   label: string
   icon: Parameters<typeof Icon>[0]['name']
+  tone?: IconTone
+  /** The choice in force, marked as every other surface marks it. */
+  checked?: boolean
   disabled?: boolean
   /** Shown instead of the label when the item is disabled, to say why. */
   reason?: string | null
@@ -34,6 +38,7 @@ export interface ZoneAction {
   id: string
   label: string
   icon: Parameters<typeof Icon>[0]['name']
+  tone?: IconTone
   disabled?: boolean
   /** Called with the control that was pressed, for an action that opens beside it. */
   onSelect: (control: HTMLElement) => void
@@ -196,7 +201,7 @@ export function ZoneOverlay({
                           data-testid={action.testId ?? `zone-action-${action.id}`}
                           aria-label={action.label}
                         >
-                          <Icon name={action.icon} size={16} />
+                          <Icon name={action.icon} size={16} tone={action.tone} />
                         </button>
                       </Popover.Trigger>
                     </Tooltip>
@@ -206,13 +211,13 @@ export function ZoneOverlay({
                           <button
                             key={item.id}
                             type="button"
-                            className="btn btn--sm"
+                            {...pressedButton('btn btn--sm', item.checked === true)}
                             data-testid={`zone-menu-${item.id}`}
                             disabled={item.disabled}
                             title={item.reason ?? undefined}
                             onClick={item.onSelect}
                           >
-                            <Icon name={item.icon} size={15} /> {item.label}
+                            <Icon name={item.icon} size={15} tone={item.tone} /> {item.label}
                           </button>
                         ))}
                       </Popover.Content>
@@ -228,7 +233,7 @@ export function ZoneOverlay({
                       data-testid={action.testId ?? `zone-action-${action.id}`}
                       aria-label={action.label}
                     >
-                      <Icon name={action.icon} size={16} />
+                      <Icon name={action.icon} size={16} tone={action.tone} />
                     </button>
                   </Tooltip>
                 ),

@@ -8,13 +8,15 @@
  */
 
 import { useEditorStore } from '../../../state/store'
-import { Icon, type IconName } from '../../components/Icon'
+import { Icon, type IconName, type IconTone } from '../../components/Icon'
 import type { CompactPanel } from '../shell/editorShell'
 
-const TABS: { id: CompactPanel; label: string; icon: IconName }[] = [
+/* Text and zones carry the same inks as the desktop's two modes, because they
+   *are* those two modes here (see the click handler below). */
+const TABS: { id: CompactPanel; label: string; icon: IconName; tone?: IconTone }[] = [
   { id: 'slides', label: 'Slides', icon: 'template' },
-  { id: 'content', label: 'Tekst', icon: 'text' },
-  { id: 'zone', label: 'Soner', icon: 'zones' },
+  { id: 'content', label: 'Tekst', icon: 'text', tone: 'content' },
+  { id: 'zone', label: 'Soner', icon: 'zones', tone: 'zone' },
   { id: 'tools', label: 'Verktøy', icon: 'menu' },
 ]
 
@@ -52,7 +54,7 @@ export function CompactTabBar({
             onSelect(next)
           }}
         >
-          <Icon name={tab.icon} size={19} />
+          <Icon name={tab.icon} size={19} tone={tab.tone} />
           <span>{tab.label}</span>
           {tab.id === 'tools' && sandboxCount > 0 && (
             <span className="compact-tab__badge">{sandboxCount}</span>

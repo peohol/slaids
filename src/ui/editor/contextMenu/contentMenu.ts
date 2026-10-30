@@ -182,11 +182,11 @@ function imageSection(
 ): MenuEntry[] {
   const { nodeId } = input
   if (!panel.assetId) {
-    return [{ kind: 'action', id: 'pick-image', label: 'Sett inn bilde …', icon: 'upload', onSelect: () => handlers.pickImage(nodeId) }]
+    return [{ kind: 'action', id: 'pick-image', label: 'Sett inn bilde …', icon: 'image-add', tone: 'media', onSelect: () => handlers.pickImage(nodeId) }]
   }
   const centred = panel.focus.x === CENTRED_FOCUS.x && panel.focus.y === CENTRED_FOCUS.y
   return [
-    { kind: 'action', id: 'replace-image', label: 'Erstatt bildet …', icon: 'upload', onSelect: () => handlers.pickImage(nodeId) },
+    { kind: 'action', id: 'replace-image', label: 'Erstatt bildet …', icon: 'image-add', tone: 'media', onSelect: () => handlers.pickImage(nodeId) },
     change(
       input,
       'image-focus',
