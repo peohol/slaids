@@ -10,6 +10,7 @@
 
 export type IconName =
   | 'plus'
+  | 'info'
   | 'minus'
   | 'menu'
   | 'arrow-up'
@@ -89,6 +90,7 @@ export type IconName =
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
+  info: <path d="M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v6M12 7.5h.01" />,
   minus: <path d="M5 12h14" />,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   'arrow-up': <path d="M12 20V5M6 11l6-6 6 6" />,

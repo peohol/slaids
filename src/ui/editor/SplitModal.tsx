@@ -170,7 +170,7 @@ export function SplitModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={mode === 'create' ? 'Splitt sone' : 'Rediger splitting'}
+      title={mode === 'create' ? 'Del sone' : 'Rediger deling'}
       description={
         mode === 'create'
           ? 'Del sonen i 2–10 subsoner med forholdstall.'

@@ -45,7 +45,7 @@ import {
   updateSplit,
 } from '../../domain/commands'
 import { createContentOfKind, imagePanelOf } from '../../domain/content'
-import { contentKindOptions } from './contentKinds'
+import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { TITLE_NODE_ID, computeSlideGeometry } from '../../domain/geometry'
@@ -98,7 +98,13 @@ import {
   useContextMenu,
   type MenuAnchor,
 } from '../components/contextMenu'
-import { reorderStepForKey, zoneModeMenu, type ZoneMenuHandlers } from './contextMenu/zoneMenu'
+import {
+  reorderStepForKey,
+  ROOT_REMOVE_REASON,
+  ZONE_ACTIONS,
+  zoneModeMenu,
+  type ZoneMenuHandlers,
+} from './contextMenu/zoneMenu'
 import { contentModeMenu, type ContentMenuHandlers } from './contextMenu/contentMenu'
 import {
   contentTargetAt,
@@ -118,6 +124,7 @@ import { EditorStage, type StageMenuHit } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import type { NewPageRequest } from './pageKinds'
 import { Inspector } from './Inspector'
+import { InspectorHeader } from './InspectorParts'
 import { ReadOnlySlideStage } from './ReadOnlySlideStage'
 import { ImageOptimizeModal } from './ImageOptimizeModal'
 import { ImageUploadModal } from './ImageUploadModal'
@@ -1306,72 +1313,80 @@ export function EditorView({
     [openSectionMenu],
   )
 
+  /*
+   * The selected zone's actions, for the inspector and the icon row over the
+   * zone. Named and drawn as the zone menu names them (`ZONE_ACTIONS`), and
+   * only those that apply to this zone are offered: an empty zone has no
+   * content to move, and a split has no content kind. What is offered but
+   * cannot be done says why.
+   */
   const zoneActions: ZoneAction[] = useMemo(() => {
     if (!contentSlide || !selectedNodeId || !selectedNode || !zoneHandlers) return []
     const isLeaf = selectedNode.kind === 'leaf'
-    const hasContent = isLeaf && selectedLeaf?.content != null
+    const content = selectedLeaf?.content ?? null
     const isRoot = contentSlide.root.id === selectedNodeId
+    const panel = content ? imagePanelOf(content) : null
+    // The zone menu offers «Tøm sone» where there is something to empty: a
+    // split, or content other than deliberate air.
+    const clearable = !isLeaf || (content !== null && content.kind !== 'negative-space')
+    const actions: ZoneAction[] = []
 
-    return [
-      {
-        id: 'move',
-        label: 'Flytt innholdet til en annen sone',
-        icon: 'target',
-        disabled: !hasContent,
-        onSelect: () => zoneHandlers.moveContent(selectedNodeId),
-        testId: 'zone-action-move',
-      },
-      {
-        id: 'content',
-        label: 'Velg innholdstype',
-        icon: 'card',
-        disabled: !isLeaf,
-        onSelect: () => undefined,
-        menu: selectionKindOptions.map((option) => ({
-          id: option.kind,
-          label: option.label,
-          icon: option.icon,
-          tone: option.tone,
-          checked: option.kind === selectedLeaf?.content?.kind,
-          disabled: option.disabled,
-          reason: option.reason,
-          onSelect: () => applyContentKind(option.kind),
-        })),
-      },
+    if (isLeaf) {
+      actions.push(
+        {
+          id: 'content',
+          group: 'content',
+          label: content ? 'Endre innholdstype' : 'Legg til innhold',
+          icon: content ? CONTENT_KIND_ICONS[content.kind] : 'plus',
+          tone: content ? CONTENT_KIND_TONES[content.kind] : undefined,
+          onSelect: () => undefined,
+          menu: selectionKindOptions.map((option) => ({
+            id: option.kind,
+            label: option.label,
+            icon: option.icon,
+            tone: option.tone,
+            checked: option.kind === content?.kind,
+            disabled: option.disabled,
+            reason: option.reason,
+            onSelect: () => applyContentKind(option.kind),
+          })),
+        },
+        {
+          id: 'image',
+          group: 'content',
+          // Said as the content menu says it: a picture panel's file is put in
+          // or replaced where it is; any other zone is asked where it goes.
+          label: panel ? (panel.assetId ? 'Erstatt bildet …' : 'Sett inn bilde …') : 'Sett inn bilde fra fil …',
+          icon: 'image-add',
+          tone: 'media',
+          onSelect: () => setImageOpen(panel ? 'zone' : 'ask'),
+        },
+      )
+    }
+    if (content) {
+      actions.push(
+        {
+          id: 'move',
+          group: 'content',
+          ...ZONE_ACTIONS.moveContent,
+          onSelect: () => zoneHandlers.moveContent(selectedNodeId),
+          testId: 'zone-action-move',
+        },
+        {
+          id: 'sandbox',
+          group: 'content',
+          ...ZONE_ACTIONS.toSandbox,
+          onSelect: () => zoneHandlers.moveToSandbox(selectedNodeId),
+        },
+      )
+    }
+    actions.push(
       {
         id: 'split',
-        label: isLeaf ? 'Splitt sone' : 'Rediger splitting',
-        icon: isLeaf ? 'split-x' : 'edit',
+        group: 'zone',
+        ...(isLeaf ? { ...ZONE_ACTIONS.split, label: `${ZONE_ACTIONS.split.label} …` } : ZONE_ACTIONS.editSplit),
         onSelect: () => setSplitOpen(true),
         testId: 'zone-action-split',
-      },
-      {
-        id: 'sandbox',
-        label: 'Flytt innhold til sandkassen',
-        icon: 'sandbox',
-        disabled: !hasContent,
-        onSelect: () => zoneHandlers.moveToSandbox(selectedNodeId),
-      },
-      {
-        id: 'clear',
-        label: 'Tøm sone',
-        icon: 'eraser',
-        onSelect: () => zoneHandlers.clear(selectedNodeId),
-      },
-      {
-        id: 'delete',
-        label: 'Slett sone',
-        icon: 'trash',
-        disabled: isRoot,
-        onSelect: () => zoneHandlers.remove(selectedNodeId),
-      },
-      {
-        id: 'image',
-        label: 'Sett inn bilde',
-        icon: 'image-add',
-        tone: 'media',
-        disabled: !isLeaf,
-        onSelect: () => setImageOpen('ask'),
       },
       /*
        * Everything else the zone menu has, from a button: the way to it for a
@@ -1380,11 +1395,31 @@ export function EditorView({
        */
       {
         id: 'more',
+        group: 'zone',
         label: 'Flere valg',
         icon: 'more',
         onSelect: (anchor) => void openZoneMenu(selectedNodeId, anchorBelow(anchor)),
       },
-    ]
+    )
+    if (clearable) {
+      actions.push({
+        id: 'clear',
+        group: 'zone',
+        danger: true,
+        ...ZONE_ACTIONS.clear,
+        onSelect: () => zoneHandlers.clear(selectedNodeId),
+      })
+    }
+    actions.push({
+      id: 'delete',
+      group: 'zone',
+      danger: true,
+      ...ZONE_ACTIONS.remove,
+      disabled: isRoot,
+      reason: isRoot ? ROOT_REMOVE_REASON : null,
+      onSelect: () => zoneHandlers.remove(selectedNodeId),
+    })
+    return actions
   }, [
     applyContentKind,
     contentSlide,
@@ -1755,16 +1790,16 @@ export function EditorView({
 
   const inspectorNode = viewedDerivedPage ? (
     <aside className="inspector" data-testid="inspector">
-      <section className="inspector__section">
-        <h2 className="inspector__heading">
-          {viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
-        </h2>
-        <p className="hint">
-          {viewedDerivedPage.kind === 'qr'
-            ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
-            : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
-        </p>
-      </section>
+      <InspectorHeader
+        icon={viewedDerivedPage.kind === 'qr' ? 'qr' : 'reference'}
+        title={viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
+        detail="Lages automatisk og har ingen soner å redigere."
+      />
+      <p className="hint">
+        {viewedDerivedPage.kind === 'qr'
+          ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
+          : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
+      </p>
     </aside>
   ) : section ? (
     <SectionInspector section={section} />
@@ -1777,7 +1812,8 @@ export function EditorView({
       key={selectedNodeId ?? 'none'}
       slide={contentSlide}
       actions={zoneActions}
-      onAddContent={addContentTo}
+      contentKinds={selectionKindOptions}
+      onSetContentKind={applyContentKind}
       onOptimizeImage={(nodeId) =>
         setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
       }

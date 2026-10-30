@@ -3,6 +3,7 @@ import { expect, test } from './fixtures'
 import {
   G,
   addContentToZone,
+  dismissImageModal,
   clickSlide,
   clickZone,
   createPresentation,
@@ -646,6 +647,8 @@ test.describe('zone editing', () => {
     expect(Math.abs(columns[0].width - columns[1].width)).toBeLessThan(1)
 
     // Three to one, measured rather than asserted from the stored number.
+    // The fields' own ratios are a rarer setting, folded under their name.
+    await page.getByTestId('inspector-fold-subfield-weights').locator('summary').click()
     await page.getByTestId('subfield-weight-0').fill('3')
     await expect
       .poll(async () => {
@@ -682,7 +685,7 @@ test.describe('zone editing', () => {
     // Compared to within a pixel: the panel rounds the geometry engine's own
     // number and the fixture rounds a measurement of the scaled DOM, so a zone
     // that lands on a half pixel can round the two different ways.
-    const reported = await page.getByTestId('inspector').textContent()
+    const reported = await page.getByTestId('inspector').getByTestId('inspector-size').textContent()
     const size = /(\d+) × (\d+) px/.exec(reported ?? '')
     expect(size, 'the panel reports a size').not.toBeNull()
     expect(Math.abs(Number(size?.[1]) - zones[0].w)).toBeLessThanOrEqual(1)
@@ -706,6 +709,76 @@ test.describe('zone editing', () => {
     await expect(page.getByTestId('sandbox-window')).toBeVisible()
     await expect(page.getByTestId('sandbox-item')).toHaveCount(1)
     await expect(page.getByTestId('sandbox-window').getByText('Innhold som skal reddes')).toHaveCount(1)
+  })
+})
+
+/**
+ * Controls in the inspector that a label has pushed out of shape: running past
+ * the panel's edge, clipped inside its own box, or with its icon squeezed.
+ */
+async function misshapenInspectorControls(page: Page): Promise<string[]> {
+  return page.getByTestId('inspector').evaluate((panel) => {
+    const edge = panel.getBoundingClientRect().right
+    return [...panel.querySelectorAll<HTMLElement>('.inspector-button, .menu-button, summary')]
+      .filter((control) => {
+        const box = control.getBoundingClientRect()
+        if (box.width === 0) return false
+        const icon = control.querySelector('svg')?.getBoundingClientRect()
+        return box.right > edge + 0.5 || control.scrollWidth > control.clientWidth + 1 || (icon && icon.width < 12)
+      })
+      .map((control) => control.textContent ?? '')
+  })
+}
+
+test.describe('inspector', () => {
+  test('names the selection, keeps long labels inside the panel and works from the keyboard', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Inspektør')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+    const zones = await zoneRects(page)
+    await clickZone(page, zones[0])
+
+    // The longest kind name there is, and the longest action names.
+    await page.getByTestId('inspector-add-titled-image-card').click()
+    await dismissImageModal(page)
+    await enterZoneMode(page)
+    await clickZone(page, zones[0])
+
+    const head = page.getByTestId('inspector-selection')
+    await expect(head).toContainText('Kort med tittel og bilde')
+    await expect(head).toContainText('Sone 1 av 2, side ved side')
+    await expect(page.getByTestId('inspector-content-kind')).toHaveAttribute(
+      'aria-label',
+      'Innholdstype: Kort med tittel og bilde',
+    )
+    expect(await misshapenInspectorControls(page)).toEqual([])
+
+    // The kind menu opens from the keyboard and gives the focus back.
+    await page.getByTestId('inspector-content-kind').focus()
+    await page.keyboard.press('Enter')
+    const menu = page.getByTestId('context-menu')
+    await expect(menu.getByTestId('menu-kind-titled-image-card')).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(page.getByTestId('inspector-content-kind')).toBeFocused()
+
+    // Each zone's ratio is one fold away, and the fold opens from the keyboard.
+    const fold = page.getByTestId('inspector-fold-zone-ratios')
+    await expect(page.getByTestId('zone-weight-0')).toBeHidden()
+    await fold.locator('summary').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('zone-weight-0')).toBeVisible()
+    // And it stays open for the next zone chosen, rather than snapping shut.
+    await clickZone(page, zones[1])
+    await expect(page.getByTestId('zone-weight-1')).toBeVisible()
+
+    // An action that cannot be used says why, in the panel itself.
+    await page.getByTestId('inspector-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+    await expect(page.getByTestId('inspector-action-delete')).toBeDisabled()
+    await expect(page.getByTestId('inspector-action-delete')).toContainText('Hovedsonen kan ikke slettes')
+    expect(await misshapenInspectorControls(page)).toEqual([])
+    expect(guard.errors).toEqual([])
   })
 })
 

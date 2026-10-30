@@ -14,12 +14,11 @@
  * and their accessible names stay.
  */
 
-import { useRef } from 'react'
 import type { ZoneContentKind } from '../../domain/types'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
-import { anchorBelow, useContextMenu, type MenuEntry } from '../components/contextMenu'
-import { Icon, type IconName, type IconTone } from '../components/Icon'
+import { Icon } from '../components/Icon'
+import { MenuButton } from '../components/MenuButton'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
 import { contentKindEntries, type ContentKindOption } from './contentKinds'
@@ -74,82 +73,6 @@ export interface TopToolbarProps {
   /** Publish or revoke the secret link. The toggle itself owns the state. */
   onToggleShare: () => void
   sandboxCount: number
-}
-
-/**
- * A toolbar button that opens a menu of entries below itself.
- *
- * The menu is the app's one context menu, opened against the button: the same
- * keyboard handling, focus return, placement and look as every other menu, and
- * a press from the keyboard puts the focus on the first entry.
- */
-function MenuButton({
-  id,
-  label,
-  title,
-  tooltip,
-  icon,
-  tone,
-  disabled = false,
-  className = '',
-  entries,
-  children,
-}: {
-  id: string
-  label: string
-  /** Said at the top of the open menu. */
-  title: string
-  tooltip: string
-  icon: IconName
-  tone?: IconTone
-  disabled?: boolean
-  className?: string
-  entries: () => MenuEntry[]
-  /** What the button shows besides its icon; the label by default. */
-  children?: React.ReactNode
-}) {
-  const open = useContextMenu((state) => state.open)
-  const expanded = useContextMenu((state) => state.menu?.owner === id)
-  /*
-   * A second press on the button closes its menu, as it would a native one.
-   * The press outside the menu has already closed it by the time the click
-   * lands, so whether it was open is noted as the press begins.
-   */
-  const wasOpen = useRef(false)
-  return (
-    <Tooltip label={tooltip} wrap={disabled}>
-      <button
-        type="button"
-        className={`btn btn--sm toolbar__menu-button ${className}`.trim()}
-        aria-haspopup="menu"
-        aria-expanded={expanded}
-        aria-label={label}
-        disabled={disabled}
-        data-testid={`toolbar-menu-${id}`}
-        onPointerDown={() => {
-          wasOpen.current = expanded
-        }}
-        onClick={(event) => {
-          if (wasOpen.current) {
-            wasOpen.current = false
-            return
-          }
-          open({
-            anchor: anchorBelow(event.currentTarget),
-            title,
-            entries: entries(),
-            // A click from Enter or Space has no pointer position.
-            keyboard: event.detail === 0,
-            owner: id,
-          })
-        }}
-      >
-        <Icon name={icon} size={15} tone={tone} />
-        {children ?? <span className="toolbar__label">{label}</span>}
-        <Icon name="chevron-down" size={13} className="toolbar__chevron" />
-      </button>
-    </Tooltip>
-  )
 }
 
 export function TopToolbar(props: TopToolbarProps) {
@@ -289,13 +212,14 @@ export function TopToolbar(props: TopToolbarProps) {
       <div className="toolbar__group toolbar__group--selection">
         <MenuButton
           id="content-kind"
+          testId="toolbar-menu-content-kind"
           label={`Innholdstype: ${kindLabel}`}
           title="Innholdstype for valgt sone"
           tooltip={props.selectionIsLeaf ? 'Endre innholdstype' : 'Velg én sone for å velge innholdstype'}
           icon={current?.icon ?? 'card'}
           tone={current?.tone}
           disabled={!props.selectionIsLeaf}
-          className="toolbar__kind"
+          className="toolbar__menu-button toolbar__kind"
           entries={() =>
             contentKindEntries(props.contentKinds, props.selectedKind, props.onSetContentKind)
           }
@@ -324,14 +248,20 @@ export function TopToolbar(props: TopToolbarProps) {
       <div className="toolbar__group">
         <MenuButton
           id="presentation"
+          testId="toolbar-menu-presentation"
+          className="toolbar__menu-button"
           label="Presentasjon"
           title="Presentasjon"
           tooltip="Navn, tema, maler, referanser og bilder for hele presentasjonen"
           icon="deck"
           entries={() => presentationToolEntries(props)}
-        />
+        >
+          <span className="toolbar__label">Presentasjon</span>
+        </MenuButton>
         <MenuButton
           id="tools"
+          testId="toolbar-menu-tools"
+          className="toolbar__menu-button"
           label={props.sandboxCount > 0 ? `Verktøy, ${props.sandboxCount} i sandkassen` : 'Verktøy'}
           title="Verktøy"
           tooltip="Idéer, sandkassen og hurtigtaster"

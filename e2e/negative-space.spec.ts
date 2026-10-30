@@ -24,6 +24,7 @@ import {
   toast,
   watchForErrors,
   zoneRects,
+  openInspectorKindMenu,
 } from './helpers'
 
 /** The picker's button for one kind, inside one zone. */
@@ -101,11 +102,12 @@ test.describe('negativt rom', () => {
     await page.keyboard.insertText('Noe som ikke skal forsvinne i stillhet')
 
     await enterZoneMode(page)
-    await expect(page.getByTestId('inspector-kind-negative-space')).toBeDisabled()
+    const kinds = await openInspectorKindMenu(page)
+    await expect(kinds.getByTestId('menu-kind-negative-space')).toHaveAttribute('aria-disabled', 'true')
     // Everything the zone has room for is still on offer, including the kind
     // it already is — only the one that would throw the text away is not.
-    await expect(page.getByTestId('inspector-kind-titled-card')).toBeEnabled()
-    await expect(page.getByTestId('inspector-kind-untitled-card')).toBeEnabled()
+    await expect(kinds.getByTestId('menu-kind-titled-card')).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(kinds.getByTestId('menu-kind-untitled-card')).not.toHaveAttribute('aria-disabled', 'true')
     expect(guard.errors).toEqual([])
   })
 

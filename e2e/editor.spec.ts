@@ -13,6 +13,7 @@ import {
   watchForErrors,
   zoneRects,
   chooseFromToolbarMenu,
+  chooseKindInInspector,
 } from './helpers'
 
 test.describe('slides and content', () => {
@@ -303,7 +304,7 @@ test.describe('slides and content', () => {
     await page.keyboard.type('Tekst som skal overleve')
 
     await enterZoneMode(page)
-    await page.getByTestId('inspector-kind-titled-card').click()
+    await chooseKindInInspector(page, 'titled-card')
     await enterContentMode(page)
     await expect(page.getByTestId('stage-slide')).toContainText('Tekst som skal overleve')
     await expect(page.locator('[data-testid="stage-slide"] .zone-content--titled')).toBeVisible()

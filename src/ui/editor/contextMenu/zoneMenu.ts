@@ -42,7 +42,9 @@ import type {
   ZoneContentKind,
 } from '../../../domain/types'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
+import type { IconName } from '../../components/Icon'
 import { contentKindEntries, contentKindOptions } from '../contentKinds'
+import { AXIS_LABELS, splitSummary, zoneTitle } from '../zoneDescription'
 
 export interface ZoneMenuHandlers {
   /** Fill an empty zone with fresh content of a kind. */
@@ -87,6 +89,26 @@ export interface ZoneMenu {
   entries: MenuEntry[]
 }
 
+/**
+ * The zone's own actions, as every surface names and draws them.
+ *
+ * The menu here, the inspector and the icon row over a selected zone all offer
+ * these, and a person who learnt «Tøm sone …» in one of them should find the
+ * same words and the same picture in the others. An ellipsis means the action
+ * asks something before it acts — a target, a confirmation, a dialog.
+ */
+export const ZONE_ACTIONS = {
+  split: { label: 'Del sone', icon: 'split-x' },
+  editSplit: { label: 'Rediger deling …', icon: 'edit' },
+  moveContent: { label: 'Flytt innholdet til en annen sone …', icon: 'target' },
+  toSandbox: { label: 'Flytt til sandkassen', icon: 'sandbox' },
+  clear: { label: 'Tøm sone …', icon: 'eraser' },
+  remove: { label: 'Slett sone …', icon: 'trash' },
+} as const satisfies Record<string, { label: string; icon: IconName }>
+
+/** Why the root cannot be removed — said wherever «Slett sone» is offered. */
+export const ROOT_REMOVE_REASON = 'Hovedsonen kan ikke slettes. Bruk «Tøm sone».'
+
 /** How many sandbox items are offered by name before the sandbox itself is. */
 const SANDBOX_ITEMS_LISTED = 8
 /** How much of an item's text says which item it is. */
@@ -115,11 +137,10 @@ function refusalOf(result: Result<unknown>): string | null {
   return result.ok ? null : describeError(result.error)
 }
 
+/** What a zone is, as the menu's title says it. */
 function describeNode(node: LayoutNode): string {
-  if (node.kind === 'split') {
-    return `Delt sone · ${node.children.length} ${node.axis === 'x' ? 'side ved side' : 'over/under'}`
-  }
-  return node.content ? contentLabel(node.content) : 'Tom sone'
+  const summary = splitSummary(node)
+  return summary ? `${zoneTitle(node)} · ${summary}` : zoneTitle(node)
 }
 
 /** A sandbox item as a menu names it: its kind, and the first words it says. */
@@ -296,11 +317,10 @@ function splitSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuEnt
   return {
     kind: 'submenu',
     id: 'split',
-    label: 'Del sone',
-    icon: 'split-x',
+    ...ZONE_ACTIONS.split,
     entries: [
-      quick('x', 'Side ved side'),
-      quick('y', 'Over/under'),
+      quick('x', AXIS_LABELS.x),
+      quick('y', AXIS_LABELS.y),
       SEPARATOR,
       {
         kind: 'action',
@@ -501,8 +521,7 @@ function destructiveEntries(
     entries.push({
       kind: 'action',
       id: 'clear',
-      label: 'Tøm sone …',
-      icon: 'eraser',
+      ...ZONE_ACTIONS.clear,
       danger: true,
       onSelect: () => handlers.clear(input.nodeId),
     })
@@ -510,11 +529,10 @@ function destructiveEntries(
   entries.push({
     kind: 'action',
     id: 'delete',
-    label: 'Slett sone …',
-    icon: 'trash',
+    ...ZONE_ACTIONS.remove,
     danger: true,
     disabled: isRoot,
-    reason: isRoot ? 'Hovedsonen kan ikke slettes. Bruk «Tøm sone».' : null,
+    reason: isRoot ? ROOT_REMOVE_REASON : null,
     onSelect: () => handlers.remove(input.nodeId),
   })
   return entries
@@ -537,8 +555,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
         {
           kind: 'action',
           id: 'edit-split',
-          label: 'Rediger deling …',
-          icon: 'edit',
+          ...ZONE_ACTIONS.editSplit,
           onSelect: () => handlers.openSplitDialog(nodeId),
         },
         ratioSubmenu(input, handlers, node),
@@ -588,15 +605,13 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
       {
         kind: 'action',
         id: 'move',
-        label: 'Flytt innholdet til en annen sone …',
-        icon: 'target',
+        ...ZONE_ACTIONS.moveContent,
         onSelect: () => handlers.moveContent(nodeId),
       },
       {
         kind: 'action',
         id: 'to-sandbox',
-        label: 'Flytt til sandkassen',
-        icon: 'sandbox',
+        ...ZONE_ACTIONS.toSandbox,
         onSelect: () => handlers.moveToSandbox(nodeId),
       },
       contentKindSubmenu(input, handlers),

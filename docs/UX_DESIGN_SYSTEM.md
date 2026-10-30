@@ -92,15 +92,22 @@ Valgt-utseendet tegnes fra `aria-pressed`, så skjermleseren og øyet får samme
 
 ### Menyknapp (fra U2)
 
-En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-haspopup="menu"` og `aria-expanded`. Menyen er appens ene kontekstmeny åpnet under knappen, så tastatur, fokusretur og plassering er de samme som overalt. Et nytt trykk på knappen lukker menyen. Viser knappen et valg (innholdstypen), står gjeldende valg som knappens tekst og som avhaket linje i menyen. Når hovedlinjen blir smal, viker etikettene i fast rekkefølge (sekundære → menynavn → modusnavn) og ikonene blir stående; navnet ligger fortsatt i `aria-label` og verktøytipset.
+En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-haspopup="menu"` og `aria-expanded`. Menyen er appens ene kontekstmeny åpnet under knappen, så tastatur, fokusretur og plassering er de samme som overalt. Et nytt trykk på knappen lukker menyen. Viser knappen et valg (innholdstypen), står gjeldende valg som knappens tekst og som avhaket linje i menyen. Komponenten er felles (`src/ui/components/MenuButton.tsx`) og brukes også av inspektørens «Innholdstype». Når hovedlinjen blir smal, viker etikettene i fast rekkefølge (sekundære → menynavn → modusnavn) og ikonene blir stående; navnet ligger fortsatt i `aria-label` og verktøytipset.
+
+### Inspektøren (fra U3)
+
+- **Hode:** det valgte objektet med ikon og blekk, navn og én linje om plassering, med en strek i valgtblått langs venstre kant — samme blå som sliden tegner valgt sone med. Inndeling, miniapp, avledet side og «ingen sone valgt» bruker samme hode (`InspectorHeader`).
+- **Grupper:** navngitte seksjoner skilt med en tynn linje, i fast rekkefølge: innhold, sone, størrelse.
+- **Handlingsknapp** (`InspectorButton`): et langt navn brytes under seg selv; ikonet står fast. En utilgjengelig handling får stiplet kant og falmet navn, men grunnen står lesbart under navnet (dimmet tekst, 6,0:1) — ikke bare i et verktøytips. Fjerner handlingen noe, har teksten faretekstfarge og står sist.
+- **Utvidbar gruppe** (`InspectorFold`): en `<details>` med pil som snus; åpnes med tastatur, mus og trykk, og husker tilstanden i økten. For sjeldne tall og lange forklaringer.
 
 ## 5. Berøring
 
-`:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.
+`:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. Inspektørens utvidbare grupper og stiknapper får 44 px høyde. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.
 
 ## 6. Bruk i dag og videre
 
-Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; inspektørens innholdstype, bildetekst og subfelt; sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
+Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
 
 Regler for neste arbeidspakker:
 
