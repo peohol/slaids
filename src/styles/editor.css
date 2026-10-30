@@ -149,7 +149,8 @@
 }
 
 @container toolbar (max-width: 1440px) {
-  .toolbar__label--secondary {
+  .toolbar__label--secondary,
+  .share-toggle__copy > .toolbar__label {
     display: none;
   }
 
@@ -1920,6 +1921,23 @@
   width: 260px;
   font-size: 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+/* The main toolbar has no room to spare for it, and «Vis» must not be pushed
+   off screen for a fallback: there it hangs just below the share controls,
+   over the row beneath, instead of taking a place in the row. */
+.toolbar .share-toggle {
+  position: relative;
+}
+
+.toolbar .share-toggle__manual {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  height: 30px;
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 /* ----------------------------------------------------------------- *

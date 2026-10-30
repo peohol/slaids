@@ -49,6 +49,15 @@ describe('ShareToggle', () => {
     expect(markup).toContain('data-testid="copy-share-link"')
   })
 
+  it('beholder navnet på kopiknappen når ordene viker i en smal verktøylinje', () => {
+    const markup = renderWith({ status: 'ready', shared: true, link: `/s/${TOKEN}` })
+    const doc = new DOMParser().parseFromString(markup, 'text/html')
+    const copy = doc.querySelector('[data-testid="copy-share-link"]')
+    expect(copy?.getAttribute('aria-label')).toBe('Kopier lenke')
+    // Det er ordene, ikke knappen, verktøylinjen skjuler når den blir smal.
+    expect(copy?.querySelector('.toolbar__label')?.textContent).toBe('Kopier lenke')
+  })
+
   it('viser ingen påstand før servertilstanden er lest', () => {
     const markup = renderWith({ status: 'loading' })
     expect(markup).toContain('data-state="off"')
