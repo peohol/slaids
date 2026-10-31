@@ -119,14 +119,29 @@ function inZone(field: ActiveField): boolean {
   return field.kind === 'body' || field.kind === 'card-title' || field.kind === 'caption'
 }
 
-export function TextToolbar({
-  onInsertReference,
-  onOptimizeImage,
-}: {
+interface TextToolbarProps {
   onInsertReference: () => void
   /** Shrink the file behind the selected inline picture; see `ImageOptimizeModal`. */
   onOptimizeImage: (assetId: string) => void
-}) {
+}
+
+/**
+ * The text bar, in a landmark of its own.
+ *
+ * On the desktop it sits between the banner and the stage, on a phone between
+ * the stage and the tab bar — outside both — and a screen reader moving by
+ * landmark would otherwise skip it. The bar inside is the `toolbar` named for
+ * its field; the region is the place, and keeps one name whatever the field.
+ */
+export function TextToolbar(props: TextToolbarProps) {
+  return (
+    <section className="text-tools" aria-label="Tekstredigering" data-testid="text-tools">
+      <TextToolbarBar {...props} />
+    </section>
+  )
+}
+
+function TextToolbarBar({ onInsertReference, onOptimizeImage }: TextToolbarProps) {
   const editor = useActiveEditor((state) => state.editor)
   const version = useActiveEditor((state) => state.version)
   const bump = useActiveEditor((state) => state.bump)

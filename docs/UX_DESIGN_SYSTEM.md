@@ -32,7 +32,7 @@ Slaids er et presisjonsverktøy: sider bygges av soner med eksakte forhold. Gren
 
 | Token | Verdi | Bruk |
 | --- | --- | --- |
-| `--chrome-accent` | `#4f8ef7` | Valgt kant, fokusring (4,9:1 mot hevet flate) |
+| `--chrome-accent` | `#3386f7` | Valgt kant, fokusring (4,4:1 mot hevet flate); også valgt sone på scenen (`--zone-outline-selected`) |
 | `--chrome-accent-soft` | blå 18 % | Valgt flate |
 | `--chrome-accent-text` | `#cfe0ff` | Tekst på valgt flate |
 | `--chrome-primary` | `#2f6fe0` | Primærknapp; hvit tekst 4,7:1 (før: 3,2:1) |
@@ -42,10 +42,12 @@ Slaids er et presisjonsverktøy: sider bygges av soner med eksakte forhold. Gren
 | Token | Verdi | Familie | Eksempler |
 | --- | --- | --- | --- |
 | `--ink-content` | `#4cc9d8` | Innhold og tekst | Innholdsmodus, kort med/uten tittel, overskrift |
-| `--ink-zone` | `#a78bfa` | Soner og struktur | Sonemodus, beholder, negativt rom |
+| `--ink-zone` | `#bca0fc` | Soner og struktur | Sonemodus, beholder, negativt rom |
 | `--ink-media` | `#e3bf4f` | Bilder | Bilde, bildekort, «Sett inn bilde fra fil», bildebrief, optimaliser bilder |
 
-Alle tre har minst 5,7:1 mot hevet flate. De er valgt langs blå–gul-aksen i tillegg til kulør, så de holder seg adskilt ved rød–grønn fargeblindhet, og hver familie har i tillegg egne ikonformer. Presentasjonsverktøy (tema, maler, referanser), historikk og navigasjon er **bevisst ufarget**.
+Alle tre har minst 7:1 mot hevet flate. De er valgt langs blå–gul-aksen i tillegg til kulør, så de holder seg adskilt ved rød–grønn fargeblindhet, og hver familie har i tillegg egne ikonformer.
+
+Sonefiolett og valgt-blått står ofte side om side (sonemodus og en valgt sone). Fiolett og blått skiller seg mest i rødt, den kanalen protanopi mister, så de skilles i stedet på lyshet: fiolett er lysere enn blått. Før dette (fiolett `#a78bfa`, blått `#4f8ef7`) var de nesten like ved protanopi (ΔE 3,1). Nå er avstanden minst 20 ved protanopi, deuteranopi og tritanopi, og `chromeTokens.test.ts` krever det for alle par av de tre blekkfargene og valgt-blått. Presentasjonsverktøy (tema, maler, referanser), historikk og navigasjon er **bevisst ufarget**.
 
 Planen foreslo grønnblå for bilder. Det ble forkastet fordi grønnblå ligger for nær turkis (innhold) og grønn (lagret). Gult ble valgt i stedet, og advarselsfargen ble flyttet mot oransje.
 

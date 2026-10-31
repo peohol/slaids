@@ -249,7 +249,7 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
       link: { openOnClick: false, autolink: true, HTMLAttributes: { class: 'rd-link' } },
       // Slaids uses its own horizontal separators between subfields.
       horizontalRule: false,
-      dropcursor: { color: '#4f8ef7', width: 2 },
+      dropcursor: { color: 'var(--chrome-accent)', width: 2 },
       // The line that keeps a caret reachable after a picture is Slaids' own:
       // StarterKit's writes it into the document, and a line of nothing at the
       // end of a field is chrome, not content. See `TrailingLineExtension`.

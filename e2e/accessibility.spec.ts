@@ -31,23 +31,31 @@ import { openPanel, type CompactPanel } from './compactHelpers'
 const AXE_SOURCE = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
 
 /**
- * WCAG 2.2 A and AA, and axe's best practices, minus one.
+ * WCAG 2.2 A and AA, and axe's best practices — all of them.
  *
- * `region` asks for every piece of content to sit in a landmark. The text
- * toolbar (`role="toolbar"`, named for its field) sits between the banner and
- * the main landmark, and the menus are portalled to the end of the document
- * like every Radix popup; neither is content a reader navigates *to* by
- * landmark. The landmarks themselves — banner, main, the two named
- * complementary panels — are checked by `landmark-*`, which stay on.
+ * `region` asks for every piece of content to sit in a landmark. axe already
+ * counts a dialog as its own place; a popup menu is the same kind of thing — it
+ * belongs to the control that opened it, takes the focus, and is not somewhere
+ * a reader navigates *to* by landmark — so it is counted the same way. Nothing
+ * else is excused: the text bar has its own landmark («Tekstredigering»).
  */
+const REGION_MATCHER = 'dialog, [role=dialog], [role=alertdialog], svg, [role=menu]'
+
 async function audit(page: Page): Promise<string[]> {
   await page.addScriptTag({ content: AXE_SOURCE })
-  return page.evaluate(async () => {
-    const axe = (window as unknown as { axe: { run: (...args: unknown[]) => Promise<AxeResult> } })
-      .axe
+  return page.evaluate(async (regionMatcher) => {
+    const axe = (
+      window as unknown as {
+        axe: {
+          configure: (spec: unknown) => void
+          run: (...args: unknown[]) => Promise<AxeResult>
+        }
+      }
+    ).axe
     interface AxeResult {
       violations: Array<{ id: string; nodes: Array<{ target: string[] }> }>
     }
+    axe.configure({ checks: [{ id: 'region', options: { regionMatcher } }] })
     const result = await axe.run(
       { include: [document.body], exclude: [['[data-testid="stage-slide"]']] },
       {
@@ -55,7 +63,6 @@ async function audit(page: Page): Promise<string[]> {
           type: 'tag',
           values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'],
         },
-        rules: { region: { enabled: false } },
       },
     )
     /*
@@ -78,7 +85,7 @@ async function audit(page: Page): Promise<string[]> {
         (violation) =>
           `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(' | ')}`,
       )
-  })
+  }, REGION_MATCHER)
 }
 
 /** A deck with a card, so the inspector and the text toolbar have something to show. */
