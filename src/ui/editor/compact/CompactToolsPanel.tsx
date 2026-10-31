@@ -17,7 +17,12 @@ import type { MenuAction } from '../../components/contextMenu'
 import { Icon } from '../../components/Icon'
 import { ContentKindMenuButton } from '../ContentKindMenuButton'
 import { ShareToggle } from '../ShareToggle'
-import { helperToolEntries, presentationToolEntries } from '../toolbarMenus'
+import {
+  helperToolEntries,
+  pictureFileEntry,
+  presentationToolEntries,
+  titleZoneEntry,
+} from '../toolbarMenus'
 import type { TopToolbarProps } from '../TopToolbar'
 
 export function CompactToolsPanel({
@@ -38,33 +43,15 @@ export function CompactToolsPanel({
   const shareLink = useShareUrl()
 
   /* The desktop toolbar's two buttons beside the mode and the content kind,
-     with the names they have there (their accessible names). */
-  const pictureFile: MenuAction = {
-    kind: 'action',
-    id: 'image',
-    label: 'Sett inn bilde fra fil …',
-    icon: 'image-add',
-    tone: 'media',
-    disabled: !toolbar.canEditZones,
-    reason: toolbar.canEditZones ? null : 'Denne siden har ingen soner å sette et bilde i.',
-    onSelect: toolbar.onOpenImage,
-  }
-  const titleZone: MenuAction = {
-    kind: 'action',
-    id: 'title',
-    label: 'Overskrift',
-    icon: 'heading',
-    tone: 'content',
-    // A disabled toggle never reads as «on», as on the desktop.
-    checked: toolbar.hasTitleZone && toolbar.canToggleTitle,
-    disabled: !toolbar.canToggleTitle,
-    reason: toolbar.canToggleTitle ? null : 'Denne siden har ingen overskriftssone å slå av eller på.',
-    onSelect: toolbar.onToggleTitle,
-  }
+     from the same entries the desktop reads their state and reasons from. */
+  const pictureFile = pictureFileEntry(toolbar)
+  const titleZone = titleZoneEntry(toolbar)
 
   return (
     <div className="compact-tools" data-testid="compact-tools">
-      <section className="compact-tools__section" aria-labelledby="compact-tools-zone">
+      {/* Groups, as the desktop toolbar's are, not landmarks of their own: the
+          panel is the landmark, and its last group shares its name. */}
+      <div className="compact-tools__section" role="group" aria-labelledby="compact-tools-zone">
         <h3 className="inspector__heading" id="compact-tools-zone">
           Valgt sone
         </h3>
@@ -78,16 +65,16 @@ export function CompactToolsPanel({
           onSetContentKind={toolbar.onSetContentKind}
         />
         <ActionRows entries={[pictureFile]} />
-      </section>
+      </div>
 
-      <section className="compact-tools__section" aria-labelledby="compact-tools-slide">
+      <div className="compact-tools__section" role="group" aria-labelledby="compact-tools-slide">
         <h3 className="inspector__heading" id="compact-tools-slide">
           Slide
         </h3>
         <ActionRows entries={[titleZone]} />
-      </section>
+      </div>
 
-      <section className="compact-tools__section" aria-labelledby="compact-tools-presentation">
+      <div className="compact-tools__section" role="group" aria-labelledby="compact-tools-presentation">
         <h3 className="inspector__heading" id="compact-tools-presentation">
           Presentasjon
         </h3>
@@ -100,9 +87,9 @@ export function CompactToolsPanel({
           link={shareLink}
           onToggle={toolbar.onToggleShare}
         />
-      </section>
+      </div>
 
-      <section className="compact-tools__section" aria-labelledby="compact-tools-helpers">
+      <div className="compact-tools__section" role="group" aria-labelledby="compact-tools-helpers">
         <h3 className="inspector__heading" id="compact-tools-helpers">
           Verktøy
         </h3>
@@ -116,7 +103,7 @@ export function CompactToolsPanel({
             onShowShortcuts,
           })}
         />
-      </section>
+      </div>
     </div>
   )
 }

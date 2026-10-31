@@ -72,9 +72,9 @@ Inter (eller systemets sans) beholdes. Skala: `--text-xs` 11,5, `--text-sm` 12,5
 | Hover | Lysere flate | `:hover` |
 | Trykket | Enda lysere flate mens trykket varer | `:active` |
 | **Valgt** | Blå kant + blå flate + lys tekst; i menyer og lister også en hake til høyre | `aria-pressed="true"` (knapper), `aria-checked` (menyer) |
-| Deaktivert | Falmet; blekkfargen faller tilbake til tekstfarge | `:disabled` |
+| Deaktivert | Falmet; blekkfargen faller tilbake til tekstfarge. Grunnen står i verktøytipset (desktop, via en omsluttende flate fordi en deaktivert knapp ikke tar imot pekeren) eller som tekst under raden (inspektør, kompakt) | `:disabled` |
 | Fokus | Blå ring med avstand, oppå alle andre tilstander | `:focus-visible` |
-| Høy kontrast | Systemets farger; valgt får `Highlight`-ramme | `forced-colors` |
+| Høy kontrast | Systemets farger; valgt og menyens tastaturmarkør får `Highlight`-ramme | `forced-colors` |
 
 Valgt-utseendet tegnes fra `aria-pressed`, så skjermleseren og øyet får samme svar. `pressedButton()` i `src/ui/components/pressed.ts` setter attributtet og den eldre klassen `.btn--active` fra én verdi.
 
@@ -130,7 +130,7 @@ En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-
 
 `:root[data-coarse='true']` gir **alle** knapper minst 44 × 44 px, med eller uten tekst, og felt (`.input`, `.select`) og mapper i biblioteket minst 44 px høyde. Det gjelder etter pekeren, ikke bredden, så et stort nettbrett i desktopvisning får også fingerstore kontroller; hovedlinjen får fortsatt plass ned til 1025 px (`e2e/toolbar.spec.ts`). Før U6 stoppet små knapper med tekst på 38 px, og hovedlinjens knapper som hadde gitt fra seg etiketten var 30 px brede på berøring. Inspektørens utvidbare grupper og stiknapper får 44 px høyde.
 
-**Unntak, med vilje:** fargerutene i en palett deler radens bredde og er kvadratiske mellom 28 og 44 px; en rad som ikke rommer tolv på 28 px brytes i to. Det er over WCAGs minstemål på 24 px, men en tett palett kan ikke ha 44 px ruter på en telefon uten å miste rekkefølgen. Presentasjonstittelen i hovedlinjen på et romslig berøringsnettbrett er lavere enn 44 px; «Gi presentasjonen nytt navn …» i «Presentasjon»-menyen er den fingerstore veien til det samme.
+**Unntak, med vilje:** fargerutene i en palett deler radens bredde og er kvadratiske, inntil 28 px med mus og mellom 28 og 44 px på berøring; en rad som ikke rommer rutene på 28 px brytes i stedet for å krympe (før U7 ble de presset til 20,8 px med mus). Det er over WCAGs minstemål på 24 px, men en tett palett kan ikke ha 44 px ruter på en telefon uten å miste rekkefølgen. Presentasjonstittelen i hovedlinjen på et romslig berøringsnettbrett er lavere enn 44 px; «Gi presentasjonen nytt navn …» i «Presentasjon»-menyen er den fingerstore veien til det samme.
 
 ## 6. Bruk i dag og videre
 

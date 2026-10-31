@@ -19,14 +19,14 @@ import { setSectionAccentColor, setSectionBackgroundColor } from '../../domain/c
 import { useEditorStore } from '../../state/store'
 import type { SectionSlide } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
-import { InspectorHeader } from './InspectorParts'
+import { InspectorHeader, InspectorPanel } from './InspectorParts'
 
 export function SectionInspector({ section }: { section: SectionSlide }) {
   const run = useEditorStore((state) => state.run)
   const isFront = useEditorStore((state) => state.presentation?.slides[0]?.id === section.id)
 
   return (
-    <aside className="inspector" data-testid="inspector">
+    <InspectorPanel>
       <InspectorHeader
         icon="section"
         title={isFront ? 'Forside' : 'Inndeling'}
@@ -68,6 +68,6 @@ export function SectionInspector({ section }: { section: SectionSlide }) {
           Bakgrunnen på denne siden og på slidene fram til neste inndeling.
         </p>
       </section>
-    </aside>
+    </InspectorPanel>
   )
 }

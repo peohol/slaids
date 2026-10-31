@@ -26,7 +26,7 @@ import { readInteractiveFile } from '../../state/interactiveFile'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
-import { InspectorFold, InspectorHeader } from './InspectorParts'
+import { InspectorFold, InspectorHeader, InspectorPanel } from './InspectorParts'
 import { INTERACTIVE_UPLOAD_NOTES } from './NewInteractiveModal'
 
 export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
@@ -74,7 +74,7 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
   }
 
   return (
-    <aside className="inspector" data-testid="inspector">
+    <InspectorPanel>
       <InspectorHeader
         icon="interactive"
         title="Miniapp"
@@ -141,6 +141,6 @@ export function InteractiveInspector({ slide }: { slide: InteractiveSlide }) {
           ))}
         </ul>
       </InspectorFold>
-    </aside>
+    </InspectorPanel>
   )
 }

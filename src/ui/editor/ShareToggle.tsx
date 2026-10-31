@@ -80,7 +80,8 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
 
   return (
     <div className="toolbar__group share-toggle" data-testid="share-toggle">
-      <Tooltip label={label}>
+      {/* Wrapped while disabled, so the reason it cannot be pressed still opens. */}
+      <Tooltip label={label} wrap={disabled}>
         <button
           type="button"
           className={shared ? 'btn btn--sm btn--active' : 'btn btn--sm'}
