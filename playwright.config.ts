@@ -37,6 +37,17 @@ const frameReachableLaunch = {
 }
 
 /**
+ * Where the built app is served. Named as an address rather than `localhost`:
+ * on a GitHub runner `localhost` resolves to `::1` first, so a preview bound to
+ * it is never reached at `127.0.0.1`, and the run times out waiting for it.
+ * Both are passed to `vite preview`, so this is the one place they are set
+ * for a test run.
+ */
+const HOST = '127.0.0.1'
+const PORT = 4173
+const APP_URL = `http://${HOST}:${PORT}`
+
+/**
  * A modern phone, in both orientations.
  *
  * Written out rather than taken from `devices[...]`: what the compact layout
@@ -71,7 +82,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: APP_URL,
     viewport: { width: 1600, height: 1000 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -139,8 +150,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && npm run preview',
-    url: 'http://127.0.0.1:4173',
+    command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT}`,
+    url: APP_URL,
     // Always build: reusing a server would silently test a stale bundle.
     reuseExistingServer: false,
     timeout: 180_000,
