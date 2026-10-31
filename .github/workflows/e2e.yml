@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SUITE: ${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }}
+      SUITE: referansebilder # MIDLERTIDIG: tar referansebildene for de nye fargene på runneren
     steps:
       - uses: actions/checkout@v5
 
