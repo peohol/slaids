@@ -1,0 +1,50 @@
+# Nettlesertester i CI
+
+Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i to størrelser, fra `.github/workflows/e2e.yml`. Enhetstestene, typesjekken, linten og byggingen kjøres som før av `.github/workflows/test.yml`.
+
+| Kjøring | Når | Hva | Tid (målt) |
+| --- | --- | --- | --- |
+| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (30 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
+| **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle fem prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
+
+## Regler som gjelder begge
+
+- **Ingen nye forsøk.** `retries: 0`. En test som bare består av og til, er rød og skal synes som rød. Det finnes ingen karantene, og ingen test hoppes over for å få grønn CI. De eneste `test.skip` i suiten er betingelser om miljøet testen gjelder (berøring mot mus, én kolonne mot flere) og de opt-in visuelle testene, som den nattlige kjøringen slår på.
+- **Samme konfigurasjon som lokalt.** CI bruker `playwright.config.ts` uendret, med nettleseren Playwright-versjonen i låsefilen hører til. Appen bygges på nytt for hver kjøring.
+- **Lesbare feil.** Med `CI` satt rapporterer Playwright også som `github` (feilmeldingen står som merknad på linjen i testfilen) og som HTML. Ved feil lastes artefaktet `playwright-rapport-pr` eller `playwright-rapport-full` opp i 14 dager: HTML-rapporten (`index.html`) med skjermbilde, konsoll og Playwright-spor (trace) for hver feilet test, og `test-results/` med de rå filene, også bildeforskjellene fra en visuell test. Jobbsammendraget forklarer hvor de ligger. Et spor åpnes med `npx playwright show-trace trace.zip` eller på <https://trace.playwright.dev>.
+
+## Hva PR-utvalget dekker
+
+Utvalget er minstelisten for E2E i `IMPLEMENTATION_PLAN.md` § 40, pluss én kontroll av hver flate som ellers bare den nattlige kjøringen ville sett. Det er valgt fordi det er bredt, ikke fordi testene er stabile: hele suiten er grønn, og alle tester holdes til samme krav.
+
+Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` skriver ut nøyaktig hva som kjøres. Tabellen under er en oversikt per fil; `scripts/e2eCi.test.ts` feiler hvis den og taggene kommer ut av takt.
+
+<!-- e2e-pr-files:start -->
+| Fil | Hva PR-kontrollen sjekker |
+| --- | --- |
+| `library.spec.ts` | Opprette, åpne og liste en presentasjon; den åpne presentasjonen huskes etter omlasting |
+| `editor.spec.ts` | Legge til, duplisere, flytte og slette slider; navigere mellom slider; slå tittel av og på; tittel og brødtekst overlever omlasting; fet skrift fra tekstlinjen; kort med tittel; angre og gjør om |
+| `golden-path.spec.ts` | Hele gullstien med nøyaktig ett mellomrom overalt |
+| `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |
+| `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
+| `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
+| `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |
+| `accessibility.spec.ts` | axe-revisjonen (WCAG 2.2 A/AA) av bibliotek og editorens tilstander |
+| `interactive.spec.ts` | En miniapp kjører bare mellom Aktiver og Avslutt |
+| `interactive-security.spec.ts` | Miniapprammen har nøyaktig sandkassen og innholdspolicyen som er avtalt |
+| `compact.spec.ts` | Kompakt arbeidsflate, tekstlista til skriveflaten og lagring etter omlasting, i alle tre kompaktprosjektene (telefon stående, telefon liggende, smalt vindu med mus) |
+<!-- e2e-pr-files:end -->
+
+## Hva bare den nattlige kjøringen dekker
+
+Alt annet, rundt 380 kjøringer: resten av sone-, fit-, tekst-, bilde-, miniapp- og kompakttestene, kontekstmenyer, hurtigtaster, justering, temaer, oppgavematrisen (`task-matrix.spec.ts`), responsivitet, og de 12 visuelle testene med 28 referansebilder (`visual.spec.ts`, `visual-chrome.spec.ts`).
+
+En rød nattlig kjøring betyr at noe på `main` er brukket eller ustabilt. Den rettes som en vanlig feil, i en egen PR; den skal ikke dempes ved å fjerne testen fra kjøringen.
+
+## Endre utvalget
+
+Legg til `{ tag: '@pr' }` som andre argument til `test(...)`, og nevn filen i tabellen over hvis den er ny. Hold utvalget til flyter som en anmelder ellers måtte prøve for hånd, og hold kjøretiden rundt to–tre minutter. En test som tas ut av utvalget, kjøres fortsatt hver natt.
+
+## Visuelle referansebilder
+
+Referansebildene ligger i `e2e/*.spec.ts-snapshots/` og er laget med Chromium på Linux. Den nattlige kjøringen sammenligner mot dem. En tilsiktet endring i grensesnittet krever nye referansebilder: `SLAIDS_VISUAL=1 npx playwright test visual --update-snapshots`, og bildene committes sammen med endringen.

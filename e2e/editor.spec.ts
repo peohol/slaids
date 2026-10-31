@@ -19,7 +19,7 @@ import {
 } from './helpers'
 
 test.describe('slides and content', () => {
-  test('adds, duplicates, reorders and deletes slides', async ({ page }) => {
+  test('adds, duplicates, reorders and deletes slides', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Slides')
     // The front section and the one slide a new deck opens onto.
@@ -234,7 +234,7 @@ test.describe('slides and content', () => {
     await expect(more).toBeFocused()
   })
 
-  test('switches between slides from the filmstrip', async ({ page }) => {
+  test('switches between slides from the filmstrip', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Navigasjon')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
     await page.keyboard.type('Første slide')
@@ -254,7 +254,7 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
   })
 
-  test('toggles the title zone and restores the main area', async ({ page }) => {
+  test('toggles the title zone and restores the main area', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Overskrift')
     await expect(page.getByTestId('slide-title')).toBeVisible()
     const withTitle = (await zoneRects(page))[0]
@@ -286,7 +286,7 @@ test.describe('slides and content', () => {
     await expect(stage(page)).toContainText('Tekst som ikke skal forsvinne')
   })
 
-  test('writes a slide title and body text that survive a reload', async ({ page }) => {
+  test('writes a slide title and body text that survive a reload', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Tekst')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
     await page.keyboard.type('En tittel som lagres')
@@ -336,7 +336,7 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('slide-title')).toContainText('Tittelen også')
   })
 
-  test('applies bold formatting through the text toolbar', async ({ page }) => {
+  test('applies bold formatting through the text toolbar', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Formatering')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
@@ -351,7 +351,7 @@ test.describe('slides and content', () => {
     await expect(field.locator('ul li')).toHaveCount(1)
   })
 
-  test('converts a container into a titled card, keeping the text', async ({ page }) => {
+  test('converts a container into a titled card, keeping the text', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Konvertering')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'container')
@@ -365,7 +365,7 @@ test.describe('slides and content', () => {
     await expect(page.locator('[data-testid="stage-slide"] .zone-content--titled')).toBeVisible()
   })
 
-  test('undoes and redoes a structural change', async ({ page }) => {
+  test('undoes and redoes a structural change', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Angre')
     await enterZoneMode(page)
     await page.getByTestId('inspector-action-split').click()

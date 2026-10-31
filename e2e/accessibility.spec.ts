@@ -89,7 +89,7 @@ async function deckWithCard(page: Page): Promise<void> {
 }
 
 test.describe('tilgjengelighet på desktop', () => {
-  test('biblioteket og editorens tilstander har ingen WCAG-brudd', async ({ page }) => {
+  test('biblioteket og editorens tilstander har ingen WCAG-brudd', { tag: '@pr' }, async ({ page }) => {
     await deckWithCard(page)
     const states: Array<[string, () => Promise<void>]> = [
       ['innholdsmodus med valgt sone', async () => {}],

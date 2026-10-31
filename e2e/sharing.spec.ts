@@ -12,7 +12,7 @@ import { createPresentation, presentedPage, watchForErrors } from './helpers'
  * needs a Supabase project and is verified against one.
  */
 test.describe('deling i lokal modus', () => {
-  test('viser Del rett før Vis, men avslått', async ({ page }) => {
+  test('viser Del rett før Vis, men avslått', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Uten Supabase')
 
@@ -42,7 +42,7 @@ test.describe('deling i lokal modus', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('en delingsadresse som ikke finnes gir ingen presentasjon', async ({ page }) => {
+  test('en delingsadresse som ikke finnes gir ingen presentasjon', { tag: '@pr' }, async ({ page }) => {
     // Direkte navigasjon til /s/<token>: SPA-ruten svarer, og svaret er at
     // lenken ikke er aktiv — aldri en presentasjon, og aldri editoren.
     await page.goto('/s/3f2a1b0c-1111-4222-8333-444455556666')

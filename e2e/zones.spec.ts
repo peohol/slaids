@@ -74,7 +74,7 @@ function travelFor(zones: ZoneRect[], weight: number, total: number, axis: 'x' |
 }
 
 test.describe('zone editing', () => {
-  test('splits the main zone and keeps exactly one gap', async ({ page }) => {
+  test('splits the main zone and keeps exactly one gap', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Soner')
     await enterZoneMode(page)
@@ -87,7 +87,7 @@ test.describe('zone editing', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('nests a split without introducing extra gap', async ({ page }) => {
+  test('nests a split without introducing extra gap', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Nesting')
     await enterZoneMode(page)
     await splitSelected(page, [2, 3], 'x')
@@ -277,7 +277,7 @@ test.describe('zone editing', () => {
    * not a second implementation: both roads end in `setSplitWeights`, which
    * quantises the ratios and refuses a layout that would hide content.
    */
-  test('changes ratios from the inspector without dragging', async ({ page }) => {
+  test('changes ratios from the inspector without dragging', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Forhold uten dra')
     await enterZoneMode(page)
     await splitSelected(page, [1, 1], 'x')

@@ -321,7 +321,7 @@ test.describe('isolasjonen, målt', () => {
     await expect(page.getByTestId('editor')).toBeVisible()
   })
 
-  test('rammen på scenen har nøyaktig sandkassen og policyen som er avtalt', async ({ page }) => {
+  test('rammen på scenen har nøyaktig sandkassen og policyen som er avtalt', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Attributter')
     await addEscapeSlide(page)
     await stage(page).getByRole('button', { name: 'Aktiver miniapp' }).click()

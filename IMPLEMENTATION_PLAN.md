@@ -3418,6 +3418,9 @@ Minst:
 - interaktiv slide: hele løpet fra fil til kjørende app og tilbake, og
   isolasjonen målt utenfra med en fiendtlig app (§ 8.7).
 
+Listen over er også PR-kontrollen i GitHub Actions (tag `@pr`); hele suiten
+kjøres hver natt. Se `docs/E2E_CI.md`.
+
 ### Visuell regresjon
 
 Bruk Playwright screenshots selektivt for representative states. Hold baselines i konsistent miljø.

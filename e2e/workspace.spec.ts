@@ -94,7 +94,7 @@ test.describe('workspace transitions', () => {
     await expect(stage(page)).toContainText('Skrevet før rotasjon')
   })
 
-  test('the editing mode, an unsaved edit and the history cross with the window', async ({
+  test('the editing mode, an unsaved edit and the history cross with the window', { tag: '@pr' }, async ({
     page,
   }) => {
     await page.setViewportSize(TABLET_LANDSCAPE)

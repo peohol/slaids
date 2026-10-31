@@ -26,7 +26,7 @@ U0–U7 kan anses som ferdigstilt. Vanlige oppgaver krever like mange eller fær
 | `npx playwright test` (fem prosjekter) | 375 bestått, **4 feilet**, 7 hoppet over | 396 bestått, 0 feilet, 0 ustabile, 18 hoppet over |
 | Visuell regresjon (`SLAIDS_VISUAL=1`) | 1 test, **uten lagrede referansebilder i repoet** | 12 tester, 28 referansebilder, stabile ved ny kjøring |
 
-Testene som hoppes over er de 12 opt-in visuelle testene (kjøres med `SLAIDS_VISUAL=1`, se nedenfor) og seks kompakte tester som bare gjelder berøring eller en bestemt bredde (for eksempel pinch med mus). Ingen er hoppet over for å få grønt. CI (`.github/workflows/test.yml`) kjører typecheck, lint, Vitest og build, ikke Playwright; E2E-tallene over er kjørt lokalt i skyutviklingsmiljøet.
+Testene som hoppes over er de 12 opt-in visuelle testene (kjøres med `SLAIDS_VISUAL=1`, se nedenfor) og seks kompakte tester som bare gjelder berøring eller en bestemt bredde (for eksempel pinch med mus). Ingen er hoppet over for å få grønt. Tallene i tabellen er kjørt lokalt i skyutviklingsmiljøet. Etter U7 kjører GitHub Actions også Playwright: et utvalg på hver PR og hele suiten hver natt (se § 9 punkt 7 og [E2E_CI.md](E2E_CI.md)).
 
 ## 3. Røde og ustabile tester (oppdrag 6)
 
@@ -141,7 +141,7 @@ Ingen av punktene hindrer at U0–U7 kan avsluttes. De foreslås som egne, avgre
 4. **Fysiske enhetstester.** Røyktestene i MOBILE_WORKSPACE.md § 16 (ekte iOS/Android, skjermtastatur, Apple Pencil) gjenstår; alt her er kjørt i emulert Chromium.
 5. **Brukertest.** Oppdagbarheten av sjeldne funksjoner i menyer og forståelsen av innholds- og sonemodus bør prøves med 3–5 brukere, med baseline-matrisen som oppgaveliste.
 6. **Paletten i inspektøren** er høyere enn før fordi rutene ikke lenger krymper under 24 px. Vurder en sammenleggbar palett hvis plassen blir et problem.
-7. **E2E i CI.** Playwright kjøres ikke i GitHub Actions. Å legge til en (eventuelt delvis) E2E-jobb ville fange regresjoner tidligere.
+7. **E2E i CI.** *Løst etter U7.* `.github/workflows/e2e.yml` kjører 30 representative kjøringer (merket `@pr`) på hver PR og hele suiten, med visuelle referansebilder, hver natt. Ingen nye forsøk og ingen tester hoppet over; ved feil lastes skjermbilder og Playwright-spor opp med kjøringen. Hva som kjører hvor: [E2E_CI.md](E2E_CI.md).
 
 ## 10. Begrensninger
 

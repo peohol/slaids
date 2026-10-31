@@ -140,7 +140,7 @@ function expectSameBox(actual: { x: number; y: number; width: number; height: nu
 }
 
 test.describe('kompakt arbeidsflate', () => {
-  test('gir compact shell, biblioteket uten sidescroll og en slide som får plass', async ({
+  test('gir compact shell, biblioteket uten sidescroll og en slide som får plass', { tag: '@pr' }, async ({
     page,
   }) => {
     const guard = watchForErrors(page)
@@ -290,7 +290,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(focusedField(page)).toBeVisible()
   })
 
-  test('tekstlista åpner den samme skriveflaten på sliden, og fit måles der', async ({
+  test('tekstlista åpner den samme skriveflaten på sliden, og fit måles der', { tag: '@pr' }, async ({
     page,
   }) => {
     await createPresentation(page, 'Tekst')
@@ -1785,7 +1785,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(bar).not.toHaveAttribute('data-more-end', '')
   })
 
-  test('lagrer og henter tilbake etter reload', async ({ page }) => {
+  test('lagrer og henter tilbake etter reload', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Varig')
     await addCardToRootZone(page)
     await writeInField(page, 'body', 'Skrevet på mobil')

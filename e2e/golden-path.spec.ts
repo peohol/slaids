@@ -23,7 +23,7 @@ import {
  * column y-split 1:2, titled card with two subfields on the left, free text in
  * a transparent container top-right and an untitled card bottom-right.
  */
-test('golden path slide keeps exactly one gap everywhere', async ({ page }, testInfo) => {
+test('golden path slide keeps exactly one gap everywhere', { tag: '@pr' }, async ({ page }, testInfo) => {
   const guard = watchForErrors(page)
   await createPresentation(page, 'Golden path')
 

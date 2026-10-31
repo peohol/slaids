@@ -53,14 +53,28 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
+  /*
+   * Never retried, locally or in CI: a test that passes on its second attempt
+   * is a red test, and a retry would report it green. `.github/workflows/e2e.yml`
+   * and `docs/E2E_CI.md` rely on that.
+   */
   retries: 0,
-  reporter: process.env.CI ? [['list']] : [['list']],
+  /*
+   * In CI a failure has to be readable without the runner: `github` puts the
+   * message on the failing line of the spec in the pull request, and the HTML
+   * report — screenshot, log and trace per failed test — is uploaded with the
+   * run.
+   */
+  reporter: process.env.CI
+    ? [['list'], ['github'], ['html', { open: 'never' }]]
+    : [['list']],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 1600, height: 1000 },
     trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     deviceScaleFactor: 1,
     ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },

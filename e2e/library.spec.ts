@@ -12,7 +12,7 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('library-footer')).toContainText(/lokalt|nettleseren/i)
   })
 
-  test('creates, opens and lists a presentation', async ({ page }) => {
+  test('creates, opens and lists a presentation', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
     await page.goto('/')
     await expect(page.getByTestId('presentation-grid')).toBeVisible()
@@ -188,7 +188,7 @@ test.describe('presentation library', () => {
     ).toHaveText(/slides · .* · \d+(\.\d+)? (B|kB)$/)
   })
 
-  test('remembers the open presentation across a reload', async ({ page }) => {
+  test('remembers the open presentation across a reload', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Husk meg')
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
