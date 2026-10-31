@@ -72,7 +72,7 @@ Inter (eller systemets sans) beholdes. Skala: `--text-xs` 11,5, `--text-sm` 12,5
 | Hover | Lysere flate | `:hover` |
 | Trykket | Enda lysere flate mens trykket varer | `:active` |
 | **Valgt** | Blå kant + blå flate + lys tekst; i menyer og lister også en hake til høyre | `aria-pressed="true"` (knapper), `aria-checked` (menyer) |
-| Deaktivert | Falmet; blekkfargen faller tilbake til tekstfarge. Grunnen står i verktøytipset (desktop, via en omsluttende flate fordi en deaktivert knapp ikke tar imot pekeren) eller som tekst under raden (inspektør, kompakt) | `:disabled` |
+| Deaktivert | Falmet; blekkfargen faller tilbake til tekstfarge. Grunnen står som tekst under raden (inspektør, kompakt) eller i verktøytipset; en knapp som bare har verktøytipset, er `aria-disabled` (`unavailable()`), så den kan fokuseres og grunnen nås med tastatur og skjermleser | `:disabled`, `[aria-disabled='true']` |
 | Fokus | Blå ring med avstand, oppå alle andre tilstander | `:focus-visible` |
 | Høy kontrast | Systemets farger; valgt og menyens tastaturmarkør får `Highlight`-ramme | `forced-colors` |
 

@@ -13,6 +13,7 @@ import { anchorBelow, useContextMenu, type MenuEntry } from './contextMenu'
 import { keepFocus as keepFocusOnPress } from './focusKeeping'
 import { Icon, type IconName, type IconTone } from './Icon'
 import { Tooltip } from './Tooltip'
+import { unavailable } from './unavailable'
 
 export function MenuButton({
   id,
@@ -58,14 +59,13 @@ export function MenuButton({
    */
   const wasOpen = useRef(false)
   return (
-    <Tooltip label={tooltip} wrap={disabled}>
+    <Tooltip label={tooltip}>
       <button
         type="button"
         className={`btn btn--sm menu-button ${className}`.trim()}
         aria-haspopup="menu"
         aria-expanded={expanded}
         aria-label={label}
-        disabled={disabled}
         data-testid={testId ?? `menu-button-${id}`}
         onPointerDown={() => {
           wasOpen.current = expanded
@@ -85,6 +85,7 @@ export function MenuButton({
             owner: id,
           })
         }}
+        {...unavailable(disabled)}
       >
         <Icon name={icon} size={15} tone={tone} />
         {children ?? <span className="menu-button__label">{label}</span>}

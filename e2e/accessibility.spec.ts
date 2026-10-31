@@ -191,7 +191,7 @@ test.describe('tilgjengelighet på desktop', () => {
     expect(xs).toEqual([...xs].sort((a, b) => a - b))
   })
 
-  test('en utilgjengelig kontroll i hovedlinjen sier hvorfor, med samme ord som kompaktpanelet', async ({
+  test('en utilgjengelig kontroll i hovedlinjen sier hvorfor, med mus og tastatur, med samme ord som kompaktpanelet', async ({
     page,
   }) => {
     await createPresentation(page, 'Grunner')
@@ -203,16 +203,62 @@ test.describe('tilgjengelighet på desktop', () => {
       // Local mode has no backend to publish to.
       'toggle-share': 'Deling krever Supabase',
     }
+    const tooltip = (reason: string) => page.locator('.tooltip').filter({ hasText: reason })
+
+    // The mouse: the reason opens over the control itself.
     for (const [testId, reason] of Object.entries(reasons)) {
       const control = page.getByTestId(testId)
       await expect(control).toBeDisabled()
-      // A disabled button gets no pointer events; the span around it does.
-      await control.locator('xpath=..').hover()
-      await expect(page.locator('.tooltip').filter({ hasText: reason })).toBeVisible()
+      await control.hover()
+      await expect(tooltip(reason)).toBeVisible()
       // Away the way a hand goes, so the tooltip closes before the next one.
       await page.mouse.move(800, 600, { steps: 8 })
       await expect(page.locator('.tooltip')).toHaveCount(0)
     }
+
+    // The keyboard: each is a tab stop, says why on focus — to the eye and as
+    // its accessible description — and refuses Enter as it refuses a click.
+    await page.getByTestId('back-to-library').focus()
+    const pending = new Map(Object.entries(reasons))
+    for (let step = 0; step < 40 && pending.size > 0; step += 1) {
+      await page.keyboard.press('Tab')
+      const testId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? '')
+      const reason = pending.get(testId)
+      if (!reason) continue
+      await expect(tooltip(reason)).toBeVisible()
+      await expect(page.getByTestId(testId)).toHaveAccessibleDescription(reason)
+      await page.keyboard.press('Enter')
+      pending.delete(testId)
+    }
+    expect([...pending.keys()], 'ikke nådd med Tab').toEqual([])
+    await expect(page.getByTestId('mode-content')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('zone-overlay')).toBeHidden()
+    await expect(page.getByTestId('image-modal')).toHaveCount(0)
+    await expect(page.getByTestId('toggle-share')).toHaveAttribute('data-state', 'unsupported')
+  })
+
+  test('en lenke i en slide er ikke et tabstopp i miniatyren, og miniatyren heter som siden', async ({
+    page,
+  }) => {
+    await deckWithCard(page)
+    await stage(page).locator('.subfield .tiptap').first().click()
+    await page.keyboard.type('Kilden ligger her')
+    await page.keyboard.press('Control+a')
+    page.once('dialog', (dialog) => dialog.accept('https://example.invalid/kilde'))
+    await page.getByTestId('format-link').click()
+    await expect(stage(page).locator('a')).toHaveCount(1)
+
+    const thumb = page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb')
+    // The thumbnail draws the page, link and all…
+    await expect(thumb.locator('a')).toHaveCount(1)
+    await expect(thumb).toHaveAccessibleName('Slide 2')
+    // …but Tab goes from the slide's button past it, and back again.
+    await thumb.focus()
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => document.activeElement?.closest('.filmstrip__thumb') ?? null)).toBeNull()
+    await page.keyboard.press('Shift+Tab')
+    await expect(thumb).toBeFocused()
+    expect(await audit(page)).toEqual([])
   })
 
   test('valgt tilstand er semantisk overalt der den er synlig', async ({ page }) => {

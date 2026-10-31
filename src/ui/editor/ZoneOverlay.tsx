@@ -19,6 +19,7 @@ import { absoluteStyle } from '../slide/SlideView'
 import { Icon, type IconTone } from '../components/Icon'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
 
 export interface ZoneActionMenuItem {
@@ -237,13 +238,12 @@ export function ZoneOverlay({
                   <Tooltip
                     key={action.id}
                     label={action.disabled && action.reason ? `${action.label}: ${action.reason}` : action.label}
-                    wrap={action.disabled}
                   >
                     <button
                       type="button"
                       className="btn btn--sm btn--icon"
-                      disabled={action.disabled}
                       onClick={(event) => action.onSelect(event.currentTarget)}
+                      {...unavailable(action.disabled === true)}
                       data-testid={action.testId ?? `zone-action-${action.id}`}
                       aria-label={action.label}
                     >

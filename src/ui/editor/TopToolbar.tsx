@@ -21,6 +21,7 @@ import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 import { ContentKindMenuButton } from './ContentKindMenuButton'
 import type { ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
@@ -151,13 +152,13 @@ export function TopToolbar(props: TopToolbarProps) {
               <span className="toolbar__label toolbar__label--mode">Innhold</span>
             </button>
           </Tooltip>
-          <Tooltip label={zoneReason ?? 'Soneredigering (Ctrl+E)'} wrap={zoneReason !== null}>
+          <Tooltip label={zoneReason ?? 'Soneredigering (Ctrl+E)'}>
             <button
               type="button"
               {...pressedButton('btn btn--sm', mode === 'zone')}
               data-tone="zone"
               onClick={() => setMode('zone')}
-              disabled={zoneReason !== null}
+              {...unavailable(zoneReason !== null)}
               data-testid="mode-zone"
               aria-label="Soner"
             >
@@ -171,13 +172,12 @@ export function TopToolbar(props: TopToolbarProps) {
             titleZone.reason ??
             (props.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone')
           }
-          wrap={titleZone.disabled}
         >
           <button
             type="button"
             {...pressedButton('btn btn--sm', titleZone.checked === true)}
             onClick={props.onToggleTitle}
-            disabled={titleZone.disabled}
+            {...unavailable(titleZone.disabled === true)}
             data-testid="toggle-title"
             aria-label="Overskrift"
           >
@@ -230,12 +230,12 @@ export function TopToolbar(props: TopToolbarProps) {
           selectionIsLeaf={props.selectionIsLeaf}
           onSetContentKind={props.onSetContentKind}
         />
-        <Tooltip label={pictureFile.reason ?? 'Sett inn bilde fra fil'} wrap={pictureFile.disabled}>
+        <Tooltip label={pictureFile.reason ?? 'Sett inn bilde fra fil'}>
           <button
             type="button"
             className="btn btn--sm"
             onClick={props.onOpenImage}
-            disabled={pictureFile.disabled}
+            {...unavailable(pictureFile.disabled === true)}
             data-testid="open-image"
             aria-label="Sett inn bilde fra fil"
           >

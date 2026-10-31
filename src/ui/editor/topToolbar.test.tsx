@@ -70,12 +70,12 @@ describe('TopToolbar', () => {
     const button = kindButton(render({ selectedKind: null }))
     expect(button?.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe('')
     expect(button?.textContent).toContain('Velg innholdstype')
-    expect(button?.hasAttribute('disabled')).toBe(false)
+    expect(button?.hasAttribute('aria-disabled')).toBe(false)
   })
 
   it('names no kind, and offers none, when the selection is not one zone', () => {
     const button = kindButton(render({ selectedKind: 'image', selectionIsLeaf: false }))
-    expect(button?.hasAttribute('disabled')).toBe(true)
+    expect(button?.getAttribute('aria-disabled')).toBe('true')
     expect(button?.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe('')
   })
 

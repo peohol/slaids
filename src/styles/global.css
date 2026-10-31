@@ -283,21 +283,21 @@ textarea {
   flex: none;
 }
 
-.btn:hover:not(:disabled) {
+.btn:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-hover);
   border-color: var(--chrome-border-strong);
 }
 
-.btn:active:not(:disabled) {
+.btn:active:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-pressed);
 }
 
-.btn:disabled {
+.btn:is(:disabled, [aria-disabled='true']) {
   opacity: 0.42;
   cursor: not-allowed;
 }
 
-.btn:disabled .icon[data-tone] {
+.btn:is(:disabled, [aria-disabled='true']) .icon[data-tone] {
   color: inherit;
 }
 
@@ -308,8 +308,8 @@ textarea {
   font-weight: 600;
 }
 
-.btn--primary:hover:not(:disabled),
-.btn--primary:active:not(:disabled) {
+.btn--primary:hover:not(:disabled, [aria-disabled='true']),
+.btn--primary:active:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-primary-hover);
   border-color: var(--chrome-primary-hover);
 }
@@ -325,14 +325,14 @@ textarea {
   border-color: transparent;
 }
 
-.btn--ghost:hover:not(:disabled) {
+.btn--ghost:hover:not(:disabled, [aria-disabled='true']) {
   background: rgba(255, 255, 255, 0.07);
 }
 
 .btn--active,
 .btn[aria-pressed='true'],
-.btn--active:hover:not(:disabled),
-.btn[aria-pressed='true']:hover:not(:disabled) {
+.btn--active:hover:not(:disabled, [aria-disabled='true']),
+.btn[aria-pressed='true']:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-accent-soft);
   border-color: var(--chrome-accent);
   color: var(--chrome-accent-text);
@@ -389,22 +389,20 @@ textarea {
   background: var(--chrome-bg-inset);
 }
 
-.segmented > .btn,
-.segmented > .tooltip-anchor > .btn {
+.segmented > .btn {
   border-color: transparent;
   background: transparent;
   color: var(--chrome-text-dim);
 }
 
-.segmented > .btn:hover:not(:disabled),
-.segmented > .tooltip-anchor > .btn:hover:not(:disabled) {
+.segmented > .btn:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-hover);
   border-color: transparent;
   color: var(--chrome-text);
 }
 
 .segmented > .btn[aria-pressed='true'],
-.segmented > .btn[aria-pressed='true']:hover:not(:disabled) {
+.segmented > .btn[aria-pressed='true']:hover:not(:disabled, [aria-disabled='true']) {
   --segment-ink: var(--chrome-accent);
   background: var(--chrome-bg-raised);
   border-color: var(--segment-ink);
@@ -788,25 +786,6 @@ textarea {
 
 .context-menu__swatch-check {
   display: flex;
-}
-
-/*
- * The span a tooltip is anchored to when its child is disabled.
- *
- * A disabled control fires no pointer events of its own, so something around it
- * has to listen. It contributes nothing to layout beyond passing the child's
- * own box through.
- */
-.tooltip-anchor {
-  display: inline-flex;
-}
-
-/* The anchor exists because a disabled control does not take the pointer —
-   some browsers send its events nowhere, others to the control and stop
-   there. Letting them through to the anchor is what makes the reason a
-   disabled control gives open under any pointer, in any browser. */
-.tooltip-anchor > :disabled {
-  pointer-events: none;
 }
 
 .tooltip {

@@ -156,8 +156,7 @@
     display: none;
   }
 
-  .toolbar .toolbar__group > .btn:has(.toolbar__label--secondary),
-  .toolbar .toolbar__group > .tooltip-anchor > .btn:has(.toolbar__label--secondary) {
+  .toolbar .toolbar__group > .btn:has(.toolbar__label--secondary) {
     width: 30px;
     padding: 0;
     justify-content: center;

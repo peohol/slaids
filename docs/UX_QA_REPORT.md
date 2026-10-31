@@ -13,7 +13,7 @@ Rapporten skiller mellom tre slags utsagn:
 
 ## 1. Kort konklusjon
 
-U0–U7 kan anses som ferdigstilt. Vanlige oppgaver krever like mange eller færre trykk enn før, med tre bevisste unntak der en ekstra menyåpning erstattet anonyme ikonknapper. Alle kjente røde og ustabile tester var feil i testautomatiseringen, ikke i produktet, og er rettet uten å svekke forventningene. U7 fant og rettet sju tilgjengelighetsmangler (N18–N24). Presentasjonsdata, rendering, geometri, fit-regler, angre/gjør om og agent-API er ikke endret av UX-programmet. **Slaids Dev MCP trenger ingen oppdatering.** Gjenværende svakheter er avgrenset og foreslått som egne oppgaver (§ 9).
+U0–U7 kan anses som ferdigstilt. Vanlige oppgaver krever like mange eller færre trykk enn før, med tre bevisste unntak der en ekstra menyåpning erstattet anonyme ikonknapper. Alle kjente røde og ustabile tester var feil i testautomatiseringen, ikke i produktet, og er rettet uten å svekke forventningene. U7 fant og rettet åtte tilgjengelighetsmangler (N18–N25), to av dem etter gjennomgang av PR-en. Presentasjonsdata, rendering, geometri, fit-regler, angre/gjør om og agent-API er ikke endret av UX-programmet. **Slaids Dev MCP trenger ingen oppdatering.** Gjenværende svakheter er avgrenset og foreslått som egne oppgaver (§ 9).
 
 ## 2. Testresultater
 
@@ -21,9 +21,9 @@ U0–U7 kan anses som ferdigstilt. Vanlige oppgaver krever like mange eller fær
 | --- | --- | --- |
 | `npm run typecheck` | Grønn | Grønn |
 | `npm run lint` | Grønn | Grønn |
-| `npm test` (Vitest) | 2796 bestått, **1 feilet** (`fitParity.test.ts`, korttittel) | 2814 bestått, 0 feilet |
+| `npm test` (Vitest) | 2796 bestått, **1 feilet** (`fitParity.test.ts`, korttittel) | 2816 bestått, 0 feilet |
 | `npm run build` | Grønn | Grønn |
-| `npx playwright test` (fem prosjekter) | 375 bestått, **4 feilet**, 7 hoppet over | 395 bestått, 0 feilet, 0 ustabile, 18 hoppet over |
+| `npx playwright test` (fem prosjekter) | 375 bestått, **4 feilet**, 7 hoppet over | 396 bestått, 0 feilet, 0 ustabile, 18 hoppet over |
 | Visuell regresjon (`SLAIDS_VISUAL=1`) | 1 test, **uten lagrede referansebilder i repoet** | 12 tester, 28 referansebilder, stabile ved ny kjøring |
 
 Testene som hoppes over er de 12 opt-in visuelle testene (kjøres med `SLAIDS_VISUAL=1`, se nedenfor) og seks kompakte tester som bare gjelder berøring eller en bestemt bredde (for eksempel pinch med mus). Ingen er hoppet over for å få grønt. CI (`.github/workflows/test.yml`) kjører typecheck, lint, Vitest og build, ikke Playwright; E2E-tallene over er kjørt lokalt i skyutviklingsmiljøet.
@@ -84,20 +84,21 @@ Om oppgavene oppleves enklere, tar kortere tid eller gir færre feil, er **ikke 
 
 Nye automatiserte kontroller:
 
-- `e2e/accessibility.spec.ts` kjører axe-core (WCAG 2.2 A/AA og beste praksis) på åtte desktoptilstander (innholdsmodus, tekstredigering, to menyer, sonemodus, ny-slide-dialogen, forsiden og biblioteket) og på telefonens scene og fire paneler. Den tester også tastaturrekkefølge og synlig fokus i hovedlinjen, begrunnelser for utilgjengelige knapper, at valgt tilstand alltid har `aria-pressed`/`aria-current`, redusert bevegelse og høy kontrast (`forced-colors`).
+- `e2e/accessibility.spec.ts` kjører axe-core (WCAG 2.2 A/AA og beste praksis) på åtte desktoptilstander (innholdsmodus, tekstredigering, to menyer, sonemodus, ny-slide-dialogen, forsiden og biblioteket) og på telefonens scene og fire paneler. Den tester også tastaturrekkefølge og synlig fokus i hovedlinjen, begrunnelser for utilgjengelige knapper med mus og med tastatur (som verktøytips og som tilgjengelig beskrivelse), at en lenke i en slide ikke blir et tabstopp i miniatyren, at valgt tilstand alltid har `aria-pressed`/`aria-current`, redusert bevegelse og høy kontrast (`forced-colors`).
 - `src/styles/chromeTokens.test.ts` leser fargetokenene fra `global.css` og krever 4,5:1 for tekst på alle flater (også valgt flate), 3:1 for blekk, aksent og statuskanter, og 4,5:1 for hvit tekst på fylte knapper. I tillegg simulerer den protanopi, deuteranopi og tritanopi og krever at de tre blekkfamiliene (innhold, sone, bilde) holder seg tydelig atskilt (ΔE ≥ 20).
 
 Nye funn i U7, alle rettet:
 
 | ID | Funn | Rettelse |
 | --- | --- | --- |
-| N18 | Utilgjengelige knapper i hovedlinjen (sonemodus, «Overskrift» og «Bilde fra fil» på forsiden; «Del» i lokal modus) viste ingen grunn: en deaktivert knapp tar ikke imot musepekeren, så verktøytipset åpnet seg aldri. | Grunnen vises i verktøytipset via en omsluttende flate (`Tooltip wrap`), og det er den samme teksten som kompaktens verktøyfane skriver under raden (felles `pictureFileEntry`, `titleZoneEntry`, `zoneModeReason` i `toolbarMenus.ts`). |
+| N18 | Utilgjengelige knapper i hovedlinjen (sonemodus, «Overskrift» og «Bilde fra fil» på forsiden; «Del» i lokal modus) viste ingen grunn: en deaktivert knapp tar verken imot musepekeren eller tastaturfokus, så verktøytipset åpnet seg aldri, og en omsluttende flate (første forsøk) hjalp bare musen. | Alle knapper som gir grunnen i et verktøytips, er nå `aria-disabled` i stedet for `disabled` (felles `unavailable()` i `src/ui/components/unavailable.ts`): de er tabstopp, verktøytipset åpner seg ved fokus som ved hover og er knappens tilgjengelige beskrivelse, og trykk, Enter og mellomrom avvises før knappens egen handling. Det gjelder hovedlinjen, tekstlinjen, menyknappene, sonens ikonrad og valgene i en tom sone. Teksten er den samme som kompaktens verktøyfane skriver under raden (felles `pictureFileEntry`, `titleZoneEntry`, `zoneModeReason` i `toolbarMenus.ts`). |
 | N19 | I høy kontrast-modus var det ikke synlig hvilken menyoppføring tastaturet sto på. | `Highlight`-ramme på markert oppføring og fargerute. |
 | N20 | Fargerutene i inspektøren ble presset til 20,8 px med mus, under WCAG 2.5.8 (24 px). | Rutene deler radens bredde og er inntil 28 px på alle pekere; raden brytes i stedet for å krympe. |
 | N21 | Presentasjonstittelen i hovedlinjen var 20 px høy. | Minst 24 px. |
 | N22 | Inspektør og slideoversikt var landemerker uten navn, og kompaktpanelets grupper ble lest som fire navnløse regioner. | «Inspektør», «Slideoversikt», scenen som hovedområdet «Slide»; kompaktgrupper er navngitte grupper. |
-| N23 | Hver miniatyr i slideoversikten leste opp hele slidens tekst for skjermleseren. | Miniatyren er skjult for hjelpemidler; knappen bærer navnet «Slide 3» osv. |
+| N23 | Hver miniatyr i slideoversikten leste opp hele slidens tekst for skjermleseren. | Miniatyren er `inert`: skjult for hjelpemidler og uten tabstopp; knappen bærer navnet «Slide 3» osv. |
 | N24 | Valgt farge i paletten var bare synlig som hake; inspektørens «Innholdstype» og typenavnet ble lest som ett ord. | `aria-pressed` på valgt rute; mellomrom mellom etikett og navn. |
+| N25 | En lenke i en slides tekst ble et tabstopp inne i miniatyrens knapp, der Enter fulgte lenken i stedet for å åpne sliden (og etter N23 var tabstoppet i tillegg skjult for skjermleseren). | Samme `inert` som N23. Testet med en presentasjon med en ekte lenke. |
 
 ## 6. Responsivitet (oppdrag 5)
 
@@ -135,13 +136,12 @@ Hvert bilde dekker én flate, så en endring i én flate feiler én forventning.
 Ingen av punktene hindrer at U0–U7 kan avsluttes. De foreslås som egne, avgrensede oppgaver:
 
 1. **Sonefiolett og valgblått ved rød-grønn fargesvikt.** Ved protanopi og deuteranopi ligger sonemodusens fiolette blekk nær valgt-blått. Farge er ikke eneste signal (modus har segment og understrek, valgt har kant og `aria-pressed`), så det er ikke et WCAG-brudd. Det bør likevel justeres i designsystemet og legges til i `chromeTokens.test.ts`.
-2. **Begrunnelser for utilgjengelige knapper på desktop** finnes bare i verktøytipset ved hover. En deaktivert knapp kan ikke få tastaturfokus, så tastatur- og skjermleserbrukere får ikke grunnen; kompakt viser den som tekst. Vurder `aria-disabled` med fokus, eller grunnen som synlig tekst.
-3. **Landemerke for tekstlinjen og menyene.** axe-regelen `region` (beste praksis, ikke WCAG) er slått av i testen fordi tekstlinjen og flytende menyer står utenfor landemerker. Det er ufarlig, men kan ryddes.
-4. **Kalibrering av fit-estimatet for titler.** Estimatet er bevisst konservativt. Om det skal strammes inn, er en produktbeslutning fordi det endrer hvor mye tekst agent og editor slipper inn.
-5. **Fysiske enhetstester.** Røyktestene i MOBILE_WORKSPACE.md § 16 (ekte iOS/Android, skjermtastatur, Apple Pencil) gjenstår; alt her er kjørt i emulert Chromium.
-6. **Brukertest.** Oppdagbarheten av sjeldne funksjoner i menyer og forståelsen av innholds- og sonemodus bør prøves med 3–5 brukere, med baseline-matrisen som oppgaveliste.
-7. **Paletten i inspektøren** er høyere enn før fordi rutene ikke lenger krymper under 24 px. Vurder en sammenleggbar palett hvis plassen blir et problem.
-8. **E2E i CI.** Playwright kjøres ikke i GitHub Actions. Å legge til en (eventuelt delvis) E2E-jobb ville fange regresjoner tidligere.
+2. **Landemerke for tekstlinjen og menyene.** axe-regelen `region` (beste praksis, ikke WCAG) er slått av i testen fordi tekstlinjen og flytende menyer står utenfor landemerker. Det er ufarlig, men kan ryddes.
+3. **Kalibrering av fit-estimatet for titler.** Estimatet er bevisst konservativt. Om det skal strammes inn, er en produktbeslutning fordi det endrer hvor mye tekst agent og editor slipper inn.
+4. **Fysiske enhetstester.** Røyktestene i MOBILE_WORKSPACE.md § 16 (ekte iOS/Android, skjermtastatur, Apple Pencil) gjenstår; alt her er kjørt i emulert Chromium.
+5. **Brukertest.** Oppdagbarheten av sjeldne funksjoner i menyer og forståelsen av innholds- og sonemodus bør prøves med 3–5 brukere, med baseline-matrisen som oppgaveliste.
+6. **Paletten i inspektøren** er høyere enn før fordi rutene ikke lenger krymper under 24 px. Vurder en sammenleggbar palett hvis plassen blir et problem.
+7. **E2E i CI.** Playwright kjøres ikke i GitHub Actions. Å legge til en (eventuelt delvis) E2E-jobb ville fange regresjoner tidligere.
 
 ## 10. Begrensninger
 
