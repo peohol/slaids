@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0–U6 er gjennomført (se § 10); U7 venter.  
+**Status:** U0–U7 er gjennomført (se § 10 og [UX_QA_REPORT.md](UX_QA_REPORT.md)).  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -256,16 +256,18 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U7 — Helhetlig kvalitetssikring
 
-- [ ] Kjør typecheck, lint, enhetstester, E2E og relevante visuelle tester.
-- [ ] Legg inn visuelle regresjonstester av app-chrome og kritiske tilstander, ikke bare slideinnhold.
-- [ ] Test tastaturnavigasjon, synlig fokus, aria-pressed/checked, disabled-reasons og fokusretur fra menyer.
-- [ ] Test kontrast, tvetydige ikoner, reduced motion og høy kontrast der mulig.
-- [ ] Gjenta oppgavematrisen og sammenlign med baseline (klikk/trykk, tid ved manuell test, feil og misforståelser).
-- [ ] Gå gjennom desktop, smal desktop, mobil stående/liggende og stor touch-flate.
-- [ ] Verifiser at renderet slideinnhold og presentasjoners filer/datastruktur ikke påvirkes.
-- [ ] Registrer resterende forbedringer som egne oppgaver, ikke som ubegrenset scope i siste PR.
+- [x] Kjør typecheck, lint, enhetstester, E2E og relevante visuelle tester.
+- [x] Legg inn visuelle regresjonstester av app-chrome og kritiske tilstander, ikke bare slideinnhold.
+- [x] Test tastaturnavigasjon, synlig fokus, aria-pressed/checked, disabled-reasons og fokusretur fra menyer.
+- [x] Test kontrast, tvetydige ikoner, reduced motion og høy kontrast der mulig.
+- [x] Gjenta oppgavematrisen og sammenlign med baseline (klikk/trykk, tid ved manuell test, feil og misforståelser). *(Trykk er målt; tid, feil og misforståelser krever brukertest og er ikke målt.)*
+- [x] Gå gjennom desktop, smal desktop, mobil stående/liggende og stor touch-flate.
+- [x] Verifiser at renderet slideinnhold og presentasjoners filer/datastruktur ikke påvirkes.
+- [x] Registrer resterende forbedringer som egne oppgaver, ikke som ubegrenset scope i siste PR.
 
 **Aksept:** Påviselig forbedret oppgaveflyt og ingen vesentlige funksjonelle, visuelle eller tilgjengelighetsmessige regresjoner.
+
+**Resultat:** Samlet i [UX_QA_REPORT.md](UX_QA_REPORT.md). *Tester:* de fem kjente røde testene (én Vitest, fire Playwright) var alle feil i testautomatiseringen – måling før fontene var lastet, før en animasjon eller rulling hadde stoppet, i to ulike enheter, eller med et fast antall tastetrykk – og er rettet uten å svekke forventningene; fit-paritetstesten krever nå også at estimatet aldri er mindre enn målingen. *Oppgavematrisen* er gjort kjørbar (`e2e/task-matrix.spec.ts`) og teller trykk: «Kort med tittel» og «Sett inn bilde og erstatt fil» krever færre, «Vis» er alltid synlig, resten er like, og tre sjeldne handlinger (flytt/dupliser slide, bildebrief, kopier presentasjons-ID) ligger ett trykk lenger unna i navngitte menyer. *Tilgjengelighet:* axe-core (WCAG 2.2 AA) på desktop- og telefontilstander, tastaturrekkefølge og fokus, redusert bevegelse, høy kontrast, og fargetokenene kontrollert for kontrast og fargesynsvariasjoner (`chromeTokens.test.ts`). Nye funn N18–N25 er rettet: grunnen til en utilgjengelig knapp vises nå både ved hover og tastaturfokus og er knappens tilgjengelige beskrivelse (`aria-disabled` via `unavailable()`, samme tekst som i kompakt), markert menyoppføring synes i høy kontrast, fargeruter og tittel er minst 24 px, landemerker har navn, og miniatyrer er `inert`, så de verken leser opp hele sliden eller gjør lenker i den til tabstopp. *Responsivitet:* ingen sideveis rulling og «Vis» alltid synlig i sju skjermstørrelser (`e2e/responsive.spec.ts`). *Visuell regresjon:* 25 referansebilder av appgrensesnittet (`e2e/visual-chrome.spec.ts`), og slidebildene i `visual.spec.ts` har fått referanser de manglet. Ingen presentasjonsdata, renderer, geometri, fit-regel, angre/gjør om eller agent-API er endret i U0–U7; Slaids Dev MCP trenger ingen oppdatering. Gjenstående forbedringer er registrert som egne oppgaver i rapportens § 9.
 
 ## 8. Arbeidsflyter som skal testes etter hver relevant endring
 
@@ -306,6 +308,6 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | U4 Tekstverktøy | Ferdig 31.10.2026 | Feltnavn og faste grupper, aktiv tilstand også for loddrett justering, deaktivering fra pålitelig tilgjengelighet, tabell/bilde som felles meny, fokus blir i teksten, fargearv «fra gjeldende inndeling». Nye funn N10–N12 løst (se UX_BASELINE.md). |
 | U5 Bibliotek og filmstripe | Ferdig 31.10.2026 | «Åpne» som kortets handling, «Flere handlinger»-meny på kort, mapper og sider, «Ny slide» + meny med plassering, valgt side tydelig, felles oppføringer for ny side. |
 | U6 Mobil/responsivt | Ferdig 31.10.2026 | Soner-fanen og sonemodus henger sammen i begge retninger, aktiv fane med modusblekk, verktøyfanen gruppert og navngitt som desktop, 44 px treffflater på all berøring (også nettbrett i desktopvisning), tekstlinja viser at den ruller. Nye funn N13–N17 løst (se UX_BASELINE.md). |
-| U7 Samlet QA | Ikke startet | Anbefalt neste. Tester kjøres også kontinuerlig |
+| U7 Samlet QA | Ferdig 31.10.2026 | [UX_QA_REPORT.md](UX_QA_REPORT.md). Fem røde tester rettet (alle testautomatisering), kjørbar oppgavematrise, axe- og kontrasttester, responsivitet i sju størrelser, visuelle referanser av appgrensesnittet. Nye funn N18–N25 løst. Programmet U0–U7 er avsluttet; videre forslag i rapportens § 9. |
 
-**Startpunkt for Claude Code:** Les denne planen og IMPLEMENTATION_PLAN.md § 44.5–44.6. Begynn med U0, og bruk deretter /frontend-design til U1. Lag en avgrenset implementerings-PR for U1; ikke start en full redesign av alle flater i samme PR.
+**Startpunkt for Claude Code:** Programmet er avsluttet. Nye UX-oppgaver tar utgangspunkt i UX_QA_REPORT.md § 9, UX_DESIGN_SYSTEM.md og de automatiserte kontrollene (`accessibility.spec.ts`, `responsive.spec.ts`, `task-matrix.spec.ts`, `visual-chrome.spec.ts`, `chromeTokens.test.ts`); ikke start en ny, ubegrenset redesign.

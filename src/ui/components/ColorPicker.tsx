@@ -61,27 +61,30 @@ export function ColorSwatchGrid({
       )}
       {PALETTE.map((row, rowIndex) => (
         <div className="palette__row" key={rowIndex}>
-          {row.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className={
-                color === value && !inherited?.active
-                  ? 'palette__swatch palette__swatch--active'
-                  : 'palette__swatch'
-              }
-              style={{ background: color }}
-              onClick={() => onSelect(color)}
-              aria-label={color}
-              data-color={color}
-            >
-              {color === value && (
-                <span style={{ color: bestTextColor(color), display: 'flex' }}>
-                  <Icon name="check" size={14} />
-                </span>
-              )}
-            </button>
-          ))}
+          {row.map((color) => {
+            // One answer for the frame, the check and the state a screen
+            // reader hears — and none while «Standard» is the choice in force,
+            // even when the default happens to be one of these colours.
+            const selected = color === value && !inherited?.active
+            return (
+              <button
+                key={color}
+                type="button"
+                className={selected ? 'palette__swatch palette__swatch--active' : 'palette__swatch'}
+                style={{ background: color }}
+                onClick={() => onSelect(color)}
+                aria-label={color}
+                aria-pressed={selected}
+                data-color={color}
+              >
+                {selected && (
+                  <span style={{ color: bestTextColor(color), display: 'flex' }}>
+                    <Icon name="check" size={14} />
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       ))}
     </div>

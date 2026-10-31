@@ -70,6 +70,14 @@ Desktop med mus, 1600 × 1000. Klikk = trykk på kontroller; skriving og filvalg
 | N15 | Kompakt: fanen «Slides» brukte samme ikon som «Maler …», og «Verktøy» et menyikon desktopens verktøymeny ikke har. | `CompactTabBar.tsx` | Løst i U6 |
 | N16 | Kompakt verktøyfane: seks innholdstyper som egne rader skjøv presentasjonsverktøyene under kanten på telefon, og gruppene fulgte ikke desktoplinjen. | `baseline/phone-412x892-tools.png` | Løst i U6 (menyknapp og desktopens grupper) |
 | N17 | Tekstlinja på telefon ruller sideveis uten synlig tegn på at det finnes flere verktøy. | `u6/before-phone-412x892-focused.png` | Løst i U6 (kanten tones ut) |
+| N18 | Utilgjengelige knapper i hovedlinjen (sonemodus og «Overskrift»/«Bilde fra fil» på forsiden, «Del» i lokal modus) viste aldri grunnen: en deaktivert knapp tar verken imot pekeren eller tastaturfokus, så verktøytipset åpnet seg ikke. | `e2e/accessibility.spec.ts` | Løst i U7 (`aria-disabled` via `unavailable()`, samme begrunnelse som kompakt) |
+| N19 | I høy kontrast-modus synes ikke hvilken menyoppføring tastaturet står på. | `e2e/accessibility.spec.ts` | Løst i U7 |
+| N20 | Fargerutene i inspektøren var 20,8 px med mus, under WCAG 2.5.8 (24 px). | axe `target-size` | Løst i U7 (inntil 28 px, raden brytes) |
+| N21 | Presentasjonstittelen i hovedlinjen var 20 px høy. | axe `target-size` | Løst i U7 |
+| N22 | Inspektør og slideoversikt var navnløse landemerker; kompaktpanelets grupper ble lest som fire navnløse regioner. | axe `landmark-unique` | Løst i U7 |
+| N23 | Hver miniatyr leste opp hele slidens tekst for skjermleseren. | axe, gjennomgang | Løst i U7 (`inert`) |
+| N25 | En lenke i en slide ble et tabstopp inne i miniatyrens knapp. | PR-gjennomgang, `e2e/accessibility.spec.ts` | Løst i U7 (`inert`) |
+| N24 | Valgt farge i paletten hadde ikke `aria-pressed`; «Innholdstype» og typenavnet ble lest som ett ord. | `e2e/accessibility.spec.ts`, axe `label-content-name-mismatch` | Løst i U7 |
 
 ## 4. Valgt informasjonsarkitektur
 

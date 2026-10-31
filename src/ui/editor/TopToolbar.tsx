@@ -21,11 +21,18 @@ import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 import { ContentKindMenuButton } from './ContentKindMenuButton'
 import type { ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
 import { SaveIndicator } from './StatusBar'
-import { helperToolEntries, presentationToolEntries } from './toolbarMenus'
+import {
+  helperToolEntries,
+  pictureFileEntry,
+  presentationToolEntries,
+  titleZoneEntry,
+  zoneModeReason,
+} from './toolbarMenus'
 
 export interface TopToolbarProps {
   title: string
@@ -88,6 +95,11 @@ export function TopToolbar(props: TopToolbarProps) {
   const shareBusy = useSharingStore((state) => state.busy)
   const shareError = useSharingStore((state) => state.error)
   const shareLink = useShareUrl()
+  // State and reasons from the same entries the compact tools panel lists, so
+  // a control that is unavailable says why on both, in the same words.
+  const zoneReason = zoneModeReason(props.canEditZones)
+  const titleZone = titleZoneEntry(props)
+  const pictureFile = pictureFileEntry(props)
 
   return (
     <header className="toolbar" data-testid="top-toolbar" data-mode={mode}>
@@ -140,13 +152,13 @@ export function TopToolbar(props: TopToolbarProps) {
               <span className="toolbar__label toolbar__label--mode">Innhold</span>
             </button>
           </Tooltip>
-          <Tooltip label="Soneredigering (Ctrl+E)">
+          <Tooltip label={zoneReason ?? 'Soneredigering (Ctrl+E)'}>
             <button
               type="button"
               {...pressedButton('btn btn--sm', mode === 'zone')}
               data-tone="zone"
               onClick={() => setMode('zone')}
-              disabled={!props.canEditZones}
+              {...unavailable(zoneReason !== null)}
               data-testid="mode-zone"
               aria-label="Soner"
             >
@@ -155,14 +167,17 @@ export function TopToolbar(props: TopToolbarProps) {
             </button>
           </Tooltip>
         </div>
-        <Tooltip label={props.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone'}>
+        <Tooltip
+          label={
+            titleZone.reason ??
+            (props.hasTitleZone ? 'Fjern overskriftssonen' : 'Legg til overskriftssone')
+          }
+        >
           <button
             type="button"
-            /* A disabled button never reads as "on": on a page with no title
-               zone to toggle, the state of some other page's is not news. */
-            {...pressedButton('btn btn--sm', props.hasTitleZone && props.canToggleTitle)}
+            {...pressedButton('btn btn--sm', titleZone.checked === true)}
             onClick={props.onToggleTitle}
-            disabled={!props.canToggleTitle}
+            {...unavailable(titleZone.disabled === true)}
             data-testid="toggle-title"
             aria-label="Overskrift"
           >
@@ -215,12 +230,12 @@ export function TopToolbar(props: TopToolbarProps) {
           selectionIsLeaf={props.selectionIsLeaf}
           onSetContentKind={props.onSetContentKind}
         />
-        <Tooltip label="Sett inn bilde fra fil">
+        <Tooltip label={pictureFile.reason ?? 'Sett inn bilde fra fil'}>
           <button
             type="button"
             className="btn btn--sm"
             onClick={props.onOpenImage}
-            disabled={!props.canEditZones}
+            {...unavailable(pictureFile.disabled === true)}
             data-testid="open-image"
             aria-label="Sett inn bilde fra fil"
           >

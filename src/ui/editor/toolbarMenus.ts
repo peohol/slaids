@@ -65,6 +65,56 @@ export function presentationToolEntries(handlers: PresentationToolHandlers): Men
   ]
 }
 
+export interface PageToolHandlers {
+  /** False on a derived page, a section or a miniapp's cover: none has zones. */
+  canEditZones: boolean
+  canToggleTitle: boolean
+  hasTitleZone: boolean
+  onOpenImage: () => void
+  onToggleTitle: () => void
+}
+
+/**
+ * Why zone editing is unavailable, or `null` when it is not.
+ *
+ * Said where the mode is chosen, because a disabled control that cannot say
+ * why is a control the reader learns to stop trying.
+ */
+export function zoneModeReason(canEditZones: boolean): string | null {
+  return canEditZones ? null : 'Denne siden har ingen soner å redigere.'
+}
+
+/** A picture file for the selected zone — deliberately not a content kind. */
+export function pictureFileEntry(handlers: PageToolHandlers): MenuAction {
+  return {
+    kind: 'action',
+    id: 'image',
+    label: 'Sett inn bilde fra fil …',
+    icon: 'image-add',
+    tone: 'media',
+    disabled: !handlers.canEditZones,
+    reason: handlers.canEditZones ? null : 'Denne siden har ingen soner å sette et bilde i.',
+    onSelect: handlers.onOpenImage,
+  }
+}
+
+/** The slide's title zone, on or off. */
+export function titleZoneEntry(handlers: PageToolHandlers): MenuAction {
+  return {
+    kind: 'action',
+    id: 'title',
+    label: 'Overskrift',
+    icon: 'heading',
+    tone: 'content',
+    // A disabled toggle never reads as «on»: on a page with no title zone to
+    // toggle, the state of some other page's is not news.
+    checked: handlers.hasTitleZone && handlers.canToggleTitle,
+    disabled: !handlers.canToggleTitle,
+    reason: handlers.canToggleTitle ? null : 'Denne siden har ingen overskriftssone å slå av eller på.',
+    onSelect: handlers.onToggleTitle,
+  }
+}
+
 export interface HelperToolHandlers {
   sandboxCount: number
   /** Whether each window is open, where the entry toggles it. Left out, it only opens. */

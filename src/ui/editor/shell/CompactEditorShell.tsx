@@ -28,6 +28,7 @@
  * which is the whole of the one-at-a-time rule.
  */
 
+import { useId } from 'react'
 import { useEditorStore } from '../../../state/store'
 import { Icon } from '../../components/Icon'
 import { CompactContentList } from '../compact/CompactContentList'
@@ -59,6 +60,7 @@ export function CompactEditorShell(props: EditorShellProps) {
   const mode = useEditorStore((state) => state.mode)
   const setMode = useEditorStore((state) => state.setMode)
   const zoneModeAvailable = useEditorStore((state) => state.currentContentSlide() !== null)
+  const panelTitleId = useId()
 
   /*
    * One big surface at a time, derived rather than synchronised: while a tool
@@ -163,9 +165,12 @@ export function CompactEditorShell(props: EditorShellProps) {
               data-testid="compact-panel"
               data-panel={panel}
               data-full={FULL_HEIGHT_PANELS.has(panel) ? '' : undefined}
+              aria-labelledby={panelTitleId}
             >
               <header className="compact-panel__head">
-                <h2 className="compact-panel__title">{PANEL_TITLES[panel]}</h2>
+                <h2 className="compact-panel__title" id={panelTitleId}>
+                  {PANEL_TITLES[panel]}
+                </h2>
                 <button
                   type="button"
                   className="btn btn--ghost btn--icon touch-target"

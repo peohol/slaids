@@ -17,6 +17,7 @@ import {
   backToLibrary,
   createPresentation,
   dismissImageModal,
+  scrollSettled,
   stage,
   toast,
   waitForSaved,
@@ -1524,8 +1525,13 @@ test.describe('kompakt arbeidsflate', () => {
     await addSlides(page, 3)
     await openPanel(page, 'slides')
     // The overview opens with the shown (last) slide in its middle; this test is
-    // about the first entries, so it scrolls back to them by hand first.
-    await page.getByTestId('filmstrip-list').evaluate((element) => element.scrollTo({ top: 0 }))
+    // about the first entries, so it scrolls back to them by hand first — once
+    // the overview's own smooth scroll to that slide has finished, or that
+    // scroll carries on past this one and the grip ends up under the header.
+    const overview = page.getByTestId('filmstrip-list')
+    await scrollSettled(overview)
+    await overview.evaluate((element) => element.scrollTo({ top: 0, behavior: 'instant' }))
+    await expect.poll(() => overview.evaluate((element) => element.scrollTop)).toBe(0)
 
     const list = (await page.getByTestId('filmstrip-list').boundingBox())!
     const thumb = (await page.getByTestId('filmstrip-thumb').first().boundingBox())!

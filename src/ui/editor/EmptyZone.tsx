@@ -12,6 +12,7 @@
 import type { Rect, ZoneContentKind } from '../../domain/types'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 import { contentKindOptions } from './contentKinds'
 import { useSlideRender } from '../slide/SlideRenderContext'
 
@@ -40,17 +41,17 @@ export function EmptyZone({
       <span className="zone-empty__hint">Velg innholdstype</span>
       <div className="zone-empty__choices">
         {contentKindOptions(rect, theme).map((option) => (
-          <Tooltip key={option.kind} label={option.reason ?? option.label} wrap={option.disabled}>
+          <Tooltip key={option.kind} label={option.reason ?? option.label}>
             <button
               type="button"
               className="btn btn--sm"
               data-testid={`empty-zone-${option.kind}`}
-              disabled={option.disabled}
               title={option.reason ?? undefined}
               onClick={(event) => {
                 event.stopPropagation()
                 onAdd(nodeId, option.kind)
               }}
+              {...unavailable(option.disabled)}
             >
               <Icon name={option.icon} size={15} tone={option.tone} /> {option.label}
             </button>

@@ -221,6 +221,10 @@ export function StageSurface({
       className="stage-viewport"
       ref={viewportRef}
       data-testid="stage-viewport"
+      // The page being edited is what the editor is for, so it is the main
+      // landmark; the strip and the inspector are the complementary ones.
+      role="main"
+      aria-label="Slide"
       /* This stage answers a pinch itself, so the stylesheet takes the
          browser's out of the way here and only here. */
       data-pinch={onZoomChange ? '' : undefined}

@@ -61,28 +61,23 @@ test.describe('rich text', () => {
     // stays tied to one line instead of growing with the block, so it becomes
     // a rounded card and the text stays clear of the corners.
     await page.keyboard.type('Kort aksent')
-    const oneLine = await heading.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return {
-        height: element.getBoundingClientRect().height,
-        radius: Number.parseFloat(style.borderTopLeftRadius),
-      }
+    // Both in the slide's own pixels: the radius is a computed style, and the
+    // stage draws the slide scaled, so a box from `getBoundingClientRect` would
+    // be the same pill measured in a different unit.
+    const pill = (element: Element) => ({
+      height: (element as HTMLElement).offsetHeight,
+      radius: Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
     })
+    const oneLine = await heading.evaluate(pill)
     expect(oneLine.radius).toBeCloseTo(oneLine.height / 2, 0)
 
     await page.keyboard.type(
       ' som er lang nok til å brytes over flere linjer i feltet uten å endre typografi eller innholdstype',
     )
     await expect
-      .poll(() => heading.evaluate((element) => element.getBoundingClientRect().height))
+      .poll(() => heading.evaluate((element) => (element as HTMLElement).offsetHeight))
       .toBeGreaterThan(oneLine.height * 1.5)
-    const wrapped = await heading.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return {
-        height: element.getBoundingClientRect().height,
-        radius: Number.parseFloat(style.borderTopLeftRadius),
-      }
-    })
+    const wrapped = await heading.evaluate(pill)
     expect(wrapped.radius).toBeCloseTo(oneLine.radius, 0)
     expect(wrapped.radius).toBeLessThan(wrapped.height / 2)
 

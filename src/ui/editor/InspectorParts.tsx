@@ -15,6 +15,21 @@ import { Icon, type IconName, type IconTone } from '../components/Icon'
 import { pressedButton } from '../components/pressed'
 
 /**
+ * The panel itself: one landmark, named, whichever inspector fills it.
+ *
+ * The slide overview beside it is a complementary landmark too, and two of
+ * those without names are the same entry twice in a screen reader's list of
+ * places to go.
+ */
+export function InspectorPanel({ children }: { children: ReactNode }) {
+  return (
+    <aside className="inspector" data-testid="inspector" aria-label="Inspektør">
+      {children}
+    </aside>
+  )
+}
+
+/**
  * What is selected: its icon, its name and one line about it.
  *
  * The edge is the selection blue, the same blue the stage draws the selected

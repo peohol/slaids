@@ -29,7 +29,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import puppeteer from 'puppeteer-core'
+import puppeteer, { type Page } from 'puppeteer-core'
 import {
   agentOperation,
   closeTestDatabases,
@@ -50,7 +50,7 @@ import { findContentSlide } from '../domain/presentation'
 import { imageNode } from '../domain/richdoc'
 import type { CardBody, Rect, RichDoc, RichNode } from '../domain/types'
 import { loadPreviewAssets } from './assets'
-import { resolveExecutable } from './chromium'
+import { DEFAULT_FONT_TIMEOUT_MS, resolveExecutable, waitForFonts } from './chromium'
 import { previewDocument } from './document'
 
 afterEach(closeTestDatabases)
@@ -104,8 +104,49 @@ async function compare(
   const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
   if (!page) throw new Error('Fant ikke siden.')
   const assets = await loadPreviewAssets(page, context.repository)
-  const html = previewDocument({ presentation, page, assets: assets.source }).html
+  const preview = previewDocument({ presentation, page, assets: assets.source })
 
+  // `measureElementOverflow`'s own reading, written out here rather than
+  // imported: that function needs a DOM, and this file's point is to compare
+  // against what a browser does rather than against another module.
+  const measured = await measureInBrowser(preview, (tab) =>
+    tab.evaluate(() => {
+      let worst = 0
+      for (const box of document.querySelectorAll('[data-fit-scroll]')) {
+        const target = box as HTMLElement
+        worst = Math.max(worst, target.scrollHeight - target.clientHeight)
+      }
+      return worst
+    }),
+  )
+  return {
+    rect,
+    // The overflow the gate would report: everything the flow needs, less the
+    // room it has. Clamped at zero, because the browser cannot report that
+    // something fitted with room to spare.
+    estimated: Math.max(
+      0,
+      estimateDocHeight(doc, rect.width, undefined, rect.height) - rect.height,
+    ),
+    measured,
+  }
+}
+
+/**
+ * One preview document, laid out in a real Chromium, in the deck's own type.
+ *
+ * The theme's web fonts are linked, not inlined, so `load` fires while a face
+ * the page uses can still be on its way — and a measurement taken then is of
+ * the fallback face. That is what made the card-title case below pass or fail
+ * on how fast the font host answered: the estimator models the theme's face,
+ * so a comparison against any other face says nothing. The wait is the
+ * rasterizer's own (`waitForFonts`), and a page whose faces never arrived fails
+ * here, by name, rather than further down as a disagreement about widths.
+ */
+async function measureInBrowser<T>(
+  preview: { html: string; fontFamilies: string[] },
+  measure: (tab: Page) => Promise<T>,
+): Promise<T> {
   const resolved = await resolveExecutable(process.env as Record<string, string | undefined>)
   const browser = await puppeteer.launch({
     executablePath: resolved.executablePath,
@@ -117,29 +158,9 @@ async function compare(
     // The logical design space, unscaled: layout happens at the size the
     // geometry engine computes its rects in.
     await tab.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 })
-    await tab.setContent(html, { waitUntil: 'load' })
-    // `measureElementOverflow`'s own reading, written out here rather than
-    // imported: that function needs a DOM, and this file's point is to compare
-    // against what a browser does rather than against another module.
-    const measured = await tab.evaluate(() => {
-      let worst = 0
-      for (const box of document.querySelectorAll('[data-fit-scroll]')) {
-        const target = box as HTMLElement
-        worst = Math.max(worst, target.scrollHeight - target.clientHeight)
-      }
-      return worst
-    })
-    return {
-      rect,
-      // The overflow the gate would report: everything the flow needs, less the
-      // room it has. Clamped at zero, because the browser cannot report that
-      // something fitted with room to spare.
-      estimated: Math.max(
-        0,
-        estimateDocHeight(doc, rect.width, undefined, rect.height) - rect.height,
-      ),
-      measured,
-    }
+    await tab.setContent(preview.html, { waitUntil: 'load' })
+    expect(await waitForFonts(tab, preview.fontFamilies, DEFAULT_FONT_TIMEOUT_MS)).toBe(true)
+    return await measure(tab)
   } finally {
     await browser.close()
   }
@@ -157,13 +178,20 @@ async function compare(
 const TOLERANCE = 40
 
 /**
- * A title's overflow, within a fifth of itself.
+ * A title's overflow, within a fifth of the line.
  *
  * The estimator counts characters at the typeface's average advance and the
  * browser lays out the actual letters, so the longer the line the further the
- * two drift — in proportion, because every extra character adds its own small
- * difference. What they must agree on is that the line is clipped and roughly
- * by how much, not on the pixel.
+ * two drift — in proportion to the *line*, because every extra character adds
+ * its own small difference. The overflow is only what is left of the line once
+ * the header's width is taken off, so a ratio of the overflow would tighten as
+ * the line got shorter and say nothing about the advance at all.
+ *
+ * The catalogue's advance is deliberately wider than mixed-case text (about
+ * 0.52 against 0.43–0.48 em measured for the web fonts, with capitals near
+ * 0.58), so the drift has a direction as well: the estimate may report more
+ * hidden than the browser does, never less. A gate that said less would let
+ * an agent commit a title the slide then clips.
  */
 const TITLE_TOLERANCE_RATIO = 0.2
 
@@ -179,7 +207,7 @@ async function compareCardTitle(
   context: TestDeckContext,
   deck: { presentationId: string; slideId: string },
   title: string,
-): Promise<{ estimated: number; measured: number }> {
+): Promise<{ estimated: number; measured: number; line: number }> {
   const presentation = await storedPresentation(context, deck.presentationId)
   const slide = findContentSlide(presentation, deck.slideId)
   if (!slide) throw new Error('Fant ikke sliden.')
@@ -197,28 +225,21 @@ async function compareCardTitle(
   const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
   if (!page) throw new Error('Fant ikke siden.')
   const assets = await loadPreviewAssets(page, context.repository)
-  const html = previewDocument({ presentation, page, assets: assets.source }).html
+  const preview = previewDocument({ presentation, page, assets: assets.source })
 
-  const resolved = await resolveExecutable(process.env as Record<string, string | undefined>)
-  const browser = await puppeteer.launch({
-    executablePath: resolved.executablePath,
-    args: resolved.args,
-    headless: true,
-  })
-  try {
-    const tab = await browser.newPage()
-    await tab.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 })
-    await tab.setContent(html, { waitUntil: 'load' })
-    const measured = await tab.evaluate((part: string) => {
+  const { measured, line } = await measureInBrowser(preview, (tab) =>
+    tab.evaluate((part: string) => {
       const box = document.querySelector(`[data-fit-part="${part}"]`) as HTMLElement | null
-      return box ? box.scrollWidth - box.clientWidth : -1
-    }, CARD_TITLE_PART)
-    return {
-      estimated: estimateFit(titled, rect, fitContextFor(presentation)).parts[CARD_TITLE_PART] ?? 0,
-      measured,
-    }
-  } finally {
-    await browser.close()
+      if (!box) return { measured: -1, line: -1 }
+      const style = getComputedStyle(box)
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      return { measured: box.scrollWidth - box.clientWidth, line: box.scrollWidth - padding }
+    }, CARD_TITLE_PART),
+  )
+  return {
+    estimated: estimateFit(titled, rect, fitContextFor(presentation)).parts[CARD_TITLE_PART] ?? 0,
+    measured,
+    line,
   }
 }
 
@@ -341,8 +362,9 @@ describe('den hodeløse fit-målingen mot en ekte nettleser', () => {
       const long = 'En korttittel som er alt for lang for headeren sin. '.repeat(6)
       const result = await compareCardTitle(context, deck, long)
       expect(result.measured).toBeGreaterThan(0)
-      expect(Math.abs(result.estimated - result.measured)).toBeLessThanOrEqual(
-        result.measured * TITLE_TOLERANCE_RATIO,
+      expect(result.estimated).toBeGreaterThanOrEqual(result.measured)
+      expect(result.estimated - result.measured).toBeLessThanOrEqual(
+        result.line * TITLE_TOLERANCE_RATIO,
       )
 
       const short = await compareCardTitle(context, deck, 'Kort')

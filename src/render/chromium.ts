@@ -116,7 +116,7 @@ export interface ChromiumRasterizerOptions {
 }
 
 const DEFAULT_LOAD_TIMEOUT_MS = 15_000
-const DEFAULT_FONT_TIMEOUT_MS = 8_000
+export const DEFAULT_FONT_TIMEOUT_MS = 8_000
 
 /**
  * A Chromium-backed rasterizer, with the browser shared between calls.
@@ -210,7 +210,7 @@ export function chromiumRasterizer(options: ChromiumRasterizerOptions = {}): Sli
  * the families are counted as well as checked, which covers every reason the
  * faces could be missing rather than only the one this file could observe.
  */
-async function waitForFonts(page: Page, families: string[], timeoutMs: number): Promise<boolean> {
+export async function waitForFonts(page: Page, families: string[], timeoutMs: number): Promise<boolean> {
   if (families.length === 0) return true
   const names = [...new Set([...families, SYMBOL_FALLBACK_WEB_FONT])]
   const wanted = names.flatMap((name) =>

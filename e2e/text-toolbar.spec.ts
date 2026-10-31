@@ -111,8 +111,9 @@ test.describe('what cannot be done', () => {
       await expect(page.getByTestId(`format-${id}`)).toBeVisible()
       await expect(page.getByTestId(`format-${id}`)).toBeDisabled()
     }
-    await page.getByTestId('format-bold').locator('..').hover()
+    await page.getByTestId('format-bold').hover()
     await expect(page.locator('.tooltip')).toContainText('Ikke mulig der markøren står')
+    await expect(page.getByTestId('format-bold')).toHaveAccessibleDescription(/Ikke mulig der markøren står/)
 
     // A list *can* be made from it, though the editor's own quick check says
     // otherwise — so it is offered, and does it.

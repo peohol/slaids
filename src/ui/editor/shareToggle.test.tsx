@@ -38,7 +38,7 @@ describe('ShareToggle', () => {
   it('er av og trykkbar når presentasjonen ikke er delt', () => {
     const markup = renderWith({ status: 'ready', shared: false, link: null })
     expect(markup).toContain('data-state="off"')
-    expect(markup).not.toContain('disabled')
+    expect(markup).not.toContain('aria-disabled')
     expect(markup).not.toContain('copy-share-link')
   })
 
@@ -61,7 +61,7 @@ describe('ShareToggle', () => {
   it('viser ingen påstand før servertilstanden er lest', () => {
     const markup = renderWith({ status: 'loading' })
     expect(markup).toContain('data-state="off"')
-    expect(markup).toContain('disabled')
+    expect(markup).toContain('aria-disabled="true"')
     // Og ingen lenke å kopiere, siden det ikke finnes noen ennå.
     expect(markup).not.toContain('copy-share-link')
   })
@@ -69,14 +69,14 @@ describe('ShareToggle', () => {
   it('lar seg ikke trykke mens en publisering pågår', () => {
     const markup = renderWith({ status: 'ready', shared: false, busy: true })
     expect(markup).toContain('data-state="busy"')
-    expect(markup).toContain('disabled')
+    expect(markup).toContain('aria-disabled="true"')
     expect(markup).toContain('aria-busy="true"')
   })
 
   it('er avslått og forklart i lokal modus', () => {
     const markup = renderWith({ status: 'unsupported' })
     expect(markup).toContain('data-state="unsupported"')
-    expect(markup).toContain('disabled')
+    expect(markup).toContain('aria-disabled="true"')
     expect(markup).not.toContain('copy-share-link')
   })
 })

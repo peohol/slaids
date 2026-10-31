@@ -41,6 +41,55 @@ export function watchForErrors(page: Page): { errors: string[] } {
   return { errors }
 }
 
+/**
+ * Wait until every CSS transition and animation inside `scope` has run out.
+ *
+ * A box read while something is still easing towards its place is a frame of
+ * the motion, not the layout — and which frame depends on how busy the machine
+ * is. Transitions are part of `getAnimations()`, so this waits for exactly the
+ * ones in flight, however long the stylesheet makes them.
+ */
+export async function motionSettled(scope: Locator): Promise<void> {
+  await scope.evaluate(async (element) => {
+    // A transition retargeted half-way is cancelled and replaced, so its
+    // promise rejects and a new one is running: ask again until none is.
+    // Anything endless (a spinner) is not motion towards a layout.
+    for (let round = 0; round < 10; round += 1) {
+      const running = element
+        .getAnimations({ subtree: true })
+        .filter((motion) => motion.effect?.getComputedTiming().endTime !== Infinity)
+      if (running.length === 0) return
+      await Promise.all(running.map((motion) => motion.finished.catch(() => undefined)))
+    }
+  })
+}
+
+/**
+ * Wait until a scroll box has stopped moving.
+ *
+ * The slide overview follows the shown page with a smooth scroll, so a test
+ * that scrolls it by hand straight after it opens is racing that motion — and
+ * a smooth scroll still in flight carries on past the hand's, leaving the box
+ * somewhere neither asked for. Settled means the same position on two frames
+ * a little apart.
+ */
+export async function scrollSettled(box: Locator): Promise<void> {
+  let last = Number.NaN
+  await expect
+    .poll(async () => {
+      const now = await box.evaluate(
+        (element) =>
+          new Promise<number>((resolve) =>
+            setTimeout(() => requestAnimationFrame(() => resolve(element.scrollTop)), 60),
+          ),
+      )
+      const still = now === last
+      last = now
+      return still
+    })
+    .toBe(true)
+}
+
 /** The slide stage. Scope stage assertions to this — filmstrip thumbnails render the same markup. */
 export function stage(page: Page) {
   return page.getByTestId('stage-slide')
@@ -336,14 +385,28 @@ export async function fillZoneToCapacity(
  * can be a hundred characters — enough to swallow the effect a test is trying
  * to observe. This closes that gap to a character or two. The small pause is
  * what lets the deferred validation run between attempts.
+ *
+ * It stops when the editor says no, not after a fixed count: a narrow glyph
+ * fills a chunk's worth of slack only after a couple of hundred tries, and a
+ * fixed forty left the zone visibly short of full — so a later «one more thing
+ * no longer fits» was really «one more thing fits», and the test failed on
+ * something the product did right. A refusal is a press that did not make the
+ * text longer, seen twice running so a rollback landing late is not mistaken
+ * for room.
  */
-export async function topUpToCapacity(page: Page, field: Locator, attempts = 40): Promise<void> {
+export async function topUpToCapacity(page: Page, field: Locator, attempts = 400): Promise<void> {
   await caretInto(field)
+  const length = () => field.evaluate((element) => element.textContent?.length ?? 0)
+  let before = await length()
+  let refused = 0
   // A narrow glyph on purpose: the slack this leaves behind is the smallest
   // effect a test can hope to observe afterwards, and 'i' is a third of 'm'.
-  for (let i = 0; i < attempts; i += 1) {
+  for (let i = 0; i < attempts && refused < 2; i += 1) {
     await page.keyboard.insertText('i')
     await page.waitForTimeout(20)
+    const now = await length()
+    refused = now > before ? 0 : refused + 1
+    before = now
   }
   await page.waitForTimeout(250)
 }

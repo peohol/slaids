@@ -283,21 +283,21 @@ textarea {
   flex: none;
 }
 
-.btn:hover:not(:disabled) {
+.btn:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-hover);
   border-color: var(--chrome-border-strong);
 }
 
-.btn:active:not(:disabled) {
+.btn:active:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-pressed);
 }
 
-.btn:disabled {
+.btn:is(:disabled, [aria-disabled='true']) {
   opacity: 0.42;
   cursor: not-allowed;
 }
 
-.btn:disabled .icon[data-tone] {
+.btn:is(:disabled, [aria-disabled='true']) .icon[data-tone] {
   color: inherit;
 }
 
@@ -308,8 +308,8 @@ textarea {
   font-weight: 600;
 }
 
-.btn--primary:hover:not(:disabled),
-.btn--primary:active:not(:disabled) {
+.btn--primary:hover:not(:disabled, [aria-disabled='true']),
+.btn--primary:active:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-primary-hover);
   border-color: var(--chrome-primary-hover);
 }
@@ -325,14 +325,14 @@ textarea {
   border-color: transparent;
 }
 
-.btn--ghost:hover:not(:disabled) {
+.btn--ghost:hover:not(:disabled, [aria-disabled='true']) {
   background: rgba(255, 255, 255, 0.07);
 }
 
 .btn--active,
 .btn[aria-pressed='true'],
-.btn--active:hover:not(:disabled),
-.btn[aria-pressed='true']:hover:not(:disabled) {
+.btn--active:hover:not(:disabled, [aria-disabled='true']),
+.btn[aria-pressed='true']:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-accent-soft);
   border-color: var(--chrome-accent);
   color: var(--chrome-accent-text);
@@ -389,22 +389,20 @@ textarea {
   background: var(--chrome-bg-inset);
 }
 
-.segmented > .btn,
-.segmented > .tooltip-anchor > .btn {
+.segmented > .btn {
   border-color: transparent;
   background: transparent;
   color: var(--chrome-text-dim);
 }
 
-.segmented > .btn:hover:not(:disabled),
-.segmented > .tooltip-anchor > .btn:hover:not(:disabled) {
+.segmented > .btn:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--chrome-bg-hover);
   border-color: transparent;
   color: var(--chrome-text);
 }
 
 .segmented > .btn[aria-pressed='true'],
-.segmented > .btn[aria-pressed='true']:hover:not(:disabled) {
+.segmented > .btn[aria-pressed='true']:hover:not(:disabled, [aria-disabled='true']) {
   --segment-ink: var(--chrome-accent);
   background: var(--chrome-bg-raised);
   border-color: var(--segment-ink);
@@ -449,6 +447,15 @@ textarea {
   .btn[aria-pressed='true'],
   .btn--active {
     outline: 2px solid Highlight;
+  }
+
+  /* Backgrounds are the system's own in this mode, so where the pointer or
+     the keyboard is in a menu is drawn as an edge instead of a surface. */
+  .context-menu__item[data-highlighted],
+  .context-menu__item[data-state='open'],
+  .context-menu__swatch[data-highlighted] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }
 
@@ -781,17 +788,6 @@ textarea {
   display: flex;
 }
 
-/*
- * The span a tooltip is anchored to when its child is disabled.
- *
- * A disabled control fires no pointer events of its own, so something around it
- * has to listen. It contributes nothing to layout beyond passing the child's
- * own box through.
- */
-.tooltip-anchor {
-  display: inline-flex;
-}
-
 .tooltip {
   background: #0c0f13;
   color: var(--chrome-text);
@@ -878,22 +874,30 @@ textarea {
 }
 
 /*
- * On a finger-driven screen a 22 px swatch is too small to aim at. The swatches
- * share the row's width instead, square, between 28 and 44 px, and a row that
- * cannot hold its twelve at 28 px breaks into two — so a phone's panel gets one
- * row of large swatches and a tablet's narrow inspector two rows of six, with
- * the same order and the same colours.
+ * A swatch is at least 28 px square with any pointer: the swatches share the
+ * row's width, and a row that cannot hold its twelve at 28 px breaks into two
+ * with the same order and the same colours — so a phone's panel gets one row
+ * of twelve and the desktop's and a tablet's narrow inspector two rows of six.
+ *
+ * Twelve 22 px swatches did not fit the inspector either: they were squeezed
+ * to 20 px wide, under WCAG 2.2's 24 px minimum (2.5.8), and twelve to a row
+ * there cannot reach it at any spacing.
  */
-:root[data-coarse='true'] .palette__row:not(.palette__row--inherited) {
+.palette__row:not(.palette__row--inherited) {
   flex-wrap: wrap;
 }
 
-:root[data-coarse='true'] button.palette__swatch {
+button.palette__swatch {
   flex: 1 1 28px;
   width: auto;
-  max-width: var(--touch-target);
+  max-width: 28px;
   height: auto;
   aspect-ratio: 1;
+}
+
+/* On a finger-driven screen they grow towards a full touch target. */
+:root[data-coarse='true'] button.palette__swatch {
+  max-width: var(--touch-target);
 }
 
 :root[data-coarse='true'] .palette__inherited {

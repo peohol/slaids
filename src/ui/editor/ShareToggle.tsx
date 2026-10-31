@@ -17,6 +17,7 @@ import { notify } from '../../state/toast'
 import { COPIED_FEEDBACK_MS, copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 
 export interface ShareToggleProps {
   status: SharingStatus
@@ -80,12 +81,14 @@ export function ShareToggle({ status, shared, busy, error, link, onToggle }: Sha
 
   return (
     <div className="toolbar__group share-toggle" data-testid="share-toggle">
+      {/* Unavailable rather than disabled, so the reason it cannot be pressed
+          is reached from the keyboard as well as the mouse. */}
       <Tooltip label={label}>
         <button
           type="button"
           className={shared ? 'btn btn--sm btn--active' : 'btn btn--sm'}
           onClick={onToggle}
-          disabled={disabled}
+          {...unavailable(disabled)}
           aria-pressed={shared}
           aria-busy={busy}
           data-testid="toggle-share"

@@ -1,5 +1,12 @@
 import { expect, test, type Page } from './fixtures'
-import { addPage, chooseSlideAction, createPresentation, openSlideMenu, watchForErrors } from './helpers'
+import {
+  addPage,
+  chooseSlideAction,
+  createPresentation,
+  motionSettled,
+  openSlideMenu,
+  watchForErrors,
+} from './helpers'
 
 /** Adds `count` untitled slides after the current one. */
 async function addSlides(page: Page, count: number): Promise<void> {
@@ -79,6 +86,9 @@ test('resting the pointer between two slides opens a place to put a new page the
   await expect.poll(async () => (await boxOf(items.nth(2))).y).toBeGreaterThan(lowerBefore.y + 20)
   const button = page.getByTestId('filmstrip-insert-button')
   await expect(button).toBeVisible()
+  // The room opens over 180 ms; where the button sits is a question about the
+  // opened gap, not about a frame on the way there.
+  await motionSettled(page.getByTestId('filmstrip'))
   const buttonBox = await boxOf(button)
   const upper = await boxOf(items.nth(1))
   const lower = await boxOf(items.nth(2))

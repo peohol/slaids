@@ -167,8 +167,15 @@ function useCentredActivePage(
  * it can in the strip.
  */
 function Thumb({ width, children }: { width: number; children: React.ReactNode }) {
+  // A picture of the page, not a second copy of it: the button it sits in is
+  // named by the page, and a screen reader reading every slide's words out of
+  // every thumbnail would bury that name. `inert` rather than only hidden, so
+  // what the page holds that could take focus — a link in its text — is not a
+  // tab stop inside the button either, where Enter would follow the link
+  // instead of opening the slide.
   return (
     <div
+      inert
       style={{
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
@@ -475,7 +482,12 @@ export function Filmstrip({
   )
 
   return (
-    <aside className="filmstrip" data-testid="filmstrip" data-overview={overview ? '' : undefined}>
+    <aside
+      className="filmstrip"
+      data-testid="filmstrip"
+      aria-label="Slideoversikt"
+      data-overview={overview ? '' : undefined}
+    >
       <div
         className="filmstrip__list"
         data-testid="filmstrip-list"

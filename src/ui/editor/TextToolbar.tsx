@@ -30,6 +30,7 @@ import { useWorkspace } from '../workspace/WorkspaceContext'
 import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
 import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
 import { ColorPickerButton } from '../components/ColorPicker'
 import type { MenuAction } from '../components/contextMenu'
 import { keepFocus } from '../components/focusKeeping'
@@ -64,13 +65,13 @@ function EntryButton({ entry, testId, labelled = false }: { entry: MenuAction; t
   const className = labelled ? 'btn btn--sm' : 'btn btn--sm btn--icon'
   const state = entry.checked === undefined ? { className } : pressedButton(className, entry.checked)
   return (
-    <Tooltip label={tip} wrap={entry.disabled}>
+    <Tooltip label={tip}>
       <button
         type="button"
         {...state}
-        disabled={entry.disabled}
         onMouseDown={keepFocus}
         onClick={entry.onSelect}
+        {...unavailable(entry.disabled === true)}
         data-testid={testId}
         aria-label={name}
       >

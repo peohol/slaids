@@ -82,6 +82,8 @@
   font-size: var(--text-lg);
   font-weight: 600;
   cursor: pointer;
+  /* WCAG 2.2's minimum target (2.5.8); one line of the title is 20 px. */
+  min-height: 24px;
   padding: 1px 6px;
   margin-left: -2px;
   border-radius: var(--radius-sm);
@@ -154,8 +156,7 @@
     display: none;
   }
 
-  .toolbar .toolbar__group > .btn:has(.toolbar__label--secondary),
-  .toolbar .toolbar__group > .tooltip-anchor > .btn:has(.toolbar__label--secondary) {
+  .toolbar .toolbar__group > .btn:has(.toolbar__label--secondary) {
     width: 30px;
     padding: 0;
     justify-content: center;

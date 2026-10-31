@@ -45,6 +45,7 @@ import {
   InspectorEntryButton,
   InspectorFold,
   InspectorHeader,
+  InspectorPanel,
   InspectorSection,
 } from './InspectorParts'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
@@ -120,13 +121,13 @@ export function Inspector({
 
   if (!node || !selectedNodeId) {
     return (
-      <aside className="inspector" data-testid="inspector">
+      <InspectorPanel>
         <InspectorHeader
           icon="zones"
           title="Ingen sone er valgt"
           detail="Klikk en sone på sliden for å se hva den inneholder og hva du kan gjøre med den."
         />
-      </aside>
+      </InspectorPanel>
     )
   }
 
@@ -152,7 +153,7 @@ export function Inspector({
   const captionInherits = inheritedPill(content, pillColor)
 
   return (
-    <aside className="inspector" data-testid="inspector">
+    <InspectorPanel>
       <InspectorHeader
         {...zoneIcon(node)}
         title={zoneTitle(node)}
@@ -197,7 +198,7 @@ export function Inspector({
               entries={() => contentKindEntries(contentKinds, content.kind, onSetContentKind)}
             >
               <span className="inspector__kind-text">
-                <span className="inspector__kind-caption">Innholdstype</span>
+                <span className="inspector__kind-caption">Innholdstype</span>{' '}
                 <span>{currentKind?.label}</span>
               </span>
             </MenuButton>
@@ -487,7 +488,7 @@ export function Inspector({
           />
         </InspectorSection>
       )}
-    </aside>
+    </InspectorPanel>
   )
 }
 

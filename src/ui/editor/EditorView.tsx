@@ -126,7 +126,7 @@ import { EditorStage, type StageMenuHit } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
 import { insertionIndex, pageName, placementText, type NewPageRequest } from './pageKinds'
 import { Inspector } from './Inspector'
-import { InspectorHeader } from './InspectorParts'
+import { InspectorHeader, InspectorPanel } from './InspectorParts'
 import { ReadOnlySlideStage } from './ReadOnlySlideStage'
 import { ImageOptimizeModal } from './ImageOptimizeModal'
 import { ImageUploadModal } from './ImageUploadModal'
@@ -1805,7 +1805,7 @@ export function EditorView({
   ) : null
 
   const inspectorNode = viewedDerivedPage ? (
-    <aside className="inspector" data-testid="inspector">
+    <InspectorPanel>
       <InspectorHeader
         icon={viewedDerivedPage.kind === 'qr' ? 'qr' : 'reference'}
         title={viewedDerivedPage.kind === 'qr' ? 'Avledet QR-side' : 'Avledet slide'}
@@ -1816,7 +1816,7 @@ export function EditorView({
           ? 'QR-koden peker på delingslenken og lages av Del-knappen. Siden ligger alltid helt sist, etter referansesidene, og forsvinner når du slår av delingen.'
           : 'Denne sliden bygges fra referansene som faktisk er i bruk. Nummereringen følger rekkefølgen de først nevnes i, og oppdateres automatisk.'}
       </p>
-    </aside>
+    </InspectorPanel>
   ) : section ? (
     <SectionInspector section={section} />
   ) : interactive ? (
