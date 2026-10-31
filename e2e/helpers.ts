@@ -410,3 +410,54 @@ export async function worstOverflow(page: Page): Promise<number> {
     return worst
   })
 }
+
+/**
+ * The menu of one page in the slide overview — «Flere handlinger» on its
+ * entry — opened and left open, so a test can read it before choosing.
+ */
+export async function openSlideMenu(page: Page, index: number): Promise<Locator> {
+  await page.getByTestId('filmstrip-item').nth(index).getByTestId('slide-more').click()
+  const menu = page.getByTestId('context-menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+/**
+ * Do something to one page from its menu in the slide overview: move it
+ * (`move-slide-up`, `move-slide-down`), copy it (`duplicate-slide`) or ask to
+ * delete it (`delete-slide`).
+ */
+export async function chooseSlideAction(page: Page, index: number, entryTestId: string): Promise<void> {
+  const menu = await openSlideMenu(page, index)
+  await menu.getByTestId(entryTestId).click()
+  await expect(menu).toBeHidden()
+}
+
+/**
+ * Ask for a new page from the strip's footer: «Ny slide» is its own button,
+ * a section and a miniapp are in the menu beside it.
+ */
+export async function addPage(page: Page, kind: 'slide' | 'section' | 'interactive'): Promise<void> {
+  if (kind !== 'slide') await page.getByTestId('add-page-menu').click()
+  await page.getByTestId(`add-${kind}`).click()
+}
+
+/** Do something to a presentation from its card's «Flere handlinger» menu. */
+export async function choosePresentationAction(
+  page: Page,
+  entryTestId: string,
+  card: Locator = page.getByTestId('presentation-card').first(),
+): Promise<void> {
+  await card.getByTestId('presentation-more').click()
+  const menu = page.getByTestId('context-menu')
+  await menu.getByTestId(entryTestId).click()
+  await expect(menu).toBeHidden()
+}
+
+/** Do something to a folder from its «Flere handlinger» menu in the sidebar. */
+export async function chooseFolderAction(page: Page, folderName: string, entryTestId: string): Promise<void> {
+  await page.getByRole('button', { name: `Flere handlinger for mappen ${folderName}` }).click()
+  const menu = page.getByTestId('context-menu')
+  await menu.getByTestId(entryTestId).click()
+  await expect(menu).toBeHidden()
+}

@@ -15,7 +15,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useDndContext } from '@dnd-kit/core'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { canDeleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
+import { duplicateSlide, moveSlide } from '../../domain/commands'
 import { domFitCheckers } from '../../state/measure'
 import { authoredPage, type DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
@@ -24,10 +24,20 @@ import { DeckPageView } from '../slide/DeckPageView'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView } from '../slide/SlideView'
 import { useContainerBox, type ContainerBox } from '../slide/useFitScale'
+import { anchorInside, useContextMenu, type MenuAnchor, type MenuEntry } from '../components/contextMenu'
 import { Icon } from '../components/Icon'
-import { Tooltip } from '../components/Tooltip'
+import { MenuButton } from '../components/MenuButton'
+import { slideMenu, type SlideMenuHandlers } from './contextMenu/slideMenu'
 import { FilmstripInsert } from './FilmstripInsert'
-import { NEW_PAGE_OPTIONS, pageKindName, type NewPageRequest } from './pageKinds'
+import {
+  NEW_PAGE_OPTIONS,
+  insertionIndex,
+  newPageEntries,
+  pageKindName,
+  pageName,
+  placementText,
+  type NewPageRequest,
+} from './pageKinds'
 
 /**
  * The desktop strip's thumbnail, and the narrowest one anywhere.
@@ -172,29 +182,28 @@ function Thumb({ width, children }: { width: number; children: React.ReactNode }
   )
 }
 
-/** What a thumbnail is called: its kind, and for an ordinary slide its number. */
-function thumbLabel(slide: Slide, index: number): string {
-  const name = pageKindName(slide.kind, index)
-  return slide.kind === 'content' ? `${name} ${index + 1}` : name
-}
-
 /**
  * One authored slide in the strip.
  *
- * Everything above the tools — the number row and the thumbnail — is both the
- * way to the slide and the way to move it: a click navigates, a press that
- * moves (or, on a touch screen, rests) starts the drag. Which of the two a
+ * Everything above the menu button — the number row and the thumbnail — is
+ * both the way to the slide and the way to move it: a click navigates, a press
+ * that moves (or, on a touch screen, rests) starts the drag. Which of the two a
  * press becomes is decided by `data-drag-activation` — see
  * `dragActivation.ts` — so the surface can carry the drag listeners without
  * ever swallowing an ordinary click. The grip keeps the immediate activation a
  * dedicated handle should have, and is the affordance that says this entry
  * can be moved at all.
  *
+ * Everything else a page can have done to it is in its menu (`slideMenu`):
+ * one visible button on every entry, the same list from a right-click and from
+ * Shift+F10 on the thumbnail. That is also the way to reorder without
+ * dragging, for a finger and for the keyboard.
+ *
  * The front page is the one authored slide that is neither a drag surface nor
  * a place to drop one: it is what the deck opens with, so it has no grip and
  * nothing lands in its place by dragging. The commands still own the rule — a
- * section moved up there with the arrows becomes the front page — but a
- * gesture that could only ever be refused is not offered.
+ * section moved up there with the menu becomes the front page — but a gesture
+ * that could only ever be refused is not offered.
  */
 function SlideThumb({
   slide,
@@ -202,12 +211,7 @@ function SlideThumb({
   active,
   width,
   onSelect,
-  onDuplicate,
-  onDelete,
-  onMove,
-  canMoveUp,
-  canMoveDown,
-  canDelete,
+  menu,
   insert,
 }: {
   slide: Slide
@@ -217,22 +221,19 @@ function SlideThumb({
       own arithmetic on a phone. See `stripLayout`. */
   width: number
   onSelect: () => void
-  onDuplicate: () => void
-  onDelete: () => void
-  /** Reorder by a whole position, the way a finger asks for it. */
-  onMove: (delta: number) => void
-  canMoveUp: boolean
-  canMoveDown: boolean
-  canDelete: boolean
+  /** The page's menu — see `slideMenu`. */
+  menu: PageMenu
   /** The gap above this slide, where a page can be put between it and the one
       before — when there is one to offer. See `FilmstripInsert`. */
   insert?: React.ReactNode
 }) {
-  const label = thumbLabel(slide, index)
+  const label = pageName(slide.kind, index)
   // Content slides are what the strip is mostly made of; the other kinds wear
   // a badge that says which they are.
   const badged = slide.kind !== 'content'
   const frontPage = index === 0
+  /** What last pressed the entry — see the context menu below. */
+  const pressedBy = useRef('mouse')
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: slide.id,
     data: { kind: 'slide' },
@@ -252,11 +253,31 @@ function SlideThumb({
         data-testid="filmstrip-item"
         data-slide-id={slide.id}
         data-page-id={slide.id}
+        // The page's own menu, wherever on the entry it is asked for. The
+        // editor's Shift+F10 leaves an entry to this handler — see `EditorView`.
+        data-page-menu=""
+        onPointerDownCapture={(event) => {
+          pressedBy.current = event.pointerType
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          // A finger resting on an entry is picking it up to move it, and the
+          // browser reports that same press as a context menu too: there the
+          // press keeps its meaning, and the menu is the visible button's.
+          if (pressedBy.current === 'touch') return
+          menu.open({ x: event.clientX, y: event.clientY }, false)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+            event.preventDefault()
+            menu.open(anchorInside(event.currentTarget), true)
+          }
+        }}
       >
         {/*
-          The click is the handle's, not only the button's, so the number row
-          navigates as well; the button's own click — a tap, or Enter from the
-          keyboard — bubbles up to it.
+          The click is the handle's, not only the thumbnail's, so the number
+          row navigates as well; the thumbnail's own click — a tap, or Enter
+          from the keyboard — bubbles up to it.
         */}
         <div
           className="filmstrip__handle"
@@ -266,8 +287,8 @@ function SlideThumb({
           {...listeners}
         >
           <div className="filmstrip__index">
-            <span>{index + 1}</span>
-            {badged && <span className="filmstrip__badge">{label}</span>}
+            <span className="filmstrip__number">{index + 1}</span>
+            {badged && <span className="filmstrip__badge">{pageKindName(slide.kind, index)}</span>}
             {!frontPage && (
               <span className="filmstrip__grip" aria-hidden="true" data-drag-activation="immediate">
                 <Icon name="grip" size={14} />
@@ -303,59 +324,37 @@ function SlideThumb({
             </Thumb>
           </button>
         </div>
-        <div className="filmstrip__tools">
-          <Tooltip label={`Flytt ${label.toLowerCase()} opp`}>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => onMove(-1)}
-              disabled={!canMoveUp}
-              aria-label={`Flytt ${label.toLowerCase()} opp`}
-              data-testid="move-slide-up"
-            >
-              <Icon name="arrow-up" size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={`Flytt ${label.toLowerCase()} ned`}>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => onMove(1)}
-              disabled={!canMoveDown}
-              aria-label={`Flytt ${label.toLowerCase()} ned`}
-              data-testid="move-slide-down"
-            >
-              <Icon name="arrow-down" size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={`Dupliser ${label.toLowerCase()}`}>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={onDuplicate}
-              aria-label={`Dupliser ${label.toLowerCase()}`}
-              data-testid="duplicate-slide"
-            >
-              <Icon name="copy" size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={`Slett ${label.toLowerCase()}`}>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={onDelete}
-              disabled={!canDelete}
-              aria-label={`Slett ${label.toLowerCase()}`}
-              data-testid="delete-slide"
-            >
-              <Icon name="trash" size={14} />
-            </button>
-          </Tooltip>
-        </div>
+        {/*
+          Drawn over the end of the number row, where the eye already is, but
+          outside the handle: a press on it neither navigates nor drags.
+        */}
+        <MenuButton
+          id={menu.owner}
+          label={`Flere handlinger for ${label.toLowerCase()}`}
+          title={menu.title}
+          tooltip="Flere handlinger"
+          icon="more"
+          className="btn--icon menu-button--icon filmstrip__more"
+          testId="slide-more"
+          entries={menu.entries}
+        />
       </div>
     </div>
   )
 }
+
+/** One page's menu, as the entry needs it: for its button, and at a place. */
+interface PageMenu {
+  /** Which menu this is, so its button can say whether it is the one open. */
+  owner: string
+  title: string
+  entries: () => MenuEntry[]
+  open: (anchor: MenuAnchor, keyboard: boolean) => void
+}
+
+/** «Ny slide» is the strip's own button; the other kinds are in its menu. */
+const newSlide = NEW_PAGE_OPTIONS.find((option) => option.kind === 'content') ?? NEW_PAGE_OPTIONS[0]
+const otherNewPages = NEW_PAGE_OPTIONS.filter((option) => option !== newSlide)
 
 export function Filmstrip({
   presentation,
@@ -417,6 +416,8 @@ export function Filmstrip({
   const dragging = useDndContext().active !== null
   const offersGaps = layout.columns === 1 && !dragging
 
+  const openMenu = useContextMenu((state) => state.open)
+
   const duplicate = (slideId: string, index: number): void => {
     if (!run('duplicate-slide', (current) => duplicateSlide(current, slideId))) return
     const copy = useEditorStore.getState().presentation?.slides[index + 1]
@@ -441,6 +442,37 @@ export function Filmstrip({
     selectAuthored(slideId)
     followActivePage()
   }
+
+  /** One page's menu: built when it is opened, from the deck as it is then. */
+  const menuFor = (slide: Slide, index: number): PageMenu => {
+    const owner = `slide-menu-${slide.id}`
+    const handlers: SlideMenuHandlers = {
+      move: (delta) => move(slide.id, index, delta),
+      duplicate: () => duplicate(slide.id, index),
+      remove: () => onRequestDelete(slide),
+      insertAfter: (kind) => onRequestNewPage({ kind, after: slide.id }),
+    }
+    const build = () => slideMenu(presentation, index, handlers)
+    return {
+      owner,
+      title: pageName(slide.kind, index),
+      entries: () => build().entries,
+      open: (anchor: MenuAnchor, keyboard: boolean) => {
+        const built = build()
+        openMenu({ anchor, title: built.title, entries: built.entries, keyboard, owner })
+      },
+    }
+  }
+
+  /*
+   * Where «Ny slide» puts the page: right after the slide being worked on.
+   * Said under the button, in the strip's own numbering, so the place is known
+   * before the button is pressed.
+   */
+  const placement = placementText(
+    presentation.slides,
+    insertionIndex(presentation.slides, {}, currentSlideId),
+  )
 
   return (
     <aside className="filmstrip" data-testid="filmstrip" data-overview={overview ? '' : undefined}>
@@ -472,16 +504,12 @@ export function Filmstrip({
                 index={index}
                 active={slide.id === currentSlideId && viewingDerivedId === null}
                 width={layout.width}
-                canDelete={canDeleteSlide(presentation, slide.id)}
                 onSelect={() => selectAuthored(slide.id)}
-                onDuplicate={() => duplicate(slide.id, index)}
-                onDelete={() => onRequestDelete(slide)}
-                onMove={(delta) => move(slide.id, index, delta)}
-                canMoveUp={index > 0}
-                canMoveDown={index < presentation.slides.length - 1}
+                menu={menuFor(slide, index)}
                 insert={
                   offersGaps && index > 0 ? (
                     <FilmstripInsert
+                      id={slide.id}
                       open={openGap === slide.id}
                       onOpenChange={(open) =>
                         setOpenGap((current) =>
@@ -511,7 +539,7 @@ export function Filmstrip({
               data-page-id={page.id}
             >
               <div className="filmstrip__index">
-                <span>{presentation.slides.length + index + 1}</span>
+                <span className="filmstrip__number">{presentation.slides.length + index + 1}</span>
                 <span className="filmstrip__badge">Avledet</span>
               </div>
               <button
@@ -526,29 +554,44 @@ export function Filmstrip({
                   <DeckPageView page={page} />
                 </Thumb>
               </button>
-              <div className="filmstrip__tools">
-                <span className="hint">
-                  {isQr ? 'Genereres av Del' : 'Genereres fra referansene'}
-                </span>
-              </div>
+              <p className="filmstrip__note">
+                {isQr ? 'Genereres av Del' : 'Genereres fra referansene'}
+              </p>
             </div>
           )
         })}
       </div>
+      {/*
+        The way to a new page. «Ny slide» is what is added most, so it is the
+        button; a section and a miniapp are in the menu beside it, under the
+        same names and icons the gaps and the slide menu use.
+      */}
       <div className="filmstrip__footer">
-        {NEW_PAGE_OPTIONS.map((option) => (
-          <Tooltip key={option.kind} label={option.label}>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon"
-              onClick={() => onRequestNewPage({ kind: option.kind })}
-              aria-label={option.label}
-              data-testid={`add-${option.id}`}
-            >
-              <Icon name={option.icon} />
-            </button>
-          </Tooltip>
-        ))}
+        <p className="filmstrip__placement" data-testid="new-page-placement">
+          Kommer {placement}
+        </p>
+        <div className="filmstrip__new">
+          <button
+            type="button"
+            className="btn btn--sm filmstrip__new-slide"
+            onClick={() => onRequestNewPage({ kind: newSlide.kind })}
+            data-testid={`add-${newSlide.id}`}
+          >
+            <Icon name="plus" size={15} /> {newSlide.label}
+          </button>
+          <MenuButton
+            id="new-page"
+            label="Ny inndeling eller miniapp"
+            title={`Ny side ${placement}`}
+            tooltip="Ny inndeling eller miniapp"
+            icon="chevron-down"
+            className="btn--icon menu-button--icon filmstrip__new-more"
+            testId="add-page-menu"
+            entries={() =>
+              newPageEntries((kind) => onRequestNewPage({ kind }), 'add', otherNewPages)
+            }
+          />
+        </div>
       </div>
     </aside>
   )

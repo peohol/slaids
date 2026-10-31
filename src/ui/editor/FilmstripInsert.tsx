@@ -4,36 +4,49 @@
  * The gap lights up as soon as the pointer is in it, so it reads as somewhere
  * something can happen. A pointer that rests there opens it: the slide below
  * slides down, and a button in the room that makes offers the three kinds of
- * page. A pointer only passing by on its way along the strip does neither.
+ * page — the same menu entries, names and icons as everywhere else a page is
+ * added. A pointer only passing by on its way along the strip does neither.
  *
- * It is a mouse's affordance. A finger has no way to rest between two pages
- * without pressing one, so touch keeps the strip's own buttons — the same three
- * doors, offered in the same words.
+ * It is a mouse's quick way. A finger has no way to rest between two pages
+ * without pressing one, so touch and the keyboard use the slide's own menu —
+ * «Sett inn etter denne» — which puts the page in the same place.
  */
 
-import { useEffect, useRef, useState } from 'react'
-import * as Popover from '@radix-ui/react-popover'
-import { Icon } from '../components/Icon'
-import { NEW_PAGE_OPTIONS, type PageKind } from './pageKinds'
+import { useEffect, useRef } from 'react'
+import { useContextMenu } from '../components/contextMenu'
+import { MenuButton } from '../components/MenuButton'
+import { newPageEntries, type PageKind } from './pageKinds'
 
 /** How long the pointer has to rest in the gap before it opens. */
 const INSERT_OPEN_DELAY_MS = 300
 
 export function FilmstripInsert({
+  id,
   open,
   onOpenChange,
   onChoose,
 }: {
+  /** The slide below the gap: names the gap, and its menu. */
+  id: string
   open: boolean
   onOpenChange: (open: boolean) => void
   onChoose: (kind: PageKind) => void
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const owner = `insert-before-${id}`
+  const menuOpen = useContextMenu((state) => state.menu?.owner === owner)
   const timer = useRef<number | undefined>(undefined)
   // Whether the pointer is in the gap — read when the menu closes, so a gap the
   // pointer is still resting in stays open.
   const hovered = useRef(false)
   useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  // The menu is drawn outside the gap, so moving to it leaves the gap; the gap
+  // stays open for as long as the menu does, and closes with it.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !menuOpen && !hovered.current) onOpenChange(false)
+    wasOpen.current = menuOpen
+  }, [menuOpen, onOpenChange])
 
   const enter = (event: React.PointerEvent): void => {
     if (event.pointerType !== 'mouse') return
@@ -45,20 +58,7 @@ export function FilmstripInsert({
   const leave = (): void => {
     hovered.current = false
     window.clearTimeout(timer.current)
-    // The menu is drawn outside the gap, so moving to it leaves the gap; the
-    // gap stays open for as long as the menu does.
     if (!menuOpen) onOpenChange(false)
-  }
-
-  const changeMenu = (next: boolean): void => {
-    setMenuOpen(next)
-    if (!next && !hovered.current) onOpenChange(false)
-  }
-
-  const choose = (kind: PageKind): void => {
-    setMenuOpen(false)
-    onOpenChange(false)
-    onChoose(kind)
   }
 
   return (
@@ -70,39 +70,22 @@ export function FilmstripInsert({
       onPointerLeave={leave}
     >
       {open && (
-        <Popover.Root open={menuOpen} onOpenChange={changeMenu}>
-          <Popover.Trigger asChild>
-            <button
-              type="button"
-              className="btn btn--icon btn--sm filmstrip-insert__button"
-              aria-label="Sett inn her"
-              data-testid="filmstrip-insert-button"
-            >
-              <Icon name="plus" size={16} />
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              className="popover zone-action-menu"
-              side="right"
-              align="center"
-              sideOffset={8}
-              data-testid="filmstrip-insert-menu"
-            >
-              {NEW_PAGE_OPTIONS.map((option) => (
-                <button
-                  key={option.kind}
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() => choose(option.kind)}
-                  data-testid={`insert-${option.id}`}
-                >
-                  <Icon name={option.icon} size={16} /> {option.label}
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <MenuButton
+          id={owner}
+          label="Sett inn her"
+          title="Sett inn her"
+          tooltip="Sett inn en ny side her"
+          icon="plus"
+          className="btn--icon menu-button--icon filmstrip-insert__button"
+          testId="filmstrip-insert-button"
+          entries={() =>
+            newPageEntries((kind) => {
+              hovered.current = false
+              onOpenChange(false)
+              onChoose(kind)
+            }, 'insert')
+          }
+        />
       )}
     </div>
   )

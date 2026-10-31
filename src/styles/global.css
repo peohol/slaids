@@ -343,6 +343,31 @@ textarea {
 }
 
 /*
+ * A menu button that is only its icon — «Flere handlinger» on a card, a slide
+ * or a folder. Its name is in `aria-label` and the tooltip; the dots say that
+ * a list opens, so the chevron is left out. Quiet until it is wanted: no
+ * surface of its own until hovered, focused or open.
+ */
+.menu-button--icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+}
+
+.menu-button--icon > .menu-button__label,
+.menu-button--icon > .menu-button__chevron {
+  display: none;
+}
+
+/* The button whose menu is on screen looks pressed for as long as it is. */
+.menu-button[aria-expanded='true'] {
+  background: var(--chrome-bg-pressed);
+  border-color: var(--chrome-border-strong);
+}
+
+/*
  * A segmented control: one choice out of a few, drawn as one object so it
  * reads as «which of these» rather than as separate buttons that might all be
  * on. The selected segment takes the function ink of what it switches to.

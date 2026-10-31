@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { createPresentation, toast, watchForErrors } from './helpers'
+import { chooseFolderAction, choosePresentationAction, createPresentation, toast, watchForErrors } from './helpers'
 
 test.describe('presentation library', () => {
   test('runs in local mode without a sign-in gate, and says so', async ({ page }) => {
@@ -56,19 +56,21 @@ test.describe('presentation library', () => {
     await createPresentation(page, 'Original')
     await page.getByTestId('back-to-library').click()
 
-    await page.getByTestId('rename-presentation').click()
+    // Opening is the card's own action; everything else is in its menu.
+    await expect(page.getByTestId('open-presentation')).toContainText('Åpne')
+    await choosePresentationAction(page, 'rename-presentation')
     await page.getByTestId('rename-input').fill('Nytt navn')
     await page.getByTestId('rename-confirm').click()
     await expect(page.getByText('Nytt navn')).toBeVisible()
 
-    await page.getByTestId('duplicate-presentation').click()
+    await choosePresentationAction(page, 'duplicate-presentation')
     await expect(page.getByTestId('presentation-card')).toHaveCount(2)
     await expect(page.getByText('Nytt navn (kopi)')).toBeVisible()
 
     // Deleting is a move to the trash: the card leaves the library, and the
     // trash in the sidebar counts it.
     await expect(page.getByTestId('trash-view')).toHaveText(/Søppelkasse \(0\)/)
-    await page.getByTestId('delete-presentation').first().click()
+    await choosePresentationAction(page, 'delete-presentation')
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await expect(page.getByTestId('confirm-dialog')).toContainText('søppelkassen')
     await page.getByTestId('confirm-accept').click()
@@ -89,16 +91,27 @@ test.describe('presentation library', () => {
     expect(presentationId).not.toBeNull()
 
     await page.getByTestId('back-to-library').click()
-    const copyButton = page.getByTestId('copy-presentation-id')
-    await expect(copyButton).toHaveAttribute('aria-label', 'Kopier presentasjons-ID for ID-kopi')
-    await copyButton.hover()
-    await expect(page.getByRole('tooltip')).toHaveText('Kopier presentasjons-ID')
-
-    // A real button remains keyboard reachable, and activating it must not hit
+    // The card's «Flere handlinger» is a real, named button with a menu: it is
+    // reached and opened from the keyboard, and choosing in it must not hit
     // the card's separate open button.
-    await copyButton.focus()
-    await expect(copyButton).toBeFocused()
-    await copyButton.press('Enter')
+    const more = page.getByTestId('presentation-more')
+    await expect(more).toHaveAccessibleName('Flere handlinger for ID-kopi')
+    await expect(more).toHaveAttribute('aria-haspopup', 'menu')
+    await more.focus()
+    await more.press('Enter')
+    const menu = page.getByTestId('context-menu')
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      'Gi nytt navn …',
+      'Dupliser',
+      'Kopier presentasjons-ID',
+      'Last ned sikkerhetskopi',
+      'Flytt til søppelkassen …',
+    ])
+    await expect(menu.getByTestId('rename-presentation')).toBeFocused()
+    await menu.getByTestId('copy-presentation-id').press('Enter')
+    await expect(menu).toBeHidden()
+    // The focus comes back to the button the menu was opened from.
+    await expect(more).toBeFocused()
 
     await expect(toast(page, 'Presentasjons-ID kopiert')).toHaveCount(1)
     await expect(page.getByTestId('presentation-grid')).toBeVisible()
@@ -110,12 +123,12 @@ test.describe('presentation library', () => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Angret')
     await page.getByTestId('back-to-library').click()
-    await page.getByTestId('duplicate-presentation').click()
+    await choosePresentationAction(page, 'duplicate-presentation')
     await expect(page.getByTestId('presentation-card')).toHaveCount(2)
 
     // Both into the trash.
     for (let i = 0; i < 2; i += 1) {
-      await page.getByTestId('delete-presentation').first().click()
+      await choosePresentationAction(page, 'delete-presentation')
       await page.getByTestId('confirm-accept').click()
       await expect(page.getByTestId('presentation-card')).toHaveCount(1 - i)
     }
@@ -137,7 +150,7 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('presentation-card')).toContainText('Angret (kopi)')
 
     // Deleting from the trash is the permanent one, and it asks again.
-    await page.getByTestId('delete-presentation').click()
+    await choosePresentationAction(page, 'delete-presentation')
     await page.getByTestId('confirm-accept').click()
     await page.getByTestId('trash-view').click()
     await expect(page.getByTestId('trashed-card')).toHaveCount(2)
@@ -170,9 +183,9 @@ test.describe('presentation library', () => {
     // unit, on the line with the slide count and the date.
     const size = page.getByTestId('presentation-card').getByTestId('presentation-size')
     await expect(size).toHaveText(/^\d+(\.\d+)? (B|kB)$/)
-    await expect(page.getByTestId('presentation-card').getByTestId('open-presentation')).toContainText(
-      /slides · .* · \d+(\.\d+)? (B|kB)$/,
-    )
+    await expect(
+      page.getByTestId('presentation-card').getByTestId('open-presentation').locator('.presentation-card__meta'),
+    ).toHaveText(/slides · .* · \d+(\.\d+)? (B|kB)$/)
   })
 
   test('remembers the open presentation across a reload', async ({ page }) => {
@@ -199,7 +212,7 @@ test.describe('presentation library', () => {
 
     // Renaming keeps the folder, its contents and the selection; it survives a
     // reload because it is stored, not just drawn.
-    await page.getByTestId('rename-folder').click()
+    await chooseFolderAction(page, 'Kundemøter', 'rename-folder')
     await expect(page.getByTestId('rename-input')).toHaveValue('Kundemøter')
     await page.getByTestId('rename-input').fill('  Kunder  ')
     await page.getByTestId('rename-input').press('Enter')
@@ -210,13 +223,14 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('folder-item')).toHaveText(/Kunder \(1\)/)
 
     // An emptied field is not a rename: the old name stays.
-    await page.getByTestId('rename-folder').click()
+    await chooseFolderAction(page, 'Kunder', 'rename-folder')
     await page.getByTestId('rename-input').fill('   ')
     await page.getByTestId('rename-confirm').click()
     await expect(page.getByTestId('folder-item')).toHaveText(/Kunder \(1\)/)
 
     // Deleting the folder keeps the presentation, just without a folder.
-    await page.getByLabel('Slett mappen Kunder').click()
+    await chooseFolderAction(page, 'Kunder', 'delete-folder')
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Presentasjonene i den blir liggende')
     await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
     await expect(page.getByTestId('folder-item')).toHaveCount(0)
@@ -226,7 +240,7 @@ test.describe('presentation library', () => {
     await createPresentation(page, 'Eksport')
     await page.getByTestId('back-to-library').click()
     const download = page.waitForEvent('download')
-    await page.getByTestId('export-presentation').click()
+    await choosePresentationAction(page, 'export-presentation')
     const file = await download
     expect(file.suggestedFilename()).toBe('eksport.slaids')
   })

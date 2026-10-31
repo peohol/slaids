@@ -40,6 +40,8 @@ const OWNER_TESTIDS = [
   'share-folder',
   'delete-presentation',
   'rename-presentation',
+  'presentation-more',
+  'folder-more',
 ]
 
 describe('Root', () => {

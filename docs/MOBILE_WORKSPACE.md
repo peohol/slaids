@@ -202,8 +202,9 @@ halvannen gang i høyden. Stående telefon får da én side i full bredde, ligge
 får fire, et smalt desktopvindu to — og desktopstripen, som er den samme
 funksjonen på en 212 px bred kolonne, får nøyaktig den ene 168 px-miniatyren den
 alltid har hatt. Det er den samme `Filmstrip`, de samme entry-ene, de samme
-`moveSlide`/`duplicateSlide`/`deleteSlide`-kommandoene og de samme diskrete
-flyttepilene; det eneste som er nytt er hvor stort en side tegnes.
+`moveSlide`/`duplicateSlide`/`deleteSlide`-kommandoene og den samme diskrete
+flyttingen («Flytt opp»/«Flytt ned» i sidens «Flere handlinger»-meny, fra U5);
+det eneste som er nytt er hvor stort en side tegnes.
 
 Stagen blir liggende under oversikten i stedet for å skjules. En stage uten
 størrelse måler teksten sin til å passe hva som helst, og det er det ene svaret
@@ -750,7 +751,8 @@ Minimum automatisert dekning:
     kjørende miniapp;
 14b. dra-sortere i flerkolonneoversikten, og se naboen bli skjøvet sideveis;
 15. åpne slideoversikten og se at den tar hele høyden, at sidene er brede, at
-    lista scroller og at valg og flytting fortsatt er ett trykk;
+    lista scroller, at valg er ett trykk og flytting to (sidens meny, så
+    «Flytt opp»/«Flytt ned»);
 16. pinche i slideområdet — på en slide, en seksjon, en miniappforside og en
     generert side — og se at bare stagen forstørres;
 17. velge en sone gjennom en forstørret visning;

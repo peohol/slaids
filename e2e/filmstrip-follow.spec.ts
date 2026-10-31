@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures'
-import { createPresentation, stage } from './helpers'
+import { createPresentation, stage, chooseSlideAction } from './helpers'
 
 /**
  * How far the shown page's thumbnail sits from the middle of the strip, in CSS
@@ -68,9 +68,8 @@ test('the filmstrip keeps the shown slide in its middle without fighting a manua
   await expectCentred(page)
 
   // Moving the shown slide keeps following it as it goes.
-  const moveDown = page.locator('.filmstrip__item--active').getByTestId('move-slide-down')
   for (let i = 0; i < 3; i += 1) {
-    await moveDown.click()
+    await chooseSlideAction(page, 4 + i, 'move-slide-down')
     await expect(page.getByTestId('statusbar')).toContainText(`Slide ${6 + i} av 10`)
   }
   await expectCentred(page)

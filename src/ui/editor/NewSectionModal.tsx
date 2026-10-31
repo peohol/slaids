@@ -11,13 +11,17 @@
 import { useState } from 'react'
 import { Modal } from '../components/Modal'
 import { useTypedSubstitution } from './useTypedSubstitution'
+import { withPlacement } from './pageKinds'
 
 export function NewSectionModal({
   open,
   onOpenChange,
   onCreate,
+  placement,
 }: {
   open: boolean
+  /** Where the new page will go, as the strip says it — «etter slide 3». */
+  placement?: string
   onOpenChange: (open: boolean) => void
   /** `true` when the section was created; a refusal keeps the text on screen. */
   onCreate: (title: string) => boolean
@@ -36,7 +40,7 @@ export function NewSectionModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Ny inndeling"
-      description="En inndeling åpner en del av dekket, og gir slidene etter seg farger og bakgrunn. Fargene arves fra forrige inndeling – du kan endre dem etterpå."
+      description={withPlacement(placement, 'En inndeling åpner en del av dekket, og gir slidene etter seg farger og bakgrunn. Fargene arves fra forrige inndeling – du kan endre dem etterpå.')}
       testId="new-section-modal"
       width={460}
       footer={

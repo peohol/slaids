@@ -109,13 +109,21 @@ En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-
 - **Smalere vindu:** under 1366 px viker ordene («Referanse …», «Aksentfarge», «Tabell») for ikonene. På kompakt arbeidsflate skjules feltnavnet (feltet fyller stagen) og raden ruller sideveis som før.
 - **Fargearv sier kilden.** «Standard (fra gjeldende inndeling)» eller «Standard (fra korttittelen)», aldri «fra forsiden» (`colorInheritance.ts`).
 
+### Bibliotek og slideoversikt (fra U5)
+
+- **Én direkte handling per oppføring.** Et presentasjonskort åpnes (hele flaten, og ordet «Åpne» står alltid synlig i valgtblå kontur, fylt ved hover/fokus); en mappe vises; en side i stripen velges. Alt annet ligger i en navngitt meny.
+- **«Flere handlinger»** er en menyknapp (`MenuButton`) med ⋯-ikon. Der det er plass står navnet («Flere handlinger» på kortet); i stripen og mappelisten er den bare ikonet (`.menu-button--icon`), med navnet i `aria-label` («Flere handlinger for slide 3») og verktøytipset. Den er dempet til den trengs, og ser trykket ut så lenge menyen er åpen.
+- **Høyreklikk og Shift+F10 er snarveier til den samme menyen**, aldri den eneste veien.
+- **Valgt side** sies tre ganger: blå ramme, nummeret som fylt blå merkelapp og `aria-current`.
+- **Ny side:** «Ny slide» er stripens brede knapp; de andre typene i menyen ved siden av. Over knappen står hvor siden havner, i stripens egen nummerering. Alle innganger til ny side bruker de samme oppføringene (`newPageEntries`).
+
 ## 5. Berøring
 
 `:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. Inspektørens utvidbare grupper og stiknapper får 44 px høyde. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.
 
 ## 6. Bruk i dag og videre
 
-Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); tekstverktøylinjen (U4); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
+Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); tekstverktøylinjen (U4); bibliotekets kort og mapper og filmstripen (U5); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
 
 Regler for neste arbeidspakker:
 

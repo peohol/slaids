@@ -1,5 +1,5 @@
 /**
- * Sharing a folder: a button under the folder's delete button, and a popover
+ * Sharing a folder: a button on the folder's row, beside its menu, and a popover
  * with one switch and, while it is on, the link and a way to copy it.
  *
  * Like the editor's `Del`, it shows only what the server confirmed — the

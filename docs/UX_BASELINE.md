@@ -110,7 +110,7 @@ De fire fanene beholdes. «Tekst» og «Soner» bærer samme farge som desktopen
 
 ### 4.5 Bibliotek og filmstripe (U5)
 
-Hele kortet åpner presentasjonen. «Dupliser», «Kopier presentasjons-ID», «Last ned sikkerhetskopi» og «Flytt til søppelkassen» samles i en «Flere handlinger»-meny. Filmstripens «Ny»-knapper får tekst («Ny slide» som hovedknapp, inndeling og miniapp i en meny ved siden av).
+Hele kortet åpner presentasjonen. «Dupliser», «Kopier presentasjons-ID», «Last ned sikkerhetskopi» og «Flytt til søppelkassen» samles i en «Flere handlinger»-meny. Filmstripens «Ny»-knapper får tekst («Ny slide» som hovedknapp, inndeling og miniapp i en meny ved siden av). *Gjennomført i U5*, med «Gi nytt navn» i samme meny; mappene og filmstripens sider fikk tilsvarende menyer, se planens § 7 U5.
 
 ## 5. Forhold som trenger en produktbeslutning
 

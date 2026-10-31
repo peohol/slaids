@@ -11,6 +11,7 @@ import {
   watchForErrors,
   worstOverflow,
   zoneRects,
+  choosePresentationAction,
 } from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/><circle cx="50" cy="30" r="20" fill="#d9ccbf"/></svg>`
@@ -222,7 +223,7 @@ test.describe('assets', () => {
 
     await page.getByTestId('back-to-library').click()
     const download = page.waitForEvent('download')
-    await page.getByTestId('export-presentation').click()
+    await choosePresentationAction(page, 'export-presentation')
     const file = await download
     const path = await file.path()
 

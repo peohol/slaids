@@ -9,6 +9,8 @@ import {
   watchForErrors,
   worstOverflow,
   zoneRects,
+  openSlideMenu,
+  addPage,
 } from './helpers'
 
 /**
@@ -81,9 +83,14 @@ test.describe('forsiden', () => {
     )
 
     // Den kan ikke slettes så lenge det ville etterlatt en vanlig slide først,
-    // og knappen sier det før man prøver.
-    await expect(items.nth(0).getByTestId('delete-slide')).toBeDisabled()
-    await expect(items.nth(1).getByTestId('delete-slide')).toBeEnabled()
+    // og menyen sier det, med grunnen, før man prøver.
+    let menu = await openSlideMenu(page, 0)
+    await expect(menu.getByTestId('delete-slide')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('delete-slide')).toContainText('inndeling')
+    await page.keyboard.press('Escape')
+    menu = await openSlideMenu(page, 1)
+    await expect(menu.getByTestId('delete-slide')).not.toHaveAttribute('data-disabled', '')
+    await page.keyboard.press('Escape')
 
     expect(guard.errors).toEqual([])
   })
@@ -202,7 +209,7 @@ test.describe('seksjonsfarger', () => {
 
     // En ny seksjon arver fargene fra den forrige, som er hele poenget med å
     // ikke måtte velge dem på nytt.
-    await page.getByTestId('add-section').click()
+    await addPage(page, 'section')
     await page.getByTestId('section-title-input').fill('Del to')
     await page.getByTestId('create-section').click()
     await expect(sectionStage(page)).toBeVisible()

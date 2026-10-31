@@ -2,13 +2,17 @@
 
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
+import { withPlacement } from './pageKinds'
 
 export function NewSlideModal({
   open,
   onOpenChange,
   onCreate,
+  placement,
 }: {
   open: boolean
+  /** Where the new page will go, as the strip says it — «etter slide 3». */
+  placement?: string
   onOpenChange: (open: boolean) => void
   onCreate: (hasTitle: boolean) => void
 }) {
@@ -17,7 +21,7 @@ export function NewSlideModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Ny slide"
-      description="Skal sliden ha en overskriftssone?"
+      description={withPlacement(placement, 'Skal sliden ha en overskriftssone?')}
       testId="new-slide-modal"
       width={460}
       footer={

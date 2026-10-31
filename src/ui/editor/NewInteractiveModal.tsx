@@ -25,6 +25,7 @@ import { readInteractiveFile } from '../../state/interactiveFile'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
 import { useTypedSubstitution } from './useTypedSubstitution'
+import { withPlacement } from './pageKinds'
 
 /** What the author is told before a file becomes a slide. */
 export const INTERACTIVE_UPLOAD_NOTES: readonly string[] = [
@@ -45,8 +46,11 @@ export function NewInteractiveModal({
   open,
   onOpenChange,
   onCreate,
+  placement,
 }: {
   open: boolean
+  /** Where the new page will go, as the strip says it — «etter slide 3». */
+  placement?: string
   onOpenChange: (open: boolean) => void
   /** `true` when the slide was created; a refusal keeps the dialog open. */
   onCreate: (source: InteractiveSource, name: string) => boolean
@@ -109,7 +113,7 @@ export function NewInteractiveModal({
         if (!next) close()
       }}
       title="Ny miniapp"
-      description="En miniapp er én selvstendig app fra én HTML-fil. Publikum ser en forside med navnet, og starter appen selv."
+      description={withPlacement(placement, 'En miniapp er én selvstendig app fra én HTML-fil. Publikum ser en forside med navnet, og starter appen selv.')}
       testId="new-interactive-modal"
       width={520}
       footer={
