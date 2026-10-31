@@ -230,6 +230,7 @@ export function EditorView({
   const setPresentation = useEditorStore((state) => state.setPresentation)
   const setLoading = useEditorStore((state) => state.setLoading)
   const setLoadError = useEditorStore((state) => state.setLoadError)
+  const mode = useEditorStore((state) => state.mode)
   const setMode = useEditorStore((state) => state.setMode)
   const toggleMode = useEditorStore((state) => state.toggleMode)
   const run = useEditorStore((state) => state.run)
@@ -1685,7 +1686,7 @@ export function EditorView({
     stageFocus && !viewedDerivedPage
       ? focusFieldRect(slide, presentation.theme, stageFocus.fieldId)
       : null
-  const focus = liveFocus(stageFocus, { slideId: currentSlideId, rect: focusCandidateRect })
+  const focus = liveFocus(stageFocus, { slideId: currentSlideId, rect: focusCandidateRect, mode })
   const focusRect = focus ? focusCandidateRect : null
   /** Whether the focused field is one there is anything to type in. */
   const focusedText = focus && slide ? firstFieldIn(slide, focus.fieldId) !== null : false

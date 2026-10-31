@@ -174,7 +174,9 @@ av et panel — en fane, panelets egen ×, en fane trykket to ganger — setter
 modusen sammen med panelet (`modeForPanel`), og panelet som vises er avledet av
 modusen (`compactPanelOnScreen` i `shell/editorShell.ts`): sonemodus valgt på
 desktop, med Ctrl+E eller forlatt med Escape åpner eller lukker sonepanelet i
-stedet for å etterlate soneomriss på en slide uten panel for dem. Før U6 lot ×
+stedet for å etterlate soneomriss på en slide uten panel for dem. Et fokusert
+felt er innholdsmodus, så sonemodus slipper det (`liveFocus` leser modusen),
+også når Ctrl+E trykkes midt i skrivingen. Før U6 lot ×
 på sonepanelet sonemodus stå. Valgt fane er blå (`aria-pressed`), og «Tekst»
 og «Soner» får i tillegg modusens blekk som strek øverst; i sonemodus får
 topplinjens underkant sonefargen, som desktopens verktøylinje.

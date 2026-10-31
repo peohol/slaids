@@ -1673,6 +1673,19 @@ test.describe('kompakt arbeidsflate', () => {
     await page.keyboard.press('Escape')
     await expect(editor).toHaveAttribute('data-mode', 'content')
     await expect(page.getByTestId('compact-panel')).toBeHidden()
+
+    // Ctrl+E while typing in a focused field leaves the field: zone mode is the
+    // zone panel over the whole slide, never outlines around a zoomed field —
+    // and the field does not come back when the mode does.
+    await writeInField(page, 'body', 'Skrevet')
+    await expect(editor).toHaveAttribute('data-focus', 'zone')
+    await page.keyboard.press('ControlOrMeta+e')
+    await expect(editor).toHaveAttribute('data-mode', 'zone')
+    await expect(editor).toHaveAttribute('data-focus', 'slide')
+    await expect(page.getByTestId('compact-panel')).toHaveAttribute('data-panel', 'zone')
+    await page.keyboard.press('Escape')
+    await expect(editor).toHaveAttribute('data-focus', 'slide')
+    await expect(stage(page)).toContainText('Skrevet')
   })
 
   test('verktøypanelet er ordnet og navngitt som desktopens verktøylinje', async ({ page }) => {

@@ -31,7 +31,7 @@ import {
   computeSlideGeometry,
 } from '../../domain/geometry'
 import { geometryForTheme, sectionGeometryForTheme } from '../../domain/metrics'
-import type { ActiveField } from '../../state/store'
+import type { ActiveField, EditorMode } from '../../state/store'
 import type { PresentationTheme, Rect, Slide } from '../../domain/types'
 
 export interface StageFocus {
@@ -61,6 +61,12 @@ export interface FocusContext {
   slideId: string | null
   /** Where the focused field is drawn now, or `null` when the page has it no more. */
   rect: Rect | null
+  /**
+   * The editing mode. A focused field is a writing surface, which is content
+   * mode; zone mode reached any other way — Ctrl+E while typing, the zone
+   * panel — leaves the field rather than showing outlines around a zoomed one.
+   */
+  mode: EditorMode
 }
 
 /**
@@ -75,6 +81,7 @@ export function liveFocus(focus: StageFocus | null, context: FocusContext): Stag
   if (!focus) return null
   if (focus.slideId !== context.slideId) return null
   if (!context.rect) return null
+  if (context.mode !== 'content') return null
   return focus
 }
 
