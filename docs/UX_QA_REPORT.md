@@ -141,7 +141,7 @@ Ingen av punktene hindrer at U0–U7 kan avsluttes. De foreslås som egne, avgre
 4. **Fysiske enhetstester.** Røyktestene i MOBILE_WORKSPACE.md § 16 (ekte iOS/Android, skjermtastatur, Apple Pencil) gjenstår; alt her er kjørt i emulert Chromium.
 5. **Brukertest.** Oppdagbarheten av sjeldne funksjoner i menyer og forståelsen av innholds- og sonemodus bør prøves med 3–5 brukere, med baseline-matrisen som oppgaveliste.
 6. **Paletten i inspektøren** er høyere enn før fordi rutene ikke lenger krymper under 24 px. Vurder en sammenleggbar palett hvis plassen blir et problem.
-7. **E2E i CI.** *Løst etter U7.* `.github/workflows/e2e.yml` kjører 30 representative kjøringer (merket `@pr`) på hver PR og hele suiten, med visuelle referansebilder, hver natt. Ingen nye forsøk og ingen tester hoppet over; ved feil lastes skjermbilder og Playwright-spor opp med kjøringen. Hva som kjører hvor: [E2E_CI.md](E2E_CI.md).
+7. **E2E i CI.** *Løst etter U7.* `.github/workflows/e2e.yml` kjører 30 representative kjøringer (merket `@pr`) på hver PR og hele suiten, med visuelle referansebilder, hver natt. Ingen nye forsøk og ingen tester hoppet over; ved feil lastes skjermbilder og Playwright-spor opp med kjøringen. Hva som kjører hvor: [E2E_CI.md](E2E_CI.md). Den første kjøringen på GitHub-maskinen, som er tregere enn utviklingsmiljøet, fant én ekte feil og noen tester som bare besto fordi maskinen var rask: et varsel om at innhold ikke får plass forsvant mens samme avvisning fortsatt skjedde (rettet: en gjentakelse holder nå varselet oppe), og tester som leste markering, markør eller bildemål før appen hadde dem, eller som godtok et annet varsel enn det de gjaldt (rettet i testene, uten nye forsøk og uten at noe er hoppet over).
 
 ## 10. Begrensninger
 
