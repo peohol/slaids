@@ -17,6 +17,7 @@ import {
   enterSubmenu,
   createPresentation,
   enterZoneMode,
+  selectionTaken,
   slidePoint,
   splitSelected,
   stage,
@@ -205,17 +206,6 @@ async function leaveField(page: Page): Promise<void> {
   await stage(page).getByTestId('slide-title').locator('.ProseMirror').click()
 }
 
-/** Wait until the editor has taken the browser's selection, which it does on its next turn. */
-async function selectionTaken(page: Page): Promise<void> {
-  await bodyField(page).evaluate((element) =>
-    new Promise<void>((resolve) => {
-      const editor = (element as HTMLElement & { editor: { state: { selection: { empty: boolean } } } }).editor
-      const check = () => (editor.state.selection.empty ? requestAnimationFrame(check) : resolve())
-      check()
-    }),
-  )
-}
-
 async function writeInContainer(page: Page, text: string): Promise<void> {
   const [zone] = await zoneRects(page)
   await addContentToZone(page, zone.id, 'container')
@@ -229,7 +219,7 @@ test.describe('context menu in content mode', () => {
     await createPresentation(page, 'Tekstmeny')
     await writeInContainer(page, 'Første punkt')
     await page.keyboard.press('Shift+Home')
-    await selectionTaken(page)
+    await selectionTaken(bodyField(page))
 
     // The text marked is still what the menu acts on.
     await bodyField(page).getByText('Første punkt').click({ button: 'right' })
@@ -257,7 +247,7 @@ test.describe('context menu in content mode', () => {
     await createPresentation(page, 'Tekstmeny')
     await writeInContainer(page, 'Fet tekst')
     await page.keyboard.press('Shift+Home')
-    await selectionTaken(page)
+    await selectionTaken(bodyField(page))
 
     await page.keyboard.press('Shift+F10')
     await expect(page.getByTestId('menu-formatting')).toBeFocused()

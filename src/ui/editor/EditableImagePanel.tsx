@@ -216,6 +216,7 @@ export function EditableImagePanel({
       overlay={ghost}
       data-image-editable=""
       data-image-cropped={cropped ? '' : undefined}
+      data-image-measured={geometry ? '' : undefined}
       data-image-dragging={dragging ? '' : undefined}
       data-image-empty={panel.assetId ? undefined : ''}
       onPointerDown={handlePointerDown}

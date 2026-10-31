@@ -16,6 +16,7 @@ import {
   addContentToZone,
   caretInto,
   createPresentation,
+  selectionTaken,
   splitSelected,
   stage,
   watchForErrors,
@@ -147,6 +148,7 @@ test.describe('the text it acts on', () => {
     await typeInCard(page, 'Markering')
     await page.keyboard.type('Første andre tredje')
     for (let i = 0; i < 'tredje'.length; i += 1) await page.keyboard.press('Shift+ArrowLeft')
+    await selectionTaken(body(page))
     expect(await marked(page)).toBe('tredje')
 
     await page.getByTestId('format-bold').click()
@@ -166,6 +168,7 @@ test.describe('the text it acts on', () => {
     await typeInCard(page, 'Tastatur')
     await page.keyboard.type('Ord')
     await page.keyboard.press('Shift+Home')
+    await selectionTaken(body(page))
 
     await page.getByTestId('format-bold').focus()
     await page.keyboard.press('ArrowRight')

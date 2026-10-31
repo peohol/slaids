@@ -356,6 +356,37 @@ export async function caretInto(field: Locator): Promise<void> {
 }
 
 /**
+ * Wait until the editor has taken the text the browser has marked.
+ *
+ * The editor reads a keyboard selection (Shift+Home, Shift+arrow) from the
+ * browser on its next turn, not in the keypress. A test that moves the focus to
+ * a toolbar or menu before then hands it the selection from before the press —
+ * on a slow machine an empty one, so the formatting lands on nothing.
+ */
+export async function selectionTaken(field: Locator): Promise<void> {
+  await field.evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        const { editor } = element as HTMLElement & {
+          editor: {
+            state: {
+              selection: { from: number; to: number }
+              doc: { textBetween: (from: number, to: number) => string }
+            }
+          }
+        }
+        const check = () => {
+          const marked = window.getSelection()?.toString() ?? ''
+          const { from, to } = editor.state.selection
+          if (marked && editor.state.doc.textBetween(from, to) === marked) resolve()
+          else requestAnimationFrame(check)
+        }
+        check()
+      }),
+  )
+}
+
+/**
  * Fill a zone's body field until the editor stops accepting more — the text is
  * then close to the zone's capacity for the current font and numbering.
  *
