@@ -18,6 +18,7 @@ import {
   createPresentation,
   dismissImageModal,
   scrollSettled,
+  selectionTaken,
   stage,
   toast,
   waitForSaved,
@@ -1354,6 +1355,7 @@ test.describe('kompakt arbeidsflate', () => {
     await writeInField(page, 'body', 'Viktig')
     await expect(page.getByTestId('text-toolbar')).toHaveAttribute('aria-label', 'Tekstverktøy for brødtekst')
     await page.keyboard.press('Shift+Home')
+    await selectionTaken(stage(page).locator('.card-body .tiptap'))
     const bold = page.getByTestId('format-bold')
     await expect(bold).toHaveAttribute('aria-pressed', 'false')
     const coarse = await isCoarse(page)
