@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SUITE: referansebilder # MIDLERTIDIG: tar referansebildene for de nye fargene på runneren
+      SUITE: full # MIDLERTIDIG: hele suiten mot de nye fargene og referansebildene
     steps:
       - uses: actions/checkout@v5
 
