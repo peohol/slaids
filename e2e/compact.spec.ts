@@ -1330,9 +1330,10 @@ test.describe('kompakt arbeidsflate', () => {
     const coarse = await isCoarse(page)
     if (coarse) await bold.tap()
     else await bold.click()
-    await expect(focusedField(page).locator('strong')).toHaveText('Viktig')
+    const cardBody = stage(page).locator('.card-body .tiptap')
+    await expect(cardBody.locator('strong')).toHaveText('Viktig')
     await expect(bold).toHaveAttribute('aria-pressed', 'true')
-    await expect(focusedField(page)).toBeFocused()
+    await expect(cardBody).toBeFocused()
     await expect(page.getByTestId('valign-middle')).toHaveAttribute('aria-pressed', 'true')
     // A finger gets the full target, a mouse the compact one.
     const box = (await bold.boundingBox())!
