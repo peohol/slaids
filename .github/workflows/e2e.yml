@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SUITE: full # MIDLERTIDIG: hele suiten mot de nye fargene og referansebildene
+      SUITE: ${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }}
     steps:
       - uses: actions/checkout@v5
 
