@@ -37,6 +37,17 @@ const frameReachableLaunch = {
 }
 
 /**
+ * Where the built app is served. Named as an address rather than `localhost`:
+ * on a GitHub runner `localhost` resolves to `::1` first, so a preview bound to
+ * it is never reached at `127.0.0.1`, and the run times out waiting for it.
+ * Both are passed to `vite preview`, so this is the one place they are set
+ * for a test run.
+ */
+const HOST = '127.0.0.1'
+const PORT = 4173
+const APP_URL = `http://${HOST}:${PORT}`
+
+/**
  * A modern phone, in both orientations.
  *
  * Written out rather than taken from `devices[...]`: what the compact layout
@@ -53,14 +64,28 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
+  /*
+   * Never retried, locally or in CI: a test that passes on its second attempt
+   * is a red test, and a retry would report it green. `.github/workflows/e2e.yml`
+   * and `docs/E2E_CI.md` rely on that.
+   */
   retries: 0,
-  reporter: process.env.CI ? [['list']] : [['list']],
+  /*
+   * In CI a failure has to be readable without the runner: `github` puts the
+   * message on the failing line of the spec in the pull request, and the HTML
+   * report — screenshot, log and trace per failed test — is uploaded with the
+   * run.
+   */
+  reporter: process.env.CI
+    ? [['list'], ['github'], ['html', { open: 'never' }]]
+    : [['list']],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: APP_URL,
     viewport: { width: 1600, height: 1000 },
     trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     deviceScaleFactor: 1,
     ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },
@@ -125,8 +150,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && npm run preview',
-    url: 'http://127.0.0.1:4173',
+    command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT}`,
+    url: APP_URL,
     // Always build: reusing a server would silently test a stale bundle.
     reuseExistingServer: false,
     timeout: 180_000,

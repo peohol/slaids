@@ -20,16 +20,12 @@
 # og stilarket i seg. Det er den ene kontrollen som ser på det Vercel deployer
 # og ikke på kildekoden.
 #
-# ## Nettlesertestene er ikke med
+# ## Nettlesertestene står i en egen workflow
 #
-# `npm run e2e` starter en ekte Chromium og klikker seg gjennom appen — 310
-# tester, rundt tolv minutter. De er utelatt her fordi de er trege, ikke fordi
-# de er røde: de går grønt. Tolv minutter er lenge nok til at en PR ville ventet
-# på dem, og en port folk venter på er en port folk finner veier rundt.
-#
-# Suiten hører derfor hjemme i en nattlig kjøring, ikke her. Inntil den finnes,
-# er den noe man kjører for hånd før en UI-endring leveres — som `CLAUDE.md`
-# allerede sier.
+# `npm run e2e` starter en ekte Chromium og klikker seg gjennom appen — rundt 400
+# kjøringer og 25 minutter. Det er for lenge til at hver PR skal vente på alt,
+# så `.github/workflows/e2e.yml` kjører et utvalg (`@pr`) på hver PR og hele
+# suiten hver natt. Hva som er med hvor, står i `docs/E2E_CI.md`.
 name: Tester
 
 on:

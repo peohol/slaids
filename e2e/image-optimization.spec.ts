@@ -106,8 +106,29 @@ async function storedFiles(page: Page): Promise<StoredFile[]> {
   })
 }
 
-/** The picture on the stage, as the browser drew it. */
+/**
+ * The picture on the stage, as the browser drew it.
+ *
+ * Read once the panel has measured the file it shows, and the picture and the
+ * panel's measuring probe have loaded the same one. The picture can be on
+ * screen a moment before the panel knows its size, and until then it calls
+ * nothing cropped — which reads as a pass wherever a crop is expected to be gone.
+ */
 async function drawnPicture(page: Page, index = 0) {
+  await page.waitForFunction((nth) => {
+    const image = document.querySelectorAll<HTMLImageElement>(
+      '[data-testid="stage-slide"] .image-panel__img',
+    )[nth]
+    const panel = image?.closest('.image-panel')
+    const probe = panel?.querySelector<HTMLImageElement>('.image-panel__probe')
+    return Boolean(
+      image?.complete &&
+        image.naturalWidth > 0 &&
+        probe?.complete &&
+        probe.naturalWidth === image.naturalWidth &&
+        panel?.hasAttribute('data-image-measured'),
+    )
+  }, index)
   return page.evaluate((nth) => {
     const images = document.querySelectorAll<HTMLImageElement>(
       '[data-testid="stage-slide"] .image-panel__img',

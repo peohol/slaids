@@ -361,7 +361,8 @@ test.describe('citation numbering and fit', () => {
     // The pill occupies room like any other glyph run: with the zone full, one
     // more citation is refused rather than clipped.
     await citeNewReference(page, 'Kilde nummer to')
-    await expect(toast(page, 'får ikke plass')).toBeVisible()
+    await expect(toast(page, 'Innholdet får ikke plass i sonen.')).toBeVisible()
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1')
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 

@@ -53,7 +53,7 @@ async function progressBar(page: Page): Promise<{
 }
 
 test.describe('presentation mode', () => {
-  test('navigates slides with the keyboard and exits with Escape', async ({ page }) => {
+  test('navigates slides with the keyboard and exits with Escape', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Visning')
     await page.getByTestId('add-slide').click()
@@ -103,7 +103,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('filmstrip-item').last()).toHaveClass(/filmstrip__item--active/)
   })
 
-  test('renders the same content as the editor', async ({ page }) => {
+  test('renders the same content as the editor', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Samme innhold')
     await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
     await page.keyboard.type('Tittel i visning')

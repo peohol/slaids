@@ -183,7 +183,7 @@ test.describe('ny interaktiv slide', () => {
 })
 
 test.describe('presentasjon', () => {
-  test('forsiden er en side som alle andre, og appen kjører bare mellom Aktiver og Avslutt', async ({
+  test('forsiden er en side som alle andre, og appen kjører bare mellom Aktiver og Avslutt', { tag: '@pr' }, async ({
     page,
   }) => {
     const guard = watchForErrors(page)

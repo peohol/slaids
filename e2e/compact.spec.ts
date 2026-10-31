@@ -18,6 +18,7 @@ import {
   createPresentation,
   dismissImageModal,
   scrollSettled,
+  selectionTaken,
   stage,
   toast,
   waitForSaved,
@@ -80,6 +81,19 @@ function focusedField(page: Page) {
 }
 
 /**
+ * The field on the stage that has the caret.
+ *
+ * Naming a field in the text list brings the caret with it, but a moment after
+ * the field is drawn: it is placed once the zoom has settled. Typing as soon as
+ * a writing surface is visible raced that, and on a slower machine the text
+ * went nowhere — so a test that types without pressing anything waits for
+ * this, which is also the check that the caret did arrive.
+ */
+function caretField(page: Page) {
+  return stage(page).locator('.tiptap[contenteditable="true"]:focus')
+}
+
+/**
  * Write in one of the slide's fields the way a phone gets there: choose it in
  * the text list, which fills the stage with it, and type.
  *
@@ -93,7 +107,7 @@ async function writeInField(page: Page, kind: string, text: string): Promise<voi
     .locator(`[data-testid="compact-content-item"][data-target-kind="${kind}"]`)
     .first()
     .click()
-  await expect(focusedField(page)).toBeVisible()
+  await expect(caretField(page)).toBeVisible()
   await page.keyboard.insertText(text)
 }
 
@@ -140,7 +154,7 @@ function expectSameBox(actual: { x: number; y: number; width: number; height: nu
 }
 
 test.describe('kompakt arbeidsflate', () => {
-  test('gir compact shell, biblioteket uten sidescroll og en slide som får plass', async ({
+  test('gir compact shell, biblioteket uten sidescroll og en slide som får plass', { tag: '@pr' }, async ({
     page,
   }) => {
     const guard = watchForErrors(page)
@@ -290,7 +304,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(focusedField(page)).toBeVisible()
   })
 
-  test('tekstlista åpner den samme skriveflaten på sliden, og fit måles der', async ({
+  test('tekstlista åpner den samme skriveflaten på sliden, og fit måles der', { tag: '@pr' }, async ({
     page,
   }) => {
     await createPresentation(page, 'Tekst')
@@ -310,6 +324,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(field).toBeVisible()
     // Typed without pressing anything first: naming a field in the list brings
     // the caret with it, which is the whole difference from a long press.
+    await expect(caretField(page)).toBeVisible()
     await page.keyboard.insertText('Kort nok.')
     await expect(stage(page)).toContainText('Kort nok.')
 
@@ -1340,6 +1355,7 @@ test.describe('kompakt arbeidsflate', () => {
     await writeInField(page, 'body', 'Viktig')
     await expect(page.getByTestId('text-toolbar')).toHaveAttribute('aria-label', 'Tekstverktøy for brødtekst')
     await page.keyboard.press('Shift+Home')
+    await selectionTaken(stage(page).locator('.card-body .tiptap'))
     const bold = page.getByTestId('format-bold')
     await expect(bold).toHaveAttribute('aria-pressed', 'false')
     const coarse = await isCoarse(page)
@@ -1785,7 +1801,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(bar).not.toHaveAttribute('data-more-end', '')
   })
 
-  test('lagrer og henter tilbake etter reload', async ({ page }) => {
+  test('lagrer og henter tilbake etter reload', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Varig')
     await addCardToRootZone(page)
     await writeInField(page, 'body', 'Skrevet på mobil')

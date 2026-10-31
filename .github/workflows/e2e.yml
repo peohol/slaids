@@ -1,0 +1,132 @@
+# Nettlesertestene (Playwright), i to størrelser — og verktøyet som lager
+# referansebildene de visuelle testene sammenligner mot.
+#
+# - **PR-kontrollen** kjører utvalget merket `@pr` på hver pull request: de
+#   flytene som brekker oftest og som en anmelder ellers måtte klikke seg
+#   gjennom for hånd. Den er rask nok til å vente på.
+# - **Den nattlige kjøringen** kjører hele suiten — alle fem prosjektene i
+#   `playwright.config.ts` og de visuelle referansebildene — hver natt mot
+#   `main`, og når noen starter den for hånd fra Actions-fanen.
+# - **Referansebilder** (bare for hånd) tar de visuelle bildene på nytt på denne
+#   runneren og laster dem opp som artefakt. Referansene hører til runneren, ikke
+#   til en utviklermaskin: appens grensesnitt tegnes med systemfonten, og den er
+#   ikke den samme to steder.
+#
+# Hvilke tester som er med hvor, og hvorfor, står i `docs/E2E_CI.md`. Selve
+# utvalget er taggene i testfilene; `npx playwright test --list --grep @pr`
+# skriver det ut.
+#
+# Ingen av kjøringene prøver en feilet test på nytt, og ingen test hoppes over
+# for at CI skal bli grønn: en test som bare består annenhver gang er en rød
+# test, og den skal synes som det (`retries: 0` i `playwright.config.ts`).
+#
+# Når noe feiler, finnes tre spor:
+# - feilmeldingen står som en merknad på linjen i testfilen, rett i PR-en;
+# - jobbsammendraget forklarer hvor sporet og skjermbildene ligger;
+# - artefaktet `playwright-rapport-…` har HTML-rapporten med skjermbilde, logg
+#   og et fullt Playwright-spor (trace) for hver feilet test.
+name: Nettlesertester
+
+on:
+  pull_request:
+  schedule:
+    # 02:17 UTC, utenfor arbeidstid og utenom hele timer, da GitHub har kø.
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'full: hele suiten. pr: PR-utvalget. referansebilder: ta de visuelle referansebildene på nytt og last dem opp.'
+        type: choice
+        options: [full, pr, referansebilder]
+        default: full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nettlesertester-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e:
+    # En PR kjører alltid utvalget, natten alltid hele suiten; for hånd velges det.
+    name: E2E (${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SUITE: ${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Installer avhengigheter
+        run: npm ci
+
+      # Nettleseren hentes for den Playwright-versjonen låsefilen sier, så
+      # cachen er nøklet på den versjonen og byttes ut av seg selv ved en
+      # oppgradering. Systembibliotekene (og Liberation-fontene testene bruker
+      # som lokal webfont) installeres hver gang; de ligger ikke i cachen.
+      - name: Finn Playwright-versjonen
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Installer Chromium
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      - name: Installer systembiblioteker for Chromium
+        run: npx playwright install-deps chromium
+
+      # `playwright.config.ts` bygger appen og starter forhåndsvisningen selv.
+      - name: Kjør nettlesertestene (${{ env.SUITE }})
+        env:
+          SLAIDS_VISUAL: ${{ env.SUITE != 'pr' && '1' || '' }}
+        run: |
+          case "$SUITE" in
+            pr) npx playwright test --grep @pr ;;
+            full) npx playwright test ;;
+            referansebilder) npx playwright test visual --update-snapshots=all ;;
+            *) echo "Ukjent utvalg: $SUITE" >&2; exit 1 ;;
+          esac
+
+      - name: Last opp referansebildene
+        if: env.SUITE == 'referansebilder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: referansebilder
+          path: e2e/*.spec.ts-snapshots/
+          retention-days: 14
+
+      - name: Forklar hvor sporene ligger
+        if: failure()
+        run: |
+          {
+            echo "## Nettlesertestene feilet"
+            echo
+            echo "Feilmeldingene står som merknader på testlinjene under **Files changed** i PR-en og i loggen over."
+            echo
+            echo "For skjermbilder og fullt spor: last ned artefaktet **playwright-rapport-${SUITE}** nederst på denne siden, pakk det ut og åpne \`index.html\`."
+            echo "Hver feilet test har et skjermbilde og et spor (trace). Sporet kan også åpnes ved å slippe \`trace.zip\` på <https://trace.playwright.dev>, eller lokalt med \`npx playwright show-trace trace.zip\`."
+            echo
+            echo "En visuell test som feiler etter en *tilsiktet* endring i grensesnittet, trenger nye referansebilder: se «Visuelle referansebilder» i \`docs/E2E_CI.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Last opp rapport og spor
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-rapport-${{ env.SUITE }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
