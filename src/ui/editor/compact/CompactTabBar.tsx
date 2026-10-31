@@ -7,17 +7,18 @@
  * back without a separate "hide panel" control to find.
  */
 
-import { useEditorStore } from '../../../state/store'
 import { Icon, type IconName, type IconTone } from '../../components/Icon'
 import type { CompactPanel } from '../shell/editorShell'
 
 /* Text and zones carry the same inks as the desktop's two modes, because they
-   *are* those two modes here (see the click handler below). */
+   *are* those two modes here (the shell sets the mode with the panel; see
+   `modeForPanel`). The other two have the icons their desktop counterparts
+   have: a page for the slides, and the «Verktøy» menu's own icon. */
 const TABS: { id: CompactPanel; label: string; icon: IconName; tone?: IconTone }[] = [
-  { id: 'slides', label: 'Slides', icon: 'template' },
+  { id: 'slides', label: 'Slides', icon: 'slide' },
   { id: 'content', label: 'Tekst', icon: 'text', tone: 'content' },
   { id: 'zone', label: 'Soner', icon: 'zones', tone: 'zone' },
-  { id: 'tools', label: 'Verktøy', icon: 'menu' },
+  { id: 'tools', label: 'Verktøy', icon: 'tools' },
 ]
 
 export function CompactTabBar({
@@ -29,30 +30,17 @@ export function CompactTabBar({
   onSelect: (panel: CompactPanel | null) => void
   sandboxCount: number
 }) {
-  const setMode = useEditorStore((state) => state.setMode)
-
   return (
     <nav className="compact-bar compact-bar--tabs" data-testid="compact-tab-bar">
       {TABS.map((tab) => (
         <button
           key={tab.id}
           type="button"
-          className={panel === tab.id ? 'compact-tab compact-tab--active' : 'compact-tab'}
+          className="compact-tab"
           aria-pressed={panel === tab.id}
+          data-tone={tab.tone}
           data-testid={`compact-tab-${tab.id}`}
-          onClick={() => {
-            const next = panel === tab.id ? null : tab.id
-            /*
-             * The zone tab *is* the zone mode, and every other tab is content
-             * mode. Stated here once rather than left to drift: outlines and
-             * ratio handles on the slide while the text panel is open would
-             * be chrome for a mode the workspace is not in, and a zone panel
-             * over a slide with no outlines would be the same mistake the
-             * other way round.
-             */
-            setMode(next === 'zone' ? 'zone' : 'content')
-            onSelect(next)
-          }}
+          onClick={() => onSelect(panel === tab.id ? null : tab.id)}
         >
           <Icon name={tab.icon} size={19} tone={tab.tone} />
           <span>{tab.label}</span>

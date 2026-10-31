@@ -96,6 +96,15 @@ async function writeInField(page: Page, kind: string, text: string): Promise<voi
   await page.keyboard.insertText(text)
 }
 
+/** Open «Innholdstype» from the tools panel: the same menu the desktop toolbar opens. */
+async function openCompactKindMenu(page: Page) {
+  await openPanel(page, 'tools')
+  await page.getByTestId('compact-tool-content-kind').click()
+  const menu = page.getByTestId('context-menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
 /** The one way out of a focused field. */
 async function exitFocus(page: Page): Promise<void> {
   await page.getByTestId('compact-stage-exit').click()
@@ -650,12 +659,15 @@ test.describe('kompakt arbeidsflate', () => {
     await closePanel(page)
     await pressSlide(page, sliver.x + sliver.w / 2, sliver.y + sliver.h / 2)
 
-    await openPanel(page, 'tools')
-    await expect(page.getByTestId('content-kind-titled-card')).toBeDisabled()
-    await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
+    // The tools panel's «Innholdstype» is the desktop toolbar's menu button.
+    const menu = await openCompactKindMenu(page)
+    await expect(menu.getByTestId('menu-kind-titled-card')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('menu-kind-negative-space')).not.toHaveAttribute('data-disabled', '')
     // The reason belongs to the choice it is about, not to the panel: there is
     // no pointer here to hover a tooltip with.
-    await expect(page.getByTestId('content-kind-reason-titled-card')).toContainText('for liten')
+    await expect(menu.getByTestId('menu-kind-titled-card')).toContainText('for liten')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
 
     // And the zone panel, which is the other door to the same choice.
     await openPanel(page, 'zone')
@@ -696,18 +708,17 @@ test.describe('kompakt arbeidsflate', () => {
     const sliver = zones.reduce((shortest, zone) => (zone.h < shortest.h ? zone : shortest))
     await closePanel(page)
     await pressSlide(page, sliver.x + sliver.w / 2, sliver.y + sliver.h / 2)
-    await openPanel(page, 'tools')
+    const menu = await openCompactKindMenu(page)
 
-    const cardReason = page.getByTestId('content-kind-reason-titled-card')
-    const pictureReason = page.getByTestId('content-kind-reason-image')
-    await expect(cardReason).toBeVisible()
-    await expect(pictureReason).toBeVisible()
+    const reason = (kind: string) => menu.getByTestId(`menu-kind-${kind}`).locator('.context-menu__reason')
+    await expect(reason('titled-card')).toBeVisible()
+    await expect(reason('image')).toBeVisible()
     // Each says what *that* kind needs, so the two cannot be the same sentence.
-    expect(await cardReason.textContent()).not.toBe(await pictureReason.textContent())
+    expect(await reason('titled-card').textContent()).not.toBe(await reason('image').textContent())
 
     // And the one choice that is available carries no explanation at all.
-    await expect(page.getByTestId('content-kind-negative-space')).toBeEnabled()
-    await expect(page.getByTestId('content-kind-reason-negative-space')).toHaveCount(0)
+    await expect(menu.getByTestId('menu-kind-negative-space')).not.toHaveAttribute('data-disabled', '')
+    await expect(reason('negative-space')).toHaveCount(0)
   })
 
   test('sonepanelet sier hva som er valgt, og alt i det nås med trykk', async ({ page }) => {
@@ -1624,6 +1635,135 @@ test.describe('kompakt arbeidsflate', () => {
     await page.keyboard.insertText('Erstattet')
     await expect(field).toContainText('Erstattet')
     await expect(field).not.toContainText('setning')
+  })
+
+  /* ----------------------------------------------------------------- *
+   * Tabs, modes and the tools panel (U6)
+   * ----------------------------------------------------------------- */
+
+  test('sonefanen er sonemodus, uansett hvordan man kommer inn og ut', async ({ page }) => {
+    await createPresentation(page, 'Modus')
+    await addCardToRootZone(page)
+    const editor = page.getByTestId('editor')
+    const zoneTab = page.getByTestId('compact-tab-zone')
+
+    // In through the tab: the tab is pressed and the editor is in zone mode.
+    await expect(editor).toHaveAttribute('data-mode', 'zone')
+    await expect(zoneTab).toHaveAttribute('aria-pressed', 'true')
+
+    // Out through the panel's own ×: back to content mode, with no tab
+    // pressed and no zone outlines left on a slide that has no panel for them.
+    await closePanel(page)
+    await expect(editor).toHaveAttribute('data-mode', 'content')
+    await expect(page.locator('.compact-tab[aria-pressed="true"]')).toHaveCount(0)
+
+    // Another tab is content mode too.
+    await openPanel(page, 'zone')
+    await openPanel(page, 'slides')
+    await expect(editor).toHaveAttribute('data-mode', 'content')
+    await expect(zoneTab).toHaveAttribute('aria-pressed', 'false')
+
+    // The keyboard reaches the same state from either side: Ctrl+E opens the
+    // zone panel because it *is* zone mode, and Escape closes it again.
+    await closePanel(page)
+    await page.keyboard.press('ControlOrMeta+e')
+    await expect(editor).toHaveAttribute('data-mode', 'zone')
+    await expect(page.getByTestId('compact-panel')).toHaveAttribute('data-panel', 'zone')
+    await expect(zoneTab).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+    await expect(editor).toHaveAttribute('data-mode', 'content')
+    await expect(page.getByTestId('compact-panel')).toBeHidden()
+  })
+
+  test('verktøypanelet er ordnet og navngitt som desktopens verktøylinje', async ({ page }) => {
+    await createPresentation(page, 'Verktøy')
+    await addCardToRootZone(page)
+    await openPanel(page, 'tools')
+
+    // The desktop toolbar's groups, in its order and with its names.
+    await expect(page.getByTestId('compact-tools').locator('h3')).toHaveText([
+      'Valgt sone',
+      'Slide',
+      'Presentasjon',
+      'Verktøy',
+    ])
+    // The content kind is the desktop's menu button, naming the kind in force.
+    await expect(page.getByTestId('compact-tool-content-kind')).toContainText('Kort uten tittel')
+    await expect(page.getByTestId('compact-tool-content-kind')).toHaveAttribute('aria-haspopup', 'menu')
+
+    // «Overskrift» is a toggle, as on the desktop: pressed while the slide has
+    // its title zone, and the same command takes it away and back.
+    const title = page.getByTestId('compact-tool-title')
+    await expect(title).toHaveText('Overskrift')
+    const before = await title.getAttribute('aria-pressed')
+    await title.click()
+    await expect(title).not.toHaveAttribute('aria-pressed', before ?? '')
+    await page.getByTestId('undo').click()
+    await expect(title).toHaveAttribute('aria-pressed', before ?? '')
+
+    // The presentation's tools are the «Presentasjon» menu's entries, named as
+    // there (a dialog still says so with its «…»), and the helpers the
+    // «Verktøy» menu's.
+    await expect(page.getByTestId('compact-tool-theme')).toHaveText('Tema …')
+    await expect(page.getByTestId('compact-tool-shortcuts')).toHaveText('Hurtigtaster')
+    await expect(page.getByTestId('toggle-share')).toBeVisible()
+  })
+
+  test('alle kontroller er fingerstore når pekeren er en finger', async ({ page }) => {
+    await createPresentation(page, 'Treffflater')
+    test.skip(!(await isCoarse(page)), 'Bare berøring skal ha fingerstore treffflater')
+    await addCardToRootZone(page)
+
+    /*
+     * Every control on screen in every panel, measured as laid out: 44 px both
+     * ways. The one exception is the colour grid, whose swatches share the
+     * row and stay square at 28 px or more — still above the 24 px WCAG floor.
+     */
+    const tooSmall = () =>
+      page.evaluate(() => {
+        const found: string[] = []
+        for (const control of document.querySelectorAll<HTMLElement>('button, input, select, summary')) {
+          const box = control.getBoundingClientRect()
+          if (box.width === 0 || box.height === 0) continue
+          if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) continue
+          if (control.closest('[data-testid="stage-slide"], .filmstrip__thumb')) continue
+          const swatch = control.classList.contains('palette__swatch')
+          const least = swatch ? 28 : 44
+          if (box.width < least - 0.5 || box.height < least - 0.5) {
+            found.push(`${control.dataset.testid ?? control.className} ${Math.round(box.width)}×${Math.round(box.height)}`)
+          }
+        }
+        return found
+      })
+
+    for (const panel of ['slides', 'content', 'zone', 'tools'] as const) {
+      await openPanel(page, panel)
+      expect(await tooSmall(), panel).toEqual([])
+    }
+    await closePanel(page)
+    expect(await tooSmall(), 'top and tab bars').toEqual([])
+  })
+
+  test('en tekstlinje som ruller sideveis viser at det finnes mer', async ({ page }) => {
+    await createPresentation(page, 'Mer i linja')
+    await addCardToRootZone(page)
+    await writeInField(page, 'body', 'Tekst')
+    const bar = page.getByTestId('text-toolbar')
+    await expect(bar).toBeVisible()
+
+    const overflows = await bar.evaluate((element) => element.scrollWidth > element.clientWidth + 1)
+    test.skip(!overflows, 'Linja får plass i denne bredden')
+
+    // At the start there is more to the right, and only to the right.
+    await expect(bar).toHaveAttribute('data-more-end', '')
+    await expect(bar).not.toHaveAttribute('data-more-start', '')
+    // Scrolled to the end, the marks swap over.
+    await bar.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect(bar).toHaveAttribute('data-more-start', '')
+    await expect(bar).not.toHaveAttribute('data-more-end', '')
   })
 
   test('lagrer og henter tilbake etter reload', async ({ page }) => {

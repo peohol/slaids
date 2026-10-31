@@ -34,6 +34,7 @@ import { ColorPickerButton } from '../components/ColorPicker'
 import type { MenuAction } from '../components/contextMenu'
 import { keepFocus } from '../components/focusKeeping'
 import { pressedButton } from '../components/pressed'
+import { useScrollEdges } from '../components/scrollEdges'
 import { inheritedPill, standardLabel } from './colorInheritance'
 import { inlineImageEntries, tableEntries, textEntry } from './contextMenu/textMenu'
 import { SymbolPickerButton } from './SymbolPicker'
@@ -161,6 +162,9 @@ export function TextToolbar({
     }
   }, [editor, bump])
 
+  // On a phone the row scrolls sideways; its edges say when there is more.
+  const scrollEdges = useScrollEdges<HTMLDivElement>()
+
   if (!editor || !activeField) {
     return (
       <div className="text-toolbar text-toolbar--empty" data-testid="text-toolbar-empty">
@@ -177,6 +181,7 @@ export function TextToolbar({
   const fieldName = FIELD_TITLES[activeField.kind]
   const bar = (children: ReactNode, note?: string) => (
     <div
+      ref={scrollEdges}
       className="text-toolbar"
       role="toolbar"
       aria-label={`Tekstverktøy for ${fieldName.toLowerCase()}`}

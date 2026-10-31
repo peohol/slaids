@@ -169,9 +169,15 @@ panelet ved å utlede: mens et verktøyvindu er oppe vises ikke panelet, og å
 Til gjengjeld ble «content» en egen fane: tekstlista er selve arbeidsflaten på
 en stående telefon, ikke et undervalg i inspector.
 
-Fanen «Soner» *er* sonemodus. Å trykke den setter `mode`, og alle andre faner
-setter den tilbake – ellers ville soneomriss stått på sliden mens tekstpanelet
-var åpent, eller motsatt.
+Fanen «Soner» *er* sonemodus, i begge retninger (fra U6). Hver vei inn i og ut
+av et panel — en fane, panelets egen ×, en fane trykket to ganger — setter
+modusen sammen med panelet (`modeForPanel`), og panelet som vises er avledet av
+modusen (`compactPanelOnScreen` i `shell/editorShell.ts`): sonemodus valgt på
+desktop, med Ctrl+E eller forlatt med Escape åpner eller lukker sonepanelet i
+stedet for å etterlate soneomriss på en slide uten panel for dem. Før U6 lot ×
+på sonepanelet sonemodus stå. Valgt fane er blå (`aria-pressed`), og «Tekst»
+og «Soner» får i tillegg modusens blekk som strek øverst; i sonemodus får
+topplinjens underkant sonefargen, som desktopens verktøylinje.
 
 En modal/dialog står over dette og nullstiller ikke underliggende utvalg.
 

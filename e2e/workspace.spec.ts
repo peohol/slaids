@@ -93,4 +93,40 @@ test.describe('workspace transitions', () => {
     await expect(page.getByTestId('inspector')).toBeVisible()
     await expect(stage(page)).toContainText('Skrevet før rotasjon')
   })
+
+  test('the editing mode, an unsaved edit and the history cross with the window', async ({
+    page,
+  }) => {
+    await page.setViewportSize(TABLET_LANDSCAPE)
+    await createPresentation(page, 'Modus over terskelen')
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    await page.locator('[data-testid="empty-zone-untitled-card"]').first().click()
+
+    // Zone mode on the desktop is the zone panel on the compact workspace —
+    // the mode chosen is kept, and so is what it is about.
+    await page.getByTestId('mode-zone').click()
+    const zoneBefore = await page.getByTestId('inspector-breadcrumb').textContent()
+    await turn(page, TABLET_PORTRAIT, 'compact')
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-mode', 'zone')
+    await expect(page.getByTestId('compact-panel')).toHaveAttribute('data-panel', 'zone')
+    await expect(page.getByTestId('compact-tab-zone')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('inspector-breadcrumb')).toHaveText(zoneBefore ?? '')
+
+    // Leaving the zone panel is leaving zone mode, and the desktop agrees.
+    await page.getByTestId('compact-panel-close').click()
+    await turn(page, TABLET_LANDSCAPE, 'desktop')
+    await expect(page.getByTestId('mode-content')).toHaveAttribute('aria-pressed', 'true')
+
+    // An edit made the moment before the window changes — before autosave has
+    // had its turn — is still there on the other side, and still undoable.
+    await stage(page).locator('.subfield .tiptap').first().click({ position: { x: 4, y: 4 } })
+    await page.keyboard.insertText('Rett før')
+    await turn(page, TABLET_PORTRAIT, 'compact')
+    await expect(stage(page)).toContainText('Rett før')
+    await turn(page, TABLET_LANDSCAPE, 'desktop')
+    await expect(stage(page)).toContainText('Rett før')
+    await page.getByTestId('undo').click()
+    await expect(stage(page)).not.toContainText('Rett før')
+  })
 })

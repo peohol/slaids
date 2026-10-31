@@ -117,13 +117,24 @@ En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-
 - **Valgt side** sies tre ganger: blå ramme, nummeret som fylt blå merkelapp og `aria-current`.
 - **Ny side:** «Ny slide» er stripens brede knapp; de andre typene i menyen ved siden av. Over knappen står hvor siden havner, i stripens egen nummerering. Alle innganger til ny side bruker de samme oppføringene (`newPageEntries`).
 
+### Kompakt arbeidsflate (fra U6)
+
+- **Fanene** er navigasjon med samme tilstandsspråk som resten: valgt fane er blå flate og lys tekst fra `aria-pressed`. «Tekst» og «Soner» er også de to redigeringsmodusene og får modusens blekk som strek øverst, slik desktopens segmenterte «Innhold | Soner» understreker valgt segment. I sonemodus får topplinjens underkant sonefargen, som desktopens verktøylinje.
+- **Ikoner som desktop:** «Slides» bruker slide-ikonet (ikke malikonet, som er «Maler …»), «Verktøy» bruker verktøymenyens ikon. Antall i sandkassen står på primærblått som på desktop.
+- **Verktøyfanen** har desktoplinjens grupper i samme rekkefølge og med samme navn: *Valgt sone* (innholdstype som den samme menyknappen, «Sett inn bilde fra fil …»), *Slide* («Overskrift» som av/på med hake), *Presentasjon* (menyens oppføringer og «Del»), *Verktøy* (menyens oppføringer). Radene tegnes fra de samme `MenuAction`-oppføringene som menyene; en utilgjengelig rad skriver grunnen under seg.
+- **«Vis»** har ordet ved siden av ikonet, som på desktop.
+- **Feltnavn i tekstlista** er setningsstil og halvfete, som navn ellers.
+- **En rad som ruller sideveis** (tekstlinja på telefon) toner ut kanten der det finnes mer (`useScrollEdges`).
+
 ## 5. Berøring
 
-`:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. Inspektørens utvidbare grupper og stiknapper får 44 px høyde. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.
+`:root[data-coarse='true']` gir **alle** knapper minst 44 × 44 px, med eller uten tekst, og felt (`.input`, `.select`) og mapper i biblioteket minst 44 px høyde. Det gjelder etter pekeren, ikke bredden, så et stort nettbrett i desktopvisning får også fingerstore kontroller; hovedlinjen får fortsatt plass ned til 1025 px (`e2e/toolbar.spec.ts`). Før U6 stoppet små knapper med tekst på 38 px, og hovedlinjens knapper som hadde gitt fra seg etiketten var 30 px brede på berøring. Inspektørens utvidbare grupper og stiknapper får 44 px høyde.
+
+**Unntak, med vilje:** fargerutene i en palett deler radens bredde og er kvadratiske mellom 28 og 44 px; en rad som ikke rommer tolv på 28 px brytes i to. Det er over WCAGs minstemål på 24 px, men en tett palett kan ikke ha 44 px ruter på en telefon uten å miste rekkefølgen. Presentasjonstittelen i hovedlinjen på et romslig berøringsnettbrett er lavere enn 44 px; «Gi presentasjonen nytt navn …» i «Presentasjon»-menyen er den fingerstore veien til det samme.
 
 ## 6. Bruk i dag og videre
 
-Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); tekstverktøylinjen (U4); bibliotekets kort og mapper og filmstripen (U5); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
+Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); tekstverktøylinjen (U4); bibliotekets kort og mapper og filmstripen (U5); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner, topplinje og verktøypanel (U6). Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
 
 Regler for neste arbeidspakker:
 

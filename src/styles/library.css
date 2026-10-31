@@ -169,6 +169,12 @@
   text-align: left;
 }
 
+/* A folder is a place to go; on a finger-driven screen of any width it is
+   the height of every other target. */
+:root[data-coarse='true'] .folder-item {
+  min-height: var(--touch-target);
+}
+
 .folder-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }
