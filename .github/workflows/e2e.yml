@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SUITE: referansebilder # MIDLERTIDIG: lager referansebilder på runneren
+      SUITE: full # MIDLERTIDIG: verifiserer hele suiten mot de nye referansebildene
     steps:
       - uses: actions/checkout@v5
 
