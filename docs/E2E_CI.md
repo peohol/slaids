@@ -6,6 +6,7 @@ Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i t
 | --- | --- | --- | --- |
 | **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (30 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
 | **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle fem prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
+| **Referansebilder** | Bare for hånd fra Actions-fanen (`suite: referansebilder`) | Tar de visuelle referansebildene på nytt og laster dem opp som artefaktet `referansebilder` | ca. 2 min |
 
 ## Regler som gjelder begge
 
@@ -47,4 +48,10 @@ Legg til `{ tag: '@pr' }` som andre argument til `test(...)`, og nevn filen i ta
 
 ## Visuelle referansebilder
 
-Referansebildene ligger i `e2e/*.spec.ts-snapshots/` og er laget med Chromium på Linux. Den nattlige kjøringen sammenligner mot dem. En tilsiktet endring i grensesnittet krever nye referansebilder: `SLAIDS_VISUAL=1 npx playwright test visual --update-snapshots`, og bildene committes sammen med endringen.
+Referansebildene ligger i `e2e/*.spec.ts-snapshots/` og er **tatt på GitHub-runneren** (Ubuntu 24.04, Chromium fra Playwright-versjonen i låsefilen). Grensesnittet tegnes med systemfonten, som ikke er den samme på en utviklermaskin, så bildene sammenlignes bare der de ble tatt: i den nattlige kjøringen. Lokalt kan `SLAIDS_VISUAL=1 npx playwright test visual` derfor vise forskjeller i tekst som ikke er feil.
+
+En tilsiktet endring i grensesnittet krever nye referansebilder:
+
+1. Push endringen til grenen.
+2. Kjør **Nettlesertester** for hånd fra Actions-fanen på den grenen med `suite: referansebilder`.
+3. Last ned artefaktet `referansebilder`, pakk det ut over `e2e/`, se over bildene og commit dem sammen med endringen.

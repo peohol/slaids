@@ -107,7 +107,8 @@ test.describe('luft and skriftstørrelse', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
 
-    await expect(toast(page, 'får ikke plass')).toBeVisible()
+    await expect(toast(page, 'Så mye luft gjør at innhold ikke lenger får plass')).toBeVisible()
+    await expect(page.getByTestId(`theme-spacing-${AIRY}`)).toHaveAttribute('aria-pressed', 'false')
     expect(await renderedGap(page)).toBe(gapBefore)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
@@ -122,7 +123,10 @@ test.describe('luft and skriftstørrelse', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-font-scale-1.75').click()
 
-    await expect(toast(page, 'får ikke plass')).toBeVisible()
+    await expect(
+      toast(page, 'Denne skriftstørrelsen gjør at innhold ikke lenger får plass'),
+    ).toBeVisible()
+    await expect(page.getByTestId('theme-font-scale-1.75')).toHaveAttribute('aria-pressed', 'false')
     expect(await renderedBodySize(page)).toBe(before)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })

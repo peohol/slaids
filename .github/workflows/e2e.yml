@@ -1,4 +1,5 @@
-# Nettlesertestene (Playwright), i to størrelser.
+# Nettlesertestene (Playwright), i to størrelser — og verktøyet som lager
+# referansebildene de visuelle testene sammenligner mot.
 #
 # - **PR-kontrollen** kjører utvalget merket `@pr` på hver pull request: de
 #   flytene som brekker oftest og som en anmelder ellers måtte klikke seg
@@ -6,6 +7,10 @@
 # - **Den nattlige kjøringen** kjører hele suiten — alle fem prosjektene i
 #   `playwright.config.ts` og de visuelle referansebildene — hver natt mot
 #   `main`, og når noen starter den for hånd fra Actions-fanen.
+# - **Referansebilder** (bare for hånd) tar de visuelle bildene på nytt på denne
+#   runneren og laster dem opp som artefakt. Referansene hører til runneren, ikke
+#   til en utviklermaskin: appens grensesnitt tegnes med systemfonten, og den er
+#   ikke den samme to steder.
 #
 # Hvilke tester som er med hvor, og hvorfor, står i `docs/E2E_CI.md`. Selve
 # utvalget er taggene i testfilene; `npx playwright test --list --grep @pr`
@@ -30,9 +35,9 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: 'Hvilke tester som skal kjøres.'
+        description: 'full: hele suiten. pr: PR-utvalget. referansebilder: ta de visuelle referansebildene på nytt og last dem opp.'
         type: choice
-        options: [full, pr]
+        options: [full, pr, referansebilder]
         default: full
 
 permissions:
@@ -44,11 +49,12 @@ concurrency:
 
 jobs:
   e2e:
-    name: ${{ (github.event_name == 'pull_request' || inputs.suite == 'pr') && 'E2E (PR-utvalg)' || 'E2E (hele suiten)' }}
+    # En PR kjører alltid utvalget, natten alltid hele suiten; for hånd velges det.
+    name: E2E (${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SUITE: full # MIDLERTIDIG: verifiserer hele suiten i CI før merge
+      SUITE: ${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -84,13 +90,22 @@ jobs:
       # `playwright.config.ts` bygger appen og starter forhåndsvisningen selv.
       - name: Kjør nettlesertestene (${{ env.SUITE }})
         env:
-          SLAIDS_VISUAL: ${{ env.SUITE == 'full' && '1' || '' }}
+          SLAIDS_VISUAL: ${{ env.SUITE != 'pr' && '1' || '' }}
         run: |
-          if [ "$SUITE" = "pr" ]; then
-            npx playwright test --grep @pr
-          else
-            npx playwright test
-          fi
+          case "$SUITE" in
+            pr) npx playwright test --grep @pr ;;
+            full) npx playwright test ;;
+            referansebilder) npx playwright test visual --update-snapshots=all ;;
+            *) echo "Ukjent utvalg: $SUITE" >&2; exit 1 ;;
+          esac
+
+      - name: Last opp referansebildene
+        if: env.SUITE == 'referansebilder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: referansebilder
+          path: e2e/*.spec.ts-snapshots/
+          retention-days: 14
 
       - name: Forklar hvor sporene ligger
         if: failure()
@@ -102,6 +117,8 @@ jobs:
             echo
             echo "For skjermbilder og fullt spor: last ned artefaktet **playwright-rapport-${SUITE}** nederst på denne siden, pakk det ut og åpne \`index.html\`."
             echo "Hver feilet test har et skjermbilde og et spor (trace). Sporet kan også åpnes ved å slippe \`trace.zip\` på <https://trace.playwright.dev>, eller lokalt med \`npx playwright show-trace trace.zip\`."
+            echo
+            echo "En visuell test som feiler etter en *tilsiktet* endring i grensesnittet, trenger nye referansebilder: se «Visuelle referansebilder» i \`docs/E2E_CI.md\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Last opp rapport og spor
