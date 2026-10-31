@@ -196,6 +196,13 @@
   flex: 1;
 }
 
+/* The landmark around the bar (see `TextToolbar`); it takes the bar's place in
+   the column and adds nothing to the layout. */
+.text-tools {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .text-toolbar {
   display: flex;
   align-items: center;
@@ -1031,7 +1038,7 @@
 .zone-outline--selected {
   border: 3px solid var(--zone-outline-selected);
   border-radius: 6px;
-  box-shadow: 0 0 0 4px rgba(79, 142, 247, 0.3);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--chrome-accent) 30%, transparent);
 }
 
 .zone-actions-anchor {
@@ -1142,7 +1149,7 @@
 }
 
 .zone-handle:hover {
-  background: rgba(79, 142, 247, 0.4);
+  background: color-mix(in srgb, var(--chrome-accent) 40%, transparent);
 }
 
 .zone-handle--x {
@@ -1197,8 +1204,8 @@
 
 .split-preview__cell {
   position: absolute;
-  border: 2px solid rgba(79, 142, 247, 0.9);
-  background: rgba(79, 142, 247, 0.16);
+  border: 2px solid color-mix(in srgb, var(--chrome-accent) 90%, transparent);
+  background: color-mix(in srgb, var(--chrome-accent) 16%, transparent);
   border-radius: 3px;
   display: flex;
   align-items: center;
@@ -1245,8 +1252,8 @@
 
 .template-preview__cell {
   position: absolute;
-  border: 1.5px solid rgba(79, 142, 247, 0.85);
-  background: rgba(79, 142, 247, 0.12);
+  border: 1.5px solid color-mix(in srgb, var(--chrome-accent) 85%, transparent);
+  background: color-mix(in srgb, var(--chrome-accent) 12%, transparent);
   border-radius: 2px;
 }
 

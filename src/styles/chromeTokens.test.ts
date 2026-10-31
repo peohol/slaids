@@ -19,12 +19,14 @@
  * Disabled text (`--chrome-text-faint`) is exempt by the same criterion, and
  * the pressed surface only lasts while a press does, so text is not held to it.
  *
- * The inks are also promised to stay apart with colour blindness. That is
- * checked by simulating the three dichromacies (Machado, Oliveira & Fernandes
- * 2009, full severity, in linear RGB) and requiring a clear CIELAB distance
- * between every pair. The shape of each family's icons is the first cue and
- * this is the second, so «clear» means well past a just-noticeable
- * difference, not merely different.
+ * The inks are also promised to stay apart with colour blindness, from each
+ * other and from the selection accent: zone mode is drawn violet right beside
+ * things drawn blue because they are selected, and the two must not read as
+ * one signal. That is checked by simulating the three dichromacies (Machado,
+ * Oliveira & Fernandes 2009, full severity, in linear RGB) and requiring a
+ * clear CIELAB distance between every pair. Shape (icons) and form (segment,
+ * edge, `aria-pressed`) are the first cue and colour the second, so «clear»
+ * means well past a just-noticeable difference, not merely different.
  */
 
 import { readFileSync } from 'node:fs'
@@ -159,21 +161,29 @@ function simulated(name: string, matrix: number[][]): [number, number, number] {
   )
 }
 
+const IDENTITY = [
+  [1, 0, 0],
+  [0, 1, 0],
+  [0, 0, 1],
+]
+
 /** CIELAB ΔE*76; around 2.3 is just noticeable, and 20 is a different colour. */
 const CLEARLY_APART = 20
 
-describe('blekkfargene ved fargesynsvariasjoner', () => {
-  const inks = ['ink-content', 'ink-zone', 'ink-media'] as const
-  it.each(Object.keys(DICHROMACIES))('holder de tre familiene adskilt ved %s', (kind) => {
-    for (const [index, a] of inks.entries()) {
-      for (const b of inks.slice(index + 1)) {
-        const distance = Math.hypot(
-          ...simulated(a, DICHROMACIES[kind]).map(
-            (value, axis) => value - simulated(b, DICHROMACIES[kind])[axis],
-          ),
-        )
-        expect(distance, `${a} mot ${b}`).toBeGreaterThanOrEqual(CLEARLY_APART)
+describe('blekkfargene og valgfargen ved fargesynsvariasjoner', () => {
+  const signals = ['ink-content', 'ink-zone', 'ink-media', 'chrome-accent'] as const
+  it.each([...Object.keys(DICHROMACIES), 'normalt fargesyn'])(
+    'holder familiene og valgt-blått adskilt ved %s',
+    (kind) => {
+      const matrix = DICHROMACIES[kind] ?? IDENTITY
+      for (const [index, a] of signals.entries()) {
+        for (const b of signals.slice(index + 1)) {
+          const distance = Math.hypot(
+            ...simulated(a, matrix).map((value, axis) => value - simulated(b, matrix)[axis]),
+          )
+          expect(distance, `${a} mot ${b}`).toBeGreaterThanOrEqual(CLEARLY_APART)
+        }
       }
-    }
-  })
+    },
+  )
 })
