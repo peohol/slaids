@@ -176,9 +176,17 @@ test.describe('slides and content', () => {
     await expect.poll(order).toEqual(before)
 
     // The front page is a section, and the deck has to keep opening with one:
-    // moving it up is not offered at all rather than refused afterwards.
+    // a move that would put a plain slide first is not offered at all rather
+    // than refused afterwards, and the menu says why.
     let menu = await openSlideMenu(page, 0)
     await expect(menu.getByTestId('move-slide-up')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-down')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-down')).toContainText('Første slide må være en inndeling')
+    await page.keyboard.press('Escape')
+    menu = await openSlideMenu(page, 1)
+    await expect(menu.getByTestId('move-slide-up')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-up')).toContainText('Første slide må være en inndeling')
+    await expect(menu.getByTestId('move-slide-down')).not.toHaveAttribute('data-disabled', '')
     await page.keyboard.press('Escape')
     menu = await openSlideMenu(page, 3)
     await expect(menu.getByTestId('move-slide-down')).toHaveAttribute('data-disabled', '')

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { addSection, addSlide, deleteSlide } from '../../../domain/commands'
+import { addSection, addSlide, deleteSlide, moveSlide } from '../../../domain/commands'
 import { describeError } from '../../../domain/result'
 import { createPresentation } from '../../../domain/presentation'
 import type { Presentation } from '../../../domain/types'
@@ -68,6 +68,52 @@ describe('slideMenu', () => {
     expect(calls.move).toHaveBeenNthCalledWith(1, -1)
     expect(calls.move).toHaveBeenNthCalledWith(2, 1)
     expect(calls.duplicate).toHaveBeenCalledOnce()
+  })
+
+  it('does not offer moving a plain slide into the front page\'s place, and says why', () => {
+    // A new deck: the front page and one slide.
+    const presentation = createPresentation({ title: 'To sider' })
+    expect(presentation.slides.map((slide) => slide.kind)).toEqual(['section', 'content'])
+    const refusal = moveSlide(presentation, presentation.slides[1].id, 0)
+    expect(refusal.ok).toBe(false)
+    const reason = refusal.ok ? null : describeError(refusal.error)
+
+    const frontDown = action(slideMenu(presentation, 0, handlers()).entries, 'move-slide-down')
+    const slideUp = action(slideMenu(presentation, 1, handlers()).entries, 'move-slide-up')
+    for (const entry of [frontDown, slideUp]) {
+      expect(entry.disabled).toBe(true)
+      expect(entry.reason).toBe(reason)
+    }
+  })
+
+  it('still offers the swap when a section takes over as the front page', () => {
+    // Front page, a second section, a slide.
+    const presentation = unwrap(
+      addSection(createPresentation({ title: 'To inndelinger' }), { index: 1, title: 'Del to' }),
+    )
+    expect(presentation.slides.map((slide) => slide.kind)).toEqual(['section', 'section', 'content'])
+    const frontDown = action(slideMenu(presentation, 0, handlers()).entries, 'move-slide-down')
+    const sectionUp = action(slideMenu(presentation, 1, handlers()).entries, 'move-slide-up')
+    for (const entry of [frontDown, sectionUp]) {
+      expect(entry.disabled).toBe(false)
+      expect(entry.reason).toBeNull()
+    }
+    // The slide behind them may still move up one place: a section stays first.
+    const slideUp = action(slideMenu(presentation, 2, handlers()).entries, 'move-slide-up')
+    expect(slideUp.disabled).toBe(false)
+  })
+
+  it('agrees with the move command on every page and in both directions', () => {
+    const presentation = deck()
+    for (const [index, slide] of presentation.slides.entries()) {
+      const entries = slideMenu(presentation, index, handlers()).entries
+      for (const [testId, delta] of [['move-slide-up', -1], ['move-slide-down', 1]] as const) {
+        const target = index + delta
+        const allowed =
+          target >= 0 && target < presentation.slides.length && moveSlide(presentation, slide.id, target).ok
+        expect(action(entries, testId).disabled).toBe(!allowed)
+      }
+    }
   })
 
   it('puts every kind of new page after this one, under the shared names', () => {

@@ -7,14 +7,15 @@
  * show nothing else permanently, so this list is the one place those actions
  * live, on every surface and for every kind of pointer.
  *
- * Whether a page can go is asked of the command that deletes it, so the menu
- * can never offer what the deck would refuse, and says why when it does not.
+ * Whether a page can go or move is asked of the command that would do it, so
+ * the menu never offers what the deck would refuse, and says why when it does
+ * not — moving a plain slide into the front page's place, for one.
  */
 
-import { deleteSlide } from '../../../domain/commands'
+import { deleteSlide, moveSlide } from '../../../domain/commands'
 import { describeError } from '../../../domain/result'
 import type { Presentation } from '../../../domain/types'
-import type { MenuEntry } from '../../components/contextMenu'
+import type { MenuAction, MenuEntry } from '../../components/contextMenu'
 import { SEPARATOR } from '../../components/contextMenu'
 import { newPageEntries, pageName, type PageKind } from '../pageKinds'
 import type { ZoneMenu } from './zoneMenu'
@@ -38,6 +39,27 @@ export const SLIDE_ACTIONS = {
   remove: { label: 'Slett …', icon: 'trash' },
 } as const
 
+/**
+ * Whether the page at `index` can move one place, and why not.
+ *
+ * The answer is `moveSlide` itself, run without measuring: the deck's own rules
+ * about order — it opens with a section — decide, exactly as they will when
+ * the move is committed. Whether every label still fits after the citations
+ * are renumbered is a measurement, and stays with the commit, which rolls back
+ * with its own message if not. Past either end there is nowhere to go, which
+ * needs no explaining.
+ */
+function moveAvailability(
+  presentation: Presentation,
+  index: number,
+  delta: number,
+): Pick<MenuAction, 'disabled' | 'reason'> {
+  const target = index + delta
+  if (target < 0 || target >= presentation.slides.length) return { disabled: true, reason: null }
+  const moved = moveSlide(presentation, presentation.slides[index].id, target)
+  return moved.ok ? { disabled: false, reason: null } : { disabled: true, reason: describeError(moved.error) }
+}
+
 export function slideMenu(presentation: Presentation, index: number, handlers: SlideMenuHandlers): ZoneMenu {
   const slide = presentation.slides[index]
   const removal = deleteSlide(presentation, slide.id)
@@ -46,7 +68,7 @@ export function slideMenu(presentation: Presentation, index: number, handlers: S
       kind: 'action',
       id: 'slide-move-up',
       ...SLIDE_ACTIONS.moveUp,
-      disabled: index === 0,
+      ...moveAvailability(presentation, index, -1),
       testId: 'move-slide-up',
       onSelect: () => handlers.move(-1),
     },
@@ -54,7 +76,7 @@ export function slideMenu(presentation: Presentation, index: number, handlers: S
       kind: 'action',
       id: 'slide-move-down',
       ...SLIDE_ACTIONS.moveDown,
-      disabled: index === presentation.slides.length - 1,
+      ...moveAvailability(presentation, index, 1),
       testId: 'move-slide-down',
       onSelect: () => handlers.move(1),
     },
