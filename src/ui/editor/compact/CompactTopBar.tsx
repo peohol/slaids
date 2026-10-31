@@ -64,12 +64,13 @@ export function CompactTopBar({ toolbar }: { toolbar: TopToolbarProps }) {
       </button>
       <button
         type="button"
-        className="btn btn--primary btn--icon touch-target"
+        className="btn btn--primary touch-target compact-bar__present"
         onClick={toolbar.onPresent}
         aria-label="Vis presentasjon"
         data-testid="present"
       >
-        <Icon name="play" />
+        {/* Named as on the desktop, where the same button says «Vis». */}
+        <Icon name="play" /> Vis
       </button>
     </header>
   )

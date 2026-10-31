@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0–U5 er gjennomført (se § 10); U6–U7 venter.  
+**Status:** U0–U6 er gjennomført (se § 10); U7 venter.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -244,13 +244,15 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U6 — Kompakt og responsiv arbeidsflate
 
-- [ ] Verifiser faner, modus, paneler og tilgang til vanlige handlinger.
-- [ ] Samordne farger, ikonbetydninger og aktiv tilstand med desktop.
-- [ ] Kontroller treffflater, ikke-hover-tilgang, skjermtastatur og responsiv overflyt.
-- [ ] Verifiser velg-først, langtrykk, sveip, pinch, fokusert tekst og paneloverganger.
-- [ ] Bevar tilstand ved orienteringsendring og skifte mellom shells.
+- [x] Verifiser faner, modus, paneler og tilgang til vanlige handlinger.
+- [x] Samordne farger, ikonbetydninger og aktiv tilstand med desktop.
+- [x] Kontroller treffflater, ikke-hover-tilgang, skjermtastatur og responsiv overflyt.
+- [x] Verifiser velg-først, langtrykk, sveip, pinch, fokusert tekst og paneloverganger. *(Den eksisterende kompaktsuiten kjørt på stående og liggende telefon og smalt vindu med mus; fysiske røyktester i MOBILE_WORKSPACE.md § 16 gjenstår.)*
+- [x] Bevar tilstand ved orienteringsendring og skifte mellom shells.
 
 **Aksept:** Ikke mindre funksjonell enn før, ingen uventede modusskifter, ingen tap av utvalg/redigering.
+
+**Resultat:** *Faner og modus:* fanen «Soner» er sonemodus i begge retninger. Før lot × på sonepanelet sonemodus stå med soneomriss på en slide uten panel, og Escape/Ctrl+E byttet modus uten at panelet fulgte med (N13). Nå setter hver vei inn og ut modusen sammen med panelet, og panelet som vises avledes av modusen, så sonemodus valgt på desktop også er sonepanelet etter skifte til kompakt — og omvendt. Valgt fane er blå fra `aria-pressed`, «Tekst» og «Soner» får modusens blekk som strek øverst (som desktopens segmenterte modusvalg), og sonemodus farger topplinjens underkant fiolett som desktoplinjen. *Samme språk som desktop:* «Slides» har slide-ikonet i stedet for malikonet, «Verktøy» verktøymenyens ikon (N15). Verktøyfanen har desktoplinjens grupper i samme rekkefølge og med samme navn — Valgt sone, Slide, Presentasjon, Verktøy — der innholdstypen er den samme menyknappen som på desktop (felles `ContentKindMenuButton`), «Overskrift» er en av/på-rad med hake, og radene tegnes fra de samme menyoppføringene, med «…» der en dialog åpnes og grunnen skrevet under en utilgjengelig rad (N16). «Vis» har ordet ved ikonet. *Berøring:* alle knapper er minst 44 × 44 px og felt minst 44 px høye når pekeren er en finger, også et nettbrett i desktopvisning, der hovedlinjen fortsatt får plass ned til 1025 px; fargerutene deler radens bredde (28–44 px) i stedet for 22 px (N14). Tekstlinja på telefon toner ut kanten når det finnes flere verktøy (N17). *Gester og overganger:* kort trykk, langtrykk, sveip, pinch, panorering, tekstfokus og paneloverganger er uendret og dekket av den eksisterende suiten, kjørt i alle tre kompakte prosjekter. *Tilstand:* en ny test går fram og tilbake mellom nettbrett liggende og stående og beholder modus, valgt sone, en redigering som ikke er lagret ennå og angrehistorikken. Ingen presentasjonsdata, geometri, renderer eller agent-API er endret. Før/etter-bilder i [ux/u6/](ux/u6/).
 
 ### U7 — Helhetlig kvalitetssikring
 
@@ -303,7 +305,7 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | U3 Inspektør og soner | Ferdig 30.10.2026 | Hode med valgt objekt, faste grupper, innholdstype som felles meny, utvidbare grupper, synlige begrunnelser, felles navn for sonehandlinger. N8 løst. |
 | U4 Tekstverktøy | Ferdig 31.10.2026 | Feltnavn og faste grupper, aktiv tilstand også for loddrett justering, deaktivering fra pålitelig tilgjengelighet, tabell/bilde som felles meny, fokus blir i teksten, fargearv «fra gjeldende inndeling». Nye funn N10–N12 løst (se UX_BASELINE.md). |
 | U5 Bibliotek og filmstripe | Ferdig 31.10.2026 | «Åpne» som kortets handling, «Flere handlinger»-meny på kort, mapper og sider, «Ny slide» + meny med plassering, valgt side tydelig, felles oppføringer for ny side. |
-| U6 Mobil/responsivt | Ikke startet | Anbefalt neste |
-| U7 Samlet QA | Ikke startet | Tester kjøres også kontinuerlig |
+| U6 Mobil/responsivt | Ferdig 31.10.2026 | Soner-fanen og sonemodus henger sammen i begge retninger, aktiv fane med modusblekk, verktøyfanen gruppert og navngitt som desktop, 44 px treffflater på all berøring (også nettbrett i desktopvisning), tekstlinja viser at den ruller. Nye funn N13–N17 løst (se UX_BASELINE.md). |
+| U7 Samlet QA | Ikke startet | Anbefalt neste. Tester kjøres også kontinuerlig |
 
 **Startpunkt for Claude Code:** Les denne planen og IMPLEMENTATION_PLAN.md § 44.5–44.6. Begynn med U0, og bruk deretter /frontend-design til U1. Lag en avgrenset implementerings-PR for U1; ikke start en full redesign av alle flater i samme PR.

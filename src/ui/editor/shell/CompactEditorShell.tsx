@@ -28,18 +28,24 @@
  * which is the whole of the one-at-a-time rule.
  */
 
+import { useEditorStore } from '../../../state/store'
 import { Icon } from '../../components/Icon'
 import { CompactContentList } from '../compact/CompactContentList'
 import { CompactTabBar } from '../compact/CompactTabBar'
 import { CompactTopBar } from '../compact/CompactTopBar'
 import { CompactToolsPanel } from '../compact/CompactToolsPanel'
 import { useStageGestures } from '../stageGestures'
-import type { CompactPanel, EditorShellProps } from './editorShell'
+import {
+  compactPanelOnScreen,
+  modeForPanel,
+  type CompactPanel,
+  type EditorShellProps,
+} from './editorShell'
 
 const PANEL_TITLES: Record<CompactPanel, string> = {
   slides: 'Slides',
   content: 'Tekst på denne sliden',
-  zone: 'Sone',
+  zone: 'Soner',
   tools: 'Verktøy',
 }
 
@@ -50,16 +56,30 @@ export function CompactEditorShell(props: EditorShellProps) {
   const { ideasOpen, sandboxOpen, setIdeasOpen, setSandboxOpen, compactPanel, setCompactPanel } =
     props.panels
   const focus = props.focus
+  const mode = useEditorStore((state) => state.mode)
+  const setMode = useEditorStore((state) => state.setMode)
+  const zoneModeAvailable = useEditorStore((state) => state.currentContentSlide() !== null)
 
   /*
-   * One big surface at a time, derived rather than synchronised: a tool window
-   * and a panel competing for a phone screen leaves neither usable, so while a
-   * tool window is up the panel is simply not showing — and closing the window
-   * brings back the panel the user last chose, with nothing to remember it.
+   * One big surface at a time, derived rather than synchronised: while a tool
+   * window is up the panel is simply not showing, and closing the window
+   * brings back the panel the user last chose. Zone mode *is* the zone panel,
+   * however the mode was reached — see `compactPanelOnScreen`.
    */
-  const panel = ideasOpen || sandboxOpen ? null : compactPanel
+  const panel = compactPanelOnScreen({
+    chosen: compactPanel,
+    mode,
+    zoneModeAvailable,
+    toolWindowOpen: ideasOpen || sandboxOpen,
+  })
 
+  /*
+   * Every way to open or close a panel — a tab, the panel's own ×, a tab
+   * pressed a second time — sets the mode with it, so closing the zone panel
+   * never leaves zone outlines on a slide with no panel for them.
+   */
   const openPanel = (next: CompactPanel | null): void => {
+    setMode(modeForPanel(next))
     if (next !== null) {
       setIdeasOpen(false)
       setSandboxOpen(false)
@@ -98,6 +118,7 @@ export function CompactEditorShell(props: EditorShellProps) {
         data-shell="compact"
         data-fonts={props.fontState}
         data-panel={panel ?? 'none'}
+        data-mode={mode}
         data-focus={focus.focused ? 'zone' : 'slide'}
       >
         <CompactTopBar toolbar={props.toolbar} />

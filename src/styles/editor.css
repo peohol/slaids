@@ -2714,6 +2714,10 @@
   white-space: nowrap;
 }
 
+.compact-bar__present {
+  padding: 0 14px;
+}
+
 .compact-bar__title [data-testid='save-status'] {
   font-size: 11px;
   color: var(--chrome-text-dim);
@@ -2743,9 +2747,40 @@
   cursor: pointer;
 }
 
-.compact-tab--active {
-  color: #cfe0ff;
+/*
+ * The tab that is open: the same blue as every other choice in force, read
+ * from `aria-pressed`. The two tabs that are editing modes also carry their
+ * mode's ink as a bar along the top — the compact form of the desktop's
+ * segmented «Innhold | Soner», whose chosen segment is underlined in the same
+ * ink — so the mode can be told from the tab, not only from the panel.
+ */
+.compact-tab:hover:not([aria-pressed='true']) {
+  background: var(--chrome-bg-hover);
+  color: var(--chrome-text);
+}
+
+.compact-tab[aria-pressed='true'] {
+  color: var(--chrome-accent-text);
   background: var(--chrome-accent-soft);
+}
+
+.compact-tab[aria-pressed='true'][data-tone] {
+  --tab-ink: var(--chrome-accent);
+  box-shadow: inset 0 2px 0 var(--tab-ink);
+}
+
+.compact-tab[aria-pressed='true'][data-tone='content'] {
+  --tab-ink: var(--ink-content);
+}
+
+.compact-tab[aria-pressed='true'][data-tone='zone'] {
+  --tab-ink: var(--ink-zone);
+}
+
+/* Zone mode marks the top bar's lower edge, exactly as it marks the desktop
+   toolbar's: the mode can be read from the whole screen. */
+.editor--compact[data-mode='zone'] .compact-bar--top {
+  box-shadow: inset 0 -2px 0 var(--ink-zone);
 }
 
 .compact-tab__badge {
@@ -2755,7 +2790,7 @@
   min-width: 17px;
   padding: 0 4px;
   border-radius: 9px;
-  background: var(--chrome-accent);
+  background: var(--chrome-primary);
   color: #fff;
   font-size: 10px;
   line-height: 17px;
@@ -2811,6 +2846,33 @@
 
 .editor--compact .text-toolbar::-webkit-scrollbar {
   display: none;
+}
+
+/*
+ * …and says so. A row that scrolls without a scrollbar has to show there is
+ * more, or its last tools are not there for anyone who cannot see them: the
+ * edge with more past it fades out (`useScrollEdges` sets the marks).
+ */
+.editor--compact .text-toolbar {
+  --more-fade: 32px;
+}
+
+.editor--compact .text-toolbar[data-more-end] {
+  mask-image: linear-gradient(to right, black calc(100% - var(--more-fade)), transparent);
+}
+
+.editor--compact .text-toolbar[data-more-start] {
+  mask-image: linear-gradient(to left, black calc(100% - var(--more-fade)), transparent);
+}
+
+.editor--compact .text-toolbar[data-more-start][data-more-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--more-fade),
+    black calc(100% - var(--more-fade)),
+    transparent
+  );
 }
 
 /* The focused field fills the stage, so which one it is can be seen; the name
@@ -3085,11 +3147,12 @@
   color: var(--chrome-text-dim);
 }
 
+/* A field's name, said as the inspector and the menus say names: sentence
+   case and semibold, not spaced-out capitals. */
 .compact-content__where {
   grid-area: where;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--chrome-text-dim);
 }
 
@@ -3156,6 +3219,29 @@
 .compact-tools__check {
   margin-left: auto;
   color: var(--chrome-accent);
+}
+
+.compact-tools__reason {
+  margin: 4px 2px 2px 38px;
+}
+
+/* «Innholdstype» as a full-width row: the same menu button the desktop toolbar
+   has, shaped like the rows around it. */
+.compact-tools__kind {
+  width: 100%;
+  min-height: var(--touch-target);
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: inherit;
+}
+
+.compact-tools__kind-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
 }
 
 /* ----------------------------------------------------------------- *

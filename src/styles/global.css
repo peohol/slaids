@@ -133,14 +133,22 @@
   min-height: var(--touch-target);
 }
 
+/*
+ * Every button, with or without a label, small or not: a word is no easier to
+ * hit with a thumb than an icon is, and a toolbar button that has given its
+ * label up for room is only an icon. Before U6 a small labelled button stopped
+ * at 38 px, and the desktop toolbar's collapsed buttons on a touch tablet were
+ * 30 px wide.
+ */
 :root[data-coarse='true'] .btn {
   min-height: var(--touch-target);
+  min-width: var(--touch-target);
 }
 
-/* A small button with a label is still a word to aim at; a small icon button is
-   only an icon, so it keeps the full target the rule above gave it. */
-:root[data-coarse='true'] .btn--sm:not(.btn--icon) {
-  min-height: 38px;
+/* A field is a target too: a number to change is pressed before it is typed. */
+:root[data-coarse='true'] .input,
+:root[data-coarse='true'] .select {
+  min-height: var(--touch-target);
 }
 
 /* A reduced-motion setting is a request, not a preference to weigh up. */
@@ -867,6 +875,29 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/*
+ * On a finger-driven screen a 22 px swatch is too small to aim at. The swatches
+ * share the row's width instead, square, between 28 and 44 px, and a row that
+ * cannot hold its twelve at 28 px breaks into two — so a phone's panel gets one
+ * row of large swatches and a tablet's narrow inspector two rows of six, with
+ * the same order and the same colours.
+ */
+:root[data-coarse='true'] .palette__row:not(.palette__row--inherited) {
+  flex-wrap: wrap;
+}
+
+:root[data-coarse='true'] button.palette__swatch {
+  flex: 1 1 28px;
+  width: auto;
+  max-width: var(--touch-target);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+:root[data-coarse='true'] .palette__inherited {
+  min-height: var(--touch-target);
 }
 
 .palette__swatch--active {

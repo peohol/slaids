@@ -65,6 +65,11 @@ Desktop med mus, 1600 × 1000. Klikk = trykk på kontroller; skriving og filvalg
 | N10 | Med markøren i en tabell gikk tekstlinjen utenfor vinduet under ca. 1366 px: tabellhandlingene og «Referanse» kunne ikke nås. | `u4/before-toolbar-1025-table.png` | Løst i U4 |
 | N11 | Tekstlinjen kalte korttittel, bildetekst og slidetittel «Overskrift», og kontekstmenyen kalte slidetittelen «Lysbildetittel». | `TextToolbar.tsx`, `textMenu.ts` | Løst i U4 (ett sett feltnavn) |
 | N12 | Tiptaps `can()` sa nei til punktliste fra en aksent og til aksent fra et listepunkt, som kommandoene faktisk gjør; kontekstmenyen deaktiverte derfor disse. | `textActions.test.ts` | Løst i U4 (tørrkjøring på kladdetransaksjon) |
+| N13 | Kompakt: × på sonepanelet lukket panelet, men lot sonemodus stå; Escape og Ctrl+E byttet modus uten at panelet fulgte med, og sonemodus valgt på desktop ble ikke vist etter skifte til kompakt. | `u6/before-*` | Løst i U6 (panelet avledes av modusen) |
+| N14 | Berøring: små knapper med tekst var 38 px høye, og hovedlinjens knapper som hadde gitt fra seg etiketten var 30 × 38 px på et nettbrett i desktopvisning. Fargerutene i inspektøren var 22 px (15 px brede på nettbrett), tallfelt 34 px. | Måling i Chromium med berøring | Løst i U6 |
+| N15 | Kompakt: fanen «Slides» brukte samme ikon som «Maler …», og «Verktøy» et menyikon desktopens verktøymeny ikke har. | `CompactTabBar.tsx` | Løst i U6 |
+| N16 | Kompakt verktøyfane: seks innholdstyper som egne rader skjøv presentasjonsverktøyene under kanten på telefon, og gruppene fulgte ikke desktoplinjen. | `baseline/phone-412x892-tools.png` | Løst i U6 (menyknapp og desktopens grupper) |
+| N17 | Tekstlinja på telefon ruller sideveis uten synlig tegn på at det finnes flere verktøy. | `u6/before-phone-412x892-focused.png` | Løst i U6 (kanten tones ut) |
 
 ## 4. Valgt informasjonsarkitektur
 

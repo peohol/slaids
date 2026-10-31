@@ -16,7 +16,11 @@ import { canTypeIn, focusFieldRect, isZoneField, liveFocus, type StageFocus } fr
 const focused: StageFocus = { slideId: 'slide-1', fieldId: 'zone-a', caret: null }
 
 /** What the editor is looking at, with the focus's own slide and field drawn. */
-const here = { slideId: 'slide-1', rect: { x: 0, y: 0, width: 400, height: 300 } }
+const here = {
+  slideId: 'slide-1',
+  rect: { x: 0, y: 0, width: 400, height: 300 },
+  mode: 'content' as const,
+}
 
 describe('liveFocus', () => {
   it('keeps a focus that is still about what is on screen', () => {
@@ -38,6 +42,15 @@ describe('liveFocus', () => {
    */
   it('drops when the page no longer draws that field', () => {
     expect(liveFocus(focused, { ...here, rect: null })).toBeNull()
+  })
+
+  /*
+   * A focused field is a writing surface, so zone mode — reached by a shortcut
+   * while typing, or through the zone panel — leaves it, and nothing comes
+   * back when the mode does.
+   */
+  it('drops when the editor leaves content mode', () => {
+    expect(liveFocus(focused, { ...here, mode: 'zone' })).toBeNull()
   })
 
   it('has nothing to be true about before a slide is open', () => {

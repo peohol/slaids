@@ -15,11 +15,50 @@
 
 import type { ReactNode } from 'react'
 import type { Slide } from '../../../domain/types'
+import type { EditorMode } from '../../../state/store'
 import type { TopToolbarProps } from '../TopToolbar'
 import type { TextTargetEntry } from '../textTarget'
 
 /** Which of the compact workspace's four surfaces is open, if any. */
 export type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
+
+/**
+ * The editing mode a compact panel stands for.
+ *
+ * The zone panel *is* zone mode and every other surface — the slide alone
+ * included — is content mode. Said once, so a tab, the panel's own × and a
+ * long press into a field cannot each leave the mode somewhere different.
+ */
+export function modeForPanel(panel: CompactPanel | null): EditorMode {
+  return panel === 'zone' ? 'zone' : 'content'
+}
+
+/**
+ * The panel a compact workspace actually shows.
+ *
+ * Derived, never synchronised, from three facts the user set elsewhere:
+ *
+ * - a tool window (Ideas, the sandbox) is up — then no panel, because two big
+ *   surfaces on one phone screen leave neither usable;
+ * - the editing mode — zone mode *is* the zone panel, so a mode chosen on the
+ *   desktop, with Ctrl+E or left with Escape shows or hides it rather than
+ *   leaving outlines on the slide under a panel for the other mode;
+ * - the panel last chosen.
+ *
+ * On a page with no zone tree (a generated page) zone mode cannot be entered,
+ * and the zone panel is then simply the place that says so.
+ */
+export function compactPanelOnScreen(input: {
+  chosen: CompactPanel | null
+  mode: EditorMode
+  zoneModeAvailable: boolean
+  toolWindowOpen: boolean
+}): CompactPanel | null {
+  if (input.toolWindowOpen) return null
+  if (input.mode === 'zone') return 'zone'
+  if (input.chosen === 'zone' && input.zoneModeAvailable) return null
+  return input.chosen
+}
 
 /**
  * The panels, as state rather than as toggles.

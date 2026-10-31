@@ -53,6 +53,36 @@ test.describe('the toolbar fits the window', () => {
   }
 })
 
+test.describe('the toolbar on a touch screen with room for the desktop layout', () => {
+  // A large tablet: the roomy layout with a finger. Every control grows to a
+  // finger's size, and the bar still has to fit.
+  test.use({ hasTouch: true, isMobile: true })
+
+  for (const width of [1025, 1180, 1366]) {
+    test(`at ${width} px every control is finger-sized and nothing leaves the window`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await withSelectedCard(page, 'Kvartalsrapport for tredje kvartal 2026')
+      await expect(page.locator('html')).toHaveAttribute('data-coarse', 'true')
+      await expect(page.getByTestId('editor')).toHaveAttribute('data-shell', 'desktop')
+
+      const bar = page.getByTestId('top-toolbar')
+      expect(await bar.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0)
+      const controls = bar.locator('.btn')
+      const count = await controls.count()
+      expect(count).toBeGreaterThan(0)
+      for (let index = 0; index < count; index += 1) {
+        const box = (await controls.nth(index).boundingBox())!
+        expect(box.width, `button ${index}`).toBeGreaterThanOrEqual(44)
+        expect(box.height, `button ${index}`).toBeGreaterThanOrEqual(44)
+        expect(box.x + box.width, `button ${index}`).toBeLessThanOrEqual(width)
+      }
+      await expect(page.getByTestId('present')).toBeInViewport({ ratio: 1 })
+    })
+  }
+})
+
 test.describe('content kind', () => {
   test('names the kind in force, and changes it from its menu', async ({ page }) => {
     const guard = watchForErrors(page)

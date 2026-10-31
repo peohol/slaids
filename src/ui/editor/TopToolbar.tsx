@@ -21,7 +21,8 @@ import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
 import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
-import { contentKindEntries, type ContentKindOption } from './contentKinds'
+import { ContentKindMenuButton } from './ContentKindMenuButton'
+import type { ContentKindOption } from './contentKinds'
 import { ShareToggle } from './ShareToggle'
 import { SaveIndicator } from './StatusBar'
 import { helperToolEntries, presentationToolEntries } from './toolbarMenus'
@@ -87,11 +88,6 @@ export function TopToolbar(props: TopToolbarProps) {
   const shareBusy = useSharingStore((state) => state.busy)
   const shareError = useSharingStore((state) => state.error)
   const shareLink = useShareUrl()
-
-  const current = props.selectionIsLeaf
-    ? (props.contentKinds.find((option) => option.kind === props.selectedKind) ?? null)
-    : null
-  const kindLabel = current?.label ?? (props.selectionIsLeaf ? 'Velg innholdstype' : 'Innholdstype')
 
   return (
     <header className="toolbar" data-testid="top-toolbar" data-mode={mode}>
@@ -210,24 +206,15 @@ export function TopToolbar(props: TopToolbarProps) {
         file is not choosing a kind.
       */}
       <div className="toolbar__group toolbar__group--selection">
-        <MenuButton
-          id="content-kind"
+        <ContentKindMenuButton
           testId="toolbar-menu-content-kind"
-          label={`Innholdstype: ${kindLabel}`}
-          title="Innholdstype for valgt sone"
-          tooltip={props.selectionIsLeaf ? 'Endre innholdstype' : 'Velg én sone for å velge innholdstype'}
-          icon={current?.icon ?? 'card'}
-          tone={current?.tone}
-          disabled={!props.selectionIsLeaf}
           className="toolbar__menu-button toolbar__kind"
-          entries={() =>
-            contentKindEntries(props.contentKinds, props.selectedKind, props.onSetContentKind)
-          }
-        >
-          <span className="toolbar__kind-label" data-kind={current?.kind ?? ''}>
-            {kindLabel}
-          </span>
-        </MenuButton>
+          labelClassName="toolbar__kind-label"
+          contentKinds={props.contentKinds}
+          selectedKind={props.selectedKind}
+          selectionIsLeaf={props.selectionIsLeaf}
+          onSetContentKind={props.onSetContentKind}
+        />
         <Tooltip label="Sett inn bilde fra fil">
           <button
             type="button"
