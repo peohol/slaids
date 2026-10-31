@@ -191,7 +191,6 @@
 }
 
 .toolbar__spacer,
-.text-toolbar__spacer,
 .statusbar__spacer {
   flex: 1;
 }
@@ -207,7 +206,13 @@
   flex: 0 0 auto;
 }
 
-.text-toolbar__table,
+/*
+ * The bar reads left to right: the field it works on, then its groups in a
+ * fixed order — formatting, paragraph, alignment, link, insert — each a
+ * divided run, and last whatever applies only where the caret is. One row at
+ * one height, whatever the field: the stage below is scaled by the height it
+ * is left with, so a bar that grew would make the slide jump.
+ */
 .text-toolbar__group {
   display: flex;
   align-items: center;
@@ -217,8 +222,51 @@
   border-left: 1px solid var(--chrome-border);
 }
 
+/* Two choices inside one group — across the line and up the box — split by a
+   shorter rule than the one between groups. */
+.text-toolbar__set {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.text-toolbar__set + .text-toolbar__set {
+  padding-left: 6px;
+  margin-left: 2px;
+  box-shadow: inset 1px 0 0 var(--chrome-border);
+}
+
+/* Which field the tools are for, said before them: a caption is not a title,
+   and a card's title is not the slide's. */
+.text-toolbar__field {
+  flex: none;
+  padding-right: 2px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--chrome-text-dim);
+  white-space: nowrap;
+}
+
+.text-toolbar__note {
+  font-weight: 400;
+}
+
+.text-toolbar__label {
+  white-space: nowrap;
+}
+
 .text-toolbar--empty {
   color: var(--chrome-text-dim);
+}
+
+/* Narrower windows keep every control and drop the words beside the icons
+   first; the names stay in each control's label and tooltip. */
+@media (max-width: 1365px) {
+  .text-toolbar .text-toolbar__label,
+  .text-toolbar .color-trigger__label,
+  .text-toolbar .menu-button__label {
+    display: none;
+  }
 }
 
 /* The Ω trigger reads as a character, not a stroke icon, so it sits at the
@@ -2690,15 +2738,23 @@
   display: none;
 }
 
+/* The focused field fills the stage, so which one it is can be seen; the name
+   stays in the bar's label and the room goes to the tools. */
+.editor--compact .text-toolbar__field {
+  display: none;
+}
+
+.editor--compact .text-toolbar__field + .text-toolbar__group {
+  padding-left: 0;
+  margin-left: 0;
+  border-left: none;
+}
+
 /* Nothing in a scrolling row may be squeezed: it is already past the edge. */
 .editor--compact .text-toolbar > *,
 .editor--compact .text-toolbar__group > *,
-.editor--compact .text-toolbar__table > * {
+.editor--compact .text-toolbar__set > * {
   flex: 0 0 auto;
-}
-
-.editor--compact .text-toolbar__spacer {
-  display: none;
 }
 
 /*

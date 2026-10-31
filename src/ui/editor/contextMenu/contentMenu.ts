@@ -23,7 +23,6 @@ import {
   setSubfieldCount,
   setVerticalAlign,
 } from '../../../domain/commands'
-import { DEFAULT_VERTICAL_ALIGN } from '../../../domain/constants'
 import {
   bodyOf,
   CAPTION_POSITION_LABELS,
@@ -40,11 +39,11 @@ import { describeError, type Result } from '../../../domain/result'
 import { docToPlainText, isDocEmpty } from '../../../domain/richdoc'
 import type { ImagePanel, Presentation, ZoneContent } from '../../../domain/types'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
-import { VERTICAL_ALIGNMENTS } from '../textActions'
+import { INHERITS_FROM_SECTION, pillSource } from '../colorInheritance'
+import { FIELD_TITLES, VERTICAL_ALIGNMENTS, verticalAlignOf } from '../textActions'
 import { AXIS_LABELS } from '../zoneDescription'
 import type { ContentTarget } from './contentTarget'
 import {
-  FIELD_TITLES,
   colorSubmenu,
   inlineImageEntries,
   tableEntries,
@@ -97,9 +96,7 @@ function change(
 }
 
 function verticalEntries(input: ContentMenuInput, subfieldId: string): MenuEntry[] {
-  const leaf = findLeaf(input.slide.root, input.nodeId)
-  const current = (leaf?.content && bodyOf(leaf.content)?.subfields.find((field) => field.id === subfieldId))
-    ?.verticalAlign ?? DEFAULT_VERTICAL_ALIGN
+  const current = verticalAlignOf(input.slide.root, input.nodeId, subfieldId)
   return VERTICAL_ALIGNMENTS.map(([align, label, icon]) =>
     change(
       input,
@@ -120,12 +117,6 @@ function verticalEntries(input: ContentMenuInput, subfieldId: string): MenuEntry
 /* ------------------------------------------------------------------ *
  * Pictures and captions
  * ------------------------------------------------------------------ */
-
-/* A caption with no colour of its own reads its picture's title panel when
-   there is one, and the section otherwise — as the inspector says. */
-function captionInherits(content: ZoneContent): string {
-  return content.kind === 'titled-image-card' ? 'fra tittelpanelet' : 'fra inndelingen'
-}
 
 function captionPositionEntries(input: ContentMenuInput, content: ZoneContent, panel: ImagePanel): MenuEntry[] {
   return captionPositionsFor(content.kind).map((position) =>
@@ -174,7 +165,7 @@ function captionSection(input: ContentMenuInput, content: ZoneContent, panel: Im
   const caption = panel.caption
   return [
     { kind: 'submenu', id: 'caption-position', label: 'Plassering', icon: 'move', entries: captionPositionEntries(input, content, panel) },
-    colorSubmenu('caption-color', 'Bakgrunnsfarge', caption.color, captionInherits(content), (color) =>
+    colorSubmenu('caption-color', 'Bakgrunnsfarge', caption.color, pillSource(content), (color) =>
       input.commit('caption-color', (presentation) =>
         setImageCaption(presentation, { slideId: input.slide.id, nodeId: input.nodeId, color }),
       ),
@@ -237,7 +228,7 @@ function cardSection(input: ContentMenuInput, handlers: ContentMenuHandlers, con
         'card-color',
         untitled ? 'Kortfarge' : 'Tittelfarge',
         untitled ? content.backgroundColor : content.headerColor,
-        untitled ? null : 'fra inndelingen',
+        untitled ? null : INHERITS_FROM_SECTION,
         (color) => input.commit('card-color', (presentation) => setCardColor(presentation, { ...target, color })),
       ),
     )
@@ -312,13 +303,12 @@ export function contentModeMenu(
     const { editor, field } = target.at
     if (target.kind === 'table') return { title: 'Tabell', entries: tableEntries(editor) }
     if (target.kind === 'inline-image') return { title: 'Bilde i teksten', entries: inlineImageEntries(editor, handlers) }
-    const text = textEntries(
-      target.at,
-      handlers,
-      field.kind === 'body' && field.subfieldId ? verticalEntries(input, field.subfieldId) : [],
-    )
+    const content = field.kind === 'slide-title' ? null : findLeaf(input.slide.root, input.nodeId)?.content
+    const text = textEntries(target.at, handlers, {
+      vertical: field.kind === 'body' && field.subfieldId ? verticalEntries(input, field.subfieldId) : [],
+      accentInherits: pillSource(content),
+    })
     if (field.kind === 'slide-title') return { title: FIELD_TITLES[field.kind], entries: text }
-    const content = findLeaf(input.slide.root, input.nodeId)?.content
     const panel = content ? imagePanelOf(content) : null
     return {
       title: FIELD_TITLES[field.kind],

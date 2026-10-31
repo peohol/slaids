@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0–U3 er gjennomført (se § 10); U4–U7 venter.  
+**Status:** U0–U4 er gjennomført (se § 10); U5–U7 venter.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -193,7 +193,7 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U2 — Desktop: hovedverktøylinje og innholdstype
 
-- [x] Del handlinger etter presentasjon, valgt sone og aktivt tekstfelt. *(Hovedlinjen er ordnet etter nivå; tekstfeltets handlinger ligger fortsatt i tekstlinjen, som er U4.)*
+- [x] Del handlinger etter presentasjon, valgt sone og aktivt tekstfelt. *(Hovedlinjen er ordnet etter nivå; tekstfeltets handlinger ligger i tekstlinjen, se U4.)*
 - [x] Reduser den permanente ikonrekken og innfør navngitte, semantiske grupper/menyer.
 - [x] Vis hva som er valgt og hvilken innholdstype valgt sone har.
 - [x] Ha én gjenkjennelig og korrekt inngang for å endre innholdstype.
@@ -220,13 +220,15 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U4 — Tekstredigering
 
-- [ ] Bruk can()-informasjonen for handlinger der den er egnet og korrekt.
-- [ ] Marker aktiv horisontal og vertikal justering, lister og øvrig formatering.
-- [ ] Grupper formatvalgene og bevar viktig skriveplass.
-- [ ] Gjør fargearv og terminologi entydig, særlig «gjeldende inndeling».
-- [ ] Verifiser at formatering fortsatt retter seg mot aktivt felt, uten å stjele markøren.
+- [x] Bruk can()-informasjonen for handlinger der den er egnet og korrekt.
+- [x] Marker aktiv horisontal og vertikal justering, lister og øvrig formatering.
+- [x] Grupper formatvalgene og bevar viktig skriveplass.
+- [x] Gjør fargearv og terminologi entydig, særlig «gjeldende inndeling».
+- [x] Verifiser at formatering fortsatt retter seg mot aktivt felt, uten å stjele markøren.
 
 **Aksept:** Korrekte tilgjengelighets-/valgt-tilstander og ingen regresjon i Tiptap, fit eller tastatursnarveier.
+
+**Resultat:** Tekstlinjen er en `role="toolbar"` som først sier hvilket felt den virker på (Brødtekst, Korttittel, Bildetekst, Slidetittel, Overskrift, Underoverskrift — samme navn som kontekstmenyen bruker, fra `FIELD_TITLES`), og deretter har faste grupper i fast rekkefølge: **Formatering · Avsnitt · Justering (vannrett | loddrett) · Lenke · Sett inn**. Det som bare gjelder der markøren står — aksentfarge, tabell og bilde i teksten — kommer sist, så de faste gruppene aldri flytter seg når markøren gjør det. «Tabell» og «Bilde» åpner den samme menyen som et høyreklikk på tabellen eller bildet, med samme utilgjengelige valg og samme spørsmål før sletting; det løste også at tabellverktøyene havnet utenfor vinduet under ca. 1366 px. Hver knapp tegnes fra kontekstmenyens oppføring for samme handling: valgt tilstand er `aria-pressed` (også loddrett justering, som før ikke var markert), og en handling editoren ikke kan utføre er deaktivert, synlig på sin plass og med grunnen i verktøytipset. Tilgjengelighet spørres ved å kjøre kommandoen på en kladdetransaksjon (`wouldRun` i `textActions.ts`): Tiptaps egen `can()` sa nei til liste fra aksent og aksent fra listepunkt, som knappene faktisk gjør, og en enhetstest kontrollerer nå at svaret stemmer med virkningen overalt markøren kan stå. Et trykk tar aldri markøren ut av feltet, menyer og fargevalg gir fokus tilbake til teksten, piltastene går langs linjen, og linjen slutter å sikte på et felt når en annen sone velges. Standardfargen for aksent og bildetekst oppgis «fra gjeldende inndeling», eller «fra korttittelen» inne i et kort med tittel, som er der fargen faktisk kommer fra (`colorInheritance.ts`, felles for verktøylinje, inspektør og kontekstmeny). Før/etter-bilder i [ux/u4/](ux/u4/).
 
 ### U5 — Bibliotek, filmstripe og oppretting
 
@@ -297,8 +299,8 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | U1 Designsystem og ikon-/fargespråk | Ferdig 30.10.2026 | UX_DESIGN_SYSTEM.md. Tokens, blekkfarger, ikonfamilie, felles tilstander, segmentert modusvalg. Samme PR som U0. |
 | U2 Hovedverktøylinje og innholdstype | Ferdig 30.10.2026 | N1 løst. Innholdstype som én meny, eget «Bilde fra fil», menyene «Presentasjon» og «Verktøy», lagringsstatus ved tittelen. |
 | U3 Inspektør og soner | Ferdig 30.10.2026 | Hode med valgt objekt, faste grupper, innholdstype som felles meny, utvidbare grupper, synlige begrunnelser, felles navn for sonehandlinger. N8 løst. |
-| U4 Tekstverktøy | Ikke startet | Anbefalt neste. Høy prioritet |
-| U5 Bibliotek og filmstripe | Ikke startet | Neste runde |
+| U4 Tekstverktøy | Ferdig 31.10.2026 | Feltnavn og faste grupper, aktiv tilstand også for loddrett justering, deaktivering fra pålitelig tilgjengelighet, tabell/bilde som felles meny, fokus blir i teksten, fargearv «fra gjeldende inndeling». Nye funn N10–N12 løst (se UX_BASELINE.md). |
+| U5 Bibliotek og filmstripe | Ikke startet | Anbefalt neste |
 | U6 Mobil/responsivt | Ikke startet | Verifiser fortløpende, egen samlet gjennomgang |
 | U7 Samlet QA | Ikke startet | Tester kjøres også kontinuerlig |
 

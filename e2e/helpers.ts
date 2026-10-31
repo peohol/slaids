@@ -184,6 +184,46 @@ export async function chooseFromToolbarMenu(
 }
 
 /**
+ * Choose from a menu the text toolbar opens — «Tabell» or «Bilde», the same
+ * menu a right-click on the table or the picture opens — through any
+ * submenus on the way, by their entry ids.
+ */
+export async function chooseFromTextMenu(
+  page: Page,
+  button: 'table-tools' | 'image-tools',
+  ...path: string[]
+): Promise<void> {
+  await page.getByTestId(button).click()
+  const through = path.slice(0, -1)
+  const last = path[path.length - 1]
+  for (const id of through) {
+    await page.getByTestId(`menu-${id}`).click()
+    await enterSubmenu(page, id)
+  }
+  // A submenu opens beside the menu, not inside it, so entries are found on the page.
+  if (through.length > 0) {
+    await page.getByTestId(`menu-${last}`).focus()
+    await page.keyboard.press('Enter')
+  } else {
+    await page.getByTestId(`menu-${last}`).click()
+  }
+  await expect(page.getByTestId('context-menu')).toBeHidden()
+}
+
+/**
+ * Go into a submenu that has just opened, from the keyboard: a pointer that
+ * leaves the trigger for where the submenu is still on its way to closes it
+ * again, as it should, so a test that moved the mouse there would be testing
+ * its own timing.
+ */
+export async function enterSubmenu(page: Page, id: string): Promise<void> {
+  await page.keyboard.press('ArrowRight')
+  const submenu = page.getByTestId(`menu-${id}-content`)
+  await expect(submenu).toBeVisible()
+  await expect(submenu).toHaveAttribute('data-state', 'open')
+}
+
+/**
  * Open the inspector's «Innholdstype» menu for the selected zone. It is the
  * same menu the toolbar and the zone menu open, so its entries are named
  * `menu-kind-<kind>` there too.

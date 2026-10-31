@@ -12,7 +12,8 @@ import type { Result } from '../../../domain/result'
 import type { Presentation, SectionSlide } from '../../../domain/types'
 import { SEPARATOR } from '../../components/contextMenu'
 import type { FieldTarget } from './contentTarget'
-import { FIELD_TITLES, colorSubmenu, textEntries, type TextMenuHandlers } from './textMenu'
+import { FIELD_TITLES } from '../textActions'
+import { colorSubmenu, textEntries, type TextMenuHandlers } from './textMenu'
 import type { ZoneMenu } from './zoneMenu'
 
 export interface SectionMenuInput {

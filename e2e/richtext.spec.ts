@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures'
-import { addContentToZone, createPresentation, stage, watchForErrors, zoneRects, chooseFromToolbarMenu } from './helpers'
+import {
+  addContentToZone,
+  chooseFromTextMenu,
+  chooseFromToolbarMenu,
+  createPresentation,
+  stage,
+  watchForErrors,
+  zoneRects,
+} from './helpers'
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><rect width="100" height="60" fill="#4d6680"/></svg>`
 
@@ -16,14 +24,17 @@ test.describe('rich text', () => {
     await expect(table).toBeVisible()
     await expect(table.locator('tr')).toHaveCount(3)
 
+    // The toolbar's «Tabell» is the table's own menu, the one a right-click opens.
     await expect(page.getByTestId('table-tools')).toBeVisible()
-    await page.getByTestId('table-add-row').click()
+    await chooseFromTextMenu(page, 'table-tools', 'add-row')
     await expect(table.locator('tr')).toHaveCount(4)
-    await page.getByTestId('table-del-row').click()
+    await chooseFromTextMenu(page, 'table-tools', 'del-row')
     await expect(table.locator('tr')).toHaveCount(3)
-    await page.getByTestId('table-add-col').click()
+    await chooseFromTextMenu(page, 'table-tools', 'add-col')
     await expect(table.locator('tr').first().locator('th, td')).toHaveCount(4)
-    await page.getByTestId('table-del-table').click()
+    // Removing the whole table asks first, from the toolbar as from the menu.
+    await chooseFromTextMenu(page, 'table-tools', 'del-table')
+    await page.getByTestId('confirm-accept').click()
     await expect(table).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
@@ -142,17 +153,17 @@ test.describe('rich text', () => {
 
     await wrapper.click()
     await expect(page.getByTestId('image-tools')).toBeVisible()
-    await page.getByTestId('image-width-25').click()
+    await chooseFromTextMenu(page, 'image-tools', 'image-width', 'image-width-25')
     await expect
       .poll(ratio, { message: 'image width follows the chosen percentage' })
       .toBeCloseTo(0.25, 1)
 
-    await page.getByTestId('image-width-50').click()
+    await chooseFromTextMenu(page, 'image-tools', 'image-width', 'image-width-50')
     await expect.poll(ratio).toBeCloseTo(0.5, 1)
 
     // Full width would make the figure taller than the card has room for, so
     // the content-fit guard rejects it and the width stays where it was.
-    await page.getByTestId('image-width-100').click()
+    await chooseFromTextMenu(page, 'image-tools', 'image-width', 'image-width-100')
     await expect(page.getByTestId('toast')).toBeVisible()
     await expect.poll(ratio).toBeCloseTo(0.5, 1)
   })

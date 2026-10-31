@@ -10,17 +10,21 @@ import type { Editor } from '@tiptap/react'
 import { PALETTE } from '../../../domain/color'
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
 import {
+  TEXT_ACTION_UNAVAILABLE,
+  TEXT_GROUPS,
   alignActions,
   blockActions,
-  editLink,
   imageWidthActions,
+  insertReferenceAction,
   insertTableAction,
+  linkActions,
   markActions,
   scriptActions,
   tableActions,
   type ChainStart,
   type TextAction,
 } from '../textActions'
+import { standardLabel } from '../colorInheritance'
 import type { FieldTarget } from './contentTarget'
 
 export interface TextMenuHandlers {
@@ -31,26 +35,22 @@ export interface TextMenuHandlers {
   copyText: (text: string) => void
 }
 
-/** What the menu for a field says it is about. */
-export const FIELD_TITLES: Record<FieldTarget['field']['kind'], string> = {
-  body: 'Tekst',
-  'card-title': 'Korttittel',
-  caption: 'Bildetekst',
-  'slide-title': 'Lysbildetittel',
-  'section-title': 'Overskrift',
-  'section-subtitle': 'Underoverskrift',
-}
-
-/** A text action as an entry, with the state it is in where the selection is. */
+/**
+ * A text action as an entry, with the state it is in where the selection is.
+ * The text toolbar draws its buttons from the same entries, so a command the
+ * editor cannot run is disabled — for the same reason — on both.
+ */
 export function textEntry(action: TextAction): MenuAction {
+  const available = action.can()
   return {
     kind: 'action',
     id: action.id,
     label: action.label,
     icon: action.icon,
     shortcut: action.shortcut,
-    checked: action.isActive(),
-    disabled: !action.can(),
+    checked: action.isActive?.(),
+    disabled: !available,
+    reason: available ? null : TEXT_ACTION_UNAVAILABLE,
     onSelect: action.run,
   }
 }
@@ -77,7 +77,7 @@ export function colorSubmenu(
             {
               kind: 'action',
               id: `${id}-default`,
-              label: `Standard (${inherited})`,
+              label: standardLabel(inherited),
               checked: value === null,
               onSelect: () => onSelect(null),
             } satisfies MenuAction,
@@ -88,16 +88,28 @@ export function colorSubmenu(
   }
 }
 
+/** What the caller knows about a body field that its editor does not. */
+export interface BodyFieldExtras {
+  /**
+   * The field's own alignment within its box, a document change rather than
+   * an editor one, which the caller builds.
+   */
+  vertical?: MenuEntry[]
+  /** Where an accent with no colour of its own takes its colour from; see `colorInheritance`. */
+  accentInherits?: string
+}
+
 /**
  * The menu for some text: what can be done to the characters, the paragraph
  * and the field, as far as the field's schema allows. A title has no lists to
  * offer and a section's line no alignment — whatever its editor cannot do is
  * left out rather than offered and refused.
- *
- * `vertical` is the body field's own alignment within its box, a document
- * change rather than an editor one, which the caller builds.
  */
-export function textEntries(at: FieldTarget, handlers: TextMenuHandlers, vertical: MenuEntry[] = []): MenuEntry[] {
+export function textEntries(
+  at: FieldTarget,
+  handlers: TextMenuHandlers,
+  { vertical = [], accentInherits }: BodyFieldExtras = {},
+): MenuEntry[] {
   const { editor, field } = at
   const start: ChainStart = () => editor.chain().focus()
   const body = field.kind === 'body'
@@ -106,7 +118,7 @@ export function textEntries(at: FieldTarget, handlers: TextMenuHandlers, vertica
   const formatting: MenuEntry = {
     kind: 'submenu',
     id: 'formatting',
-    label: 'Formatering',
+    label: TEXT_GROUPS.formatting,
     icon: 'bold',
     // A mark goes on characters, and with nothing marked there are none.
     disabled: !selected,
@@ -117,7 +129,7 @@ export function textEntries(at: FieldTarget, handlers: TextMenuHandlers, vertica
   const alignment: MenuEntry = {
     kind: 'submenu',
     id: 'alignment',
-    label: 'Justering',
+    label: TEXT_GROUPS.alignment,
     icon: 'align-left',
     entries: [
       ...alignActions(editor, start).map(textEntry),
@@ -140,58 +152,29 @@ export function textEntries(at: FieldTarget, handlers: TextMenuHandlers, vertica
     ]
   }
 
-  const linked = editor.isActive('link')
   const accent = editor.isActive('heading')
   const pickedAccent: unknown = editor.getAttributes('heading').color
   return [
     formatting,
-    { kind: 'submenu', id: 'paragraph', label: 'Avsnitt', icon: 'heading', entries: blockActions(editor, start).map(textEntry) },
+    { kind: 'submenu', id: 'paragraph', label: TEXT_GROUPS.paragraph, icon: 'heading', entries: blockActions(editor, start).map(textEntry) },
     alignment,
-    ...(accent
+    ...(accent && accentInherits
       ? [
-          colorSubmenu('accent-color', 'Aksentfarge', typeof pickedAccent === 'string' ? pickedAccent : null, 'fra forsiden', (color) =>
+          colorSubmenu('accent-color', 'Aksentfarge', typeof pickedAccent === 'string' ? pickedAccent : null, accentInherits, (color) =>
             start().updateAttributes('heading', { color }).run(),
           ),
         ]
       : []),
     SEPARATOR,
-    {
-      kind: 'action',
-      id: 'link',
-      label: linked ? 'Endre lenke …' : 'Lenke …',
-      icon: 'link',
-      onSelect: () => editLink(editor, start),
-    },
-    ...(linked
-      ? [
-          {
-            kind: 'action',
-            id: 'unlink',
-            label: 'Fjern lenke',
-            icon: 'close',
-            onSelect: () => start().extendMarkRange('link').unsetLink().run(),
-          } satisfies MenuAction,
-        ]
-      : []),
+    ...linkActions(editor, start).map(textEntry),
     {
       kind: 'submenu',
       id: 'insert',
-      label: 'Sett inn',
+      label: TEXT_GROUPS.insert,
       icon: 'plus',
       entries: [
-        {
-          kind: 'action',
-          id: 'insert-reference',
-          label: 'Referanse …',
-          icon: 'reference',
-          // The dialog inserts at the caret of the field in focus, so the
-          // field is given the focus — and the caret — first.
-          onSelect: () => {
-            start().run()
-            handlers.insertReference()
-          },
-        },
-        { ...textEntry(insertTableAction(editor, start)), label: 'Tabell', checked: undefined },
+        textEntry(insertReferenceAction(editor, handlers.insertReference, start)),
+        { ...textEntry(insertTableAction(editor, start)), label: 'Tabell' },
       ],
     },
   ]
@@ -206,7 +189,6 @@ export function tableEntries(editor: Editor): MenuEntry[] {
     if (group !== null && action.group !== group) entries.push(SEPARATOR)
     group = action.group
     const entry = textEntry(action)
-    if (action.group !== 'header') entry.checked = undefined
     if (action.group === 'table') {
       entry.label = 'Slett tabell …'
       entry.danger = true

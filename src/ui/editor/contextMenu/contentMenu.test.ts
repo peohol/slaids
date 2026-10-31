@@ -83,7 +83,7 @@ describe('contentModeMenu', () => {
 
   it('offers a titled card its colour with «Standard» in force, its fields and its kind', () => {
     const menu = menuFor(createTitledCard('Kort'))
-    expect(find(menu.entries, 'card-color-default')).toMatchObject({ checked: true })
+    expect(find(menu.entries, 'card-color-default')).toMatchObject({ checked: true, label: 'Standard (fra gjeldende inndeling)' })
     expect(find(menu.entries, 'subfields-1')).toMatchObject({ checked: true, disabled: true })
     expect(has(menu.entries, `subfields-${MAX_SUBFIELDS}`)).toBe(true)
     expect(has(menu.entries, 'content-kind')).toBe(true)
@@ -120,8 +120,16 @@ describe('contentModeMenu', () => {
     const menu = menuFor(content, { kind: 'caption' })
     expect(menu.title).toBe('Bildetekst')
     expect(find(menu.entries, 'caption-top')).toMatchObject({ checked: true })
-    expect(has(menu.entries, 'caption-color')).toBe(true)
+    expect(find(menu.entries, 'caption-color-default')).toMatchObject({ label: 'Standard (fra gjeldende inndeling)' })
     expect(menu.entries.at(-1)).toMatchObject({ id: 'caption-remove', danger: true })
+  })
+
+  it("says a caption in a card with a title follows the card's title, not the section", () => {
+    const card = createContentOfKind('titled-image-card')
+    const panel = imagePanelOf(card)!
+    const content = withImagePanel(card, { ...panel, assetId: 'asset-1', caption: createCaption('bottom') })
+    const menu = menuFor(content, { kind: 'caption' })
+    expect(find(menu.entries, 'caption-color-default')).toMatchObject({ label: 'Standard (fra korttittelen)' })
   })
 
   it.each(['container', 'untitled-card', 'titled-card', 'image', 'titled-image-card'] as const)(

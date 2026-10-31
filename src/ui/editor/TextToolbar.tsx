@@ -1,56 +1,120 @@
 /**
  * Formatting toolbar for the field that currently has focus.
  *
+ * It names the field it works on and then offers, in fixed groups, what that
+ * field can do: formatting, paragraph, alignment, link and insert — the same
+ * groups, names and entries the context menu has (`textActions`,
+ * `contextMenu/textMenu`). Each button is drawn from the menu's entry for the
+ * same action, so it is pressed where the menu would check it and disabled
+ * where the menu would refuse it. What only applies where the caret is — the
+ * accent's colour, a table, a picture in the text — comes last, so the fixed
+ * groups never move as the caret does; a table and a picture open the very
+ * menu a right-click on them opens.
+ *
  * Most of it is deliberately absent while editing a title: titles carry no
  * formatting beyond subscript and superscript, which is what keeps them
  * geometrically predictable — see `titleExtensions` in `./extensions`.
  */
 
-import { useEffect } from 'react'
+import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
+import type { Editor } from '@tiptap/react'
 import { setVerticalAlign } from '../../domain/commands'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
+import { findLeaf } from '../../domain/layout'
+import { sectionGoverning } from '../../domain/presentation'
+import type { VerticalAlign } from '../../domain/types'
 import { domFitCheckers } from '../../state/measure'
 import { useActiveEditor } from '../../state/activeEditor'
-import { sectionGoverning } from '../../domain/presentation'
-import { useEditorStore } from '../../state/store'
+import { useEditorStore, type ActiveField } from '../../state/store'
 import { useWorkspace } from '../workspace/WorkspaceContext'
 import { Icon } from '../components/Icon'
+import { MenuButton } from '../components/MenuButton'
 import { Tooltip } from '../components/Tooltip'
 import { ColorPickerButton } from '../components/ColorPicker'
+import type { MenuAction } from '../components/contextMenu'
+import { keepFocus } from '../components/focusKeeping'
+import { pressedButton } from '../components/pressed'
+import { inheritedPill, standardLabel } from './colorInheritance'
+import { inlineImageEntries, tableEntries, textEntry } from './contextMenu/textMenu'
 import { SymbolPickerButton } from './SymbolPicker'
 import {
+  FIELD_TITLES,
+  TEXT_GROUPS,
   VERTICAL_ALIGNMENTS,
   actionTitle,
   alignActions,
   blockActions,
-  editLink,
-  imageWidthActions,
+  insertReferenceAction,
   insertTableAction,
+  linkActions,
   markActions,
   scriptActions,
-  tableActions,
-  type TextAction,
+  verticalAlignOf,
 } from './textActions'
 
-function renderActionButtons(actions: TextAction[], testIdPrefix = 'format-') {
-  return actions.map((button) => {
-    const title = actionTitle(button)
-    return (
-      <Tooltip key={button.id} label={title}>
-        <button
-          type="button"
-          className={button.isActive() ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={button.run}
-          data-testid={`${testIdPrefix}${button.id}`}
-          aria-label={title}
-          aria-pressed={button.isActive()}
-        >
-          <Icon name={button.icon} size={15} />
-        </button>
-      </Tooltip>
-    )
-  })
+/**
+ * One button, drawn from the entry the context menu has for the same action:
+ * pressed where the menu checks it, disabled — with the reason in its tooltip —
+ * where the menu refuses it. A press never takes the caret out of the field.
+ */
+function EntryButton({ entry, testId, labelled = false }: { entry: MenuAction; testId: string; labelled?: boolean }) {
+  const name = actionTitle(entry)
+  const tip = entry.disabled && entry.reason ? `${name}. ${entry.reason}` : name
+  const className = labelled ? 'btn btn--sm' : 'btn btn--sm btn--icon'
+  const state = entry.checked === undefined ? { className } : pressedButton(className, entry.checked)
+  return (
+    <Tooltip label={tip} wrap={entry.disabled}>
+      <button
+        type="button"
+        {...state}
+        disabled={entry.disabled}
+        onMouseDown={keepFocus}
+        onClick={entry.onSelect}
+        data-testid={testId}
+        aria-label={name}
+      >
+        {entry.icon && <Icon name={entry.icon} size={15} />}
+        {labelled && <span className="text-toolbar__label">{entry.label}</span>}
+      </button>
+    </Tooltip>
+  )
+}
+
+function entryButtons(entries: MenuAction[], testIdPrefix = 'format-') {
+  return entries.map((entry) => <EntryButton key={entry.id} entry={entry} testId={`${testIdPrefix}${entry.id}`} />)
+}
+
+/** A named group of controls: said to a screen reader, drawn as a divided run. */
+function Group({ label, testId, children }: { label: string; testId?: string; children: ReactNode }) {
+  return (
+    <div className="text-toolbar__group" role="group" aria-label={label} data-testid={testId}>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The arrow keys walk the toolbar, as they do any `role="toolbar"`, while Tab
+ * still reaches every control in turn — nothing here is taken out of the tab
+ * order, so the bar works the same for someone who never learnt the arrows.
+ */
+const ARROW_STEPS: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity }
+
+function walkToolbar(event: KeyboardEvent<HTMLElement>): void {
+  const step = ARROW_STEPS[event.key]
+  if (step === undefined) return
+  const controls = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+  const index = controls.indexOf(document.activeElement as HTMLButtonElement)
+  // A key pressed in a popover opened from the bar is the popover's own.
+  if (index < 0) return
+  const next = Math.min(controls.length - 1, Math.max(0, index + step))
+  controls[next].focus()
+  event.preventDefault()
+}
+
+/** Fields that live in a zone, and stop being the toolbar's target when another zone is selected. */
+function inZone(field: ActiveField): boolean {
+  return field.kind === 'body' || field.kind === 'card-title' || field.kind === 'caption'
 }
 
 export function TextToolbar({
@@ -64,12 +128,23 @@ export function TextToolbar({
   const editor = useActiveEditor((state) => state.editor)
   const version = useActiveEditor((state) => state.version)
   const bump = useActiveEditor((state) => state.bump)
-  const activeField = useEditorStore((state) => state.activeField)
   const { coarse } = useWorkspace()
-  const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
-  /** What a heading with no colour of its own is painted with: the section's. */
-  const defaultPillColor = useEditorStore((state) =>
+  const slide = useEditorStore((state) => state.currentContentSlide())
+  /*
+   * The field last typed in is the target only while it is still what is
+   * selected. Selecting another zone — with a click beside its text, the arrow
+   * keys or the inspector — leaves the old field's editor mounted and its
+   * selection intact, and a toolbar still aimed at it would format text in a
+   * zone the author is no longer looking at.
+   */
+  const activeField = useEditorStore((state) =>
+    state.activeField && (!inZone(state.activeField) || state.activeField.nodeId === state.selectedNodeId)
+      ? state.activeField
+      : null,
+  )
+  /** What a heading with no colour of its own is painted with: the section's, unless its card says otherwise. */
+  const sectionAccent = useEditorStore((state) =>
     state.presentation && state.currentSlideId
       ? sectionGoverning(state.presentation, state.currentSlideId).accentColor
       : DEFAULT_PILL_COLOR,
@@ -86,27 +161,6 @@ export function TextToolbar({
     }
   }, [editor, bump])
 
-  // A section's two lines carry no alignment at all — they are centred by
-  // construction, so there is nothing to offer for that — but they are still
-  // text somebody types, so subscript, superscript and the symbol picker
-  // still apply.
-  if (activeField?.kind === 'section-title' || activeField?.kind === 'section-subtitle') {
-    return (
-      <div className="text-toolbar" data-testid="text-toolbar">
-        <span className="hint">
-          {activeField.kind === 'section-title' ? 'Overskrift' : 'Underoverskrift'} – alltid
-          midtstilt
-        </span>
-        {editor && (
-          <div className="text-toolbar__group" data-testid="script-tools">
-            {renderActionButtons(scriptActions(editor))}
-          </div>
-        )}
-        {editor && <SymbolPickerButton editor={editor} />}
-      </div>
-    )
-  }
-
   if (!editor || !activeField) {
     return (
       <div className="text-toolbar text-toolbar--empty" data-testid="text-toolbar-empty">
@@ -120,176 +174,200 @@ export function TextToolbar({
     )
   }
 
-  const alignButtons = (
-    <div className="text-toolbar__group" data-testid="align-tools">
-      {renderActionButtons(alignActions(editor), '')}
+  const fieldName = FIELD_TITLES[activeField.kind]
+  const bar = (children: ReactNode, note?: string) => (
+    <div
+      className="text-toolbar"
+      role="toolbar"
+      aria-label={`Tekstverktøy for ${fieldName.toLowerCase()}`}
+      data-testid="text-toolbar"
+      data-field={activeField.kind}
+      data-version={version}
+      onKeyDown={walkToolbar}
+    >
+      <span className="text-toolbar__field" data-testid="text-toolbar-field">
+        {fieldName}
+        {note && <span className="text-toolbar__note"> – {note}</span>}
+      </span>
+      {children}
     </div>
   )
+  const scripts = (
+    <Group label={TEXT_GROUPS.formatting} testId="script-tools">
+      {entryButtons(scriptActions(editor).map(textEntry))}
+    </Group>
+  )
+  const symbols = (
+    <Group label={TEXT_GROUPS.insert}>
+      <SymbolPickerButton editor={editor} />
+    </Group>
+  )
 
-  // A title carries no formatting beyond subscript and superscript — that
-  // restriction is what keeps the title zone geometrically predictable — but
-  // it is still text on a slide, and where it sits on the line is a layout
-  // decision the author gets to make.
-  if (activeField.kind !== 'body') {
-    return (
-      <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
-        <span className="hint">Overskrift</span>
-        <div className="text-toolbar__group" data-testid="script-tools">
-          {renderActionButtons(scriptActions(editor))}
-        </div>
-        {alignButtons}
-        <SymbolPickerButton editor={editor} />
-      </div>
+  // A section's two lines carry no alignment at all — they are centred by
+  // construction, so there is nothing to offer for that — but they are still
+  // text somebody types, so subscript, superscript and the symbol picker
+  // still apply.
+  if (activeField.kind === 'section-title' || activeField.kind === 'section-subtitle') {
+    return bar(
+      <>
+        {scripts}
+        {symbols}
+      </>,
+      'alltid midtstilt',
     )
   }
 
-  const buttons = [...markActions(editor), ...blockActions(editor), insertTableAction(editor)]
+  const align = alignActions(editor)
+  const horizontal = align.length > 0 && (
+    <div className="text-toolbar__set" role="group" aria-label="Vannrett justering" data-testid="align-tools">
+      {entryButtons(align.map(textEntry), '')}
+    </div>
+  )
+
+  // A title, a card title and a caption carry no formatting beyond subscript
+  // and superscript — that restriction is what keeps them geometrically
+  // predictable — but they are still text on a slide, and where it sits on the
+  // line is a layout decision the author gets to make.
+  if (activeField.kind !== 'body') {
+    return bar(
+      <>
+        {scripts}
+        {horizontal && <Group label={TEXT_GROUPS.alignment}>{horizontal}</Group>}
+        {symbols}
+      </>,
+    )
+  }
 
   // Only a body field reaches here (see the guard above), so it always names a
   // subfield — a card title and a caption have no flow to align.
-  const subfieldId = activeField.subfieldId
-  const verticalButtons = slideId && subfieldId ? (
-    <div className="text-toolbar__group" data-testid="vertical-align-tools">
-      {VERTICAL_ALIGNMENTS.map(([value, label, icon]) => (
-        <Tooltip key={value} label={label}>
-          <button
-            type="button"
-            className="btn btn--sm btn--icon"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() =>
-              run('vertical-align', (presentation) =>
-                setVerticalAlign(presentation, {
-                  slideId,
-                  nodeId: activeField.nodeId,
-                  subfieldId,
-                  align: value,
-                  ...domFitCheckers,
-                }),
-              )
-            }
-            data-testid={`valign-${value}`}
-            aria-label={label}
-          >
-            <Icon name={icon} size={15} />
-          </button>
-        </Tooltip>
-      ))}
-    </div>
-  ) : null
+  const { nodeId, subfieldId } = activeField
+  const vertical =
+    slide && subfieldId ? (
+      <div className="text-toolbar__set" role="group" aria-label="Loddrett justering" data-testid="vertical-align-tools">
+        {entryButtons(
+          verticalEntries(verticalAlignOf(slide.root, nodeId, subfieldId), (align) =>
+            run('vertical-align', (presentation) =>
+              setVerticalAlign(presentation, { slideId: slide.id, nodeId, subfieldId, align, ...domFitCheckers }),
+            ),
+          ),
+          '',
+        )}
+      </div>
+    ) : null
 
-  const headingActive = editor.isActive('heading')
+  return bar(
+    <>
+      <Group label={TEXT_GROUPS.formatting} testId="mark-tools">
+        {entryButtons(markActions(editor).map(textEntry))}
+      </Group>
+      <Group label={TEXT_GROUPS.paragraph} testId="paragraph-tools">
+        {entryButtons(blockActions(editor).map(textEntry))}
+      </Group>
+      <Group label={TEXT_GROUPS.alignment}>
+        {horizontal}
+        {vertical}
+      </Group>
+      <Group label={TEXT_GROUPS.link} testId="link-tools">
+        {entryButtons(linkActions(editor).map(textEntry))}
+      </Group>
+      <Group label={TEXT_GROUPS.insert} testId="insert-tools">
+        {entryButtons([textEntry(insertTableAction(editor))])}
+        <SymbolPickerButton editor={editor} />
+        <EntryButton entry={textEntry(insertReferenceAction(editor, onInsertReference))} testId="insert-reference" labelled />
+      </Group>
+      <WhereTheCaretIs
+        editor={editor}
+        accent={inheritedPill(slide ? findLeaf(slide.root, nodeId)?.content : null, sectionAccent)}
+        onOptimizeImage={onOptimizeImage}
+      />
+    </>,
+  )
+}
+
+/** The vertical alignment choices for one body field, as entries; the one in force is pressed. */
+function verticalEntries(current: VerticalAlign, set: (align: VerticalAlign) => void): MenuAction[] {
+  return VERTICAL_ALIGNMENTS.map(([align, label, icon]) => ({
+    kind: 'action',
+    id: `valign-${align}`,
+    label,
+    icon,
+    checked: current === align,
+    onSelect: () => set(align),
+  }))
+}
+
+/**
+ * What only applies where the caret is: the colour of the accent it is in, the
+ * table it is in, the picture that is selected. Last in the bar, so nothing
+ * before it moves when one of them comes or goes.
+ */
+function WhereTheCaretIs({
+  editor,
+  accent,
+  onOptimizeImage,
+}: {
+  editor: Editor
+  accent: { color: string; from: string }
+  onOptimizeImage: (assetId: string) => void
+}) {
+  const inAccent = editor.isActive('heading')
+  const inTable = editor.isActive('table')
+  const onImage = editor.isActive('slaidsImage')
+  if (!inAccent && !inTable && !onImage) return null
+
   /*
-   * An accent with no colour of its own is not "the default hex": it is an
-   * accent that follows the cover. The picker therefore shows the resolved
-   * colour but marks "Standard" as the choice in force, and picking Standard
-   * again clears the attribute rather than writing today's colour into the
-   * document — which is what keeps it following the cover tomorrow.
+   * An accent with no colour of its own is not "the default hex": it follows
+   * its card's title, or the section the slide belongs to. The picker therefore
+   * shows the resolved colour but marks «Standard» as the choice in force, and
+   * picking Standard again clears the attribute rather than writing today's
+   * colour into the document — which is what keeps it following tomorrow.
    */
-  const headingColorAttr = editor.getAttributes('heading').color
-  const explicitHeadingColor =
-    typeof headingColorAttr === 'string' ? headingColorAttr : null
+  const picked: unknown = editor.getAttributes('heading').color
+  const explicitColor = typeof picked === 'string' ? picked : null
 
   return (
-    <div className="text-toolbar" data-testid="text-toolbar" data-version={version}>
-      {renderActionButtons(buttons)}
-
-      {alignButtons}
-      {verticalButtons}
-
-      <Tooltip label="Lenke">
-        <button
-          type="button"
-          className={editor.isActive('link') ? 'btn btn--sm btn--icon btn--active' : 'btn btn--sm btn--icon'}
-          onMouseDown={(event) => event.preventDefault()}
-          data-testid="format-link"
-          aria-label="Lenke"
-          onClick={() => editLink(editor)}
-        >
-          <Icon name="link" size={15} />
-        </button>
-      </Tooltip>
-
-      <SymbolPickerButton editor={editor} />
-
-      {headingActive && (
+    <Group label="Der markøren står" testId="caret-tools">
+      {inAccent && (
         <ColorPickerButton
           label="Aksentfarge"
-          value={explicitHeadingColor ?? defaultPillColor}
+          className="btn--sm"
+          value={explicitColor ?? accent.color}
           testId="heading-color"
+          keepFocus
           inherited={{
-            color: defaultPillColor,
-            label: 'Standard (fra forsiden)',
-            active: explicitHeadingColor === null,
-            onSelect: () =>
-              editor.chain().focus().updateAttributes('heading', { color: null }).run(),
+            color: accent.color,
+            label: standardLabel(accent.from),
+            active: explicitColor === null,
+            onSelect: () => editor.chain().focus().updateAttributes('heading', { color: null }).run(),
           }}
           onChange={(color) => editor.chain().focus().updateAttributes('heading', { color }).run()}
         />
       )}
-
-      {editor.isActive('slaidsImage') && (
-        <div className="text-toolbar__table" data-testid="image-tools">
-          <span className="hint">Bredde:</span>
-          {imageWidthActions(editor).map((width) => (
-            <button
-              key={width.id}
-              type="button"
-              className={width.isActive() ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={width.run}
-              data-testid={width.id}
-            >
-              {width.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="btn btn--sm"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              const assetId: unknown = editor.getAttributes('slaidsImage').assetId
-              if (typeof assetId === 'string' && assetId) onOptimizeImage(assetId)
-            }}
-            data-testid="optimize-inline-image"
-          >
-            <Icon name="optimize" size={14} /> Optimaliser …
-          </button>
-        </div>
+      {inTable && (
+        <MenuButton
+          id="text-table"
+          label="Tabell"
+          title="Tabell"
+          tooltip="Rader, kolonner og tabellen"
+          icon="table"
+          testId="table-tools"
+          keepFocus
+          entries={() => tableEntries(editor)}
+        />
       )}
-
-      {editor.isActive('table') && (
-        <div className="text-toolbar__table" data-testid="table-tools">
-          <span className="hint">Tabell:</span>
-          {tableActions(editor)
-            .filter((action) => action.toolbar)
-            .map((action) => (
-              <button
-                key={action.id}
-                type="button"
-                className="btn btn--sm"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={action.run}
-                data-testid={`table-${action.id}`}
-              >
-                {action.label}
-              </button>
-            ))}
-        </div>
+      {onImage && (
+        <MenuButton
+          id="text-image"
+          label="Bilde"
+          title="Bilde i teksten"
+          tooltip="Størrelse, optimalisering og fjerning"
+          icon="image"
+          tone="media"
+          testId="image-tools"
+          keepFocus
+          entries={() => inlineImageEntries(editor, { optimizeAsset: onOptimizeImage })}
+        />
       )}
-
-      <div className="text-toolbar__spacer" />
-
-      <Tooltip label="Sett inn referanse">
-        <button
-          type="button"
-          className="btn btn--sm"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={onInsertReference}
-          data-testid="insert-reference"
-        >
-          <Icon name="reference" size={15} /> Referanse
-        </button>
-      </Tooltip>
-    </div>
+    </Group>
   )
 }
