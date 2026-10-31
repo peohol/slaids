@@ -87,6 +87,14 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     deviceScaleFactor: 1,
+    /*
+     * The app follows the operating system's appearance by default, and a
+     * browser left to itself reports a light one. The suite pins dark — the
+     * appearance its visual baselines were drawn in — and checks light where it
+     * says so (`appearance.spec.ts`, and the light runs in the accessibility
+     * and visual specs).
+     */
+    colorScheme: 'dark',
     ...(chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}),
   },
   projects: [

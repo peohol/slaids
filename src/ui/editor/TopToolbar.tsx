@@ -15,8 +15,11 @@
  */
 
 import type { ZoneContentKind } from '../../domain/types'
+import { useAppearance } from '../../state/appearance'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore } from '../../state/store'
+import { appearanceSubmenu } from '../components/appearanceMenu'
+import { SEPARATOR } from '../components/contextMenu'
 import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
 import { pressedButton } from '../components/pressed'
@@ -266,18 +269,23 @@ export function TopToolbar(props: TopToolbarProps) {
           className="toolbar__menu-button"
           label={props.sandboxCount > 0 ? `Verktøy, ${props.sandboxCount} i sandkassen` : 'Verktøy'}
           title="Verktøy"
-          tooltip="Idéer, sandkassen og hurtigtaster"
+          tooltip="Idéer, sandkassen, hurtigtaster og utseende"
           icon="tools"
-          entries={() =>
-            helperToolEntries({
-              sandboxCount: props.sandboxCount,
-              ideasOpen: props.ideasOpen,
-              sandboxOpen: props.sandboxOpen,
-              onIdeas: props.onToggleIdeas,
-              onSandbox: props.onToggleSandbox,
-              onShowShortcuts: props.onShowShortcuts,
-            })
-          }
+          entries={() => {
+            const { appearance, setAppearance } = useAppearance.getState()
+            return [
+              ...helperToolEntries({
+                sandboxCount: props.sandboxCount,
+                ideasOpen: props.ideasOpen,
+                sandboxOpen: props.sandboxOpen,
+                onIdeas: props.onToggleIdeas,
+                onSandbox: props.onToggleSandbox,
+                onShowShortcuts: props.onShowShortcuts,
+              }),
+              SEPARATOR,
+              appearanceSubmenu(appearance, setAppearance),
+            ]
+          }}
         >
           <span className="toolbar__label">Verktøy</span>
           {props.sandboxCount > 0 && (

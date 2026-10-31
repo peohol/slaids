@@ -88,6 +88,16 @@ async function audit(page: Page): Promise<string[]> {
   }, REGION_MATCHER)
 }
 
+/**
+ * Both appearances, by the operating system's setting the app follows by
+ * default: every audit below runs once in each, since a colour that reads in
+ * dark can fail in light.
+ */
+const SCHEMES = [
+  ['mørkt', 'dark'],
+  ['lyst', 'light'],
+] as const
+
 /** A deck with a card, so the inspector and the text toolbar have something to show. */
 async function deckWithCard(page: Page): Promise<void> {
   await createPresentation(page, 'Tilgjengelighet')
@@ -96,70 +106,73 @@ async function deckWithCard(page: Page): Promise<void> {
 }
 
 test.describe('tilgjengelighet på desktop', () => {
-  test('biblioteket og editorens tilstander har ingen WCAG-brudd', { tag: '@pr' }, async ({ page }) => {
-    await deckWithCard(page)
-    const states: Array<[string, () => Promise<void>]> = [
-      ['innholdsmodus med valgt sone', async () => {}],
-      [
-        'tekstfelt i arbeid',
-        async () => {
-          await stage(page).locator('.card-header .tiptap').click()
-          await page.keyboard.type('Overskrift')
-          await expect(page.getByTestId('text-toolbar')).toBeVisible()
-        },
-      ],
-      [
-        'presentasjonsmenyen åpen',
-        async () => {
-          await page.getByTestId('toolbar-menu-presentation').click()
-          await expect(page.getByTestId('context-menu')).toBeVisible()
-        },
-      ],
-      [
-        'innholdstypemenyen åpen',
-        async () => {
-          await page.keyboard.press('Escape')
-          await page.getByTestId('toolbar-menu-content-kind').click()
-          await expect(page.getByTestId('context-menu')).toBeVisible()
-        },
-      ],
-      [
-        'sonemodus',
-        async () => {
-          await page.keyboard.press('Escape')
-          await enterZoneMode(page)
-        },
-      ],
-      [
-        'en dialog',
-        async () => {
-          await page.getByTestId('add-slide').click()
-          await expect(page.getByTestId('new-slide-modal')).toBeVisible()
-        },
-      ],
-      [
-        'forsiden, der det meste er utilgjengelig',
-        async () => {
-          await page.keyboard.press('Escape')
-          await expect(page.getByTestId('new-slide-modal')).toBeHidden()
-          await page.getByTestId('filmstrip-thumb').first().click()
-          await expect(page.getByTestId('mode-zone')).toBeDisabled()
-        },
-      ],
-      [
-        'biblioteket',
-        async () => {
-          await backToLibrary(page)
-        },
-      ],
-    ]
-    const found: string[] = []
-    for (const [name, reach] of states) {
-      await reach()
-      for (const violation of await audit(page)) found.push(`${name} — ${violation}`)
-    }
-    expect(found).toEqual([])
-  })
+  for (const [appearance, colorScheme] of SCHEMES) {
+    test(`biblioteket og editorens tilstander har ingen WCAG-brudd, ${appearance} utseende`, { tag: '@pr' }, async ({ page }) => {
+      await page.emulateMedia({ colorScheme })
+      await deckWithCard(page)
+      const states: Array<[string, () => Promise<void>]> = [
+        ['innholdsmodus med valgt sone', async () => {}],
+        [
+          'tekstfelt i arbeid',
+          async () => {
+            await stage(page).locator('.card-header .tiptap').click()
+            await page.keyboard.type('Overskrift')
+            await expect(page.getByTestId('text-toolbar')).toBeVisible()
+          },
+        ],
+        [
+          'presentasjonsmenyen åpen',
+          async () => {
+            await page.getByTestId('toolbar-menu-presentation').click()
+            await expect(page.getByTestId('context-menu')).toBeVisible()
+          },
+        ],
+        [
+          'innholdstypemenyen åpen',
+          async () => {
+            await page.keyboard.press('Escape')
+            await page.getByTestId('toolbar-menu-content-kind').click()
+            await expect(page.getByTestId('context-menu')).toBeVisible()
+          },
+        ],
+        [
+          'sonemodus',
+          async () => {
+            await page.keyboard.press('Escape')
+            await enterZoneMode(page)
+          },
+        ],
+        [
+          'en dialog',
+          async () => {
+            await page.getByTestId('add-slide').click()
+            await expect(page.getByTestId('new-slide-modal')).toBeVisible()
+          },
+        ],
+        [
+          'forsiden, der det meste er utilgjengelig',
+          async () => {
+            await page.keyboard.press('Escape')
+            await expect(page.getByTestId('new-slide-modal')).toBeHidden()
+            await page.getByTestId('filmstrip-thumb').first().click()
+            await expect(page.getByTestId('mode-zone')).toBeDisabled()
+          },
+        ],
+        [
+          'biblioteket',
+          async () => {
+            await backToLibrary(page)
+          },
+        ],
+      ]
+      const found: string[] = []
+      for (const [name, reach] of states) {
+        await reach()
+        for (const violation of await audit(page)) found.push(`${name} — ${violation}`)
+      }
+      expect(found).toEqual([])
+    })
+  }
 
   test('tastaturet når hver kontroll i hovedlinjen i leserekkefølge, med synlig fokus', async ({
     page,
@@ -349,15 +362,18 @@ test.describe('tilgjengelighet på telefon', () => {
     )
   })
 
-  test('scenen og hvert panel har ingen WCAG-brudd', async ({ page }) => {
-    await createPresentation(page, 'Tilgjengelighet')
-    const found: string[] = []
-    for (const violation of await audit(page)) found.push(`scenen — ${violation}`)
-    const panels: CompactPanel[] = ['slides', 'content', 'zone', 'tools']
-    for (const panel of panels) {
-      await openPanel(page, panel)
-      for (const violation of await audit(page)) found.push(`${panel} — ${violation}`)
-    }
-    expect(found).toEqual([])
-  })
+  for (const [appearance, colorScheme] of SCHEMES) {
+    test(`scenen og hvert panel har ingen WCAG-brudd, ${appearance} utseende`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme })
+      await createPresentation(page, 'Tilgjengelighet')
+      const found: string[] = []
+      for (const violation of await audit(page)) found.push(`scenen — ${violation}`)
+      const panels: CompactPanel[] = ['slides', 'content', 'zone', 'tools']
+      for (const panel of panels) {
+        await openPanel(page, panel)
+        for (const violation of await audit(page)) found.push(`${panel} — ${violation}`)
+      }
+      expect(found).toEqual([])
+    })
+  }
 })

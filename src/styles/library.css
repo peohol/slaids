@@ -176,12 +176,12 @@
 }
 
 .folder-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--chrome-overlay-hover);
 }
 
 .folder-item--active {
   background: var(--chrome-accent-soft);
-  color: #cfe0ff;
+  color: var(--chrome-accent-text);
 }
 
 /* The trash sits under the folders, apart from them: it is not a place a deck

@@ -20,27 +20,51 @@
  * Selection is blue because the stage already draws the selected zone blue;
  * the toolbar and the slide say «this one» in the same colour.
  */
+/*
+ * Light and dark: every colour token is written once, as
+ * `light-dark(<light>, <dark>)`, and the root's `color-scheme` picks the half.
+ * By default that is the operating system's own choice; «Utseende» in the app
+ * pins it to one of the two by setting `data-appearance` on `<html>`
+ * (`src/state/appearance.ts`). A token that is the same in both is written
+ * plainly. `chromeTokens.test.ts` holds both halves to the same contrast rules.
+ */
 :root {
-  /* Surfaces */
-  --chrome-bg: #171a1f;
-  --chrome-bg-raised: #1f242b;
-  --chrome-bg-inset: #12151a;
-  --chrome-bg-hover: #29303a;
-  --chrome-bg-pressed: #313945;
-  --chrome-border: #2c333d;
-  --chrome-border-strong: #3a434f;
-  /* The edge of something that can be pressed or typed into. */
-  --chrome-border-control: #3f4855;
+  color-scheme: light dark;
 
-  /* Text: 13.2:1, 6.0:1 and (disabled only) 3.4:1 on a raised surface. */
-  --chrome-text: #e7ecf3;
-  --chrome-text-dim: #96a1af;
-  --chrome-text-faint: #6b7684;
+  /* Surfaces */
+  --chrome-bg: light-dark(#eceff3, #171a1f);
+  --chrome-bg-raised: light-dark(#ffffff, #1f242b);
+  --chrome-bg-inset: light-dark(#f4f6f9, #12151a);
+  --chrome-bg-hover: light-dark(#e4e8ee, #29303a);
+  --chrome-bg-pressed: light-dark(#d7dde5, #313945);
+  --chrome-border: light-dark(#d9dee5, #2c333d);
+  --chrome-border-strong: light-dark(#c5ccd6, #3a434f);
+  /* The edge of something that can be pressed or typed into. */
+  --chrome-border-control: light-dark(#b5bdc8, #3f4855);
+  /* A translucent hover for things that sit on any of the surfaces. */
+  --chrome-overlay-hover: light-dark(rgba(20, 28, 40, 0.06), rgba(255, 255, 255, 0.07));
+  /* The thin edge round a colour swatch, so a swatch the colour of the
+     surface is still a swatch. */
+  --chrome-swatch-edge: light-dark(rgba(20, 28, 40, 0.22), rgba(255, 255, 255, 0.16));
+  /* What lies under a dialog, and what lifts a menu or a dialog off it. */
+  --chrome-scrim: light-dark(rgba(20, 28, 40, 0.38), rgba(6, 9, 13, 0.6));
+  --chrome-shadow: light-dark(rgba(20, 28, 40, 0.16), rgba(0, 0, 0, 0.45));
+  --chrome-shadow-strong: light-dark(rgba(20, 28, 40, 0.22), rgba(0, 0, 0, 0.55));
+  --chrome-tooltip-bg: light-dark(#262c34, #0c0f13);
+  --chrome-tooltip-text: light-dark(#f3f5f8, #e7ecf3);
+  /* Marks in a small picture of a layout: a title band, a chosen cell. */
+  --chrome-preview-mark: light-dark(rgba(20, 28, 40, 0.14), rgba(255, 255, 255, 0.14));
+  --chrome-preview-mark-strong: light-dark(rgba(20, 28, 40, 0.2), rgba(255, 255, 255, 0.2));
+
+  /* Text: in dark, 13.2:1, 6.0:1 and (disabled only) 3.4:1 on a raised surface. */
+  --chrome-text: light-dark(#161b22, #e7ecf3);
+  --chrome-text-dim: light-dark(#525c6a, #96a1af);
+  --chrome-text-faint: light-dark(#8a939f, #6b7684);
 
   /* Selection, focus and the primary action */
-  --chrome-accent: #3386f7;
-  --chrome-accent-soft: rgba(51, 134, 247, 0.18);
-  --chrome-accent-text: #cfe0ff;
+  --chrome-accent: light-dark(#3b7ff0, #3386f7);
+  --chrome-accent-soft: light-dark(rgba(59, 127, 240, 0.13), rgba(51, 134, 247, 0.18));
+  --chrome-accent-text: light-dark(#1a4fa8, #cfe0ff);
   /* Darker than the accent so white text on it clears 4.5:1 (4.7:1). */
   --chrome-primary: #2f6fe0;
   --chrome-primary-hover: #2862cc;
@@ -49,24 +73,27 @@
   /*
    * Function inks. Chosen apart on the blue–yellow axis as well as by hue, so
    * they stay distinct with red–green colour blindness, and all at least
-   * 7:1 on a raised surface. They always travel with a distinct icon shape;
-   * the colour is the second cue, never the only one.
+   * 7:1 on a raised surface in dark (4.5:1 in light). They always travel with
+   * a distinct icon shape; the colour is the second cue, never the only one.
    *
-   * The zone violet is lighter than the selection blue on purpose: violet and
-   * blue differ mostly in red, which is the channel protanopia loses, so
-   * lightness is what keeps zone mode and «selected» apart for that reader.
+   * The zone violet is set apart from the selection blue by lightness: violet
+   * and blue differ mostly in red, which is the channel protanopia loses, so
+   * lightness is what keeps zone mode and «selected» apart for that reader —
+   * lighter than the blue in dark, darker than it in light.
    * `chromeTokens.test.ts` holds the inks and the accent apart as one set.
    */
-  --ink-content: #4cc9d8;
-  --ink-zone: #bca0fc;
-  --ink-media: #e3bf4f;
+  --ink-content: light-dark(#086860, #4cc9d8);
+  --ink-zone: light-dark(#7f3ea3, #bca0fc);
+  --ink-media: light-dark(#875c00, #e3bf4f);
 
   /* Status */
-  --chrome-danger: #e5484d;
+  --chrome-danger: light-dark(#d4343a, #e5484d);
   --chrome-danger-strong: #d13b40;
-  --chrome-danger-text: #ff8a8d;
-  --chrome-warning: #f08d49;
-  --chrome-success: #4fc27e;
+  --chrome-danger-text: light-dark(#b4232a, #ff8a8d);
+  --chrome-danger-soft: light-dark(rgba(212, 52, 58, 0.12), rgba(229, 72, 77, 0.2));
+  --chrome-warning: light-dark(#b85410, #f08d49);
+  --chrome-warning-soft: light-dark(rgba(184, 84, 16, 0.1), rgba(224, 160, 58, 0.14));
+  --chrome-success: light-dark(#17763e, #4fc27e);
 
   /* Type scale (UI only; the slide has its own). */
   --text-xs: 11.5px;
@@ -122,7 +149,14 @@
    * would otherwise be sized for a mouse; the desktop keeps its compact rows.
    */
   --touch-target: 44px;
+}
 
+/* The reader's own choice in «Utseende», over the operating system's. */
+:root[data-appearance='light'] {
+  color-scheme: light;
+}
+
+:root[data-appearance='dark'] {
   color-scheme: dark;
 }
 
@@ -331,7 +365,7 @@ textarea {
 }
 
 .btn--ghost:hover:not(:disabled, [aria-disabled='true']) {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--chrome-overlay-hover);
 }
 
 .btn--active,
@@ -514,7 +548,7 @@ textarea {
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(6, 9, 13, 0.6);
+  background: var(--chrome-scrim);
   backdrop-filter: blur(2px);
   z-index: 50;
 }
@@ -540,7 +574,7 @@ textarea {
   background: var(--chrome-bg-raised);
   border: 1px solid var(--chrome-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 24px 64px var(--chrome-shadow-strong);
   z-index: 51;
   display: flex;
   flex-direction: column;
@@ -623,7 +657,7 @@ textarea {
   background: var(--chrome-bg-raised);
   border: 1px solid var(--chrome-border-strong);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px var(--chrome-shadow);
   padding: 10px;
   z-index: 60;
 }
@@ -657,7 +691,7 @@ textarea {
   background: var(--chrome-bg-raised);
   border: 1px solid var(--chrome-border-strong);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px var(--chrome-shadow);
   padding: 5px;
   z-index: 75;
   font-size: 13px;
@@ -711,11 +745,11 @@ textarea {
 }
 
 .context-menu__item--danger {
-  color: #ff8a8d;
+  color: var(--chrome-danger-text);
 }
 
 .context-menu__item--danger[data-highlighted] {
-  background: rgba(229, 72, 77, 0.2);
+  background: var(--chrome-danger-soft);
 }
 
 .context-menu__icon {
@@ -774,7 +808,7 @@ textarea {
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--chrome-swatch-edge);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -786,7 +820,7 @@ textarea {
 }
 
 .context-menu__swatch[data-state='checked'] {
-  border-color: #fff;
+  border-color: var(--chrome-text);
 }
 
 .context-menu__swatch-check {
@@ -794,8 +828,8 @@ textarea {
 }
 
 .tooltip {
-  background: #0c0f13;
-  color: var(--chrome-text);
+  background: var(--chrome-tooltip-bg);
+  color: var(--chrome-tooltip-text);
   border: 1px solid var(--chrome-border-strong);
   border-radius: var(--radius-sm);
   padding: 5px 8px;
@@ -836,7 +870,7 @@ textarea {
   border-radius: var(--radius-md);
   border: 1px solid var(--chrome-border-strong);
   background: var(--chrome-bg-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 28px var(--chrome-shadow);
 }
 
 .toast--error {
@@ -870,7 +904,7 @@ textarea {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--chrome-swatch-edge);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -910,7 +944,7 @@ button.palette__swatch {
 }
 
 .palette__swatch--active {
-  border-color: #fff;
+  border-color: var(--chrome-text);
   box-shadow: 0 0 0 2px var(--chrome-accent);
 }
 
@@ -923,7 +957,7 @@ button.palette__swatch {
  */
 .palette__row--inherited {
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--chrome-border, rgba(255, 255, 255, 0.12));
+  border-bottom: 1px solid var(--chrome-border);
 }
 
 .palette__inherited {
@@ -948,7 +982,7 @@ button.palette__swatch {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--chrome-swatch-edge);
 }
 
 /* ----------------------------------------------------------------- *

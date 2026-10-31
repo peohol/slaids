@@ -4,15 +4,18 @@
  * Grouped as the desktop toolbar is grouped, in the same order and under the
  * same names: the selected zone (its content kind and a picture file), the
  * slide (its title zone), the presentation (the «Presentasjon» menu, and
- * sharing) and the helpers (the «Verktøy» menu). Undo, redo and «Vis» are in
- * the top bar, as they are always in reach on the desktop.
+ * sharing) and the helpers (the «Verktøy» menu, whose «Utseende» submenu is
+ * a group of its own here, as a list has no submenus). Undo, redo and «Vis»
+ * are in the top bar, as they are always in reach on the desktop.
  *
  * Rows rather than a row of icons: at this width a label is cheaper than a
  * tooltip nobody can hover, the list scrolls where a row would have to hide
  * things, and a reason an entry is unavailable is written under it.
  */
 
+import { useAppearance } from '../../../state/appearance'
 import { useSharingStore, useShareUrl } from '../../../state/sharing'
+import { APPEARANCE_TITLE, appearanceEntries } from '../../components/appearanceMenu'
 import type { MenuAction } from '../../components/contextMenu'
 import { Icon } from '../../components/Icon'
 import { ContentKindMenuButton } from '../ContentKindMenuButton'
@@ -41,6 +44,8 @@ export function CompactToolsPanel({
   const shareBusy = useSharingStore((state) => state.busy)
   const shareError = useSharingStore((state) => state.error)
   const shareLink = useShareUrl()
+  const appearance = useAppearance((state) => state.appearance)
+  const setAppearance = useAppearance((state) => state.setAppearance)
 
   /* The desktop toolbar's two buttons beside the mode and the content kind,
      from the same entries the desktop reads their state and reasons from. */
@@ -103,6 +108,13 @@ export function CompactToolsPanel({
             onShowShortcuts,
           })}
         />
+      </div>
+
+      <div className="compact-tools__section" role="group" aria-labelledby="compact-tools-appearance">
+        <h3 className="inspector__heading" id="compact-tools-appearance">
+          {APPEARANCE_TITLE}
+        </h3>
+        <ActionRows entries={appearanceEntries(appearance, setAppearance)} />
       </div>
     </div>
   )
