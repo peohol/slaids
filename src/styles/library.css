@@ -75,17 +75,11 @@
   flex: 0 0 auto;
 }
 
-/* Delete over share in one column; rename beside them, centred on the pair, so
-   a third tool does not make every folder row taller. */
+/* Sharing, which is a state worth seeing, and the menu with the rest. */
 .folder-row__tools {
-  display: grid;
-  grid-template-columns: auto auto;
+  display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.folder-row__rename {
-  grid-row: span 2;
 }
 
 /* The popover a folder is shared from: one switch, a sentence, the link. */
@@ -247,20 +241,60 @@
 }
 
 .presentation-card__open {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: start;
   padding: 16px 16px 12px;
   border: none;
   background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
   width: 100%;
 }
 
-.presentation-card__open:hover .presentation-card__name {
-  color: var(--chrome-accent);
+.presentation-card__open > .presentation-card__name {
+  grid-column: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* What the deck holds runs under both the name and the word. */
+.presentation-card__open > .presentation-card__meta {
+  grid-column: 1 / -1;
+}
+
+.presentation-card:has(.presentation-card__open:hover),
+.presentation-card:has(.presentation-card__open:focus-visible) {
+  border-color: var(--chrome-border-strong);
+}
+
+/*
+ * The word on the face that says what pressing it does. Always there — a
+ * primary action that only shows on hover is not one a finger can find — and
+ * drawn in the selected blue's outline, so it is clearly the card's action
+ * without competing with «Ny presentasjon», the page's one filled button.
+ */
+.presentation-card__cue {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  padding: 3px 12px;
+  border: 1px solid var(--chrome-accent);
+  border-radius: 999px;
+  color: var(--chrome-accent-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: background 120ms ease;
+}
+
+.presentation-card__open:hover .presentation-card__cue,
+.presentation-card__open:focus-visible .presentation-card__cue {
+  background: var(--chrome-primary);
+  border-color: var(--chrome-primary);
+  color: #fff;
 }
 
 /* The same face as `__open`, for a card that is not opened: a trashed deck is
@@ -279,6 +313,7 @@
 
 .presentation-card__purge {
   margin-left: auto;
+  color: var(--chrome-danger-text);
 }
 
 .presentation-card__name {
@@ -294,9 +329,20 @@
 .presentation-card__tools {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   padding: 8px 10px;
   border-top: 1px solid var(--chrome-border);
+}
+
+/* The folder on the left, the menu on the right, whether or not there is a folder. */
+.presentation-card__tools > .folder-select {
+  margin-left: 0;
+  margin-top: 0;
+}
+
+.presentation-card__more {
+  margin-left: auto;
+  flex: none;
 }
 
 /*
@@ -656,8 +702,8 @@
 }
 
 :root[data-compact='true'] .folder-select {
-  flex: 1 0 100%;
-  width: 100%;
+  flex: 1 1 0;
+  width: auto;
   max-width: none;
   min-height: 38px;
   height: 38px;

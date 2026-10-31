@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from './fixtures'
-import { createPresentation, presentedPage, stage, toast, waitForSaved, watchForErrors } from './helpers'
+import { createPresentation, presentedPage, stage, toast, waitForSaved, watchForErrors, chooseSlideAction, addPage } from './helpers'
 
 /**
  * The interactive slide, end to end: a file becomes a slide, the slide is a
@@ -56,7 +56,7 @@ function relevant(errors: string[]): string[] {
 }
 
 async function openNewInteractive(page: Page): Promise<void> {
-  await page.getByTestId('add-interactive').click()
+  await addPage(page, 'interactive')
   await expect(page.getByTestId('new-interactive-modal')).toBeVisible()
 }
 
@@ -146,7 +146,7 @@ test.describe('ny interaktiv slide', () => {
     // Inserted right after the slide that was current, not at the end.
     const items = page.getByTestId('filmstrip-item')
     await expect(items).toHaveCount(4)
-    await expect(items.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp')
+    await expect(items.nth(2).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp 3')
     await expect(items.nth(2).locator('.filmstrip__badge')).toHaveText('Miniapp')
     await expect(page.getByTestId('statusbar')).toContainText('Miniapp 3 av 4')
 
@@ -571,13 +571,13 @@ test.describe('editoren', () => {
     await page.keyboard.press('Control+z')
     await expect(page.getByTestId('interactive-inspector-file')).toHaveText('counter-app.html')
 
-    // Duplicate and delete are the filmstrip's ordinary tools.
+    // Duplicate and delete are in the page's menu, as for any other page.
     const items = page.getByTestId('filmstrip-item')
-    await items.nth(2).getByTestId('duplicate-slide').click()
+    await chooseSlideAction(page, 2, 'duplicate-slide')
     await expect(items).toHaveCount(4)
-    await expect(items.nth(3).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp')
+    await expect(items.nth(3).getByTestId('filmstrip-thumb')).toHaveAttribute('aria-label', 'Miniapp 4')
     await expect(items.nth(3).getByTestId('interactive-name')).toHaveText('Quiz')
-    await items.nth(3).getByTestId('delete-slide').click()
+    await chooseSlideAction(page, 3, 'delete-slide')
     await page.getByTestId('confirm-accept').click()
     await expect(items).toHaveCount(3)
 

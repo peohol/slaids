@@ -124,7 +124,7 @@ import { InteractiveInspector } from './InteractiveInspector'
 import { InteractiveStage } from './InteractiveStage'
 import { EditorStage, type StageMenuHit } from './EditorStage'
 import { Filmstrip } from './Filmstrip'
-import type { NewPageRequest } from './pageKinds'
+import { insertionIndex, pageName, placementText, type NewPageRequest } from './pageKinds'
 import { Inspector } from './Inspector'
 import { InspectorHeader } from './InspectorParts'
 import { ReadOnlySlideStage } from './ReadOnlySlideStage'
@@ -739,15 +739,12 @@ export function EditorView({
   const insertPage = useCallback(
     (
       label: string,
-      before: string | undefined,
+      place: Pick<NewPageRequest, 'before' | 'after'>,
       command: (presentation: Presentation, index: number) => Result<Presentation>,
     ): boolean => {
       const current = useEditorStore.getState().presentation
       if (!current) return false
-      const anchor = current.slides.findIndex((entry) => entry.id === before)
-      const index = current.slides.findIndex((entry) => entry.id === currentSlideId)
-      const insertAt =
-        anchor >= 0 ? anchor : index >= 0 ? index + 1 : current.slides.length
+      const insertAt = insertionIndex(current.slides, place, currentSlideId)
       if (!run(label, (presentationState) => command(presentationState, insertAt))) return false
       const next = useEditorStore.getState().presentation?.slides[insertAt]
       if (next) {
@@ -760,8 +757,8 @@ export function EditorView({
   )
 
   const insertSlide = useCallback(
-    (hasTitle: boolean, root?: LayoutTemplate['root'], before?: string) =>
-      insertPage('add-slide', before, (presentationState, index) =>
+    (hasTitle: boolean, root?: LayoutTemplate['root'], place: Pick<NewPageRequest, 'before' | 'after'> = {}) =>
+      insertPage('add-slide', place, (presentationState, index) =>
         addSlide(presentationState, { index, hasTitle, root }),
       ),
     [insertPage],
@@ -818,8 +815,8 @@ export function EditorView({
    * author shortens it.
    */
   const insertSection = useCallback(
-    (title: string, before?: string) =>
-      insertPage('add-section', before, (presentationState, index) =>
+    (title: string, place: Pick<NewPageRequest, 'before' | 'after'> = {}) =>
+      insertPage('add-section', place, (presentationState, index) =>
         addSection(presentationState, { index, title, ...domFitCheckers }),
       ),
     [insertPage],
@@ -835,8 +832,8 @@ export function EditorView({
    * never leaves an empty one behind.
    */
   const insertInteractive = useCallback(
-    (source: InteractiveSource, name: string, before?: string) =>
-      insertPage('add-interactive', before, (presentationState, index) =>
+    (source: InteractiveSource, name: string, place: Pick<NewPageRequest, 'before' | 'after'> = {}) =>
+      insertPage('add-interactive', place, (presentationState, index) =>
         addInteractiveSlide(presentationState, {
           index,
           name,
@@ -1530,6 +1527,8 @@ export function EditorView({
        * itself, so the menu visibly belongs to it.
        */
       if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && !hasOpenDialog()) {
+        // A page in the slide overview opens its own menu; see `Filmstrip`.
+        if (target?.closest?.('[data-page-menu]')) return
         if (openKeyboardMenu()) event.preventDefault()
         return
       }
@@ -1619,6 +1618,19 @@ export function EditorView({
     )
   }
   if (!presentation || !slide) return <div className="editor-loading">Laster …</div>
+
+  /** Where the page a new-page dialog creates will go, as the strip says it. */
+  const newPagePlacement = newPage
+    ? placementText(presentation.slides, insertionIndex(presentation.slides, newPage, currentSlideId))
+    : undefined
+  /** What the delete question calls the page it is about — «slide 3», «inndeling 5». */
+  const deletingSlideIndex = deletingSlide
+    ? presentation.slides.findIndex((each) => each.id === deletingSlide.id)
+    : -1
+  const deletingSlideName =
+    deletingSlide && deletingSlideIndex >= 0
+      ? pageName(deletingSlide.kind, deletingSlideIndex).toLowerCase()
+      : 'siden'
 
   if (presenting) {
     return (
@@ -2029,18 +2041,20 @@ export function EditorView({
 
       <NewSlideModal
         open={newPage?.kind === 'content'}
+        placement={newPagePlacement}
         onOpenChange={closeNewPage}
         onCreate={(hasTitle) => {
-          insertSlide(hasTitle, undefined, newPage?.before)
+          insertSlide(hasTitle, undefined, newPage ?? {})
           setNewPage(null)
         }}
       />
 
       <NewSectionModal
         open={newPage?.kind === 'section'}
+        placement={newPagePlacement}
         onOpenChange={closeNewPage}
         onCreate={(title) => {
-          const created = insertSection(title, newPage?.before)
+          const created = insertSection(title, newPage ?? {})
           if (created) setNewPage(null)
           return created
         }}
@@ -2048,8 +2062,9 @@ export function EditorView({
 
       <NewInteractiveModal
         open={newPage?.kind === 'interactive'}
+        placement={newPagePlacement}
         onOpenChange={closeNewPage}
-        onCreate={(source, name) => insertInteractive(source, name, newPage?.before)}
+        onCreate={(source, name) => insertInteractive(source, name, newPage ?? {})}
       />
 
       <ReferenceModal
@@ -2161,8 +2176,8 @@ export function EditorView({
 
       <ConfirmDialog
         open={deletingSlide !== null}
-        title="Slette sliden?"
-        message="Sliden og alt innhold på den fjernes."
+        title={`Slette ${deletingSlideName}?`}
+        message={`${deletingSlideName.charAt(0).toUpperCase()}${deletingSlideName.slice(1)} og alt innhold på den fjernes. Du kan angre etterpå.`}
         onConfirm={() => {
           if (!deletingSlide) return
           run('delete-slide', (current) => deleteSlide(current, deletingSlide.id))

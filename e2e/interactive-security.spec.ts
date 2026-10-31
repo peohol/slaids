@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type { FrameLocator } from '@playwright/test'
 import { expect, test, type Page } from './fixtures'
-import { createPresentation, presentedPage, stage } from './helpers'
+import { createPresentation, presentedPage, stage, addPage } from './helpers'
 
 /**
  * The isolation boundary, measured.
@@ -105,7 +105,7 @@ function expectNothingOut(outside: Outside): void {
 }
 
 async function addEscapeSlide(page: Page): Promise<void> {
-  await page.getByTestId('add-interactive').click()
+  await addPage(page, 'interactive')
   await page.getByTestId('interactive-file-input').setInputFiles({
     name: 'escape-app.html',
     mimeType: 'text/html',

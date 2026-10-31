@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures'
-import { createPresentation, watchForErrors } from './helpers'
+import { addPage, chooseSlideAction, createPresentation, openSlideMenu, watchForErrors } from './helpers'
 
 /** Adds `count` untitled slides after the current one. */
 async function addSlides(page: Page, count: number): Promise<void> {
@@ -20,30 +20,37 @@ async function boxOf(locator: ReturnType<Page['locator']>) {
   return box
 }
 
-test('the three new-page buttons are icons on one row, named by their tooltips', async ({
+test('«Ny slide» is the strip\'s button, says where the page goes, and the other kinds are in the menu beside it', async ({
   page,
 }) => {
   await createPresentation(page, 'Tre dører')
-  const buttons = [
-    page.getByTestId('add-slide'),
-    page.getByTestId('add-section'),
-    page.getByTestId('add-interactive'),
-  ]
-  const names = ['Ny slide', 'Ny inndeling', 'Ny miniapp']
-  const tops: number[] = []
-  for (const [index, button] of buttons.entries()) {
-    await expect(button).toHaveAccessibleName(names[index])
-    await expect(button).toHaveText('')
-    await expect(button.locator('svg')).toHaveCount(1)
-    tops.push((await boxOf(button)).y)
-  }
-  expect(new Set(tops).size).toBe(1)
+  const add = page.getByTestId('add-slide')
+  await expect(add).toHaveText('Ny slide')
+  // Where the page lands is said before the press: after the slide on screen.
+  const placement = page.getByTestId('new-page-placement')
+  await expect(placement).toHaveText('Kommer etter slide 2')
+  await page.getByTestId('filmstrip-thumb').first().click()
+  await expect(placement).toHaveText('Kommer etter forsiden')
 
-  // No longer the coloured doors they were: all three are drawn alike.
-  const backgrounds = await Promise.all(
-    buttons.map((button) => button.evaluate((element) => getComputedStyle(element).backgroundColor)),
-  )
-  expect(new Set(backgrounds).size).toBe(1)
+  // The menu beside it holds the two other kinds, under the same names and
+  // icons as everywhere else a page is added.
+  const more = page.getByTestId('add-page-menu')
+  await expect(more).toHaveAccessibleName('Ny inndeling eller miniapp')
+  await more.click()
+  const menu = page.getByTestId('context-menu')
+  await expect(menu.getByRole('menuitem')).toHaveText(['Ny inndeling', 'Ny miniapp'])
+  await expect(menu.locator('.context-menu__icon svg')).toHaveCount(2)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+
+  // And the dialog repeats the place, so it is still known after the press.
+  await add.click()
+  await expect(page.getByTestId('new-slide-modal')).toContainText('Kommer etter forsiden.')
+  await page.getByTestId('new-slide-without-title').click()
+  await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
+
+  await addPage(page, 'section')
+  await expect(page.getByTestId('new-section-modal')).toContainText('Kommer etter slide 2.')
 })
 
 test('resting the pointer between two slides opens a place to put a new page there', async ({
@@ -80,9 +87,9 @@ test('resting the pointer between two slides opens a place to put a new page the
   expect(buttonBox.y + buttonBox.height).toBeLessThan(lower.y)
 
   await button.click()
-  const menu = page.getByTestId('filmstrip-insert-menu')
-  await expect(menu.getByRole('button')).toHaveText(['Ny slide', 'Ny inndeling', 'Ny miniapp'])
-  await expect(menu.locator('svg')).toHaveCount(3)
+  const menu = page.getByTestId('context-menu')
+  await expect(menu.getByRole('menuitem')).toHaveText(['Ny slide', 'Ny inndeling', 'Ny miniapp'])
+  await expect(menu.locator('.context-menu__icon svg')).toHaveCount(3)
 
   // A new section, put exactly there.
   await page.getByTestId('insert-section').click()
@@ -134,9 +141,32 @@ test('deleting the current slide goes to the one before it, not to the front pag
 
   // The active slide is the third, so the one before it — not the front page —
   // is where the editor lands.
-  await items.nth(2).getByTestId('delete-slide').click()
+  await chooseSlideAction(page, 2, 'delete-slide')
   await page.getByTestId('confirm-accept').click()
   await expect(items).toHaveCount(3)
   await expect(page.getByTestId('statusbar')).toContainText('Slide 2 av 3')
   await expect(items.nth(1)).toHaveClass(/filmstrip__item--active/)
+})
+
+/*
+ * The same place without a pointer resting anywhere: a finger or the keyboard
+ * asks the slide's own menu, and the page goes right after that slide —
+ * whichever slide is on screen.
+ */
+test('a page put in from a slide\'s menu goes right after that slide', async ({ page }) => {
+  await createPresentation(page, 'Etter denne')
+  await addSlides(page, 2)
+  await expect(page.getByTestId('statusbar')).toContainText('Slide 4 av 4')
+
+  await openSlideMenu(page, 1)
+  await page.getByTestId('menu-slide-insert-after').click()
+  await page.keyboard.press('ArrowRight')
+  const submenu = page.getByTestId('menu-slide-insert-after-content')
+  await expect(submenu.getByRole('menuitem')).toHaveText(['Ny slide', 'Ny inndeling', 'Ny miniapp'])
+  await submenu.getByTestId('insert-after-section').click()
+  await expect(page.getByTestId('new-section-modal')).toContainText('Kommer etter slide 2.')
+  await page.getByTestId('section-title-input').fill('Midt i')
+  await page.getByTestId('create-section').click()
+  await expect(page.getByTestId('filmstrip-item')).toHaveCount(5)
+  await expect(page.getByTestId('statusbar')).toContainText('Inndeling 3 av 5')
 })

@@ -40,11 +40,14 @@ import { Icon } from '../components/Icon'
 import { formatBytes, formatSlideCount } from '../format'
 import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ContextMenuHost } from '../components/ContextMenuHost'
+import { MenuButton } from '../components/MenuButton'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AgentTokensModal } from './AgentTokensModal'
 import { FolderSelect } from './FolderSelect'
 import { FolderShareButton } from './FolderShareButton'
+import { folderEntries, presentationEntries } from './libraryMenus'
 
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
@@ -255,6 +258,11 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
     }
   }
 
+  const handleCopyId = async (summary: PresentationSummary): Promise<void> => {
+    if (await copyToClipboard(summary.id)) notify.success('Presentasjons-ID kopiert')
+    else notify.error('Kunne ikke kopiere presentasjons-ID.')
+  }
+
   const handleImport = async (file: File): Promise<void> => {
     try {
       const report = await importSlaidsArchive(repository, file)
@@ -427,32 +435,30 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                 <Icon name="folder" size={15} /> {folder.name} (
                 {summaries.filter((summary) => summary.folderId === folder.id).length})
               </button>
+              {/* Whether the folder is shared is a state, so it stays in sight;
+                  renaming and deleting are rare, so they wait in the menu. */}
               <div className="folder-row__tools">
-                <Tooltip label="Gi nytt navn">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--icon btn--sm folder-row__rename"
-                    aria-label={`Gi mappen ${folder.name} nytt navn`}
-                    data-testid="rename-folder"
-                    onClick={() => startRenaming({ kind: 'folder', folder })}
-                  >
-                    <Icon name="edit" size={14} />
-                  </button>
-                </Tooltip>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--icon btn--sm"
-                  aria-label={`Slett mappen ${folder.name}`}
-                  onClick={() => setDeletingFolder(folder)}
-                >
-                  <Icon name="trash" size={14} />
-                </button>
                 <FolderShareButton
                   folderName={folder.name}
                   status={folderShares.status}
                   state={folderShares.stateOf(folder.id)}
                   busy={folderShares.busyFolderId === folder.id}
                   onSetShared={(shared) => void folderShares.setShared(folder.id, shared)}
+                />
+                <MenuButton
+                  id={`folder-menu-${folder.id}`}
+                  label={`Flere handlinger for mappen ${folder.name}`}
+                  title={folder.name}
+                  tooltip="Flere handlinger"
+                  icon="more"
+                  className="btn--icon menu-button--icon"
+                  testId="folder-more"
+                  entries={() =>
+                    folderEntries({
+                      rename: () => startRenaming({ kind: 'folder', folder }),
+                      remove: () => setDeletingFolder(folder),
+                    })
+                  }
                 />
               </div>
             </div>
@@ -546,22 +552,22 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                     >
                       <Icon name="undo" size={15} /> Gjenopprett
                     </button>
-                    <Tooltip label="Slett for godt">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm presentation-card__purge"
-                        onClick={() => setPurging(summary)}
-                        aria-label={`Slett ${summary.title} for godt`}
-                        data-testid="purge-presentation"
-                      >
-                        <Icon name="trash" size={15} />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm presentation-card__purge"
+                      onClick={() => setPurging(summary)}
+                      aria-label={`Slett ${summary.title} for godt`}
+                      data-testid="purge-presentation"
+                    >
+                      <Icon name="trash" size={15} /> Slett for godt …
+                    </button>
                   </div>
                 </article>
               ))
             : visible.map((summary) => (
                 <article key={summary.id} className="presentation-card" data-testid="presentation-card">
+                  {/* The card's face is the one thing it is for: opening the
+                      presentation. Its name, what it holds, and the word. */}
                   <button
                     type="button"
                     className="presentation-card__open"
@@ -574,68 +580,11 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                       {formatDate(summary.updatedAt)} ·{' '}
                       <span data-testid="presentation-size">{formatBytes(summary.byteSize)}</span>
                     </span>
+                    <span className="presentation-card__cue" aria-hidden="true">
+                      Åpne
+                    </span>
                   </button>
                   <div className="presentation-card__tools">
-                    <Tooltip label="Gi nytt navn">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm"
-                        onClick={() => startRenaming({ kind: 'presentation', summary })}
-                        aria-label={`Gi ${summary.title} nytt navn`}
-                        data-testid="rename-presentation"
-                      >
-                        <Icon name="edit" size={15} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label="Dupliser">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm"
-                        aria-label={`Dupliser ${summary.title}`}
-                        data-testid="duplicate-presentation"
-                        onClick={() => void handleDuplicate(summary.id)}
-                      >
-                        <Icon name="copy" size={15} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label="Kopier presentasjons-ID">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm"
-                        aria-label={`Kopier presentasjons-ID for ${summary.title}`}
-                        data-testid="copy-presentation-id"
-                        onClick={() => {
-                          void copyToClipboard(summary.id).then((copied) => {
-                            if (copied) notify.success('Presentasjons-ID kopiert')
-                            else notify.error('Kunne ikke kopiere presentasjons-ID.')
-                          })
-                        }}
-                      >
-                        <Icon name="code" size={15} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label="Last ned sikkerhetskopi">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm"
-                        onClick={() => void handleExport(summary)}
-                        aria-label={`Last ned sikkerhetskopi av ${summary.title}`}
-                        data-testid="export-presentation"
-                      >
-                        <Icon name="download" size={15} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label="Flytt til søppelkassen">
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--icon btn--sm"
-                        onClick={() => setDeleting(summary)}
-                        aria-label={`Slett ${summary.title}`}
-                        data-testid="delete-presentation"
-                      >
-                        <Icon name="trash" size={15} />
-                      </button>
-                    </Tooltip>
                     {folders.length > 0 && (
                       <FolderSelect
                         value={summary.folderId}
@@ -652,6 +601,26 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                         }}
                       />
                     )}
+                    <MenuButton
+                      id={`presentation-menu-${summary.id}`}
+                      label={`Flere handlinger for ${summary.title}`}
+                      title={summary.title}
+                      tooltip="Gi nytt navn, dupliser, kopier ID, last ned eller slett"
+                      icon="more"
+                      className="presentation-card__more"
+                      testId="presentation-more"
+                      entries={() =>
+                        presentationEntries({
+                          rename: () => startRenaming({ kind: 'presentation', summary }),
+                          duplicate: () => void handleDuplicate(summary.id),
+                          copyId: () => void handleCopyId(summary),
+                          exportBackup: () => void handleExport(summary),
+                          trash: () => setDeleting(summary),
+                        })
+                      }
+                    >
+                      <span className="menu-button__label">Flere handlinger</span>
+                    </MenuButton>
                   </div>
                 </article>
               ))}
@@ -685,6 +654,9 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           </>
         )}
       </footer>
+
+      {/* The library's menus are the app's one menu, as in the editor. */}
+      <ContextMenuHost />
 
       {/* Mounted only while open: closing is what drops a freshly created
           token out of memory, rather than an effect that clears it. */}

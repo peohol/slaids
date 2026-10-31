@@ -1,7 +1,7 @@
 # UX-forenkling og visuelt designsystem i Slaids
 
 **Opprettet:** 30.10.2026  
-**Status:** U0–U4 er gjennomført (se § 10); U5–U7 venter.  
+**Status:** U0–U5 er gjennomført (se § 10); U6–U7 venter.  
 **Omfang:** Bibliotek, desktopeditor, kompakt editor, felles UI-komponenter og interaksjoner.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md § 44.6, med § 44.5 som fortsatt gjeldende kontrakt for kompakt arbeidsflate.
 
@@ -232,13 +232,15 @@ Hver arbeidspakke leveres som liten PR eller tydelig isolert endringssett. **Ikk
 
 ### U5 — Bibliotek, filmstripe og oppretting
 
-- [ ] Gjør åpning/navigasjon til primærhandling.
-- [ ] Samle sekundærhandlinger uten å gjemme dem bak hover eller bare høyreklikk.
-- [ ] Forenkle opprettelse av slide/inndeling/miniapp uten å miste innsetting mellom slides.
-- [ ] Behold omorganisering og duplisering via tastatur/berøring som alternativ til dragging.
-- [ ] Gjør destruktive valg tydelige og bekreftede der det er nødvendig.
+- [x] Gjør åpning/navigasjon til primærhandling.
+- [x] Samle sekundærhandlinger uten å gjemme dem bak hover eller bare høyreklikk.
+- [x] Forenkle opprettelse av slide/inndeling/miniapp uten å miste innsetting mellom slides.
+- [x] Behold omorganisering og duplisering via tastatur/berøring som alternativ til dragging.
+- [x] Gjør destruktive valg tydelige og bekreftede der det er nødvendig.
 
 **Aksept:** Enklere oppføringer; alle tidligere handlinger kan finnes, brukes og forstås fra mus, tastatur og berøring.
+
+**Resultat:** *Biblioteket:* hele kortets flate åpner presentasjonen, og ordet «Åpne» står alltid synlig på den (ikke bare ved hover). Under står mappevalget og én navngitt knapp, «Flere handlinger», med *Gi nytt navn …, Dupliser, Kopier presentasjons-ID, Last ned sikkerhetskopi* og, sist og merket som fare, *Flytt til søppelkassen …* — som spør som før. Fem like ikonknapper per kort er borte. En mappe viser delingsknappen (en tilstand, derfor synlig) og en «Flere handlinger»-knapp med *Gi nytt navn …* og *Slett mappen …*. I søppelkassen står «Slett for godt …» med ord og faretekst. *Filmstripen:* hver side har nummer, eventuell type og ett «⋯» («Flere handlinger for slide 3») i nummerraden; de fire permanente ikonknappene under hver miniatyr er borte, så sidene står tettere. Menyen — samme liste fra knappen, høyreklikk og Shift+F10 på miniatyren — har *Flytt opp, Flytt ned, Dupliser, Sett inn etter denne ▸ (Ny slide, Ny inndeling, Ny miniapp)* og *Slett …*; om en side kan slettes eller flyttes spørres kommandoen som ville gjort det (uten måling), og grunnen står i menyen når den ikke kan — for eksempel at en vanlig slide ikke kan ta forsidens plass, mens to inndelinger fortsatt kan bytte. Valgt side har blå ramme, nummeret som fylt blå merkelapp og `aria-current`. *Oppretting:* «Ny slide» er stripens brede knapp; «Ny inndeling» og «Ny miniapp» ligger i menyen ved siden av. Over knappen står hvor siden havner («Kommer etter slide 3»), og dialogen gjentar det. Mellomrommet mellom to sider (mus) og «Sett inn etter denne» (berøring og tastatur) setter inn på samme sted med de samme oppføringene (`newPageEntries` i `pageKinds.ts`). Sletting av en side spør med sidens navn («Slette inndeling 5?»). Ingen presentasjonsdata, renderer, geometri eller agent-API er endret. Før/etter-bilder i [ux/u5/](ux/u5/).
 
 ### U6 — Kompakt og responsiv arbeidsflate
 
@@ -300,8 +302,8 @@ Ikke fastsett tidsmål uten baseline. Foretrekk en faktisk forbedret median/obse
 | U2 Hovedverktøylinje og innholdstype | Ferdig 30.10.2026 | N1 løst. Innholdstype som én meny, eget «Bilde fra fil», menyene «Presentasjon» og «Verktøy», lagringsstatus ved tittelen. |
 | U3 Inspektør og soner | Ferdig 30.10.2026 | Hode med valgt objekt, faste grupper, innholdstype som felles meny, utvidbare grupper, synlige begrunnelser, felles navn for sonehandlinger. N8 løst. |
 | U4 Tekstverktøy | Ferdig 31.10.2026 | Feltnavn og faste grupper, aktiv tilstand også for loddrett justering, deaktivering fra pålitelig tilgjengelighet, tabell/bilde som felles meny, fokus blir i teksten, fargearv «fra gjeldende inndeling». Nye funn N10–N12 løst (se UX_BASELINE.md). |
-| U5 Bibliotek og filmstripe | Ikke startet | Anbefalt neste |
-| U6 Mobil/responsivt | Ikke startet | Verifiser fortløpende, egen samlet gjennomgang |
+| U5 Bibliotek og filmstripe | Ferdig 31.10.2026 | «Åpne» som kortets handling, «Flere handlinger»-meny på kort, mapper og sider, «Ny slide» + meny med plassering, valgt side tydelig, felles oppføringer for ny side. |
+| U6 Mobil/responsivt | Ikke startet | Anbefalt neste |
 | U7 Samlet QA | Ikke startet | Tester kjøres også kontinuerlig |
 
 **Startpunkt for Claude Code:** Les denne planen og IMPLEMENTATION_PLAN.md § 44.5–44.6. Begynn med U0, og bruk deretter /frontend-design til U1. Lag en avgrenset implementerings-PR for U1; ikke start en full redesign av alle flater i samme PR.

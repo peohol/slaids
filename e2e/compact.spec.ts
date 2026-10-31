@@ -22,6 +22,8 @@ import {
   waitForSaved,
   watchForErrors,
   zoneRects,
+  chooseSlideAction,
+  addPage,
 } from './helpers'
 import {
   closeKeyboard,
@@ -202,13 +204,13 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('filmstrip-item').nth(1)).toHaveClass(/filmstrip__item--active/)
 
     // Reordering without a drag anywhere in sight.
-    await page.getByTestId('filmstrip-item').nth(2).getByTestId('move-slide-up').click()
+    await chooseSlideAction(page, 2, 'move-slide-up')
     await expect
       .poll(() => slideOrder(page))
       .toEqual([before[0], before[2], before[1], ...before.slice(3)])
 
     // And back again, from the other end.
-    await page.getByTestId('filmstrip-item').nth(1).getByTestId('move-slide-down').click()
+    await chooseSlideAction(page, 1, 'move-slide-down')
     await expect.poll(() => slideOrder(page)).toEqual(before)
   })
 
@@ -514,7 +516,7 @@ test.describe('kompakt arbeidsflate', () => {
   test('starter og avslutter en miniapp med trykk', async ({ page }) => {
     await createPresentation(page, 'Miniapp')
     await openPanel(page, 'slides')
-    await page.getByTestId('add-interactive').click()
+    await addPage(page, 'interactive')
     await page.getByTestId('interactive-file-input').setInputFiles({
       name: 'counter-app.html',
       mimeType: 'text/html',
@@ -819,7 +821,7 @@ test.describe('kompakt arbeidsflate', () => {
   test('en knapp og en kjørende miniapp eier sine egne gester', async ({ page }) => {
     await createPresentation(page, 'Egne gester')
     await openPanel(page, 'slides')
-    await page.getByTestId('add-interactive').click()
+    await addPage(page, 'interactive')
     await page.getByTestId('interactive-file-input').setInputFiles({
       name: 'counter-app.html',
       mimeType: 'text/html',
@@ -910,9 +912,10 @@ test.describe('kompakt arbeidsflate', () => {
     thumbs = page.getByTestId('filmstrip-item')
     await expect(thumbs.nth(1)).toHaveClass(/filmstrip__item--active/)
 
-    // And the discrete way to reorder is still right there on every entry.
+    // And the discrete way to reorder is still right there on every entry,
+    // in the menu its own button opens.
     const order = await slideOrder(page)
-    await thumbs.nth(2).getByTestId('move-slide-up').click()
+    await chooseSlideAction(page, 2, 'move-slide-up')
     await expect
       .poll(() => slideOrder(page))
       .toEqual([order[0], order[2], order[1], ...order.slice(3)])
@@ -1009,7 +1012,7 @@ test.describe('kompakt arbeidsflate', () => {
 
     // … and a miniapp, so every kind of page the stage can show is in the deck.
     await openPanel(page, 'slides')
-    await page.getByTestId('add-interactive').click()
+    await addPage(page, 'interactive')
     await page.getByTestId('interactive-file-input').setInputFiles({
       name: 'counter-app.html',
       mimeType: 'text/html',

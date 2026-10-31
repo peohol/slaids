@@ -678,27 +678,75 @@
  * transform, which is laid out at full size and only *drawn* small.
  */
 .filmstrip__item {
+  --strip-row: 28px;
+  position: relative;
   border: 1px solid var(--chrome-border);
   border-radius: var(--radius-md);
   background: var(--chrome-bg-raised);
   overflow: hidden;
 }
 
+/*
+ * The page being worked on, said three ways at once so none of them has to
+ * carry it alone: the selected blue around the whole entry, its number as a
+ * filled tab, and `aria-current` on the thumbnail.
+ */
 .filmstrip__item--active {
   border-color: var(--chrome-accent);
   box-shadow: 0 0 0 1px var(--chrome-accent);
 }
 
+/*
+ * The number row: the page's number, its kind when it is not a plain slide,
+ * the grip, and — drawn over the row's end, see `.filmstrip__more` — the
+ * button to the page's menu. As tall as that button, so it never overlaps the
+ * thumbnail.
+ */
 .filmstrip__index {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 6px 2px 9px;
+  gap: 6px;
+  min-height: var(--strip-row);
+  padding: 0 calc(var(--strip-row) + 2px) 0 6px;
   font-size: 11px;
   color: var(--chrome-text-dim);
 }
 
+.filmstrip__number {
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.filmstrip__item--active .filmstrip__number {
+  background: var(--chrome-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.filmstrip__more {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--strip-row);
+  height: var(--strip-row);
+  min-height: 0;
+  color: var(--chrome-text-dim);
+}
+
+.filmstrip__more:hover:not(:disabled),
+.filmstrip__more[aria-expanded='true'] {
+  color: var(--chrome-text);
+}
+
+:root[data-coarse='true'] .filmstrip__item {
+  --strip-row: var(--touch-target);
+}
+
 .filmstrip__grip {
+  margin-left: auto;
   color: var(--chrome-text-dim);
   cursor: grab;
   padding: 2px;
@@ -738,28 +786,55 @@
 
 .filmstrip__handle .filmstrip__thumb {
   cursor: inherit;
+  margin-inline: auto;
 }
 
-.filmstrip__tools {
-  display: flex;
-  gap: 2px;
-  padding: 4px 6px;
-  border-top: 1px solid var(--chrome-border);
+/* What a generated page is, under it: a note, not a tool. */
+.filmstrip__note {
+  margin: 0;
+  padding: 4px 9px 5px;
+  font-size: 11px;
+  color: var(--chrome-text-dim);
 }
 
 /*
- * The three ways to add a page, on one row.
+ * The way to a new page.
  *
- * A new slide, a new section and a new miniapp are different things, so they
- * are three doors rather than one with a menu — each an icon that says which,
- * with its name in the tooltip, so all three fit the narrow strip side by side.
+ * «Ny slide» is what is added most, so it is the wide button; a section and a
+ * miniapp share the menu beside it. Above them, where the page will land, so
+ * the place is known before the press rather than discovered after it.
  */
 .filmstrip__footer {
-  padding: 6px 10px;
+  padding: 6px 10px 8px;
   border-top: 1px solid var(--chrome-border);
   display: flex;
-  justify-content: space-around;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filmstrip__placement {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--chrome-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filmstrip__new {
+  display: flex;
+  gap: 4px;
+}
+
+.filmstrip__new-slide {
+  flex: 1;
+  justify-content: center;
+}
+
+/* Beside a raised button it is one too, so the pair reads as one control. */
+.filmstrip__new .filmstrip__new-more {
+  background: var(--chrome-bg-raised);
+  border-color: var(--chrome-border);
 }
 
 /*
@@ -2967,14 +3042,7 @@
  * enough to hit.
  */
 .filmstrip[data-overview] .filmstrip__index {
-  padding: 6px 8px 4px 11px;
   font-size: 12px;
-}
-
-.filmstrip[data-overview] .filmstrip__tools {
-  gap: 4px;
-  padding: 4px;
-  justify-content: space-around;
 }
 
 .filmstrip[data-overview] .filmstrip__item--active {
@@ -2982,7 +3050,7 @@
 }
 
 .filmstrip[data-overview] .filmstrip__footer {
-  padding: 6px;
+  padding: 6px 10px 8px;
 }
 
 /* The list of text on the page: the portrait workspace's main surface. */

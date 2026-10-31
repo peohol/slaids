@@ -91,7 +91,7 @@ test.describe('ødelagte delingsadresser', () => {
  * en mappeadresse – også en ødelagt – blir på den offentlige siden.
  */
 test.describe('deling av mapper i lokal modus', () => {
-  test('knappen ligger under søppelkassen og er avslått med en forklaring', async ({ page }) => {
+  test('knappen står synlig på mapperaden og er avslått med en forklaring', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'I en mappe')
     await page.getByTestId('back-to-library').click()
@@ -99,14 +99,15 @@ test.describe('deling av mapper i lokal modus', () => {
     page.once('dialog', (dialog) => void dialog.accept('Kurs'))
     await page.getByTestId('new-folder').click()
 
-    const trash = page.getByLabel('Slett mappen Kurs')
+    // Delingen er en tilstand og står derfor synlig, på samme rad som mappen og
+    // foran menyen med resten.
+    const more = page.getByRole('button', { name: 'Flere handlinger for mappen Kurs' })
     const share = page.getByTestId('share-folder')
     await expect(share).toBeVisible()
-    const [trashBox, shareBox] = await Promise.all([trash.boundingBox(), share.boundingBox()])
-    if (!trashBox || !shareBox) throw new Error('Kunne ikke måle mappeknappene.')
-    // Rett under: samme spalte, lavere ned.
-    expect(Math.abs(shareBox.x - trashBox.x)).toBeLessThanOrEqual(1)
-    expect(shareBox.y).toBeGreaterThanOrEqual(trashBox.y + trashBox.height - 1)
+    const [moreBox, shareBox] = await Promise.all([more.boundingBox(), share.boundingBox()])
+    if (!moreBox || !shareBox) throw new Error('Kunne ikke måle mappeknappene.')
+    expect(Math.abs(shareBox.y + shareBox.height / 2 - (moreBox.y + moreBox.height / 2))).toBeLessThanOrEqual(1)
+    expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(moreBox.x + 1)
 
     await share.click()
     const toggle = page.getByTestId('toggle-folder-share')

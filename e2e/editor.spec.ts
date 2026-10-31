@@ -14,6 +14,8 @@ import {
   zoneRects,
   chooseFromToolbarMenu,
   chooseKindInInspector,
+  chooseSlideAction,
+  openSlideMenu,
 } from './helpers'
 
 test.describe('slides and content', () => {
@@ -32,10 +34,11 @@ test.describe('slides and content', () => {
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
     await expect(page.getByTestId('slide-title')).toHaveCount(0)
 
-    await page.getByTestId('duplicate-slide').nth(1).click()
+    await chooseSlideAction(page, 1, 'duplicate-slide')
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(5)
 
-    await page.getByTestId('delete-slide').nth(1).click()
+    await chooseSlideAction(page, 1, 'delete-slide')
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Slette slide 2?')
     await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(4)
     expect(guard.errors).toEqual([])
@@ -44,10 +47,10 @@ test.describe('slides and content', () => {
   /*
    * The regression this covers: the strip is a column flex container, and its
    * items used to shrink instead of it scrolling. Past about six slides the
-   * duplicate and delete buttons were squeezed out of every item's clipped box,
-   * so there was no way left to delete a slide at all.
+   * slide tools were squeezed out of every item's clipped box, so there was no
+   * way left to delete a slide at all.
    */
-  test('keeps every slide\'s tools reachable once the strip overflows', async ({ page }) => {
+  test('keeps every slide\'s menu reachable once the strip overflows', async ({ page }) => {
     await createPresentation(page, 'Lang filmstripe')
     for (let i = 0; i < 7; i += 1) {
       await page.getByTestId('add-slide').click()
@@ -62,10 +65,13 @@ test.describe('slides and content', () => {
     })
     expect(scrolls).toBe(true)
 
-    for (const button of await page.getByTestId('delete-slide').all()) {
+    const menus = page.getByTestId('slide-more')
+    await expect(menus).toHaveCount(9)
+    for (const button of await menus.all()) {
+      await button.scrollIntoViewIfNeeded()
       await expect(button).toBeVisible()
     }
-    await page.getByTestId('delete-slide').last().click()
+    await chooseSlideAction(page, 8, 'delete-slide')
     await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('filmstrip-item')).toHaveCount(8)
   })
@@ -161,22 +167,71 @@ test.describe('slides and content', () => {
       )
     const before = await order()
 
-    await page.getByTestId('filmstrip-item').nth(3).getByTestId('move-slide-up').click()
+    await chooseSlideAction(page, 3, 'move-slide-up')
     await expect
       .poll(order)
       .toEqual([before[0], before[1], before[3], before[2]])
 
-    await page.getByTestId('filmstrip-item').nth(2).getByTestId('move-slide-down').click()
+    await chooseSlideAction(page, 2, 'move-slide-down')
     await expect.poll(order).toEqual(before)
 
     // The front page is a section, and the deck has to keep opening with one:
-    // moving it up is not offered at all rather than refused afterwards.
-    await expect(
-      page.getByTestId('filmstrip-item').first().getByTestId('move-slide-up'),
-    ).toBeDisabled()
-    await expect(
-      page.getByTestId('filmstrip-item').last().getByTestId('move-slide-down'),
-    ).toBeDisabled()
+    // a move that would put a plain slide first is not offered at all rather
+    // than refused afterwards, and the menu says why.
+    let menu = await openSlideMenu(page, 0)
+    await expect(menu.getByTestId('move-slide-up')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-down')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-down')).toContainText('Første slide må være en inndeling')
+    await page.keyboard.press('Escape')
+    menu = await openSlideMenu(page, 1)
+    await expect(menu.getByTestId('move-slide-up')).toHaveAttribute('data-disabled', '')
+    await expect(menu.getByTestId('move-slide-up')).toContainText('Første slide må være en inndeling')
+    await expect(menu.getByTestId('move-slide-down')).not.toHaveAttribute('data-disabled', '')
+    await page.keyboard.press('Escape')
+    menu = await openSlideMenu(page, 3)
+    await expect(menu.getByTestId('move-slide-down')).toHaveAttribute('data-disabled', '')
+    await page.keyboard.press('Escape')
+  })
+
+  /*
+   * The whole of a page's menu from the keyboard alone: Shift+F10 on the
+   * thumbnail opens it with the first entry focused, an entry runs, and the
+   * focus comes back to the strip rather than falling to the page.
+   */
+  test('reorders a slide with the keyboard through its menu', async ({ page }) => {
+    await createPresentation(page, 'Tastatur')
+    for (let i = 0; i < 2; i += 1) {
+      await page.getByTestId('add-slide').click()
+      await page.getByTestId('new-slide-without-title').click()
+    }
+    const order = async (): Promise<string[]> =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="filmstrip-item"]')].map(
+          (item) => (item as HTMLElement).dataset.slideId as string,
+        ),
+      )
+    const before = await order()
+    const thumb = page.getByTestId('filmstrip-item').nth(2).getByTestId('filmstrip-thumb')
+    await thumb.focus()
+    await page.keyboard.press('Shift+F10')
+    const menu = page.getByTestId('context-menu')
+    await expect(menu).toBeVisible()
+    await expect(menu).toContainText('Slide 3')
+    await expect(menu.getByTestId('move-slide-up')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeHidden()
+    await expect.poll(order).toEqual([before[0], before[2], before[1], before[3]])
+
+    // The menu button says it has a menu, and hands the focus back when closed.
+    const more = page.getByTestId('filmstrip-item').nth(1).getByTestId('slide-more')
+    await expect(more).toHaveAttribute('aria-haspopup', 'menu')
+    await more.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeVisible()
+    await expect(more).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(more).toBeFocused()
   })
 
   test('switches between slides from the filmstrip', async ({ page }) => {
