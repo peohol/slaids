@@ -8,6 +8,7 @@
 import * as Popover from '@radix-ui/react-popover'
 import { PALETTE, bestTextColor } from '../../domain/color'
 import { Icon } from './Icon'
+import { useFieldPopoverFocus } from './focusKeeping'
 
 /**
  * A value that follows something else until somebody picks a colour.
@@ -93,23 +94,38 @@ export function ColorPickerButton({
   label,
   testId,
   inherited,
+  keepFocus = false,
+  className = '',
 }: {
   value: string
   onChange: (color: string) => void
   label: string
   testId?: string
   inherited?: InheritedColor
+  /**
+   * Leave the focus in the text field the colour is for, through the whole
+   * choice — pressing the trigger, picking, closing. See `focusKeeping`.
+   */
+  keepFocus?: boolean
+  className?: string
 }) {
+  const focus = useFieldPopoverFocus()
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" className="btn color-trigger" aria-label={label} data-testid={testId}>
+        <button
+          type="button"
+          className={`btn color-trigger ${className}`.trim()}
+          aria-label={label}
+          data-testid={testId}
+          {...(keepFocus ? focus.trigger : null)}
+        >
           <span className="color-trigger__chip" style={{ background: value }} />
-          <span>{label}</span>
+          <span className="color-trigger__label">{label}</span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="popover" sideOffset={6}>
+        <Popover.Content className="popover" sideOffset={6} {...(keepFocus ? focus.content : null)}>
           <ColorSwatchGrid value={value} onSelect={onChange} inherited={inherited} />
         </Popover.Content>
       </Popover.Portal>

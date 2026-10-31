@@ -10,6 +10,7 @@
 
 import { useRef } from 'react'
 import { anchorBelow, useContextMenu, type MenuEntry } from './contextMenu'
+import { keepFocus as keepFocusOnPress } from './focusKeeping'
 import { Icon, type IconName, type IconTone } from './Icon'
 import { Tooltip } from './Tooltip'
 
@@ -24,6 +25,7 @@ export function MenuButton({
   className = '',
   testId,
   entries,
+  keepFocus = false,
   children,
 }: {
   /** Which menu this is; a second press on the same button closes it. */
@@ -39,6 +41,11 @@ export function MenuButton({
   className?: string
   testId?: string
   entries: () => MenuEntry[]
+  /**
+   * Leave the focus where it is when pressed — in the text field the menu acts
+   * on — so the menu hands it back there when it closes; see `focusKeeping`.
+   */
+  keepFocus?: boolean
   /** What the button shows besides its icon; the label by default. */
   children?: React.ReactNode
 }) {
@@ -63,6 +70,7 @@ export function MenuButton({
         onPointerDown={() => {
           wasOpen.current = expanded
         }}
+        onMouseDown={keepFocus ? keepFocusOnPress : undefined}
         onClick={(event) => {
           if (wasOpen.current) {
             wasOpen.current = false

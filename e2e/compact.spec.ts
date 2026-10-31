@@ -1310,6 +1310,45 @@ test.describe('kompakt arbeidsflate', () => {
   })
 
   /*
+   * The bar under a focused field is the desktop's, with the same groups and
+   * the same states, and a finger uses it the way a mouse does: the press
+   * formats the field that is the writing surface, shows what is now in force,
+   * and leaves the caret — and the keyboard that comes with it — where it was.
+   */
+  test('tekstlinja formaterer feltet som skrives i og viser hva som gjelder, også med finger', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Formatering med finger')
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-titled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+
+    await writeInField(page, 'body', 'Viktig')
+    await expect(page.getByTestId('text-toolbar')).toHaveAttribute('aria-label', 'Tekstverktøy for brødtekst')
+    await page.keyboard.press('Shift+Home')
+    const bold = page.getByTestId('format-bold')
+    await expect(bold).toHaveAttribute('aria-pressed', 'false')
+    const coarse = await isCoarse(page)
+    if (coarse) await bold.tap()
+    else await bold.click()
+    const cardBody = stage(page).locator('.card-body .tiptap')
+    await expect(cardBody.locator('strong')).toHaveText('Viktig')
+    await expect(bold).toHaveAttribute('aria-pressed', 'true')
+    await expect(cardBody).toBeFocused()
+    await expect(page.getByTestId('valign-middle')).toHaveAttribute('aria-pressed', 'true')
+    // A finger gets the full target, a mouse the compact one.
+    const box = (await bold.boundingBox())!
+    if (coarse) expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44)
+    await exitFocus(page)
+
+    // The card's title is its own field, with only what a title can take.
+    await writeInField(page, 'card-title', 'Tittel')
+    await expect(page.getByTestId('text-toolbar')).toHaveAttribute('aria-label', 'Tekstverktøy for korttittel')
+    await expect(page.getByTestId('format-superscript')).toBeVisible()
+    await expect(page.getByTestId('format-bold')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
+  })
+
+  /*
    * A heading and a section's two lines are text on the page without being
    * zones of the layout. They are focused by the same gesture and edited on the
    * same stage — which is what keeps the compact workspace to one text model

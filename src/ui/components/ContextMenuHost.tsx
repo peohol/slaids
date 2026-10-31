@@ -21,6 +21,7 @@ import { bestTextColor } from '../../domain/color'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Icon } from './Icon'
 import { useContextMenu, type MenuAction, type MenuEntry } from './contextMenu'
+import { focusIsLost } from './focusKeeping'
 
 /** Space kept between a menu and the edge of the window. */
 const VIEWPORT_MARGIN = 8
@@ -268,13 +269,9 @@ export function ContextMenuHost() {
               event.preventDefault()
               // Back where it was — unless the chosen entry has sent the focus
               // somewhere on purpose: a dialog, or the caret in a field.
-              const active = document.activeElement
-              const lost =
-                !active ||
-                active === document.body ||
-                !active.isConnected ||
-                (contentRef.current?.contains(active) ?? false)
-              if (lost && menu.returnFocus?.isConnected) menu.returnFocus.focus({ preventScroll: true })
+              if (focusIsLost(contentRef.current) && menu.returnFocus?.isConnected) {
+                menu.returnFocus.focus({ preventScroll: true })
+              }
             }}
           >
             {menu.title && <DropdownMenu.Label className="context-menu__title">{menu.title}</DropdownMenu.Label>}

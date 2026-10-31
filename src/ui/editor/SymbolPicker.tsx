@@ -22,6 +22,7 @@ import { useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/react'
 import { Tooltip } from '../components/Tooltip'
+import { useFieldPopoverFocus } from '../components/focusKeeping'
 
 type SymbolEntry = readonly [char: string, name: string]
 
@@ -406,11 +407,11 @@ export function insertSymbol(editor: Editor, char: string): void {
  * formatting of their own but are still text somebody types into.
  *
  * The popover stays open after a press, since symbols rarely come one at a
- * time and the caret is still sitting where it was. Every button inside it —
- * the trigger, the group tabs, the cells — swallows its own `mousedown`, and
- * the content refuses the focus Radix would otherwise move into it on open:
- * together that is what keeps the caret in the field the whole time, the way
- * an empty caption (which deletes itself on blur) needs it to.
+ * time and the caret is still sitting where it was. Opened by a pointer, it
+ * never takes the focus — not on the trigger, not in the grid, not as it
+ * closes (`useFieldPopoverFocus`) — which keeps the caret in the field the
+ * whole time, the way an empty caption (which deletes itself on blur) needs
+ * it to. Opened from the keyboard, the focus moves into the grid instead.
  */
 export function SymbolPickerButton({ editor }: { editor: Editor }) {
   const [group, setGroup] = useState<string>(lastSymbolGroup)
@@ -428,6 +429,7 @@ export function SymbolPickerButton({ editor }: { editor: Editor }) {
       ]
     : SYMBOL_GROUPS
   const active = groups.find((entry) => entry.id === group) ?? groups[0]
+  const focus = useFieldPopoverFocus()
 
   const choose = (char: string): void => {
     rememberSymbol(char)
@@ -450,7 +452,7 @@ export function SymbolPickerButton({ editor }: { editor: Editor }) {
           <button
             type="button"
             className="btn btn--sm btn--icon"
-            onMouseDown={(event) => event.preventDefault()}
+            {...focus.trigger}
             data-testid="format-symbol"
             aria-label="Spesialtegn"
           >
@@ -462,7 +464,7 @@ export function SymbolPickerButton({ editor }: { editor: Editor }) {
         <Popover.Content
           className="popover popover--symbols"
           sideOffset={6}
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          {...focus.content}
           data-testid="symbol-picker"
         >
           <div className="symbol-tabs" role="group" aria-label="Grupper">
@@ -471,7 +473,6 @@ export function SymbolPickerButton({ editor }: { editor: Editor }) {
                 key={entry.id}
                 type="button"
                 className={entry.id === active.id ? 'btn btn--sm btn--active' : 'btn btn--sm'}
-                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setGroup(entry.id)
                   saveChoice(GROUP_KEY, entry.id)
@@ -492,7 +493,6 @@ export function SymbolPickerButton({ editor }: { editor: Editor }) {
                 className="symbol-cell"
                 title={name}
                 aria-label={name}
-                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(char)}
                 onPointerEnter={() => setHovered(name)}
                 onPointerLeave={() => setHovered(null)}

@@ -12,10 +12,14 @@
  * place that was right-clicked, which it has already put the selection at.
  */
 
-import type { ChainedCommands, Editor } from '@tiptap/react'
+import { CommandManager, type ChainedCommands, type Editor } from '@tiptap/react'
 import type { IconName } from '../components/Icon'
+import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
+import { bodyOf } from '../../domain/content'
+import { findLeaf } from '../../domain/layout'
 import { ACCENT_NODE } from '../../domain/richdoc'
-import type { VerticalAlign } from '../../domain/types'
+import type { LayoutNode, VerticalAlign } from '../../domain/types'
+import type { ActiveField } from '../../state/store'
 import { alignmentIsActive, type Alignment } from './extensions'
 import { IMAGE_WIDTH_PRESETS } from './SlaidsImageExtension'
 
@@ -25,11 +29,46 @@ export interface TextAction {
   icon: IconName
   /** The keyboard shortcut that does the same, as the shortcut list writes it. */
   shortcut?: string
-  isActive: () => boolean
+  /**
+   * Whether this is the state in force where the selection is — bold, a list,
+   * an alignment. Absent for an action that is not a state at all («Slett
+   * rad»), which is then never drawn as pressed or checked.
+   */
+  isActive?: () => boolean
   /** Whether the command would do anything where the selection is now. */
   can: () => boolean
   run: () => void
 }
+
+/**
+ * Why a text action is unavailable. The editor's schema is what says no — bold
+ * inside a code block, a row deleted from a one-row table — and it gives no
+ * reason of its own, so this one sentence says where the answer comes from.
+ */
+export const TEXT_ACTION_UNAVAILABLE = 'Ikke mulig der markøren står.'
+
+/**
+ * What each field is called, wherever the editor names the one being typed in:
+ * the toolbar in front of its tools, the context menu at its top. One list, so
+ * a caption is never «Overskrift» in one place and «Bildetekst» in the other.
+ */
+export const FIELD_TITLES: Record<ActiveField['kind'], string> = {
+  body: 'Brødtekst',
+  'card-title': 'Korttittel',
+  caption: 'Bildetekst',
+  'slide-title': 'Slidetittel',
+  'section-title': 'Overskrift',
+  'section-subtitle': 'Underoverskrift',
+}
+
+/** The groups text actions are offered in, named the same in the toolbar and the menu. */
+export const TEXT_GROUPS = {
+  formatting: 'Formatering',
+  paragraph: 'Avsnitt',
+  alignment: 'Justering',
+  link: 'Lenke',
+  insert: 'Sett inn',
+} as const
 
 /** Where an action's chain starts: the editor, focused, on what it acts on. */
 export type ChainStart = () => ChainedCommands
@@ -45,19 +84,31 @@ export function actionTitle(action: Pick<TextAction, 'label' | 'shortcut'>): str
 
 type Command = (chain: ChainedCommands) => ChainedCommands
 
+/**
+ * Whether a command would succeed where the selection is now, asked by running
+ * it on a scratch transaction that is never dispatched.
+ *
+ * Not `editor.can()`: that runs a command with no transaction to write to, so
+ * a command made of steps answers for its first step alone. A list toggled
+ * from an accent, or an accent from a list item, clears the block before it
+ * wraps it — and `can()` reports «no» for exactly what the button would do.
+ * Here every step writes to the same scratch transaction, so the answer is
+ * the command's own.
+ */
+function wouldRun(editor: Editor, command: Command): boolean {
+  if (editor.isDestroyed) return false
+  return command(new CommandManager({ editor, state: editor.state }).createChain(editor.state.tr)).run()
+}
+
 function action(
   editor: Editor,
   start: ChainStart,
-  spec: Omit<TextAction, 'run' | 'can' | 'isActive'> & {
-    command: Command
-    isActive?: () => boolean
-  },
+  spec: Omit<TextAction, 'run' | 'can'> & { command: Command },
 ): TextAction {
-  const { command, isActive, ...rest } = spec
+  const { command, ...rest } = spec
   return {
     ...rest,
-    isActive: isActive ?? (() => false),
-    can: () => command(editor.can().chain()).run(),
+    can: () => wouldRun(editor, command),
     run: () => {
       command(start()).run()
     },
@@ -176,7 +227,6 @@ export function insertTableAction(editor: Editor, start: ChainStart = focusChain
     id: 'table',
     label: 'Sett inn tabell',
     icon: 'table',
-    isActive: () => editor.isActive('table'),
     command: (chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }),
   })
 }
@@ -209,6 +259,13 @@ export const VERTICAL_ALIGNMENTS: readonly [VerticalAlign, string, IconName][] =
   ['middle', 'Midtjuster innholdet', 'align-middle-v'],
   ['bottom', 'Bunnjuster innholdet', 'align-bottom-v'],
 ]
+
+/** The vertical alignment in force for one body field: its own, or the default it has never left. */
+export function verticalAlignOf(root: LayoutNode, nodeId: string, subfieldId: string): VerticalAlign {
+  const content = findLeaf(root, nodeId)?.content
+  const field = content ? bodyOf(content)?.subfields.find((subfield) => subfield.id === subfieldId) : undefined
+  return field?.verticalAlign ?? DEFAULT_VERTICAL_ALIGN
+}
 
 /** Rows, columns, the header row and the table itself, in the order a menu groups them. */
 export interface TableAction extends TextAction {
@@ -268,11 +325,60 @@ export function imageWidthActions(editor: Editor): TextAction[] {
     label: `${percent}%`,
     icon: 'image',
     isActive: () => editor.getAttributes('slaidsImage').widthPercent === percent,
-    can: () => editor.can().setSlaidsImageWidth(percent),
+    can: () => wouldRun(editor, (chain) => chain.setSlaidsImageWidth(percent)),
     run: () => {
       editor.chain().setSlaidsImageWidth(percent).focus().run()
     },
   }))
+}
+
+/**
+ * A link on the selection, and — when the selection is in one — the way to take
+ * it off again.
+ */
+export function linkActions(editor: Editor, start: ChainStart = focusChain(editor)): TextAction[] {
+  const linked = editor.isActive('link')
+  return [
+    {
+      id: 'link',
+      label: linked ? 'Endre lenke …' : 'Lenke …',
+      icon: 'link',
+      isActive: () => linked,
+      can: () => wouldRun(editor, (chain) => chain.setLink({ href: 'https://example.com' })),
+      run: () => editLink(editor, start),
+    },
+    ...(linked
+      ? [
+          action(editor, start, {
+            id: 'unlink',
+            label: 'Fjern lenke',
+            icon: 'close',
+            command: (chain) => chain.extendMarkRange('link').unsetLink(),
+          }),
+        ]
+      : []),
+  ]
+}
+
+/**
+ * The reference dialog, which inserts at the caret of the field in focus — so
+ * the field is given the focus, and its caret, before the dialog opens.
+ */
+export function insertReferenceAction(
+  editor: Editor,
+  open: () => void,
+  start: ChainStart = focusChain(editor),
+): TextAction {
+  return {
+    id: 'insert-reference',
+    label: 'Referanse …',
+    icon: 'reference',
+    can: () => editor.isEditable,
+    run: () => {
+      start().run()
+      open()
+    },
+  }
 }
 
 /**

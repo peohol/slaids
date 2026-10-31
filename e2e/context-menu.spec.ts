@@ -14,6 +14,7 @@ import {
   G,
   addContentToZone,
   clickZone,
+  enterSubmenu,
   createPresentation,
   enterZoneMode,
   slidePoint,
@@ -232,14 +233,14 @@ test.describe('context menu in content mode', () => {
 
     // The text marked is still what the menu acts on.
     await bodyField(page).getByText('Første punkt').click({ button: 'right' })
-    await expect(menu(page)).toContainText('Tekst')
+    await expect(menu(page)).toContainText('Brødtekst')
     await page.getByTestId('menu-formatting').click()
     await page.getByTestId('menu-bold').click()
     await expect(stage(page).locator('.subfield strong')).toHaveText('Første punkt')
 
     await leaveField(page)
     await bodyField(page).click({ button: 'right' })
-    await expect(menu(page)).toContainText('Tekst')
+    await expect(menu(page)).toContainText('Brødtekst')
     // Opening a menu on some text is not starting to type in it.
     await expect(bodyField(page)).not.toBeFocused()
     await expect(page.getByTestId('menu-formatting')).toHaveAttribute('data-disabled', '')
@@ -370,7 +371,9 @@ test.describe('context menu in content mode', () => {
     await picture.click({ button: 'right' })
     await expect(menu(page)).toContainText('Bilde i teksten')
     await page.getByTestId('menu-image-width').click()
-    await page.getByTestId('image-width-25').click()
+    await enterSubmenu(page, 'image-width')
+    await page.getByTestId('menu-image-width-25').focus()
+    await page.keyboard.press('Enter')
     await expect.poll(share).toBeCloseTo(0.25, 1)
 
     await picture.click({ button: 'right' })

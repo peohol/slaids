@@ -56,12 +56,15 @@ Desktop med mus, 1600 × 1000. Klikk = trykk på kontroller; skriving og filvalg
 | N1 | Hovedlinjen flyter over på smal desktop: ved 1180 px er «Vis» halvt synlig, ved 1025 px er både «Del» og «Vis» utenfor vinduet, og presentasjonstittelen krymper til én bokstav. | `baseline/desktop-1180x820.png`, `baseline/desktop-1025x768.png` | **Løst i U2** |
 | N2 | Modusvalget («Innhold/Soner») og av/på-bryteren «Overskrift» hadde identisk aktiv stil. En modus («hvilken») og en bryter («på/av») så like ut. | `baseline/desktop-1600-text-editing.png` | Løst i U1 (segmentert kontroll) |
 | N3 | Hvit tekst på primærknappen («Vis», «Ny presentasjon») hadde kontrast 3,2:1; fareknappen 3,9:1; feiltekst 4,0:1. Alle under 4,5:1. | Beregnet fra tokenverdiene | Løst i U1 |
-| N4 | Flere valgknapper viste valgt tilstand bare visuelt, uten `aria-pressed`: modus, «Overskrift», innholdstype i inspektøren, bildetekstplassering, subfeltretning. | `TopToolbar.tsx`, `Inspector.tsx` | Løst i U1 for disse; tekstverktøylinjen gjenstår (U4) |
+| N4 | Flere valgknapper viste valgt tilstand bare visuelt, uten `aria-pressed`: modus, «Overskrift», innholdstype i inspektøren, bildetekstplassering, subfeltretning. | `TopToolbar.tsx`, `Inspector.tsx` | Løst i U1 for disse, tekstverktøylinjen i U4 |
 | N5 | Kontekstmenyen brukte samme blå for «markøren er her» og ingenting ekstra for «dette er valgt»; valgt innholdstype mistet sitt eget ikon og ble bare en hake. | `ContextMenuHost.tsx` | Løst i U1 |
 | N6 | På berøring fikk små ikonknapper 44 × 38 px i stedet for 44 × 44 px fordi `.btn--sm`-regelen overstyrte høyden (plan § 6). | `global.css` | Løst i U1 |
 | N7 | «Lagrer …» ble vist i advarselsfarge, selv om lagring ikke er et problem. | `editor.css` | Løst i U1 |
 | N8 | I inspektøren ble ikonet presset bort på knapper med lang tekst («Flytt innholdet til en annen sone»), og teksten går ut over kanten. | `baseline/desktop-1600-zone-mode.png` | Ikonet løst i U1, tekstbredden i U3 (lange navn brytes under seg selv) |
 | N9 | Hovedlinjen markerte ikke hvilken innholdstype valgt sone har; heller ikke den kompakte listen eller ikonradens meny (bekrefter F03). | Skjermbilder + kode | Løst i U1 |
+| N10 | Med markøren i en tabell gikk tekstlinjen utenfor vinduet under ca. 1366 px: tabellhandlingene og «Referanse» kunne ikke nås. | `u4/before-toolbar-1025-table.png` | Løst i U4 |
+| N11 | Tekstlinjen kalte korttittel, bildetekst og slidetittel «Overskrift», og kontekstmenyen kalte slidetittelen «Lysbildetittel». | `TextToolbar.tsx`, `textMenu.ts` | Løst i U4 (ett sett feltnavn) |
+| N12 | Tiptaps `can()` sa nei til punktliste fra en aksent og til aksent fra et listepunkt, som kommandoene faktisk gjør; kontekstmenyen deaktiverte derfor disse. | `textActions.test.ts` | Løst i U4 (tørrkjøring på kladdetransaksjon) |
 
 ## 4. Valgt informasjonsarkitektur
 

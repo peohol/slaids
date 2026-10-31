@@ -101,13 +101,21 @@ En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-
 - **Handlingsknapp** (`InspectorButton`): et langt navn brytes under seg selv; ikonet står fast. En utilgjengelig handling får stiplet kant og falmet navn, men grunnen står lesbart under navnet (dimmet tekst, 6,0:1) — ikke bare i et verktøytips. Fjerner handlingen noe, har teksten faretekstfarge og står sist.
 - **Utvidbar gruppe** (`InspectorFold`): en `<details>` med pil som snus; åpnes med tastatur, mus og trykk, og husker tilstanden i økten. For sjeldne tall og lange forklaringer.
 
+### Tekstverktøylinjen (fra U4)
+
+- **Én rad, fast høyde.** Stagen skaleres etter høyden den får, så linjen vokser aldri. Først feltets navn (dimmet, halvfet), så gruppene **Formatering · Avsnitt · Justering · Lenke · Sett inn**, skilt med en tynn linje. Inne i Justering skiller en kortere linje vannrett fra loddrett. Sist kommer det som bare gjelder der markøren står (aksentfarge, «Tabell», «Bilde»), så de faste gruppene står stille.
+- **Samme oppføring som menyen.** Hver knapp tegnes fra kontekstmenyens `MenuAction` for samme handling (`textEntry`): valgt er `aria-pressed`, utilgjengelig er `disabled` med grunnen i verktøytipset. En kommando som ikke er en tilstand («Sett inn tabell», «Referanse …») har ikke `aria-pressed` i det hele tatt.
+- **Markøren blir i teksten.** Knapper, menyknapper og fargevalg tar ikke fokus ved trykk (`focusKeeping.ts`); åpnet med tastatur går fokus inn i popoveren, og lukking gir det tilbake dit det var. Piltaster, Home og End går langs linjen; Tab når fortsatt hver kontroll.
+- **Smalere vindu:** under 1366 px viker ordene («Referanse …», «Aksentfarge», «Tabell») for ikonene. På kompakt arbeidsflate skjules feltnavnet (feltet fyller stagen) og raden ruller sideveis som før.
+- **Fargearv sier kilden.** «Standard (fra gjeldende inndeling)» eller «Standard (fra korttittelen)», aldri «fra forsiden» (`colorInheritance.ts`).
+
 ## 5. Berøring
 
 `:root[data-coarse='true']` gir 44 × 44 px til ikonknapper og 38 px høyde til små knapper med tekst. Inspektørens utvidbare grupper og stiknapper får 44 px høyde. En kaskadefeil ga tidligere små ikonknapper 44 × 38 px; det er rettet.
 
 ## 6. Bruk i dag og videre
 
-Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
+Innført i: hovedlinjens modusvalg, overskriftsbryter, innholdstyper og bildeverktøy; hele inspektøren (U3); tekstverktøylinjen (U4); sonens ikonrad og dens innholdstypemeny; kontekstmenyene; velgeren i tom sone; kompaktens faner og verktøypanel. Globale knapper, felt, menyer og statuslinje bruker de nye tokenene overalt.
 
 Regler for neste arbeidspakker:
 

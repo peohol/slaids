@@ -31,6 +31,7 @@ import { aspectRatioLabel } from '../../domain/imagePlan'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { domFitCheckers } from '../../state/measure'
 import { sectionGoverning } from '../../domain/presentation'
+import { INHERITS_FROM_SECTION, inheritedPill, standardLabel } from './colorInheritance'
 import { useEditorStore } from '../../state/store'
 import type { Axis, ContentSlide, ZoneContentKind } from '../../domain/types'
 import { ColorSwatchGrid } from '../components/ColorPicker'
@@ -147,13 +148,8 @@ export function Inspector({
       : null
 
   /* A caption with no colour of its own reads its picture's title panel when
-     there is one — the same header a titled image card's title already
-     inherits from the section — and the section directly otherwise, since a
-     plain picture has no panel to read. */
-  const captionInheritedColor =
-    content?.kind === 'titled-image-card' ? (content.headerColor ?? pillColor) : pillColor
-  const captionInheritedLabel =
-    content?.kind === 'titled-image-card' ? 'Standard (fra tittelpanelet)' : 'Standard (fra inndelingen)'
+     there is one, and the section directly otherwise — see `colorInheritance`. */
+  const captionInherits = inheritedPill(content, pillColor)
 
   return (
     <aside className="inspector" data-testid="inspector">
@@ -246,7 +242,7 @@ export function Inspector({
                     ? undefined
                     : {
                         color: pillColor,
-                        label: 'Standard (fra inndelingen)',
+                        label: standardLabel(INHERITS_FROM_SECTION),
                         active: coloured.headerColor === null,
                         onSelect: () =>
                           run('card-color', (current) =>
@@ -382,7 +378,7 @@ export function Inspector({
                 <>
                   <h3 className="inspector__subheading">Bakgrunnsfarge for bildeteksten</h3>
                   <ColorSwatchGrid
-                    value={panel.caption.color ?? captionInheritedColor}
+                    value={panel.caption.color ?? captionInherits.color}
                     onSelect={(color) =>
                       run('caption-color', (current) =>
                         setImageCaption(current, {
@@ -393,8 +389,8 @@ export function Inspector({
                       )
                     }
                     inherited={{
-                      color: captionInheritedColor,
-                      label: captionInheritedLabel,
+                      color: captionInherits.color,
+                      label: standardLabel(captionInherits.from),
                       active: panel.caption.color === null,
                       onSelect: () =>
                         run('caption-color', (current) =>
