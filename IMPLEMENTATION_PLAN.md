@@ -1800,6 +1800,15 @@ Previewet – og minstemålskontrollen bak «Bruk» – kjøres på de **kvantis
 forholdstallene, ikke på de innskrevne: det dialogen viser skal være nøyaktig
 det commit produserer.
 
+Previewet viser hele målsonen i ett avgrenset felt: én felles skala som får
+plass både i bredden og høyden, sonens egentlige aspektforhold, ingen egen
+rulling, og alle fire ytterkanter innenfor feltet. De direkte subsonene – det
+dialogen endrer – tegnes heltrukket og nummerert; underinndelinger som beholdes,
+tegnes som stiplede skiller, aldri som en ekstra ramme rundt en delt subsone.
+Et forslag som avvises av minstemålet, tegnes likevel, med de for små sonene
+markert. Geometrien måles i det temaet kalleren validerer mot: dekkets eget i
+editoren, kladdedekkets standardtema i malredigeringen.
+
 «Bruk»-knappen er disabled hvis:
 
 - input er ugyldig;

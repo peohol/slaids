@@ -15,9 +15,15 @@ import {
 } from '../../domain/commands'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { computeSlideGeometry, hitTestLayout } from '../../domain/geometry'
-import { collectNodes, findNode, stripContent } from '../../domain/layout'
+import { breadcrumbLabels, collectNodes, findNode, stripContent } from '../../domain/layout'
 import { newTemplateId } from '../../domain/ids'
-import { createPresentation, createSlide, findContentSlide } from '../../domain/presentation'
+import { geometryForTheme } from '../../domain/metrics'
+import {
+  createPresentation,
+  createSlide,
+  defaultTheme,
+  findContentSlide,
+} from '../../domain/presentation'
 import { repository } from '../../persistence/activeRepository'
 import { notify } from '../../state/toast'
 import type { ContentSlide, LayoutNode, LayoutTemplate, Presentation } from '../../domain/types'
@@ -28,6 +34,17 @@ import { SplitModal, type SplitModalResult } from './SplitModal'
 import { absoluteStyle } from '../slide/SlideView'
 
 const PREVIEW_WIDTH = 560
+
+/**
+ * The theme a template is edited in: the scratch deck's.
+ *
+ * A template carries no theme of its own, and the commands below validate it
+ * on a scratch deck, which is made in the default theme. Everything this editor measures — the overview, the selected zone's
+ * rect, the split dialog's preview — is measured in that same theme, so what
+ * the dialog shows is what the command will accept.
+ */
+const TEMPLATE_THEME = defaultTheme()
+const TEMPLATE_GEOMETRY = geometryForTheme(TEMPLATE_THEME)
 
 /**
  * A throwaway presentation so template edits can reuse the real commands.
@@ -41,7 +58,7 @@ function scratchFor(
   root: LayoutNode,
   hasTitle: boolean,
 ): { deck: Presentation; slideId: string } {
-  const base = createPresentation({ title: 'Mal' })
+  const base = createPresentation({ title: 'Mal', theme: TEMPLATE_THEME })
   const slide: ContentSlide = { ...createSlide({ hasTitle }), root }
   return { deck: { ...base, slides: [base.slides[0], slide] }, slideId: slide.id }
 }
@@ -63,7 +80,7 @@ function LayoutPreview({
   onSelect?: (id: string) => void
 }) {
   const slide: ContentSlide = { ...createSlide({ hasTitle }), root }
-  const geometry = computeSlideGeometry(slide)
+  const geometry = computeSlideGeometry(slide, TEMPLATE_GEOMETRY)
   const scale = PREVIEW_WIDTH / SLIDE_WIDTH
 
   return (
@@ -219,7 +236,10 @@ export function TemplateModal({
   }
 
   const editingGeometry = editing
-    ? computeSlideGeometry({ ...createSlide({ hasTitle: editing.hasTitle }), root: editing.root })
+    ? computeSlideGeometry(
+        { ...createSlide({ hasTitle: editing.hasTitle }), root: editing.root },
+        TEMPLATE_GEOMETRY,
+      )
     : null
   const selectedRect =
     editingGeometry && selectedNode ? editingGeometry.rects.get(selectedNode) : undefined
@@ -422,6 +442,8 @@ export function TemplateModal({
           open={splitOpen}
           onOpenChange={setSplitOpen}
           targetRect={selectedRect}
+          theme={TEMPLATE_THEME}
+          targetLabels={selectedNode ? breadcrumbLabels(editing.root, selectedNode) : []}
           mode={selectedTemplateNode?.kind === 'split' ? 'edit' : 'create'}
           existingChildren={
             selectedTemplateNode?.kind === 'split' ? selectedTemplateNode.children : undefined

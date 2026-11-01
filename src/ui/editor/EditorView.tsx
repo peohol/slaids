@@ -60,6 +60,7 @@ import {
 import { sectionGoverning } from '../../domain/presentation'
 import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import {
+  breadcrumbLabels,
   cloneSubtreeWithNewIds,
   collectContent,
   countContent,
@@ -2025,12 +2026,14 @@ export function EditorView({
 
       <ContextMenuHost />
 
-      {splitOpen && selectedRect && (
+      {splitOpen && selectedRect && contentSlide && selectedNodeId && (
         <SplitModal
           key={`split-${selectedNodeId}`}
           open={splitOpen}
           onOpenChange={setSplitOpen}
           targetRect={selectedRect}
+          theme={presentation?.theme}
+          targetLabels={breadcrumbLabels(contentSlide.root, selectedNodeId)}
           mode={selectedNode?.kind === 'split' ? 'edit' : 'create'}
           existingChildren={selectedNode?.kind === 'split' ? selectedNode.children : undefined}
           existingAxis={selectedNode?.kind === 'split' ? selectedNode.axis : undefined}

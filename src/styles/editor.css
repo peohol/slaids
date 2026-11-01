@@ -1193,41 +1193,144 @@
   text-align: center;
 }
 
-.split-preview {
-  position: relative;
-  background: var(--chrome-bg-inset);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--radius-sm);
-  align-self: center;
-  overflow: hidden;
+.split-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Never squeezed by the dialog's column: its own height is the bounded preview. */
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
-.split-preview__cell {
-  position: absolute;
-  border: 2px solid color-mix(in srgb, var(--chrome-accent) 90%, transparent);
-  background: color-mix(in srgb, var(--chrome-accent) 16%, transparent);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--chrome-accent-text);
-  font-size: 13px;
+.split-target {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--chrome-text-dim);
+}
+
+.split-target strong {
+  color: var(--chrome-text);
   font-weight: 600;
 }
 
-.split-preview__cell--split {
-  border-style: dashed;
-  background: transparent;
+/*
+ * The preview's box: as wide as the dialog allows up to a cap, as tall as the
+ * target's aspect ratio asks for up to a cap of its own, and never scrolling.
+ * The drawing inside is scaled to fit both (SplitPreview), so a tall, narrow
+ * zone makes a small picture rather than a tall one. The caps follow the
+ * visible height, so an open keyboard or a short window shrinks the picture
+ * rather than pushing the controls away.
+ */
+.split-preview {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  min-height: 72px;
+  max-height: clamp(96px, calc(var(--slaids-visible-height, 100vh) * 0.28), 280px);
+  align-self: center;
+  background: var(--chrome-bg-inset);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
-.split-preview__invalid {
+.split-preview__drawing {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  overflow: visible;
+}
+
+/* The target: one neutral frame around the whole drawing. */
+.split-preview__frame {
+  fill: none;
+  stroke: var(--chrome-border-strong);
+  stroke-width: 1;
+}
+
+/* The zones being edited: solid, tinted, numbered. */
+.split-preview__zone {
+  fill: var(--chrome-accent-soft);
+  stroke: var(--chrome-accent);
+}
+
+.split-preview__zone--too-small {
+  fill: var(--chrome-danger-soft);
+  stroke: var(--chrome-danger);
+}
+
+.split-preview__hatch {
+  stroke: var(--chrome-danger);
+  stroke-width: 1.5;
+}
+
+.split-preview__label {
+  fill: var(--chrome-accent-text);
+  font-size: 13px;
+  font-weight: 650;
+  /* A halo in the inset colour, so a number over a kept divider stays legible. */
+  paint-order: stroke;
+  stroke: var(--chrome-bg-inset);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+/* What is kept inside them: dashed, thinner, dimmer — and fainter further down. */
+.split-preview__divider {
+  stroke: var(--chrome-text-dim);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.split-preview__divider--deep {
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.7;
+}
+
+.split-preview__context-label {
+  fill: var(--chrome-text-dim);
+  font-size: 10.5px;
+}
+
+.split-figure__caption {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--chrome-danger);
-  padding: 12px;
-  text-align: center;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  color: var(--chrome-text-dim);
+}
+
+.split-figure__invalid {
+  color: var(--chrome-danger-text);
+}
+
+@media (forced-colors: active) {
+  .split-preview__zone {
+    fill: Canvas;
+    stroke: Highlight;
+  }
+
+  .split-preview__zone--too-small,
+  .split-preview__hatch {
+    stroke: Mark;
+  }
+
+  .split-preview__frame,
+  .split-preview__divider {
+    stroke: GrayText;
+  }
+
+  .split-preview__label {
+    fill: CanvasText;
+    stroke: Canvas;
+  }
+
+  .split-preview__context-label {
+    fill: CanvasText;
+  }
 }
 
 /* ----------------------------------------------------------------- *
