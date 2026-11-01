@@ -206,6 +206,35 @@ export async function splitSelected(
   await page.waitForTimeout(150)
 }
 
+/**
+ * Open the split dialog for the selected zone — from the zone panel on a
+ * compact workspace, where the inspector lives.
+ */
+export async function openSplitDialog(page: Page): Promise<void> {
+  const tab = page.getByTestId('compact-tab-zone')
+  if ((await tab.count()) > 0 && (await tab.getAttribute('aria-pressed')) !== 'true') {
+    await tab.click()
+  }
+  await page.getByTestId('inspector-action-split').click()
+  await expect(page.getByTestId('split-modal')).toBeVisible()
+}
+
+export async function closeSplitDialog(page: Page): Promise<void> {
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('split-modal')).toBeHidden()
+}
+
+/** The zone-editing plan's example: the root over/under in two, the lower zone in three side by side. */
+export async function nestedDeck(page: Page, title = 'Nøstet'): Promise<void> {
+  await createPresentation(page, title)
+  await enterZoneMode(page)
+  await splitSelected(page, [1, 1], 'y')
+  const [, lower] = await zoneRects(page)
+  await clickZone(page, lower)
+  await splitSelected(page, [1, 1, 1], 'x')
+  await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+}
+
 export async function enterZoneMode(page: Page): Promise<void> {
   await page.getByTestId('mode-zone').click()
   await expect(page.getByTestId('zone-overlay')).toBeVisible()

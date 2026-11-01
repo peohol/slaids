@@ -2,9 +2,14 @@ import { expect, test, type Locator, type Page } from './fixtures'
 import {
   addContentToZone,
   backToLibrary,
+  clickZone,
+  closeSplitDialog,
   createPresentation,
   enterZoneMode,
+  nestedDeck,
   openSlideMenu,
+  openSplitDialog,
+  splitSelected,
   stage,
   waitForSaved,
   zoneRects,
@@ -116,6 +121,44 @@ test.describe('app-chromen, visuelt', () => {
   })
 
   /*
+   * The split dialog's preview (zone-editing plan, Z1): the plan's nested
+   * example, a tall narrow target, a refused proposal, and the same dialog on
+   * a phone held upright.
+   */
+  test.describe('delingsdialogen, desktop 1600 × 1000', () => {
+    test.use({ viewport: { width: 1600, height: 1000 } })
+
+    test('nøstet inndeling, og den samme på telefon', async ({ page }) => {
+      await nestedDeck(page)
+      await openSplitDialog(page)
+      await shoot(page, page.getByTestId('split-modal'), 'split-nested-1600.png')
+      await closeSplitDialog(page)
+      await page.setViewportSize({ width: 412, height: 892 })
+      await openSplitDialog(page)
+      await shoot(page, page.locator('body'), 'phone-412x892-split.png')
+    })
+
+    test('smal sone', async ({ page }) => {
+      await createPresentation(page, 'Smal')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 10], 'x')
+      const [narrow] = await zoneRects(page)
+      await clickZone(page, narrow)
+      await openSplitDialog(page)
+      await page.getByTestId('split-count').fill('3')
+      await shoot(page, page.getByTestId('split-modal'), 'split-narrow-1600.png')
+    })
+
+    test('et forslag som avvises', async ({ page }) => {
+      await deckWithCard(page, 'For liten')
+      await enterZoneMode(page)
+      await openSplitDialog(page)
+      await page.getByTestId('split-weight-1').fill('60')
+      await shoot(page, page.getByTestId('split-modal'), 'split-too-small-1600.png')
+    })
+  })
+
+  /*
    * The light appearance, by the system setting the app follows by default:
    * the surfaces where most of its tokens meet — the library, the toolbar in
    * both modes, the inspector, the strip and a menu.
@@ -141,6 +184,12 @@ test.describe('app-chromen, visuelt', () => {
       await page.keyboard.press('Escape')
       await enterZoneMode(page)
       await shoot(page, page.getByTestId('top-toolbar'), 'light-toolbar-zone-1600.png')
+    })
+
+    test('delingsdialogen med nøstet inndeling', async ({ page }) => {
+      await nestedDeck(page)
+      await openSplitDialog(page)
+      await shoot(page, page.getByTestId('split-modal'), 'light-split-nested-1600.png')
     })
   })
 

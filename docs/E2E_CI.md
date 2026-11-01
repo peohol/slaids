@@ -4,7 +4,7 @@ Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i t
 
 | Kjøring | Når | Hva | Tid (målt) |
 | --- | --- | --- | --- |
-| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (30 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
+| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (33 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
 | **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle fem prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
 | **Referansebilder** | Bare for hånd fra Actions-fanen (`suite: referansebilder`) | Tar de visuelle referansebildene på nytt og laster dem opp som artefaktet `referansebilder` | ca. 2 min |
 
@@ -27,6 +27,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `editor.spec.ts` | Legge til, duplisere, flytte og slette slider; navigere mellom slider; slå tittel av og på; tittel og brødtekst overlever omlasting; fet skrift fra tekstlinjen; kort med tittel; angre og gjør om |
 | `golden-path.spec.ts` | Hele gullstien med nøyaktig ett mellomrom overalt |
 | `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |
+| `split-preview.spec.ts` | Delingsdialogens forhåndsvisning av den nøstede 2 + 3-inndelingen: to heltrukne soner, tre stiplede underinndelinger, hele sonen synlig uten rulling |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |
@@ -39,7 +40,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 
 ## Hva bare den nattlige kjøringen dekker
 
-Alt annet, rundt 380 kjøringer: resten av sone-, fit-, tekst-, bilde-, miniapp- og kompakttestene, kontekstmenyer, hurtigtaster, justering, temaer, oppgavematrisen (`task-matrix.spec.ts`), responsivitet, og de 14 visuelle testene med 34 referansebilder (`visual.spec.ts`, `visual-chrome.spec.ts`).
+Alt annet, rundt 380 kjøringer: resten av sone-, fit-, tekst-, bilde-, miniapp- og kompakttestene, kontekstmenyer, hurtigtaster, justering, temaer, oppgavematrisen (`task-matrix.spec.ts`), responsivitet, og de 18 visuelle testene med 39 referansebilder (`visual.spec.ts`, `visual-chrome.spec.ts`).
 
 En rød nattlig kjøring betyr at noe på `main` er brukket eller ustabilt. Den rettes som en vanlig feil, i en egen PR; den skal ikke dempes ved å fjerne testen fra kjøringen.
 

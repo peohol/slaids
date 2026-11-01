@@ -22,16 +22,34 @@ import {
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
 } from '../../domain/constants'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
-import { useEditorStore } from '../../state/store'
-import { areWeightsValid, computeLayoutRects, previewSplit } from '../../domain/geometry'
-import { collectNodes, countContent, createLeaf } from '../../domain/layout'
+import { geometryForTheme } from '../../domain/metrics'
+import { areWeightsValid, previewSplit } from '../../domain/geometry'
+import { countContent, createLeaf } from '../../domain/layout'
 import { quantizeRatios } from '../../domain/ratios'
-import type { Axis, LayoutNode, Rect, ZoneContent } from '../../domain/types'
+import type { Axis, LayoutNode, PresentationTheme, Rect, ZoneContent } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
+import { SplitPreview } from './SplitPreview'
+import { splitPreviewModel, type PreviewZone } from './splitPreviewModel'
 
-const PREVIEW_WIDTH = 560
+/** «Sone 1 blir for liten (skravert).» / «Sonene 1, 2 og 3 blir for små (skravert).» */
+function tooSmallMessage(labels: readonly string[]): string {
+  if (labels.length === 1) return `Sone ${labels[0]} blir for liten (skravert).`
+  const listed = `${labels.slice(0, -1).join(', ')} og ${labels[labels.length - 1]}`
+  return `Sonene ${listed} blir for små (skravert).`
+}
+
+const AXIS_LABELS: Record<Axis, string> = { x: 'side ved side', y: 'over hverandre' }
+
+/** «Sone 2 inneholder 3 underordnede soner; disse beholdes.» — for each zone that has any. */
+function keptStructure(zones: readonly PreviewZone[]): string[] {
+  return zones
+    .filter((zone) => zone.keptZones > 0)
+    .map(
+      (zone) =>
+        `Sone ${zone.label} inneholder ${zone.keptZones} underordnede soner; disse beholdes.`,
+    )
+}
 
 export interface SplitModalResult {
   axis: Axis
@@ -49,6 +67,15 @@ export interface SplitModalProps {
   onOpenChange: (open: boolean) => void
   /** The rect the split will occupy, straight from the geometry engine. */
   targetRect: Rect
+  /**
+   * The theme `targetRect` was measured in, and the commands will validate
+   * against. Passed by the caller rather than read from the open deck: the
+   * template editor measures its own scratch deck, and a preview in another
+   * deck's gap and type would disagree with what «Bruk» then does.
+   */
+  theme: Partial<PresentationTheme> | undefined
+  /** Where the target sits in the zone tree, as the breadcrumb names it: `['Rot', '2']`. */
+  targetLabels: readonly string[]
   mode: 'create' | 'edit'
   /** Existing children when editing a split; empty when splitting a leaf. */
   existingChildren?: LayoutNode[]
@@ -75,6 +102,8 @@ export function SplitModal({
   open,
   onOpenChange,
   targetRect,
+  theme,
+  targetLabels,
   mode,
   existingChildren = [],
   existingAxis,
@@ -83,8 +112,7 @@ export function SplitModal({
   onApply,
 }: SplitModalProps) {
   const hasContent = leafContent !== null
-  const theme = useEditorStore((state) => state.presentation?.theme)
-  const gap = themeMetrics(theme).gap
+  const geometry = geometryForTheme(theme)
   const defaultAxis: Axis =
     existingAxis ?? (targetRect.width >= targetRect.height ? 'x' : 'y')
   const [axis, setAxis] = useState<Axis>(defaultAxis)
@@ -143,26 +171,32 @@ export function SplitModal({
   // preview measured against the defaults would disable «Bruk» on a split the
   // command accepts, or the other way round.
   const preview = weights
-    ? previewSplit(targetRect, axis, weights, geometryForTheme(theme), measuredChildren)
+    ? previewSplit(targetRect, axis, weights, geometry, measuredChildren)
     : null
 
   const removedChildren = existingChildren.slice(count)
   const removedContentCount = removedChildren.reduce((total, child) => total + countContent(child), 0)
 
-  const previewNode: LayoutNode | null = weights
-    ? { id: '__preview__', kind: 'split', axis, weights, children: proposedChildren }
-    : null
-
-  const previewScale = PREVIEW_WIDTH / targetRect.width
-  const previewHeight = targetRect.height * previewScale
-  const previewRects =
-    previewNode && preview?.valid
-      ? computeLayoutRects(
-          previewNode,
-          { x: 0, y: 0, width: targetRect.width, height: targetRect.height },
-          gap,
+  // The whole proposed tree, kept subtrees and all, in the target's own
+  // coordinates: the preview draws exactly what committing would produce.
+  const targetSize = { width: targetRect.width, height: targetRect.height }
+  const previewModel =
+    weights && preview
+      ? splitPreviewModel(
+          { id: '__preview__', kind: 'split', axis, weights, children: proposedChildren },
+          targetSize,
+          geometry.gap,
+          preview.tooSmall,
         )
       : null
+  const kept = previewModel ? keptStructure(previewModel.zones) : []
+  const tooSmallLabels = previewModel?.zones.filter((zone) => zone.tooSmall).map((zone) => zone.label) ?? []
+  const previewDescription = previewModel
+    ? [
+        `Forhåndsvisning: ${count} subsoner ${AXIS_LABELS[axis]} i forholdet ${weights?.join(' : ')}.`,
+        ...kept,
+      ].join(' ')
+    : 'Ingen forhåndsvisning: forholdstallene kan ikke leses.'
 
   const canApply = Boolean(weights && preview?.valid)
 
@@ -197,6 +231,10 @@ export function SplitModal({
         </>
       }
     >
+      <p className="split-target" data-testid="split-target">
+        Du redigerer: <strong>{targetLabels.join(' › ')}</strong>
+      </p>
+
       <div className="split-controls">
         <div className="field">
           <label>Orientering</label>
@@ -261,38 +299,32 @@ export function SplitModal({
         </span>
       </div>
 
-      <div className="split-preview" style={{ width: PREVIEW_WIDTH, height: previewHeight }}>
-        {previewRects && previewNode ? (
-          collectNodes(previewNode).map((node) => {
-            const rect = previewRects.get(node.id)
-            if (!rect || node.id === '__preview__') return null
-            const isTopLevel = previewNode.kind === 'split' && previewNode.children.some((child) => child.id === node.id)
-            const index = previewNode.kind === 'split' ? previewNode.children.findIndex((child) => child.id === node.id) : -1
-            return (
-              <div
-                key={node.id}
-                className={
-                  node.kind === 'split' ? 'split-preview__cell split-preview__cell--split' : 'split-preview__cell'
-                }
-                style={{
-                  left: rect.x * previewScale,
-                  top: rect.y * previewScale,
-                  width: rect.width * previewScale,
-                  height: rect.height * previewScale,
-                }}
-              >
-                {isTopLevel && index >= 0 && <span>{index + 1}</span>}
-              </div>
-            )
-          })
-        ) : (
-          <div className="split-preview__invalid" data-testid="split-invalid">
-            {weightsValid
-              ? 'Én eller flere subsoner blir for små.'
-              : 'Alle forholdstall må være tall større enn 0.'}
-          </div>
-        )}
-      </div>
+      <figure className="split-figure">
+        <SplitPreview size={targetSize} model={previewModel} description={previewDescription} />
+        <figcaption className="split-figure__caption">
+          {previewModel ? (
+            <>
+              <span data-testid="split-legend">
+                Heltrukket: sonene du endrer.
+                {previewModel.dividers.length > 0 && ' Stiplet: underinndelinger som beholdes.'}
+              </span>
+              <span>Du endrer fordelingen mellom {count} direkte subsoner.</span>
+              {kept.map((line) => (
+                <span key={line} data-testid="split-kept">
+                  {line}
+                </span>
+              ))}
+            </>
+          ) : null}
+          {(!previewModel || tooSmallLabels.length > 0) && (
+            <span className="split-figure__invalid" data-testid="split-invalid" role="status">
+              {previewModel
+                ? tooSmallMessage(tooSmallLabels)
+                : 'Alle forholdstall må være tall større enn 0.'}
+            </span>
+          )}
+        </figcaption>
+      </figure>
 
       {mode === 'create' && hasContent && (
         <div className="field">

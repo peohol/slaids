@@ -1,7 +1,7 @@
 # Overhaling av soneredigering i Slaids – plan
 
 **Dato:** 01.11.2026  
-**Status:** Planlagt, ikke implementert.  
+**Status:** Z1 implementert og til gjennomgang (se § 11). Z2 og Z3 er ikke startet.  
 **Ansvar:** ChatGPT utarbeider planen og kontrollerer PR-er; Claude Code implementerer.  
 **Omfang:** Soneredigeringsmodal, visualisering av sonetreet og nødvendige sammenhenger med inspektør, soneoverlegg og malredigering.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md, særlig § 9–11.5 og § 44.6; docs/UX_DESIGN_SYSTEM.md og docs/MOBILE_WORKSPACE.md. Ved konflikt med eldre beskrivende tekst undersøkes faktisk domenekontrakt og nyeste vedtak før implementering.
@@ -136,20 +136,67 @@ SplitModal benyttes også fra TemplateModal: samme nye hierarki og bounding skal
 
 ## 9. Akseptanseprøver – mekanisk og manuelt
 
-- [ ] «Rot» med 2 over/under, nederste med 3 subsoner: **to** tydelige redigerbare primærsoner, **tre** stiplede undersoneområder, ingen stiplet parentramme på hele subsone 2; labels og tekst korrekt.
+- [x] «Rot» med 2 over/under, nederste med 3 subsoner: **to** tydelige redigerbare primærsoner, **tre** stiplede undersoneområder, ingen stiplet parentramme på hele subsone 2; labels og tekst korrekt.
 - [ ] Flere nivåer, 2–10 direkte barn og eksisterende innhold: samme nummerorden i preview, inputfelter og lagret layout.
-- [ ] Ekstreme gyldige målrektangler: 100×1000, 1000×100, svært smale nøstede soner, ulike faktiske tema-gap. Ingen preview-scroll, alle fire ytterkanter fullt synlige, korrekt aspect og én gap.
+- [x] Ekstreme gyldige målrektangler: 100×1000, 1000×100, svært smale nøstede soner, ulike faktiske tema-gap. Ingen preview-scroll, alle fire ytterkanter fullt synlige, korrekt aspect og én gap.
 - [ ] Desktop 1600×1000, 1366×768 og 1025×768; mobil 412×892 og 892×412; smalt vindu 900×760; nettleserzoom 200 %, med og uten skjermtastatur. Ingen horisontal overflyt; modalens header/footer og handlinger kan nås; preview overskrider aldri sitt område.
 - [ ] Lys/mørk, high contrast/forced colors, fargesvakhetsrobusthet og redusert bevegelse. Skillet aktiv/kontekst og feilstatus kan forstås uten farge alene.
-- [ ] Både direkte sonevalg og malredigering: forhåndsvisning og faktisk commit svarer overens, også ved retning, antall og forholdstall.
+- [x] Både direkte sonevalg og malredigering: forhåndsvisning og faktisk commit svarer overens, også ved retning, antall og forholdstall.
 - [ ] Gyldige desimaltall og komma, ekvivalente forholdstall, 0/negative/tomme/NaN/ekstreme tall, minimumsbrudd, fit-avslag. Ingen falsk forhåndsvisning og ingen taus feil.
 - [ ] Reduksjon av antall med nøstet innhold viser eksakt hvilke subtrær som fjernes; sandkassen beholder innholdet, «Slett» krever ny bekreftelse, Avbryt endrer ingen ting.
 - [ ] Tab, piltaster der relevant, skjermleser-label, Escape, touch på minst 44 px (når berøringsmodus), og konsekvent fokusretur.
 - [ ] Angre/gjør om, persistering etter reload, hurtigsplitt via kontekstmeny, resize via stage og inspektør, eksisterende E2E, typecheck, lint og unit-tester består.
-- [ ] Nye Playwright-tester testes på faktisk viewport og måler previewens bounding box/stroke-inset; skjermbilder i e2e/visual-chrome.spec.ts eller egen avgrenset spesifikasjon beskytter mot visuell regresjon.
+- [x] Nye Playwright-tester testes på faktisk viewport og måler previewens bounding box/stroke-inset; skjermbilder i e2e/visual-chrome.spec.ts eller egen avgrenset spesifikasjon beskytter mot visuell regresjon.
 
 ## 10. Arbeidsregler og ansvar
 
 Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATION_PLAN.md, UX_DESIGN_SYSTEM.md og de konkrete filene fra § 2. Implementer Z1, Z2 og Z3 som separate, vurderbare PR-er med tester og bilder. Ikke gjør direkte endringer på main. ChatGPT kontrollerer hver PR og avgjør om neste pakke kan starte. Oppdater planens status og relevante normative dokumenter når arbeid faktisk er levert, ikke før.
 
 **MCP-konsekvens:** Ingen planlagte endringer i API, Agent Core, datamodell eller MCP-skjema. Slaids Dev MCP-verktøyet trenger dermed ikke oppdatering når tiltakene implementeres som spesifisert; vurder dette på nytt dersom Claude foreslår endringer utenfor omfanget.
+
+## 11. Fremdrift
+
+### Z1 – levert til gjennomgang (01.11.2026)
+
+**Hva som er gjort**
+
+- Forhåndsvisningen er en egen visningskomponent (`src/ui/editor/SplitPreview.tsx`) som tegner en ren modell (`src/ui/editor/splitPreviewModel.ts`). Modellen tar hele det foreslåtte treet gjennom `computeLayoutRects` med kvantiserte vekter og temaets gap, og sorterer bare resultatet: direkte subsoner (nummer 1…N, samme rekkefølge som feltene), skiller for beholdt struktur (med dybde) og stier for dypere soner («2.1»). Ingen ny geometri.
+- Visningsfeltet er avgrenset i begge retninger: bredde opptil 560 px, høyde etter sonens aspektforhold, med et tak på 28 % av synlig høyde (mellom 96 og 280 px), uten rulling. Tegningen skaleres med én felles contain-skala fra feltets målte størrelse (den eksisterende `useContainerBox`), sentreres, og har en beregnet sikkerhetsmargin slik at målrammen og alle ytterkanter ligger innenfor feltet.
+- Visuelt språk som i § 3: nøytral målramme litt utenfor tegningen, heltrukne og nummererte direkte subsoner, stiplede og dempede skiller for underinndelinger (svakere fra dybde 3), ingen ekstra ramme rundt en delt subsone. Bildetekst: «Heltrukket: sonene du endrer. Stiplet: underinndelinger som beholdes.», «Du endrer fordelingen mellom N direkte subsoner.» og «Sone 2 inneholder 3 underordnede soner; disse beholdes.». Øverst i dialogen: «Du redigerer: Rot › 2».
+- For liten sone: forslaget tegnes fortsatt, og de aktuelle sonene får rød kant og skravering (lesbart uten farge), med teksten «Sone 1 blir for liten (skravert).». Uleselige tall gir bare målrammen og «Alle forholdstall må være tall større enn 0.». «Bruk» er deaktivert som før.
+- Malredigering (F7): `SplitModal` får nå tema og sti fra kalleren. Maleditoren målte oversikten og valgt sone med grunntokenene (gap 24), mens kommandoene validerte på kladdedekket i standardtemaet (gap 48), og forhåndsvisningen brukte det åpne dekkets tema. Nå bruker oversikt, valgt sone, forhåndsvisning og kladdedekk det samme standardtemaet. Synlig følge: maloversikten viser nå det gapet malen faktisk lagres med.
+- Enkel `forced-colors`-støtte for tegningen. Full kontroll av høy kontrast hører til Z3.
+
+**Bekreftede funn:** F1 (forhåndsvisning med fast bredde ble vilkårlig høy og rullet; se `for/narrow-tall.png`), F2, F3 (kantene til høyre og nederst ble klippet av feltets kant; se `for/nested-2-3-desktop.png`) og F7 er bekreftet og rettet.
+
+**Tester**
+
+- `src/ui/editor/splitPreviewModel.test.ts`: de generelle reglene over flere trær og aspektforhold (100 × 1000, 1000 × 100, smale soner, ti soner): direkte barn er nøyaktig sonene med motorens rects, ett skille midt i hvert beholdt gap og ingen på redigeringsnivået, stier for alle beholdte blader, og at contain-skalaen bevarer aspekt og fyller én retning.
+- `e2e/split-preview.spec.ts` (den nøstede testen er med i PR-utvalget): 2 + 3-eksemplet (to heltrukne soner, to stiplede skiller, stiene 2.1–2.3, tekstene, ett gap), at det som vises er det som lagres, høy/smal og bred/lav sone, smal sone med nøstede soner, for liten sone og uleselige tall, alle viewportene fra § 9 (1600 × 1000, 1366 × 768, 1025 × 768, 900 × 760, 412 × 892, 892 × 412) og malredigering i et dekk med annen luft.
+- `e2e/visual-chrome.spec.ts`: referansebilder av dialogen (nøstet, smal, for liten, lyst utseende og telefon). Referansebildene tas på GitHub-runneren.
+- Før- og etter-bilder ligger i `docs/ux/z1/for/` og `docs/ux/z1/etter/`.
+
+**Akseptansekrav (§ 9) etter Z1**
+
+| Krav | Status |
+| --- | --- |
+| Nøstet 2 + 3-eksempel | Bestått |
+| Nummerorden ved flere nivåer, 2–10 barn og eksisterende innhold | Delvis: rekkefølgen er den samme i forhåndsvisning, felt og lagret layout (modelltest og commit-test). Synlig kobling mellom felt og sone hører til Z2 |
+| Ekstreme målrektangler og ulike tema-gap | Bestått |
+| Viewporter | Bestått for de seks størrelsene. Nettleserzoom 200 % og skjermtastatur er ikke testet særskilt (forhåndsvisningens tak følger synlig høyde) |
+| Lys/mørk, høy kontrast, fargesyn, redusert bevegelse | Delvis: lyst og mørkt har referansebilder, og skillet bæres av heltrukket/stiplet, tall og skravering. Høy kontrast og resten hører til Z3 |
+| Editor og malredigering gir samme resultat | Bestått |
+| Ugyldige tall, minimumsbrudd og fit-avslag | Delvis: uleselige tall og minimumsbrudd vises riktig. Feltspesifikke feil og fit-avslag hører til Z2 |
+| Reduksjon av antall med nøstet innhold | Ikke startet (Z2) |
+| Tastatur, skjermleser, touch og fokus | Delvis: tegningen har en tekstlig beskrivelse (`role="img"`). Resten hører til Z3 |
+| Regresjon | Bestått: typecheck, lint, enhetstester og berørte nettlesertester |
+| Playwright måler boks og kantinnsett, og har referansebilder | Bestått |
+
+**Avvik fra planen**
+
+- Dypere soner tegnes som stiplede skiller midt i gapene, ikke som stiplede rektangler. Barnas ytterkanter faller sammen med kanten til den direkte subsonen, så rektangler ville gitt doble linjer (§ 3 punkt 4).
+- Forhåndsvisningen bruker SVG i piksler med en felles contain-skala fra feltets målte størrelse, ikke `viewBox`. Det gir faste strekbredder, lesbare tall og en sikkerhetsmargin i piksler. Begge variantene er tillatt i § 4.
+- Linjen «Du redigerer: …» står øverst i dialogen, som i § 5.1. Resten av omorganiseringen (to kolonner, presist antallsvalg, «Fordel likt», ny plassering av hjelpeteksten) er Z2. Derfor må dialogen fortsatt rulle i kontrolldelen på lave skjermer (892 × 412) før forhåndsvisningen kommer til syne.
+- Felles visningsprimitiv for maloversikten (F9) er ikke innført. Det hører til Z3.
+
+**API-/MCP-kontrakt:** Uendret. Ingen endringer i domenet, Agent Core, REST, MCP-skjema eller lagringsformat. Slaids Dev MCP trenger ikke oppdatering.
