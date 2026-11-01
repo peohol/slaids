@@ -192,6 +192,8 @@ describe('SplitModal as a draft', () => {
     verdict = { ok: true, movedToSandbox: 0, discarded: 0 }
     type('split-weight-1', '2')
     expect(byTestId('split-check')).toBeNull()
+    // Until the dry run has answered for this proposal, «Bruk» waits for it.
+    expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(true)
     act(() => vi.advanceTimersByTime(200))
     expect(byTestId('split-check')).toBeNull()
     expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(false)
@@ -202,6 +204,7 @@ describe('SplitModal as a draft', () => {
     const check = vi.fn<(result: SplitModalResult) => SplitCheck>(() => ({ ok: true, movedToSandbox: 1, discarded: 0 }))
     render({ leafContent: createContentOfKind('titled-card'), check })
     click('split-content-target-1')
+    expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(true)
     act(() => vi.advanceTimersByTime(200))
     expect(check).toHaveBeenLastCalledWith(expect.objectContaining({ contentTargetIndex: 1 }))
     expect(byTestId('split-check')!.textContent).toBe(

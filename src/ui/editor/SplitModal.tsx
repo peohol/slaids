@@ -264,7 +264,10 @@ export function SplitModal({
       ].join(' ')
     : 'Ingen forhåndsvisning: forholdstallene kan ikke leses.'
 
-  const canApply = Boolean(weights && preview?.valid && !countInvalid && !refused)
+  // While the dry run has not answered for this proposal, «Bruk» waits for it:
+  // a press in between would commit what the dialog has not yet warned about.
+  const checkPending = wantsCheck && verdict === null
+  const canApply = Boolean(weights && preview?.valid && !countInvalid && !refused && !checkPending)
   const activeZone = focusedZone ?? hoveredZone
   const typedEqualsStored =
     weights !== null && weights.every((weight, index) => weight === typed[index])
@@ -426,7 +429,6 @@ export function SplitModal({
                     const parsed = parseCount(event.target.value)
                     if (parsed !== null) changeCount(parsed)
                   }}
-                  onBlur={() => setCountDraft(String(count))}
                 />
                 <button
                   type="button"

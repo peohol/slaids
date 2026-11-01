@@ -189,8 +189,13 @@ test.describe('split dialog flow', () => {
     await page.getByTestId('split-count').fill('11')
     await expect(page.getByTestId('split-count-error')).toHaveText('Velg et helt tall fra 2 til 10.')
     await expect(page.getByTestId('split-apply')).toBeDisabled()
+    // Leaving the field keeps what was typed, and the reason, until it is corrected.
     await page.getByTestId('split-count').blur()
-    await expect(page.getByTestId('split-count')).toHaveValue('2')
+    await expect(page.getByTestId('split-count')).toHaveValue('11')
+    await expect(page.getByTestId('split-count-error')).toBeVisible()
+    await page.getByTestId('split-count').fill('3')
+    await expect(page.getByTestId('split-count-error')).toHaveCount(0)
+    await expect(page.getByTestId('split-weight-2')).toBeVisible()
     await expect(page.getByTestId('split-apply')).toBeEnabled()
   })
 

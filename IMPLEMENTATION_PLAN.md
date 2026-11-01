@@ -1834,8 +1834,9 @@ angrebar endring.
   dialogen den samme kommandoen som «Bruk» – med de samme fit-kontrollene – mot
   dokumentet slik det står. Et avslag vises med domenets begrunnelse og den
   berørte subsonen markert, og «Bruk» er av; at innholdet vil bli flyttet til
-  sandkassen fordi det ikke får plass, sies før «Bruk». Ingen regel tolkes på
-  nytt i dialogen.
+  sandkassen fordi det ikke får plass, sies før «Bruk». «Bruk» venter til
+  tørrkjøringen har svart for gjeldende forslag. Ingen regel tolkes på nytt i
+  dialogen.
 - Avvises endringen likevel ved «Bruk», står dialogen åpen med begrunnelsen.
 
 «Bruk»-knappen er disabled hvis:
@@ -1843,7 +1844,7 @@ angrebar endring.
 - input er ugyldig, også et antall utenfor 2–10;
 - et barn blir mindre enn minimum;
 - eksisterende innhold ikke kan plasseres lovlig (minstemålet, og
-  tørrkjøringens fit-kontroll når den har svart).
+  tørrkjøringens fit-kontroll, som «Bruk» venter på når innhold er berørt).
 
 
 ---
