@@ -156,7 +156,7 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 
 ## 11. Fremdrift
 
-### Z1 – levert til gjennomgang (01.11.2026)
+### Z1 – levert til gjennomgang i PR #117 (01.11.2026)
 
 **Hva som er gjort**
 
@@ -173,7 +173,7 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 
 - `src/ui/editor/splitPreviewModel.test.ts`: de generelle reglene over flere trær og aspektforhold (100 × 1000, 1000 × 100, smale soner, ti soner): direkte barn er nøyaktig sonene med motorens rects, ett skille midt i hvert beholdt gap og ingen på redigeringsnivået, stier for alle beholdte blader, og at contain-skalaen bevarer aspekt og fyller én retning.
 - `e2e/split-preview.spec.ts` (den nøstede testen er med i PR-utvalget): 2 + 3-eksemplet (to heltrukne soner, to stiplede skiller, stiene 2.1–2.3, tekstene, ett gap), at det som vises er det som lagres, høy/smal og bred/lav sone, smal sone med nøstede soner, for liten sone og uleselige tall, alle viewportene fra § 9 (1600 × 1000, 1366 × 768, 1025 × 768, 900 × 760, 412 × 892, 892 × 412) og malredigering i et dekk med annen luft.
-- `e2e/visual-chrome.spec.ts`: referansebilder av dialogen (nøstet, smal, for liten, lyst utseende og telefon). Referansebildene tas på GitHub-runneren.
+- `e2e/visual-chrome.spec.ts`: referansebilder av dialogen (nøstet, smal, for liten, lyst utseende og telefon). Referansebildene er tatt på GitHub-runneren.
 - Før- og etter-bilder ligger i `docs/ux/z1/for/` og `docs/ux/z1/etter/`.
 
 **Akseptansekrav (§ 9) etter Z1**
