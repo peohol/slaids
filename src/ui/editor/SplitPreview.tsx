@@ -14,7 +14,14 @@
  *  - what is kept inside them is dashed, thinner and dimmer, and fainter the
  *    deeper it lies;
  *  - a zone that would be too small is hatched as well as red, so the state
- *    reads without colour.
+ *    reads without colour;
+ *  - the zone whose ratio field has focus or the pointer is drawn with a
+ *    thicker stroke, and the zone that receives the content already in the
+ *    split leaf says so in words.
+ *
+ * Pointing at a zone — or at anything kept inside it — names that direct zone
+ * to the dialog, which focuses its ratio field. It never changes which level
+ * is being edited: deeper zones are edited by selecting them on the stage.
  *
  * Everything is drawn inside a measured safety margin, so the outermost
  * strokes — right and bottom included — are never cut by the box's edge.
@@ -26,6 +33,8 @@ import { containScale, type Size, type SplitPreviewModel } from './splitPreviewM
 
 /** Stroke of a zone being edited; drawn inside its rect, so neighbours never overlap. */
 const ZONE_STROKE = 2
+/** The zone whose field is in use: thicker, so the link reads without colour. */
+const ZONE_STROKE_ACTIVE = 3.5
 /** How far outside the drawing the target's frame sits, to its outer edge. */
 const FRAME_OUTSET = 6
 /** Room around the drawing for the frame; the box's padding, so nothing reaches its edge. */
@@ -33,6 +42,8 @@ const SAFE_MARGIN = FRAME_OUTSET + 2
 /** Below this a number would not be legible in the zone; the caption carries it instead. */
 const ZONE_LABEL_MIN = 18
 const CONTEXT_LABEL_MIN = { width: 34, height: 18 }
+/** Room for «2 · innhold»; below it the number alone, and the caption says the rest. */
+const CONTENT_LABEL_MIN = { width: 92, height: 24 }
 
 export interface SplitPreviewProps {
   /** The target zone's real size, in slide units. */
@@ -41,9 +52,25 @@ export interface SplitPreviewProps {
   model: SplitPreviewModel | null
   /** Read out instead of the picture. */
   description: string
+  /** The direct zone whose field has focus or the pointer; `null` for none. */
+  activeIndex?: number | null
+  /** The direct zone that receives the content of the leaf being split, if any. */
+  contentIndex?: number | null
+  /** The pointer entered a direct zone (or anything inside it), or left them all. */
+  onZoneHover?: (index: number | null) => void
+  /** A direct zone (or anything inside it) was clicked. */
+  onZoneSelect?: (index: number) => void
 }
 
-export function SplitPreview({ size, model, description }: SplitPreviewProps) {
+export function SplitPreview({
+  size,
+  model,
+  description,
+  activeIndex = null,
+  contentIndex = null,
+  onZoneHover,
+  onZoneSelect,
+}: SplitPreviewProps) {
   const boxRef = useRef<HTMLDivElement>(null)
   const box = useContainerBox(boxRef)
   const hatchId = `${useId()}-hatch`
@@ -66,6 +93,7 @@ export function SplitPreview({ size, model, description }: SplitPreviewProps) {
           width={drawn.width + 2 * offset}
           height={drawn.height + 2 * offset}
           data-scale={scale}
+          onPointerLeave={onZoneHover ? () => onZoneHover(null) : undefined}
         >
           <defs>
             <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -93,14 +121,34 @@ export function SplitPreview({ size, model, description }: SplitPreviewProps) {
                 width: Math.max(width - ZONE_STROKE, 0.5),
                 height: Math.max(height - ZONE_STROKE, 0.5),
               }
+              const active = zone.index === activeIndex
+              const receives = zone.index === contentIndex
+              const className = [
+                'split-preview__zone',
+                zone.tooSmall && 'split-preview__zone--too-small',
+                active && 'split-preview__zone--active',
+              ]
+                .filter(Boolean)
+                .join(' ')
+              const label =
+                receives && width >= CONTENT_LABEL_MIN.width && height >= CONTENT_LABEL_MIN.height
+                  ? `${zone.label} · innhold`
+                  : zone.label
               return (
-                <g key={zone.index}>
+                <g
+                  key={zone.index}
+                  className={onZoneSelect ? 'split-preview__hit' : undefined}
+                  onPointerEnter={onZoneHover ? () => onZoneHover(zone.index) : undefined}
+                  onClick={onZoneSelect ? () => onZoneSelect(zone.index) : undefined}
+                >
                   <rect
-                    className={zone.tooSmall ? 'split-preview__zone split-preview__zone--too-small' : 'split-preview__zone'}
+                    className={className}
                     data-preview-zone={zone.label}
                     data-too-small={zone.tooSmall || undefined}
+                    data-active={active || undefined}
+                    data-content-target={receives || undefined}
                     {...inner}
-                    strokeWidth={ZONE_STROKE}
+                    strokeWidth={active ? ZONE_STROKE_ACTIVE : ZONE_STROKE}
                     rx={2}
                   />
                   {zone.tooSmall && <rect {...inner} fill={`url(#${hatchId})`} />}
@@ -112,7 +160,7 @@ export function SplitPreview({ size, model, description }: SplitPreviewProps) {
                       textAnchor="middle"
                       dominantBaseline="central"
                     >
-                      {zone.label}
+                      {label}
                     </text>
                   )}
                 </g>

@@ -1781,16 +1781,25 @@ Splitt-dialogen skal vise valgt sone med riktig aspektforhold og live preview.
 2. **Antall barn**
    - min 2;
    - maks 10;
-   - heltall.
+   - heltall;
+   - velges eksakt med minus/pluss eller et tallfelt; et tall utenfor 2–10 blir
+     stående i feltet med en forklaring og brukes ikke.
 3. **Forholdstall**
-   - ett input per barn;
+   - ett input per barn, navngitt med sonens nummer i previewet;
    - default 1;
    - tillat positive desimaltall, tall under 1 og tall over 10 – feltene
      begrenses ikke mens man skriver;
    - tallene er relative: `[1, 2]`, `[0.5, 1]` og `[2, 4]` beskriver samme
      layout;
    - det som lagres er nærmeste hele forhold 1–10 (§11.5), og dialogen viser
-     hvilket under feltene.
+     hvilket ved feltene, sammen med hver sones andel av plassen som er igjen
+     når mellomrommene er trukket fra;
+   - «Fordel likt» setter alle til 1;
+   - et felt som ikke kan leses, får sin egen feilmelding;
+   - feltet og sonen det gjelder, markeres sammen (fokus eller peker), og et
+     klikk i en sone i previewet – også i en beholdt underinndeling – fokuserer
+     feltet til den direkte subsonen. Redigeringsnivået endres aldri fra
+     previewet.
 
 ### Live preview
 
@@ -1809,11 +1818,36 @@ Et forslag som avvises av minstemålet, tegnes likevel, med de for små sonene
 markert. Geometrien måles i det temaet kalleren validerer mot: dekkets eget i
 editoren, kladdedekkets standardtema i malredigeringen.
 
+### Konsekvenser og anvendelse
+
+Dialogen er et utkast. Avbryt, Escape og lukking endrer ingenting; «Bruk» er én
+angrebar endring.
+
+- **Lavere antall** fjerner de siste direkte subsonene med hele undertrærne
+  deres. Dialogen sier hvilke soner som fjernes og hvor mange innholdselementer
+  som finnes i dem, uansett hvor dypt. Standard er å flytte innholdet til
+  sandkassen; å slette det krever en egen bekreftelse som oppgir antallet, og
+  bekreftelsen kan gjøres om til sandkassen i stedet.
+- **Deling av en fylt sone**: dialogen viser hvilken subsone som er valgt for
+  innholdet – som forslag til tørrkjøringen har svart, deretter som resultat i
+  tekst og preview. Går innholdet til sandkassen fordi det ikke får plass,
+  påstår verken preview, tekst eller previewets beskrivelse at det havner i
+  en subsone.
+- **Tørrkjøring**: når innhold er berørt og geometrien er lovlig, kjører
+  dialogen den samme kommandoen som «Bruk» – med de samme fit-kontrollene – mot
+  dokumentet slik det står. Et avslag vises med domenets begrunnelse og den
+  berørte subsonen markert, og «Bruk» er av; at innholdet vil bli flyttet til
+  sandkassen fordi det ikke får plass, sies før «Bruk». «Bruk» venter til
+  tørrkjøringen har svart for gjeldende forslag. Ingen regel tolkes på nytt i
+  dialogen.
+- Avvises endringen likevel ved «Bruk», står dialogen åpen med begrunnelsen.
+
 «Bruk»-knappen er disabled hvis:
 
-- input er ugyldig;
+- input er ugyldig, også et antall utenfor 2–10;
 - et barn blir mindre enn minimum;
-- eksisterende innhold ikke kan plasseres lovlig.
+- eksisterende innhold ikke kan plasseres lovlig (minstemålet, og
+  tørrkjøringens fit-kontroll, som «Bruk» venter på når innhold er berørt).
 
 
 ---

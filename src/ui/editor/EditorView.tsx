@@ -43,6 +43,7 @@ import {
   setZoneContent,
   splitLeaf,
   updateSplit,
+  type StructuralOutcome,
 } from '../../domain/commands'
 import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
@@ -88,7 +89,7 @@ import type {
   TitleDoc,
   ZoneContentKind,
 } from '../../domain/types'
-import type { Result } from '../../domain/result'
+import { describeError, err, type Result } from '../../domain/result'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
@@ -138,6 +139,7 @@ import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
+import { splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
@@ -698,13 +700,18 @@ export function EditorView({
     [applyContentKindTo, selectedNodeId],
   )
 
-  const handleSplitApply = useCallback(
-    (result: SplitModalResult) => {
-      if (!contentSlide || !selectedNodeId) return
-      const isSplit = selectedNode?.kind === 'split'
-      const ok = isSplit
-        ? runStructural('update-split', (current) =>
-            updateSplit(current, {
+  /**
+   * The command the split dialog's proposal stands for — `updateSplit` on a
+   * split, `splitLeaf` on a leaf — with the editor's fit checks. One builder
+   * for both the dialog's dry run and «Bruk», so what the dialog warns about
+   * is what «Bruk» then does.
+   */
+  const splitCommand = useCallback(
+    (result: SplitModalResult) =>
+      (current: Presentation): Result<StructuralOutcome> => {
+        if (!contentSlide || !selectedNodeId) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+        return selectedNode?.kind === 'split'
+          ? updateSplit(current, {
               slideId: contentSlide.id,
               nodeId: selectedNodeId,
               axis: result.axis,
@@ -712,21 +719,41 @@ export function EditorView({
               childCount: result.weights.length,
               removedDisposition: result.removedDisposition,
               ...domFitCheckers,
-            }),
-          )
-        : runStructural('split-leaf', (current) =>
-            splitLeaf(current, {
+            })
+          : splitLeaf(current, {
               slideId: contentSlide.id,
               nodeId: selectedNodeId,
               axis: result.axis,
               weights: result.weights,
               contentTargetIndex: result.contentTargetIndex,
               ...domFitCheckers,
-            }),
-          )
-      if (ok) setSplitOpen(false)
+            })
+      },
+    [contentSlide, selectedNode, selectedNodeId],
+  )
+
+  const checkSplit = useCallback(
+    (result: SplitModalResult): SplitCheck => {
+      const current = useEditorStore.getState().presentation
+      const children = selectedNode?.kind === 'split' ? selectedNode.children : []
+      if (!current) return { ok: false, message: 'Fant ikke presentasjonen.', zones: [] }
+      return splitCheck(splitCommand(result)(current), children)
     },
-    [contentSlide, runStructural, selectedNode, selectedNodeId],
+    [selectedNode, splitCommand],
+  )
+
+  const handleSplitApply = useCallback(
+    (result: SplitModalResult): string | null => {
+      let refusal: string | null = null
+      const ok = runStructural(selectedNode?.kind === 'split' ? 'update-split' : 'split-leaf', (current) => {
+        const outcome = splitCommand(result)(current)
+        if (!outcome.ok) refusal = describeError(outcome.error)
+        return outcome
+      })
+      if (ok) setSplitOpen(false)
+      return refusal
+    },
+    [runStructural, selectedNode, splitCommand],
   )
 
   /**
@@ -2039,6 +2066,7 @@ export function EditorView({
           existingAxis={selectedNode?.kind === 'split' ? selectedNode.axis : undefined}
           existingWeights={selectedNode?.kind === 'split' ? selectedNode.weights : undefined}
           leafContent={selectedLeaf?.content ?? null}
+          check={checkSplit}
           onApply={handleSplitApply}
         />
       )}

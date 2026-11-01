@@ -6,6 +6,7 @@ import {
   closeSplitDialog,
   createPresentation,
   enterZoneMode,
+  nestedContentDeck,
   nestedDeck,
   openSlideMenu,
   openSplitDialog,
@@ -121,9 +122,9 @@ test.describe('app-chromen, visuelt', () => {
   })
 
   /*
-   * The split dialog's preview (zone-editing plan, Z1): the plan's nested
-   * example, a tall narrow target, a refused proposal, and the same dialog on
-   * a phone held upright.
+   * The split dialog (zone-editing plan, Z1 and Z2): the plan's nested
+   * example, a tall narrow target, a refused proposal, a lower count that
+   * removes a zone with content, and the same dialog on a phone held upright.
    */
   test.describe('delingsdialogen, desktop 1600 × 1000', () => {
     test.use({ viewport: { width: 1600, height: 1000 } })
@@ -155,6 +156,13 @@ test.describe('app-chromen, visuelt', () => {
       await openSplitDialog(page)
       await page.getByTestId('split-weight-1').fill('60')
       await shoot(page, page.getByTestId('split-modal'), 'split-too-small-1600.png')
+    })
+
+    test('færre soner, med innhold i den som fjernes', async ({ page }) => {
+      await nestedContentDeck(page, 'Fjerning')
+      await openSplitDialog(page)
+      await page.getByTestId('split-count-decrease').click()
+      await shoot(page, page.getByTestId('split-modal'), 'split-remove-1600.png')
     })
   })
 

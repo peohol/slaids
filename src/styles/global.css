@@ -504,7 +504,8 @@ textarea {
   gap: 6px;
 }
 
-.field > label {
+.field > label,
+.field__label {
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--chrome-text-dim);
