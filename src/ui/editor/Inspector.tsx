@@ -48,9 +48,16 @@ import {
   InspectorPanel,
   InspectorSection,
 } from './InspectorParts'
-import { ZoneBreadcrumb } from './ZoneBreadcrumb'
-import { AXIS_LABELS, splitSummary, zoneIcon, zonePosition, zoneTitle } from './zoneDescription'
-import { ZoneSizeControls, splitContextFor } from './ZoneSizeControls'
+import { ZoneBreadcrumb, ZoneChildList } from './ZoneBreadcrumb'
+import {
+  AXIS_LABELS,
+  SIZE_SCOPE_TITLES,
+  splitSummary,
+  zoneIcon,
+  zonePosition,
+  zoneTitle,
+} from './zoneDescription'
+import { ZoneSizeControls, sizeContextsFor } from './ZoneSizeControls'
 import type { ZoneAction } from './ZoneOverlay'
 
 /** An action as the inspector draws it. */
@@ -115,9 +122,10 @@ export function Inspector({
   const aspectRatio = rect
     ? aspectRatioLabel(content ? panelFrame(content, rect, themeMetrics(theme).cardHeaderHeight) : rect)
     : null
-  /* Which split the size controls act on: the selected one, or the one the
-     selected zone is a child of. A root leaf belongs to neither and gets none. */
-  const splitContext = splitContextFor(slide, selectedNodeId)
+  /* Which splits the size controls act on: the selected one's own children
+     («inni»), and the one the selected zone is a child of («blant
+     søskensonene»). A nested split has both; a root leaf has neither. */
+  const sizeContexts = sizeContextsFor(slide, selectedNodeId)
 
   if (!node || !selectedNodeId) {
     return (
@@ -453,17 +461,7 @@ export function Inspector({
         {node.kind === 'split' && (
           <div className="inspector__group">
             <h3 className="inspector__subheading">Sonene i delingen</h3>
-            <div className="inspector__actions inspector__actions--stack">
-              {node.children.map((child, index) => (
-                <InspectorButton
-                  key={child.id}
-                  {...zoneIcon(child)}
-                  label={`Sone ${index + 1}: ${zoneTitle(child)}`}
-                  testId={`inspector-child-${index}`}
-                  onClick={() => selectNode(child.id)}
-                />
-              ))}
-            </div>
+            <ZoneChildList node={node} onSelect={selectNode} testIdPrefix="inspector-child" />
           </div>
         )}
         <div className="inspector__actions">
@@ -479,15 +477,19 @@ export function Inspector({
         </div>
       </InspectorSection>
 
-      {splitContext && (
-        <InspectorSection title="Størrelse" testId="inspector-size-section">
+      {sizeContexts.map((context, index) => (
+        <InspectorSection
+          key={context.scope}
+          title={SIZE_SCOPE_TITLES[context.scope]}
+          testId={context.scope === 'inside' ? 'inspector-distribution' : 'inspector-size-section'}
+        >
           <ZoneSizeControls
             slide={slide}
-            split={splitContext.split}
-            childIndex={splitContext.childIndex}
+            context={context}
+            withHelp={index === sizeContexts.length - 1}
           />
         </InspectorSection>
-      )}
+      ))}
     </InspectorPanel>
   )
 }

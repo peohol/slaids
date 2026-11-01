@@ -1484,37 +1484,73 @@
  * Templates
  * ----------------------------------------------------------------- */
 
+/*
+ * A template's layout, in the box the split dialog's preview uses: as wide as
+ * the dialog allows up to a cap, and capped in height by the visible height as
+ * well, so a short window or an open keyboard shrinks the picture rather than
+ * pushing the tools away. The drawing is centred in it at one scale.
+ */
 .template-preview {
   position: relative;
-  background: var(--chrome-bg-inset);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  max-height: clamp(96px, calc(var(--slaids-visible-height, 100vh) * 0.42), 315px);
   align-self: center;
+  margin-inline: auto;
+  overflow: hidden;
+}
+
+.template-preview__drawing {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  overflow: visible;
+}
+
+.template-preview__drawing.is-selectable {
   cursor: pointer;
 }
 
+.template-preview__slide {
+  fill: var(--chrome-bg-inset);
+  stroke: var(--chrome-border);
+  stroke-width: 1;
+}
+
 .template-preview__title {
-  position: absolute;
-  background: var(--chrome-preview-mark);
-  border-radius: 2px;
+  fill: var(--chrome-preview-mark);
 }
 
+/* Every zone: quiet, dashed context — as the stage draws zones it is not editing. */
 .template-preview__cell {
-  position: absolute;
-  border: 1.5px solid color-mix(in srgb, var(--chrome-accent) 85%, transparent);
-  background: color-mix(in srgb, var(--chrome-accent) 12%, transparent);
-  border-radius: 2px;
+  fill: color-mix(in srgb, var(--chrome-accent) 10%, transparent);
+  stroke: var(--chrome-text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
 }
 
-.template-preview__cell--split {
-  border-style: dashed;
-  background: transparent;
+/* The selected zone: the one solid edge, in the blue that means «valgt». */
+.template-preview__selected {
+  fill: var(--chrome-accent-soft);
+  stroke: var(--chrome-accent);
 }
 
-.template-preview__cell--selected {
-  border-color: var(--chrome-text);
-  background: var(--chrome-preview-mark-strong);
+@media (forced-colors: active) {
+  .template-preview__slide,
+  .template-preview__cell {
+    fill: Canvas;
+    stroke: GrayText;
+  }
+
+  .template-preview__title {
+    fill: GrayText;
+  }
+
+  .template-preview__selected {
+    fill: none;
+    stroke: Highlight;
+  }
 }
 
 .template-list {
@@ -1537,10 +1573,7 @@
 }
 
 .template-list__preview {
-  transform: scale(0.34);
-  transform-origin: top left;
   width: 190px;
-  height: 106px;
 }
 
 .template-list__meta {
@@ -1553,6 +1586,13 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.template-editor__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block: 12px 8px;
 }
 
 .template-editor__tools {
@@ -2839,6 +2879,10 @@
   color: var(--chrome-text-dim);
 }
 
+.zone-size__scope {
+  margin: 0;
+}
+
 .zone-size__ratios {
   font-weight: 600;
   color: var(--chrome-text);
@@ -2870,6 +2914,10 @@
 .zone-size__label.is-current {
   color: var(--chrome-text);
   font-weight: 600;
+}
+
+.zone-size__self {
+  font-weight: 400;
 }
 
 .zone-size__value {

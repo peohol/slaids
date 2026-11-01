@@ -16,6 +16,20 @@ import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES } from './contentKinds'
 /** The two directions a split or a card's fields run in, as every surface names them. */
 export const AXIS_LABELS: Record<Axis, string> = { x: 'Side ved side', y: 'Over/under' }
 
+/**
+ * The two size questions a zone answers, as every surface names them.
+ *
+ * A split's ratios share out its own area among its direct children; a child's
+ * ratio is its size among its siblings. The inspector heads a section with
+ * each, and the zone menu names its entries after them, so «inni» and
+ * «blant søskensonene» mean the same split wherever they are read.
+ */
+export type SizeScope = 'inside' | 'siblings'
+export const SIZE_SCOPE_TITLES: Record<SizeScope, string> = {
+  inside: 'Fordeling inni denne sonen',
+  siblings: 'Størrelse blant søskensonene',
+}
+
 /** The zone's name: its content kind, «Tom sone», or «Delt sone». */
 export function zoneTitle(node: LayoutNode): string {
   if (node.kind === 'split') return 'Delt sone'
@@ -36,12 +50,13 @@ export function splitSummary(node: LayoutNode): string | null {
 }
 
 /**
- * Where the zone sits among its siblings: «Hele sliden» for the root,
- * otherwise e.g. «Sone 2 av 3, side ved side».
+ * Where the zone sits among its siblings: the main zone for the root — named
+ * with «Rot» too, the path's word for it — otherwise e.g. «Sone 2 av 3, side
+ * ved side».
  */
 export function zonePosition(root: LayoutNode, nodeId: NodeId): string {
   const parent = findParent(root, nodeId)
-  if (!parent) return 'Hovedsonen, hele sliden'
+  if (!parent) return 'Hovedsonen (Rot), hele sliden'
   const index = parent.children.findIndex((child) => child.id === nodeId)
   return `Sone ${index + 1} av ${parent.children.length}, ${AXIS_LABELS[parent.axis].toLowerCase()}`
 }

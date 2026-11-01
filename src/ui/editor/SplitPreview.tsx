@@ -27,9 +27,9 @@
  * strokes — right and bottom included — are never cut by the box's edge.
  */
 
-import { useId, useRef } from 'react'
-import { useContainerBox } from '../slide/useFitScale'
-import { containScale, type Size, type SplitPreviewModel } from './splitPreviewModel'
+import { useId } from 'react'
+import { BoundedPreview } from './BoundedPreview'
+import type { Size, SplitPreviewModel } from './splitPreviewModel'
 
 /** Stroke of a zone being edited; drawn inside its rect, so neighbours never overlap. */
 const ZONE_STROKE = 2
@@ -71,136 +71,130 @@ export function SplitPreview({
   onZoneHover,
   onZoneSelect,
 }: SplitPreviewProps) {
-  const boxRef = useRef<HTMLDivElement>(null)
-  const box = useContainerBox(boxRef)
   const hatchId = `${useId()}-hatch`
-  const scale = containScale(box, size)
-  const drawn = { width: size.width * scale, height: size.height * scale }
   const offset = FRAME_OUTSET
 
   return (
-    <div
-      ref={boxRef}
-      className="split-preview"
-      data-testid="split-preview"
-      style={{ aspectRatio: `${size.width} / ${size.height}`, padding: SAFE_MARGIN }}
-    >
-      {scale > 0 && (
-        <svg
-          className="split-preview__drawing"
-          role="img"
-          aria-label={description}
-          width={drawn.width + 2 * offset}
-          height={drawn.height + 2 * offset}
-          data-scale={scale}
-          onPointerLeave={onZoneHover ? () => onZoneHover(null) : undefined}
-        >
-          <defs>
-            <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="6" className="split-preview__hatch" />
-            </pattern>
-          </defs>
-          <g transform={`translate(${offset} ${offset})`}>
-            <rect
-              className="split-preview__frame"
-              data-preview-frame=""
-              x={-FRAME_OUTSET + 0.5}
-              y={-FRAME_OUTSET + 0.5}
-              width={drawn.width + 2 * FRAME_OUTSET - 1}
-              height={drawn.height + 2 * FRAME_OUTSET - 1}
-              rx={4}
-            />
-            {model?.zones.map((zone) => {
-              const x = zone.rect.x * scale
-              const y = zone.rect.y * scale
-              const width = zone.rect.width * scale
-              const height = zone.rect.height * scale
-              const inner = {
-                x: x + ZONE_STROKE / 2,
-                y: y + ZONE_STROKE / 2,
-                width: Math.max(width - ZONE_STROKE, 0.5),
-                height: Math.max(height - ZONE_STROKE, 0.5),
-              }
-              const active = zone.index === activeIndex
-              const receives = zone.index === contentIndex
-              const className = [
-                'split-preview__zone',
-                zone.tooSmall && 'split-preview__zone--too-small',
-                active && 'split-preview__zone--active',
-              ]
-                .filter(Boolean)
-                .join(' ')
-              const label =
-                receives && width >= CONTENT_LABEL_MIN.width && height >= CONTENT_LABEL_MIN.height
-                  ? `${zone.label} · innhold`
-                  : zone.label
-              return (
-                <g
-                  key={zone.index}
-                  className={onZoneSelect ? 'split-preview__hit' : undefined}
-                  onPointerEnter={onZoneHover ? () => onZoneHover(zone.index) : undefined}
-                  onClick={onZoneSelect ? () => onZoneSelect(zone.index) : undefined}
-                >
-                  <rect
-                    className={className}
-                    data-preview-zone={zone.label}
-                    data-too-small={zone.tooSmall || undefined}
-                    data-active={active || undefined}
-                    data-content-target={receives || undefined}
-                    {...inner}
-                    strokeWidth={active ? ZONE_STROKE_ACTIVE : ZONE_STROKE}
-                    rx={2}
-                  />
-                  {zone.tooSmall && <rect {...inner} fill={`url(#${hatchId})`} />}
-                  {Math.min(width, height) >= ZONE_LABEL_MIN && (
-                    <text
-                      className="split-preview__label"
-                      x={x + width / 2}
-                      y={y + height / 2}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                    >
-                      {label}
-                    </text>
-                  )}
-                </g>
-              )
-            })}
-            {model?.dividers.map((divider, index) => (
-              <line
-                key={index}
-                className={
-                  divider.depth > 2
-                    ? 'split-preview__divider split-preview__divider--deep'
-                    : 'split-preview__divider'
-                }
-                data-preview-divider={divider.depth}
-                x1={divider.x1 * scale}
-                y1={divider.y1 * scale}
-                x2={divider.x2 * scale}
-                y2={divider.y2 * scale}
+    <BoundedPreview size={size} className="split-preview" testId="split-preview" padding={SAFE_MARGIN}>
+      {(scale) => {
+        const drawn = { width: size.width * scale, height: size.height * scale }
+        return (
+          <svg
+            className="split-preview__drawing"
+            role="img"
+            aria-label={description}
+            width={drawn.width + 2 * offset}
+            height={drawn.height + 2 * offset}
+            data-scale={scale}
+            onPointerLeave={onZoneHover ? () => onZoneHover(null) : undefined}
+          >
+            <defs>
+              <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="6" className="split-preview__hatch" />
+              </pattern>
+            </defs>
+            <g transform={`translate(${offset} ${offset})`}>
+              <rect
+                className="split-preview__frame"
+                data-preview-frame=""
+                x={-FRAME_OUTSET + 0.5}
+                y={-FRAME_OUTSET + 0.5}
+                width={drawn.width + 2 * FRAME_OUTSET - 1}
+                height={drawn.height + 2 * FRAME_OUTSET - 1}
+                rx={4}
               />
-            ))}
-            {model?.context.map((zone) => {
-              const width = zone.rect.width * scale
-              const height = zone.rect.height * scale
-              if (width < CONTEXT_LABEL_MIN.width || height < CONTEXT_LABEL_MIN.height) return null
-              return (
-                <text
-                  key={zone.label}
-                  className="split-preview__context-label"
-                  data-preview-context={zone.label}
-                  x={zone.rect.x * scale + 6}
-                  y={zone.rect.y * scale + 6}
-                  dominantBaseline="hanging"
-                >
-                  {zone.label}
-                </text>
-              )
-            })}
-          </g>
-        </svg>
-      )}
-    </div>
+              {model?.zones.map((zone) => {
+                const x = zone.rect.x * scale
+                const y = zone.rect.y * scale
+                const width = zone.rect.width * scale
+                const height = zone.rect.height * scale
+                const inner = {
+                  x: x + ZONE_STROKE / 2,
+                  y: y + ZONE_STROKE / 2,
+                  width: Math.max(width - ZONE_STROKE, 0.5),
+                  height: Math.max(height - ZONE_STROKE, 0.5),
+                }
+                const active = zone.index === activeIndex
+                const receives = zone.index === contentIndex
+                const className = [
+                  'split-preview__zone',
+                  zone.tooSmall && 'split-preview__zone--too-small',
+                  active && 'split-preview__zone--active',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                const label =
+                  receives && width >= CONTENT_LABEL_MIN.width && height >= CONTENT_LABEL_MIN.height
+                    ? `${zone.label} · innhold`
+                    : zone.label
+                return (
+                  <g
+                    key={zone.index}
+                    className={onZoneSelect ? 'split-preview__hit' : undefined}
+                    onPointerEnter={onZoneHover ? () => onZoneHover(zone.index) : undefined}
+                    onClick={onZoneSelect ? () => onZoneSelect(zone.index) : undefined}
+                  >
+                    <rect
+                      className={className}
+                      data-preview-zone={zone.label}
+                      data-too-small={zone.tooSmall || undefined}
+                      data-active={active || undefined}
+                      data-content-target={receives || undefined}
+                      {...inner}
+                      strokeWidth={active ? ZONE_STROKE_ACTIVE : ZONE_STROKE}
+                      rx={2}
+                    />
+                    {zone.tooSmall && <rect {...inner} fill={`url(#${hatchId})`} />}
+                    {Math.min(width, height) >= ZONE_LABEL_MIN && (
+                      <text
+                        className="split-preview__label"
+                        x={x + width / 2}
+                        y={y + height / 2}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
+                        {label}
+                      </text>
+                    )}
+                  </g>
+                )
+              })}
+              {model?.dividers.map((divider, index) => (
+                <line
+                  key={index}
+                  className={
+                    divider.depth > 2
+                      ? 'split-preview__divider split-preview__divider--deep'
+                      : 'split-preview__divider'
+                  }
+                  data-preview-divider={divider.depth}
+                  x1={divider.x1 * scale}
+                  y1={divider.y1 * scale}
+                  x2={divider.x2 * scale}
+                  y2={divider.y2 * scale}
+                />
+              ))}
+              {model?.context.map((zone) => {
+                const width = zone.rect.width * scale
+                const height = zone.rect.height * scale
+                if (width < CONTEXT_LABEL_MIN.width || height < CONTEXT_LABEL_MIN.height) return null
+                return (
+                  <text
+                    key={zone.label}
+                    className="split-preview__context-label"
+                    data-preview-context={zone.label}
+                    x={zone.rect.x * scale + 6}
+                    y={zone.rect.y * scale + 6}
+                    dominantBaseline="hanging"
+                  >
+                    {zone.label}
+                  </text>
+                )
+              })}
+            </g>
+          </svg>
+        )
+      }}
+    </BoundedPreview>
   )
 }

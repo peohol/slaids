@@ -335,10 +335,11 @@ test.describe('split preview', () => {
     await expect(page.getByTestId('split-modal')).toBeHidden()
     // The template's own picture now shows the committed split, drawn in the
     // same theme: the same first zone and the same single gap.
-    const picture = editor.getByTestId('template-preview')
-    const pictureScale = (await picture.evaluate((element) => element.clientWidth)) / SLIDE_WIDTH
+    const picture = editor.getByTestId('template-preview').locator('svg')
+    const pictureScale =
+      (await picture.evaluate((element) => element.getBoundingClientRect().width)) / SLIDE_WIDTH
     const cells = await picture
-      .locator('.template-preview__cell:not(.template-preview__cell--split)')
+      .locator('.template-preview__cell')
       .evaluateAll((elements) =>
         elements.map((element) => {
           const rect = element.getBoundingClientRect()

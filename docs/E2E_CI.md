@@ -29,6 +29,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |
 | `split-preview.spec.ts` | Delingsdialogens forhåndsvisning av den nøstede 2 + 3-inndelingen: to heltrukne soner, tre stiplede underinndelinger, hele sonen synlig uten rulling |
 | `split-flow.spec.ts` | Delingsdialogen fjerner soner med nøstet innhold: sier hvilke soner og hvor mye innhold, redder det til sandkassen, og angre/gjør om tar hele endringen i ett steg |
+| `zone-consistency.spec.ts` | Hver vei inn i delingsdialogen (inspektør, ikonrad, sonemeny, forholdstallmeny) viser samme sone, sti og handling, og fokus går tilbake til det som åpnet den |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |

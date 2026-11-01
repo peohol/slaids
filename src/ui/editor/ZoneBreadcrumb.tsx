@@ -13,6 +13,8 @@
 import { Fragment } from 'react'
 import { breadcrumbLabels, pathToNode } from '../../domain/layout'
 import type { LayoutNode, NodeId } from '../../domain/types'
+import { InspectorButton } from './InspectorParts'
+import { zoneIcon, zoneTitle } from './zoneDescription'
 
 export function ZoneBreadcrumb({
   root,
@@ -44,5 +46,41 @@ export function ZoneBreadcrumb({
         </Fragment>
       ))}
     </nav>
+  )
+}
+
+/**
+ * The way down: a split's own zones by name, one press each — «Sone 2: Tom
+ * sone» — numbered as the path, the split dialog and the size controls number
+ * them. With the path above it, the whole tree is reachable from the keyboard
+ * and with a finger, however small a zone is drawn.
+ */
+export function ZoneChildList({
+  node,
+  onSelect,
+  testIdPrefix,
+  layout = 'stack',
+}: {
+  node: LayoutNode
+  onSelect: (nodeId: NodeId) => void
+  /** Each button's test id is this and its 0-based index. */
+  testIdPrefix: string
+  layout?: 'stack' | 'row'
+}) {
+  if (node.kind !== 'split') return null
+  return (
+    <div
+      className={layout === 'stack' ? 'inspector__actions inspector__actions--stack' : 'inspector__actions'}
+    >
+      {node.children.map((child, index) => (
+        <InspectorButton
+          key={child.id}
+          {...zoneIcon(child)}
+          label={`Sone ${index + 1}: ${zoneTitle(child)}`}
+          testId={`${testIdPrefix}-${index}`}
+          onClick={() => onSelect(child.id)}
+        />
+      ))}
+    </div>
   )
 }
