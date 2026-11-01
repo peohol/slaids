@@ -87,6 +87,9 @@ export type IconName =
   | 'reset'
   | 'deck'
   | 'tools'
+  | 'appearance'
+  | 'moon'
+  | 'sun'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -173,6 +176,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-up': <path d="M6 15l6-6 6 6" />,
   'chevron-down': <path d="M6 9l6 6 6-6" />,
   check: <path d="M5 12l5 5L19 7" />,
+  /* How the interface looks: a disc, half dark and half light. */
+  appearance: (
+    <>
+      <path d="M12 3a9 9 0 100 18 9 9 0 000-18z" />
+      <path d="M12 3a9 9 0 000 18z" fill="currentColor" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z" />,
+  sun: (
+    <path d="M12 8a4 4 0 100 8 4 4 0 000-8zM12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4" />
+  ),
   heading: <path d="M6 5v14M18 5v14M6 12h12" />,
   move: <path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />,
   code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />,

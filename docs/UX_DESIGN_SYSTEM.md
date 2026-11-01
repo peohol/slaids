@@ -2,7 +2,16 @@
 
 **Innført:** U1, 30.10.2026 ([UX_IMPROVEMENT_PLAN.md](UX_IMPROVEMENT_PLAN.md))  
 **Gjelder:** editorens og bibliotekets grensesnitt. **Gjelder ikke** sliden: slidens farger, fonter og geometri kommer fra presentasjonstemaet og geometrimotoren og berøres aldri av disse tokenene.  
-**Kilde i koden:** tokenene står øverst i `src/styles/global.css`; ikoner og farge-familier i `src/ui/components/Icon.tsx`; innholdstypenes familie i `src/ui/editor/contentKinds.ts`.
+**Kilde i koden:** tokenene står øverst i `src/styles/global.css`; ikoner og farge-familier i `src/ui/components/Icon.tsx`; innholdstypenes familie i `src/ui/editor/contentKinds.ts`; valget av utseende i `src/state/appearance.ts`.
+
+## 0. Mørkt og lyst utseende
+
+Grensesnittet finnes i et mørkt og et lyst utseende. Hvert fargetoken skrives én gang som `light-dark(<lys>, <mørk>)`, og rotens `color-scheme` velger halvdelen. Standard er **«Følg systemet»** (`color-scheme: light dark`), som virker før noe skript har kjørt og følger systemet direkte når det bytter. «Utseende» (i «Verktøy»-menyen, som egen gruppe i kompaktens verktøypanel og i bibliotekets topplinje) låser det til «Mørk» eller «Lys» ved å sette `data-appearance` på `<html>`. Valget er en lokal UI-preferanse (`localStorage`), aldri presentasjonsdata.
+
+- Utseendet gjelder bare app-chromen. Sliden og presentasjonens farger er de samme i begge (`e2e/appearance.spec.ts` sammenligner scenen piksel for piksel), og presentasjonsvisningen er alltid mørk (`.present { color-scheme: dark }`).
+- Heter «Utseende», ikke «Tema»: «Tema» er presentasjonens fonter og farger.
+- `chromeTokens.test.ts` holder begge halvdelene til de samme kontrast- og fargesynskravene, og axe-revisjonen i `accessibility.spec.ts` kjøres i begge utseender. Tabellene under viser mørk verdi først, så lys.
+- Et token som er likt i begge (primærknappen, faretekstflaten), skrives som én verdi.
 
 ## 1. Retning: tegnebordet
 
@@ -19,35 +28,37 @@ Slaids er et presisjonsverktøy: sider bygges av soner med eksakte forhold. Gren
 
 | Token | Verdi | Bruk |
 | --- | --- | --- |
-| `--chrome-bg` | `#171a1f` | Bakgrunn |
-| `--chrome-bg-raised` | `#1f242b` | Knapper, verktøylinjer, menyer |
-| `--chrome-bg-inset` | `#12151a` | Inndataflater, inspektør, segmentert kontroll |
-| `--chrome-bg-hover` | `#29303a` | Hover og tastaturmarkør i menyer |
-| `--chrome-bg-pressed` | `#313945` | Øyeblikket et trykk varer |
-| `--chrome-text` | `#e7ecf3` | Tekst, 13,2:1 på hevet flate |
-| `--chrome-text-dim` | `#96a1af` | Hint og sekundærtekst, 6,0:1 |
-| `--chrome-text-faint` | `#6b7684` | Bare deaktivert innhold, 3,4:1 |
+| `--chrome-bg` | `#171a1f` / `#eceff3` | Bakgrunn |
+| `--chrome-bg-raised` | `#1f242b` / `#ffffff` | Knapper, verktøylinjer, menyer |
+| `--chrome-bg-inset` | `#12151a` / `#f4f6f9` | Inndataflater, inspektør, segmentert kontroll |
+| `--chrome-bg-hover` | `#29303a` / `#e4e8ee` | Hover og tastaturmarkør i menyer |
+| `--chrome-bg-pressed` | `#313945` / `#d7dde5` | Øyeblikket et trykk varer |
+| `--chrome-text` | `#e7ecf3` / `#161b22` | Tekst, 13,2:1 på hevet flate (mørk) |
+| `--chrome-text-dim` | `#96a1af` / `#525c6a` | Hint og sekundærtekst, minst 4,5:1 på alle flater |
+| `--chrome-text-faint` | `#6b7684` / `#8a939f` | Bare deaktivert innhold |
+| `--chrome-overlay-hover`, `--chrome-swatch-edge`, `--chrome-preview-mark(-strong)` | hvit / mørk med lav dekkevne | Gjennomsiktig hover, kant rundt fargeruter, merker i små layoutbilder |
+| `--chrome-scrim`, `--chrome-shadow(-strong)`, `--chrome-tooltip-bg/-text` | | Under dialoger, skygger, verktøytips (mørkt også i lyst utseende) |
 
 ### Valg, fokus og primærhandling
 
 | Token | Verdi | Bruk |
 | --- | --- | --- |
-| `--chrome-accent` | `#3386f7` | Valgt kant, fokusring (4,4:1 mot hevet flate); også valgt sone på scenen (`--zone-outline-selected`) |
-| `--chrome-accent-soft` | blå 18 % | Valgt flate |
-| `--chrome-accent-text` | `#cfe0ff` | Tekst på valgt flate |
+| `--chrome-accent` | `#3386f7` / `#3b7ff0` | Valgt kant, fokusring (minst 3:1 mot flatene); også valgt sone på scenen (`--zone-outline-selected`) |
+| `--chrome-accent-soft` | blå 18 % / 13 % | Valgt flate |
+| `--chrome-accent-text` | `#cfe0ff` / `#1a4fa8` | Tekst på valgt flate |
 | `--chrome-primary` | `#2f6fe0` | Primærknapp; hvit tekst 4,7:1 (før: 3,2:1) |
 
 ### Blekkfarger (funksjonsfamilier)
 
 | Token | Verdi | Familie | Eksempler |
 | --- | --- | --- | --- |
-| `--ink-content` | `#4cc9d8` | Innhold og tekst | Innholdsmodus, kort med/uten tittel, overskrift |
-| `--ink-zone` | `#bca0fc` | Soner og struktur | Sonemodus, beholder, negativt rom |
-| `--ink-media` | `#e3bf4f` | Bilder | Bilde, bildekort, «Sett inn bilde fra fil», bildebrief, optimaliser bilder |
+| `--ink-content` | `#4cc9d8` / `#086860` | Innhold og tekst | Innholdsmodus, kort med/uten tittel, overskrift |
+| `--ink-zone` | `#bca0fc` / `#7f3ea3` | Soner og struktur | Sonemodus, beholder, negativt rom |
+| `--ink-media` | `#e3bf4f` / `#875c00` | Bilder | Bilde, bildekort, «Sett inn bilde fra fil», bildebrief, optimaliser bilder |
 
-Alle tre har minst 7:1 mot hevet flate. De er valgt langs blå–gul-aksen i tillegg til kulør, så de holder seg adskilt ved rød–grønn fargeblindhet, og hver familie har i tillegg egne ikonformer.
+Alle tre har minst 7:1 mot hevet flate i mørkt og minst 4,5:1 i lyst. De er valgt langs blå–gul-aksen i tillegg til kulør, så de holder seg adskilt ved rød–grønn fargeblindhet, og hver familie har i tillegg egne ikonformer.
 
-Sonefiolett og valgt-blått står ofte side om side (sonemodus og en valgt sone). Fiolett og blått skiller seg mest i rødt, den kanalen protanopi mister, så de skilles i stedet på lyshet: fiolett er lysere enn blått. Før dette (fiolett `#a78bfa`, blått `#4f8ef7`) var de nesten like ved protanopi (ΔE 3,1). Nå er avstanden minst 20 ved protanopi, deuteranopi og tritanopi, og `chromeTokens.test.ts` krever det for alle par av de tre blekkfargene og valgt-blått. Presentasjonsverktøy (tema, maler, referanser), historikk og navigasjon er **bevisst ufarget**.
+Sonefiolett og valgt-blått står ofte side om side (sonemodus og en valgt sone). Fiolett og blått skiller seg mest i rødt, den kanalen protanopi mister, så de skilles i stedet på lyshet: fiolett er lysere enn blått i mørkt og mørkere i lyst. I lyst er innholdsfargen dratt mot grønnblått og fiolett mot purpur, fordi alle fire må være mørke nok for 3:1 på hvitt og da ellers ligger for tett ved tritanopi. Før dette (fiolett `#a78bfa`, blått `#4f8ef7`) var de nesten like ved protanopi (ΔE 3,1). Nå er avstanden minst 20 ved protanopi, deuteranopi og tritanopi, og `chromeTokens.test.ts` krever det for alle par av de tre blekkfargene og valgt-blått. Presentasjonsverktøy (tema, maler, referanser), historikk og navigasjon er **bevisst ufarget**.
 
 Planen foreslo grønnblå for bilder. Det ble forkastet fordi grønnblå ligger for nær turkis (innhold) og grønn (lagret). Gult ble valgt i stedet, og advarselsfargen ble flyttet mot oransje.
 
@@ -55,9 +66,9 @@ Planen foreslo grønnblå for bilder. Det ble forkastet fordi grønnblå ligger 
 
 | Token | Verdi | Bruk |
 | --- | --- | --- |
-| `--chrome-success` | `#4fc27e` | «Lagret», fullført |
-| `--chrome-warning` | `#f08d49` | Advarsler (rammer, aldri ikoner i verktøylinjer) |
-| `--chrome-danger` / `-strong` / `-text` | `#e5484d` / `#d13b40` / `#ff8a8d` | Fare: kant, knappeflate (hvit tekst 4,8:1) og tekst |
+| `--chrome-success` | `#4fc27e` / `#17763e` | «Lagret», fullført |
+| `--chrome-warning` (`-soft`) | `#f08d49` / `#b85410` | Advarsler (rammer, aldri ikoner i verktøylinjer); `-soft` er flaten bak |
+| `--chrome-danger` / `-strong` / `-text` | `#e5484d` / `#d13b40` / `#ff8a8d` (lys: `#d4343a` / `#d13b40` / `#b4232a`) | Fare: kant, knappeflate (hvit tekst 4,8:1) og tekst; `-soft` er menyens markør på en fareoppføring |
 
 Status brukes som ord og rammer, aldri som ikonfarge i en verktøylinje, så en status ikke kan leses som en funksjon. «Lagrer …» er fremdrift, ikke advarsel, og vises nøytralt.
 

@@ -1715,12 +1715,14 @@ test.describe('kompakt arbeidsflate', () => {
     await addCardToRootZone(page)
     await openPanel(page, 'tools')
 
-    // The desktop toolbar's groups, in its order and with its names.
+    // The desktop toolbar's groups, in its order and with its names; the
+    // «Verktøy» menu's «Utseende» submenu is a group of its own, last.
     await expect(page.getByTestId('compact-tools').locator('h3')).toHaveText([
       'Valgt sone',
       'Slide',
       'Presentasjon',
       'Verktøy',
+      'Utseende',
     ])
     // The content kind is the desktop's menu button, naming the kind in force.
     await expect(page.getByTestId('compact-tool-content-kind')).toContainText('Kort uten tittel')

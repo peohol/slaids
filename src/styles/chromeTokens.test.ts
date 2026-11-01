@@ -16,6 +16,10 @@
  *    least 3:1 (1.4.11), because they are what tells one control from another;
  *  - white words on the filled buttons at least 4.5:1.
  *
+ * Every rule holds in both appearances: a token written as
+ * `light-dark(<light>, <dark>)` is checked once per half, against the surfaces
+ * of the same half.
+ *
  * Disabled text (`--chrome-text-faint`) is exempt by the same criterion, and
  * the pressed surface only lasts while a press does, so text is not held to it.
  *
@@ -38,21 +42,45 @@ const css = readFileSync(fileURLToPath(new URL('./global.css', import.meta.url))
 const rootStart = css.indexOf(':root {')
 const root = css.slice(rootStart, css.indexOf('}', rootStart))
 
-function token(name: string): string {
-  const match = new RegExp(`--${name}:\\s*([^;]+);`).exec(root)
-  if (!match) throw new Error(`global.css har ikke --${name}.`)
-  return match[1].trim()
+type Scheme = 'lys' | 'mørk'
+const SCHEMES: readonly Scheme[] = ['lys', 'mørk']
+
+/** The arguments of a CSS function call, split at its top-level commas. */
+function args(call: string): string[] {
+  const inner = call.slice(call.indexOf('(') + 1, call.lastIndexOf(')'))
+  const parts: string[] = []
+  let depth = 0
+  let current = ''
+  for (const char of inner) {
+    if (char === '(') depth += 1
+    if (char === ')') depth -= 1
+    if (char === ',' && depth === 0) {
+      parts.push(current.trim())
+      current = ''
+    } else current += char
+  }
+  return [...parts, current.trim()]
 }
 
-function hex(name: string): string {
-  const value = token(name)
+/** A token's value in one appearance: one half of `light-dark()`, or the value itself. */
+function token(name: string, scheme: Scheme): string {
+  const match = new RegExp(`--${name}:\\s*([^;]+);`).exec(root)
+  if (!match) throw new Error(`global.css har ikke --${name}.`)
+  const value = match[1].trim()
+  if (!value.startsWith('light-dark(')) return value
+  const [light, dark] = args(value)
+  return scheme === 'lys' ? light : dark
+}
+
+function hex(name: string, scheme: Scheme): string {
+  const value = token(name, scheme)
   if (!/^#[0-9a-f]{6}$/i.test(value)) throw new Error(`--${name} er ikke en hex-farge: ${value}`)
   return value
 }
 
 /** An `rgba()` token painted over an opaque surface, as the browser composites it. */
-function over(name: string, surface: string): string {
-  const match = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(token(name))
+function over(name: string, surface: string, scheme: Scheme): string {
+  const match = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(token(name, scheme))
   const base = hexToRgb(surface)
   if (!match || !base) throw new Error(`--${name} er ikke en rgba-farge over en hex-flate.`)
   const alpha = Number(match[4])
@@ -66,14 +94,23 @@ function over(name: string, surface: string): string {
 const SURFACES = ['chrome-bg', 'chrome-bg-raised', 'chrome-bg-inset', 'chrome-bg-hover'] as const
 
 /** Every surface text sits on, by name, with the selected one composited. */
-function textSurfaces(): Array<[string, string]> {
+function textSurfaces(scheme: Scheme): Array<[string, string]> {
   return [
-    ...SURFACES.map((name): [string, string] => [name, hex(name)]),
-    ['valgt flate', over('chrome-accent-soft', hex('chrome-bg-raised'))],
+    ...SURFACES.map((name): [string, string] => [name, hex(name, scheme)]),
+    ['valgt flate', over('chrome-accent-soft', hex('chrome-bg-raised', scheme), scheme)],
   ]
 }
 
-describe('app-chromens fargetokener', () => {
+describe('fargene skrives én gang per utseende', () => {
+  it('roten følger systemet, og «Utseende» kan låse den til lys eller mørk', () => {
+    expect(token('chrome-bg', 'mørk')).not.toBe(token('chrome-bg', 'lys'))
+    expect(root).toMatch(/color-scheme:\s*light dark;/)
+    expect(css).toMatch(/:root\[data-appearance='light'\]\s*\{\s*color-scheme:\s*light;/)
+    expect(css).toMatch(/:root\[data-appearance='dark'\]\s*\{\s*color-scheme:\s*dark;/)
+  })
+})
+
+describe.each(SCHEMES)('app-chromens fargetokener, %s', (scheme) => {
   it.each([
     'chrome-text',
     'chrome-text-dim',
@@ -81,8 +118,8 @@ describe('app-chromens fargetokener', () => {
     'chrome-danger-text',
     'chrome-success',
   ])('--%s er lesbar tekst på hver flate (minst 4,5:1)', (name) => {
-    for (const [surface, value] of textSurfaces()) {
-      expect(contrastRatio(hex(name), value), `${name} på ${surface}`).toBeGreaterThanOrEqual(4.5)
+    for (const [surface, value] of textSurfaces(scheme)) {
+      expect(contrastRatio(hex(name, scheme), value), `${name} på ${surface}`).toBeGreaterThanOrEqual(4.5)
     }
   })
 
@@ -96,7 +133,7 @@ describe('app-chromens fargetokener', () => {
   ])('--%s skiller seg fra flatene den tegnes på (minst 3:1)', (name) => {
     for (const surface of ['chrome-bg', 'chrome-bg-raised', 'chrome-bg-inset']) {
       expect(
-        contrastRatio(hex(name), hex(surface)),
+        contrastRatio(hex(name, scheme), hex(surface, scheme)),
         `${name} på ${surface}`,
       ).toBeGreaterThanOrEqual(3)
     }
@@ -105,7 +142,7 @@ describe('app-chromens fargetokener', () => {
   it.each(['chrome-primary', 'chrome-primary-hover', 'chrome-danger-strong'])(
     'hvit tekst på --%s er lesbar (minst 4,5:1)',
     (name) => {
-      expect(contrastRatio('#ffffff', hex(name))).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio('#ffffff', hex(name, scheme))).toBeGreaterThanOrEqual(4.5)
     },
   )
 })
@@ -144,8 +181,8 @@ function lab([r, g, b]: number[]): [number, number, number] {
   return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]
 }
 
-function simulated(name: string, matrix: number[][]): [number, number, number] {
-  const rgb = hexToRgb(hex(name))
+function simulated(name: string, scheme: Scheme, matrix: number[][]): [number, number, number] {
+  const rgb = hexToRgb(hex(name, scheme))
   if (!rgb) throw new Error(`--${name} er ikke en hex-farge.`)
   const channels = [rgb.r, rgb.g, rgb.b].map(linear)
   return lab(
@@ -170,7 +207,7 @@ const IDENTITY = [
 /** CIELAB ΔE*76; around 2.3 is just noticeable, and 20 is a different colour. */
 const CLEARLY_APART = 20
 
-describe('blekkfargene og valgfargen ved fargesynsvariasjoner', () => {
+describe.each(SCHEMES)('blekkfargene og valgfargen ved fargesynsvariasjoner, %s', (scheme) => {
   const signals = ['ink-content', 'ink-zone', 'ink-media', 'chrome-accent'] as const
   it.each([...Object.keys(DICHROMACIES), 'normalt fargesyn'])(
     'holder familiene og valgt-blått adskilt ved %s',
@@ -179,7 +216,9 @@ describe('blekkfargene og valgfargen ved fargesynsvariasjoner', () => {
       for (const [index, a] of signals.entries()) {
         for (const b of signals.slice(index + 1)) {
           const distance = Math.hypot(
-            ...simulated(a, matrix).map((value, axis) => value - simulated(b, matrix)[axis]),
+            ...simulated(a, scheme, matrix).map(
+              (value, axis) => value - simulated(b, scheme, matrix)[axis],
+            ),
           )
           expect(distance, `${a} mot ${b}`).toBeGreaterThanOrEqual(CLEARLY_APART)
         }

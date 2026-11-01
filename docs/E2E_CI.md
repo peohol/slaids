@@ -30,7 +30,8 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |
-| `accessibility.spec.ts` | axe-revisjonen (WCAG 2.2 A/AA) av bibliotek og editorens tilstander |
+| `accessibility.spec.ts` | axe-revisjonen (WCAG 2.2 A/AA) av bibliotek og editorens tilstander, i mørkt og lyst utseende |
+| `appearance.spec.ts` | Et valgt utseende (lyst) går foran systemets og huskes etter omlasting |
 | `interactive.spec.ts` | En miniapp kjører bare mellom Aktiver og Avslutt |
 | `interactive-security.spec.ts` | Miniapprammen har nøyaktig sandkassen og innholdspolicyen som er avtalt |
 | `compact.spec.ts` | Kompakt arbeidsflate, tekstlista til skriveflaten og lagring etter omlasting, i alle tre kompaktprosjektene (telefon stående, telefon liggende, smalt vindu med mus) |
@@ -38,7 +39,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 
 ## Hva bare den nattlige kjøringen dekker
 
-Alt annet, rundt 380 kjøringer: resten av sone-, fit-, tekst-, bilde-, miniapp- og kompakttestene, kontekstmenyer, hurtigtaster, justering, temaer, oppgavematrisen (`task-matrix.spec.ts`), responsivitet, og de 12 visuelle testene med 28 referansebilder (`visual.spec.ts`, `visual-chrome.spec.ts`).
+Alt annet, rundt 380 kjøringer: resten av sone-, fit-, tekst-, bilde-, miniapp- og kompakttestene, kontekstmenyer, hurtigtaster, justering, temaer, oppgavematrisen (`task-matrix.spec.ts`), responsivitet, og de 14 visuelle testene med 34 referansebilder (`visual.spec.ts`, `visual-chrome.spec.ts`).
 
 En rød nattlig kjøring betyr at noe på `main` er brukket eller ustabilt. Den rettes som en vanlig feil, i en egen PR; den skal ikke dempes ved å fjerne testen fra kjøringen.
 

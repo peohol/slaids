@@ -115,6 +115,35 @@ test.describe('app-chromen, visuelt', () => {
     })
   })
 
+  /*
+   * The light appearance, by the system setting the app follows by default:
+   * the surfaces where most of its tokens meet — the library, the toolbar in
+   * both modes, the inspector, the strip and a menu.
+   */
+  test.describe('lyst utseende, desktop 1600 × 1000', () => {
+    test.use({ colorScheme: 'light' })
+
+    test('biblioteket', async ({ page }) => {
+      await deckWithCard(page)
+      await backToLibrary(page)
+      await shoot(page, page.locator('body'), 'light-library-1600.png', [
+        page.locator('.presentation-card__meta'),
+      ])
+    })
+
+    test('editoren i innholds- og sonemodus, og en meny', async ({ page }) => {
+      await deckWithCard(page)
+      await shoot(page, page.getByTestId('top-toolbar'), 'light-toolbar-content-1600.png')
+      await shoot(page, page.getByTestId('inspector'), 'light-inspector-card-1600.png')
+      await shoot(page, page.getByTestId('filmstrip'), 'light-filmstrip-1600.png')
+      await page.getByTestId('toolbar-menu-presentation').click()
+      await shoot(page, page.getByTestId('context-menu'), 'light-menu-presentation.png')
+      await page.keyboard.press('Escape')
+      await enterZoneMode(page)
+      await shoot(page, page.getByTestId('top-toolbar'), 'light-toolbar-zone-1600.png')
+    })
+  })
+
   for (const { width, height } of [
     { width: 1366, height: 768 },
     { width: 1025, height: 768 },

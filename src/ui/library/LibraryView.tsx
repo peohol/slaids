@@ -34,6 +34,7 @@ import {
   renameFolder,
   renamePresentation,
 } from '../../state/libraryActions'
+import { useAppearance } from '../../state/appearance'
 import type { Folder, PresentationSummary } from '../../domain/types'
 import { copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
@@ -42,6 +43,7 @@ import { Tooltip } from '../components/Tooltip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ContextMenuHost } from '../components/ContextMenuHost'
 import { MenuButton } from '../components/MenuButton'
+import { APPEARANCE_TITLE, appearanceEntries } from '../components/appearanceMenu'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AgentTokensModal } from './AgentTokensModal'
@@ -350,6 +352,19 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           <p className="library__subtitle">Presentasjoner med matematisk stram soneinndeling.</p>
         </div>
         <div className="library__actions">
+          <MenuButton
+            id="library-appearance"
+            label={APPEARANCE_TITLE}
+            title={APPEARANCE_TITLE}
+            tooltip="Mørk, lys eller som systemet"
+            icon="appearance"
+            className="btn--ghost"
+            testId="library-appearance"
+            entries={() => {
+              const { appearance, setAppearance } = useAppearance.getState()
+              return appearanceEntries(appearance, setAppearance)
+            }}
+          />
           {mode === 'supabase' && (
             <Tooltip label="Nøkler en KI-agent bruker mot Slaids' REST-API">
               <button
