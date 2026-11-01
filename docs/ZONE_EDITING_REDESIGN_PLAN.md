@@ -260,7 +260,7 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 - **Konsekvent sonemarkering:** Regelen «heltrukket = det som endres her, stiplet = struktur som vises som kontekst» står i `docs/UX_DESIGN_SYSTEM.md` («Sonemarkering») med hvordan scenen, delingsdialogen og maleditoren følger den. Scenens markering og gester er uendret.
 - Forced colors for maleditorens tegning (Highlight mot GrayText), slik delingsdialogen fikk i Z1.
 
-**Bekreftede funn:** F8 (en nøstet delt sone manglet «størrelse blant søsken»; se `for/inspector-nested-split.png`) og F9 (fast bredde, transform og stiplet ramme over delte soner; se `for/template-editor.png` og `for/template-list.png`) er bekreftet og rettet. Fokus som falt til siden etter lukking av en dialog ble funnet under Z3-testingen og er rettet.
+**Bekreftede funn:** F8 (en nøstet delt sone manglet «størrelse blant søsken»; se `for/inspector-nested-split.png`) og F9 (fast bredde, transform og stiplet ramme over delte soner; se `for/template-editor.png` og `for/template-list.png`) er bekreftet og rettet. To feil ble funnet under Z3-testingen og er rettet: fokus falt til siden etter lukking av en dialog, og piltastene i en åpen dialog i sonemodus flyttet i stedet valget i sonetreet bak den (og byttet dermed sonen dialogen gjaldt). Nå hører en dialogs taster til dialogen.
 
 **Tester**
 
