@@ -157,6 +157,22 @@ interface ContextMenuStore {
 
 let serial = 0
 
+/**
+ * Where the focus was before the menu that has just closed opened.
+ *
+ * An entry that opens a dialog is gone by the time the dialog closes, so the
+ * dialog gives the focus back to the control the menu was opened from instead
+ * (`Modal`). Only for a moment after the menu closes: a dialog opened later,
+ * by something else, has its own opener.
+ */
+let handedOver: { element: HTMLElement; at: number } | null = null
+const HANDOVER_MS = 1000
+
+export function focusBeforeClosedMenu(): HTMLElement | null {
+  if (!handedOver || performance.now() - handedOver.at > HANDOVER_MS) return null
+  return handedOver.element.isConnected ? handedOver.element : null
+}
+
 export const useContextMenu = create<ContextMenuStore>((set) => ({
   menu: null,
   open: (request) => {
@@ -173,7 +189,11 @@ export const useContextMenu = create<ContextMenuStore>((set) => ({
       },
     })
   },
-  close: () => set({ menu: null }),
+  close: () =>
+    set((state) => {
+      if (state.menu?.returnFocus) handedOver = { element: state.menu.returnFocus, at: performance.now() }
+      return { menu: null }
+    }),
 }))
 
 /** The anchor just under an element — where a menu opened by a button belongs. */

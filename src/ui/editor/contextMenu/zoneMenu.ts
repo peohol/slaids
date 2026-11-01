@@ -44,7 +44,7 @@ import type {
 import { SEPARATOR, type MenuAction, type MenuEntry } from '../../components/contextMenu'
 import type { IconName } from '../../components/Icon'
 import { contentKindEntries, contentKindOptions } from '../contentKinds'
-import { AXIS_LABELS, splitSummary, zoneTitle } from '../zoneDescription'
+import { AXIS_LABELS, SIZE_SCOPE_TITLES, splitSummary, zoneTitle } from '../zoneDescription'
 
 export interface ZoneMenuHandlers {
   /** Fill an empty zone with fresh content of a kind. */
@@ -474,7 +474,7 @@ function siblingEntries(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuE
       onSelect: () => handlers.duplicate(nodeId),
     },
     reorderSubmenu(input, handlers, parent),
-    equalizeAction(input, handlers, parent, 'equalize-siblings', 'Fordel søskensoner likt'),
+    equalizeAction(input, handlers, parent, 'equalize-siblings', 'Fordel søskensonene likt'),
   ]
 }
 
@@ -504,7 +504,7 @@ function ratioSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers, split: S
   return {
     kind: 'submenu',
     id: 'ratios',
-    label: 'Juster forholdstall',
+    label: SIZE_SCOPE_TITLES.inside,
     icon: 'zones',
     entries: [
       ...presets,
@@ -565,7 +565,7 @@ export function zoneModeMenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers): 
           onSelect: () => handlers.openSplitDialog(nodeId),
         },
         ratioSubmenu(input, handlers, node),
-        equalizeAction(input, handlers, node, 'equalize', 'Fordel likt'),
+        equalizeAction(input, handlers, node, 'equalize', 'Fordel subsonene likt'),
         SEPARATOR,
         ...siblingEntries(input, handlers),
         SEPARATOR,

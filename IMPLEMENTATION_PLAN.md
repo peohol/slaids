@@ -1766,11 +1766,30 @@ Rot > 2 > 1
 
 Hver ancestor i breadcrumb skal kunne klikkes.
 
+### Størrelse uten å dra
+
+Inspektøren skiller to spørsmål som begge endrer forholdstall:
+
+- En valgt **delt sone** får «Fordeling inni denne sonen»: forholdstallene
+  mellom dens direkte subsoner.
+- En valgt sone **med forelder** får «Størrelse blant søskensonene»: dens
+  forholdstall i foreldrens deling.
+- En delt sone som selv har forelder får begge, i den rekkefølgen, hver med
+  stien til delingen den endrer («Rot › 2»). Sonemenyen bruker de samme
+  navnene («Fordel subsonene likt», «Fordel søskensonene likt»).
+
+Begge går gjennom den samme kommandoen som dragehåndtaket.
+
 ---
 
 ## 11\. Splitt-modal
 
 Splitt-dialogen skal vise valgt sone med riktig aspektforhold og live preview.
+
+Den er én dialog med samme mål, sti og handling uansett hvor den åpnes fra
+(inspektør, ikonraden over sonen, sonemenyen, forholdstallmenyen,
+malredigeringen): «Del sone» for et blad, «Rediger deling» for en delt sone.
+Lukking gir fokus tilbake til kontrollen som åpnet den.
 
 ### Kontroller
 

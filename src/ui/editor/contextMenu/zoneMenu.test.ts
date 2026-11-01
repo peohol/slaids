@@ -20,6 +20,7 @@ import {
   zoneModeMenu,
   type ZoneMenuHandlers,
 } from './zoneMenu'
+import { SIZE_SCOPE_TITLES } from '../zoneDescription'
 
 const checks = { fits: estimateFitChecker }
 
@@ -143,6 +144,30 @@ describe('zoneModeMenu', () => {
 
     const uneven = deckWithSplit([1, 3])
     expect(entry(menuFor(uneven, rootOf(uneven).id).entries, 'equalize')).toMatchObject({ disabled: false })
+  })
+
+  /*
+   * The same two questions as the inspector, in the same words: a nested
+   * split's own children («inni») and the split it sits in («søskensonene»)
+   * are told apart by name, and each entry acts on its own split.
+   */
+  it('names a nested split\'s own distribution and its siblings apart, as the inspector does', () => {
+    const deck = deckWithSplit([1, 3])
+    const rootId = rootOf(deck).id
+    const nestedId = rootOf(deck).children[1].id
+    const nested = unwrap(
+      splitLeaf(deck, { slideId: contentAt(deck, 1).id, nodeId: nestedId, axis: 'y', weights: [1, 2] }),
+    ).presentation
+    const on = handlers()
+    const menu = menuFor(nested, nestedId, on)
+    expect(entry(menu.entries, 'ratios').label).toBe(SIZE_SCOPE_TITLES.inside)
+    expect(entry(menu.entries, 'equalize').label).toBe('Fordel subsonene likt')
+    expect(entry(menu.entries, 'equalize-siblings').label).toBe('Fordel søskensonene likt')
+
+    ;(entry(menu.entries, 'equalize') as MenuAction).onSelect()
+    expect(on.setWeights).toHaveBeenLastCalledWith(nestedId, [1, 1])
+    ;(entry(menu.entries, 'equalize-siblings') as MenuAction).onSelect()
+    expect(on.setWeights).toHaveBeenLastCalledWith(rootId, [1, 1])
   })
 
   it('never offers to copy or delete the root, and says why it cannot be deleted', () => {

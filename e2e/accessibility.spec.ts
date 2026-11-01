@@ -4,8 +4,10 @@ import { expect, test, type Page } from './fixtures'
 import {
   addContentToZone,
   backToLibrary,
+  chooseFromToolbarMenu,
   createPresentation,
   enterZoneMode,
+  nestedDeck,
   stage,
   zoneRects,
 } from './helpers'
@@ -162,6 +164,54 @@ test.describe('tilgjengelighet på desktop', () => {
           'biblioteket',
           async () => {
             await backToLibrary(page)
+          },
+        ],
+      ]
+      const found: string[] = []
+      for (const [name, reach] of states) {
+        await reach()
+        for (const violation of await audit(page)) found.push(`${name} — ${violation}`)
+      }
+      expect(found).toEqual([])
+    })
+  }
+
+  /*
+   * Zone editing's own surfaces (zone-editing plan, Z3): a nested split in the
+   * inspector, with both size sections; the split dialog with kept structure;
+   * and the template editor, in both appearances.
+   */
+  for (const [appearance, colorScheme] of SCHEMES) {
+    test(`soneredigeringens flater har ingen WCAG-brudd, ${appearance} utseende`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme })
+      await nestedDeck(page, 'Soner og tilgjengelighet')
+      const states: Array<[string, () => Promise<void>]> = [
+        [
+          'en nøstet deling valgt',
+          async () => {
+            await page.getByTestId('inspector-child-1').click()
+            await expect(page.getByTestId('inspector-distribution')).toBeVisible()
+            await expect(page.getByTestId('inspector-size-section')).toBeVisible()
+          },
+        ],
+        [
+          'delingsdialogen',
+          async () => {
+            await page.getByTestId('inspector-breadcrumb').getByRole('button', { name: 'Rot' }).click()
+            await page.getByTestId('inspector-action-split').click()
+            await expect(page.getByTestId('split-preview').locator('[data-preview-divider]')).toHaveCount(2)
+          },
+        ],
+        [
+          'malredigeringen',
+          async () => {
+            await page.keyboard.press('Escape')
+            await expect(page.getByTestId('split-modal')).toBeHidden()
+            page.once('dialog', (dialog) => void dialog.accept('Tilgjengelig mal'))
+            await chooseFromToolbarMenu(page, 'presentation', 'open-templates')
+            await page.getByTestId('save-template').click()
+            await page.getByTestId('template-item').getByRole('button', { name: 'Rediger' }).click()
+            await expect(page.getByTestId('template-breadcrumb')).toBeVisible()
           },
         ],
       ]

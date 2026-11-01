@@ -110,9 +110,21 @@ En knapp som åpner en meny viser ikon, navn og en liten pil ned, og sier `aria-
 ### Inspektøren (fra U3)
 
 - **Hode:** det valgte objektet med ikon og blekk, navn og én linje om plassering, med en strek i valgtblått langs venstre kant — samme blå som sliden tegner valgt sone med. Inndeling, miniapp, avledet side og «ingen sone valgt» bruker samme hode (`InspectorHeader`).
-- **Grupper:** navngitte seksjoner skilt med en tynn linje, i fast rekkefølge: innhold, sone, størrelse.
+- **Grupper:** navngitte seksjoner skilt med en tynn linje, i fast rekkefølge: innhold, sone, så størrelse. Størrelse er to spørsmål med hvert sitt navn (fra Z3): «Fordeling inni denne sonen» (en delt sones egne subsoner) og «Størrelse blant søskensonene» (den valgte sonen i foreldrens deling). En nøstet delt sone har begge, hver med stien til delingen den endrer; den valgte sonens rad sier «(denne)».
 - **Handlingsknapp** (`InspectorButton`): et langt navn brytes under seg selv; ikonet står fast. En utilgjengelig handling får stiplet kant og falmet navn, men grunnen står lesbart under navnet (dimmet tekst, 6,0:1) — ikke bare i et verktøytips. Fjerner handlingen noe, har teksten faretekstfarge og står sist.
 - **Utvidbar gruppe** (`InspectorFold`): en `<details>` med pil som snus; åpnes med tastatur, mus og trykk, og husker tilstanden i økten. For sjeldne tall og lange forklaringer.
+
+### Sonemarkering (fra Z3)
+
+Én regel for hvordan soner tegnes i chrome: **heltrukket og sterkt er det som endres her; stiplet og svakt er struktur som vises som kontekst.**
+
+- **Scenen:** valgt sone har heltrukket, valgtblå kant; andre soner er stiplet. Pekeren gir heltrukket, nøytral kant, uten fyll over innholdet.
+- **Delingsdialogen:** målsonen er én nøytral ramme; de direkte subsonene som får nye mål, er heltrukne, tonet og nummerert; underinndelinger som beholdes, er stiplede skiller.
+- **Malredigeringen:** alle soner er stiplede og svakt tonet; valgt sone har den ene heltrukne, valgtblå kanten. En delt sone får ingen egen ramme.
+- Skillet bæres av heltrukket/stiplet, tykkelse, tall og tekst, ikke farge alene; i tvungne farger blir det Highlight mot GrayText.
+- Forhåndsvisningene ligger i samme avgrensede boks (`BoundedPreview`): begrenset i bredde og høyde, én skala, ingen rulling.
+- Stien skrives likt overalt: «Rot › 2 › 1» i stilinjen, inspektøren, statuslinjen, dialogen og malredigeringen. Undersonene i en deling heter «Sone 1: Tom sone» i inspektøren og malredigeringen.
+- En dialog gir fokus tilbake til kontrollen som åpnet den, også når den ble åpnet fra en menyoppføring (da til knappen menyen ble åpnet fra).
 
 ### Tekstverktøylinjen (fra U4)
 

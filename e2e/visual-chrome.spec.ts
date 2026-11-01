@@ -167,6 +167,28 @@ test.describe('app-chromen, visuelt', () => {
   })
 
   /*
+   * Zone editing as one tool (Z3): a nested split's two size questions in the
+   * inspector, and the template editor in the same marks and words.
+   */
+  test.describe('soneredigering, desktop 1600 × 1000', () => {
+    test.use({ viewport: { width: 1600, height: 1000 } })
+
+    test('inspektøren med nøstet deling, og malredigeringen', async ({ page }) => {
+      await nestedDeck(page)
+      await page.getByTestId('inspector-child-1').click()
+      await expect(page.getByTestId('inspector-distribution')).toBeVisible()
+      await shoot(page, page.getByTestId('inspector'), 'inspector-nested-split-1600.png')
+      page.once('dialog', (dialog) => void dialog.accept('To rader'))
+      await page.getByTestId('toolbar-menu-presentation').click()
+      await page.getByTestId('context-menu').getByTestId('open-templates').click()
+      await page.getByTestId('save-template').click()
+      await page.getByTestId('template-item').getByRole('button', { name: 'Rediger' }).click()
+      await page.getByTestId('template-child-1').click()
+      await shoot(page, page.getByTestId('template-editor'), 'template-editor-1600.png')
+    })
+  })
+
+  /*
    * The light appearance, by the system setting the app follows by default:
    * the surfaces where most of its tokens meet — the library, the toolbar in
    * both modes, the inspector, the strip and a menu.

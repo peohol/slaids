@@ -136,8 +136,11 @@ describe('Inspector', () => {
     const root = contentAt(halves, 1).root
     if (root.kind !== 'split') throw new Error('roten skulle vært splittet')
     const doc = render(halves, root.children[1].id)
-    expect(sectionOrder(doc)).toEqual(['Innhold', 'Sone', 'Størrelse'])
+    expect(sectionOrder(doc)).toEqual(['Innhold', 'Sone', 'Størrelse blant søskensonene'])
     expect(text(doc, 'inspector-selection')).toContain('Sone 2 av 2, side ved side')
+    expect(text(doc, 'zone-size-scope')).toBe('Denne sonen er sone 2 av 2 i Rot.')
+    // The selected zone's row says so in words, not only in weight.
+    expect(doc.querySelector('[aria-current="true"]')?.textContent).toBe('Sone 2 (denne)')
     // A single zone is grown or shrunk directly; each ratio is one fold away.
     expect(doc.querySelector('[data-testid="zone-size-grow"]')).not.toBeNull()
     expect(doc.querySelector('[data-testid="zone-weight-0"]')?.closest('details')).not.toBeNull()
@@ -146,7 +149,8 @@ describe('Inspector', () => {
   it('gives a split no content section, and its ratios unfolded', () => {
     const { presentation, slide } = deck()
     const doc = render(split(presentation, slide.root.id), slide.root.id)
-    expect(sectionOrder(doc)).toEqual(['Sone', 'Størrelse'])
+    expect(sectionOrder(doc)).toEqual(['Sone', 'Fordeling inni denne sonen'])
+    expect(text(doc, 'zone-size-scope')).toBe('Forholdet mellom de 2 direkte subsonene i Rot.')
     expect(text(doc, 'inspector-selection')).toContain('Delt sone')
     expect(text(doc, 'inspector-selection')).toContain('2 soner side ved side')
     expect(doc.querySelector('[data-testid="zone-weight-0"]')?.closest('details')).toBeNull()
@@ -154,6 +158,41 @@ describe('Inspector', () => {
     // Its zones by name: the way down without aiming at the slide.
     expect(text(doc, 'inspector-child-0')).toBe('Sone 1: Tom sone')
     expect(text(doc, 'inspector-child-1')).toBe('Sone 2: Tom sone')
+  })
+
+  /*
+   * A split that is itself a child answers two questions with two sets of
+   * ratios, and the panel keeps them apart: its own children inside, then
+   * itself among its siblings — each under its own name, with its own numbers
+   * and the path of the split it acts on.
+   */
+  it('separates a nested split\'s own distribution from its size among its siblings', () => {
+    const { presentation, slide } = deck()
+    const halves = split(presentation, slide.root.id)
+    const root = contentAt(halves, 1).root
+    if (root.kind !== 'split') throw new Error('roten skulle vært splittet')
+    const nested = split(halves, root.children[1].id)
+    const doc = render(nested, root.children[1].id)
+    expect(sectionOrder(doc)).toEqual(['Sone', 'Fordeling inni denne sonen', 'Størrelse blant søskensonene'])
+
+    const inside = doc.querySelector('[data-testid="inspector-distribution"]')
+    const siblings = doc.querySelector('[data-testid="inspector-size-section"]')
+    expect(inside?.querySelector('[data-testid="zone-size-scope"]')?.textContent).toBe(
+      'Forholdet mellom de 2 direkte subsonene i Rot › 2.',
+    )
+    expect(siblings?.querySelector('[data-testid="zone-size-scope"]')?.textContent).toBe(
+      'Denne sonen er sone 2 av 2 i Rot.',
+    )
+    // Inside: every child's ratio, unfolded. Among siblings: grow or shrink this one.
+    expect(inside?.querySelector('[data-testid="zone-weight-0"]')?.closest('details')).toBeNull()
+    expect(inside?.querySelector('[data-testid="zone-size-grow"]')).toBeNull()
+    expect(siblings?.querySelector('[data-testid="zone-size-grow"]')).not.toBeNull()
+    // Each group of fields is named after its question for a screen reader.
+    expect(inside?.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Fordeling inni denne sonen')
+    expect(siblings?.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Størrelse blant søskensonene')
+    // One explanation, under the last of them.
+    expect(doc.querySelectorAll('[data-testid="inspector-fold-zone-size-help"]')).toHaveLength(1)
+    expect(siblings?.querySelector('[data-testid="inspector-fold-zone-size-help"]')).not.toBeNull()
   })
 
   it('files actions by what they act on, removals last, with the reason a disabled one gives', () => {

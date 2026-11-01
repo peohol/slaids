@@ -1563,6 +1563,13 @@ export function EditorView({
       }
 
       if (typing) return
+      /*
+       * A dialog's own keys are its own: arrows move between its choices (the
+       * split dialog's direction, say), not through the deck or the zone tree
+       * behind it — where a step would also change the zone the dialog is
+       * about.
+       */
+      if (target?.closest?.('[role="dialog"]')) return
 
       /*
        * Up and down move through the deck — but not over the shoulder of

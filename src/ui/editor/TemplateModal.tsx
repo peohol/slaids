@@ -15,7 +15,7 @@ import {
 } from '../../domain/commands'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { computeSlideGeometry, hitTestLayout } from '../../domain/geometry'
-import { breadcrumbLabels, collectNodes, findNode, stripContent } from '../../domain/layout'
+import { breadcrumbLabels, collectLeaves, findNode, findParent, stripContent } from '../../domain/layout'
 import { newTemplateId } from '../../domain/ids'
 import { geometryForTheme } from '../../domain/metrics'
 import {
@@ -27,14 +27,16 @@ import {
 import { repository } from '../../persistence/activeRepository'
 import { notify } from '../../state/toast'
 import { describeError } from '../../domain/result'
-import type { ContentSlide, LayoutNode, LayoutTemplate, Presentation } from '../../domain/types'
+import type { ContentSlide, LayoutNode, LayoutTemplate, Presentation, Rect } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
 import { SplitModal, type SplitModalResult } from './SplitModal'
-import { absoluteStyle } from '../slide/SlideView'
-
-const PREVIEW_WIDTH = 560
+import { Tooltip } from '../components/Tooltip'
+import { unavailable } from '../components/unavailable'
+import { BoundedPreview } from './BoundedPreview'
+import { canClearZone, ROOT_REMOVE_REASON, ZONE_ACTIONS } from './contextMenu/zoneMenu'
+import { ZoneBreadcrumb, ZoneChildList } from './ZoneBreadcrumb'
 
 /**
  * The theme a template is edited in: the scratch deck's.
@@ -69,6 +71,24 @@ function scratchRoot(presentation: Presentation, slideId: string): LayoutNode | 
   return findContentSlide(presentation, slideId)?.root ?? null
 }
 
+/** The slide a template is drawn on, in slide units. */
+const SLIDE_SIZE = { width: SLIDE_WIDTH, height: SLIDE_HEIGHT }
+/** The selected zone's edge: drawn inside its rect, so it never covers a neighbour. */
+const SELECTED_STROKE = 3
+
+/**
+ * A template's layout, drawn from the engine's rects in the zone-editing
+ * language (`docs/UX_DESIGN_SYSTEM.md`, «Sonemarkering»): the zones as
+ * quiet, dashed context, and — in the editor — the selected zone as the one
+ * solid, blue edge, the same «valgt» the slide draws. A split is not given a
+ * frame of its own: its edges are its children's, and a second, dashed frame
+ * over them would make a structural node look like one more zone.
+ *
+ * The box is the split dialog's bounded one (`BoundedPreview`), so the picture
+ * shrinks with the dialog instead of being a fixed 560 px scaled by a
+ * transform. A press is read where it lands on the drawing, by the same
+ * hit test the stage uses.
+ */
 function LayoutPreview({
   root,
   hasTitle,
@@ -82,58 +102,78 @@ function LayoutPreview({
 }) {
   const slide: ContentSlide = { ...createSlide({ hasTitle }), root }
   const geometry = computeSlideGeometry(slide, TEMPLATE_GEOMETRY)
-  const scale = PREVIEW_WIDTH / SLIDE_WIDTH
+  const leaves = collectLeaves(root)
+  const selectedRect = selectedId ? geometry.rects.get(selectedId) : undefined
+  const description = [
+    `Malens layout: ${leaves.length === 1 ? 'én sone' : `${leaves.length} soner`}`,
+    hasTitle ? 'med overskriftssone' : null,
+    selectedId ? `Valgt sone: ${breadcrumbLabels(root, selectedId).join(' › ')}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
-    <div
-      className="template-preview"
-      style={{ width: PREVIEW_WIDTH, height: SLIDE_HEIGHT * scale }}
-      data-testid="template-preview"
-      onClick={(event) => {
-        if (!onSelect) return
-        const bounds = event.currentTarget.getBoundingClientRect()
-        const x = (event.clientX - bounds.left) / scale
-        const y = (event.clientY - bounds.top) / scale
-        const hit = hitTestLayout(root, geometry.rects, x, y)
-        if (hit) onSelect(hit)
-      }}
-    >
-      {geometry.titleRect && (
-        <div
-          className="template-preview__title"
-          style={{
-            left: geometry.titleRect.x * scale,
-            top: geometry.titleRect.y * scale,
-            width: geometry.titleRect.width * scale,
-            height: geometry.titleRect.height * scale,
-          }}
-        />
-      )}
-      {collectNodes(root).map((node) => {
-        const rect = geometry.rects.get(node.id)
-        if (!rect) return null
+    <BoundedPreview size={SLIDE_SIZE} className="template-preview" testId="template-preview">
+      {(scale) => {
+        const at = (rect: Rect, inset = 0) => ({
+          x: rect.x * scale + inset,
+          y: rect.y * scale + inset,
+          width: Math.max(rect.width * scale - 2 * inset, 0.5),
+          height: Math.max(rect.height * scale - 2 * inset, 0.5),
+        })
         return (
-          <div
-            key={node.id}
-            className={[
-              'template-preview__cell',
-              node.kind === 'split' ? 'template-preview__cell--split' : '',
-              node.id === selectedId ? 'template-preview__cell--selected' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            style={{
-              ...absoluteStyle({
-                x: rect.x * scale,
-                y: rect.y * scale,
-                width: rect.width * scale,
-                height: rect.height * scale,
-              }),
+          <svg
+            className={onSelect ? 'template-preview__drawing is-selectable' : 'template-preview__drawing'}
+            role="img"
+            aria-label={`${description}.`}
+            width={SLIDE_WIDTH * scale}
+            height={SLIDE_HEIGHT * scale}
+            onClick={(event) => {
+              if (!onSelect) return
+              const bounds = event.currentTarget.getBoundingClientRect()
+              const x = (event.clientX - bounds.left) / scale
+              const y = (event.clientY - bounds.top) / scale
+              const hit = hitTestLayout(root, geometry.rects, x, y)
+              if (hit) onSelect(hit)
             }}
-          />
+          >
+            <rect
+              className="template-preview__slide"
+              x={0.5}
+              y={0.5}
+              width={SLIDE_WIDTH * scale - 1}
+              height={SLIDE_HEIGHT * scale - 1}
+              rx={2}
+            />
+            {geometry.titleRect && (
+              <rect className="template-preview__title" {...at(geometry.titleRect)} rx={2} />
+            )}
+            {leaves.map((leaf) => {
+              const rect = geometry.rects.get(leaf.id)
+              if (!rect) return null
+              return (
+                <rect
+                  key={leaf.id}
+                  className="template-preview__cell"
+                  data-template-zone={leaf.id}
+                  {...at(rect, 0.5)}
+                  rx={2}
+                />
+              )
+            })}
+            {selectedRect && selectedId && (
+              <rect
+                className="template-preview__selected"
+                data-template-selected={selectedId}
+                {...at(selectedRect, SELECTED_STROKE / 2)}
+                strokeWidth={SELECTED_STROKE}
+                rx={3}
+              />
+            )}
+          </svg>
         )
-      })}
-    </div>
+      }}
+    </BoundedPreview>
   )
 }
 
@@ -207,6 +247,13 @@ export function TemplateModal({
   }
 
   const selectedTemplateNode = editing && selectedNode ? findNode(editing.root, selectedNode) : null
+  const isRoot = Boolean(editing && selectedNode === editing.root.id)
+  /* «Del sone …» for a leaf and «Rediger deling …» for a split, as everywhere
+     else: both open the split dialog, which asks before it acts. */
+  const splitAction =
+    selectedTemplateNode?.kind === 'split'
+      ? ZONE_ACTIONS.editSplit
+      : { ...ZONE_ACTIONS.split, label: `${ZONE_ACTIONS.split.label} …` }
 
   const handleSplitApply = (result: SplitModalResult): string | null => {
     if (!editing || !selectedNode) return null
@@ -369,7 +416,31 @@ export function TemplateModal({
               selectedId={selectedNode}
               onSelect={setSelectedNode}
             />
+            {/* The way up and down the tree without aiming at the picture —
+                the same path and the same zone names as the inspector, so a
+                zone is reachable from the keyboard however small it is. */}
+            {selectedTemplateNode && selectedNode ? (
+              <div className="template-editor__nav">
+                <ZoneBreadcrumb
+                  root={editing.root}
+                  nodeId={selectedNode}
+                  onSelect={setSelectedNode}
+                  testId="template-breadcrumb"
+                />
+                <ZoneChildList
+                  node={selectedTemplateNode}
+                  onSelect={setSelectedNode}
+                  testIdPrefix="template-child"
+                  layout="row"
+                />
+              </div>
+            ) : (
+              <p className="hint">Velg en sone i tegningen.</p>
+            )}
             <div className="template-editor__tools">
+              {/* Named as the zone menu, the inspector and the icon row name
+                  them (`ZONE_ACTIONS`); removing asks nothing here, since a
+                  template has no content to lose, so it has no ellipsis. */}
               <button
                 type="button"
                 className="btn btn--sm"
@@ -377,35 +448,48 @@ export function TemplateModal({
                 data-testid="template-split"
                 onClick={() => setSplitOpen(true)}
               >
-                <Icon name={selectedTemplateNode?.kind === 'split' ? 'edit' : 'split-x'} size={14} />
-                {selectedTemplateNode?.kind === 'split' ? ' Rediger splitting' : ' Splitt sone'}
+                <Icon name={splitAction.icon} size={14} /> {splitAction.label}
               </button>
-              <button
-                type="button"
-                className="btn btn--sm"
-                disabled={!selectedTemplateNode || selectedNode === editing.root.id}
-                onClick={() =>
-                  applyEdit((scratch, slideId, nodeId) => {
-                    const outcome = deleteLayoutNode(scratch, {
-                      slideId,
-                      nodeId,
-                      contentDisposition: 'delete',
+              <Tooltip label={isRoot ? ROOT_REMOVE_REASON : 'Søsknene fyller plassen etter sonen.'}>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  disabled={!selectedTemplateNode}
+                  data-testid="template-delete"
+                  onClick={() =>
+                    applyEdit((scratch, slideId, nodeId) => {
+                      const parent = findParent(editing.root, nodeId)
+                      // Where the zone was: its parent — or, when the parent
+                      // collapses into the one sibling left, that sibling.
+                      const nearby = parent
+                        ? [parent.id, ...parent.children.map((child) => child.id).filter((id) => id !== nodeId)]
+                        : []
+                      const outcome = deleteLayoutNode(scratch, {
+                        slideId,
+                        nodeId,
+                        contentDisposition: 'delete',
+                      })
+                      if (!outcome.ok) {
+                        notify.error(outcome.error.message)
+                        return null
+                      }
+                      const next = scratchRoot(outcome.value.presentation, slideId)
+                      setSelectedNode(
+                        (next && nearby.find((id) => findNode(next, id))) ?? next?.id ?? null,
+                      )
+                      return next
                     })
-                    if (!outcome.ok) {
-                      notify.error(outcome.error.message)
-                      return null
-                    }
-                    setSelectedNode(null)
-                    return scratchRoot(outcome.value.presentation, slideId)
-                  })
-                }
-              >
-                <Icon name="trash" size={14} /> Slett sone
-              </button>
+                  }
+                  {...unavailable(isRoot)}
+                >
+                  <Icon name={ZONE_ACTIONS.remove.icon} size={14} /> Slett sone
+                </button>
+              </Tooltip>
               <button
                 type="button"
                 className="btn btn--sm"
-                disabled={!selectedTemplateNode}
+                disabled={!selectedTemplateNode || !canClearZone(selectedTemplateNode)}
+                data-testid="template-clear"
                 onClick={() =>
                   applyEdit((scratch, slideId, nodeId) => {
                     const outcome = clearLayoutNode(scratch, {
@@ -421,7 +505,7 @@ export function TemplateModal({
                   })
                 }
               >
-                <Icon name="eraser" size={14} /> Tøm sone
+                <Icon name={ZONE_ACTIONS.clear.icon} size={14} /> Tøm sone
               </button>
               <label className="template-editor__title-toggle">
                 <input
