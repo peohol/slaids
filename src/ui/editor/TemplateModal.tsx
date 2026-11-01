@@ -458,7 +458,12 @@ export function TemplateModal({
                   data-testid="template-delete"
                   onClick={() =>
                     applyEdit((scratch, slideId, nodeId) => {
-                      const parentId = findParent(editing.root, nodeId)?.id ?? null
+                      const parent = findParent(editing.root, nodeId)
+                      // Where the zone was: its parent — or, when the parent
+                      // collapses into the one sibling left, that sibling.
+                      const nearby = parent
+                        ? [parent.id, ...parent.children.map((child) => child.id).filter((id) => id !== nodeId)]
+                        : []
                       const outcome = deleteLayoutNode(scratch, {
                         slideId,
                         nodeId,
@@ -469,9 +474,9 @@ export function TemplateModal({
                         return null
                       }
                       const next = scratchRoot(outcome.value.presentation, slideId)
-                      // Where the zone was, as the stage does: its parent, or
-                      // the zone that took its place when the parent collapsed.
-                      setSelectedNode(next && parentId && findNode(next, parentId) ? parentId : (next?.id ?? null))
+                      setSelectedNode(
+                        (next && nearby.find((id) => findNode(next, id))) ?? next?.id ?? null,
+                      )
                       return next
                     })
                   }

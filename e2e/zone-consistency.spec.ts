@@ -298,6 +298,20 @@ test.describe('soneredigering som ett verktøy', () => {
     await expect(editor.getByTestId('template-delete')).toHaveAttribute('aria-disabled', 'true')
     await editor.getByTestId('template-delete').focus()
     await expect(page.getByRole('tooltip')).toContainText('Hovedsonen kan ikke slettes')
+
+    // Deleting a zone keeps the selection where it was: on its parent, or —
+    // when the parent collapses into the one sibling left — on that sibling.
+    const current = editor.getByTestId('template-breadcrumb').locator('[aria-current]')
+    await editor.getByTestId('template-child-1').click()
+    await editor.getByTestId('template-child-0').click()
+    await editor.getByTestId('template-delete').click()
+    await expect(current).toHaveText('2')
+    await expect(editor.getByTestId('template-split')).toHaveText('Rediger deling …')
+    await editor.getByTestId('template-child-0').click()
+    await editor.getByTestId('template-delete').click()
+    await expect(current).toHaveText('2')
+    await expect(editor.getByTestId('template-split')).toHaveText('Del sone …')
+    await expect(picture.locator('.template-preview__cell')).toHaveCount(2)
     expect(guard.errors).toEqual([])
   })
 })
