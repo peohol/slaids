@@ -199,18 +199,39 @@ describe('SplitModal as a draft', () => {
     expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('says before «Bruk» when the content of a split leaf will go to the sandbox', () => {
+  /**
+   * What the caption says about where the content goes. (The picture is not
+   * drawn here — jsdom has no layout to size it — so the picture and its
+   * description are checked in `e2e/split-flow.spec.ts`.)
+   */
+  const contentClaims = () => ({ line: byTestId('split-content-line')?.textContent ?? null })
+
+  it('says before «Bruk» when the content of a split leaf will go to the sandbox, and claims no zone for it', () => {
     vi.useFakeTimers()
     const check = vi.fn<(result: SplitModalResult) => SplitCheck>(() => ({ ok: true, movedToSandbox: 1, discarded: 0 }))
     render({ leafContent: createContentOfKind('titled-card'), check })
     click('split-content-target-1')
     expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(true)
+    // Until the dry run answers, the chosen zone is a proposal, not a result.
+    const proposed = 'Innholdet er tenkt i sone 2; om det får plass der, er ikke kontrollert ennå.'
+    expect(contentClaims().line).toBe(proposed)
+
     act(() => vi.advanceTimersByTime(200))
     expect(check).toHaveBeenLastCalledWith(expect.objectContaining({ contentTargetIndex: 1 }))
     expect(byTestId('split-check')!.textContent).toBe(
       'Innholdet får ikke plass i sone 2, så det flyttes til sandkassen når du trykker «Bruk».',
     )
+    expect(contentClaims().line).toBeNull()
     expect((byTestId('split-apply') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the zone the content lands in once the dry run says it fits', () => {
+    vi.useFakeTimers()
+    const check = vi.fn<(result: SplitModalResult) => SplitCheck>(() => ({ ok: true, movedToSandbox: 0, discarded: 0 }))
+    render({ leafContent: createContentOfKind('titled-card'), check })
+    act(() => vi.advanceTimersByTime(200))
+    expect(contentClaims().line).toBe('Innholdet havner i sone 1.')
+    expect(byTestId('split-check')).toBeNull()
   })
 
   it('does not ask the dry run when no content is involved', () => {

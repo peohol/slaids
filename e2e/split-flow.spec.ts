@@ -221,19 +221,32 @@ test.describe('split dialog flow', () => {
   })
 
   test('says before «Bruk» where the content goes, and when it goes to the sandbox', async ({ page }) => {
-    await deckWithLongCard(page, 'Innholdsmål', 8)
+    await deckWithLongCard(page, 'Innholdsmål', 6)
     await openSplitDialog(page)
+    const line = page.getByTestId('split-content-line')
+    const marked = page.getByTestId('split-preview').locator('[data-content-target]')
+    const described = page.getByTestId('split-preview').locator('svg')
+
+    // Nearly all the height: the card fits in zone 1, and the dialog says so.
     await page.getByTestId('split-axis-y').click()
-    await page.getByTestId('split-content-target-1').click()
-    await expect(page.getByTestId('split-content-line')).toHaveText('Innholdet havner i sone 2.')
-    await expect(
-      page.getByTestId('split-preview').locator('[data-preview-zone="2"]'),
-    ).toHaveAttribute('data-content-target', 'true')
+    await page.getByTestId('split-weight-0').fill('10')
+    await expect(line).toHaveText('Innholdet havner i sone 1.')
+    await expect(marked).toHaveAttribute('data-preview-zone', '1')
+    await expect(described).toHaveAttribute('aria-label', /Innholdet havner i sone 1\./)
+    await expect(page.getByTestId('split-check')).toHaveCount(0)
+
     // Half the height is room enough for a card, but not for this one's text.
+    await page.getByTestId('split-weight-0').fill('1')
+    await page.getByTestId('split-content-target-1').click()
     await expect(page.getByTestId('split-invalid')).toHaveCount(0)
     await expect(page.getByTestId('split-check')).toHaveText(
       'Innholdet får ikke plass i sone 2, så det flyttes til sandkassen når du trykker «Bruk».',
     )
+    // Then nothing else may claim a zone for it: not the caption, the picture or its description.
+    await expect(line).toHaveCount(0)
+    await expect(marked).toHaveCount(0)
+    await expect(described).not.toHaveAttribute('aria-label', /Innholdet/)
+
     await page.getByTestId('split-apply').click()
     await expect(page.getByTestId('split-modal')).toBeHidden()
     await expect(sandboxCount(page)).toHaveText('1')

@@ -63,6 +63,24 @@ function tooSmallMessage(labels: readonly string[]): string {
 
 const AXIS_LABELS: Record<Axis, string> = { x: 'side ved side', y: 'over hverandre' }
 
+/**
+ * The content of a split leaf and the zone chosen for it: `proposed` until the
+ * dry run has answered, then `placed` there or moved to the `sandbox`.
+ */
+interface ContentFate {
+  index: number
+  state: 'proposed' | 'placed' | 'sandbox'
+}
+
+/** The caption's line about it; none once it goes to the sandbox — the warning says that. */
+function contentFateLine({ index, state }: ContentFate): string | null {
+  if (state === 'placed') return `Innholdet havner i sone ${index + 1}.`
+  if (state === 'proposed') {
+    return `Innholdet er tenkt i sone ${index + 1}; om det får plass der, er ikke kontrollert ennå.`
+  }
+  return null
+}
+
 /** «Sone 2 inneholder 3 underordnede soner; disse beholdes.» — for each zone that has any. */
 function keptStructure(zones: readonly PreviewZone[]): string[] {
   return zones
@@ -255,12 +273,30 @@ export function SplitModal({
       : null
   const keptLines = previewModel ? keptStructure(previewModel.zones) : []
   const tooSmallLabels = (preview?.tooSmall ?? []).map((index) => String(index + 1))
-  const contentIndex = mode === 'create' && hasContent ? contentTargetIndex : null
+  /*
+   * Where the content of a split leaf ends up, said only as firmly as it is
+   * known. The chosen zone is a proposal until the dry run has answered; once
+   * it has, the content either lands there or — when it does not fit — goes
+   * to the sandbox, and then neither the picture nor the caption may claim a
+   * zone for it.
+   */
+  const contentFate: ContentFate | null =
+    mode === 'create' && hasContent
+      ? {
+          index: contentTargetIndex,
+          state: !verdict?.ok
+            ? 'proposed'
+            : verdict.movedToSandbox > 0
+              ? 'sandbox'
+              : 'placed',
+        }
+      : null
+  const contentLine = contentFate ? contentFateLine(contentFate) : null
   const previewDescription = previewModel
     ? [
         `Forhåndsvisning: ${count} subsoner ${AXIS_LABELS[axis]} i forholdet ${weights?.join(' : ')}.`,
         ...keptLines,
-        ...(contentIndex !== null ? [`Innholdet havner i sone ${contentIndex + 1}.`] : []),
+        ...(contentLine ? [contentLine] : []),
       ].join(' ')
     : 'Ingen forhåndsvisning: forholdstallene kan ikke leses.'
 
@@ -326,7 +362,7 @@ export function SplitModal({
               model={previewModel}
               description={previewDescription}
               activeIndex={activeZone}
-              contentIndex={contentIndex}
+              contentIndex={contentFate?.state === 'placed' ? contentFate.index : null}
               onZoneHover={setHoveredZone}
               onZoneSelect={(index) => weightFields.current[index]?.focus()}
             />
@@ -343,9 +379,9 @@ export function SplitModal({
                       {line}
                     </span>
                   ))}
-                  {contentIndex !== null && (
-                    <span data-testid="split-content-line">
-                      Innholdet havner i sone {contentIndex + 1}.
+                  {contentLine && (
+                    <span data-testid="split-content-line" data-state={contentFate?.state}>
+                      {contentLine}
                     </span>
                   )}
                 </>
@@ -364,9 +400,9 @@ export function SplitModal({
                     ` Gjelder sone ${listed(refused.zones.map((index) => String(index + 1)))} (skravert).`}
                 </span>
               )}
-              {verdict?.ok && mode === 'create' && verdict.movedToSandbox > 0 && (
+              {contentFate?.state === 'sandbox' && (
                 <span className="split-figure__warning" data-testid="split-check" role="status">
-                  Innholdet får ikke plass i sone {contentTargetIndex + 1}, så det flyttes til
+                  Innholdet får ikke plass i sone {contentFate.index + 1}, så det flyttes til
                   sandkassen når du trykker «Bruk».
                 </span>
               )}

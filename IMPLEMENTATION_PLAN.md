@@ -1828,8 +1828,11 @@ angrebar endring.
   som finnes i dem, uansett hvor dypt. Standard er å flytte innholdet til
   sandkassen; å slette det krever en egen bekreftelse som oppgir antallet, og
   bekreftelsen kan gjøres om til sandkassen i stedet.
-- **Deling av en fylt sone**: dialogen viser hvilken subsone som får innholdet,
-  også i previewet.
+- **Deling av en fylt sone**: dialogen viser hvilken subsone som er valgt for
+  innholdet – som forslag til tørrkjøringen har svart, deretter som resultat i
+  tekst og preview. Går innholdet til sandkassen fordi det ikke får plass,
+  påstår verken preview, tekst eller previewets beskrivelse at det havner i
+  en subsone.
 - **Tørrkjøring**: når innhold er berørt og geometrien er lovlig, kjører
   dialogen den samme kommandoen som «Bruk» – med de samme fit-kontrollene – mot
   dokumentet slik det står. Et avslag vises med domenets begrunnelse og den
