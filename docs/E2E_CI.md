@@ -4,7 +4,7 @@ Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i t
 
 | Kjøring | Når | Hva | Tid (målt) |
 | --- | --- | --- | --- |
-| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (33 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
+| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (34 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
 | **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle fem prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
 | **Referansebilder** | Bare for hånd fra Actions-fanen (`suite: referansebilder`) | Tar de visuelle referansebildene på nytt og laster dem opp som artefaktet `referansebilder` | ca. 2 min |
 
@@ -28,6 +28,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `golden-path.spec.ts` | Hele gullstien med nøyaktig ett mellomrom overalt |
 | `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |
 | `split-preview.spec.ts` | Delingsdialogens forhåndsvisning av den nøstede 2 + 3-inndelingen: to heltrukne soner, tre stiplede underinndelinger, hele sonen synlig uten rulling |
+| `split-flow.spec.ts` | Delingsdialogen fjerner soner med nøstet innhold: sier hvilke soner og hvor mye innhold, redder det til sandkassen, og angre/gjør om tar hele endringen i ett steg |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |

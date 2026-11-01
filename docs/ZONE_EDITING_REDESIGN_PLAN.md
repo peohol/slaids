@@ -1,7 +1,7 @@
 # Overhaling av soneredigering i Slaids – plan
 
 **Dato:** 01.11.2026  
-**Status:** Z1 implementert og til gjennomgang (se § 11). Z2 og Z3 er ikke startet.  
+**Status:** Z1 merget i PR #117. Z2 implementert og til gjennomgang (se § 11). Z3 er ikke startet.  
 **Ansvar:** ChatGPT utarbeider planen og kontrollerer PR-er; Claude Code implementerer.  
 **Omfang:** Soneredigeringsmodal, visualisering av sonetreet og nødvendige sammenhenger med inspektør, soneoverlegg og malredigering.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md, særlig § 9–11.5 og § 44.6; docs/UX_DESIGN_SYSTEM.md og docs/MOBILE_WORKSPACE.md. Ved konflikt med eldre beskrivende tekst undersøkes faktisk domenekontrakt og nyeste vedtak før implementering.
@@ -137,13 +137,13 @@ SplitModal benyttes også fra TemplateModal: samme nye hierarki og bounding skal
 ## 9. Akseptanseprøver – mekanisk og manuelt
 
 - [x] «Rot» med 2 over/under, nederste med 3 subsoner: **to** tydelige redigerbare primærsoner, **tre** stiplede undersoneområder, ingen stiplet parentramme på hele subsone 2; labels og tekst korrekt.
-- [ ] Flere nivåer, 2–10 direkte barn og eksisterende innhold: samme nummerorden i preview, inputfelter og lagret layout.
+- [x] Flere nivåer, 2–10 direkte barn og eksisterende innhold: samme nummerorden i preview, inputfelter og lagret layout.
 - [x] Ekstreme gyldige målrektangler: 100×1000, 1000×100, svært smale nøstede soner, ulike faktiske tema-gap. Ingen preview-scroll, alle fire ytterkanter fullt synlige, korrekt aspect og én gap.
 - [ ] Desktop 1600×1000, 1366×768 og 1025×768; mobil 412×892 og 892×412; smalt vindu 900×760; nettleserzoom 200 %, med og uten skjermtastatur. Ingen horisontal overflyt; modalens header/footer og handlinger kan nås; preview overskrider aldri sitt område.
 - [ ] Lys/mørk, high contrast/forced colors, fargesvakhetsrobusthet og redusert bevegelse. Skillet aktiv/kontekst og feilstatus kan forstås uten farge alene.
 - [x] Både direkte sonevalg og malredigering: forhåndsvisning og faktisk commit svarer overens, også ved retning, antall og forholdstall.
-- [ ] Gyldige desimaltall og komma, ekvivalente forholdstall, 0/negative/tomme/NaN/ekstreme tall, minimumsbrudd, fit-avslag. Ingen falsk forhåndsvisning og ingen taus feil.
-- [ ] Reduksjon av antall med nøstet innhold viser eksakt hvilke subtrær som fjernes; sandkassen beholder innholdet, «Slett» krever ny bekreftelse, Avbryt endrer ingen ting.
+- [x] Gyldige desimaltall og komma, ekvivalente forholdstall, 0/negative/tomme/NaN/ekstreme tall, minimumsbrudd, fit-avslag. Ingen falsk forhåndsvisning og ingen taus feil.
+- [x] Reduksjon av antall med nøstet innhold viser eksakt hvilke subtrær som fjernes; sandkassen beholder innholdet, «Slett» krever ny bekreftelse, Avbryt endrer ingen ting.
 - [ ] Tab, piltaster der relevant, skjermleser-label, Escape, touch på minst 44 px (når berøringsmodus), og konsekvent fokusretur.
 - [ ] Angre/gjør om, persistering etter reload, hurtigsplitt via kontekstmeny, resize via stage og inspektør, eksisterende E2E, typecheck, lint og unit-tester består.
 - [x] Nye Playwright-tester testes på faktisk viewport og måler previewens bounding box/stroke-inset; skjermbilder i e2e/visual-chrome.spec.ts eller egen avgrenset spesifikasjon beskytter mot visuell regresjon.
@@ -156,7 +156,7 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 
 ## 11. Fremdrift
 
-### Z1 – levert til gjennomgang i PR #117 (01.11.2026)
+### Z1 – merget i PR #117 (01.11.2026)
 
 **Hva som er gjort**
 
@@ -200,3 +200,49 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 - Felles visningsprimitiv for maloversikten (F9) er ikke innført. Det hører til Z3.
 
 **API-/MCP-kontrakt:** Uendret. Ingen endringer i domenet, Agent Core, REST, MCP-skjema eller lagringsformat. Slaids Dev MCP trenger ikke oppdatering.
+
+### Z2 – levert til gjennomgang (01.11.2026)
+
+**Hva som er gjort**
+
+- **Oppsett:** Dialogen har to kolonner når vinduet er minst 820 px bredt: forhåndsvisningen med bildetekst til venstre, kontrollene til høyre. Forhåndsvisningen står stille (sticky) mens kontrollene ruller, så den er synlig fra start også på lave skjermer. Det retter Z1-avviket der forhåndsvisningen lå under kontrollene ved 892 × 412. På smale skjermer stables delene, med forhåndsvisningen først. Header, footer, «Avbryt» og «Bruk» står fast som før, og forhåndsvisningens tak fra Z1 er uendret.
+- **Antall:** Minus/pluss og et tallfelt (`split-count`, 2–10) i stedet for glidebryter. Et tall utenfor 2–10 blir stående i feltet med «Velg et helt tall fra 2 til 10.», brukes ikke, og slår av «Bruk»; feltet går tilbake til gjeldende antall når det forlates.
+- **Forholdstall:** Én rad per direkte subsone med navnet «Sone N» (samme nummer som i tegningen), feltet og sonens andel i hele prosent (summerer til 100). «Lagres som 1 : 3» står rett under feltene, med «nærmeste hele forhold» når det skrevne avviker. Andelen er av plassen uten mellomrom, og det står der. «Fordel likt» setter alle til 1. Den lange forklaringen ligger i «Hvordan fungerer forholdstall?». Fritt inndata (komma, desimaler, over 10) og den sentrale kvantiseringen er uendret.
+- **Kobling felt ↔ sone:** Fokus eller peker på en rad markerer raden og sonen i tegningen (tykkere kant og sterkere tone, ikke bare farge). Peker over en sone markerer raden. Klikk i en sone, også i en beholdt underinndeling som «3.2», fokuserer feltet til den direkte subsonen; redigeringsnivået («Du redigerer: Rot») endres ikke.
+- **Feltfeil:** Hvert felt som ikke kan brukes, får sin egen melding (`aria-invalid` og `aria-describedby`): tomt, ikke et tall, eller 0/negativt. Andelen viser «–», og tegningen viser bare målrammen som i Z1.
+- **Fjerning:** Når antallet senkes, står det rett under antallet hvilke soner som fjernes («Sone 3 fjernes.», «Sone 3–6 fjernes.») og hvor mye innhold som går med i hele undertrærne («Sone 3 inneholder 2 innholdselementer i 2 underordnede soner.»). Standard er sandkassen. «Slett innholdet» krever en egen bekreftelse med antallet («Slette 2 innholdselementer?»), som også tilbyr «Flytt til sandkassen i stedet». Ingen sletting skjer ved antallsjustering alene.
+- **Innholdsmål:** Ved deling av en fylt sone viser tegningen «N · innhold» i sonen som får innholdet, og bildeteksten sier «Innholdet havner i sone N.».
+- **Tørrkjøring før «Bruk»:** Når innhold er berørt og geometrien er lovlig, kjører dialogen den samme kommandoen som «Bruk» (`updateSplit`/`splitLeaf` med editorens fit-kontroller) mot dokumentet, 150 ms etter siste endring. Én bygger i `EditorView` lager kommandoen for både tørrkjøring og «Bruk». Et avslag vises med domenets tekst og den berørte subsonen skravert («Innholdet får ikke plass med disse forholdstallene. Gjelder sone 1 (skravert).»), og «Bruk» er av. Hvis innholdet ville gått til sandkassen fordi det ikke får plass, står det før «Bruk». Samme mønster brukes allerede i kontekstmenyens forholdsvalg.
+- **Avslag ved «Bruk»:** Dialogen står åpen med «Ikke endret: …» (`role="alert"`) til forslaget endres. Malredigeringen viser nå også sine avslag i dialogen i stedet for bare som varsel.
+- **Utkast:** Avbryt, Escape og lukking endrer ingenting; «Bruk» er én angrebar endring (testet med angre, gjør om og omlasting).
+- Ren logikk ligger i `src/ui/editor/splitDraft.ts` (lesing av felt og antall, andeler, hvilke soner som fjernes, tolkning av tørrkjøringens svar). `IMPLEMENTATION_PLAN.md` § 11 er oppdatert med reglene.
+
+**Tester**
+
+- `src/ui/editor/splitDraft.test.ts`: feltlesing og feilmeldinger, gyldige antall, at andelene alltid summerer til 100, hvilke soner og hvor mye nøstet innhold som fjernes, og hvordan et avslag knyttes til riktig direkte subsone.
+- `src/ui/editor/splitModal.test.tsx`: avslag ved «Bruk» vises i dialogen, fjerningsteksten, bekreftelse før sletting (avbryt, bekreft, sandkassen i stedet), tørrkjøring først når feltene hviler og bare for gjeldende forslag, sandkassevarsel ved deling, ugyldig antall, «Fordel likt» og feltfeil.
+- `e2e/split-flow.spec.ts` (den første testen er med i PR-utvalget): fjerning av en sone med nøstet innhold til sandkassen, angre, gjør om og omlasting; sletting bare etter ny bekreftelse; Avbryt og Escape endrer ingenting; kobling felt ↔ sone og klikk i tegningen; feltfeil og ugyldig antall; tørrkjøringens avslag og sandkassevarsel mot ekte innhold.
+- `e2e/split-preview.spec.ts`: viewport-testen krever nå at forhåndsvisningen er synlig uten rulling ved åpning i alle seks størrelser.
+- `e2e/visual-chrome.spec.ts`: nytt referansebilde av fjerning med innhold. Referansebildene for dialogen er tatt på nytt på GitHub-runneren.
+- Før- og etter-bilder ligger i `docs/ux/z2/for/` og `docs/ux/z2/etter/`.
+
+**Akseptansekrav (§ 9) etter Z2**
+
+| Krav | Status |
+| --- | --- |
+| Nummerorden ved flere nivåer, 2–10 barn og eksisterende innhold | Bestått: felt og sone har samme nummer og markeres sammen |
+| Viewporter | Bestått for de seks størrelsene, nå med forhåndsvisningen synlig ved åpning. Zoom 200 % og skjermtastatur gjenstår (Z3) |
+| Ugyldige tall, minimumsbrudd og fit-avslag | Bestått: feltspesifikke feil, minimumsbrudd i tegningen, fit-avslag før «Bruk» via tørrkjøring og i dialogen ved «Bruk» |
+| Reduksjon av antall med nøstet innhold | Bestått |
+| Angre/gjør om, persistens | Bestått for delingsdialogen. Full regresjonsrunde hører til Z3 |
+| Tastatur, skjermleser, touch, fokus | Delvis: navngitte felt, feilkoblinger, `aria-pressed`, Escape. Full kontroll hører til Z3 |
+| Lys/mørk, høy kontrast | Uendret fra Z1; Z3 |
+
+**Avvik fra planen**
+
+- Et avslag ved «Bruk» vises i dialogen og, som før, også som varsel fra den felles kjøringen av kommandoer. Varselet er ikke fjernet, fordi det er felles for alle strukturendringer.
+- Bekreftelsen før sletting tilbyr også «Flytt til sandkassen i stedet». Det er ikke beskrevet i planen, men gir en trygg vei ut av spørsmålet.
+- Malredigeringen har ingen tørrkjøring: maler har ikke innhold, så minstemålet i forhåndsvisningen er hele svaret der.
+- Ingen andre forholdsvalg enn «Fordel likt» er lagt til i dialogen.
+
+**API-/MCP-kontrakt:** Uendret. Ingen endringer i domenet, Agent Core, REST, MCP-skjema eller lagringsformat. Tørrkjøringen bruker de eksisterende kommandoene uten endring. Slaids Dev MCP trenger ikke oppdatering.

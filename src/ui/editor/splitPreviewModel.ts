@@ -22,6 +22,7 @@
  */
 
 import { computeLayoutRects } from '../../domain/geometry'
+import { collectLeaves } from '../../domain/layout'
 import type { LayoutNode, Rect, SplitNode } from '../../domain/types'
 
 export interface Size {
@@ -64,10 +65,6 @@ export interface SplitPreviewModel {
   zones: PreviewZone[]
   dividers: PreviewDivider[]
   context: PreviewContextZone[]
-}
-
-function leafCount(node: LayoutNode): number {
-  return node.kind === 'leaf' ? 1 : node.children.reduce((total, child) => total + leafCount(child), 0)
 }
 
 /**
@@ -121,7 +118,7 @@ export function splitPreviewModel(
       label: String(index + 1),
       rect: rectOf(child),
       tooSmall: tooSmall.includes(index),
-      keptZones: child.kind === 'split' ? leafCount(child) : 0,
+      keptZones: child.kind === 'split' ? collectLeaves(child).length : 0,
     }
   })
 

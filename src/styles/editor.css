@@ -1164,14 +1164,9 @@
  * Split dialog
  * ----------------------------------------------------------------- */
 
-.split-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
 .toggle-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -1181,16 +1176,147 @@
   color: var(--chrome-accent-text);
 }
 
-.split-weights {
+/*
+ * The dialog's two halves: the picture and the controls that change it.
+ * Side by side where the dialog is wide enough, so a change and its effect are
+ * on screen together; stacked on a narrow one, picture first. Beside the
+ * controls the picture stays put while they scroll, so on a short screen —
+ * a phone on its side — it is in view from the start instead of below them.
+ */
+.split-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.split-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 820px) {
+  .split-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 22px;
+  }
+
+  .split-layout > .split-figure {
+    position: sticky;
+    top: 0;
+  }
+}
+
+.split-stepper {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.split-stepper__value {
+  width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.split-stepper .hint,
+.split-stepper .error-text {
+  margin-left: 6px;
+}
+
+.split-weights__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.split-weights .input,
-.split-weights .btn {
-  width: 74px;
+/* One row per direct zone, named and numbered as in the picture. */
+.split-weights {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  align-items: start;
+  gap: 6px 12px;
+}
+
+.split-weight {
+  display: grid;
+  grid-template-columns: 1fr 72px 44px;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+}
+
+/* The zone in use: marked in the row as in the picture, by a bar as well as a tint. */
+.split-weight.is-active {
+  background: var(--chrome-accent-soft);
+  border-left-color: var(--chrome-accent);
+}
+
+.split-weight__label {
+  font-size: var(--text-sm);
+  color: var(--chrome-text);
+  white-space: nowrap;
+}
+
+.split-weight__value {
   text-align: center;
+}
+
+.split-weight__share {
+  font-size: 12px;
+  color: var(--chrome-text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.split-weight__error {
+  grid-column: 1 / -1;
+}
+
+.split-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.split-targets .btn {
+  min-width: 44px;
+  justify-content: center;
+}
+
+/* What a lower count takes away: stated where the count is changed. */
+.split-removal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--chrome-border-strong);
+  border-left: 3px solid var(--chrome-warning);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+}
+
+.split-removal__summary {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--chrome-text);
+}
+
+.split-removal__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--text-sm);
+  color: var(--chrome-text-dim);
 }
 
 .split-figure {
@@ -1201,6 +1327,7 @@
   /* Never squeezed by the dialog's column: its own height is the bounded preview. */
   flex: 0 0 auto;
   min-width: 0;
+  background: var(--chrome-bg-raised);
 }
 
 .split-target {
@@ -1305,6 +1432,26 @@
 
 .split-figure__invalid {
   color: var(--chrome-danger-text);
+}
+
+.split-figure__warning {
+  color: var(--chrome-text);
+  font-weight: 600;
+}
+
+/* Pointing at a zone names its field; the picture is not a second editor. */
+.split-preview__hit {
+  cursor: pointer;
+}
+
+.split-preview__divider,
+.split-preview__context-label,
+.split-preview__label {
+  pointer-events: none;
+}
+
+.split-preview__zone--active {
+  fill: color-mix(in srgb, var(--chrome-accent) 30%, var(--chrome-bg-inset));
 }
 
 @media (forced-colors: active) {

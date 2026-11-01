@@ -235,6 +235,26 @@ export async function nestedDeck(page: Page, title = 'Nøstet'): Promise<void> {
   await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).click()
 }
 
+/** Root in three side by side; the third over/under in two, a card in each. */
+export async function nestedContentDeck(page: Page, title: string): Promise<void> {
+  await createPresentation(page, title)
+  await enterZoneMode(page)
+  await splitSelected(page, [1, 1, 1], 'x')
+  const zones = await zoneRects(page)
+  const right = zones.reduce((a, b) => (a.x >= b.x ? a : b))
+  await clickZone(page, right)
+  await splitSelected(page, [1, 1], 'y')
+  const column = (await zoneRects(page))
+    .filter((zone) => Math.abs(zone.x - right.x) < 2)
+    .sort((a, b) => a.y - b.y)
+  await page.getByTestId('mode-content').click()
+  await addContentToZone(page, column[0].id, 'titled-card')
+  await addContentToZone(page, column[1].id, 'untitled-card')
+  await enterZoneMode(page)
+  await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).first().click()
+  await expect(stage(page).locator('[data-content-kind]')).toHaveCount(2)
+}
+
 export async function enterZoneMode(page: Page): Promise<void> {
   await page.getByTestId('mode-zone').click()
   await expect(page.getByTestId('zone-overlay')).toBeVisible()

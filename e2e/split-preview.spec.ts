@@ -275,7 +275,14 @@ test.describe('split preview', () => {
       expect(overflowX, `horizontal overflow at ${size.width}×${size.height}`).toBeLessThanOrEqual(0)
       await expect(page.getByTestId('split-apply')).toBeInViewport()
 
-      await page.getByTestId('split-preview').scrollIntoViewIfNeeded()
+      // The picture is in view as the dialog opens — beside the controls where
+      // there is width, above them where there is not — never below them.
+      const visible = await body.evaluate((element) => {
+        const area = element.getBoundingClientRect()
+        const picture = element.querySelector('[data-testid="split-preview"]')!.getBoundingClientRect()
+        return element.scrollTop === 0 && picture.top >= area.top && picture.bottom <= area.bottom
+      })
+      expect(visible, `preview in view at ${size.width}×${size.height}`).toBe(true)
       const measure = await measurePreview(page)
       expectBounded(measure, target)
       // Bounded by the visible height too, so the controls are never pushed away:

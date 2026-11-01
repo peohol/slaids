@@ -26,6 +26,7 @@ import {
 } from '../../domain/presentation'
 import { repository } from '../../persistence/activeRepository'
 import { notify } from '../../state/toast'
+import { describeError } from '../../domain/result'
 import type { ContentSlide, LayoutNode, LayoutTemplate, Presentation } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -207,8 +208,8 @@ export function TemplateModal({
 
   const selectedTemplateNode = editing && selectedNode ? findNode(editing.root, selectedNode) : null
 
-  const handleSplitApply = (result: SplitModalResult): void => {
-    if (!editing || !selectedNode) return
+  const handleSplitApply = (result: SplitModalResult): string | null => {
+    if (!editing || !selectedNode) return null
     const { deck, slideId } = scratchFor(editing.root, editing.hasTitle)
     const isSplit = selectedTemplateNode?.kind === 'split'
     const outcome = isSplit
@@ -226,13 +227,12 @@ export function TemplateModal({
           axis: result.axis,
           weights: result.weights,
         })
-    if (!outcome.ok) {
-      notify.error(outcome.error.message)
-      return
-    }
+    // Said in the dialog, which stays open on its fields, rather than in a toast.
+    if (!outcome.ok) return describeError(outcome.error)
     const next = scratchRoot(outcome.value.presentation, slideId)
     if (next) setEditing({ ...editing, root: next })
     setSplitOpen(false)
+    return null
   }
 
   const editingGeometry = editing
