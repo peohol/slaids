@@ -13,7 +13,8 @@
  * from state — by an inspector button, an icon over a zone, a menu entry, a
  * shortcut — so without this the focus fell to the page and a keyboard user
  * started over from the top. A dialog opened from a menu entry gives it back
- * to the control the menu was opened from, since the entry is gone.
+ * to the control the menu was opened from, since the entry is gone. Focus that
+ * has already moved on by the time the dialog is gone is left where it is.
  */
 
 import * as Dialog from '@radix-ui/react-dialog'
@@ -60,10 +61,15 @@ export function Modal({
               active.closest('[role="menu"]') !== null
             opener.current = fromMenu ? focusBeforeClosedMenu() : active
           }}
+          // Radix runs this a task after the dialog is gone. Only focus that
+          // went with the dialog is given back: when something has taken the
+          // focus since (a click, the app, a script), it stays there.
           onCloseAutoFocus={(event) => {
             const back = opener.current
             opener.current = null
-            if (!back?.isConnected || back === document.body) return
+            const active = document.activeElement
+            const lost = !active || active === document.body || (event.target as Node).contains(active)
+            if (!lost || !back?.isConnected || back === document.body) return
             event.preventDefault()
             back.focus({ preventScroll: true })
           }}

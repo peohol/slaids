@@ -1,7 +1,7 @@
 # Overhaling av soneredigering i Slaids – plan
 
 **Dato:** 01.11.2026  
-**Status:** Z1 merget i PR #117, Z2 merget i PR #118. Z3 levert til gjennomgang (se § 11).  
+**Status:** Z1 merget i PR #117, Z2 merget i PR #118. Z3 merget i PR #119 (se § 11).  
 **Ansvar:** ChatGPT utarbeider planen og kontrollerer PR-er; Claude Code implementerer.  
 **Omfang:** Soneredigeringsmodal, visualisering av sonetreet og nødvendige sammenhenger med inspektør, soneoverlegg og malredigering.  
 **Normativ forankring:** IMPLEMENTATION_PLAN.md, særlig § 9–11.5 og § 44.6; docs/UX_DESIGN_SYSTEM.md og docs/MOBILE_WORKSPACE.md. Ved konflikt med eldre beskrivende tekst undersøkes faktisk domenekontrakt og nyeste vedtak før implementering.
@@ -247,14 +247,14 @@ Claude Code skal først lese dette dokumentet, relevante kapitler i IMPLEMENTATI
 
 **API-/MCP-kontrakt:** Uendret. Ingen endringer i domenet, Agent Core, REST, MCP-skjema eller lagringsformat. Tørrkjøringen bruker de eksisterende kommandoene uten endring. Slaids Dev MCP trenger ikke oppdatering.
 
-### Z3 – levert til gjennomgang (01.11.2026)
+### Z3 – slått sammen (PR #119, 01.11.2026)
 
 **Hva som er gjort**
 
 - **To størrelsesspørsmål i inspektøren (F8):** «Størrelse» er delt i to seksjoner med hvert sitt navn. «Fordeling inni denne sonen» vises for en valgt delt sone og endrer forholdet mellom dens direkte subsoner. «Størrelse blant søskensonene» vises for en valgt sone med forelder og endrer dens plass i foreldrens deling. En delt sone som selv har forelder, får begge, i den rekkefølgen. Hver seksjon sier hvilken deling den gjelder, med samme sti som dialogen («Forholdet mellom de 3 direkte subsonene i Rot › 2.», «Denne sonen er sone 2 av 2 i Rot.»), og den valgte sonens rad sier «(denne)». Før kunne en nøstet delt sone ikke endres blant søsknene sine fra inspektøren i det hele tatt.
 - **Samme ord overalt:** Sonemenyen bruker de samme navnene: undermenyen «Fordeling inni denne sonen» (før «Juster forholdstall»), «Fordel subsonene likt» (før «Fordel likt») og «Fordel søskensonene likt». Maleditoren sier «Del sone …» og «Rediger deling …» (før «Splitt sone» og «Rediger splitting»). Plasseringslinjen for roten er «Hovedsonen (Rot), hele sliden», så stiens «Rot» og «hovedsonen» knyttes sammen. Navnene ligger ett sted (`SIZE_SCOPE_TITLES` i `zoneDescription.ts`, `ZONE_ACTIONS` i `zoneMenu.ts`).
 - **Samme mål fra alle innganger:** Delingsdialogen åpnes fra inspektøren, ikonraden over sonen, sonemenyen («Rediger deling …», «Avansert deling …») og forholdstallmenyen («Egendefinert …»). Alle gir samme tittel, sti og antall; det er nå testet. Malredigeringen åpner den samme dialogen med sin egen sti.
-- **Fokus tilbake:** En dialog gir fokus tilbake til kontrollen som åpnet den. Før falt fokus til siden, fordi dialogene åpnes fra tilstand og ikke fra Radix' egen utløser. Er dialogen åpnet fra en menyoppføring, går fokus til knappen menyen ble åpnet fra. Rettelsen ligger i den felles `Modal` og gjelder derfor alle dialoger.
+- **Fokus tilbake:** En dialog gir fokus tilbake til kontrollen som åpnet den. Før falt fokus til siden, fordi dialogene åpnes fra tilstand og ikke fra Radix' egen utløser. Er dialogen åpnet fra en menyoppføring, går fokus til knappen menyen ble åpnet fra. Rettelsen ligger i den felles `Modal` og gjelder derfor alle dialoger. Har fokus allerede flyttet seg videre når dialogen er borte (et klikk, appen selv), blir det stående; den første fulle kjøringen på GitHub etter sammenslåingen viste at fokusreturen ellers kunne ta fokus tilbake fra et miniatyrbilde.
 - **Felles avgrenset forhåndsvisning (F9):** Boksen, målingen og contain-skalaen fra Z1 er trukket ut i `BoundedPreview` og brukes av både delingsdialogen og maleditoren. Maloversikten hadde fast bredde 560 px og ble krympet med `transform: scale(0.34)` i listen; nå følger den boksen, er begrenset i høyde etter synlig høyde og har ingen transform. Tegningen bruker samme visuelle språk: alle soner stiplet og svakt tonet, valgt sone med den ene heltrukne, valgtblå kanten, ingen egen ramme rundt en delt sone (før fikk delte soner en stiplet ramme oppå barnas kanter). Malenes klikkvalg bruker samme treff-test som scenen.
 - **Tastatur i maleditoren:** Stien og listen over undersoner («Sone 2: Delt sone») ligger under tegningen, delt med inspektøren (`ZoneChildList`). Før kunne en sone i en mal bare velges med pekeren. «Slett sone» på roten forklarer hvorfor den ikke kan brukes, med inspektørens ord, og etter sletting velges forelderen.
 - **Konsekvent sonemarkering:** Regelen «heltrukket = det som endres her, stiplet = struktur som vises som kontekst» står i `docs/UX_DESIGN_SYSTEM.md` («Sonemarkering») med hvordan scenen, delingsdialogen og maleditoren følger den. Scenens markering og gester er uendret.

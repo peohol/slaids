@@ -155,6 +155,33 @@ test.describe('soneredigering som ett verktøy', () => {
     },
   )
 
+  test('closing leaves the focus alone if it already moved on before the dialog was gone', async ({ page }) => {
+    // The focus goes back a task after the dialog is removed. Whatever takes
+    // it in between — a click, the app, a script — keeps it; the opener does
+    // not take it back from under them.
+    await nestedDeck(page)
+    await selectLowerSplit(page)
+    await page.getByTestId('inspector-action-split').click()
+    await expect(page.getByTestId('split-modal')).toBeVisible()
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const dialog = document.querySelector('[data-testid="split-modal"]') as HTMLElement
+          const elsewhere = document.querySelector('[data-testid="inspector-action-more"]') as HTMLElement
+          new MutationObserver((_, observer) => {
+            if (dialog.isConnected) return
+            observer.disconnect()
+            elsewhere.focus()
+            resolve()
+          }).observe(document.body, { childList: true, subtree: true })
+          const buttons = [...dialog.querySelectorAll('button')]
+          ;(buttons.find((button) => button.textContent?.trim() === 'Avbryt') as HTMLButtonElement).click()
+        }),
+    )
+    await page.waitForTimeout(100)
+    await expect(page.getByTestId('inspector-action-more')).toBeFocused()
+  })
+
   test('the split dialog is used from the keyboard alone, start to finish', async ({ page }) => {
     await createPresentation(page, 'Tastaturdeling')
     await enterZoneMode(page)
