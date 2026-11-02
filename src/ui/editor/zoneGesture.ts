@@ -11,9 +11,19 @@
  * | -------------------------- | -------------------------- | ------------------------------ |
  * | the gap between two zones  | move that boundary         | compress the block, both sides |
  * |   … with Shift             | rescale the two halves     | (as without Shift)             |
- * | inside a zone              | slide the zone             | resize it in proportion        |
+ * | inside a zone              | slide the zone ¹           | resize it in proportion ²      |
  * | a zone's outer edge        | compress from that side    |                                |
  * |   … with Shift             | compress from both sides   |                                |
+ *
+ * ¹ A zone at either end of its split has nowhere to slide. The same movement
+ *   then compresses it across its split instead — the direction it fills
+ *   completely — with air on both sides (`n : a : n`), in a split of that
+ *   direction made around it. The coupling is the one a resize in that split
+ *   uses (a row grows upwards), so the drag that follows, inside the zone that
+ *   now has air beside it, carries on doing the same thing.
+ * ² The root has no split and no siblings to resize against; it is treated as
+ *   the one zone of a row, so both movements compress it, each in its own
+ *   direction.
  *
  * The operation is fixed for the rest of the drag: passing over another zone,
  * or pressing or letting go of Shift, does not change what is being done.
@@ -63,7 +73,7 @@ import {
 /** Where a drag was started, as the stage reports the press. */
 export type ZoneDragStart =
   | { kind: 'boundary'; splitId: NodeId; boundary: number; shift: boolean }
-  | { kind: 'zone'; splitId: NodeId; index: number }
+  | { kind: 'zone'; nodeId: NodeId }
   | { kind: 'edge'; nodeId: NodeId; axis: Axis; side: 'start' | 'end'; shift: boolean }
 
 /** What the drag turned out to be doing, once it is doing anything. */
@@ -86,6 +96,10 @@ export interface ZoneDrag {
   /** The block a compression scales; `null` for the other operations. */
   block: Block | null
   sides: BlockSides | null
+  /** Where a pressed zone sits in `span`; `null` for the other starts. */
+  index: number | null
+  /** What a pressed zone that cannot slide compresses instead: see the table. */
+  across: { span: Span; rect: Rect } | null
 }
 
 /** What the scene needs to start a drag: the tree, its rects, and what fits where. */
@@ -101,12 +115,32 @@ export function startZoneDrag(context: ZoneDragContext, start: ZoneDragStart): Z
   const { root, rects, gap, minimumAlong } = context
   const floorFor = (axis: Axis): FloorOf => (node) => minimumAlong(node, axis)
 
-  if (start.kind !== 'edge') {
+  const idle = { operation: null, gap, block: null, sides: null, index: null, across: null }
+
+  if (start.kind === 'boundary') {
     const split = findSplit(root, start.splitId)
     const rect = rects.get(start.splitId)
     if (!split || !rect) return null
-    const span = spanOfSplit(split, rect, gap, floorFor(split.axis))
-    return { start, operation: null, span, rect, gap, block: null, sides: null }
+    return { ...idle, start, span: spanOfSplit(split, rect, gap, floorFor(split.axis)), rect }
+  }
+
+  if (start.kind === 'zone') {
+    const node = findNode(root, start.nodeId)
+    const rect = rects.get(start.nodeId)
+    if (!node || !rect) return null
+    const parent = findParent(root, start.nodeId)
+    const parentRect = parent ? rects.get(parent.id) : rect
+    if (!parentRect) return null
+    const axis = parent?.axis ?? 'x'
+    const across = otherAxis(axis)
+    return {
+      ...idle,
+      start,
+      span: parent ? spanOfSplit(parent, parentRect, gap, floorFor(axis)) : wrappedSpan(node, rect, axis, floorFor(axis)),
+      rect: parentRect,
+      index: parent ? parent.children.findIndex((child) => child.id === node.id) : 0,
+      across: { span: wrappedSpan(node, rect, across, floorFor(across)), rect },
+    }
   }
 
   const node = findNode(root, start.nodeId)
@@ -121,11 +155,15 @@ export function startZoneDrag(context: ZoneDragContext, start: ZoneDragStart): Z
     const base = spanOfSplit(parent, parentRect, gap, floorFor(parent.axis))
     const index = parent.children.findIndex((child) => child.id === node.id)
     const prepared = withAirBeside(base, contentBlockAround(base, index), sides, gap)
-    return { start, operation, rect: parentRect, gap, ...prepared, sides }
+    return { ...idle, start, operation, rect: parentRect, ...prepared, sides }
   }
   const base = wrappedSpan(node, rect, start.axis, floorFor(start.axis))
   const prepared = withAirBeside(base, { from: 0, to: 0 }, sides, gap)
-  return { start, operation, rect, gap, ...prepared, sides }
+  return { ...idle, start, operation, rect, ...prepared, sides }
+}
+
+function otherAxis(axis: Axis): Axis {
+  return axis === 'x' ? 'y' : 'x'
 }
 
 /**
@@ -146,12 +184,13 @@ export function liveLengths(drag: ZoneDrag, deltaX: number, deltaY: number): num
       : null
   }
 
-  const axis = drag.span.split.axis
-  const mode: ZoneDragMode | null = operationMode(drag) ?? zoneDragMode(axis, deltaX, deltaY)
+  const mode: ZoneDragMode | null = operationMode(drag) ?? zoneDragMode(drag.span.split.axis, deltaX, deltaY)
   if (!mode) return null
   if (!drag.operation) decide(drag, mode)
-  // Read after deciding: a compression gets its air at that moment.
-  const { span } = drag
+  // Read after deciding: a compression gets its air, and perhaps a split of
+  // its own, at that moment.
+  const { span, index } = drag
+  const axis = span.split.axis
 
   const along = axis === 'x' ? deltaX : deltaY
   switch (drag.operation) {
@@ -168,12 +207,10 @@ export function liveLengths(drag: ZoneDrag, deltaX: number, deltaY: number): num
         ? compressedLengths(span, drag.block, zoneDragAmount(axis, 'resize', deltaX, deltaY), 'both')
         : null
     case 'translate':
-      return start.kind === 'zone'
-        ? translatedWeights(span.lengths, start.index, along, span.floors)
-        : null
+      return index !== null ? translatedWeights(span.lengths, index, along, span.floors) : null
     case 'resize':
-      return start.kind === 'zone'
-        ? resizedWeights(span.lengths, start.index, zoneDragAmount(axis, 'resize', deltaX, deltaY), span.floors)
+      return index !== null
+        ? resizedWeights(span.lengths, index, zoneDragAmount(axis, 'resize', deltaX, deltaY), span.floors)
         : null
     default:
       return null
@@ -195,9 +232,15 @@ function operationMode(drag: ZoneDrag): ZoneDragMode | null {
 }
 
 function decide(drag: ZoneDrag, mode: ZoneDragMode): void {
-  const { start } = drag
-  if (start.kind === 'zone') {
-    drag.operation = mode
+  const { start, index, across } = drag
+  if (start.kind === 'zone' && index !== null) {
+    const count = drag.span.split.children.length
+    // Nothing to resize against: the zone is compressed where it is.
+    if (mode === 'resize' && count === 1) compress(drag, drag.span, { from: 0, to: 0 }, drag.rect)
+    // Nowhere to slide: the same movement compresses it across its split.
+    else if (mode === 'translate' && (index === 0 || index === count - 1) && across) {
+      compress(drag, across.span, { from: 0, to: 0 }, across.rect)
+    } else drag.operation = mode
     return
   }
   if (start.kind !== 'boundary') return
@@ -205,9 +248,15 @@ function decide(drag: ZoneDrag, mode: ZoneDragMode): void {
     drag.operation = start.shift ? 'shift-boundary' : 'boundary'
     return
   }
-  const prepared = withAirBeside(drag.span, blockAtBoundary(drag.span, start.boundary), 'both', drag.gap)
+  compress(drag, drag.span, blockAtBoundary(drag.span, start.boundary), drag.rect)
+}
+
+/** Turn `drag` into a symmetric compression of `block` in `span`, with air beside it. */
+function compress(drag: ZoneDrag, span: Span, block: Block, rect: Rect): void {
+  const prepared = withAirBeside(span, block, 'both', drag.gap)
   drag.span = prepared.span
   drag.block = prepared.block
+  drag.rect = rect
   drag.sides = 'both'
   drag.operation = 'compress'
 }
@@ -220,10 +269,8 @@ export function previewFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId
 /** The ids of the zones the drag is acting on as one, for drawing them as one. */
 export function manipulatedIds(drag: ZoneDrag): NodeId[] {
   const children = drag.span.split.children
-  const { start } = drag
   if (drag.block) return blockMembers(drag.block).map((index) => children[index].id)
-  if (start.kind === 'zone') return [children[start.index].id]
-  return []
+  return drag.index !== null ? [children[drag.index].id] : []
 }
 
 /**
@@ -248,8 +295,8 @@ export function releaseOf(drag: ZoneDrag, lengths: readonly number[]): ZoneDragR
         ? drag.operation === 'shift-boundary'
           ? shiftedBoundarySnapRules(before, start.boundary, released)
           : boundarySnapRules(before, start.boundary)
-        : start.kind === 'zone' && (drag.operation === 'resize' || drag.operation === 'translate')
-          ? zoneSnapRules(before, start.index, drag.operation, released)
+        : drag.index !== null && (drag.operation === 'resize' || drag.operation === 'translate')
+          ? zoneSnapRules(before, drag.index, drag.operation, released)
           : null
     return rules ? { kind: 'ratios', nodeId: span.split.id, released, rules } : null
   }
@@ -258,7 +305,7 @@ export function releaseOf(drag: ZoneDrag, lengths: readonly number[]): ZoneDragR
     kind: 'arrangement',
     nodeId: span.replacedId,
     original,
-    candidates: arrangementCandidates(span, released, preservedGroups(drag), drag.rect, drag.gap),
+    candidates: arrangementCandidates(span, released, preservedGroups(drag), drag.rect, drag.gap, mirroredAir(drag)),
   }
 }
 
@@ -278,6 +325,19 @@ function changesAir(drag: ZoneDrag, lengths: readonly number[]): boolean {
   )
 }
 
+/**
+ * The air on either side of a symmetric compression's block, when the two are
+ * one another's mirror image: made together, or equal when the drag began.
+ */
+function mirroredAir(drag: ZoneDrag): [number, number] | null {
+  const { block, sides, span } = drag
+  if (!block || sides !== 'both') return null
+  const pair: [number, number] = [block.from - 1, block.to + 1]
+  const [start, end] = pair.map((index) => span.split.children[index])
+  if (!start || !end || !isNegativeSpace(start) || !isNegativeSpace(end)) return null
+  return span.base[pair[0]] === span.base[pair[1]] ? pair : null
+}
+
 /** The node the span replaces, as it was before the drag. */
 function findOriginal(span: Span): LayoutNode {
   if (span.replacedId !== span.split.id) {
@@ -292,7 +352,8 @@ function findOriginal(span: Span): LayoutNode {
 
 /** Which children the operation promised to keep in proportion. */
 function preservedGroups(drag: ZoneDrag): number[][] {
-  const count = drag.span.split.children.length
+  const { children } = drag.span.split
+  const count = children.length
   const { start } = drag
   switch (drag.operation) {
     case 'compress':
@@ -303,7 +364,10 @@ function preservedGroups(drag: ZoneDrag): number[][] {
         ? [range(0, start.boundary + 1), range(start.boundary + 1, count)]
         : []
     case 'resize':
-      return start.kind === 'zone' ? [range(0, count).filter((index) => index !== start.index)] : []
+      // The content beside the zone keeps its proportions; air is free to go.
+      return drag.index !== null
+        ? [range(0, count).filter((index) => index !== drag.index && !isNegativeSpace(children[index]))]
+        : []
     default:
       return []
   }

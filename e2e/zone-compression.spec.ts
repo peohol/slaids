@@ -46,17 +46,30 @@ async function scaleOf(page: Page): Promise<number> {
   )
 }
 
-/** Press `locator`'s middle, move by design-space `dx`/`dy`, optionally holding Shift. */
+interface Point {
+  x: number
+  y: number
+}
+
+/** The middle of an element's box on screen. */
+function centreOf(box: { x: number; y: number; width: number; height: number }): Point {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+/** The middle of a zone, on screen. */
+async function insideOf(page: Page, zone: ZoneRect): Promise<Point> {
+  return slidePoint(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
+}
+
+/** Press at `point`, move by design-space `dx`/`dy`, optionally holding Shift. */
 async function dragFrom(
   page: Page,
-  box: { x: number; y: number; width: number; height: number },
+  { x, y }: Point,
   dx: number,
   dy: number,
   { shift = false, release = true }: { shift?: boolean; release?: boolean } = {},
 ): Promise<void> {
   const scale = await scaleOf(page)
-  const x = box.x + box.width / 2
-  const y = box.y + box.height / 2
   if (shift) await page.keyboard.down('Shift')
   await page.mouse.move(x, y)
   await page.mouse.down()
@@ -82,7 +95,7 @@ async function gripBox(page: Page, axis: 'x' | 'y', side: 'start' | 'end') {
 
 /** Select a zone by clicking in it. */
 async function select(page: Page, zone: ZoneRect): Promise<void> {
-  const point = await slidePoint(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
+  const point = await insideOf(page, zone)
   await page.mouse.click(point.x, point.y)
 }
 
@@ -98,7 +111,7 @@ test.describe('compressing zones into air', () => {
       const before = await contentRects(page)
 
       // Down is smaller in a row: the divider pressed and pulled down.
-      await dragFrom(page, await handleBox(page, 0), 0, 240)
+      await dragFrom(page, centreOf(await handleBox(page, 0)), 0, 240)
       expect(await leafShape(page)).toBe('ncccn')
       const after = await contentRects(page)
       // Centred, smaller, and in the same proportions.
@@ -108,7 +121,7 @@ test.describe('compressing zones into air', () => {
       expect(after[1].w / after[0].w).toBeCloseTo(2, 1)
 
       // A second compression from the other divider reuses the same air.
-      await dragFrom(page, await handleBox(page, 2), 0, 100)
+      await dragFrom(page, centreOf(await handleBox(page, 2)), 0, 100)
       expect(await leafShape(page)).toBe('ncccn')
 
       await page.getByTestId('undo').click()
@@ -123,6 +136,44 @@ test.describe('compressing zones into air', () => {
     },
   )
 
+  test(
+    'a zone with nowhere to slide is compressed across its split from inside, and keeps going',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Innenfra')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1], 'y')
+      const [top, bottom] = await zoneRects(page)
+
+      // Pressed inside the top zone and pulled down: along the column, where
+      // it has nowhere to slide, so it is narrowed from both sides instead.
+      await dragFrom(page, await insideOf(page, top), 0, 300)
+      expect(await leafShape(page)).toBe('ncnc')
+      const byId = async (zone: ZoneRect): Promise<ZoneRect> => {
+        const found = (await contentRects(page)).find((rect) => rect.id === zone.id)
+        if (!found) throw new Error(`zone ${zone.id} is gone`)
+        return found
+      }
+      const narrowed = await byId(top)
+      const untouched = await byId(bottom)
+      expect(narrowed.w).toBeLessThan(top.w - 100)
+      expect(narrowed.x - top.x).toBeCloseTo(top.x + top.w - (narrowed.x + narrowed.w), 0)
+      expect(untouched.w).toBeCloseTo(bottom.w, 0)
+
+      // The same movement again narrows it further, reusing the air.
+      await dragFrom(page, await insideOf(page, narrowed), 0, 200)
+      expect(await leafShape(page)).toBe('ncnc')
+      const further = await byId(top)
+      expect(further.w).toBeLessThan(narrowed.w)
+
+      await page.getByTestId('undo').click()
+      await page.getByTestId('undo').click()
+      expect(await leafShape(page)).toBe('cc')
+      expect(guard.errors).toEqual([])
+    },
+  )
+
   test('an outer edge compresses from its own side, and Shift from both', async ({ page }) => {
     await createPresentation(page, 'Ytterkant')
     await enterZoneMode(page)
@@ -131,13 +182,13 @@ test.describe('compressing zones into air', () => {
     await select(page, top)
 
     // The top zone's left edge, across its column: air beside it alone.
-    await dragFrom(page, await gripBox(page, 'x', 'start'), 200, 0)
+    await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 200, 0)
     expect(await leafShape(page)).toBe('ncc')
     await page.getByTestId('undo').click()
     expect(await leafShape(page)).toBe('cc')
 
     await select(page, top)
-    await dragFrom(page, await gripBox(page, 'x', 'start'), 150, 0, { shift: true })
+    await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 150, 0, { shift: true })
     expect(await leafShape(page)).toBe('ncnc')
     const [compressed] = await contentRects(page)
     expect(compressed.x - top.x).toBeCloseTo(top.x + top.w - (compressed.x + compressed.w), 0)
@@ -182,7 +233,7 @@ test.describe('compressing zones into air', () => {
     await enterZoneMode(page)
     await splitSelected(page, [2, 3, 4, 3, 2], 'x')
     const before = await contentRects(page)
-    await dragFrom(page, await handleBox(page, 2), -80, 0, { shift: true })
+    await dragFrom(page, centreOf(await handleBox(page, 2)), -80, 0, { shift: true })
     const after = await contentRects(page)
     expect(after[2].x + after[2].w).toBeLessThan(before[2].x + before[2].w - 30)
     expect(after[1].w / after[0].w).toBeCloseTo(before[1].w / before[0].w, 1)

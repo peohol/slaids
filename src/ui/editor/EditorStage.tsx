@@ -18,7 +18,7 @@ import {
   rectContainsPoint,
   viewportToSlide,
 } from '../../domain/geometry'
-import { findParent, replaceNode } from '../../domain/layout'
+import { replaceNode } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
   overflowRegressions,
@@ -440,12 +440,7 @@ export function EditorStage({
     if (!point) return
     const hit = hitTestLayout(displaySlide.root, geometry.rects, point.x, point.y)
     if (!hit) return
-    const parent = findParent(displaySlide.root, hit)
-    // The root zone has no split to move inside; the click still selects it.
-    if (!parent) return
-    const index = parent.children.findIndex((child) => child.id === hit)
-    if (index < 0) return
-    if (beginDrag({ kind: 'zone', splitId: parent.id, index }, event)) selectNode(hit)
+    if (beginDrag({ kind: 'zone', nodeId: hit }, event)) selectNode(hit)
   }
 
   useEffect(() => {

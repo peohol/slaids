@@ -418,7 +418,7 @@ describe('growing content into air', () => {
     const [n1, a, n2] = [air(), text(), air()]
     const split = createSplit('x', [1, 4, 1], [n1, a, n2])
     const deck = deckWith(split)
-    const after = splitAt(rootOf(drag(deck, { kind: 'zone', splitId: split.id, index: 1 }, 0, -60)), split.id)
+    const after = splitAt(rootOf(drag(deck, { kind: 'zone', nodeId: a.id }, 0, -60)), split.id)
     expect(shape(after)).toBe('ncn')
     expect(after.weights[0]).toBe(after.weights[2])
     expect(shares(after.weights)[1]).toBeGreaterThan(4 / 6)
@@ -441,6 +441,200 @@ describe('the live layout is geometry the engine can draw', () => {
       }
       expect(content[0].x).toBeGreaterThanOrEqual(rect.x - 1e-6)
       expect(content[2].x + content[2].width).toBeLessThanOrEqual(rect.x + rect.width + 1e-6)
+    }
+  })
+})
+
+describe('pressing inside a zone that has nowhere to slide', () => {
+  const column = (): { deck: Deck; top: LayoutNode; split: SplitNode } => {
+    const top = text()
+    const split = createSplit('y', [1, 1], [top, text()])
+    return { deck: deckWith(split), top, split }
+  }
+  const press = (node: LayoutNode): ZoneDragStart => ({ kind: 'zone', nodeId: node.id })
+
+  it('compresses it across its split, symmetrically, as the movement along the split goes on', () => {
+    const { deck, top } = column()
+    const before = geometryOf(deck).get(top.id)
+    const gesture = begin(deck, press(top))
+    // Down is smaller, as in a resize across a row: the coupling the zone keeps
+    // once it has air beside it.
+    for (const down of [80, 120, 30, 0, 60]) {
+      const lengths = liveLengths(gesture, 0, down)
+      expect(lengths).not.toBeNull()
+      if (!lengths || !before) return
+      expect(gesture.operation).toBe('compress')
+      const rect = live(deck, gesture, lengths).get(top.id)
+      expect(rect?.x).toBeCloseTo(before.x + down / 2, 6)
+      expect(rect?.width).toBeCloseTo(before.width - down, 6)
+      expect(rect?.height).toBeCloseTo(before.height, 6)
+    }
+  })
+
+  it('commits the same n : a : n as Shift on its edge, on the zone’s own level', () => {
+    const fromInside = column()
+    const inside = drag(fromInside.deck, press(fromInside.top), 0, 200)
+    const fromEdge = column()
+    const edge = drag(
+      fromEdge.deck,
+      { kind: 'edge', nodeId: fromEdge.top.id, axis: 'x', side: 'start', shift: true },
+      100,
+      0,
+    )
+    const wrapOf = (deck: Deck, split: SplitNode): SplitNode => {
+      const wrap = splitAt(rootOf(deck), split.id).children[0]
+      if (wrap.kind !== 'split') throw new Error('the zone was not wrapped')
+      return wrap
+    }
+    const wrap = wrapOf(inside, fromInside.split)
+    expect(wrap.axis).toBe('x')
+    expect(shape(wrap)).toBe('ncn')
+    expect(wrap.children[1].id).toBe(fromInside.top.id)
+    expect(wrap.weights).toEqual(wrapOf(edge, fromEdge.split).weights)
+    expect(validateTree(rootOf(inside))).toEqual([])
+  })
+
+  it('carries on with the same movement once the air is there, without adding more', () => {
+    const { deck, top, split } = column()
+    const once = drag(deck, press(top), 0, 200)
+    const wrapped = splitAt(rootOf(once), split.id).children[0]
+    if (wrapped.kind !== 'split') throw new Error('the zone was not wrapped')
+    const width = (d: Deck): number => geometryOf(d).get(top.id)?.width ?? NaN
+    const twice = drag(once, press(top), 0, 150)
+    const again = splitAt(rootOf(twice), wrapped.id)
+    expect(shape(again)).toBe('ncn')
+    expect(again.weights[0]).toBe(again.weights[2])
+    expect(width(twice)).toBeLessThan(width(once))
+  })
+
+  it('compresses the root in the direction each movement stands for', () => {
+    const lone = text()
+    const deck = deckWith(lone)
+    const narrower = rootOf(drag(deck, press(lone), 0, 300))
+    expect(narrower.kind === 'split' && narrower.axis).toBe('x')
+    if (narrower.kind === 'split') expect(shape(narrower)).toBe('ncn')
+    // Across a column, right is bigger: left makes the root lower.
+    const lower = rootOf(drag(deck, press(lone), -200, 0))
+    expect(lower.kind === 'split' && lower.axis).toBe('y')
+    if (lower.kind === 'split') expect(shape(lower)).toBe('ncn')
+  })
+
+  it('still slides a zone that has somewhere to go', () => {
+    const [a, b, c] = [text(), text(), text()]
+    const split = createSplit('y', [1, 1, 1], [a, b, c])
+    const deck = deckWith(split)
+    const gesture = begin(deck, press(b))
+    liveLengths(gesture, 0, 40)
+    expect(gesture.operation).toBe('translate')
+    expect(gesture.span.split.id).toBe(split.id)
+  })
+})
+
+describe('growing content into air takes all of it, gap and all', () => {
+  const row = (weights: number[]): { deck: Deck; a: LayoutNode; split: SplitNode } => {
+    const a = text()
+    const split = createSplit('x', weights, [air(), a, air()])
+    return { deck: deckWith(split), a, split }
+  }
+
+  it('lets the air fade to no room at all, evenly, and brings it back when reversed', () => {
+    for (const weights of [
+      [1, 4, 1],
+      [1, 4, 2],
+    ]) {
+      const { deck, a, split } = row(weights)
+      const whole = geometryOf(deck).get(split.id)
+      const gesture = begin(deck, { kind: 'zone', nodeId: a.id })
+      // Far past the end: the zone has taken everything the air had.
+      const full = liveLengths(gesture, 0, -5000)
+      if (!full || !whole) throw new Error('no lengths')
+      expect(full[0]).toBeCloseTo(-gapOf(deck), 6)
+      expect(full[2]).toBeCloseTo(-gapOf(deck), 6)
+      expectSameRect(live(deck, gesture, full).get(a.id), whole)
+      // Without letting go, the air comes back as it was.
+      const back = liveLengths(gesture, 0, 0)
+      expect(back).toEqual(gesture.span.lengths)
+    }
+  })
+
+  it('commits what was drawn: no jump when the air is let go', () => {
+    const { deck, a, split } = row([1, 4, 2])
+    const whole = geometryOf(deck).get(split.id)
+    const after = drag(deck, { kind: 'zone', nodeId: a.id }, 0, -5000)
+    expect(rootOf(after).id).toBe(a.id)
+    expectSameRect(geometryOf(after).get(a.id), whole)
+  })
+})
+
+describe('a split that is already full', () => {
+  const empty = (): LayoutNode => createLeaf()
+  const full = (): { deck: Deck; split: SplitNode; zones: LayoutNode[] } => {
+    const zones = Array.from({ length: 10 }, empty)
+    const split = createSplit('x', [1, 2, 1, 2, 1, 2, 1, 2, 1, 2], zones)
+    return { deck: deckWith(split), split, zones }
+  }
+  const contentShares = (deck: Deck, zones: readonly LayoutNode[]): number[] => {
+    const rects = geometryOf(deck)
+    return shares(zones.map((zone) => rects.get(zone.id)?.width ?? NaN))
+  }
+
+  for (const [label, start, x, y, expected] of [
+    ['from a divider, on both sides', (s: SplitNode) => ({ kind: 'boundary', splitId: s.id, boundary: 4, shift: false }), 0, 200, 'ncn'],
+    ['from an outer edge, on one side', (s: SplitNode) => ({ kind: 'edge', nodeId: s.children[0].id, axis: 'x', side: 'start', shift: false }), 150, 0, 'nc'],
+    ['from an outer edge with Shift', (s: SplitNode) => ({ kind: 'edge', nodeId: s.children[9].id, axis: 'x', side: 'end', shift: true }), -100, 0, 'ncn'],
+  ] as const) {
+    it(`compresses it ${label}, and stores the block one level down`, () => {
+      const { deck, split, zones } = full()
+      const before = contentShares(deck, zones)
+      const after = drag(deck, start(split) as ZoneDragStart, x, y)
+      const root = rootOf(after)
+      expect(validateTree(root)).toEqual([])
+      expect(root.kind).toBe('split')
+      if (root.kind !== 'split') return
+      expect(root.axis).toBe('x')
+      expect(shape(root)).toBe(expected)
+      // The ten zones, in order, in exactly the proportions they had.
+      const block = root.children.find((child) => !isNegativeSpace(child))
+      expect(block?.kind).toBe('split')
+      if (block?.kind !== 'split') return
+      expect(block.children.map((child) => child.id)).toEqual(zones.map((zone) => zone.id))
+      expect(block.weights).toEqual(split.weights)
+      contentShares(after, zones).forEach((share, index) => expect(share).toBeCloseTo(before[index], 9))
+    })
+  }
+
+  it('keeps the flat split when the air is given back before release', () => {
+    const { deck, split } = full()
+    const gesture = begin(deck, { kind: 'boundary', splitId: split.id, boundary: 4, shift: false })
+    liveLengths(gesture, 0, 200)
+    const lengths = liveLengths(gesture, 0, 0)
+    if (!lengths) throw new Error('no lengths')
+    const released = releaseOf(gesture, lengths)
+    if (released?.kind !== 'arrangement') throw new Error('not an arrangement')
+    expect(sameLayout(released.candidates[0], released.original)).toBe(true)
+  })
+})
+
+describe('a symmetric compression is stored centred, however far it went', () => {
+  it('keeps both pieces of air or neither, at one ratio', () => {
+    for (let down = 20; down <= 900; down += 37) {
+      const zone = text()
+      const deck = deckWith(createSplit('y', [1, 1], [zone, text()]))
+      const lone = text()
+      const blockDeck = deckWith(createSplit('x', [1, 2, 1], [text(), lone, text()]))
+      const results = [
+        rootOf(drag(deck, { kind: 'zone', nodeId: zone.id }, 0, down)),
+        rootOf(drag(blockDeck, { kind: 'boundary', splitId: rootOf(blockDeck).id, boundary: 0, shift: false }, 0, down)),
+      ]
+      for (const root of results) {
+        for (const node of [root, ...(root.kind === 'split' ? root.children : [])]) {
+          if (node.kind !== 'split') continue
+          const pattern = shape(node)
+          if (!pattern.includes('n')) continue
+          expect(pattern.startsWith('n') && pattern.endsWith('n')).toBe(true)
+          expect(node.weights[0]).toBe(node.weights[node.weights.length - 1])
+        }
+      }
     }
   })
 })

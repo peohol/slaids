@@ -318,8 +318,10 @@ skriving av en innholdsslide går gjennom `withSlide`, og der slår
 summen. Går summen over 10, kvantiseres splitten på nytt med det første trinnet
 der ingen innholdssone mister andel. En split som ender med ett barn, erstattes
 av barnet. Regelen er uavhengig av hvordan luften oppsto – et drag, en sletting
-mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en duplisering –
-fordi den sitter på det ene stedet alle kommandoer skriver gjennom.
+mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en duplisering,
+en ny slide fra en mal eller fra agenten – fordi den sitter i `normalizedSlide`,
+som begge dørene inn i dekket bruker: `withSlide` for én slide og `withSlides`
+for en ny slideliste.
 
 Luft opprettes, gjenbrukes og fjernes ellers av sonedragene (§11.5): de legger
 den til der de komprimerer, krymper den som allerede finnes på den siden, og
@@ -2045,9 +2047,19 @@ avgjøres av hvor det starter, av den første bevegelsens retning og av Shift, l
 | --- | --- | --- |
 | mellomrommet mellom to soner | flytt grensen | komprimer hele blokken, begge sider |
 | … med Shift | skaler de to halvdelene | (som uten Shift) |
-| inni en sone | forskyv sonen | proporsjonal resize |
+| inni en sone | forskyv sonen ¹ | proporsjonal resize ² |
 | en sones ytterkant | komprimer fra den siden | |
 | … med Shift | komprimer fra begge sider | |
+
+¹ En sone ytterst i splitten har ingen steder å forskyves. Samme bevegelse
+komprimerer den i stedet *på tvers* av splitten – i retningen den fyller helt –
+symmetrisk, til `n : a : n` i en ny split med riktig retning rundt sonen. To
+soner over hverandre: et trykk inni den øverste dratt nedover gjør den smalere
+fra begge sider. Koblingen er den samme som en resize i den nye splitten bruker
+(en rad vokser oppover), så neste drag inni sonen, som nå har luft på hver side,
+fortsetter å gjøre det samme.
+² Rotsonen har verken split eller søsken. Den behandles som eneste sone i en
+rad, og begge bevegelsene komprimerer den, hver i sin retning.
 
 - **Blokken** er det som komprimeres som én: hele splitten for et skille, sonen
   selv for en ytterkant. Ligger sonen i en split med samme retning som kanten,
@@ -2062,8 +2074,16 @@ avgjøres av hvor det starter, av den første bevegelsens retning og av Shift, l
   like store beløp.
 - **Shift + skille** skalerer blokkene `{a, b, c} | {d, e}` mot hverandre, og hver
   blokk beholder sine indre forhold. Uten Shift er grensedraget uendret.
-- **Vokse inn i luft:** når innhold vokser, krymper luften først, og luft som går
-  under null forsvinner ved slipp.
+- **Vokse inn i luft:** luft blant søsknene til en sone som vokser (resize) eller
+  forskyves, skaleres med hele sitt fotavtrykk – lengden pluss gapet sitt. Ved
+  faktoren der luften er borte tar den derfor ingen plass, og innholdet står
+  nøyaktig der det vil stå etter slipp, når luften er fjernet. Innholdssøsken
+  beholder forholdet sitt eksakt.
+- **Full split:** en split med 10 barn komprimeres som alle andre. Under draget
+  kan den levende splitten ha flere barn enn en lagret kan; ved slipp flyttes
+  blokken og den nye luften ett nivå ned, i en split med samme retning
+  (`[n : [a … j] : n]`), med blokkens egne forhold uendret. En nøstet split med
+  samme retning har gapene sine nøyaktig der den flate hadde dem.
 
 **Kontinuitet.** Luft som ennå ikke finnes, starter med lengde −gap: da tar den,
 med mellomrommet sitt, null plass, og innholdet står nøyaktig der det sto. Den
@@ -2078,7 +2098,10 @@ domenekommando som bytter ut et undertre, men bare godtar et nytt tre der
 innholdsbladene er de samme, med samme innhold, i samme rekkefølge. Ved slipp
 vurderes for hver luftsone om den skal beholdes eller falle bort, layoutene
 rangeres etter hvor nær innholdets rects de kommer, og trinnene som bevarer
-blokkens forhold eksakt er de eneste som tilbys. Den første som passerer
+blokkens forhold eksakt er de eneste som tilbys. To luftsoner en symmetrisk
+komprimering laget sammen, eller som var like store, beholdes eller slippes
+sammen og får samme forholdstall, så en blokk som var sentrert under draget,
+også lagres sentrert. Den første som passerer
 `guardFit`, lagres.
 Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
 angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
@@ -2100,7 +2123,9 @@ sine soners minstemål.
 
 En sone ytterst i splitten kan ikke forskyves: det finnes verken plass å åpne
 bak den eller noen til å ta plassen den forlater. Den kan derimot endre
-størrelse, med den ene siden sin som mottaker – se over.
+størrelse, med den ene siden sin som mottaker – se over – og samme bevegelse som
+ville forskjøvet den, komprimerer den på tvers (se «Komprimering inn i negativt
+rom»).
 
 ### Håndhevelse og bakoverkompatibilitet
 

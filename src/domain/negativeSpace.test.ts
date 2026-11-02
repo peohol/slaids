@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createContainer, createNegativeSpace } from './content'
-import { deleteLayoutNode, duplicateLayoutNode, setZoneContent, splitLeaf } from './commands'
+import { addSlide, deleteLayoutNode, duplicateLayoutNode, setZoneContent, splitLeaf } from './commands'
 import { createLeaf, createSplit, findNode, validateTree, walkNodes } from './layout'
 import { isNegativeSpace, mergeNegativeSpace } from './negativeSpace'
 import { createPresentation } from './presentation'
@@ -152,6 +152,20 @@ describe('commands that put air next to air', () => {
     const after = contentAt(placed.value.presentation, 1).root
     expect(shapes(after)).toEqual(['cn'])
     expect(findNode(after, root.children[1].id)).not.toBeNull()
+  })
+
+  it('merges air in a layout a new slide brings with it — from a template or the agent', () => {
+    const layout = createSplit('x', [1, 2, 3, 2], [air(), air(), text(), air()])
+    const nested = createSplit('y', [1, 1], [createSplit('x', [2, 3, 1], [text(), air(), air()]), text()])
+    for (const root of [layout, nested]) {
+      const added = addSlide(createPresentation({ title: 'Mal' }), { root })
+      expect(added.ok).toBe(true)
+      if (!added.ok) return
+      const slide = added.value.slides[added.value.slides.length - 1]
+      if (slide.kind !== 'content') throw new Error('not a content slide')
+      for (const shape of shapes(slide.root)) expect(shape).not.toMatch(/nn/)
+      expect(validateTree(slide.root)).toEqual([])
+    }
   })
 
   it('merges a duplicated piece of air into the original', () => {

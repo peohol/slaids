@@ -570,22 +570,33 @@ test.describe('zone editing', () => {
     expect(await rootRatios(page)).toBe('1 : 1')
   })
 
-  test('cannot move a zone the split’s own edge holds in place', async ({ page }) => {
+  test('compresses a zone the split’s own edge holds in place across the split instead', async ({ page }) => {
     await createPresentation(page, 'Ingen plass bak')
     await enterZoneMode(page)
     await splitSelected(page, [2, 3, 3], 'x')
 
     const before = await zoneRects(page)
-    // There is nothing behind a first zone to open a space, and nothing to take
-    // the space it would leave, so sideways it stands still.
-    await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
-    await dragZone(page, before[0], -travelFor(before, 1, 8, 'x'), 0)
-
-    const after = await zoneRects(page)
-    for (let index = 0; index < before.length; index += 1) {
-      expect(after[index].w).toBeCloseTo(before[index].w, 1)
-      expect(after[index].x).toBeCloseTo(before[index].x, 1)
+    const byId = async (zone: ZoneRect): Promise<ZoneRect> => {
+      const found = (await zoneRects(page)).find((rect) => rect.id === zone.id)
+      if (!found) throw new Error(`zone ${zone.id} is gone`)
+      return found
     }
+    // There is nothing behind a first zone to open a space, and nothing to take
+    // the space it would leave, so it does not slide. The same movement makes
+    // it lower instead, from both sides — across the row, the direction it
+    // fills — and right, which is bigger across a column, has nothing to give.
+    await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
+    await dragZone(page, before[0], -travelFor(before, 2, 8, 'x'), 0)
+
+    // The row is as it was: every zone where it stood, the same width.
+    for (const zone of before) {
+      const after = await byId(zone)
+      expect(after.w).toBeCloseTo(zone.w, 1)
+      expect(after.x).toBeCloseTo(zone.x, 1)
+    }
+    const lowered = await byId(before[0])
+    expect(lowered.h).toBeLessThan(before[0].h - 50)
+    expect(lowered.y - before[0].y).toBeCloseTo(before[0].y + before[0].h - (lowered.y + lowered.h), 0)
     expect(await rootRatios(page)).toBe('2 : 3 : 3')
   })
 

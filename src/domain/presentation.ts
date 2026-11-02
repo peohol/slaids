@@ -359,7 +359,17 @@ export function slideIndexOf(presentation: Presentation, slideId: string): numbe
   return presentation.slides.findIndex((slide) => slide.id === slideId)
 }
 
-function withMergedNegativeSpace(slide: ContentSlide): ContentSlide {
+/**
+ * A slide as it may be written into a deck: a content slide with its layout
+ * normalised — adjacent negative space merged, see `mergeNegativeSpace`. The
+ * same slide when there is nothing to change, so a caller can tell.
+ *
+ * Both doors a slide enters a deck through apply it: `withSlide` for one slide
+ * replaced, and `withSlides` for a rebuilt list — a slide added from a template
+ * or by the agent is held to the same rule as one edited in place.
+ */
+export function normalizedSlide<S extends Slide>(slide: S): S {
+  if (slide.kind !== 'content') return slide
   const root = mergeNegativeSpace(slide.root)
   return root === slide.root ? slide : { ...slide, root }
 }
@@ -382,7 +392,7 @@ export function touch(presentation: Presentation): Presentation {
  * — see `domain/negativeSpace.ts`.
  */
 export function withSlide(presentation: Presentation, written: Slide): Presentation {
-  const slide = written.kind === 'content' ? withMergedNegativeSpace(written) : written
+  const slide = normalizedSlide(written)
   const index = slideIndexOf(presentation, slide.id)
   if (index < 0) return presentation
   const [first, ...rest] = presentation.slides

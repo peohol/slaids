@@ -170,6 +170,11 @@ export function draggedWeights(
  * carrying on into the others, which would bend the proportions it promised to
  * keep. Shrinking only ever gives the siblings room, so there it is the zone's
  * own minimum that stops it.
+ *
+ * Air among the siblings is scaled by its whole footprint — its length and the
+ * gap it brings — so that at the factor where it is gone it takes no room at
+ * all, rather than stopping at zero length with its gap still drawn (see
+ * `scalable`). Content siblings keep their proportions exactly either way.
  */
 export function resizedWeights(
   original: readonly number[],
@@ -179,7 +184,7 @@ export function resizedWeights(
 ): number[] | null {
   if (!Number.isFinite(growth)) return null
   const siblings = original.map((_, position) => position).filter((position) => position !== index)
-  const rest = totalOf(original, siblings)
+  const rest = scalableTotal(original, minShare, siblings)
   if (rest <= 0) return [...original]
 
   const clamped = clamp(
@@ -187,7 +192,7 @@ export function resizedWeights(
     -Math.max(0, original[index] - minShare[index]),
     shrinkCapacity(original, minShare, siblings),
   )
-  const weights = scaled(original, siblings, (rest - clamped) / rest)
+  const weights = scaled(original, minShare, siblings, (rest - clamped) / rest)
   weights[index] = original[index] + clamped
   return isDraggable(weights, minShare) ? weights : null
 }
@@ -260,8 +265,8 @@ function rescaledBlocks(
   minShare: readonly number[],
 ): number[] | null {
   if (!Number.isFinite(distance)) return null
-  const nearSide = totalOf(original, near)
-  const farSide = totalOf(original, far)
+  const nearSide = scalableTotal(original, minShare, near)
+  const farSide = scalableTotal(original, minShare, far)
   if (nearSide <= 0 || farSide <= 0) return [...original]
   const moved = clamp(
     distance,
@@ -269,7 +274,8 @@ function rescaledBlocks(
     shrinkCapacity(original, minShare, far),
   )
   const weights = scaled(
-    scaled(original, near, (nearSide + moved) / nearSide),
+    scaled(original, minShare, near, (nearSide + moved) / nearSide),
+    minShare,
     far,
     (farSide - moved) / farSide,
   )
@@ -487,9 +493,19 @@ export function range(from: number, to: number): number[] {
   return Array.from({ length: Math.max(0, to - from) }, (_, offset) => from + offset)
 }
 
-/** The weight the zones at `indices` hold between them; `0` for none. */
-function totalOf(weights: readonly number[], indices: readonly number[]): number {
-  return indices.reduce((total, index) => total + weights[index], 0)
+/**
+ * The part of a zone that a common factor scales: its length, or for air —
+ * whose floor is below zero, see `isDraggable` — its length down to that
+ * floor, which is its whole footprint. Air scaled to nothing has then vanished,
+ * gap and all, exactly where content scaled by the same factor would stop.
+ */
+function scalable(weight: number, floor: number): number {
+  return floor < 0 ? weight - floor : weight
+}
+
+/** What the zones at `indices` give a common factor to scale; `0` for none. */
+function scalableTotal(weights: readonly number[], minShare: readonly number[], indices: readonly number[]): number {
+  return indices.reduce((total, index) => total + scalable(weights[index], minShare[index]), 0)
 }
 
 /**
@@ -507,16 +523,27 @@ function shrinkCapacity(
   minShare: readonly number[],
   indices: readonly number[],
 ): number {
-  const total = totalOf(weights, indices)
+  const total = scalableTotal(weights, minShare, indices)
   if (total <= 0) return 0
+  // Air may be scaled all the way to nothing; content only to its minimum.
   let floor = 0
-  for (const index of indices) floor = Math.max(floor, minShare[index] / weights[index])
+  for (const index of indices) {
+    if (minShare[index] >= 0) floor = Math.max(floor, minShare[index] / weights[index])
+  }
   return Math.max(0, total * (1 - floor))
 }
 
-/** A copy of `source` with the zones at `indices` scaled by `factor`. */
-function scaled(source: readonly number[], indices: readonly number[], factor: number): number[] {
+/** A copy of `source` with the zones at `indices` scaled by `factor`; see `scalable`. */
+function scaled(
+  source: readonly number[],
+  minShare: readonly number[],
+  indices: readonly number[],
+  factor: number,
+): number[] {
   const out = [...source]
-  for (const index of indices) out[index] = source[index] * factor
+  for (const index of indices) {
+    const base = Math.min(0, minShare[index])
+    out[index] = (source[index] - base) * factor + base
+  }
   return out
 }

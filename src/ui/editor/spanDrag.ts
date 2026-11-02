@@ -25,7 +25,7 @@
  * On release the live layout is a *wish*, and `arrangementCandidates` turns it
  * into the committed layouts closest to it: with or without each piece of air
  * the gesture shrank or created (air too thin to be worth a ratio of its own
- * goes), and whole ratios that keep the scaled blocks' proportions first.
+ * goes), and only whole ratios that keep the scaled blocks' proportions.
  */
 
 import { MAX_SPLIT_CHILDREN } from '../../domain/constants'
@@ -111,8 +111,10 @@ export function contentBlockAround(span: Span, index: number): Block {
  * until the gesture gives it room. Air already there is reused, which is what
  * keeps a repeated compression from stacking air on air.
  *
- * A split that has no room for another child gets none on that side, and a
- * compression towards it simply has nowhere to put the room it frees.
+ * The live split may hold more children than a stored one can
+ * (`MAX_SPLIT_CHILDREN`): it is only drawn. A full split is still compressed
+ * like any other, and on release the block takes its new air with it one level
+ * down (`withinChildLimit`), so the stored split stays within the limit.
  */
 export function withAirBeside(span: Span, block: Block, sides: BlockSides, gap: number): {
   span: Span
@@ -131,15 +133,11 @@ export function withAirBeside(span: Span, block: Block, sides: BlockSides, gap: 
   }
   const wantsStart = sides !== 'end'
   const wantsEnd = sides !== 'start'
-  if (wantsEnd && !(to + 1 < children.length && isNegativeSpace(children[to + 1]))) {
-    if (children.length < MAX_SPLIT_CHILDREN) insert(to + 1)
-  }
+  if (wantsEnd && !(to + 1 < children.length && isNegativeSpace(children[to + 1]))) insert(to + 1)
   if (wantsStart && !(from > 0 && isNegativeSpace(children[from - 1]))) {
-    if (children.length < MAX_SPLIT_CHILDREN) {
-      insert(from)
-      from += 1
-      to += 1
-    }
+    insert(from)
+    from += 1
+    to += 1
   }
   return {
     span: { ...span, split: { ...span.split, children, weights: lengths }, lengths, floors, base },
@@ -206,6 +204,13 @@ export function previewOf(span: Span, lengths: readonly number[]): SplitNode {
 const SNAPS_PER_STRUCTURE = 6
 
 /**
+ * How far down its own ranking a proportional snap looks for layouts that also
+ * keep two mirrored pieces of air equal — which that search cannot ask for
+ * directly, and the nearest of which are not always among its first few.
+ */
+const MIRRORED_SEARCH = SNAPS_PER_STRUCTURE * 8
+
+/**
  * The committed layouts closest to the live one, best first.
  *
  * Air the gesture created or shrank may be kept or let go; every other child is
@@ -215,6 +220,12 @@ const SNAPS_PER_STRUCTURE = 6
  * zones would end up from where the pointer left them, so a sliver of air too
  * thin to be worth a ratio of its own goes, while air the author clearly made
  * stays. A structure with one child left is that child, in place of the split.
+ *
+ * `mirrored` names two pieces of air a symmetric compression made, or found
+ * equal, on either side of its block: they are kept or let go together and
+ * snapped to the same ratio, so the block that was centred while the pointer
+ * was down is centred when it is stored — even where the nearest whole ratios
+ * would rather keep one and drop the other.
  */
 export function arrangementCandidates(
   span: Span,
@@ -222,6 +233,7 @@ export function arrangementCandidates(
   groups: readonly (readonly number[])[],
   rect: Rect,
   gap: number,
+  mirrored: readonly [number, number] | null = null,
 ): LayoutNode[] {
   const children = span.split.children
   const optional = children
@@ -246,13 +258,24 @@ export function arrangementCandidates(
     return total
   }
 
+  const pair = mirrored && mirrored.every((index) => optional.includes(index)) ? mirrored : null
+  const units: number[][] = [
+    ...(pair ? [[...pair]] : []),
+    ...optional.filter((index) => !pair?.includes(index)).map((index) => [index]),
+  ]
+
   const structures: Array<{ layouts: LayoutNode[]; best: number }> = []
-  for (let mask = 0; mask < 1 << optional.length; mask += 1) {
-    const dropped = new Set(optional.filter((_, bit) => mask & (1 << bit)))
+  for (let mask = 0; mask < 1 << units.length; mask += 1) {
+    const dropped = new Set(units.filter((_, bit) => mask & (1 << bit)).flat())
     const kept = children.map((_, index) => index).filter((index) => !dropped.has(index))
-    if (kept.length > MAX_SPLIT_CHILDREN || kept.length === 0) continue
+    if (kept.length === 0) continue
+    const twins = mirrored && mirrored.every((index) => kept.includes(index)) ? mirrored : null
     const layouts =
-      kept.length === 1 ? [children[kept[0]]] : snapped(span, lengths, kept, groups)
+      kept.length === 1
+        ? [children[kept[0]]]
+        : kept.length > MAX_SPLIT_CHILDREN
+          ? withinChildLimit(span, lengths, kept, groups, gap, twins)
+          : snapped(span, lengths, kept, groups, twins)
     if (layouts.length === 0) continue
     structures.push({ layouts, best: Math.min(...layouts.map(error)) })
   }
@@ -266,11 +289,11 @@ function snapped(
   lengths: readonly number[],
   kept: readonly number[],
   groups: readonly (readonly number[])[],
+  twins: readonly [number, number] | null,
 ): SplitNode[] {
-  const scale = Math.max(...kept.map((index) => Math.abs(lengths[index])), 1)
   // Air kept at no length or less is still air the author keeps: it is offered
   // its smallest ratio by asking for very little of the split.
-  const desired = kept.map((index) => Math.max(lengths[index], scale * 1e-6))
+  const desired = desiredFor(kept.map((index) => lengths[index]))
   const position = new Map(kept.map((index, at) => [index, at]))
   const base = kept.map((index) => span.base[index] ?? 1)
   const preserved = groups
@@ -285,11 +308,107 @@ function snapped(
   const children = kept.map((index) => span.split.children[index])
   // A block the gesture promised to keep in proportion is held to it on the
   // snap as well: the plain ladder would gladly bend it for a closer total.
+  const keys = kept.map((index) => mirrorKey(twins, index))
+  const [first, second] = twins ? twins.map((index) => kept.indexOf(index)) : [-1, -1]
   const layouts =
     preserved.length > 0
-      ? proportionalQuantizations(desired, base, preserved, SNAPS_PER_STRUCTURE)
-      : rankedRatioQuantizations(desired, SNAPS_PER_STRUCTURE)
+      ? proportionalQuantizations(desired, base, preserved, MIRRORED_SEARCH)
+          .filter((weights) => !twins || weights[first] === weights[second])
+          .slice(0, SNAPS_PER_STRUCTURE)
+      : rankedRatioQuantizations(desired, SNAPS_PER_STRUCTURE, { equalityKeys: keys })
   return layouts.map((weights) => ({ ...span.split, children, weights }))
+}
+
+/**
+ * The closest layouts for a structure with more children than a split may
+ * store — a full split that was given air.
+ *
+ * Only air the drag inserted can have pushed it over, and that air sits beside
+ * the block it was made for. So the block and that air go one level down, into
+ * a split of the same direction in the block's place: `a … j` compressed from
+ * both sides is stored as `[n : [a … j] : n]`, with the block's own ratios
+ * kept as they were — a block of one zone is not wrapped twice. Nothing moves:
+ * a nested split of the same direction has its gaps exactly where the flat one
+ * had them.
+ */
+function withinChildLimit(
+  span: Span,
+  lengths: readonly number[],
+  kept: readonly number[],
+  groups: readonly (readonly number[])[],
+  gap: number,
+  twins: readonly [number, number] | null,
+): LayoutNode[] {
+  const block = groups.find((group) => group.length > 0)
+  if (!block) return []
+  const inserted = (index: number): boolean => kept.includes(index) && span.base[index] === null
+  const first = block[0]
+  const last = block[block.length - 1]
+  const from = inserted(first - 1) ? first - 1 : first
+  const to = inserted(last + 1) ? last + 1 : last
+  const { axis } = span.split
+  const children = span.split.children
+  const lengthOf = (indices: readonly number[]): number =>
+    indices.reduce((sum, index) => sum + lengths[index], 0) + gap * (indices.length - 1)
+
+  const members = block.map((index) => children[index])
+  const inner =
+    members.length === 1
+      ? members[0]
+      : createSplit(
+          axis,
+          block.map((index) => span.base[index] ?? 1),
+          members,
+        )
+  // The block, with the air made for it on either side, one level down.
+  const parts = [...(from < first ? [from] : []), first, ...(to > last ? [to] : [])]
+  const wrapper =
+    parts.length === 1
+      ? inner
+      : createSplit(
+          axis,
+          snappedWeights(
+            parts.map((index) => (index === first ? lengthOf(block) : lengths[index])),
+            parts.map((index) => mirrorKey(twins, index)),
+          ),
+          parts.map((index) => (index === first ? inner : children[index])),
+        )
+
+  const outside = kept.filter((index) => index < from || index > to)
+  if (outside.length === 0) return [wrapper]
+  const before = outside.filter((index) => index < from)
+  const after = outside.filter((index) => index > to)
+  const rowLengths = [
+    ...before.map((index) => lengths[index]),
+    lengthOf(blockMembers({ from, to })),
+    ...after.map((index) => lengths[index]),
+  ]
+  const rowChildren = [
+    ...before.map((index) => children[index]),
+    wrapper,
+    ...after.map((index) => children[index]),
+  ]
+  return rankedRatioQuantizations(desiredFor(rowLengths), SNAPS_PER_STRUCTURE).map((weights) => ({
+    ...span.split,
+    children: rowChildren,
+    weights,
+  }))
+}
+
+/** Lengths as something to quantise: air at no length or less still asks for a little. */
+function desiredFor(lengths: readonly number[]): number[] {
+  const scale = Math.max(...lengths.map(Math.abs), 1)
+  return lengths.map((length) => Math.max(length, scale * 1e-6))
+}
+
+/** The closest whole ratios for `lengths`, with indices sharing a key kept equal. */
+function snappedWeights(lengths: readonly number[], equalityKeys: readonly (string | null)[]): number[] {
+  return rankedRatioQuantizations(desiredFor(lengths), 1, { equalityKeys })[0]
+}
+
+/** The equality key that holds the two `twins` to one ratio. */
+function mirrorKey(twins: readonly [number, number] | null, index: number): string | null {
+  return twins?.includes(index) ? 'mirrored' : null
 }
 
 /** The indices of a block, in order. */
