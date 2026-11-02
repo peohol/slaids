@@ -311,26 +311,46 @@ form, og et lagret tomt blad er fortsatt `content: null`.
 
 ### Luft holdes samlet
 
-To negative rom side ved side i samme split er ett rom tegnet to ganger. Hver
-skriving av en innholdsslide går gjennom `withSlide`, og der slår
-`mergeNegativeSpace` sammen hver rekke av tilstøtende negativt rom til det
-**første** bladet i rekken: det beholder node-id og innholds-id, og vekten blir
-summen. Går summen over 10, kvantiseres splitten på nytt med det første trinnet
-der ingen innholdssone mister andel. En split som ender med ett barn, erstattes
-av barnet. Regelen er uavhengig av hvordan luften oppsto – et drag, en sletting
-mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en duplisering,
-en ny slide fra en mal eller fra agenten – fordi den sitter i `normalizedSlide`,
-som begge dørene inn i dekket bruker: `withSlide` for én slide og `withSlides`
-for en ny slideliste.
+To negative rom som møtes, er ett rom tegnet to ganger. Hver skriving av en
+innholdsslide går gjennom `withSlide`, og der slår `mergeNegativeSpace` dem
+sammen til ett. Regelen er uavhengig av hvordan luften oppsto – et drag, en
+sletting mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en
+duplisering, en ny slide fra en mal eller fra agenten – fordi den sitter i
+`normalizedSlide`, som begge dørene inn i dekket bruker: `withSlide` for én
+slide og `withSlides` for en ny slideliste.
 
 Det som teller, er kanten slik den står på sliden, ikke hvor dypt i treet
 luften ligger. Luft ytterst i en split med **samme akse**, som ligger mot luft
 utenfor den, er samme rom: `[n, [n, a, n], n]` lagres som `[n, a, n]`, og det
-gjelder gjennom flere nivåer. Den indre luften løftes ut med sin andel av
-gruppens vekt, gruppen beholder sin id og sine indre forhold (kvantisert på
-samme måte som over), og rekken slås sammen som før. Luft i en split som går
-**på tvers** dekker bare en del av kanten og er annen luft; den røres ikke.
-Blir en split med sammenslåingen flere enn 10 barn, står den som den er.
+gjelder gjennom flere nivåer. Luft i en split som går **på tvers** dekker bare
+en del av kanten og er annen luft; den røres ikke.
+
+**Sammenslåing endrer bare luft.** Langs aksen beholder hver innholdssone sin
+andel av raden eksakt – eller, der luften må gi fra seg plass for å passe
+stigen 1–10, vokser alt innholdet i raden med én og samme faktor, så forholdet
+mellom sonene er eksakt og ingen blir mindre. Luft kan bare gis fra seg i en
+split som ingen split over seg med samme akse har; ellers ville én del av en
+rad vokse mot resten av den. Hvert møte løses med den omskrivingen som lar
+innholdet vokse minst, og hver måles mot det løftet før den tas:
+
+- **søsken:** en rekke luft side ved side blir det **første** bladet, med
+  hele rekkens vekt;
+- **løfte ut:** nøstet luft tas ut til splitten der den møter naboen, og
+  slås sammen der; gruppen den forlot beholder id og indre forhold;
+- **slå sammen grupper:** to grupper som møtes med luft blir én, den første,
+  med luften i midten: `[[a, n], [n, b], c…]` blir `[[a, n, b], c…]`. Slik får
+  også en split med 10 barn slått sammen luften – den får ett barn færre, ikke
+  ett flere;
+- **droppe den ytre:** den ytre biten utelates så den nøstede er all luften:
+  `[n, [[n, a], b]]` med `a : b = 1 : 110` blir `[[n, a], b]`, der alt
+  innholdet vokser likt.
+
+En split som ender med ett barn, erstattes av barnet. Finnes ingen omskriving
+som holder løftet, kan stigen 1–10 ikke vise det innholdet med én bit luft.
+Da står treet som det er, og en kommando som ville skapt et slikt møte avvises
+med `NEGATIVE_SPACE_CANNOT_MERGE` (sjekket i `guardFit` og ved sletting), så
+lagret dobbel luft finnes bare der den ble lagret før denne regelen. Et drag
+som ville gitt det, viser og lagrer i stedet nærmeste trinn som godtas (§11.5).
 
 Luft opprettes, gjenbrukes og fjernes ellers av sonedragene (§11.5): de legger
 den til der de komprimerer, krymper den som allerede finnes på den siden, og

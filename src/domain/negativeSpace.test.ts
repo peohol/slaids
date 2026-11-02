@@ -10,11 +10,12 @@
 import { describe, expect, it } from 'vitest'
 import { createContainer, createNegativeSpace } from './content'
 import { addSlide, deleteLayoutNode, duplicateLayoutNode, setZoneContent, splitLeaf } from './commands'
-import { createLeaf, createSplit, findNode, validateTree, walkNodes } from './layout'
-import { isNegativeSpace, mergeNegativeSpace } from './negativeSpace'
+import { computeLayoutRects } from './geometry'
+import { createLeaf, createSplit, findNode, replaceNode, validateTree, walkNodes } from './layout'
+import { airMeetings, isNegativeSpace, mergeNegativeSpace } from './negativeSpace'
 import { createPresentation } from './presentation'
-import { airMeetsAir, contentAt } from './testDecks'
-import type { LayoutNode, Presentation } from './types'
+import { contentAt } from './testDecks'
+import type { Axis, LayoutNode, Presentation } from './types'
 
 const air = (): LayoutNode => createLeaf(createNegativeSpace())
 const text = (): LayoutNode => createLeaf(createContainer())
@@ -28,6 +29,51 @@ function shapes(root: LayoutNode): string[] {
     }
   })
   return out
+}
+
+/**
+ * Whether `after` keeps the content of `before` in proportion: no content zone
+ * smaller along either axis, and any two whose nearest common split in
+ * `before` runs along an axis grown by the same factor along it — the zones of
+ * one row keep their sizes relative to each other exactly.
+ *
+ * Measured with the geometry itself, without gaps, so a length is exactly the
+ * share the ratios give it: an oracle that shares no code with the merge.
+ */
+function keepsProportions(before: LayoutNode, after: LayoutNode): boolean {
+  const frame = { x: 0, y: 0, width: 1600, height: 900 }
+  const [was, now] = [computeLayoutRects(before, frame, 0), computeLayoutRects(after, frame, 0)]
+  const parents = new Map<string, LayoutNode>()
+  walkNodes(before, (node) => {
+    if (node.kind === 'split') for (const child of node.children) parents.set(child.id, node)
+  })
+  const content: string[] = []
+  walkNodes(before, (node) => {
+    if (node.kind === 'leaf' && !isNegativeSpace(node)) content.push(node.id)
+  })
+  const growth = (id: string, axis: Axis): number => {
+    const [old, next] = [was.get(id), now.get(id)]
+    if (!old || !next) return Number.NaN
+    return axis === 'x' ? next.width / old.width : next.height / old.height
+  }
+  const ancestors = (id: string): LayoutNode[] => {
+    const chain: LayoutNode[] = []
+    for (let parent = parents.get(id); parent; parent = parents.get(parent.id)) chain.push(parent)
+    return chain
+  }
+  const close = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(a, b)
+  for (const id of content) {
+    if (!(growth(id, 'x') >= 1 - 1e-9) || !(growth(id, 'y') >= 1 - 1e-9)) return false
+  }
+  for (const [index, first] of content.entries()) {
+    const around = ancestors(first)
+    for (const second of content.slice(index + 1)) {
+      const common = ancestors(second).find((node) => around.includes(node))
+      if (common?.kind !== 'split') continue
+      if (!close(growth(first, common.axis), growth(second, common.axis))) return false
+    }
+  }
+  return true
 }
 
 function makeRandom(seed: number): () => number {
@@ -93,14 +139,63 @@ describe('mergeNegativeSpace', () => {
 
   it('reaches air that is nested more than one level deep, and keeps the group it leaves', () => {
     const [n0, n1, a, b] = [air(), air(), text(), text()]
-    const group = createSplit('x', [2, 3], [createSplit('x', [1, 4], [n1, a]), b])
-    const merged = mergeNegativeSpace(createSplit('x', [1, 6], [n0, group]))
+    const group = createSplit('x', [5, 4], [createSplit('x', [1, 4], [n1, a]), b])
+    const root = createSplit('x', [1, 6], [n0, group])
+    const merged = mergeNegativeSpace(root)
     expect(merged.kind).toBe('split')
     if (merged.kind !== 'split') return
     expect(merged.children[0].id).toBe(n0.id)
     expect(shapes(merged)).toEqual(['nc', 'cc'])
     expect(merged.children[1].id).toBe(group.id)
+    expect(keepsProportions(root, merged)).toBe(true)
     expect(validateTree(merged)).toEqual([])
+  })
+
+  it('merges where a split of ten children has no room for another: the two groups become one', () => {
+    const [a, b] = [text(), text()]
+    const [left, right] = [createSplit('x', [1, 1], [a, air()]), createSplit('x', [1, 1], [air(), b])]
+    const rest = Array.from({ length: 8 }, text)
+    const root = createSplit('x', Array(10).fill(1), [left, right, ...rest])
+    const merged = mergeNegativeSpace(root)
+    expect(airMeetings(root)).toBe(1)
+    expect(airMeetings(merged)).toBe(0)
+    expect(merged.kind).toBe('split')
+    if (merged.kind !== 'split') return
+    expect(merged.children).toHaveLength(9)
+    expect(merged.children[0].id).toBe(left.id)
+    expect(shapes(merged)[1]).toBe('cnc')
+    // The two pieces were one each half of a pair of ratio-one children: one piece of two now.
+    expect(merged.children[0].kind === 'split' && merged.children[0].weights).toEqual([1, 2, 1])
+    expect(keepsProportions(root, merged)).toBe(true)
+    expect(validateTree(merged)).toEqual([])
+  })
+
+  it('leaves the nested air where it is when lifting it out would bend the content: the outer piece goes', () => {
+    // a : b is 1 : 110 here, which no two whole ratios from 1 to 10 can say.
+    const [n0, n1, a, b] = [air(), air(), text(), text()]
+    const group = createSplit('x', [1, 10], [createSplit('x', [10, 1], [n1, a]), b])
+    const root = createSplit('x', [1, 10], [n0, group])
+    const merged = mergeNegativeSpace(root)
+    expect(airMeetings(merged)).toBe(0)
+    expect(merged.id).toBe(group.id)
+    expect(findNode(merged, n1.id)).not.toBeNull()
+    expect(findNode(merged, n0.id)).toBeNull()
+    expect(keepsProportions(root, merged)).toBe(true)
+    expect(validateTree(merged)).toEqual([])
+  })
+
+  it('inside a row, merges only what keeps the rest of the row as it is', () => {
+    // The inner row is one part of the outer one: air it gave up would grow its
+    // content against `c`, so a sum past ten that the ladder cannot hold exactly
+    // is left as it is — and a command that makes one is refused (below).
+    const inner = createSplit('x', [8, 7, 2], [air(), air(), text()])
+    const root = createSplit('y', [1, 1], [createSplit('x', [1, 1], [text(), inner]), text()])
+    const merged = mergeNegativeSpace(root)
+    expect(keepsProportions(root, merged)).toBe(true)
+    const exact = createSplit('x', [1, 1], [text(), createSplit('x', [4, 2, 3], [air(), air(), text()])])
+    const both = mergeNegativeSpace(exact)
+    expect(airMeetings(both)).toBe(0)
+    expect(keepsProportions(exact, both)).toBe(true)
   })
 
   it('takes nested air out only where it meets air', () => {
@@ -122,16 +217,24 @@ describe('mergeNegativeSpace', () => {
     expect(share).toBeGreaterThanOrEqual(2 / 17)
   })
 
-  it('never leaves two pieces of air on one edge, and keeps every tree valid', () => {
+  it('never bends the content, never adds a meeting, and keeps every tree valid', () => {
     const random = makeRandom(1102)
+    let [met, left] = [0, 0]
     for (let run = 0; run < 300; run += 1) {
-      const merged = mergeNegativeSpace(randomTree(random, 3))
+      const tree = randomTree(random, 3)
+      const merged = mergeNegativeSpace(tree)
       expect(validateTree(merged)).toEqual([])
-      for (const shape of shapes(merged)) expect(shape).not.toContain('nn')
-      expect(airMeetsAir(merged)).toBe(false)
+      expect(keepsProportions(tree, merged)).toBe(true)
+      expect(airMeetings(merged)).toBeLessThanOrEqual(airMeetings(tree))
       expect(mergeNegativeSpace(merged)).toBe(merged)
+      met += airMeetings(tree)
+      left += airMeetings(merged)
     }
-    // Three hundred trees, most of them rewritten to whole ratios more than once.
+    // Random ratios are far harsher than anything an editor makes: some of
+    // these rows cannot be shown on whole ratios with one piece of air at all,
+    // and those are left as they are rather than bent.
+    expect(met).toBeGreaterThan(100)
+    expect(left).toBeLessThan(met / 2)
   }, 30_000)
 })
 
@@ -203,6 +306,67 @@ describe('commands that put air next to air', () => {
       expect(validateTree(slide.root)).toEqual([])
     }
   })
+
+  /** A deck whose one content slide has `root`. */
+  function deckOf(root: LayoutNode): { presentation: Presentation; slideId: string } {
+    const added = addSlide(createPresentation({ title: 'Luft' }), { root })
+    if (!added.ok) throw new Error('could not add')
+    const slide = added.value.slides[added.value.slides.length - 1]
+    return { presentation: added.value, slideId: slide.id }
+  }
+  const rootIn = (presentation: Presentation): LayoutNode => contentAt(presentation, presentation.slides.length - 1).root
+  /** The node at `path` of child indices — a new slide's layout is stored under ids of its own. */
+  const at = (node: LayoutNode, ...path: number[]): LayoutNode =>
+    path.reduce((current, index) => (current.kind === 'split' ? current.children[index] : current), node)
+
+  it('merges when a zone made into air meets air in the neighbouring group of a row of ten', () => {
+    const row = createSplit('x', Array(10).fill(1), [
+      createSplit('x', [1, 1], [text(), air()]),
+      createSplit('x', [1, 1], [createLeaf(null), text()]),
+      ...Array.from({ length: 8 }, text),
+    ])
+    const { presentation, slideId } = deckOf(row)
+    const t = at(rootIn(presentation), 1, 0)
+    const placed = setZoneContent(presentation, { slideId, nodeId: t.id, content: createNegativeSpace() })
+    expect(placed.ok).toBe(true)
+    if (!placed.ok) return
+    const after = rootIn(placed.value.presentation)
+    expect(airMeetings(after)).toBe(0)
+    expect(after.kind === 'split' && after.children.length).toBe(9)
+    const converted = replaceNode(rootIn(presentation), t.id, { ...t, kind: 'leaf', content: createNegativeSpace() })
+    expect(keepsProportions(converted, after)).toBe(true)
+    expect(validateTree(after)).toEqual([])
+  })
+
+  for (const [label, act] of [
+    [
+      'made into air',
+      (deck: { presentation: Presentation; slideId: string }, zone: LayoutNode) =>
+        setZoneContent(deck.presentation, { slideId: deck.slideId, nodeId: zone.id, content: createNegativeSpace() }),
+    ],
+    [
+      'deleted',
+      (deck: { presentation: Presentation; slideId: string }, zone: LayoutNode) =>
+        deleteLayoutNode(deck.presentation, { slideId: deck.slideId, nodeId: zone.id }),
+    ],
+  ] as const) {
+    it(`refuses a zone ${label} where the air it brings together cannot be one piece without bending the content`, () => {
+      // c : a : b is 220 : 2 : 11 here: no row of whole ratios from 1 to 10
+      // with one piece of air between a and b can say it.
+      const left = createSplit('x', [1, 10], [text(), air()])
+      const root =
+        label === 'deleted'
+          ? createSplit('x', [10, 1, 1, 1], [text(), left, text(), createSplit('x', [1, 1], [air(), text()])])
+          : createSplit('x', [10, 1, 1], [text(), left, createSplit('x', [1, 1], [createLeaf(null), text()])])
+      const deck = deckOf(root)
+      expect(airMeetings(rootIn(deck.presentation))).toBe(0)
+      const zone = label === 'deleted' ? at(rootIn(deck.presentation), 2) : at(rootIn(deck.presentation), 2, 0)
+      const result = act(deck, zone)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error.code).toBe('NEGATIVE_SPACE_CANNOT_MERGE')
+    })
+  }
 
   it('merges a duplicated piece of air into the original', () => {
     const { presentation, slideId } = deckWith(['c', 'n'])

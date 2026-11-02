@@ -13,12 +13,12 @@ import { rearrangeZones, setSplitWeights } from '../../domain/commands'
 import { containerWithDoc, createContainer, createNegativeSpace } from '../../domain/content'
 import { estimateFit, estimateFitChecker } from '../../domain/fit'
 import { computeLayoutRects, computeSlideGeometry, minimumSizeFor } from '../../domain/geometry'
-import { collectLeaves, createLeaf, createSplit, findNode, replaceNode, validateTree } from '../../domain/layout'
+import { collectLeaves, createLeaf, createSplit, findNode, replaceNode, validateTree, walkNodes } from '../../domain/layout'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
-import { isNegativeSpace, mergeNegativeSpace } from '../../domain/negativeSpace'
+import { airMeetings, isNegativeSpace, mergeNegativeSpace } from '../../domain/negativeSpace'
 import { createPresentation, withSlide } from '../../domain/presentation'
 import { paragraphDoc } from '../../domain/richdoc'
-import { airMeetsAir, contentAt } from '../../domain/testDecks'
+import { contentAt } from '../../domain/testDecks'
 import type { LayoutNode, Presentation, Rect, SplitNode } from '../../domain/types'
 import { commitDraggedRatios } from './ratioDrag'
 import {
@@ -921,7 +921,7 @@ describe('compressing a group that already has air at its sides', () => {
         const after = release(deck, gesture, lengths)
         const where = `${sign * amount} px`
         for (const root of [shownRoot, rootOf(after)]) {
-          expect(airMeetsAir(root), where).toBe(false)
+          expect(airMeetings(root), where).toBe(0)
           expect(validateTree(root), where).toEqual([])
         }
         expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
@@ -940,8 +940,61 @@ describe('compressing a group that already has air at its sides', () => {
     const deck = deckWith(
       createSplit('y', [1, 1], [createSplit('x', [1, 10, 1], [n1, createSplit('x', [1, 10, 1], [n2, a, n3]), n4]), text()]),
     )
-    expect(airMeetsAir(rootOf(deck))).toBe(false)
+    expect(airMeetings(rootOf(deck))).toBe(0)
     const row = (rootOf(deck) as SplitNode).children[0]
     expect(row.kind === 'split' && shape(row)).toBe('ncn')
   })
+})
+
+describe('drags in the layouts the merge has to rewrite to keep content exact', () => {
+  /** A row of ten whose first two groups meet with air, and a row where a : b is 1 : 110. */
+  const layouts = (): Array<[string, LayoutNode]> => [
+    [
+      'ten children',
+      createSplit('x', Array(10).fill(1), [
+        createSplit('x', [1, 1], [text(), air()]),
+        createSplit('x', [1, 1], [air(), text()]),
+        ...Array.from({ length: 8 }, text),
+      ]),
+    ],
+    [
+      'a : b of 1 : 110',
+      createSplit('x', [1, 10], [air(), createSplit('x', [1, 10], [createSplit('x', [10, 1], [air(), text()]), text()])]),
+    ],
+  ]
+
+  for (const [label, layout] of layouts()) {
+    it(`${label}: stored without air meeting air, and no divider drag in it ever brings it back`, () => {
+      const deck = deckWith(layout)
+      expect(airMeetings(rootOf(deck))).toBe(0)
+      let dragged = 0
+      walkNodes(rootOf(deck), (node) => {
+        if (node.kind !== 'split') return
+        for (let boundary = 0; boundary < node.children.length - 1; boundary += 1) {
+          for (const shift of [false, true]) {
+            for (const amount of [-100, 60]) {
+              const where = `${node.id} ${boundary} ${shift ? 'Shift ' : ''}${amount} px`
+              const gesture = begin(deck, { kind: 'boundary', splitId: node.id, boundary, shift })
+              const lengths = liveLengths(gesture, node.axis === 'x' ? amount : 0, node.axis === 'y' ? amount : 0)
+              if (!lengths) continue
+              const view = shownFor(gesture, lengths, accepts(deck))
+              // A ratio drag may be refused for a zone it makes too small; that is its own rule.
+              let after = deck
+              try {
+                after = release(deck, gesture, lengths)
+              } catch {
+                expect(view.kind, where).toBe('ratios')
+              }
+              // What is drawn while the pointer is down, and what is stored.
+              expect(airMeetings(drawn(deck, view)), where).toBe(0)
+              expect(airMeetings(rootOf(after)), where).toBe(0)
+              expect(validateTree(rootOf(after)), where).toEqual([])
+              dragged += 1
+            }
+          }
+        }
+      })
+      expect(dragged).toBeGreaterThan(0)
+    }, 30_000)
+  }
 })
