@@ -21,7 +21,6 @@ import {
   viewportToSlide,
 } from '../../domain/geometry'
 import { findParent, findSplit, updateNode } from '../../domain/layout'
-import { equalityKeysForDrag, equalityKeysForZoneDrag } from '../../domain/ratios'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
   overflowRegressions,
@@ -52,13 +51,14 @@ import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
 import { RichTextEditor } from './RichTextEditor'
 import {
+  boundarySnapRules,
   commitDraggedRatios,
   draggedWeights,
-  keepsZoneSize,
   resizedWeights,
   translatedWeights,
   zoneDragAmount,
   zoneDragMode,
+  zoneSnapRules,
   type ZoneDragMode,
 } from './ratioDrag'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
@@ -588,17 +588,17 @@ export function EditorStage({
       draggedRef.current = true
 
       // The released geometry is a wish; what gets stored is the nearest ratio
-      // the deck can be written in, keeping zones that shared a ratio before
-      // the gesture sharing one.
-      const equalityKeys =
-        drag.gesture.kind === 'boundary'
-          ? equalityKeysForDrag(drag.originalWeights, drag.gesture.boundary)
-          : equalityKeysForZoneDrag(drag.originalWeights, drag.gesture.index)
-      // A move promised the zone would keep its size, so the snap is held to it.
-      const prefer =
-        drag.gesture.kind === 'zone' && drag.gesture.mode === 'translate'
-          ? keepsZoneSize(drag.originalWeights, drag.gesture.index)
-          : undefined
+      // the deck can be written in, held to whatever the gesture promised.
+      const gesture = drag.gesture
+      const rules =
+        gesture.kind === 'boundary'
+          ? boundarySnapRules(drag.originalWeights, gesture.boundary)
+          : gesture.mode
+            ? zoneSnapRules(drag.originalWeights, gesture.index, gesture.mode, pending.weights)
+            : null
+      // A zone gesture only previews once its mode is decided.
+      if (!rules) return
+      const { equalityKeys, preference } = rules
       runStructural('ratio', (presentation) =>
         commitDraggedRatios(
           equalityKeys,
@@ -611,7 +611,7 @@ export function EditorStage({
               // A ratio change may not shrink a zone past what its content needs.
               ...domFitCheckers,
             }),
-          prefer,
+          preference,
         ),
       )
     }

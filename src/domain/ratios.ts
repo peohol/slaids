@@ -134,6 +134,94 @@ export function equalityKeysForZoneDrag(
 }
 
 /**
+ * Which zones must keep sharing a ratio when the zone at `index` is resized.
+ *
+ * A resize scales every other zone by one and the same factor, so two of them
+ * that were written down as the same number are still the same size when the
+ * pointer is let go, whichever side of the resized zone they sit on. The
+ * resized zone is a group of its own — it is the one the gesture is about.
+ */
+export function equalityKeysForZoneResize(
+  before: readonly number[],
+  index: number,
+): (number | null)[] {
+  return before.map((weight, position) => (position === index ? null : weight))
+}
+
+/**
+ * How many layouts `proportionalQuantizations` is willing to enumerate.
+ *
+ * Its callers hand it at most a couple of free zones and a couple of blocks,
+ * which is a few thousand layouts. Anything bigger is not what it is for, and
+ * the ordinary ladder answers instead.
+ */
+const MAX_PROPORTIONAL_LAYOUTS = 50_000
+
+/**
+ * The closest whole-ratio layouts that keep each block's internal proportions
+ * *exactly* as `base` has them, closest to `desired` first.
+ *
+ * A block is a set of zone indices a gesture scaled together by one factor —
+ * every sibling of a resized zone, or one side of a divider dragged with
+ * Shift. While the pointer is down their proportions are exact; the ordinary
+ * ladder is free to bend them by a rung for a closer total fit, and for a
+ * gesture whose whole promise is that they do not change, that is the wrong
+ * trade. Here a block can only be scaled: its reduced ratio from `base` times a
+ * whole multiplier that keeps every member within the range. Zones in no block
+ * are free to take any ratio.
+ *
+ * `base` must be whole ratios — it is a committed layout — and the same loss,
+ * tie-breaks and deduplication as `rankedRatioQuantizations` apply, so the two
+ * lists rank alike. Returns `[]` when no layout keeps the blocks, or when the
+ * enumeration would be larger than this function is meant for.
+ */
+export function proportionalQuantizations(
+  desired: readonly number[],
+  base: readonly number[],
+  blocks: readonly (readonly number[])[],
+  limit: number,
+): number[][] {
+  const proportions = toProportions(desired)
+  const inBlock = new Set(blocks.flat())
+  const free = proportions.map((_, index) => index).filter((index) => !inBlock.has(index))
+  const reduced = blocks
+    .filter((members) => members.length > 0)
+    .map((members) => ({ members, ratios: reduceRatios(members.map((index) => base[index])) }))
+  if (reduced.some((block) => !areRatiosQuantized(block.ratios))) return []
+  const multipliers = reduced.map((block) => Math.floor(MAX_ZONE_RATIO / Math.max(...block.ratios)))
+  const size = multipliers.reduce((product, count) => product * count, VALUE_COUNT ** free.length)
+  if (size > MAX_PROPORTIONAL_LAYOUTS) return []
+
+  const candidates: Candidate[] = []
+  const ratios = new Array<number>(proportions.length).fill(MIN_ZONE_RATIO)
+  const visit = (depth: number): void => {
+    if (depth === reduced.length + free.length) {
+      const layout = [...ratios]
+      const total = layout.reduce((sum, ratio) => sum + ratio, 0)
+      candidates.push({ ratios: layout, total, loss: lossOf(proportions, layout) })
+      return
+    }
+    if (depth < reduced.length) {
+      const block = reduced[depth]
+      for (let multiplier = 1; multiplier <= multipliers[depth]; multiplier += 1) {
+        block.members.forEach((index, position) => {
+          ratios[index] = block.ratios[position] * multiplier
+        })
+        visit(depth + 1)
+      }
+      return
+    }
+    const index = free[depth - reduced.length]
+    for (let value = MIN_ZONE_RATIO; value <= MAX_ZONE_RATIO; value += 1) {
+      ratios[index] = value
+      visit(depth + 1)
+    }
+  }
+  visit(0)
+  return closestDistinct(candidates, Math.max(1, Math.floor(limit)))
+}
+
+/**
  * The integer ratios closest to the proportions `desired` describes.
  *
  * `desired` is any set of positive relative weights — `[0.25, 1.6, 3.14]`,
@@ -192,18 +280,7 @@ export function rankedRatioQuantizations(
     }
   }
 
-  candidates.sort(compareCandidates)
-
-  const out: number[][] = []
-  const seen = new Set<string>()
-  for (const candidate of candidates) {
-    const key = reduceRatios(candidate.ratios).join(':')
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(candidate.ratios)
-    if (out.length >= width) break
-  }
-  return out
+  return closestDistinct(candidates, width)
 }
 
 /**
@@ -479,6 +556,24 @@ function lossOf(proportions: readonly number[], ratios: readonly number[]): numb
     loss += difference * difference
   }
   return loss
+}
+
+/**
+ * The `width` closest candidates that are distinct *layouts*: `2 : 4 : 2` is
+ * not a second chance after `1 : 2 : 1`, it is the same geometry written twice.
+ */
+function closestDistinct(candidates: Candidate[], width: number): number[][] {
+  candidates.sort(compareCandidates)
+  const out: number[][] = []
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    const key = reduceRatios(candidate.ratios).join(':')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(candidate.ratios)
+    if (out.length >= width) break
+  }
+  return out
 }
 
 /**

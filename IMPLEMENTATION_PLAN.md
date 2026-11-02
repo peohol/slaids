@@ -1934,7 +1934,7 @@ Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
 løsninger på formen `a : b : c : c : c`. Gruppene leses fra forholdstallene
 **før** gesten – aldri fra midlertidige flyttallsbredder, som aldri er nøyaktig
 like. Hvilke soner gesten frigjør fra regelen, avgjør gesten selv; se
-`equalityKeysForDrag` og `equalityKeysForZoneDrag`.
+`equalityKeysForDrag`, `equalityKeysForZoneResize` og `equalityKeysForZoneDrag`.
 
 Nærmeste trinn kan fortsatt bli avvist av minstemål eller fit-guarden. Da prøves
 de nest nærmeste i tur (`RATIO_SNAP_CANDIDATES`), og først når alle er avvist
@@ -1967,19 +1967,32 @@ separatoren er unntatt fra likhetsregelen over: `2 : 2 : 5` med separatoren
 mellom de to første dratt *skal* kunne ende med ulike tall, fordi det er nettopp
 det forfatteren ba om.
 
-**Symmetrisk resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
-tvers av splittens retning. Hver side sonen har, gir fra seg – eller tar tilbake
-– like stor del av endringen. En sone med naboer på begge sider flytter derfor
-begge grensene sine like langt i hver sin retning: den endrer størrelse og blir
-liggende der den lå. Sidene er sjelden like lange, så de skaleres med hver sin
-faktor – og innenfor en side beholder hver sone sin andel, slik at forholdstall
-gesten ikke handler om overlever den urørt.
+**Proporsjonal resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
+tvers av splittens retning. Alle de andre sonene i splitten betaler for
+endringen i forhold til sin egen størrelse – med én og samme faktor:
 
-En sone ytterst i splitten har bare én side, og den siden tar hele endringen.
-Der finnes ingenting å være symmetrisk om: sonens ytterkant er splittens egen og
-kan ikke flyttes. Den andre lesningen – at en slik sone ikke endrer størrelse i
-det hele tatt – gjør den vanligste layouten som finnes gestløs, siden begge
-sonene i en todeling er ytterste soner.
+```text
+x_i' = x_i · (T − b') / (T − b)
+```
+
+der `T` er splittens total, `b` sonens vekt da gesten startet og `b'` vekten nå.
+Søsknene beholder dermed nøyaktig forholdet de hadde seg imellom: `1 : 1 : 1 : 1`
+med sone 2 forstørret til 40 % gir 20 % til hver av de tre andre, og hvilken side
+av sonen en søskensone ligger på, spiller ingen rolle. Sonen selv flytter seg
+derfor bare når naboene på hver side har ulik samlet størrelse; mellom like
+naboer endrer den størrelse om sitt eget sentrum.
+
+Tidligere ga hver *side* fra seg halvparten av endringen. En sone med én nabo til
+venstre og to til høyre tok da like mye fra den ene som fra de to til sammen, og
+den ensomme naboen krympet dobbelt så fort. Et langt drag viste skjevheten; flere
+korte skjulte den, fordi hvert av dem startet på nytt fra det skjeve resultatet.
+
+Ved slipp holdes snappet til samme løfte: likhetsnøklene leses uten side
+(`equalityKeysForZoneResize`), og trinnene som bevarer søsknenes forhold
+*eksakt* (`proportionKeepingSnaps`, bygd på `proportionalQuantizations`) prøves
+før den vanlige stigen. Stigen alene bøyer gjerne forholdet for en marginalt
+bedre helhet: `4 : 2 : 3` med første sone forstørret lander der på `9 : 3 : 5`,
+og de to andre har gått fra `2 : 3` til `3 : 5`.
 
 **Forskyvning** (`translatedWeights`) – samme trykk, dratt langs splittens
 retning. Sonen beholder forholdstallet sitt; siden den beveger seg mot
@@ -2003,10 +2016,9 @@ av sitt eget håndtak, og et trykk der når aldri sonen under.
 
 Ingen gest avvises fordi den ble dratt for langt; den stopper der geometrien
 stopper, og blir stående der. Grensen stopper ved naboens minstemål. En resize
-stopper ved den *minste* av de to sidenes kapasitet – å fortsette inn i siden som
-fortsatt har plass ville gjort operasjonen usymmetrisk halvveis og begynt å
-forskyve sonen i stedet – eller ved sonens eget minstemål når det er den som
-krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
+stopper når den første søskensonen når sitt minstemål – å fortsette inn i de
+andre ville bøyd forholdet den lovet å bevare – eller ved sonens eget minstemål
+når det er den som krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
 sine soners minstemål.
 
 En sone ytterst i splitten kan ikke forskyves: det finnes verken plass å åpne
@@ -2046,8 +2058,8 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 - appen skal ikke stille miste innhold.
 
 Direkte manipulasjon av ratios finnes, i tre gester: separatoren mellom to soner
-kan dras, og et drag inni en sone endrer størrelsen på den symmetrisk (på tvers
-av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
+kan dras, og et drag inni en sone endrer størrelsen på den proporsjonalt (på
+tvers av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
 trinnløs, ved slipp snapper layouten til nærmeste lovlige forhold. Se §11.5.
 
 **Omrokkering** (`reorderLayoutNode`) flytter en sone til en annen plass blant
