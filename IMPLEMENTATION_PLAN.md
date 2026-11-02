@@ -2104,19 +2104,23 @@ blokkens forhold eksakt er de eneste som tilbys. To luftsoner en symmetrisk
 komprimering laget sammen, eller som var like store, beholdes eller slippes
 sammen og får samme forholdstall, så en blokk som var sentrert under draget,
 også lagres sentrert. Den første som passerer
-`guardFit`, lagres.
+`guardFit`, er den som vises under draget og lagres ved slipp (se «Vist i trinn»).
 Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
 angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
 og et slipp utenfor editoren avslutter det som vanlig.
 
 **Vist i trinn.** Modellen over er kontinuerlig, men sliden viser den ikke slik:
 et drag som berører luft, viser hele tiden layouten et slipp ville lagret –
-den nærmeste av kandidatene over (`shownFor`) – og slippet endrer derfor ingenting
+den nærmeste godtatte av kandidatene over (`shownFor`) – og slippet endrer derfor ingenting
 på sliden. Grunnen er stigen 1–10: luft ved siden av én sone kan aldri lagres
 tynnere enn `1 : 10 : 1`, en tolvdel av splitten på hver side, så et lite drag
 kunne ellers vises som en liten komprimering og hoppe ved slipp. Sonene går
 derfor i synlige hakk, mens blokkens stiplede ramme følger pekeren kontinuerlig
-mellom dem. Et drag som bare fordeler plass mellom innholdssoner, følger
+mellom dem. Et trinn vises bare når slippets egen kommando – `rearrangeZones`
+med de samme fit-kontrollene – godtar det; ellers vises nærmeste trinn som
+godtas, eller utgangstilstanden. Slippet lagrer nøyaktig trinnet som ble vist,
+så tekst nær fit-grensen blir aldri klippet under draget og sliden endrer seg
+aldri ved slipp. Svarene huskes for draget, siden hvert av dem er en måling. Et drag som bare fordeler plass mellom innholdssoner, følger
 fortsatt pekeren og snappes ved slipp.
 
 **Tilbakemelding.** Den valgte sonen viser håndtak på ytterkantene der en

@@ -10,18 +10,18 @@
 
 import { describe, expect, it } from 'vitest'
 import { rearrangeZones, setSplitWeights } from '../../domain/commands'
-import { createContainer, createNegativeSpace } from '../../domain/content'
-import { estimateFitChecker } from '../../domain/fit'
+import { containerWithDoc, createContainer, createNegativeSpace } from '../../domain/content'
+import { estimateFit, estimateFitChecker } from '../../domain/fit'
 import { computeLayoutRects, computeSlideGeometry, minimumSizeFor } from '../../domain/geometry'
-import { createLeaf, createSplit, findNode, replaceNode, validateTree } from '../../domain/layout'
+import { collectLeaves, createLeaf, createSplit, findNode, replaceNode, validateTree } from '../../domain/layout'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import { isNegativeSpace } from '../../domain/negativeSpace'
 import { createPresentation, withSlide } from '../../domain/presentation'
+import { paragraphDoc } from '../../domain/richdoc'
 import { contentAt } from '../../domain/testDecks'
 import type { LayoutNode, Presentation, Rect, SplitNode } from '../../domain/types'
 import { commitDraggedRatios } from './ratioDrag'
 import {
-  commitArrangement,
   liveLengths,
   previewFor,
   releaseOf,
@@ -79,27 +79,37 @@ function live(deck: Deck, drag: ZoneDrag, lengths: readonly number[]): Map<strin
   return geometryOf(deck, replaceNode(rootOf(deck), preview.nodeId, preview.node))
 }
 
+/** The command a release of a drag that touched air runs, as the stage runs it. */
+function arrange(deck: Deck, nodeId: string, layout: LayoutNode) {
+  return rearrangeZones(deck.presentation, { slideId: deck.slideId, nodeId, layout, fits: estimateFitChecker })
+}
+
+/** The stage's question while the pointer is down: would the release store this? */
+const accepts = (deck: Deck) => (nodeId: string, layout: LayoutNode): boolean => arrange(deck, nodeId, layout).ok
+
 /** Release the drag at `lengths` and commit it as the stage would. */
 function release(deck: Deck, drag: ZoneDrag, lengths: readonly number[]): Deck {
-  const released = releaseOf(drag, lengths)
-  if (!released) throw new Error('nothing to release')
-  const fits = { fits: estimateFitChecker }
-  if (released.kind === 'ratios') {
-    const result = commitDraggedRatios(
-      released.rules.equalityKeys,
-      released.released,
-      (weights) =>
-        setSplitWeights(deck.presentation, { slideId: deck.slideId, nodeId: released.nodeId, weights, ...fits }),
-      released.rules.preference,
-    )
+  const view = shownFor(drag, lengths, accepts(deck))
+  if (view.kind === 'arrangement') {
+    // What the stage does: store exactly the step that was shown, or nothing.
+    if (!view.commit) return deck
+    const result = arrange(deck, view.nodeId, view.commit)
     if (!result.ok) throw new Error(`refused: ${result.error.message}`)
     return { ...deck, presentation: result.value.presentation }
   }
-  if (released.candidates.length === 0 || sameLayout(released.candidates[0], released.original)) {
-    return deck
-  }
-  const result = commitArrangement(released.candidates, (layout) =>
-    rearrangeZones(deck.presentation, { slideId: deck.slideId, nodeId: released.nodeId, layout, ...fits }),
+  const released = releaseOf(drag, lengths)
+  if (released?.kind !== 'ratios') throw new Error('nothing to release')
+  const result = commitDraggedRatios(
+    released.rules.equalityKeys,
+    released.released,
+    (weights) =>
+      setSplitWeights(deck.presentation, {
+        slideId: deck.slideId,
+        nodeId: released.nodeId,
+        weights,
+        fits: estimateFitChecker,
+      }),
+    released.rules.preference,
   )
   if (!result.ok) throw new Error(`refused: ${result.error.message}`)
   return { ...deck, presentation: result.value.presentation }
@@ -647,7 +657,7 @@ describe('what is stored on release is what was shown just before it', () => {
     const lengths = liveLengths(gesture, x, y)
     // A movement too small to be read as a drag shows nothing and stores nothing.
     if (!lengths) return { shownRoot: rootOf(deck), after: deck }
-    const view = shownFor(gesture, lengths)
+    const view = shownFor(gesture, lengths, accepts(deck))
     return { shownRoot: replaceNode(rootOf(deck), view.nodeId, view.node), after: release(deck, gesture, lengths) }
   }
 
@@ -742,7 +752,7 @@ describe('what is stored on release is what was shown just before it', () => {
     // slide stays as it was until the first step is nearer than none.
     const small = liveLengths(gesture, 10, 0)
     if (!small) throw new Error('no lengths')
-    const unchanged = shownFor(gesture, small)
+    const unchanged = shownFor(gesture, small, accepts(deck))
     expect(sameLayout(replaceNode(rootOf(deck), unchanged.nodeId, unchanged.node), rootOf(deck))).toBe(true)
     // …while the live layout, which the outline follows, has moved.
     expect(live(deck, gesture, small).get(zone.id)?.x).toBeCloseTo((geometryOf(deck).get(zone.id)?.x ?? 0) + 10, 6)
@@ -755,6 +765,82 @@ describe('what is stored on release is what was shown just before it', () => {
     for (let amount = 10; amount <= 160; amount += 10) {
       const { shownRoot, after } = settle(compressed, shift, -amount, 0)
       expectStoredAsShown(compressed, shownRoot, after, `${amount} px`)
+    }
+  })
+})
+
+describe('a step is only shown where what is in it still fits', () => {
+  /** A zone of running text, `words` long. */
+  const wordy = (words: number): LayoutNode =>
+    createLeaf(containerWithDoc(paragraphDoc(Array.from({ length: words }, (_, at) => `ord${at % 7}`).join(' '))))
+
+  /** Whether any content on the slide would be cut off with `root` as its layout. */
+  function hides(deck: Deck, root: LayoutNode): boolean {
+    const rects = geometryOf(deck, root)
+    return collectLeaves(root).some((leaf) => {
+      const rect = rects.get(leaf.id)
+      return leaf.content !== null && rect !== undefined && !estimateFit(leaf.content, rect, { theme: deck.presentation.theme }).fits
+    })
+  }
+
+  const shift = (nodeId: string): ZoneDragStart => ({ kind: 'edge', nodeId, axis: 'x', side: 'start', shift: true })
+  const oneSide = (nodeId: string): ZoneDragStart => ({ kind: 'edge', nodeId, axis: 'x', side: 'end', shift: false })
+
+  for (const [label, start, sign] of [
+    ['symmetrically', shift, 1],
+    ['from one side', oneSide, -1],
+  ] as const) {
+    it(`never shows a step that would cut text off, ${label}, and stores the step it shows`, () => {
+      let refusedNearest = 0
+      let compressed = 0
+      // Text from short to as much as the zone holds at full width: somewhere
+      // in there is text that fits while the hand asks for a little less room,
+      // and does not fit in the nearest step that can be stored.
+      for (let words = 40; ; words += 4) {
+        const zone = wordy(words)
+        const deck = deckWith(createSplit('y', [1, 1], [zone, text()]))
+        if (hides(deck, rootOf(deck))) break
+        for (let amount = 8; amount <= 300; amount += 8) {
+          const gesture = begin(deck, start(zone.id))
+          const lengths = liveLengths(gesture, sign * amount, 0)
+          if (!lengths) continue
+          // The stage stops the hand where the hand's own layout would cut
+          // content off; past that point nothing new is shown.
+          if (hides(deck, replaceNode(rootOf(deck), previewFor(gesture, lengths).nodeId, previewFor(gesture, lengths).node))) break
+          const view = shownFor(gesture, lengths, accepts(deck))
+          const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+          const where = `${words} words, ${amount} px`
+          expect(hides(deck, shownRoot), where).toBe(false)
+          const after = release(deck, gesture, lengths)
+          expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
+          const shownRects = geometryOf(deck, shownRoot)
+          const storedRects = geometryOf(after)
+          for (const leaf of collectLeaves(shownRoot)) expectSameRect(storedRects.get(leaf.id), shownRects.get(leaf.id))
+
+          const released = releaseOf(gesture, lengths)
+          if (released?.kind !== 'arrangement') continue
+          const [nearest] = released.candidates
+          if (nearest && !sameLayout(nearest, released.original) && !sameLayout(nearest, view.node)) refusedNearest += 1
+          if (view.kind === 'arrangement' && view.commit) compressed += 1
+        }
+      }
+      // Both happened: steps that fit were shown and stored, and steps nearer
+      // to the hand that would have cut text off were passed over.
+      expect(compressed).toBeGreaterThan(0)
+      expect(refusedNearest).toBeGreaterThan(0)
+    })
+  }
+
+  it('goes back to the layout it started from when the hand does', () => {
+    const zone = wordy(80)
+    const deck = deckWith(createSplit('y', [1, 1], [zone, text()]))
+    const gesture = begin(deck, shift(zone.id))
+    for (const amount of [200, 0]) {
+      const lengths = liveLengths(gesture, amount, 0)
+      if (!lengths) throw new Error('no lengths')
+      const view = shownFor(gesture, lengths, accepts(deck))
+      const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+      expect(sameLayout(shownRoot, rootOf(deck))).toBe(amount === 0)
     }
   })
 })

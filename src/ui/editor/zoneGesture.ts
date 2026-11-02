@@ -37,11 +37,8 @@ import { collectNodes, findNode, findParent, findSplit } from '../../domain/layo
 import { isNegativeSpace } from '../../domain/negativeSpace'
 import { splitRect } from '../../domain/geometry'
 import type { Axis, LayoutNode, NodeId, Rect } from '../../domain/types'
-import type { StructuralOutcome } from '../../domain/commands'
-import type { Result } from '../../domain/result'
 import {
   boundarySnapRules,
-  firstAccepted,
   draggedWeights,
   range,
   resizedWeights,
@@ -267,20 +264,44 @@ export function previewFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId
 }
 
 /**
+ * What the slide shows while the pointer is down: `node` drawn in place of
+ * `nodeId`. For a drag that touches air, `commit` is the layout letting go
+ * stores — the one shown — or `null` when letting go stores nothing.
+ */
+export type ZoneDragView =
+  | { kind: 'ratios'; nodeId: NodeId; node: LayoutNode }
+  | { kind: 'arrangement'; nodeId: NodeId; node: LayoutNode; commit: LayoutNode | null }
+
+/**
  * What the slide shows while the pointer is at `lengths`.
  *
  * A drag that only shares out a split's room follows the hand exactly and is
  * snapped when it is let go (`previewFor`). One that adds, grows or uses up air
- * is shown as the layout its release would store — the nearest one
- * `arrangementCandidates` offers — so it moves in visible steps, and letting go
- * changes nothing on the slide. Whole ratios up to `MAX_ZONE_RATIO` cannot hold
- * air thinner than a twelfth of a split beside one zone; a preview that drew
- * thinner air would promise a layout the release could not keep.
+ * is shown as the layout its release stores, so it moves in visible steps and
+ * letting go changes nothing on the slide: whole ratios up to `MAX_ZONE_RATIO`
+ * cannot hold air thinner than a twelfth of a split beside one zone, and a
+ * preview that drew thinner air would promise a layout the release could not
+ * keep.
+ *
+ * The layout shown is the nearest of `arrangementCandidates` that `accepts` —
+ * the very command the release runs, with the same fit checks — so a step is
+ * never shown that would hide content or be refused on release. Where none
+ * nearer than the layout the drag started from is accepted, that layout is
+ * what is shown, and letting go stores nothing.
  */
-export function shownFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId: NodeId; node: LayoutNode } {
+export function shownFor(
+  drag: ZoneDrag,
+  lengths: readonly number[],
+  accepts: (nodeId: NodeId, layout: LayoutNode) => boolean,
+): ZoneDragView {
   const release = releaseOf(drag, lengths)
-  if (release?.kind !== 'arrangement') return previewFor(drag, lengths)
-  return { nodeId: release.nodeId, node: release.candidates[0] ?? release.original }
+  if (release?.kind !== 'arrangement') return { kind: 'ratios', ...previewFor(drag, lengths) }
+  const { nodeId, original } = release
+  for (const candidate of release.candidates) {
+    if (sameLayout(candidate, original)) break
+    if (accepts(nodeId, candidate)) return { kind: 'arrangement', nodeId, node: candidate, commit: candidate }
+  }
+  return { kind: 'arrangement', nodeId, node: original, commit: null }
 }
 
 /** The ids of the zones the drag is acting on as one, for drawing them as one. */
@@ -399,23 +420,18 @@ export function childRects(drag: ZoneDrag, lengths: readonly number[]): Map<Node
   return new Map(drag.span.split.children.map((child, index) => [child.id, rects[index]]))
 }
 
-/** Whether two layouts are the same arrangement: same nodes, same ratios. */
-export function sameLayout(a: LayoutNode, b: LayoutNode): boolean {
-  const shape = (node: LayoutNode): string =>
-    collectNodes(node)
-      .map((entry) =>
-        entry.kind === 'split'
-          ? `${entry.id}:${entry.axis}:${entry.weights.join(',')}:${entry.children.length}`
-          : `${entry.id}:${isNegativeSpace(entry) ? 'n' : 'c'}`,
-      )
-      .join('|')
-  return shape(a) === shape(b)
+/** One string per arrangement: same nodes, same ratios, same string. */
+export function layoutKey(node: LayoutNode): string {
+  return collectNodes(node)
+    .map((entry) =>
+      entry.kind === 'split'
+        ? `${entry.id}:${entry.axis}:${entry.weights.join(',')}:${entry.children.length}`
+        : `${entry.id}:${isNegativeSpace(entry) ? 'n' : 'c'}`,
+    )
+    .join('|')
 }
 
-/** Commit the first of a release's layouts that `attempt` accepts. */
-export function commitArrangement(
-  candidates: readonly LayoutNode[],
-  attempt: (layout: LayoutNode) => Result<StructuralOutcome>,
-): Result<StructuralOutcome> {
-  return firstAccepted(candidates, attempt)
+/** Whether two layouts are the same arrangement: same nodes, same ratios. */
+export function sameLayout(a: LayoutNode, b: LayoutNode): boolean {
+  return layoutKey(a) === layoutKey(b)
 }

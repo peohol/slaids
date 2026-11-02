@@ -10,12 +10,17 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import {
+  addContentToZone,
+  caretInto,
   createPresentation,
+  enterContentMode,
   enterZoneMode,
+  fillZoneToCapacity,
   slidePoint,
   splitSelected,
   stage,
   watchForErrors,
+  worstOverflow,
   zoneRects,
   type ZoneRect,
 } from './helpers'
@@ -219,6 +224,79 @@ test.describe('compressing zones into air', () => {
         }
       }
       expect(stepped).toBe(true)
+      expect(guard.errors).toEqual([])
+    },
+  )
+
+  test(
+    'text close to filling its zone is never cut off by a step, and what is shown is stored',
+    { tag: '@pr' },
+    async ({ page }) => {
+      test.setTimeout(180_000)
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Nær grensen')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1], 'y')
+      const [top] = await zoneRects(page)
+      await enterContentMode(page)
+      await addContentToZone(page, top.id, 'container')
+      await fillZoneToCapacity(page, top.id)
+      // A seventh of it taken off again: the text now fits in somewhat less
+      // room than the whole width — as narrow as the hand gets before the
+      // first step of air is nearer than none — but not in that step.
+      const field = stage(page).locator(`.slide-zone[data-node-id="${top.id}"] .tiptap`).first()
+      await caretInto(field)
+      // Read off the zone, which shows the text in either mode.
+      const zoneText = stage(page).locator(`.slide-zone[data-node-id="${top.id}"]`).first()
+      const length = () => zoneText.evaluate((element) => element.textContent?.length ?? 0)
+      const full = await length()
+      await page.keyboard.press('Control+End')
+      for (let i = 0; i < Math.round(full / 7); i += 1) await page.keyboard.press('Backspace')
+      const kept = await length()
+      expect(kept).toBeLessThan(full)
+      expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+      await enterZoneMode(page)
+
+      const byId = async (): Promise<ZoneRect> => {
+        const found = (await contentRects(page)).find((rect) => rect.id === top.id)
+        if (!found) throw new Error('the zone is gone')
+        return found
+      }
+      for (const way of [
+        { side: 'start', sign: 1, shift: true },
+        { side: 'end', sign: -1, shift: false },
+      ] as const) {
+        for (const amount of [40, 70, 80, 90, 100, 110, 120, 160]) {
+          await select(page, top)
+          await dragFrom(page, centreOf(await gripBox(page, 'x', way.side)), way.sign * amount, 0, {
+            shift: way.shift,
+            release: false,
+          })
+          const label = `${way.shift ? 'Shift' : way.side} ${amount} px`
+          // Whatever step is on screen, the text in it is all there.
+          expect(await worstOverflow(page), label).toBeLessThanOrEqual(1)
+          const shown = await byId()
+          const shape = await leafShape(page)
+          await page.mouse.up()
+          await page.waitForTimeout(250)
+          const stored = await byId()
+          expect(await leafShape(page), label).toBe(shape)
+          expect(Math.abs(stored.x - shown.x), label).toBeLessThan(1)
+          expect(Math.abs(stored.w - shown.w), label).toBeLessThan(1)
+          expect(await worstOverflow(page), label).toBeLessThanOrEqual(1)
+          if (shape !== 'cc') {
+            await page.getByTestId('undo').click()
+            expect(await leafShape(page), label).toBe('cc')
+          }
+          expect(await length(), label).toBe(kept)
+        }
+      }
+
+      // With room to spare, a compression still goes through: an empty zone.
+      const [, bottom] = await zoneRects(page)
+      await select(page, bottom)
+      await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 200, 0, { shift: true })
+      expect(await leafShape(page)).toBe('cncn')
       expect(guard.errors).toEqual([])
     },
   )

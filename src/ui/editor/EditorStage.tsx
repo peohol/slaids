@@ -36,6 +36,7 @@ import type {
   ContentSlide,
   LayoutNode,
   NodeId,
+  Presentation,
   Rect,
   ZoneContentKind,
 } from '../../domain/types'
@@ -51,15 +52,15 @@ import { RichTextEditor } from './RichTextEditor'
 import { commitDraggedRatios } from './ratioDrag'
 import {
   childRects,
-  commitArrangement,
+  layoutKey,
   liveLengths,
   manipulatedIds,
   releaseOf,
-  sameLayout,
   shownFor,
   startZoneDrag,
   type ZoneDrag,
   type ZoneDragStart,
+  type ZoneDragView,
 } from './zoneGesture'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
 import { FULL_SLIDE, NO_ZOOM, type StageZoom } from './stageView'
@@ -105,14 +106,18 @@ interface DragState {
    */
   baseline: Map<NodeId, number>
   measured: Set<NodeId>
+  /** The document the drag started from, which every step it shows is checked against. */
+  presentation: Presentation
+  /**
+   * Whether the release command accepts a layout, by `layoutKey`: a drag that
+   * steps through layouts meets the same few again and again, and each answer
+   * is an offscreen render.
+   */
+  verdicts: Map<string, boolean>
 }
 
-/** The live layout a drag is showing: one subtree drawn in place of another. */
-interface DragPreview {
-  nodeId: NodeId
-  node: LayoutNode
-  lengths: number[]
-}
+/** The live layout a drag is showing, and the pointer's lengths it came from. */
+type DragPreview = ZoneDragView & { lengths: number[] }
 
 export interface EditorStageProps {
   slide: ContentSlide
@@ -400,7 +405,8 @@ export function EditorStage({
       },
       start,
     )
-    if (!drag) return false
+    const presentation = useEditorStore.getState().presentation
+    if (!drag || !presentation) return false
     dragRef.current = {
       drag,
       startX: event.clientX,
@@ -408,6 +414,8 @@ export function EditorStage({
       startRects: childRects(drag, drag.span.lengths),
       baseline: new Map(),
       measured: new Set(),
+      presentation,
+      verdicts: new Map(),
     }
     return true
   }
@@ -481,6 +489,21 @@ export function EditorStage({
       })
     }
 
+    /** The command a release runs, for `layout` in place of `nodeId`. */
+    const arrange = (presentation: Presentation, nodeId: NodeId, layout: LayoutNode) =>
+      rearrangeZones(presentation, { slideId: slide.id, nodeId, layout, ...domFitCheckers })
+
+    /** Whether the release would store `layout`: the same command, asked in advance. */
+    const accepts = (state: DragState, nodeId: NodeId, layout: LayoutNode): boolean => {
+      const key = `${nodeId}|${layoutKey(layout)}`
+      let verdict = state.verdicts.get(key)
+      if (verdict === undefined) {
+        verdict = arrange(state.presentation, nodeId, layout).ok
+        state.verdicts.set(key, verdict)
+      }
+      return verdict
+    }
+
     const move = (event: PointerEvent): void => {
       const state = dragRef.current
       if (!state) return
@@ -503,7 +526,7 @@ export function EditorStage({
       // The drag stops where the content stops fitting, rather than letting the
       // user drag into an invalid state and snapping back on release.
       if (wouldHideContent(state, lengths)) return
-      setPreview({ ...shownFor(state.drag, lengths), lengths })
+      setPreview({ ...shownFor(state.drag, lengths, (nodeId, layout) => accepts(state, nodeId, layout)), lengths })
     }
 
     const up = (): void => {
@@ -513,10 +536,18 @@ export function EditorStage({
       setPreview(null)
       if (!state || !pending) return
       draggedRef.current = true
-      const release = releaseOf(state.drag, pending.lengths)
-      if (!release) return
 
-      if (release.kind === 'ratios') {
+      // A drag that touched air stores exactly the step it was showing, which
+      // was checked with this command when it was shown; one that ends where
+      // it began leaves nothing behind — no air, no extra level.
+      if (pending.kind === 'arrangement') {
+        const { commit, nodeId } = pending
+        if (commit) runStructural('ratio', (presentation) => arrange(presentation, nodeId, commit))
+        return
+      }
+
+      const release = releaseOf(state.drag, pending.lengths)
+      if (release?.kind === 'ratios') {
         // The released geometry is a wish; what gets stored is the nearest
         // ratio the deck can be written in, held to whatever the gesture
         // promised.
@@ -535,23 +566,7 @@ export function EditorStage({
             release.rules.preference,
           ),
         )
-        return
       }
-
-      // A drag that ends where it began leaves nothing behind — no air, no
-      // extra level — and is not an edit at all.
-      const [best] = release.candidates
-      if (!best || sameLayout(best, release.original)) return
-      runStructural('ratio', (presentation) =>
-        commitArrangement(release.candidates, (layout) =>
-          rearrangeZones(presentation, {
-            slideId: slide.id,
-            nodeId: release.nodeId,
-            layout,
-            ...domFitCheckers,
-          }),
-        ),
-      )
     }
 
     /** Escape lets go of the drag and leaves the slide as it was. */
