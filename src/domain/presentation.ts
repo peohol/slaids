@@ -14,6 +14,7 @@ import { remapAssetIds } from './docs'
 import { newAssetId, newPresentationId, newSandboxId, newSlideId } from './ids'
 import { mapDeckSlides } from './deckSlides'
 import { cloneContentWithNewIds, cloneSubtreeWithNewIds, createLeaf } from './layout'
+import { mergeNegativeSpace } from './negativeSpace'
 import { titleDoc } from './richdoc'
 import { CURRENT_SCHEMA_VERSION } from './schema'
 import type {
@@ -358,6 +359,11 @@ export function slideIndexOf(presentation: Presentation, slideId: string): numbe
   return presentation.slides.findIndex((slide) => slide.id === slideId)
 }
 
+function withMergedNegativeSpace(slide: ContentSlide): ContentSlide {
+  const root = mergeNegativeSpace(slide.root)
+  return root === slide.root ? slide : { ...slide, root }
+}
+
 /** Return a copy with a fresh `updatedAt`. Every command funnels through this. */
 export function touch(presentation: Presentation): Presentation {
   return { ...presentation, updatedAt: new Date().toISOString() }
@@ -370,8 +376,13 @@ export function touch(presentation: Presentation): Presentation {
  * this cannot be the way the first page stops being a section. Turning one kind
  * of slide into another is not an edit to a slide; it would be a command of its
  * own, and there is none.
+ *
+ * A content slide's layout is written down in canonical form: adjacent pieces
+ * of negative space are merged here, whichever command put them side by side
+ * — see `domain/negativeSpace.ts`.
  */
-export function withSlide(presentation: Presentation, slide: Slide): Presentation {
+export function withSlide(presentation: Presentation, written: Slide): Presentation {
+  const slide = written.kind === 'content' ? withMergedNegativeSpace(written) : written
   const index = slideIndexOf(presentation, slide.id)
   if (index < 0) return presentation
   const [first, ...rest] = presentation.slides

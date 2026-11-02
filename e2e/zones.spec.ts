@@ -468,19 +468,27 @@ test.describe('zone editing', () => {
     await clickZone(page, before[1])
     await expect(page.locator('.zone-actions')).toBeVisible()
 
-    // A point the toolbar covers that is not one of its buttons: the press has
+    // A point the toolbar covers that is not one of its buttons, nor a handle
+    // (the divider beside the zone, the grip along its border): the press has
     // to reach the zone underneath it.
-    const spot = await page.evaluate(() => {
-      const actions = document.querySelector('.zone-actions') as HTMLElement
-      const box = actions.getBoundingClientRect()
-      for (let y = box.top + 2; y < box.bottom - 2; y += 3) {
-        for (let x = box.left + 2; x < box.right - 2; x += 3) {
+    const spot = await page.evaluate((zoneId) => {
+      const actions = (document.querySelector('.zone-actions') as HTMLElement).getBoundingClientRect()
+      const zone = (
+        document.querySelector(`[data-testid="stage-slide"] .slide-zone[data-node-id="${zoneId}"]`) as HTMLElement
+      ).getBoundingClientRect()
+      // Only where the toolbar lies over its own zone: it can be wider.
+      const left = Math.max(actions.left, zone.left)
+      const right = Math.min(actions.right, zone.right)
+      const top = Math.max(actions.top, zone.top)
+      const bottom = Math.min(actions.bottom, zone.bottom)
+      for (let y = top + 2; y < bottom - 2; y += 3) {
+        for (let x = left + 2; x < right - 2; x += 3) {
           const element = document.elementFromPoint(x, y)
-          if (element && !element.closest('button')) return { x, y }
+          if (element && !element.closest('button, .zone-handle, .zone-edge-grip')) return { x, y }
         }
       }
       return null
-    })
+    }, before[1].id)
     expect(spot, 'the toolbar has room that is not a button').not.toBeNull()
     if (!spot) return
 

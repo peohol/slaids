@@ -37,7 +37,7 @@
  * in either.
  */
 
-import { areWeightsValid, sumWeights } from '../../domain/geometry'
+import { areMeasurableWeights, sumWeights } from '../../domain/geometry'
 import {
   MAX_RANKED_QUANTIZATIONS,
   equalityKeysForDrag,
@@ -47,7 +47,7 @@ import {
   rankedRatioQuantizations,
 } from '../../domain/ratios'
 import type { StructuralOutcome } from '../../domain/commands'
-import type { Result } from '../../domain/result'
+import { err, type Result } from '../../domain/result'
 import type { Axis } from '../../domain/types'
 
 /** How many rungs a released handle may look down for one it may stop on. */
@@ -138,10 +138,10 @@ export function draggedWeights(
   const lowest = minShare[boundary]
   const highest = pairTotal - minShare[boundary + 1]
   const moved = Math.max(lowest, Math.min(weights[boundary] + deltaWeight, highest))
-  if (!Number.isFinite(moved) || moved <= 0 || pairTotal - moved <= 0) return null
+  if (!Number.isFinite(moved)) return null
   weights[boundary] = moved
   weights[boundary + 1] = pairTotal - moved
-  return weights
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
@@ -188,7 +188,7 @@ export function resizedWeights(
   )
   const weights = scaled(original, siblings, (rest - clamped) / rest)
   weights[index] = original[index] + clamped
-  return areWeightsValid(weights) ? weights : null
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
@@ -210,16 +210,58 @@ export function translatedWeights(
   distance: number,
   minShare: readonly number[],
 ): number[] | null {
-  if (!Number.isFinite(distance)) return null
   const near = range(0, index)
   const far = range(index + 1, original.length)
-  const nearSide = totalOf(original, near)
-  const farSide = totalOf(original, far)
   // Unlike a resize, this one really is impossible at either end of the split:
   // a zone there has nothing behind it to open a space, and nothing to take the
   // space it would leave.
-  if (nearSide <= 0 || farSide <= 0) return [...original]
+  if (near.length === 0 || far.length === 0) {
+    return Number.isFinite(distance) ? [...original] : null
+  }
+  return rescaledBlocks(original, near, far, distance, minShare)
+}
 
+/**
+ * The ratios for the boundary after zone `boundary` moved by `distance` with
+ * Shift held: everything before it is one block and everything after it
+ * another, and only the proportion *between* the blocks changes.
+ *
+ * `a : b : c : d : e` dragged between `c` and `d` scales `a`, `b` and `c` by
+ * one factor and `d` and `e` by another — `a_new = a · L_new / L_start` — so
+ * both blocks keep their insides exactly. It is a move of a zone of no width
+ * sitting on the boundary, and it is computed as one.
+ */
+export function shiftedBoundaryWeights(
+  original: readonly number[],
+  boundary: number,
+  distance: number,
+  minShare: readonly number[],
+): number[] | null {
+  return rescaledBlocks(
+    original,
+    range(0, boundary + 1),
+    range(boundary + 1, original.length),
+    distance,
+    minShare,
+  )
+}
+
+/**
+ * Two blocks scaled against each other: `near` gains `distance` and `far`
+ * gives it up, each by one factor, stopping where the shrinking block reaches
+ * the first of its zones' minimums.
+ */
+function rescaledBlocks(
+  original: readonly number[],
+  near: readonly number[],
+  far: readonly number[],
+  distance: number,
+  minShare: readonly number[],
+): number[] | null {
+  if (!Number.isFinite(distance)) return null
+  const nearSide = totalOf(original, near)
+  const farSide = totalOf(original, far)
+  if (nearSide <= 0 || farSide <= 0) return [...original]
   const moved = clamp(
     distance,
     -shrinkCapacity(original, minShare, near),
@@ -230,7 +272,7 @@ export function translatedWeights(
     far,
     (farSide - moved) / farSide,
   )
-  return areWeightsValid(weights) ? weights : null
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
@@ -301,6 +343,28 @@ export function boundarySnapRules(before: readonly number[], boundary: number): 
 }
 
 /**
+ * How a released Shift-drag of a boundary snaps: each of the two blocks is
+ * held to its own proportions, and only the proportion between them is free.
+ */
+export function shiftedBoundarySnapRules(
+  before: readonly number[],
+  boundary: number,
+  released: readonly number[],
+): SnapRules {
+  return {
+    equalityKeys: before.map(() => null),
+    preference: {
+      first: proportionalQuantizations(
+        released,
+        before,
+        [range(0, boundary + 1), range(boundary + 1, before.length)],
+        RATIO_SNAP_CANDIDATES,
+      ),
+    },
+  }
+}
+
+/**
  * How a released drag inside a zone snaps.
  *
  * A move promised the zone would keep its size, and a resize that every other
@@ -364,14 +428,24 @@ export function commitDraggedRatios(
       : ranked),
   ]
 
+  return firstAccepted(candidates, (weights) => attempt([...weights]))
+}
+
+/**
+ * The first candidate `attempt` accepts, tried in order; if none is, the
+ * refusal of the first — the nearest one, which explains what is in the way.
+ */
+export function firstAccepted<T>(
+  candidates: readonly T[],
+  attempt: (candidate: T) => Result<StructuralOutcome>,
+): Result<StructuralOutcome> {
   let nearest: Result<StructuralOutcome> | null = null
   for (const candidate of candidates) {
-    const result = attempt([...candidate])
+    const result = attempt(candidate)
     if (result.ok) return result
     nearest ??= result
   }
-  // `ranked` is never empty for a valid release, so neither is `candidates`.
-  return nearest ?? attempt(ranked[0])
+  return nearest ?? err('INVALID_ARGUMENT', 'Det finnes ingen inndeling å lagre.')
 }
 
 /* ------------------------------------------------------------------ *
@@ -382,8 +456,27 @@ function clamp(value: number, lowest: number, highest: number): number {
   return Math.max(lowest, Math.min(value, highest))
 }
 
+/**
+ * Whether a live layout can be shown: every zone at or above its floor, and
+ * every zone whose floor is not below zero still taking some room.
+ *
+ * A floor below zero is how negative space says it may fade away entirely —
+ * down to minus one gap, where it takes no room at all (see `splitRect`).
+ * Everything else has to keep a length, because a zone of length zero is not a
+ * layout the commit could write down.
+ */
+function isDraggable(weights: readonly number[], minShare: readonly number[]): boolean {
+  if (!areMeasurableWeights(weights)) return false
+  return weights.every((weight, index) =>
+    minShare[index] < 0 ? weight >= minShare[index] - FLOOR_TOLERANCE : weight > 0,
+  )
+}
+
+/** How far a computed weight may fall short of a floor and still be on it. */
+const FLOOR_TOLERANCE = 1e-9
+
 /** The indices `[from, to)`. */
-function range(from: number, to: number): number[] {
+export function range(from: number, to: number): number[] {
   return Array.from({ length: Math.max(0, to - from) }, (_, offset) => from + offset)
 }
 

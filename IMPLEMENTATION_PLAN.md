@@ -309,6 +309,23 @@ innholdet i sandkassen først, og den tømte sonen kan så gjøres til luft.
 Å legge til innholdstypen krevde ingen migrasjon: ingen lagret dokument endrer
 form, og et lagret tomt blad er fortsatt `content: null`.
 
+### Luft holdes samlet
+
+To negative rom side ved side i samme split er ett rom tegnet to ganger. Hver
+skriving av en innholdsslide går gjennom `withSlide`, og der slår
+`mergeNegativeSpace` sammen hver rekke av tilstøtende negativt rom til det
+**første** bladet i rekken: det beholder node-id og innholds-id, og vekten blir
+summen. Går summen over 10, kvantiseres splitten på nytt med det første trinnet
+der ingen innholdssone mister andel. En split som ender med ett barn, erstattes
+av barnet. Regelen er uavhengig av hvordan luften oppsto – et drag, en sletting
+mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en duplisering –
+fordi den sitter på det ene stedet alle kommandoer skriver gjennom.
+
+Luft opprettes, gjenbrukes og fjernes ellers av sonedragene (§11.5): de legger
+den til der de komprimerer, krymper den som allerede finnes på den siden, og
+fjerner den – også luft forfatteren har laget selv – når innhold vokser inn i
+den.
+
 ---
 
 ## 7.2\. Bildekontekst, bildeplan og seriebrief
@@ -1954,11 +1971,12 @@ og den kan derfor aldri få en gest til å mislykkes.
 
 ### De tre gestene
 
-Alle tre er rene funksjoner av forholdstallene splitten **startet** med, aldri
+Alle gestene er rene funksjoner av tilstanden splitten **startet** med, aldri
 av forrige frames tall. Det er det som gjør at et langt drag ikke akkumulerer
-avrundingsfeil, og at pekeren kan vandre og komme tilbake til nøyaktig samme
-layout. Alle tre regner i vektenheter: antall barn endres ikke under et drag, så
-gapene er konstante og vektrom og lengderom er proporsjonale.
+avrundingsfeil, at ett langt drag gir det samme som mange korte, og at pekeren
+kan vandre og komme tilbake til nøyaktig samme layout. De regner i
+designpiksler langs splitten (`zoneGesture.ts`); funksjonene i `ratioDrag.ts` er
+enhetsløse og brukes uendret på lengder.
 
 **Grensedrag** (`draggedWeights`) – et trykk i mellomrommet mellom to soner.
 Grensen følger pekeren, bare de to sonene den ligger mellom endres, og summen
@@ -2012,6 +2030,59 @@ vippet mellom modusene før den satte seg, og layouten ville hoppet med den.
 Hit-testing skiller de to trykkene uten avstandsmåling: mellomrommet er dekket
 av sitt eget håndtak, og et trykk der når aldri sonen under.
 
+### Komprimering inn i negativt rom
+
+Et drag kan også gjøre innhold mindre og gi plassen til luft. Hva et drag gjør,
+avgjøres av hvor det starter, av den første bevegelsens retning og av Shift, lest
+**én gang** ved trykket. Operasjonen ligger så fast resten av draget:
+
+| Trykk på | Langs splitten | På tvers av splitten |
+| --- | --- | --- |
+| mellomrommet mellom to soner | flytt grensen | komprimer hele blokken, begge sider |
+| … med Shift | skaler de to halvdelene | (som uten Shift) |
+| inni en sone | forskyv sonen | proporsjonal resize |
+| en sones ytterkant | komprimer fra den siden | |
+| … med Shift | komprimer fra begge sider | |
+
+- **Blokken** er det som komprimeres som én: hele splitten for et skille, sonen
+  selv for en ytterkant. Ligger sonen i en split med samme retning som kanten,
+  er blokken splitten; ellers pakkes sonen inn i en ny split med riktig retning
+  på riktig nivå, så luften havner der den hører hjemme. Blokken skaleres med
+  én faktor, så `a : b : c` og nøstede grupper beholder forholdet sitt eksakt.
+- **Symmetrisk** gir `n : a : b : c : n`. Fra én side gir `n : a : b : c` eller
+  `a : b : c : n`. Shift på en ytterkant er samme regnestykke som et skille.
+- **Gjenbruk:** finnes luft allerede på en side, er det den som vokser eller
+  krymper; nye luftsoner legges bare til der det mangler. Gjentatte drag gir
+  derfor aldri `n : n : a : b : c : n : n`. Ulik luft på de to sidene endres med
+  like store beløp.
+- **Shift + skille** skalerer blokkene `{a, b, c} | {d, e}` mot hverandre, og hver
+  blokk beholder sine indre forhold. Uten Shift er grensedraget uendret.
+- **Vokse inn i luft:** når innhold vokser, krymper luften først, og luft som går
+  under null forsvinner ved slipp.
+
+**Kontinuitet.** Luft som ennå ikke finnes, starter med lengde −gap: da tar den,
+med mellomrommet sitt, null plass, og innholdet står nøyaktig der det sto. Den
+vokser derfra jevnt, og forsvinner på samme måte. `splitRect` tillater derfor
+vilkårlige endelige vekter med positiv total og klemmer hver lengde til ≥ 0;
+lagrede vekter er fortsatt heltall 1–10. Luft har ingen minstestørrelse og kan
+forsvinne helt; innhold stopper ved sitt minstemål i stedet for å bøye
+forholdene.
+
+**Slipp.** Et drag som berører luft, lagres med `rearrangeZones`: én
+domenekommando som bytter ut et undertre, men bare godtar et nytt tre der
+innholdsbladene er de samme, med samme innhold, i samme rekkefølge. Ved slipp
+vurderes for hver luftsone om den skal beholdes eller falle bort, layoutene
+rangeres etter hvor nær innholdets rects de kommer, og trinnene som bevarer
+blokkens forhold eksakt prøves først. Den første som passerer `guardFit`, lagres.
+Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
+angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
+og et slipp utenfor editoren avslutter det som vanlig.
+
+**Tilbakemelding.** Den valgte sonen viser håndtak på ytterkantene der en
+komprimering er mulig (ingen nabo, eller luft, på den siden), med en
+resize-markør og et hint om Shift. Under draget markeres blokken som
+manipuleres, og de andre håndtakene skjules.
+
 ### Stoppbetingelser
 
 Ingen gest avvises fordi den ble dratt for langt; den stopper der geometrien
@@ -2057,10 +2128,12 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
 
-Direkte manipulasjon av ratios finnes, i tre gester: separatoren mellom to soner
-kan dras, og et drag inni en sone endrer størrelsen på den proporsjonalt (på
-tvers av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
-trinnløs, ved slipp snapper layouten til nærmeste lovlige forhold. Se §11.5.
+Direkte manipulasjon av ratios finnes: separatoren mellom to soner kan dras
+(langs splitten flytter den grensen, på tvers komprimerer den hele splitten inn
+i negativt rom), et drag inni en sone endrer størrelsen på den proporsjonalt (på
+tvers av splitten) eller forskyver den (langs splitten), og en sones ytterkant
+komprimerer den fra den siden. Under dragingen er bevegelsen trinnløs, ved slipp
+snapper layouten til nærmeste lovlige forhold. Se §11.5.
 
 **Omrokkering** (`reorderLayoutNode`) flytter en sone til en annen plass blant
 søsknene sine, og forholdstallet følger sonen: `A : B : C` i `1 : 2 : 1` med B
