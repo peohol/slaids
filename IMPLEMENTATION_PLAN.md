@@ -2007,10 +2007,15 @@ korte skjulte den, fordi hvert av dem startet på nytt fra det skjeve resultatet
 
 Ved slipp holdes snappet til samme løfte: likhetsnøklene leses uten side
 (`equalityKeysForZoneResize`), og trinnene som bevarer søsknenes forhold
-*eksakt* (`proportionKeepingSnaps`, bygd på `proportionalQuantizations`) prøves
-før den vanlige stigen. Stigen alene bøyer gjerne forholdet for en marginalt
-bedre helhet: `4 : 2 : 3` med første sone forstørret lander der på `9 : 3 : 5`,
-og de to andre har gått fra `2 : 3` til `3 : 5`.
+*eksakt* (`proportionKeepingSnaps`, bygd på `proportionalQuantizations`) er de
+**eneste** som kan lagres; den vanlige stigen brukes ikke. Stigen bøyer gjerne
+forholdet for en marginalt bedre helhet: `4 : 2 : 3` med første sone forstørret
+lander der på `9 : 3 : 5`, og de to andre har gått fra `2 : 3` til `3 : 5`.
+Avvises alle de proporsjonsbevarende trinnene, avvises slippet, og splitten
+blir stående som den var. Shift + skille holdes på samme måte til hver blokks
+indre forhold, og en komprimering til blokkens. Hver geometri prøves bare én
+gang (`distinctLayouts`): `1 : 2 : 1` og `2 : 4 : 2` er samme layout, og et
+avvist forsøk ville bare blitt avvist igjen.
 
 **Forskyvning** (`translatedWeights`) – samme trykk, dratt langs splittens
 retning. Sonen beholder forholdstallet sitt; siden den beveger seg mot
@@ -2073,7 +2078,8 @@ domenekommando som bytter ut et undertre, men bare godtar et nytt tre der
 innholdsbladene er de samme, med samme innhold, i samme rekkefølge. Ved slipp
 vurderes for hver luftsone om den skal beholdes eller falle bort, layoutene
 rangeres etter hvor nær innholdets rects de kommer, og trinnene som bevarer
-blokkens forhold eksakt prøves først. Den første som passerer `guardFit`, lagres.
+blokkens forhold eksakt er de eneste som tilbys. Den første som passerer
+`guardFit`, lagres.
 Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
 angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
 og et slipp utenfor editoren avslutter det som vanlig.

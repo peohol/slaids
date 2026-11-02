@@ -564,16 +564,7 @@ function lossOf(proportions: readonly number[], ratios: readonly number[]): numb
  */
 function closestDistinct(candidates: Candidate[], width: number): number[][] {
   candidates.sort(compareCandidates)
-  const out: number[][] = []
-  const seen = new Set<string>()
-  for (const candidate of candidates) {
-    const key = reduceRatios(candidate.ratios).join(':')
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(candidate.ratios)
-    if (out.length >= width) break
-  }
-  return out
+  return distinctLayouts(candidates.map((candidate) => candidate.ratios)).slice(0, width)
 }
 
 /**
@@ -592,6 +583,23 @@ function compareCandidates(a: Candidate, b: Candidate): number {
     if (a.ratios[index] !== b.ratios[index]) return a.ratios[index] - b.ratios[index]
   }
   return 0
+}
+
+/**
+ * `layouts` in order, each geometry once: `2 : 4 : 2` after `1 : 2 : 1` is the
+ * same layout written twice, and a caller that tries layouts in turn would only
+ * be refused for it again.
+ */
+export function distinctLayouts(layouts: readonly (readonly number[])[]): number[][] {
+  const seen = new Set<string>()
+  const out: number[][] = []
+  for (const layout of layouts) {
+    const key = reduceRatios(layout).join(':')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push([...layout])
+  }
+  return out
 }
 
 /** `[2, 4, 2]` and `[1, 2, 1]` are one layout; this is the name they share. */

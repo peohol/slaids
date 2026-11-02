@@ -37,6 +37,7 @@ import {
   commitDraggedRatios,
   draggedWeights,
   resizedWeights,
+  shiftedBoundarySnapRules,
   translatedWeights,
   zoneDragAmount,
   zoneDragMode,
@@ -701,6 +702,120 @@ describe('commitDraggedRatios', () => {
       }),
     )
     expect(shapes.size).toBe(tried.length)
+  })
+
+  /** Every pair of `members` in the same ratio in `after` as in `before`, exactly. */
+  const keepsProportions = (before: readonly number[], after: readonly number[], members: readonly number[]) =>
+    members.every((i) => members.every((j) => after[i] * before[j] === after[j] * before[i]))
+  const siblingsOf = (before: readonly number[], index: number) =>
+    before.map((_, position) => position).filter((position) => position !== index)
+  const reduced = (weights: readonly number[]) => shares(weights).join(':')
+
+  it('stores only layouts that keep a resize’s siblings in proportion, even when the nearest are refused', () => {
+    const random = makeRandom(20261103)
+    let refusedFirst = 0
+    for (let run = 0; run < 300; run += 1) {
+      const before = randomRatios(random)
+      const index = Math.floor(random() * before.length)
+      const growth = (random() - 0.5) * before[index]
+      const released = resizedWeights(before, index, growth, NO_LIMIT(before.length))
+      if (!released) continue
+      const rules = zoneSnapRules(before, index, 'resize', released)
+      // A realistic refusal: a snap that gives the zone more than the hand did
+      // leaves its siblings short of what their content needs.
+      const tried: number[][] = []
+      const result = commitDraggedRatios(
+        rules.equalityKeys,
+        released,
+        (weights) => {
+          tried.push(weights)
+          return shares(weights)[index] > shares(released)[index]
+            ? err('ZONE_TOO_SMALL', 'Sonen blir for liten.')
+            : outcome(weights)
+        },
+        rules.preference,
+      )
+      const siblings = siblingsOf(before, index)
+      for (const weights of tried) expect(keepsProportions(before, weights, siblings)).toBe(true)
+      if (result.ok && tried.length > 1) refusedFirst += 1
+      // Refused outright, nothing is stored and the split stays as it was.
+      if (!result.ok) expect(tried.every((weights) => shares(weights)[index] > shares(released)[index])).toBe(true)
+    }
+    expect(refusedFirst).toBeGreaterThan(0)
+  })
+
+  it('refuses a resize rather than bend its siblings’ proportions', () => {
+    // 4 : 2 : 3 with the first zone grown: the plain ladder's nearest rung is
+    // 9 : 3 : 5, where the other two have gone from 2 : 3 to 3 : 5.
+    const before = [4, 2, 3]
+    const released = resizedWeights(before, 0, 1.2, NO_LIMIT(3))
+    if (!released) throw new Error('no layout')
+    const rules = zoneSnapRules(before, 0, 'resize', released)
+    const tried: number[][] = []
+    const result = commitDraggedRatios(
+      rules.equalityKeys,
+      released,
+      (weights) => {
+        tried.push(weights)
+        return err('ZONE_TOO_SMALL', 'nei')
+      },
+      rules.preference,
+    )
+    expect(result.ok).toBe(false)
+    expect(tried.length).toBeGreaterThan(0)
+    for (const weights of tried) expect(keepsProportions(before, weights, [1, 2])).toBe(true)
+    expect(tried.map(reduced)).not.toContain(reduced([9, 3, 5]))
+  })
+
+  it('tries each geometry once, for a resize and a Shift-drag alike', () => {
+    const cases: Array<{ before: number[]; rules: (released: number[]) => SnapRules; released: number[] }> = [
+      // Equal siblings: the proportional rungs and the plain ladder coincide.
+      {
+        before: [1, 1, 1, 1],
+        released: [0.8, 1.6, 0.8, 0.8],
+        rules: (released) => zoneSnapRules([1, 1, 1, 1], 1, 'resize', released),
+      },
+      {
+        before: [2, 3, 4, 3, 2],
+        released: [1.6, 2.4, 3.2, 3.6, 2.4],
+        rules: (released) => shiftedBoundarySnapRules([2, 3, 4, 3, 2], 2, released),
+      },
+    ]
+    for (const { released, rules } of cases) {
+      const { equalityKeys, preference } = rules(released)
+      const tried: number[][] = []
+      commitDraggedRatios(
+        equalityKeys,
+        released,
+        (weights) => {
+          tried.push(weights)
+          return err('ZONE_TOO_SMALL', 'nei')
+        },
+        preference,
+      )
+      expect(tried.length).toBeGreaterThan(1)
+      expect(new Set(tried.map(reduced)).size).toBe(tried.length)
+    }
+  })
+
+  it('holds a Shift-drag’s two halves to their own insides', () => {
+    const before = [2, 3, 4, 3, 2]
+    const released = [1.6, 2.4, 3.2, 3.6, 2.4]
+    const { equalityKeys, preference } = shiftedBoundarySnapRules(before, 2, released)
+    const tried: number[][] = []
+    commitDraggedRatios(
+      equalityKeys,
+      released,
+      (weights) => {
+        tried.push(weights)
+        return err('ZONE_TOO_SMALL', 'nei')
+      },
+      preference,
+    )
+    for (const weights of tried) {
+      expect(keepsProportions(before, weights, [0, 1, 2])).toBe(true)
+      expect(keepsProportions(before, weights, [3, 4])).toBe(true)
+    }
   })
 
   it('holds a zone drag’s sides apart while keeping each side together', () => {

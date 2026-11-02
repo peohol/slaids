@@ -43,6 +43,7 @@ import {
   equalityKeysForDrag,
   equalityKeysForZoneDrag,
   equalityKeysForZoneResize,
+  distinctLayouts,
   proportionalQuantizations,
   rankedRatioQuantizations,
 } from '../../domain/ratios'
@@ -305,7 +306,7 @@ export function keepsZoneSize(
  * themselves, and while the pointer is down they do, to the last bit. The snap
  * is where that promise could quietly be broken: `1 : 2 : 3 : 4` is not a
  * proportion the nearest rung is obliged to respect. These are the rungs that
- * do, and the stage tries them before the plain ladder.
+ * do, and the only ones the release may store.
  */
 export function proportionKeepingSnaps(
   before: readonly number[],
@@ -313,7 +314,7 @@ export function proportionKeepingSnaps(
   released: readonly number[],
 ): number[][] {
   const siblings = before.map((_, position) => position).filter((position) => position !== index)
-  return proportionalQuantizations(released, before, [siblings], RATIO_SNAP_CANDIDATES)
+  return proportionalQuantizations(released, before, [siblings], MAX_RANKED_QUANTIZATIONS)
 }
 
 /** What a gesture can tell the snap about which rungs answer it best. */
@@ -325,10 +326,13 @@ export interface SnapPreference {
    */
   prefer?: (weights: readonly number[]) => boolean
   /**
-   * Whole layouts to try before the ladder at all, in order — a resize's
-   * proportion-keeping rungs, which the ladder may not reach.
+   * The only layouts that keep the gesture's promise, closest first — a
+   * resize's proportion-keeping rungs, which the ladder may not reach and is
+   * free to break. When these are given the ladder is not consulted at all: a
+   * release that cannot keep the promise is refused, and the split stays as it
+   * was.
    */
-  first?: readonly number[][]
+  only?: readonly number[][]
 }
 
 /** Everything a released gesture tells the snap: see `commitDraggedRatios`. */
@@ -354,11 +358,11 @@ export function shiftedBoundarySnapRules(
   return {
     equalityKeys: before.map(() => null),
     preference: {
-      first: proportionalQuantizations(
+      only: proportionalQuantizations(
         released,
         before,
         [range(0, boundary + 1), range(boundary + 1, before.length)],
-        RATIO_SNAP_CANDIDATES,
+        MAX_RANKED_QUANTIZATIONS,
       ),
     },
   }
@@ -383,7 +387,7 @@ export function zoneSnapRules(
       }
     : {
         equalityKeys: equalityKeysForZoneResize(before, index),
-        preference: { first: proportionKeepingSnaps(before, index, released) },
+        preference: { only: proportionKeepingSnaps(before, index, released) },
       }
 }
 
@@ -399,12 +403,13 @@ export function zoneSnapRules(
  * `equalityKeysForDrag`, `equalityKeysForZoneResize` and
  * `equalityKeysForZoneDrag` each state theirs.
  *
- * A `SnapPreference` lets a gesture say that some rungs answer it better than
- * closeness alone can tell. `first` is tried before anything else; `prefer`
- * picks rungs out of the ladder to try before the rest of it, and looks further
- * down the ladder, because a rung a preference is asking for is by definition
- * not the nearest one. Either way the plain ladder follows, so a preference
- * narrows what is chosen without ever making the gesture fail.
+ * A `SnapPreference` lets a gesture say more than closeness alone can tell.
+ * `only` replaces the ladder with the layouts that keep a promise the ladder
+ * would not; `prefer` picks rungs out of the ladder to try before the rest of
+ * it, and looks further down the ladder, because a rung a preference is asking
+ * for is by definition not the nearest one. A `prefer` never makes a gesture
+ * fail; an `only` does, rather than store a layout that breaks its promise.
+ * Either way each geometry is tried once.
  *
  * If every candidate is refused, the refusal handed back is the nearest one's:
  * it is the one that explains what is actually in the way.
@@ -415,20 +420,22 @@ export function commitDraggedRatios(
   attempt: (weights: number[]) => Result<StructuralOutcome>,
   preference: SnapPreference = {},
 ): Result<StructuralOutcome> {
-  const { prefer, first = [] } = preference
+  const { prefer, only } = preference
+  return firstAccepted(distinctLayouts(only ?? ladder(equalityKeys, released, prefer)), attempt)
+}
+
+/** The plain ladder of snaps, with the rungs `prefer` asks for first. */
+function ladder(
+  equalityKeys: readonly (number | string | null)[],
+  released: readonly number[],
+  prefer: SnapPreference['prefer'],
+): number[][] {
   const ranked = rankedRatioQuantizations(
     released,
     prefer ? MAX_RANKED_QUANTIZATIONS : RATIO_SNAP_CANDIDATES,
     { equalityKeys },
   )
-  const candidates = [
-    ...first,
-    ...(prefer
-      ? [...ranked.filter(prefer), ...ranked.filter((weights) => !prefer(weights))]
-      : ranked),
-  ]
-
-  return firstAccepted(candidates, (weights) => attempt([...weights]))
+  return prefer ? [...ranked.filter(prefer), ...ranked.filter((weights) => !prefer(weights))] : ranked
 }
 
 /**

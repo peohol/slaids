@@ -209,10 +209,9 @@ const SNAPS_PER_STRUCTURE = 6
  * The committed layouts closest to the live one, best first.
  *
  * Air the gesture created or shrank may be kept or let go; every other child is
- * kept. For each such structure the closest whole ratios are offered — those
- * that keep each of `groups` (child indices in the span) in exact proportion
- * first,
- * then the plain ladder — and structures are ranked by how far the content
+ * kept. For each such structure the closest whole ratios are offered — only
+ * those that keep each of `groups` (child indices in the span) in exact
+ * proportion, when there are any — and structures are ranked by how far the content
  * zones would end up from where the pointer left them, so a sliver of air too
  * thin to be worth a ratio of its own goes, while air the author clearly made
  * stays. A structure with one child left is that child, in place of the split.
@@ -283,21 +282,14 @@ function snapped(
     )
     .filter((members) => members.length > 1)
 
-  const seen = new Set<string>()
-  const out: SplitNode[] = []
   const children = kept.map((index) => span.split.children[index])
-  for (const weights of [
-    ...(preserved.length > 0
+  // A block the gesture promised to keep in proportion is held to it on the
+  // snap as well: the plain ladder would gladly bend it for a closer total.
+  const layouts =
+    preserved.length > 0
       ? proportionalQuantizations(desired, base, preserved, SNAPS_PER_STRUCTURE)
-      : []),
-    ...rankedRatioQuantizations(desired, SNAPS_PER_STRUCTURE),
-  ]) {
-    const key = weights.join(':')
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ ...span.split, children, weights })
-  }
-  return out
+      : rankedRatioQuantizations(desired, SNAPS_PER_STRUCTURE)
+  return layouts.map((weights) => ({ ...span.split, children, weights }))
 }
 
 /** The indices of a block, in order. */
