@@ -16,30 +16,29 @@ import {
   hitTestLayout,
   minimumSizeFor,
   rectContainsPoint,
-  splitRect,
-  sumWeights,
   viewportToSlide,
 } from '../../domain/geometry'
-import { findParent, findSplit, updateNode } from '../../domain/layout'
-import { equalityKeysForDrag, equalityKeysForZoneDrag } from '../../domain/ratios'
+import { replaceNode } from '../../domain/layout'
+import { normalizedSlide } from '../../domain/presentation'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
   overflowRegressions,
+  rearrangeZones,
   setSlideTitle,
   setSplitWeights,
   subtreeOverflow,
 } from '../../domain/commands'
+import { isNegativeSpace } from '../../domain/negativeSpace'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
 import type { MenuAnchor } from '../components/contextMenu'
 import type { Editor } from '@tiptap/react'
 import type {
-  Axis,
   ContentSlide,
   LayoutNode,
   NodeId,
+  Presentation,
   Rect,
-  SplitNode,
   ZoneContentKind,
 } from '../../domain/types'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
@@ -51,16 +50,19 @@ import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
 import { RichTextEditor } from './RichTextEditor'
+import { commitDraggedRatios } from './ratioDrag'
 import {
-  commitDraggedRatios,
-  draggedWeights,
-  keepsZoneSize,
-  resizedWeights,
-  translatedWeights,
-  zoneDragAmount,
-  zoneDragMode,
-  type ZoneDragMode,
-} from './ratioDrag'
+  childRects,
+  layoutKey,
+  liveLengths,
+  manipulatedIds,
+  releaseOf,
+  shownFor,
+  startZoneDrag,
+  type ZoneDrag,
+  type ZoneDragStart,
+  type ZoneDragView,
+} from './zoneGesture'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
 import { FULL_SLIDE, NO_ZOOM, type StageZoom } from './stageView'
 import { StageSurface } from './StageSurface'
@@ -81,43 +83,20 @@ export interface StageMenuHit {
   target: Element | null
 }
 
-/** A press in the gap between two zones: the boundary follows the pointer. */
-interface BoundaryGesture {
-  kind: 'boundary'
-  boundary: number
-}
-
 /**
- * A press inside a zone: it resizes about its centre or slides along the split,
- * depending on which way the hand went.
- *
- * `mode` is decided once, as soon as the movement is big enough to mean
- * something, and then held for the rest of the gesture — see `zoneDragMode`.
+ * A zone drag in flight: what `zoneGesture.ts` decided about it, where the
+ * pointer started, and what the content looked like before.
  */
-interface ZoneGesture {
-  kind: 'zone'
-  index: number
-  mode: ZoneDragMode | null
-}
-
 interface DragState {
-  splitId: NodeId
-  axis: Axis
-  gesture: BoundaryGesture | ZoneGesture
+  drag: ZoneDrag
   startX: number
   startY: number
-  originalWeights: number[]
-  usable: number
-  minShare: number[]
-  /** Captured so the drag can be fit-validated without re-reading the tree. */
-  parentRect: Rect
-  children: LayoutNode[]
-  /** Where each zone sat when the gesture started, for measuring against. */
-  startRects: Rect[]
+  /** Where each of the drag's children sat when it started, for measuring against. */
+  startRects: Map<NodeId, Rect>
   /**
    * Overflow each zone had before the drag started, measured the first time it
    * is asked for. The gesture may move as long as no zone gets worse, which is
-   * the same rule `setSplitWeights` applies on release — so a drag never stops
+   * the same rule the commit applies on release — so a drag never stops
    * somewhere the commit would refuse, and a zone that already overflows can
    * still be dragged wider to repair it.
    *
@@ -127,8 +106,19 @@ interface DragState {
    * less of its content than it did with less.
    */
   baseline: Map<NodeId, number>
-  measured: Set<number>
+  measured: Set<NodeId>
+  /** The document the drag started from, which every step it shows is checked against. */
+  presentation: Presentation
+  /**
+   * Whether the release command accepts a layout, by `layoutKey`: a drag that
+   * steps through layouts meets the same few again and again, and each answer
+   * is an offscreen render.
+   */
+  verdicts: Map<string, boolean>
 }
+
+/** The live layout a drag is showing, and the pointer's lengths it came from. */
+type DragPreview = ZoneDragView & { lengths: number[] }
 
 export interface EditorStageProps {
   slide: ContentSlide
@@ -240,7 +230,7 @@ export function EditorStage({
   const slideRef = useRef<HTMLDivElement>(null)
   const titleHostRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<NodeId | null>(null)
-  const [preview, setPreview] = useState<{ nodeId: NodeId; weights: number[] } | null>(null)
+  const [preview, setPreview] = useState<DragPreview | null>(null)
   const dragRef = useRef<DragState | null>(null)
   /**
    * Set by a drag that changed something, and consumed by the click the browser
@@ -267,13 +257,11 @@ export function EditorStage({
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
+  // A step is drawn as it will be stored: normalised the way `withSlide`
+  // normalises every edit, so air it brings to air already on that edge is
+  // drawn as the one piece it will be.
   const displaySlide: ContentSlide = preview
-    ? {
-        ...slide,
-        root: updateNode(slide.root, preview.nodeId, (node) =>
-          node.kind === 'split' ? ({ ...node, weights: preview.weights } as LayoutNode) : node,
-        ),
-      }
+    ? normalizedSlide({ ...slide, root: replaceNode(slide.root, preview.nodeId, preview.node) })
     : slide
 
   const geometry = computeSlideGeometry(displaySlide, geometryForTheme(theme))
@@ -325,9 +313,9 @@ export function EditorStage({
    * never became a layout gesture at all, and is free to be a long press.
    */
   const dragHasTheHand = (): boolean => {
-    const drag = dragRef.current
-    if (!drag) return false
-    return drag.gesture.kind === 'boundary' || drag.gesture.mode !== null
+    const current = dragRef.current
+    if (!current) return false
+    return current.drag.start.kind !== 'zone' || current.drag.operation !== null
   }
 
   const handlePointerMove = (event: React.PointerEvent): void => {
@@ -396,70 +384,65 @@ export function EditorStage({
   }
 
   /**
-   * Start a drag on `split`, whichever of the two gestures it turns out to be.
+   * Start a zone drag, whichever operation it turns out to be.
    *
-   * What the gesture needs to know is the same either way and is captured here
-   * rather than re-read on every pointer move: the split's rect, its zones'
-   * minimum sizes expressed in the weight units the drag arithmetic works in,
-   * and the ratios the gesture started from — every frame is computed from
-   * those, so nothing drifts as the pointer travels.
+   * What the gesture needs to know is captured here rather than re-read on
+   * every pointer move — the rects, each zone's minimum for what it holds, and
+   * the layout the drag started from. Every frame is computed from those, so
+   * nothing drifts as the pointer travels.
    */
-  const beginDrag = (
-    split: SplitNode,
-    parentRect: Rect,
-    gesture: BoundaryGesture | ZoneGesture,
-    event: React.PointerEvent,
-  ): void => {
-    const along = split.axis === 'x' ? parentRect.width : parentRect.height
-    const usable = along - tokens.gap * (split.children.length - 1)
-    const total = sumWeights(split.weights)
-    const minShare = split.children.map((child) => {
-      // What the child actually holds decides how small it may get — air and an
-      // empty zone can be dragged down to nothing, a card stops at the card.
-      // Measured under this deck's own theme, because the chrome a card spends
-      // is the chrome the tokens dictate.
-      const min = minimumSizeFor(child, geometryForTheme(theme))
-      const need = split.axis === 'x' ? min.width : min.height
-      return (need / usable) * total
-    })
-
+  const beginDrag = (start: ZoneDragStart, event: React.PointerEvent): boolean => {
+    const options = geometryForTheme(theme)
+    const drag = startZoneDrag(
+      {
+        root: displaySlide.root,
+        rects: geometry.rects,
+        gap: tokens.gap,
+        // What the child actually holds decides how small it may get — an
+        // empty zone can be dragged down to nothing, a card stops at the card.
+        // Measured under this deck's own theme, because the chrome a card
+        // spends is the chrome the tokens dictate.
+        minimumAlong: (node, axis) => {
+          const min = minimumSizeFor(node, options)
+          return axis === 'x' ? min.width : min.height
+        },
+      },
+      start,
+    )
+    const presentation = useEditorStore.getState().presentation
+    if (!drag || !presentation) return false
     dragRef.current = {
-      splitId: split.id,
-      axis: split.axis,
-      gesture,
+      drag,
       startX: event.clientX,
       startY: event.clientY,
-      originalWeights: [...split.weights],
-      usable,
-      minShare,
-      parentRect,
-      children: split.children,
-      startRects: splitRect(parentRect, split.axis, split.weights, tokens.gap),
+      startRects: childRects(drag, drag.span.lengths),
       baseline: new Map(),
       measured: new Set(),
+      presentation,
+      verdicts: new Map(),
     }
+    return true
   }
 
-  const beginHandleDrag = (splitId: NodeId, boundary: number, event: React.PointerEvent): void => {
-    const split = findSplit(displaySlide.root, splitId)
-    const parentRect = geometry.rects.get(splitId)
-    if (!split || !parentRect) return
+  /** A press on a handle the overlay draws: a divider, or an edge grip. */
+  const beginHandleDrag = (start: ZoneDragStart, select: NodeId, event: React.PointerEvent): void => {
     event.preventDefault()
     event.stopPropagation()
+    if (!beginDrag(start, event)) return
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-    beginDrag(split, parentRect, { kind: 'boundary', boundary }, event)
-    selectNode(splitId)
+    selectNode(select)
   }
 
   /**
    * A press *inside* a zone, which resizes or moves that zone within its parent
    * split.
    *
-   * The gap between two zones is covered by its own handle, and that handle
-   * stops the press from reaching here — so the two interactions never have to
-   * be told apart by measuring how close to an edge the pointer landed. Which
-   * zone was pressed is the geometry engine's answer, the same one a click uses,
-   * so what is dragged is always what is selected.
+   * The gap between two zones is covered by its own handle, and so is a
+   * selected zone's outer edge, and those handles stop the press from reaching
+   * here — so the interactions never have to be told apart by measuring how
+   * close to an edge the pointer landed. Which zone was pressed is the geometry
+   * engine's answer, the same one a click uses, so what is dragged is always
+   * what is selected.
    */
   const handlePointerDown = (event: React.PointerEvent): void => {
     draggedRef.current = false
@@ -469,30 +452,20 @@ export function EditorStage({
     if (!point) return
     const hit = hitTestLayout(displaySlide.root, geometry.rects, point.x, point.y)
     if (!hit) return
-    const parent = findParent(displaySlide.root, hit)
-    const parentRect = parent ? geometry.rects.get(parent.id) : undefined
-    // The root zone has no split to move inside; the click still selects it.
-    if (!parent || !parentRect) return
-    const index = parent.children.findIndex((child) => child.id === hit)
-    if (index < 0) return
-    beginDrag(parent, parentRect, { kind: 'zone', index, mode: null }, event)
-    selectNode(hit)
+    if (beginDrag({ kind: 'zone', nodeId: hit }, event)) selectNode(hit)
   }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    /** The overflow the zone at `index` had before the drag started. */
-    const rememberBaseline = (drag: DragState, index: number): void => {
-      if (drag.measured.has(index)) return
-      drag.measured.add(index)
-      for (const [nodeId, overflow] of subtreeOverflow(
-        drag.children[index],
-        drag.startRects[index],
-        fitContext,
-        domFitCheckers,
-      )) {
-        drag.baseline.set(nodeId, overflow)
+    /** The overflow `node` had before the drag started. */
+    const rememberBaseline = (state: DragState, node: LayoutNode): void => {
+      if (state.measured.has(node.id)) return
+      state.measured.add(node.id)
+      const rect = state.startRects.get(node.id)
+      if (!rect) return
+      for (const [nodeId, overflow] of subtreeOverflow(node, rect, fitContext, domFitCheckers)) {
+        state.baseline.set(nodeId, overflow)
       }
     }
 
@@ -500,120 +473,113 @@ export function EditorStage({
      * Whether the layout the pointer is asking for would hide content that is
      * visible now.
      *
-     * Only the zones that lost room are asked: a zone whose ratio is unchanged
+     * Only the zones that lost room are asked: a zone whose length is unchanged
      * has the same rect it had, and one that gained room cannot show less than
      * it did with less. That is also what keeps a drag affordable — the answer
      * is an offscreen render of the zone.
      */
-    const wouldHideContent = (drag: DragState, weights: readonly number[]): boolean => {
-      const childRects = splitRect(drag.parentRect, drag.axis, weights, tokens.gap)
-      for (let index = 0; index < weights.length; index += 1) {
-        if (weights[index] >= drag.originalWeights[index]) continue
-        rememberBaseline(drag, index)
-        const next = subtreeOverflow(
-          drag.children[index],
-          childRects[index],
-          fitContext,
-          domFitCheckers,
-        )
-        if (overflowRegressions(next, (nodeId) => drag.baseline.get(nodeId) ?? 0).length > 0) {
-          return true
-        }
-      }
-      return false
+    const wouldHideContent = (state: DragState, lengths: readonly number[]): boolean => {
+      const rects = childRects(state.drag, lengths)
+      const { split } = state.drag.span
+      return split.children.some((child) => {
+        const before = state.startRects.get(child.id)
+        const after = rects.get(child.id)
+        if (!before || !after || isNegativeSpace(child)) return false
+        const along = (rect: Rect): number => (split.axis === 'x' ? rect.width : rect.height)
+        if (along(after) >= along(before)) return false
+        rememberBaseline(state, child)
+        const next = subtreeOverflow(child, after, fitContext, domFitCheckers)
+        return overflowRegressions(next, (nodeId) => state.baseline.get(nodeId) ?? 0).length > 0
+      })
     }
 
-    /**
-     * The ratios the gesture is asking for, in design-space units, or `null`
-     * when it is not asking for anything yet.
-     *
-     * Nothing is rounded here: the layout follows the pointer, and only snaps to
-     * a whole ratio once the pointer is let go.
-     */
-    const wishFor = (drag: DragState, event: PointerEvent): number[] | null => {
-      const total = sumWeights(drag.originalWeights)
-      /** A pointer distance on screen, in the weight units the split is in. */
-      const inWeights = (deltaPx: number): number =>
-        (deltaPx / renderedScale() / drag.usable) * total
-      const deltaX = event.clientX - drag.startX
-      const deltaY = event.clientY - drag.startY
+    /** The command a release runs, for `layout` in place of `nodeId`. */
+    const arrange = (presentation: Presentation, nodeId: NodeId, layout: LayoutNode) =>
+      rearrangeZones(presentation, { slideId: slide.id, nodeId, layout, ...domFitCheckers })
 
-      if (drag.gesture.kind === 'boundary') {
-        const along = drag.axis === 'x' ? deltaX : deltaY
-        return draggedWeights(
-          drag.originalWeights,
-          drag.gesture.boundary,
-          inWeights(along),
-          drag.minShare,
-        )
+    /** Whether the release would store `layout`: the same command, asked in advance. */
+    const accepts = (state: DragState, nodeId: NodeId, layout: LayoutNode): boolean => {
+      const key = `${nodeId}|${layoutKey(layout)}`
+      let verdict = state.verdicts.get(key)
+      if (verdict === undefined) {
+        verdict = arrange(state.presentation, nodeId, layout).ok
+        state.verdicts.set(key, verdict)
       }
-
-      const gesture = drag.gesture
-      const mode = gesture.mode ?? zoneDragMode(drag.axis, deltaX, deltaY)
-      if (!mode) return null
-      // Locked for the rest of the gesture, so a hand that wanders off its
-      // first direction goes on doing what it started rather than flipping.
-      gesture.mode = mode
-      const amount = inWeights(zoneDragAmount(drag.axis, mode, deltaX, deltaY))
-      return mode === 'translate'
-        ? translatedWeights(drag.originalWeights, gesture.index, amount, drag.minShare)
-        : resizedWeights(drag.originalWeights, gesture.index, amount, drag.minShare)
+      return verdict
     }
 
     const move = (event: PointerEvent): void => {
-      const drag = dragRef.current
-      if (!drag) return
-      const weights = wishFor(drag, event)
-      if (!weights) return
+      const state = dragRef.current
+      if (!state) return
+      // A pointer distance on screen, in design-space pixels.
+      const scale = renderedScale()
+      const lengths = liveLengths(
+        state.drag,
+        (event.clientX - state.startX) / scale,
+        (event.clientY - state.startY) / scale,
+      )
+      if (!lengths) return
       // A gesture the geometry cannot honour — a zone at the end of its split,
       // a side already at its minimum, a pointer back where it started — asks
-      // for the ratios the split already has, and there is nothing to preview
+      // for the layout the split already has, and there is nothing to preview
       // or, later, to commit.
-      if (sameWeights(weights, drag.originalWeights)) {
+      if (sameWeights(lengths, state.drag.span.lengths)) {
         setPreview(null)
         return
       }
       // The drag stops where the content stops fitting, rather than letting the
       // user drag into an invalid state and snapping back on release.
-      if (wouldHideContent(drag, weights)) return
-      setPreview({ nodeId: drag.splitId, weights })
+      if (wouldHideContent(state, lengths)) return
+      setPreview({ ...shownFor(state.drag, lengths, (nodeId, layout) => accepts(state, nodeId, layout)), lengths })
     }
 
     const up = (): void => {
-      const drag = dragRef.current
+      const state = dragRef.current
       dragRef.current = null
       const pending = preview
       setPreview(null)
-      if (!drag || !pending) return
+      if (!state || !pending) return
       draggedRef.current = true
 
-      // The released geometry is a wish; what gets stored is the nearest ratio
-      // the deck can be written in, keeping zones that shared a ratio before
-      // the gesture sharing one.
-      const equalityKeys =
-        drag.gesture.kind === 'boundary'
-          ? equalityKeysForDrag(drag.originalWeights, drag.gesture.boundary)
-          : equalityKeysForZoneDrag(drag.originalWeights, drag.gesture.index)
-      // A move promised the zone would keep its size, so the snap is held to it.
-      const prefer =
-        drag.gesture.kind === 'zone' && drag.gesture.mode === 'translate'
-          ? keepsZoneSize(drag.originalWeights, drag.gesture.index)
-          : undefined
-      runStructural('ratio', (presentation) =>
-        commitDraggedRatios(
-          equalityKeys,
-          pending.weights,
-          (weights) =>
-            setSplitWeights(presentation, {
-              slideId: slide.id,
-              nodeId: pending.nodeId,
-              weights,
-              // A ratio change may not shrink a zone past what its content needs.
-              ...domFitCheckers,
-            }),
-          prefer,
-        ),
-      )
+      // A drag that touched air stores exactly the step it was showing, which
+      // was checked with this command when it was shown; one that ends where
+      // it began leaves nothing behind — no air, no extra level.
+      if (pending.kind === 'arrangement') {
+        const { commit, nodeId } = pending
+        if (commit) runStructural('ratio', (presentation) => arrange(presentation, nodeId, commit))
+        return
+      }
+
+      const release = releaseOf(state.drag, pending.lengths)
+      if (release?.kind === 'ratios') {
+        // The released geometry is a wish; what gets stored is the nearest
+        // ratio the deck can be written in, held to whatever the gesture
+        // promised.
+        runStructural('ratio', (presentation) =>
+          commitDraggedRatios(
+            release.rules.equalityKeys,
+            release.released,
+            (weights) =>
+              setSplitWeights(presentation, {
+                slideId: slide.id,
+                nodeId: release.nodeId,
+                weights,
+                // A ratio change may not shrink a zone past what its content needs.
+                ...domFitCheckers,
+              }),
+            release.rules.preference,
+          ),
+        )
+      }
+    }
+
+    /** Escape lets go of the drag and leaves the slide as it was. */
+    const key = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || !dragRef.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      draggedRef.current = true
+      cancelDrag()
     }
 
     /** A gesture the browser took over (touch panning) must not commit. */
@@ -623,13 +589,15 @@ export function EditorStage({
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', cancel)
     window.addEventListener('blur', cancel)
+    window.addEventListener('keydown', key, true)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
+      window.removeEventListener('keydown', key, true)
     }
-  }, [cancelDrag, fitContext, preview, renderedScale, runStructural, slide.id, tokens.gap])
+  }, [cancelDrag, fitContext, preview, renderedScale, runStructural, slide.id])
 
   const titleColor = bestTextColor(colors.background)
 
@@ -795,6 +763,14 @@ export function EditorStage({
                 onBreadcrumb={selectNode}
                 onHandleDown={beginHandleDrag}
                 handleGap={tokens.gap}
+                dragging={
+                  dragRef.current && preview
+                    ? {
+                        ids: manipulatedIds(dragRef.current.drag),
+                        rects: childRects(dragRef.current.drag, preview.lengths),
+                      }
+                    : null
+                }
                 chrome={chrome}
                 purpose={mode === 'zone' ? 'zones' : 'selection'}
               />

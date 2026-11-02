@@ -24,22 +24,31 @@
  *
  * - `draggedWeights` moves one boundary, trading weight between the two zones
  *   it sits between and leaving every other zone alone.
- * - `resizedWeights` grows or shrinks one zone about its own centre, moving
- *   both of its boundaries by the same amount in opposite directions.
+ * - `resizedWeights` grows or shrinks one zone, and every other zone pays for
+ *   it in proportion to its size — one factor for all of them.
  * - `translatedWeights` slides one zone along the split without resizing it.
  *
- * The last two share their shape: the zones before the selection are scaled by
- * one factor and the zones after it by another, which is what keeps each side's
- * internal proportions exactly as they were. Both are expressed in weight
+ * The last two are both scalings of whole groups of zones: every sibling by one
+ * factor for a resize, and for a move the zones before the selection by one
+ * factor and the zones after it by another. That is what keeps the proportions
+ * the gesture is not about exactly as they were. Both are expressed in weight
  * units, because a split's gaps are fixed — the child count never changes — so
  * weight space and length space are proportional and the arithmetic is the same
  * in either.
  */
 
-import { areWeightsValid, sumWeights } from '../../domain/geometry'
-import { MAX_RANKED_QUANTIZATIONS, rankedRatioQuantizations } from '../../domain/ratios'
+import { areMeasurableWeights, sumWeights } from '../../domain/geometry'
+import {
+  MAX_RANKED_QUANTIZATIONS,
+  equalityKeysForDrag,
+  equalityKeysForZoneDrag,
+  equalityKeysForZoneResize,
+  distinctLayouts,
+  proportionalQuantizations,
+  rankedRatioQuantizations,
+} from '../../domain/ratios'
 import type { StructuralOutcome } from '../../domain/commands'
-import type { Result } from '../../domain/result'
+import { err, type Result } from '../../domain/result'
 import type { Axis } from '../../domain/types'
 
 /** How many rungs a released handle may look down for one it may stop on. */
@@ -130,34 +139,42 @@ export function draggedWeights(
   const lowest = minShare[boundary]
   const highest = pairTotal - minShare[boundary + 1]
   const moved = Math.max(lowest, Math.min(weights[boundary] + deltaWeight, highest))
-  if (!Number.isFinite(moved) || moved <= 0 || pairTotal - moved <= 0) return null
+  if (!Number.isFinite(moved)) return null
   weights[boundary] = moved
   weights[boundary + 1] = pairTotal - moved
-  return weights
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
  * The ratios for a zone grown (or shrunk) by `growth`.
  *
- * Every side the zone has gives up — or takes back — an equal share of the
- * change. A zone with neighbours on both sides therefore moves both of its
- * boundaries by half of `growth`, in opposite directions: it changes size and
- * stays exactly where it was. The two sides do not generally have the same
- * length to begin with, so they are scaled by different factors; within a side
- * every zone keeps its share of that side, so ratios the gesture is not about
- * survive it untouched.
+ * Every other zone in the split pays for the change in proportion to its own
+ * size: all of them are scaled by one and the same factor,
  *
- * A zone at either end of the split has one side, and that side takes the whole
- * change. There is nothing there to be symmetric about — the zone's outer edge
- * is the split's own and cannot move — and the alternative reading, that such a
- * zone simply does not resize, leaves the commonest layout there is with no
- * gesture at all: in a split in two, both zones are end zones.
+ *   x_i' = x_i · (T − b') / (T − b)
  *
- * The stop condition is the reason `growth` is clamped rather than refused: two
- * sides run out of room at different moments, and a resize that carried on into
- * the side that still had room would stop being symmetric halfway through and
- * start moving the zone instead. So the whole operation stops at the smaller of
- * the two, which is the largest symmetric change the split allows.
+ * where `T` is the split's total, `b` the zone's weight when the gesture
+ * started and `b'` its weight now. So the siblings keep exactly the ratios they
+ * had among themselves — `1 : 1 : 1 : 1` with the second zone grown stays
+ * `a : b : a : a` — and which side of the zone a sibling happens to sit on
+ * plays no part in how much it gives up.
+ *
+ * It used to be otherwise: each *side* gave up half of the change, so a zone
+ * with one neighbour on its left and two on its right took as much from the
+ * one as from the two together, and the lone neighbour shrank twice as fast.
+ * A long drag made that visible; several short ones hid it, because each one
+ * started again from the skewed result of the last.
+ *
+ * Because the factor is shared, the stop condition is the sibling closest to
+ * its own minimum: when it is reached the whole gesture stops rather than
+ * carrying on into the others, which would bend the proportions it promised to
+ * keep. Shrinking only ever gives the siblings room, so there it is the zone's
+ * own minimum that stops it.
+ *
+ * Air among the siblings is scaled by its whole footprint — its length and the
+ * gap it brings — so that at the factor where it is gone it takes no room at
+ * all, rather than stopping at zero length with its gap still drawn (see
+ * `scalable`). Content siblings keep their proportions exactly either way.
  */
 export function resizedWeights(
   original: readonly number[],
@@ -166,28 +183,18 @@ export function resizedWeights(
   minShare: readonly number[],
 ): number[] | null {
   if (!Number.isFinite(growth)) return null
-  const sides = sidesOf(original, index)
-  if (sides.length === 0) return [...original]
+  const siblings = original.map((_, position) => position).filter((position) => position !== index)
+  const rest = scalableTotal(original, minShare, siblings)
+  if (rest <= 0) return [...original]
 
-  const room = Math.min(
-    ...sides.map((side) => shrinkCapacity(original, minShare, side.from, side.to)),
-  )
-  // Growing is bounded by whichever side runs out first; shrinking only ever
-  // gives the sides room, so there it is the zone's own minimum that stops it.
   const clamped = clamp(
     growth,
     -Math.max(0, original[index] - minShare[index]),
-    room * sides.length,
+    shrinkCapacity(original, minShare, siblings),
   )
-  const share = clamped / sides.length
-
-  const weights = [...original]
-  for (const side of sides) {
-    const total = sideTotal(original, side.from, side.to)
-    scaleSide(weights, original, side.from, side.to, (total - share) / total)
-  }
+  const weights = scaled(original, minShare, siblings, (rest - clamped) / rest)
   weights[index] = original[index] + clamped
-  return areWeightsValid(weights) ? weights : null
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
@@ -209,23 +216,70 @@ export function translatedWeights(
   distance: number,
   minShare: readonly number[],
 ): number[] | null {
-  if (!Number.isFinite(distance)) return null
-  const nearSide = sideTotal(original, 0, index)
-  const farSide = sideTotal(original, index + 1, original.length)
+  const near = range(0, index)
+  const far = range(index + 1, original.length)
   // Unlike a resize, this one really is impossible at either end of the split:
   // a zone there has nothing behind it to open a space, and nothing to take the
   // space it would leave.
-  if (nearSide <= 0 || farSide <= 0) return [...original]
+  if (near.length === 0 || far.length === 0) {
+    return Number.isFinite(distance) ? [...original] : null
+  }
+  return rescaledBlocks(original, near, far, distance, minShare)
+}
 
+/**
+ * The ratios for the boundary after zone `boundary` moved by `distance` with
+ * Shift held: everything before it is one block and everything after it
+ * another, and only the proportion *between* the blocks changes.
+ *
+ * `a : b : c : d : e` dragged between `c` and `d` scales `a`, `b` and `c` by
+ * one factor and `d` and `e` by another — `a_new = a · L_new / L_start` — so
+ * both blocks keep their insides exactly. It is a move of a zone of no width
+ * sitting on the boundary, and it is computed as one.
+ */
+export function shiftedBoundaryWeights(
+  original: readonly number[],
+  boundary: number,
+  distance: number,
+  minShare: readonly number[],
+): number[] | null {
+  return rescaledBlocks(
+    original,
+    range(0, boundary + 1),
+    range(boundary + 1, original.length),
+    distance,
+    minShare,
+  )
+}
+
+/**
+ * Two blocks scaled against each other: `near` gains `distance` and `far`
+ * gives it up, each by one factor, stopping where the shrinking block reaches
+ * the first of its zones' minimums.
+ */
+function rescaledBlocks(
+  original: readonly number[],
+  near: readonly number[],
+  far: readonly number[],
+  distance: number,
+  minShare: readonly number[],
+): number[] | null {
+  if (!Number.isFinite(distance)) return null
+  const nearSide = scalableTotal(original, minShare, near)
+  const farSide = scalableTotal(original, minShare, far)
+  if (nearSide <= 0 || farSide <= 0) return [...original]
   const moved = clamp(
     distance,
-    -shrinkCapacity(original, minShare, 0, index),
-    shrinkCapacity(original, minShare, index + 1, original.length),
+    -shrinkCapacity(original, minShare, near),
+    shrinkCapacity(original, minShare, far),
   )
-  const weights = [...original]
-  scaleSide(weights, original, 0, index, (nearSide + moved) / nearSide)
-  scaleSide(weights, original, index + 1, original.length, (farSide - moved) / farSide)
-  return areWeightsValid(weights) ? weights : null
+  const weights = scaled(
+    scaled(original, minShare, near, (nearSide + moved) / nearSide),
+    minShare,
+    far,
+    (farSide - moved) / farSide,
+  )
+  return isDraggable(weights, minShare) ? weights : null
 }
 
 /**
@@ -251,6 +305,99 @@ export function keepsZoneSize(
 }
 
 /**
+ * The snapped layouts that keep every sibling of the zone at `index` in exactly
+ * the proportions they started with, closest to `released` first.
+ *
+ * A resize promises that the zones it is not about keep their ratios among
+ * themselves, and while the pointer is down they do, to the last bit. The snap
+ * is where that promise could quietly be broken: `1 : 2 : 3 : 4` is not a
+ * proportion the nearest rung is obliged to respect. These are the rungs that
+ * do, and the only ones the release may store.
+ */
+export function proportionKeepingSnaps(
+  before: readonly number[],
+  index: number,
+  released: readonly number[],
+): number[][] {
+  const siblings = before.map((_, position) => position).filter((position) => position !== index)
+  return proportionalQuantizations(released, before, [siblings], MAX_RANKED_QUANTIZATIONS)
+}
+
+/** What a gesture can tell the snap about which rungs answer it best. */
+export interface SnapPreference {
+  /**
+   * Rungs that answer the gesture better than closeness alone can tell — a
+   * move, whose whole promise is that the zone keeps its size. See
+   * `keepsZoneSize`.
+   */
+  prefer?: (weights: readonly number[]) => boolean
+  /**
+   * The only layouts that keep the gesture's promise, closest first — a
+   * resize's proportion-keeping rungs, which the ladder may not reach and is
+   * free to break. When these are given the ladder is not consulted at all: a
+   * release that cannot keep the promise is refused, and the split stays as it
+   * was.
+   */
+  only?: readonly number[][]
+}
+
+/** Everything a released gesture tells the snap: see `commitDraggedRatios`. */
+export interface SnapRules {
+  equalityKeys: (number | string | null)[]
+  preference: SnapPreference
+}
+
+/** How a released boundary drag snaps. */
+export function boundarySnapRules(before: readonly number[], boundary: number): SnapRules {
+  return { equalityKeys: equalityKeysForDrag(before, boundary), preference: {} }
+}
+
+/**
+ * How a released Shift-drag of a boundary snaps: each of the two blocks is
+ * held to its own proportions, and only the proportion between them is free.
+ */
+export function shiftedBoundarySnapRules(
+  before: readonly number[],
+  boundary: number,
+  released: readonly number[],
+): SnapRules {
+  return {
+    equalityKeys: before.map(() => null),
+    preference: {
+      only: proportionalQuantizations(
+        released,
+        before,
+        [range(0, boundary + 1), range(boundary + 1, before.length)],
+        MAX_RANKED_QUANTIZATIONS,
+      ),
+    },
+  }
+}
+
+/**
+ * How a released drag inside a zone snaps.
+ *
+ * A move promised the zone would keep its size, and a resize that every other
+ * zone would keep its proportions; each is held to its promise on the snap.
+ */
+export function zoneSnapRules(
+  before: readonly number[],
+  index: number,
+  mode: ZoneDragMode,
+  released: readonly number[],
+): SnapRules {
+  return mode === 'translate'
+    ? {
+        equalityKeys: equalityKeysForZoneDrag(before, index),
+        preference: { prefer: keepsZoneSize(before, index) },
+      }
+    : {
+        equalityKeys: equalityKeysForZoneResize(before, index),
+        preference: { only: proportionKeepingSnaps(before, index, released) },
+      }
+}
+
+/**
  * Snap a released drag to whole ratios and commit the closest one `attempt`
  * accepts.
  *
@@ -259,14 +406,16 @@ export function keepsZoneSize(
  * down as the same number are the same size by construction, while the live
  * sizes this gesture produced are floats that are never exactly equal. Which
  * zones the gesture frees from that is the gesture's own business —
- * `equalityKeysForDrag` and `equalityKeysForZoneDrag` each state theirs.
+ * `equalityKeysForDrag`, `equalityKeysForZoneResize` and
+ * `equalityKeysForZoneDrag` each state theirs.
  *
- * `prefer` lets a gesture say that some rungs answer it better than closeness
- * alone can tell — a move, whose whole promise is that the zone keeps its size.
- * Those rungs are tried first, in the order they were ranked, and the rest
- * follow, so a preference narrows what is chosen without ever making the
- * gesture fail. It also looks further down the ladder, because a rung a
- * preference is asking for is by definition not the nearest one.
+ * A `SnapPreference` lets a gesture say more than closeness alone can tell.
+ * `only` replaces the ladder with the layouts that keep a promise the ladder
+ * would not; `prefer` picks rungs out of the ladder to try before the rest of
+ * it, and looks further down the ladder, because a rung a preference is asking
+ * for is by definition not the nearest one. A `prefer` never makes a gesture
+ * fail; an `only` does, rather than store a layout that breaks its promise.
+ * Either way each geometry is tried once.
  *
  * If every candidate is refused, the refusal handed back is the nearest one's:
  * it is the one that explains what is actually in the way.
@@ -275,24 +424,41 @@ export function commitDraggedRatios(
   equalityKeys: readonly (number | string | null)[],
   released: readonly number[],
   attempt: (weights: number[]) => Result<StructuralOutcome>,
-  prefer?: (weights: readonly number[]) => boolean,
+  preference: SnapPreference = {},
 ): Result<StructuralOutcome> {
+  const { prefer, only } = preference
+  return firstAccepted(distinctLayouts(only ?? ladder(equalityKeys, released, prefer)), attempt)
+}
+
+/** The plain ladder of snaps, with the rungs `prefer` asks for first. */
+function ladder(
+  equalityKeys: readonly (number | string | null)[],
+  released: readonly number[],
+  prefer: SnapPreference['prefer'],
+): number[][] {
   const ranked = rankedRatioQuantizations(
     released,
     prefer ? MAX_RANKED_QUANTIZATIONS : RATIO_SNAP_CANDIDATES,
     { equalityKeys },
   )
-  const candidates = prefer
-    ? [...ranked.filter(prefer), ...ranked.filter((weights) => !prefer(weights))]
-    : ranked
+  return prefer ? [...ranked.filter(prefer), ...ranked.filter((weights) => !prefer(weights))] : ranked
+}
 
-  const nearest = attempt(candidates[0])
-  if (nearest.ok) return nearest
-  for (let index = 1; index < candidates.length; index += 1) {
-    const fallback = attempt(candidates[index])
-    if (fallback.ok) return fallback
+/**
+ * The first candidate `attempt` accepts, tried in order; if none is, the
+ * refusal of the first — the nearest one, which explains what is in the way.
+ */
+export function firstAccepted<T>(
+  candidates: readonly T[],
+  attempt: (candidate: T) => Result<StructuralOutcome>,
+): Result<StructuralOutcome> {
+  let nearest: Result<StructuralOutcome> | null = null
+  for (const candidate of candidates) {
+    const result = attempt(candidate)
+    if (result.ok) return result
+    nearest ??= result
   }
-  return nearest
+  return nearest ?? err('INVALID_ARGUMENT', 'Det finnes ingen inndeling å lagre.')
 }
 
 /* ------------------------------------------------------------------ *
@@ -303,51 +469,81 @@ function clamp(value: number, lowest: number, highest: number): number {
   return Math.max(lowest, Math.min(value, highest))
 }
 
-/** The runs of zones beside the one at `index`; an end zone has only one. */
-function sidesOf(weights: readonly number[], index: number): Array<{ from: number; to: number }> {
-  return [
-    { from: 0, to: index },
-    { from: index + 1, to: weights.length },
-  ].filter((side) => sideTotal(weights, side.from, side.to) > 0)
+/**
+ * Whether a live layout can be shown: every zone at or above its floor, and
+ * every zone whose floor is not below zero still taking some room.
+ *
+ * A floor below zero is how negative space says it may fade away entirely —
+ * down to minus one gap, where it takes no room at all (see `splitRect`).
+ * Everything else has to keep a length, because a zone of length zero is not a
+ * layout the commit could write down.
+ */
+function isDraggable(weights: readonly number[], minShare: readonly number[]): boolean {
+  if (!areMeasurableWeights(weights)) return false
+  return weights.every((weight, index) =>
+    minShare[index] < 0 ? weight >= minShare[index] - FLOOR_TOLERANCE : weight > 0,
+  )
 }
 
-/** The weight the zones in `[from, to)` hold between them; `0` for none. */
-function sideTotal(weights: readonly number[], from: number, to: number): number {
-  return sumWeights(weights.slice(from, to))
+/** How far a computed weight may fall short of a floor and still be on it. */
+const FLOOR_TOLERANCE = 1e-9
+
+/** The indices `[from, to)`. */
+export function range(from: number, to: number): number[] {
+  return Array.from({ length: Math.max(0, to - from) }, (_, offset) => from + offset)
 }
 
 /**
- * How much weight the zones in `[from, to)` can give up before the first of them
+ * The part of a zone that a common factor scales: its length, or for air —
+ * whose floor is below zero, see `isDraggable` — its length down to that
+ * floor, which is its whole footprint. Air scaled to nothing has then vanished,
+ * gap and all, exactly where content scaled by the same factor would stop.
+ */
+function scalable(weight: number, floor: number): number {
+  return floor < 0 ? weight - floor : weight
+}
+
+/** What the zones at `indices` give a common factor to scale; `0` for none. */
+function scalableTotal(weights: readonly number[], minShare: readonly number[], indices: readonly number[]): number {
+  return indices.reduce((total, index) => total + scalable(weights[index], minShare[index]), 0)
+}
+
+/**
+ * How much weight the zones at `indices` can give up before the first of them
  * reaches its minimum.
  *
  * They are compressed together, by one factor, so the binding constraint is
- * whichever of them is closest to its own minimum: the side can shrink by that
- * factor and no further. A side that is already under its minimum — content
+ * whichever of them is closest to its own minimum: the group can shrink by that
+ * factor and no further. A group that is already under its minimum — content
  * grew, or a theme changed underneath it — can give up nothing rather than a
  * negative amount.
  */
 function shrinkCapacity(
   weights: readonly number[],
   minShare: readonly number[],
-  from: number,
-  to: number,
+  indices: readonly number[],
 ): number {
-  const total = sideTotal(weights, from, to)
+  const total = scalableTotal(weights, minShare, indices)
   if (total <= 0) return 0
+  // Air may be scaled all the way to nothing; content only to its minimum.
   let floor = 0
-  for (let index = from; index < to; index += 1) {
-    floor = Math.max(floor, minShare[index] / weights[index])
+  for (const index of indices) {
+    if (minShare[index] >= 0) floor = Math.max(floor, minShare[index] / weights[index])
   }
   return Math.max(0, total * (1 - floor))
 }
 
-/** Scale the zones in `[from, to)` of `source` into `out`. */
-function scaleSide(
-  out: number[],
+/** A copy of `source` with the zones at `indices` scaled by `factor`; see `scalable`. */
+function scaled(
   source: readonly number[],
-  from: number,
-  to: number,
+  minShare: readonly number[],
+  indices: readonly number[],
   factor: number,
-): void {
-  for (let index = from; index < to; index += 1) out[index] = source[index] * factor
+): number[] {
+  const out = [...source]
+  for (const index of indices) {
+    const base = Math.min(0, minShare[index])
+    out[index] = (source[index] - base) * factor + base
+  }
+  return out
 }

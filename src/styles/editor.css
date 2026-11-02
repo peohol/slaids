@@ -1160,6 +1160,59 @@
   cursor: row-resize;
 }
 
+/*
+ * A selected zone's outer edges compress it inwards. The grip is a strip just
+ * inside the edge with a short bar in its middle — visible only on the selected
+ * zone, so the slide is not covered in handles — and it says which way it
+ * works with its cursor.
+ */
+.zone-edge-grip {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zone-edge-grip::after {
+  content: '';
+  border-radius: 999px;
+  background: var(--zone-outline-selected);
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+.zone-edge-grip:hover::after {
+  opacity: 1;
+}
+
+.zone-edge-grip--x {
+  cursor: ew-resize;
+}
+
+.zone-edge-grip--x::after {
+  width: 30%;
+  max-width: 6px;
+  height: min(40%, 64px);
+}
+
+.zone-edge-grip--y {
+  cursor: ns-resize;
+}
+
+.zone-edge-grip--y::after {
+  height: 30%;
+  max-height: 6px;
+  width: min(40%, 64px);
+}
+
+/* The zones a drag is acting on as one block. */
+.zone-outline--active {
+  border: 2px dashed var(--zone-outline-selected);
+  border-radius: 6px;
+}
+
 /* ----------------------------------------------------------------- *
  * Split dialog
  * ----------------------------------------------------------------- */

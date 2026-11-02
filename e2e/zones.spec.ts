@@ -42,15 +42,24 @@ async function dragHandle(page: Page, index: number, deltaLogical: number): Prom
   await page.waitForTimeout(250)
 }
 
-/** Drag from the middle of `zone` by `dx`/`dy` design-space pixels. */
-async function dragZone(page: Page, zone: ZoneRect, dx: number, dy: number): Promise<void> {
+/**
+ * Drag from the middle of `zone` by `dx`/`dy` design-space pixels, in `steps`
+ * pointer moves.
+ */
+async function dragZone(
+  page: Page,
+  zone: ZoneRect,
+  dx: number,
+  dy: number,
+  steps = 8,
+): Promise<void> {
   const from = await slidePoint(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
   const scale = await page.evaluate(() =>
     Number((document.querySelector('[data-testid="stage-slide"]') as HTMLElement).dataset.scale),
   )
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
-  await page.mouse.move(from.x + dx * scale, from.y + dy * scale, { steps: 8 })
+  await page.mouse.move(from.x + dx * scale, from.y + dy * scale, { steps })
   await page.mouse.up()
   await page.waitForTimeout(250)
 }
@@ -326,7 +335,7 @@ test.describe('zone editing', () => {
     expect(zones[1].w / zones[0].w).toBeCloseTo(3, 1)
   })
 
-  test('resizes a zone about its own centre when dragged across its row', async ({ page }) => {
+  test('resizes a zone between equal neighbours about its own centre', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Symmetrisk')
     await enterZoneMode(page)
@@ -345,6 +354,35 @@ test.describe('zone editing', () => {
     expect(await rootRatios(page)).toBe('1 : 2 : 1')
     expect(guard.errors).toEqual([])
   })
+
+  test(
+    'takes a resize from every other zone in proportion, however long the drag',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Proporsjonal')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1, 1, 1], 'x')
+
+      // The second of four equal zones grown to 40 % of the row: the other three
+      // share the rest equally, the one on its left as much as the two on its
+      // right. One long movement and many small ones are the same gesture.
+      for (const steps of [1, 40]) {
+        const before = await zoneRects(page)
+        await dragZone(page, before[1], 0, -travelFor(before, 0.6, 4, 'x'), steps)
+        const after = await zoneRects(page)
+        const row = after.reduce((sum, zone) => sum + zone.w, 0)
+        expect(after[1].w / row).toBeCloseTo(0.4, 2)
+        expect(after[0].w).toBeCloseTo(after[2].w, 0)
+        expect(after[2].w).toBeCloseTo(after[3].w, 0)
+        expect(await rootRatios(page)).toBe('1 : 2 : 1 : 1')
+
+        await page.getByTestId('undo').click()
+        expect(await rootRatios(page)).toBe('1 : 1 : 1 : 1')
+      }
+      expect(guard.errors).toEqual([])
+    },
+  )
 
   test('shrinks a zone dragged the other way across its row', async ({ page }) => {
     await createPresentation(page, 'Symmetrisk mindre')
@@ -430,19 +468,27 @@ test.describe('zone editing', () => {
     await clickZone(page, before[1])
     await expect(page.locator('.zone-actions')).toBeVisible()
 
-    // A point the toolbar covers that is not one of its buttons: the press has
+    // A point the toolbar covers that is not one of its buttons, nor a handle
+    // (the divider beside the zone, the grip along its border): the press has
     // to reach the zone underneath it.
-    const spot = await page.evaluate(() => {
-      const actions = document.querySelector('.zone-actions') as HTMLElement
-      const box = actions.getBoundingClientRect()
-      for (let y = box.top + 2; y < box.bottom - 2; y += 3) {
-        for (let x = box.left + 2; x < box.right - 2; x += 3) {
+    const spot = await page.evaluate((zoneId) => {
+      const actions = (document.querySelector('.zone-actions') as HTMLElement).getBoundingClientRect()
+      const zone = (
+        document.querySelector(`[data-testid="stage-slide"] .slide-zone[data-node-id="${zoneId}"]`) as HTMLElement
+      ).getBoundingClientRect()
+      // Only where the toolbar lies over its own zone: it can be wider.
+      const left = Math.max(actions.left, zone.left)
+      const right = Math.min(actions.right, zone.right)
+      const top = Math.max(actions.top, zone.top)
+      const bottom = Math.min(actions.bottom, zone.bottom)
+      for (let y = top + 2; y < bottom - 2; y += 3) {
+        for (let x = left + 2; x < right - 2; x += 3) {
           const element = document.elementFromPoint(x, y)
-          if (element && !element.closest('button')) return { x, y }
+          if (element && !element.closest('button, .zone-handle, .zone-edge-grip')) return { x, y }
         }
       }
       return null
-    })
+    }, before[1].id)
     expect(spot, 'the toolbar has room that is not a button').not.toBeNull()
     if (!spot) return
 
@@ -524,22 +570,33 @@ test.describe('zone editing', () => {
     expect(await rootRatios(page)).toBe('1 : 1')
   })
 
-  test('cannot move a zone the split’s own edge holds in place', async ({ page }) => {
+  test('compresses a zone the split’s own edge holds in place across the split instead', async ({ page }) => {
     await createPresentation(page, 'Ingen plass bak')
     await enterZoneMode(page)
     await splitSelected(page, [2, 3, 3], 'x')
 
     const before = await zoneRects(page)
-    // There is nothing behind a first zone to open a space, and nothing to take
-    // the space it would leave, so sideways it stands still.
-    await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
-    await dragZone(page, before[0], -travelFor(before, 1, 8, 'x'), 0)
-
-    const after = await zoneRects(page)
-    for (let index = 0; index < before.length; index += 1) {
-      expect(after[index].w).toBeCloseTo(before[index].w, 1)
-      expect(after[index].x).toBeCloseTo(before[index].x, 1)
+    const byId = async (zone: ZoneRect): Promise<ZoneRect> => {
+      const found = (await zoneRects(page)).find((rect) => rect.id === zone.id)
+      if (!found) throw new Error(`zone ${zone.id} is gone`)
+      return found
     }
+    // There is nothing behind a first zone to open a space, and nothing to take
+    // the space it would leave, so it does not slide. The same movement makes
+    // it lower instead, from both sides — across the row, the direction it
+    // fills — and right, which is bigger across a column, has nothing to give.
+    await dragZone(page, before[0], travelFor(before, 1, 8, 'x'), 0)
+    await dragZone(page, before[0], -travelFor(before, 2, 8, 'x'), 0)
+
+    // The row is as it was: every zone where it stood, the same width.
+    for (const zone of before) {
+      const after = await byId(zone)
+      expect(after.w).toBeCloseTo(zone.w, 1)
+      expect(after.x).toBeCloseTo(zone.x, 1)
+    }
+    const lowered = await byId(before[0])
+    expect(lowered.h).toBeLessThan(before[0].h - 50)
+    expect(lowered.y - before[0].y).toBeCloseTo(before[0].y + before[0].h - (lowered.y + lowered.h), 0)
     expect(await rootRatios(page)).toBe('2 : 3 : 3')
   })
 

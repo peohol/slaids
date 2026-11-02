@@ -25,7 +25,7 @@ import { touch, withSlide } from '../presentation'
 import { quantizeRatios } from '../ratios'
 import { err, ok, type Result } from '../result'
 import { appendToSandbox } from './sandbox'
-import { fitContextFor, guardFit } from './fitGuard'
+import { fitContextFor, guardAir, guardFit } from './fitGuard'
 import { contentSlide, contentTooBigForZone, geometryFor, rectForNode } from './internal'
 import { outcome, type ContentDisposition, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Axis, LayoutNode, LeafNode, NodeId, Presentation, ZoneContent } from '../types'
@@ -303,13 +303,9 @@ export function deleteLayoutNode(
     input.contentDisposition ?? 'sandbox',
     'Fjernet ved sletting av sone',
   )
-  return ok(
-    outcome(
-      touch(withSlide(disposed.presentation, { ...slide, root: removal.root })),
-      disposed.movedToSandbox,
-      disposed.discarded,
-    ),
-  )
+  const guarded = guardAir(presentation, touch(withSlide(disposed.presentation, { ...slide, root: removal.root })))
+  if (!guarded.ok) return guarded
+  return ok(outcome(guarded.value, disposed.movedToSandbox, disposed.discarded))
 }
 
 /** Replace a node (and its whole subtree) with a single empty leaf. */

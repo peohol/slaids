@@ -126,7 +126,8 @@ import { sectionGeometryForTheme, geometryForTheme, themeMetrics } from '../metr
 import { sameFitRelevantTheme, type FitContext } from '../fit'
 import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
 import { walkRichNodes } from '../richdoc'
-import { err, ok, type Result } from '../result'
+import { err, ERROR_MESSAGES_NB, ok, type Result } from '../result'
+import { airMeetings } from '../negativeSpace'
 import type { GeometryOptions } from '../geometry'
 import type {
   ContentSlide,
@@ -576,7 +577,38 @@ function belowMinimum(slide: ContentSlide, geometry: GeometryOptions): Map<NodeI
 }
 
 /**
- * Commit `after` only if it does not hide content that `before` showed.
+ * The first content slide on which `after` has more places where two pieces of
+ * air meet than `before` had, or `null`.
+ *
+ * Normalisation merges every such meeting it can without changing the
+ * content's proportions (`mergeNegativeSpace`); one left over is one the 1–10
+ * ladder cannot show with a single piece of air. A command that would make
+ * one is refused rather than stored, and a meeting stored before that rule is
+ * not held against an edit that leaves it as it was.
+ */
+export function findAirRegression(before: Presentation, after: Presentation): string | null {
+  const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
+  for (const slide of after.slides) {
+    if (slide.kind !== 'content') continue
+    const old = previous.get(slide.id)
+    if (old === slide) continue
+    const was = old?.kind === 'content' ? airMeetings(old.root) : 0
+    if (airMeetings(slide.root) > was) return slide.id
+  }
+  return null
+}
+
+/** `findAirRegression` as a command's answer. */
+export function guardAir(before: Presentation, after: Presentation): Result<Presentation> {
+  const slideId = findAirRegression(before, after)
+  return slideId === null
+    ? ok(after)
+    : err('NEGATIVE_SPACE_CANNOT_MERGE', ERROR_MESSAGES_NB.NEGATIVE_SPACE_CANNOT_MERGE, { slideId })
+}
+
+/**
+ * Commit `after` only if it does not hide content that `before` showed — nor
+ * leave two pieces of air meeting that could not be merged (`guardAir`).
  *
  * Every command that can shrink the space available to existing content ends
  * with this call, so the rule lives in one place instead of being re-derived
@@ -588,6 +620,8 @@ export function guardFit(
   options: StructuralOptions,
   message: string,
 ): Result<Presentation> {
+  const air = guardAir(before, after)
+  if (!air.ok) return air
   const regressions = findFitRegressions(before, after, options)
   if (regressions.length === 0) return ok(after)
   const worst = regressions.reduce((a, b) => (b.overflow > a.overflow ? b : a))

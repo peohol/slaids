@@ -49,6 +49,13 @@ export type DomainErrorCode =
   | 'FOLDER_NOT_FOUND'
   | 'TITLE_ALREADY_PRESENT'
   | 'TITLE_ABSENT'
+  /**
+   * Two pieces of air would meet that cannot be merged into one without
+   * changing the proportions of the content beside them: the 1–10 ladder
+   * cannot show that content with a single piece of air. See
+   * `domain/negativeSpace.ts`.
+   */
+  | 'NEGATIVE_SPACE_CANNOT_MERGE'
 
 export interface DomainError {
   code: DomainErrorCode
@@ -126,6 +133,8 @@ export const ERROR_MESSAGES_NB: Record<DomainErrorCode, string> = {
   FOLDER_NOT_FOUND: 'Fant ikke mappen.',
   TITLE_ALREADY_PRESENT: 'Sliden har allerede en overskrift.',
   TITLE_ABSENT: 'Sliden har ingen overskrift.',
+  NEGATIVE_SPACE_CANNOT_MERGE:
+    'Luften her kan ikke slås sammen med luften ved siden av uten å endre forholdet mellom sonene.',
 }
 
 export function describeError(error: DomainError): string {

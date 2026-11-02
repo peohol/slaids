@@ -144,6 +144,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   INTERACTIVE_BUDGET_EXCEEDED: 422,
   CONTENT_DOES_NOT_FIT: 422,
   ZONE_TOO_SMALL: 422,
+  NEGATIVE_SPACE_CANNOT_MERGE: 422,
   // The request named a file that exists and a rule refused it, so it belongs
   // with the rest of `422` rather than with `409`: nothing raced, and reading
   // again changes nothing. The way forward is to stop showing the file.

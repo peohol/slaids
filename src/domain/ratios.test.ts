@@ -13,6 +13,8 @@ import {
   MAX_RANKED_QUANTIZATIONS,
   areRatiosQuantized,
   equalityKeysForDrag,
+  equalityKeysForZoneResize,
+  proportionalQuantizations,
   quantizeRatios,
   rankedRatioQuantizations,
 } from './ratios'
@@ -297,5 +299,61 @@ describe('rankedRatioQuantizations', () => {
   it('never hands back more than the search is built to hold', () => {
     expect(rankedRatioQuantizations([1, 2], 1000)).toHaveLength(MAX_RANKED_QUANTIZATIONS)
     expect(rankedRatioQuantizations([1, 2], 0)).toHaveLength(1)
+  })
+})
+
+describe('proportionalQuantizations', () => {
+  /** Whether `ratios` keeps the proportions `base` has at `members`. */
+  const keeps = (ratios: readonly number[], base: readonly number[], members: readonly number[]) =>
+    members.every((index) => ratios[index] * base[members[0]] === base[index] * ratios[members[0]])
+
+  it('only offers layouts that keep every block exactly, closest first', () => {
+    const base = [1, 2, 3, 4]
+    const desired = [0.9, 2.7, 2.7, 3.6]
+    const block = [0, 2, 3]
+    const offered = proportionalQuantizations(desired, base, [block], 6)
+    expect(offered.length).toBe(6)
+    for (const ratios of offered) {
+      expect(areRatiosQuantized(ratios)).toBe(true)
+      expect(keeps(ratios, base, block)).toBe(true)
+    }
+    const losses = offered.map((ratios) => lossOf(desired, ratios))
+    expect([...losses].sort((a, b) => a - b)).toEqual(losses)
+  })
+
+  it('is the closest such layout there is, checked against every vector', () => {
+    const base = [2, 1, 3]
+    const desired = [3.1, 1.6, 4.4]
+    const blocks = [[0, 2]]
+    const [best] = proportionalQuantizations(desired, base, blocks, 1)
+    const legal = everyVector(3).filter((ratios) => keeps(ratios, base, blocks[0]))
+    const bestLoss = Math.min(...legal.map((ratios) => lossOf(desired, ratios)))
+    expect(lossOf(desired, best)).toBeCloseTo(bestLoss, 12)
+  })
+
+  it('scales two blocks independently of each other', () => {
+    const base = [1, 2, 3, 3, 1]
+    const blocks = [
+      [0, 1, 2],
+      [3, 4],
+    ]
+    for (const ratios of proportionalQuantizations([1.5, 3, 4.5, 1.5, 0.5], base, blocks, 8)) {
+      expect(keeps(ratios, base, blocks[0])).toBe(true)
+      expect(keeps(ratios, base, blocks[1])).toBe(true)
+    }
+  })
+
+  it('never offers one layout twice', () => {
+    const offered = proportionalQuantizations([1, 3, 1], [1, 1, 1], [[0, 2]], 12)
+    const reduced = new Set(
+      offered.map((ratios) => proportionsOf(ratios).map((share) => share.toFixed(12)).join(':')),
+    )
+    expect(reduced.size).toBe(offered.length)
+  })
+})
+
+describe('equalityKeysForZoneResize', () => {
+  it('keeps equal zones together on both sides of the resized one', () => {
+    expect(equalityKeysForZoneResize([2, 3, 2, 3], 1)).toEqual([2, null, 2, 3])
   })
 })

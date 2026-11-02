@@ -21,6 +21,8 @@ import { pressedButton } from '../components/pressed'
 import { Tooltip } from '../components/Tooltip'
 import { unavailable } from '../components/unavailable'
 import { ZoneBreadcrumb } from './ZoneBreadcrumb'
+import { edgeGrips, type EdgeGrip } from './spanDrag'
+import type { ZoneDragStart } from './zoneGesture'
 
 export interface ZoneActionMenuItem {
   id: string
@@ -66,9 +68,23 @@ export interface ZoneOverlayProps {
   scale: number
   actions: ZoneAction[]
   onBreadcrumb: (nodeId: NodeId) => void
-  /** Ratio handles are only shown when a split is selected or hovered. */
-  onHandleDown: (splitId: NodeId, boundaryIndex: number, event: React.PointerEvent) => void
+  /**
+   * A press on a handle: a divider between two zones, or an outer edge of the
+   * selected zone. `select` is the zone the press is about. Shift is read here,
+   * at the press, and holds for the whole drag.
+   */
+  onHandleDown: (start: ZoneDragStart, select: NodeId, event: React.PointerEvent) => void
   handleGap: number
+  /**
+   * The zones a drag in flight is acting on as one — drawn as one block — or
+   * `null` when nothing is being dragged. While a drag runs the handles are
+   * not drawn: the layout under them is the drag's, not the slide's.
+   *
+   * `rects` is where the hand has those zones. A compression shows the slide in
+   * the steps it can be stored in (`shownFor`), and the block's outline is
+   * what keeps following the pointer between them.
+   */
+  dragging?: { ids: readonly NodeId[]; rects: ReadonlyMap<NodeId, Rect> } | null
   /**
    * Whether the breadcrumb and the action buttons are drawn on the slide.
    *
@@ -93,6 +109,41 @@ export interface ZoneOverlayProps {
   purpose?: 'zones' | 'selection'
 }
 
+/** How thick an edge grip is on screen, whatever the slide's scale. */
+const EDGE_GRIP_PX = 12
+
+const EDGE_GRIP_HINT = 'Dra innover for å komprimere fra denne siden. Hold Shift for å komprimere fra begge sider.'
+
+/** The strip just inside `rect` along one of its edges. */
+function gripRect(rect: Rect, grip: EdgeGrip, thickness: number): Rect {
+  const across = Math.min(thickness, (grip.axis === 'x' ? rect.width : rect.height) / 3)
+  if (grip.axis === 'x') {
+    return {
+      x: grip.side === 'start' ? rect.x : rect.x + rect.width - across,
+      y: rect.y,
+      width: across,
+      height: rect.height,
+    }
+  }
+  return {
+    x: rect.x,
+    y: grip.side === 'start' ? rect.y : rect.y + rect.height - across,
+    width: rect.width,
+    height: across,
+  }
+}
+
+/** The smallest rect around all of `rects`, ignoring missing ones. */
+function unionOf(rects: Array<Rect | undefined>): Rect | null {
+  const present = rects.filter((rect): rect is Rect => rect !== undefined)
+  if (present.length === 0) return null
+  const left = Math.min(...present.map((rect) => rect.x))
+  const top = Math.min(...present.map((rect) => rect.y))
+  const right = Math.max(...present.map((rect) => rect.x + rect.width))
+  const bottom = Math.max(...present.map((rect) => rect.y + rect.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
 function isDescendant(root: LayoutNode, ancestorId: NodeId, nodeId: NodeId): boolean {
   const ancestor = findNode(root, ancestorId)
   if (!ancestor) return false
@@ -111,16 +162,22 @@ export function ZoneOverlay({
   handleGap,
   chrome = true,
   purpose = 'zones',
+  dragging = null,
 }: ZoneOverlayProps) {
   const selectionOnly = purpose === 'selection'
   const nodes = collectNodes(slide.root)
   const selectedRect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
+  const handles = !selectionOnly && !dragging
+  const grips =
+    handles && selectedNodeId && selectedRect ? edgeGrips(slide.root, selectedNodeId) : []
+  const activeRect = dragging ? unionOf(dragging.ids.map((id) => dragging.rects.get(id))) : null
 
   return (
     <div className="zone-overlay" data-testid="zone-overlay">
       {nodes.map((node) => {
         const rect = geometry.rects.get(node.id)
-        if (!rect) return null
+        // Air a drag is fading in or out has no room yet, and no outline.
+        if (!rect || rect.width < 1 || rect.height < 1) return null
         if (selectionOnly && node.id !== selectedNodeId) return null
         const selected = node.id === selectedNodeId
         const hovered = !selected && node.id === hoveredNodeId
@@ -146,7 +203,7 @@ export function ZoneOverlay({
 
       {/* Ratio drag handles sit exactly in the gap between siblings. */}
       {nodes.map((node) => {
-        if (selectionOnly || node.kind !== 'split') return null
+        if (!handles || node.kind !== 'split') return null
         const parentRect = geometry.rects.get(node.id)
         if (!parentRect) return null
         return (
@@ -167,7 +224,13 @@ export function ZoneOverlay({
                   data-testid="ratio-handle"
                   data-split-id={node.id}
                   data-boundary={index}
-                  onPointerDown={(event) => onHandleDown(node.id, index, event)}
+                  onPointerDown={(event) =>
+                    onHandleDown(
+                      { kind: 'boundary', splitId: node.id, boundary: index, shift: event.shiftKey },
+                      node.id,
+                      event,
+                    )
+                  }
                   onClick={(event) => event.stopPropagation()}
                 />
               )
@@ -175,6 +238,39 @@ export function ZoneOverlay({
           </Fragment>
         )
       })}
+
+      {/* The selected zone's outer edges, which compress it inwards. */}
+      {selectedRect &&
+        selectedNodeId &&
+        grips.map((grip) => (
+          <div
+            key={`grip-${grip.axis}-${grip.side}`}
+            className={`zone-edge-grip zone-edge-grip--${grip.axis} zone-edge-grip--${grip.side}`}
+            style={absoluteStyle(gripRect(selectedRect, grip, EDGE_GRIP_PX / scale))}
+            data-testid="edge-grip"
+            data-axis={grip.axis}
+            data-side={grip.side}
+            title={EDGE_GRIP_HINT}
+            onPointerDown={(event) =>
+              onHandleDown(
+                {
+                  kind: 'edge',
+                  nodeId: selectedNodeId,
+                  axis: grip.axis,
+                  side: grip.side,
+                  shift: event.shiftKey,
+                },
+                selectedNodeId,
+                event,
+              )
+            }
+            onClick={(event) => event.stopPropagation()}
+          />
+        ))}
+
+      {activeRect && (
+        <div className="zone-outline zone-outline--active" style={absoluteStyle(activeRect)} data-testid="drag-block" />
+      )}
 
       {chrome && selectedRect && selectedNodeId && (
         <div

@@ -309,6 +309,54 @@ innholdet i sandkassen først, og den tømte sonen kan så gjøres til luft.
 Å legge til innholdstypen krevde ingen migrasjon: ingen lagret dokument endrer
 form, og et lagret tomt blad er fortsatt `content: null`.
 
+### Luft holdes samlet
+
+To negative rom som møtes, er ett rom tegnet to ganger. Hver skriving av en
+innholdsslide går gjennom `withSlide`, og der slår `mergeNegativeSpace` dem
+sammen til ett. Regelen er uavhengig av hvordan luften oppsto – et drag, en
+sletting mellom to luftsoner, «gjør til negativt rom» ved siden av luft, en
+duplisering, en ny slide fra en mal eller fra agenten – fordi den sitter i
+`normalizedSlide`, som begge dørene inn i dekket bruker: `withSlide` for én
+slide og `withSlides` for en ny slideliste.
+
+Det som teller, er kanten slik den står på sliden, ikke hvor dypt i treet
+luften ligger. Luft ytterst i en split med **samme akse**, som ligger mot luft
+utenfor den, er samme rom: `[n, [n, a, n], n]` lagres som `[n, a, n]`, og det
+gjelder gjennom flere nivåer. Luft i en split som går **på tvers** dekker bare
+en del av kanten og er annen luft; den røres ikke.
+
+**Sammenslåing endrer bare luft.** Langs aksen beholder hver innholdssone sin
+andel av raden eksakt – eller, der luften må gi fra seg plass for å passe
+stigen 1–10, vokser alt innholdet i raden med én og samme faktor, så forholdet
+mellom sonene er eksakt og ingen blir mindre. Luft kan bare gis fra seg i en
+split som ingen split over seg med samme akse har; ellers ville én del av en
+rad vokse mot resten av den. Hvert møte løses med den omskrivingen som lar
+innholdet vokse minst, og hver måles mot det løftet før den tas:
+
+- **søsken:** en rekke luft side ved side blir det **første** bladet, med
+  hele rekkens vekt;
+- **løfte ut:** nøstet luft tas ut til splitten der den møter naboen, og
+  slås sammen der; gruppen den forlot beholder id og indre forhold;
+- **slå sammen grupper:** to grupper som møtes med luft blir én, den første,
+  med luften i midten: `[[a, n], [n, b], c…]` blir `[[a, n, b], c…]`. Slik får
+  også en split med 10 barn slått sammen luften – den får ett barn færre, ikke
+  ett flere;
+- **droppe den ytre:** den ytre biten utelates så den nøstede er all luften:
+  `[n, [[n, a], b]]` med `a : b = 1 : 110` blir `[[n, a], b]`, der alt
+  innholdet vokser likt.
+
+En split som ender med ett barn, erstattes av barnet. Finnes ingen omskriving
+som holder løftet, kan stigen 1–10 ikke vise det innholdet med én bit luft.
+Da står treet som det er, og en kommando som ville skapt et slikt møte avvises
+med `NEGATIVE_SPACE_CANNOT_MERGE` (sjekket i `guardFit` og ved sletting), så
+lagret dobbel luft finnes bare der den ble lagret før denne regelen. Et drag
+som ville gitt det, viser og lagrer i stedet nærmeste trinn som godtas (§11.5).
+
+Luft opprettes, gjenbrukes og fjernes ellers av sonedragene (§11.5): de legger
+den til der de komprimerer, krymper den som allerede finnes på den siden, og
+fjerner den – også luft forfatteren har laget selv – når innhold vokser inn i
+den.
+
 ---
 
 ## 7.2\. Bildekontekst, bildeplan og seriebrief
@@ -1923,7 +1971,9 @@ i rekkefølge, så samme input gir alltid samme output.
 
 Mens pekeren er nede kvantiseres ingenting. Layouten følger pekeren nøyaktig. Å
 snappe underveis ville gitt et hakkete håndtak og målt fit på tilstander
-forfatteren bare er innom.
+forfatteren bare er innom. Unntaket er drag som legger til, utvider eller
+bruker opp luft; de vises i trinnene de kan lagres i (se «Komprimering inn i
+negativt rom», «Vist i trinn»).
 
 Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
 
@@ -1934,7 +1984,7 @@ Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
 løsninger på formen `a : b : c : c : c`. Gruppene leses fra forholdstallene
 **før** gesten – aldri fra midlertidige flyttallsbredder, som aldri er nøyaktig
 like. Hvilke soner gesten frigjør fra regelen, avgjør gesten selv; se
-`equalityKeysForDrag` og `equalityKeysForZoneDrag`.
+`equalityKeysForDrag`, `equalityKeysForZoneResize` og `equalityKeysForZoneDrag`.
 
 Nærmeste trinn kan fortsatt bli avvist av minstemål eller fit-guarden. Da prøves
 de nest nærmeste i tur (`RATIO_SNAP_CANDIDATES`), og først når alle er avvist
@@ -1954,11 +2004,12 @@ og den kan derfor aldri få en gest til å mislykkes.
 
 ### De tre gestene
 
-Alle tre er rene funksjoner av forholdstallene splitten **startet** med, aldri
+Alle gestene er rene funksjoner av tilstanden splitten **startet** med, aldri
 av forrige frames tall. Det er det som gjør at et langt drag ikke akkumulerer
-avrundingsfeil, og at pekeren kan vandre og komme tilbake til nøyaktig samme
-layout. Alle tre regner i vektenheter: antall barn endres ikke under et drag, så
-gapene er konstante og vektrom og lengderom er proporsjonale.
+avrundingsfeil, at ett langt drag gir det samme som mange korte, og at pekeren
+kan vandre og komme tilbake til nøyaktig samme layout. De regner i
+designpiksler langs splitten (`zoneGesture.ts`); funksjonene i `ratioDrag.ts` er
+enhetsløse og brukes uendret på lengder.
 
 **Grensedrag** (`draggedWeights`) – et trykk i mellomrommet mellom to soner.
 Grensen følger pekeren, bare de to sonene den ligger mellom endres, og summen
@@ -1967,19 +2018,37 @@ separatoren er unntatt fra likhetsregelen over: `2 : 2 : 5` med separatoren
 mellom de to første dratt *skal* kunne ende med ulike tall, fordi det er nettopp
 det forfatteren ba om.
 
-**Symmetrisk resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
-tvers av splittens retning. Hver side sonen har, gir fra seg – eller tar tilbake
-– like stor del av endringen. En sone med naboer på begge sider flytter derfor
-begge grensene sine like langt i hver sin retning: den endrer størrelse og blir
-liggende der den lå. Sidene er sjelden like lange, så de skaleres med hver sin
-faktor – og innenfor en side beholder hver sone sin andel, slik at forholdstall
-gesten ikke handler om overlever den urørt.
+**Proporsjonal resize** (`resizedWeights`) – et trykk *inni* en sone, dratt på
+tvers av splittens retning. Alle de andre sonene i splitten betaler for
+endringen i forhold til sin egen størrelse – med én og samme faktor:
 
-En sone ytterst i splitten har bare én side, og den siden tar hele endringen.
-Der finnes ingenting å være symmetrisk om: sonens ytterkant er splittens egen og
-kan ikke flyttes. Den andre lesningen – at en slik sone ikke endrer størrelse i
-det hele tatt – gjør den vanligste layouten som finnes gestløs, siden begge
-sonene i en todeling er ytterste soner.
+```text
+x_i' = x_i · (T − b') / (T − b)
+```
+
+der `T` er splittens total, `b` sonens vekt da gesten startet og `b'` vekten nå.
+Søsknene beholder dermed nøyaktig forholdet de hadde seg imellom: `1 : 1 : 1 : 1`
+med sone 2 forstørret til 40 % gir 20 % til hver av de tre andre, og hvilken side
+av sonen en søskensone ligger på, spiller ingen rolle. Sonen selv flytter seg
+derfor bare når naboene på hver side har ulik samlet størrelse; mellom like
+naboer endrer den størrelse om sitt eget sentrum.
+
+Tidligere ga hver *side* fra seg halvparten av endringen. En sone med én nabo til
+venstre og to til høyre tok da like mye fra den ene som fra de to til sammen, og
+den ensomme naboen krympet dobbelt så fort. Et langt drag viste skjevheten; flere
+korte skjulte den, fordi hvert av dem startet på nytt fra det skjeve resultatet.
+
+Ved slipp holdes snappet til samme løfte: likhetsnøklene leses uten side
+(`equalityKeysForZoneResize`), og trinnene som bevarer søsknenes forhold
+*eksakt* (`proportionKeepingSnaps`, bygd på `proportionalQuantizations`) er de
+**eneste** som kan lagres; den vanlige stigen brukes ikke. Stigen bøyer gjerne
+forholdet for en marginalt bedre helhet: `4 : 2 : 3` med første sone forstørret
+lander der på `9 : 3 : 5`, og de to andre har gått fra `2 : 3` til `3 : 5`.
+Avvises alle de proporsjonsbevarende trinnene, avvises slippet, og splitten
+blir stående som den var. Shift + skille holdes på samme måte til hver blokks
+indre forhold, og en komprimering til blokkens. Hver geometri prøves bare én
+gang (`distinctLayouts`): `1 : 2 : 1` og `2 : 4 : 2` er samme layout, og et
+avvist forsøk ville bare blitt avvist igjen.
 
 **Forskyvning** (`translatedWeights`) – samme trykk, dratt langs splittens
 retning. Sonen beholder forholdstallet sitt; siden den beveger seg mot
@@ -1999,19 +2068,116 @@ vippet mellom modusene før den satte seg, og layouten ville hoppet med den.
 Hit-testing skiller de to trykkene uten avstandsmåling: mellomrommet er dekket
 av sitt eget håndtak, og et trykk der når aldri sonen under.
 
+### Komprimering inn i negativt rom
+
+Et drag kan også gjøre innhold mindre og gi plassen til luft. Hva et drag gjør,
+avgjøres av hvor det starter, av den første bevegelsens retning og av Shift, lest
+**én gang** ved trykket. Operasjonen ligger så fast resten av draget:
+
+| Trykk på | Langs splitten | På tvers av splitten |
+| --- | --- | --- |
+| mellomrommet mellom to soner | flytt grensen | komprimer hele blokken, begge sider |
+| … med Shift | skaler de to halvdelene | (som uten Shift) |
+| inni en sone | forskyv sonen ¹ | proporsjonal resize ² |
+| en sones ytterkant | komprimer fra den siden | |
+| … med Shift | komprimer fra begge sider | |
+
+¹ En sone ytterst i splitten har ingen steder å forskyves. Samme bevegelse
+komprimerer den i stedet *på tvers* av splitten – i retningen den fyller helt –
+symmetrisk, til `n : a : n` i en ny split med riktig retning rundt sonen. To
+soner over hverandre: et trykk inni den øverste dratt nedover gjør den smalere
+fra begge sider. Koblingen er den samme som en resize i den nye splitten bruker
+(en rad vokser oppover), så neste drag inni sonen, som nå har luft på hver side,
+fortsetter å gjøre det samme.
+² Rotsonen har verken split eller søsken. Den behandles som eneste sone i en
+rad, og begge bevegelsene komprimerer den, hver i sin retning.
+
+- **Blokken** er det som komprimeres som én: hele splitten for et skille, sonen
+  selv for en ytterkant. Ligger sonen i en split med samme retning som kanten,
+  er blokken splitten; ellers pakkes sonen inn i en ny split med riktig retning
+  på riktig nivå, så luften havner der den hører hjemme. Blokken skaleres med
+  én faktor, så `a : b : c` og nøstede grupper beholder forholdet sitt eksakt.
+- **Symmetrisk** gir `n : a : b : c : n`. Fra én side gir `n : a : b : c` eller
+  `a : b : c : n`. Shift på en ytterkant er samme regnestykke som et skille.
+- **Gjenbruk:** finnes luft allerede på en side, er det den som vokser eller
+  krymper; nye luftsoner legges bare til der det mangler. Gjentatte drag gir
+  derfor aldri `n : n : a : b : c : n : n`. Ulik luft på de to sidene endres med
+  like store beløp. Komprimeres en gruppe som selv er `n : a : n` i samme
+  retning, er luften dens egen kant: draget komprimerer innholdet i gruppen og
+  gjenbruker den luften i stedet for å legge ny utenfor. Forhåndsvisningen
+  normaliseres med samme regel som lagringen (§7.1 «Luft holdes samlet»), så
+  det aldri står to luftsoner etter hverandre mens pekeren er nede.
+- **Shift + skille** skalerer blokkene `{a, b, c} | {d, e}` mot hverandre, og hver
+  blokk beholder sine indre forhold. Uten Shift er grensedraget uendret.
+- **Vokse inn i luft:** luft blant søsknene til en sone som vokser (resize) eller
+  forskyves, skaleres med hele sitt fotavtrykk – lengden pluss gapet sitt. Ved
+  faktoren der luften er borte tar den derfor ingen plass, og innholdet står
+  nøyaktig der det vil stå etter slipp, når luften er fjernet. Innholdssøsken
+  beholder forholdet sitt eksakt.
+- **Full split:** en split med 10 barn komprimeres som alle andre. Under draget
+  kan den levende splitten ha flere barn enn en lagret kan; ved slipp flyttes
+  blokken og den nye luften ett nivå ned, i en split med samme retning
+  (`[n : [a … j] : n]`), med blokkens egne forhold uendret. En nøstet split med
+  samme retning har gapene sine nøyaktig der den flate hadde dem.
+
+**Kontinuitet.** Luft som ennå ikke finnes, starter med lengde −gap: da tar den,
+med mellomrommet sitt, null plass, og innholdet står nøyaktig der det sto. Den
+vokser derfra jevnt, og forsvinner på samme måte. `splitRect` tillater derfor
+vilkårlige endelige vekter med positiv total og klemmer hver lengde til ≥ 0;
+lagrede vekter er fortsatt heltall 1–10. Luft har ingen minstestørrelse og kan
+forsvinne helt; innhold stopper ved sitt minstemål i stedet for å bøye
+forholdene.
+
+**Slipp.** Et drag som berører luft, lagres med `rearrangeZones`: én
+domenekommando som bytter ut et undertre, men bare godtar et nytt tre der
+innholdsbladene er de samme, med samme innhold, i samme rekkefølge. Ved slipp
+vurderes for hver luftsone om den skal beholdes eller falle bort, layoutene
+rangeres etter hvor nær innholdets rects de kommer, og trinnene som bevarer
+blokkens forhold eksakt er de eneste som tilbys. To luftsoner en symmetrisk
+komprimering laget sammen, eller som var like store, beholdes eller slippes
+sammen og får samme forholdstall, så en blokk som var sentrert under draget,
+også lagres sentrert. Den første som passerer
+`guardFit`, er den som vises under draget og lagres ved slipp (se «Vist i trinn»).
+Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
+angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
+og et slipp utenfor editoren avslutter det som vanlig.
+
+**Vist i trinn.** Modellen over er kontinuerlig, men sliden viser den ikke slik:
+et drag som berører luft – legger den til, lar den vokse eller krympe, eller
+bruker den opp – viser hele tiden layouten et slipp ville lagret –
+den nærmeste godtatte av kandidatene over (`shownFor`) – og slippet endrer derfor ingenting
+på sliden. Grunnen er stigen 1–10: luft ved siden av én sone kan aldri lagres
+tynnere enn `1 : 10 : 1`, en tolvdel av splitten på hver side, så et lite drag
+kunne ellers vises som en liten komprimering og hoppe ved slipp. Sonene går
+derfor i synlige hakk, mens blokkens stiplede ramme følger pekeren kontinuerlig
+mellom dem. Soner som gesten holder på samme forholdstall (`equalityKeysForDrag`
+og søsknene), beholder det også her, men bare med soner av samme slag: luft
+skaleres med fotavtrykket og innhold med lengden. Et trinn vises bare når slippets egen kommando – `rearrangeZones`
+med de samme fit-kontrollene – godtar det; ellers vises nærmeste trinn som
+godtas, eller utgangstilstanden. Slippet lagrer nøyaktig trinnet som ble vist,
+så tekst nær fit-grensen blir aldri klippet under draget og sliden endrer seg
+aldri ved slipp. Svarene huskes for draget, siden hvert av dem er en måling. Et drag som bare fordeler plass mellom innholdssoner, følger
+fortsatt pekeren og snappes ved slipp.
+
+**Tilbakemelding.** Den valgte sonen viser håndtak på ytterkantene der en
+komprimering er mulig (ingen nabo, eller luft, på den siden), med en
+resize-markør og et hint om Shift. Under draget markeres blokken som
+manipuleres der pekeren har den, og de andre håndtakene skjules.
+
 ### Stoppbetingelser
 
 Ingen gest avvises fordi den ble dratt for langt; den stopper der geometrien
 stopper, og blir stående der. Grensen stopper ved naboens minstemål. En resize
-stopper ved den *minste* av de to sidenes kapasitet – å fortsette inn i siden som
-fortsatt har plass ville gjort operasjonen usymmetrisk halvveis og begynt å
-forskyve sonen i stedet – eller ved sonens eget minstemål når det er den som
-krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
+stopper når den første søskensonen når sitt minstemål – å fortsette inn i de
+andre ville bøyd forholdet den lovet å bevare – eller ved sonens eget minstemål
+når det er den som krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
 sine soners minstemål.
 
 En sone ytterst i splitten kan ikke forskyves: det finnes verken plass å åpne
 bak den eller noen til å ta plassen den forlater. Den kan derimot endre
-størrelse, med den ene siden sin som mottaker – se over.
+størrelse, med den ene siden sin som mottaker – se over – og samme bevegelse som
+ville forskjøvet den, komprimerer den på tvers (se «Komprimering inn i negativt
+rom»).
 
 ### Håndhevelse og bakoverkompatibilitet
 
@@ -2045,10 +2211,12 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
 
-Direkte manipulasjon av ratios finnes, i tre gester: separatoren mellom to soner
-kan dras, og et drag inni en sone endrer størrelsen på den symmetrisk (på tvers
-av splitten) eller forskyver den (langs splitten). Under dragingen er bevegelsen
-trinnløs, ved slipp snapper layouten til nærmeste lovlige forhold. Se §11.5.
+Direkte manipulasjon av ratios finnes: separatoren mellom to soner kan dras
+(langs splitten flytter den grensen, på tvers komprimerer den hele splitten inn
+i negativt rom), et drag inni en sone endrer størrelsen på den proporsjonalt (på
+tvers av splitten) eller forskyver den (langs splitten), og en sones ytterkant
+komprimerer den fra den siden. Under dragingen er bevegelsen trinnløs, ved slipp
+snapper layouten til nærmeste lovlige forhold. Se §11.5.
 
 **Omrokkering** (`reorderLayoutNode`) flytter en sone til en annen plass blant
 søsknene sine, og forholdstallet følger sonen: `A : B : C` i `1 : 2 : 1` med B

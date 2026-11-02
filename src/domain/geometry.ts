@@ -150,6 +150,17 @@ export function areWeightsValid(weights: readonly number[]): boolean {
   return Number.isFinite(sumWeights(weights))
 }
 
+/**
+ * Whether `splitRect` can measure these weights: finite, with a positive finite
+ * total. Looser than `areWeightsValid` only for the drag preview's fading air —
+ * see `splitRect`; nothing committed is ever measured by this rule alone.
+ */
+export function areMeasurableWeights(weights: readonly number[]): boolean {
+  if (weights.length === 0 || !weights.every(Number.isFinite)) return false
+  const total = sumWeights(weights)
+  return Number.isFinite(total) && total > 0
+}
+
 export function sumWeights(weights: readonly number[]): number {
   return weights.reduce((total, w) => total + w, 0)
 }
@@ -168,6 +179,15 @@ export function sumWeights(weights: readonly number[]): number {
  * escapes its parent" holds unconditionally. The commands prevent this from
  * being created in the first place — see `previewSplit` and `minimumSizeFor` —
  * and `validateSlideGeometry` reports it as a below-minimum violation.
+ *
+ * A committed layout only ever has positive weights. A zone *drag* may also
+ * hand over weights of zero or below, down to minus one gap's worth, for a piece
+ * of negative space that is fading in or out: a child that long takes no room
+ * at all — the gap it would have cost is spent by its own negative length — so
+ * air can appear beside a zone, or vanish from beside it, without the zone
+ * jumping by a gap. Such a child is drawn with zero length where it stands, and
+ * every other child is placed exactly as if it were not there. The total must
+ * still be positive: the weights describe how the usable length is shared.
  */
 export function splitRect(
   source: Rect,
@@ -175,8 +195,8 @@ export function splitRect(
   weights: readonly number[],
   gap: number,
 ): Rect[] {
-  if (!areWeightsValid(weights)) {
-    throw new Error('splitRect: weights must all be finite and greater than zero')
+  if (!areMeasurableWeights(weights)) {
+    throw new Error('splitRect: weights must be finite and sum to more than zero')
   }
   const count = weights.length
   const total = sumWeights(weights)
@@ -199,7 +219,7 @@ export function splitRect(
     const start = origin + usable * (cumulative / total) + effectiveGap * i
     cumulative += weights[i]
     const end = origin + usable * (cumulative / total) + effectiveGap * i
-    const length = end - start
+    const length = Math.max(0, end - start)
     result.push(
       axis === 'x'
         ? { x: start, y: source.y, width: length, height: source.height }

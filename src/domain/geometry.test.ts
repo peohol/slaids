@@ -143,10 +143,24 @@ describe('splitRect', () => {
     expect(a[0].height).toBeCloseTo(c[0].height, 9)
   })
 
-  it('rejects invalid weights', () => {
-    expect(() => splitRect({ x: 0, y: 0, width: 10, height: 10 }, 'x', [1, 0], G)).toThrow()
+  it('rejects weights that do not describe a share of anything', () => {
     expect(() => splitRect({ x: 0, y: 0, width: 10, height: 10 }, 'x', [1, -2], G)).toThrow()
+    expect(() => splitRect({ x: 0, y: 0, width: 10, height: 10 }, 'x', [0, 0], G)).toThrow()
     expect(() => splitRect({ x: 0, y: 0, width: 10, height: 10 }, 'x', [1, NaN], G)).toThrow()
+  })
+
+  it('lets a child of minus one gap take no room at all, as fading air does', () => {
+    // The drag preview's air: weights are lengths here, and the air's length is
+    // minus one gap, so the zone beside it starts exactly at the parent's edge.
+    const area = { x: 100, y: 0, width: 1000, height: 50 }
+    const usable = area.width - G
+    const [air, zone] = splitRect(area, 'x', [-G, usable + G], G)
+    expect(air.width).toBe(0)
+    expect(zone.x).toBeCloseTo(area.x, 9)
+    expect(zone.width).toBeCloseTo(area.width, 9)
+    // Halfway in, the air has half a gap's worth of room and no length yet.
+    const [, half] = splitRect(area, 'x', [-G / 2, usable + G / 2], G)
+    expect(half.x).toBeCloseTo(area.x + G / 2, 9)
   })
 
   it('keeps the cross axis untouched', () => {

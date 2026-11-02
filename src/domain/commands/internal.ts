@@ -8,7 +8,7 @@ import { contentKindRefusal } from '../contentSize'
 import type { GeometryOptions } from '../geometry'
 import { geometryForTheme } from '../metrics'
 import { interactiveBudgetRegression, interactiveSlidesIn } from '../interactive'
-import { asDeckSlides, findSlide, touch } from '../presentation'
+import { asDeckSlides, findSlide, normalizedSlide, touch } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
 import type { ContentSlide, NodeId, Presentation, Rect, Slide, ZoneContentKind } from '../types'
 
@@ -19,10 +19,11 @@ import type { ContentSlide, NodeId, Presentation, Rect, Slide, ZoneContentKind }
  * opens with a section is decided in one place rather than remembered by every
  * command that inserts, removes or reorders — whichever kind of slide it is
  * inserting. `asDeckSlides` is what says yes; this only turns its `null` into
- * the refusal a caller can act on.
+ * the refusal a caller can act on. Every slide in it is normalised on the way
+ * in (`normalizedSlide`), as `withSlide` does for one.
  */
 export function withSlides(presentation: Presentation, slides: readonly Slide[]): Result<Presentation> {
-  const deckSlides = asDeckSlides(slides)
+  const deckSlides = asDeckSlides(slides.map(normalizedSlide))
   if (!deckSlides) {
     return err(
       'FIRST_SLIDE_MUST_BE_SECTION',
