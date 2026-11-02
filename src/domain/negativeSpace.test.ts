@@ -13,7 +13,7 @@ import { addSlide, deleteLayoutNode, duplicateLayoutNode, setZoneContent, splitL
 import { createLeaf, createSplit, findNode, validateTree, walkNodes } from './layout'
 import { isNegativeSpace, mergeNegativeSpace } from './negativeSpace'
 import { createPresentation } from './presentation'
-import { contentAt } from './testDecks'
+import { airMeetsAir, contentAt } from './testDecks'
 import type { LayoutNode, Presentation } from './types'
 
 const air = (): LayoutNode => createLeaf(createNegativeSpace())
@@ -69,9 +69,43 @@ describe('mergeNegativeSpace', () => {
     expect(root.weights).toEqual([2, 2])
   })
 
-  it('leaves air at different levels alone', () => {
+  it('leaves air across a split that runs the other way alone: it covers only part of the edge', () => {
     const root = createSplit('x', [1, 1, 1], [air(), createSplit('y', [1, 1], [air(), text()]), text()])
     expect(mergeNegativeSpace(root)).toBe(root)
+  })
+
+  it('merges air on one edge through a split running the same way: [n, [n, a, n], n] is [n, a, n]', () => {
+    const [outerStart, innerStart, a, innerEnd, outerEnd] = [air(), air(), text(), air(), air()]
+    const inner = createSplit('x', [1, 10, 1], [innerStart, a, innerEnd])
+    const merged = mergeNegativeSpace(createSplit('x', [1, 10, 1], [outerStart, inner, outerEnd]))
+    expect(merged.kind).toBe('split')
+    if (merged.kind !== 'split') return
+    expect(shapes(merged)).toEqual(['ncn'])
+    // The content zone keeps who it is, and each run of air its first leaf, as any run does.
+    expect(merged.children.map((child) => child.id)).toEqual([outerStart.id, a.id, innerEnd.id])
+    expect(merged.weights[0]).toBe(merged.weights[2])
+    // What changes is the air: the content's share of the row is no smaller.
+    expect(merged.weights[1] / (merged.weights[0] + merged.weights[1] + merged.weights[2])).toBeGreaterThanOrEqual(
+      (10 / 12) * (10 / 12),
+    )
+    expect(validateTree(merged)).toEqual([])
+  })
+
+  it('reaches air that is nested more than one level deep, and keeps the group it leaves', () => {
+    const [n0, n1, a, b] = [air(), air(), text(), text()]
+    const group = createSplit('x', [2, 3], [createSplit('x', [1, 4], [n1, a]), b])
+    const merged = mergeNegativeSpace(createSplit('x', [1, 6], [n0, group]))
+    expect(merged.kind).toBe('split')
+    if (merged.kind !== 'split') return
+    expect(merged.children[0].id).toBe(n0.id)
+    expect(shapes(merged)).toEqual(['nc', 'cc'])
+    expect(merged.children[1].id).toBe(group.id)
+    expect(validateTree(merged)).toEqual([])
+  })
+
+  it('takes nested air out only where it meets air', () => {
+    const lone = createSplit('x', [1, 4], [createSplit('x', [1, 4, 1], [air(), text(), air()]), text()])
+    expect(mergeNegativeSpace(lone)).toBe(lone)
   })
 
   it('returns the same object when there is nothing to merge', () => {
@@ -88,15 +122,17 @@ describe('mergeNegativeSpace', () => {
     expect(share).toBeGreaterThanOrEqual(2 / 17)
   })
 
-  it('never leaves two pieces of air side by side, and keeps every tree valid', () => {
+  it('never leaves two pieces of air on one edge, and keeps every tree valid', () => {
     const random = makeRandom(1102)
     for (let run = 0; run < 300; run += 1) {
       const merged = mergeNegativeSpace(randomTree(random, 3))
       expect(validateTree(merged)).toEqual([])
       for (const shape of shapes(merged)) expect(shape).not.toContain('nn')
+      expect(airMeetsAir(merged)).toBe(false)
       expect(mergeNegativeSpace(merged)).toBe(merged)
     }
-  })
+    // Three hundred trees, most of them rewritten to whole ratios more than once.
+  }, 30_000)
 })
 
 /** A content slide whose root is split into the given leaves, filled in order. */

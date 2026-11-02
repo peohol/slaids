@@ -8,7 +8,9 @@
  */
 
 import { utf8ByteLength } from './interactive'
-import type { ContentSlide, InteractiveSlide, Presentation, SectionSlide } from './types'
+import { walkNodes } from './layout'
+import { isNegativeSpace } from './negativeSpace'
+import type { Axis, ContentSlide, InteractiveSlide, LayoutNode, Presentation, SectionSlide } from './types'
 
 /** The slide at `index`, which the caller says has zones. */
 export function contentAt(presentation: Presentation, index: number): ContentSlide {
@@ -45,4 +47,28 @@ export function htmlOfBytes(byteSize: number, glyph = 'a'): string {
   const html = `<p>${glyph.repeat(fill)}</p>`
   // Pad the remainder with ASCII inside the element so the count is exact.
   return html.replace('</p>', `${'b'.repeat(byteSize - utf8ByteLength(html))}</p>`)
+}
+
+/** Whether `node` has air along its whole `edge` along `axis`, directly or through splits that run that way. */
+function airAlong(node: LayoutNode, axis: Axis, edge: 'start' | 'end'): boolean {
+  if (isNegativeSpace(node)) return true
+  if (node.kind !== 'split' || node.axis !== axis) return false
+  return airAlong(node.children[edge === 'start' ? 0 : node.children.length - 1], axis, edge)
+}
+
+/**
+ * Whether anywhere in the tree two pieces of air meet on one edge — side by
+ * side, or through splits running the same way — which a stored layout never
+ * has (`mergeNegativeSpace`).
+ */
+export function airMeetsAir(root: LayoutNode): boolean {
+  let meets = false
+  walkNodes(root, (node) => {
+    if (node.kind !== 'split') return
+    node.children.forEach((child, index) => {
+      const next = node.children[index + 1]
+      if (next && airAlong(child, node.axis, 'end') && airAlong(next, node.axis, 'start')) meets = true
+    })
+  })
+  return meets
 }

@@ -323,6 +323,15 @@ en ny slide fra en mal eller fra agenten – fordi den sitter i `normalizedSlide
 som begge dørene inn i dekket bruker: `withSlide` for én slide og `withSlides`
 for en ny slideliste.
 
+Det som teller, er kanten slik den står på sliden, ikke hvor dypt i treet
+luften ligger. Luft ytterst i en split med **samme akse**, som ligger mot luft
+utenfor den, er samme rom: `[n, [n, a, n], n]` lagres som `[n, a, n]`, og det
+gjelder gjennom flere nivåer. Den indre luften løftes ut med sin andel av
+gruppens vekt, gruppen beholder sin id og sine indre forhold (kvantisert på
+samme måte som over), og rekken slås sammen som før. Luft i en split som går
+**på tvers** dekker bare en del av kanten og er annen luft; den røres ikke.
+Blir en split med sammenslåingen flere enn 10 barn, står den som den er.
+
 Luft opprettes, gjenbrukes og fjernes ellers av sonedragene (§11.5): de legger
 den til der de komprimerer, krymper den som allerede finnes på den siden, og
 fjerner den – også luft forfatteren har laget selv – når innhold vokser inn i
@@ -2073,7 +2082,11 @@ rad, og begge bevegelsene komprimerer den, hver i sin retning.
 - **Gjenbruk:** finnes luft allerede på en side, er det den som vokser eller
   krymper; nye luftsoner legges bare til der det mangler. Gjentatte drag gir
   derfor aldri `n : n : a : b : c : n : n`. Ulik luft på de to sidene endres med
-  like store beløp.
+  like store beløp. Komprimeres en gruppe som selv er `n : a : n` i samme
+  retning, er luften dens egen kant: draget komprimerer innholdet i gruppen og
+  gjenbruker den luften i stedet for å legge ny utenfor. Forhåndsvisningen
+  normaliseres med samme regel som lagringen (§7.1 «Luft holdes samlet»), så
+  det aldri står to luftsoner etter hverandre mens pekeren er nede.
 - **Shift + skille** skalerer blokkene `{a, b, c} | {d, e}` mot hverandre, og hver
   blokk beholder sine indre forhold. Uten Shift er grensedraget uendret.
 - **Vokse inn i luft:** luft blant søsknene til en sone som vokser (resize) eller

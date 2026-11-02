@@ -19,6 +19,7 @@ import {
   viewportToSlide,
 } from '../../domain/geometry'
 import { replaceNode } from '../../domain/layout'
+import { normalizedSlide } from '../../domain/presentation'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
   overflowRegressions,
@@ -256,8 +257,11 @@ export function EditorStage({
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
+  // A step is drawn as it will be stored: normalised the way `withSlide`
+  // normalises every edit, so air it brings to air already on that edge is
+  // drawn as the one piece it will be.
   const displaySlide: ContentSlide = preview
-    ? { ...slide, root: replaceNode(slide.root, preview.nodeId, preview.node) }
+    ? normalizedSlide({ ...slide, root: replaceNode(slide.root, preview.nodeId, preview.node) })
     : slide
 
   const geometry = computeSlideGeometry(displaySlide, geometryForTheme(theme))

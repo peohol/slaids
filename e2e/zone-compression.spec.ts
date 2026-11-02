@@ -346,6 +346,69 @@ test.describe('compressing zones into air', () => {
     },
   )
 
+  test(
+    'a group already compressed to air on both sides reuses that air when it is compressed again',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Gruppe med luft')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1], 'y')
+      const [top] = await zoneRects(page)
+      await select(page, top)
+      await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 160, 0, { shift: true })
+      expect(await leafShape(page)).toBe('ncnc')
+      const zoneOnly = (await contentRects(page)).find((rect) => rect.id === top.id)
+      if (!zoneOnly) throw new Error('the zone is gone')
+
+      // One level up: the row the zone and its air make.
+      await select(page, zoneOnly)
+      await page.keyboard.press('ArrowUp')
+      await expect(page.getByTestId('status-breadcrumb')).toHaveText('Rot › 1')
+      const pieces = async (): Promise<number> =>
+        page.evaluate(
+          () =>
+            [...document.querySelectorAll('[data-testid="stage-slide"] [data-content-kind="negative-space"]')].filter(
+              (element) => (element as HTMLElement).getBoundingClientRect().width > 1,
+            ).length,
+        )
+      expect(await pieces()).toBe(2)
+
+      for (const way of [
+        { side: 'start', sign: 1, shift: true },
+        { side: 'end', sign: -1, shift: false },
+      ] as const) {
+        const grip = centreOf(await gripBox(page, 'x', way.side))
+        await dragFrom(page, grip, way.sign * 120, 0, { shift: way.shift, release: false })
+        // Still one piece of air on each side while the pointer is down…
+        expect(await pieces(), way.side).toBe(2)
+        await page.mouse.up()
+        await page.waitForTimeout(250)
+        // …and once it is stored, with the zone narrower than before.
+        expect(await leafShape(page), way.side).toBe('ncnc')
+        expect(await pieces(), way.side).toBe(2)
+        const narrower = (await contentRects(page)).find((rect) => rect.id === top.id)
+        expect(narrower && narrower.w < zoneOnly.w - 50, way.side).toBe(true)
+
+        await page.getByTestId('undo').click()
+        expect(await leafShape(page)).toBe('ncnc')
+        const back = (await contentRects(page)).find((rect) => rect.id === top.id)
+        expect(Math.abs((back?.w ?? 0) - zoneOnly.w)).toBeLessThan(1)
+        await page.getByTestId('redo').click()
+        expect(await pieces()).toBe(2)
+        await page.getByTestId('undo').click()
+        await select(page, zoneOnly)
+        await page.keyboard.press('ArrowUp')
+        await expect(page.getByTestId('status-breadcrumb')).toHaveText('Rot › 1')
+      }
+
+      // Back the other way: the group grown into its air until it is gone.
+      await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), -400, 0, { shift: true })
+      expect(await leafShape(page)).toBe('cc')
+      expect(guard.errors).toEqual([])
+    },
+  )
+
   test('an outer edge compresses from its own side, and Shift from both', async ({ page }) => {
     await createPresentation(page, 'Ytterkant')
     await enterZoneMode(page)

@@ -15,10 +15,10 @@ import { estimateFit, estimateFitChecker } from '../../domain/fit'
 import { computeLayoutRects, computeSlideGeometry, minimumSizeFor } from '../../domain/geometry'
 import { collectLeaves, createLeaf, createSplit, findNode, replaceNode, validateTree } from '../../domain/layout'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
-import { isNegativeSpace } from '../../domain/negativeSpace'
+import { isNegativeSpace, mergeNegativeSpace } from '../../domain/negativeSpace'
 import { createPresentation, withSlide } from '../../domain/presentation'
 import { paragraphDoc } from '../../domain/richdoc'
-import { contentAt } from '../../domain/testDecks'
+import { airMeetsAir, contentAt } from '../../domain/testDecks'
 import type { LayoutNode, Presentation, Rect, SplitNode } from '../../domain/types'
 import { commitDraggedRatios } from './ratioDrag'
 import {
@@ -30,6 +30,7 @@ import {
   startZoneDrag,
   type ZoneDrag,
   type ZoneDragStart,
+  type ZoneDragView,
 } from './zoneGesture'
 
 const text = (): LayoutNode => createLeaf(createContainer())
@@ -77,6 +78,11 @@ function begin(deck: Deck, start: ZoneDragStart): ZoneDrag {
 function live(deck: Deck, drag: ZoneDrag, lengths: readonly number[]): Map<string, Rect> {
   const preview = previewFor(drag, lengths)
   return geometryOf(deck, replaceNode(rootOf(deck), preview.nodeId, preview.node))
+}
+
+/** The slide's layout as the stage draws `view`: normalised, as it will be stored. */
+function drawn(deck: Deck, view: ZoneDragView): LayoutNode {
+  return mergeNegativeSpace(replaceNode(rootOf(deck), view.nodeId, view.node))
 }
 
 /** The command a release of a drag that touched air runs, as the stage runs it. */
@@ -658,7 +664,7 @@ describe('what is stored on release is what was shown just before it', () => {
     // A movement too small to be read as a drag shows nothing and stores nothing.
     if (!lengths) return { shownRoot: rootOf(deck), after: deck }
     const view = shownFor(gesture, lengths, accepts(deck))
-    return { shownRoot: replaceNode(rootOf(deck), view.nodeId, view.node), after: release(deck, gesture, lengths) }
+    return { shownRoot: drawn(deck, view), after: release(deck, gesture, lengths) }
   }
 
   const column = (): { deck: Deck; zone: LayoutNode } => {
@@ -753,7 +759,7 @@ describe('what is stored on release is what was shown just before it', () => {
     const small = liveLengths(gesture, 10, 0)
     if (!small) throw new Error('no lengths')
     const unchanged = shownFor(gesture, small, accepts(deck))
-    expect(sameLayout(replaceNode(rootOf(deck), unchanged.nodeId, unchanged.node), rootOf(deck))).toBe(true)
+    expect(sameLayout(drawn(deck, unchanged), rootOf(deck))).toBe(true)
     // …while the live layout, which the outline follows, has moved.
     expect(live(deck, gesture, small).get(zone.id)?.x).toBeCloseTo((geometryOf(deck).get(zone.id)?.x ?? 0) + 10, 6)
   })
@@ -808,7 +814,7 @@ describe('a step is only shown where what is in it still fits', () => {
           // content off; past that point nothing new is shown.
           if (hides(deck, replaceNode(rootOf(deck), previewFor(gesture, lengths).nodeId, previewFor(gesture, lengths).node))) break
           const view = shownFor(gesture, lengths, accepts(deck))
-          const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+          const shownRoot = drawn(deck, view)
           const where = `${words} words, ${amount} px`
           expect(hides(deck, shownRoot), where).toBe(false)
           const after = release(deck, gesture, lengths)
@@ -839,7 +845,7 @@ describe('a step is only shown where what is in it still fits', () => {
       const lengths = liveLengths(gesture, amount, 0)
       if (!lengths) throw new Error('no lengths')
       const view = shownFor(gesture, lengths, accepts(deck))
-      const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+      const shownRoot = drawn(deck, view)
       expect(sameLayout(shownRoot, rootOf(deck))).toBe(amount === 0)
     }
   })
@@ -870,7 +876,7 @@ describe('resizing a zone between air shows and stores the same steps, both ways
           const where = `${sign * amount} px`
           // The air changed, so the slide shows a step it can store.
           expect(view.kind, where).toBe('arrangement')
-          const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+          const shownRoot = drawn(deck, view)
           const after = release(deck, gesture, lengths)
           expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
           const shown = geometryOf(deck, shownRoot)
@@ -887,4 +893,55 @@ describe('resizing a zone between air shows and stores the same steps, both ways
       expect(seen.size).toBe(2)
     })
   }
+})
+
+describe('compressing a group that already has air at its sides', () => {
+  /** A zone compressed once to `n : a : n` across its column, and that group. */
+  function compressedOnce(): { deck: Deck; a: LayoutNode; groupId: string } {
+    const a = text()
+    const fresh = deckWith(createSplit('y', [1, 1], [a, text()]))
+    const deck = drag(fresh, { kind: 'edge', nodeId: a.id, axis: 'x', side: 'start', shift: true }, 160, 0)
+    const root = rootOf(deck)
+    if (root.kind !== 'split' || root.children[0].kind !== 'split') throw new Error('no group')
+    return { deck, a, groupId: root.children[0].id }
+  }
+
+  for (const [label, start, sign] of [
+    ['with Shift', (id: string): ZoneDragStart => ({ kind: 'edge', nodeId: id, axis: 'x', side: 'start', shift: true }), 1],
+    ['from one side', (id: string): ZoneDragStart => ({ kind: 'edge', nodeId: id, axis: 'x', side: 'end', shift: false }), -1],
+  ] as const) {
+    it(`${label}, reuses that air on the group's own level instead of adding more beside it`, () => {
+      for (const amount of [-120, -60, 40, 80, 160]) {
+        const { deck, a, groupId } = compressedOnce()
+        const gesture = begin(deck, start(groupId))
+        const lengths = liveLengths(gesture, sign * amount, 0)
+        if (!lengths) continue
+        const view = shownFor(gesture, lengths, accepts(deck))
+        const shownRoot = drawn(deck, view)
+        const after = release(deck, gesture, lengths)
+        const where = `${sign * amount} px`
+        for (const root of [shownRoot, rootOf(after)]) {
+          expect(airMeetsAir(root), where).toBe(false)
+          expect(validateTree(root), where).toEqual([])
+        }
+        expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
+        // The zone is still in a row with air, one level down from the column.
+        const row = rootOf(after).kind === 'split' ? (rootOf(after) as SplitNode).children[0] : null
+        if (row?.kind === 'split') {
+          expect(row.children.some((child) => child.id === a.id), where).toBe(true)
+          expect(row.children.every((child) => child.kind === 'leaf'), where).toBe(true)
+        } else expect(row?.id, where).toBe(a.id)
+      }
+    })
+  }
+
+  it('normalises a stored row of air around a nested row of air on the edge both share', () => {
+    const [n1, n2, a, n3, n4] = [air(), air(), text(), air(), air()]
+    const deck = deckWith(
+      createSplit('y', [1, 1], [createSplit('x', [1, 10, 1], [n1, createSplit('x', [1, 10, 1], [n2, a, n3]), n4]), text()]),
+    )
+    expect(airMeetsAir(rootOf(deck))).toBe(false)
+    const row = (rootOf(deck) as SplitNode).children[0]
+    expect(row.kind === 'split' && shape(row)).toBe('ncn')
+  })
 })

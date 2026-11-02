@@ -58,6 +58,7 @@ import {
   blockMembers,
   compressedLengths,
   contentBlockAround,
+  ownSpan,
   previewOf,
   spanOfSplit,
   withAirBeside,
@@ -155,8 +156,8 @@ export function startZoneDrag(context: ZoneDragContext, start: ZoneDragStart): Z
     const prepared = withAirBeside(base, contentBlockAround(base, index), sides, gap)
     return { ...idle, start, operation, rect: parentRect, ...prepared, sides }
   }
-  const base = wrappedSpan(node, rect, start.axis, floorFor(start.axis))
-  const prepared = withAirBeside(base, { from: 0, to: 0 }, sides, gap)
+  const own = ownSpan(node, rect, start.axis, gap, floorFor(start.axis))
+  const prepared = withAirBeside(own.span, own.block, sides, gap)
   return { ...idle, start, operation, rect, ...prepared, sides }
 }
 

@@ -95,6 +95,36 @@ export function wrappedSpan(node: LayoutNode, rect: Rect, axis: Axis, floorOf: F
   }
 }
 
+/**
+ * The span a compression of `node` along `axis` works in when nothing beside
+ * it runs that way, and the block it compresses there.
+ *
+ * A split that runs along `axis` already has the edges the compression moves:
+ * its content, from the first zone to the last, is the block, and air it has
+ * at either end is reused — wrapping it in a new split would put new air right
+ * beside the old, two pieces on one edge. Anything else is wrapped
+ * (`wrappedSpan`).
+ */
+export function ownSpan(
+  node: LayoutNode,
+  rect: Rect,
+  axis: Axis,
+  gap: number,
+  floorOf: FloorOf,
+): { span: Span; block: Block } {
+  const content =
+    node.kind === 'split' && node.axis === axis
+      ? node.children.flatMap((child, index) => (isNegativeSpace(child) ? [] : [index]))
+      : []
+  if (node.kind !== 'split' || content.length === 0) {
+    return { span: wrappedSpan(node, rect, axis, floorOf), block: { from: 0, to: 0 } }
+  }
+  return {
+    span: spanOfSplit(node, rect, gap, floorOf),
+    block: { from: content[0], to: content[content.length - 1] },
+  }
+}
+
 /** The run of non-air children around `index` — the block it belongs to. */
 export function contentBlockAround(span: Span, index: number): Block {
   const air = span.split.children.map(isNegativeSpace)
