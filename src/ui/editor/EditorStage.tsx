@@ -54,9 +54,9 @@ import {
   commitArrangement,
   liveLengths,
   manipulatedIds,
-  previewFor,
   releaseOf,
   sameLayout,
+  shownFor,
   startZoneDrag,
   type ZoneDrag,
   type ZoneDragStart,
@@ -503,7 +503,7 @@ export function EditorStage({
       // The drag stops where the content stops fitting, rather than letting the
       // user drag into an invalid state and snapping back on release.
       if (wouldHideContent(state, lengths)) return
-      setPreview({ ...previewFor(state.drag, lengths), lengths })
+      setPreview({ ...shownFor(state.drag, lengths), lengths })
     }
 
     const up = (): void => {
@@ -744,7 +744,14 @@ export function EditorStage({
                 onBreadcrumb={selectNode}
                 onHandleDown={beginHandleDrag}
                 handleGap={tokens.gap}
-                dragging={dragRef.current && preview ? { ids: manipulatedIds(dragRef.current.drag) } : null}
+                dragging={
+                  dragRef.current && preview
+                    ? {
+                        ids: manipulatedIds(dragRef.current.drag),
+                        rects: childRects(dragRef.current.drag, preview.lengths),
+                      }
+                    : null
+                }
                 chrome={chrome}
                 purpose={mode === 'zone' ? 'zones' : 'selection'}
               />

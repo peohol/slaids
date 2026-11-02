@@ -266,6 +266,23 @@ export function previewFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId
   return { nodeId: drag.span.replacedId, node: previewOf(drag.span, lengths) }
 }
 
+/**
+ * What the slide shows while the pointer is at `lengths`.
+ *
+ * A drag that only shares out a split's room follows the hand exactly and is
+ * snapped when it is let go (`previewFor`). One that adds, grows or uses up air
+ * is shown as the layout its release would store — the nearest one
+ * `arrangementCandidates` offers — so it moves in visible steps, and letting go
+ * changes nothing on the slide. Whole ratios up to `MAX_ZONE_RATIO` cannot hold
+ * air thinner than a twelfth of a split beside one zone; a preview that drew
+ * thinner air would promise a layout the release could not keep.
+ */
+export function shownFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId: NodeId; node: LayoutNode } {
+  const release = releaseOf(drag, lengths)
+  if (release?.kind !== 'arrangement') return previewFor(drag, lengths)
+  return { nodeId: release.nodeId, node: release.candidates[0] ?? release.original }
+}
+
 /** The ids of the zones the drag is acting on as one, for drawing them as one. */
 export function manipulatedIds(drag: ZoneDrag): NodeId[] {
   const children = drag.span.split.children

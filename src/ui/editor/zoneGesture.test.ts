@@ -26,6 +26,7 @@ import {
   previewFor,
   releaseOf,
   sameLayout,
+  shownFor,
   startZoneDrag,
   type ZoneDrag,
   type ZoneDragStart,
@@ -635,6 +636,125 @@ describe('a symmetric compression is stored centred, however far it went', () =>
           expect(node.weights[0]).toBe(node.weights[node.weights.length - 1])
         }
       }
+    }
+  })
+})
+
+describe('what is stored on release is what was shown just before it', () => {
+  /** The slide as `shownFor` draws it with the pointer at `x`/`y`, and as the release stores it. */
+  function settle(deck: Deck, start: ZoneDragStart, x: number, y: number) {
+    const gesture = begin(deck, start)
+    const lengths = liveLengths(gesture, x, y)
+    // A movement too small to be read as a drag shows nothing and stores nothing.
+    if (!lengths) return { shownRoot: rootOf(deck), after: deck }
+    const view = shownFor(gesture, lengths)
+    return { shownRoot: replaceNode(rootOf(deck), view.nodeId, view.node), after: release(deck, gesture, lengths) }
+  }
+
+  const column = (): { deck: Deck; zone: LayoutNode } => {
+    const zone = text()
+    return { deck: deckWith(createSplit('y', [1, 1], [zone, text()])), zone }
+  }
+  const row = (): { deck: Deck; split: SplitNode } => {
+    const split = createSplit('x', [1, 2, 1], [text(), text(), text()])
+    return { deck: deckWith(split), split }
+  }
+  const cases: Array<{ label: string; setup: () => { deck: Deck; start: ZoneDragStart }; move: (amount: number) => [number, number] }> = [
+    {
+      label: 'one zone, symmetrically, with Shift on its edge',
+      setup: () => {
+        const { deck, zone } = column()
+        return { deck, start: { kind: 'edge', nodeId: zone.id, axis: 'x', side: 'start', shift: true } }
+      },
+      move: (amount) => [amount, 0],
+    },
+    {
+      label: 'one zone, symmetrically, from inside it',
+      setup: () => {
+        const { deck, zone } = column()
+        return { deck, start: { kind: 'zone', nodeId: zone.id } }
+      },
+      // The movement is shared between the two sides, as on a divider.
+      move: (amount) => [0, 2 * amount],
+    },
+    {
+      label: 'one zone, from one side',
+      setup: () => {
+        const { deck, zone } = column()
+        return { deck, start: { kind: 'edge', nodeId: zone.id, axis: 'x', side: 'end', shift: false } }
+      },
+      move: (amount) => [-amount, 0],
+    },
+    {
+      label: 'a row of three, from one side',
+      setup: () => {
+        const { deck, split } = row()
+        return { deck, start: { kind: 'edge', nodeId: split.children[0].id, axis: 'x', side: 'start', shift: false } }
+      },
+      move: (amount) => [amount, 0],
+    },
+    {
+      label: 'a row of three, symmetrically, from a divider',
+      setup: () => {
+        const { deck, split } = row()
+        return { deck, start: { kind: 'boundary', splitId: split.id, boundary: 0, shift: false } }
+      },
+      move: (amount) => [0, 2 * amount],
+    },
+  ]
+
+  /** Every rect on the slide is where it was shown, and the tree is the one shown. */
+  function expectStoredAsShown(deck: Deck, shownRoot: LayoutNode, after: Deck, label: string): void {
+    expect(validateTree(shownRoot), label).toEqual([])
+    const shown = geometryOf(deck, shownRoot)
+    const stored = geometryOf(after)
+    for (const [id, rect] of shown) {
+      const node = findNode(shownRoot, id)
+      if (node?.kind !== 'leaf') continue
+      expectSameRect(stored.get(id), rect)
+    }
+    expect(sameLayout(rootOf(after), shownRoot), label).toBe(true)
+  }
+
+  for (const { label, setup, move } of cases) {
+    it.each([40, 80, 120, 160])(`${label}: %i px`, (amount) => {
+      const { deck, start } = setup()
+      const { shownRoot, after } = settle(deck, start, ...move(amount))
+      expectStoredAsShown(deck, shownRoot, after, `${amount} px`)
+    })
+
+    it(`${label}: all the way, the step where air appears included`, () => {
+      let stepped = false
+      for (let amount = 1; amount <= 240; amount += 3) {
+        const { deck, start } = setup()
+        const { shownRoot, after } = settle(deck, start, ...move(amount))
+        expectStoredAsShown(deck, shownRoot, after, `${amount} px`)
+        stepped ||= !sameLayout(shownRoot, rootOf(deck))
+      }
+      expect(stepped).toBe(true)
+    })
+  }
+
+  it('shows the steps it can store, and the hand between them', () => {
+    const { deck, zone } = column()
+    const gesture = begin(deck, { kind: 'edge', nodeId: zone.id, axis: 'x', side: 'start', shift: true })
+    // A little movement asks for air thinner than a whole ratio can hold: the
+    // slide stays as it was until the first step is nearer than none.
+    const small = liveLengths(gesture, 10, 0)
+    if (!small) throw new Error('no lengths')
+    const unchanged = shownFor(gesture, small)
+    expect(sameLayout(replaceNode(rootOf(deck), unchanged.nodeId, unchanged.node), rootOf(deck))).toBe(true)
+    // …while the live layout, which the outline follows, has moved.
+    expect(live(deck, gesture, small).get(zone.id)?.x).toBeCloseTo((geometryOf(deck).get(zone.id)?.x ?? 0) + 10, 6)
+  })
+
+  it('stores what was shown when content grows back into air', () => {
+    const { deck, zone } = column()
+    const shift: ZoneDragStart = { kind: 'edge', nodeId: zone.id, axis: 'x', side: 'start', shift: true }
+    const compressed = drag(deck, shift, 160, 0)
+    for (let amount = 10; amount <= 160; amount += 10) {
+      const { shownRoot, after } = settle(compressed, shift, -amount, 0)
+      expectStoredAsShown(compressed, shownRoot, after, `${amount} px`)
     }
   })
 })

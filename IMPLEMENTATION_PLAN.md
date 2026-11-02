@@ -1942,7 +1942,9 @@ i rekkefølge, så samme input gir alltid samme output.
 
 Mens pekeren er nede kvantiseres ingenting. Layouten følger pekeren nøyaktig. Å
 snappe underveis ville gitt et hakkete håndtak og målt fit på tilstander
-forfatteren bare er innom.
+forfatteren bare er innom. Unntaket er drag som legger til, utvider eller
+bruker opp luft; de vises i trinnene de kan lagres i (se «Komprimering inn i
+negativt rom», «Vist i trinn»).
 
 Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
 
@@ -2107,10 +2109,20 @@ Et drag som ender der det startet, lagrer ingenting. Ett drag er ett
 angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter draget,
 og et slipp utenfor editoren avslutter det som vanlig.
 
+**Vist i trinn.** Modellen over er kontinuerlig, men sliden viser den ikke slik:
+et drag som berører luft, viser hele tiden layouten et slipp ville lagret –
+den nærmeste av kandidatene over (`shownFor`) – og slippet endrer derfor ingenting
+på sliden. Grunnen er stigen 1–10: luft ved siden av én sone kan aldri lagres
+tynnere enn `1 : 10 : 1`, en tolvdel av splitten på hver side, så et lite drag
+kunne ellers vises som en liten komprimering og hoppe ved slipp. Sonene går
+derfor i synlige hakk, mens blokkens stiplede ramme følger pekeren kontinuerlig
+mellom dem. Et drag som bare fordeler plass mellom innholdssoner, følger
+fortsatt pekeren og snappes ved slipp.
+
 **Tilbakemelding.** Den valgte sonen viser håndtak på ytterkantene der en
 komprimering er mulig (ingen nabo, eller luft, på den siden), med en
 resize-markør og et hint om Shift. Under draget markeres blokken som
-manipuleres, og de andre håndtakene skjules.
+manipuleres der pekeren har den, og de andre håndtakene skjules.
 
 ### Stoppbetingelser
 

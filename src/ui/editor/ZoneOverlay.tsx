@@ -79,8 +79,12 @@ export interface ZoneOverlayProps {
    * The zones a drag in flight is acting on as one — drawn as one block — or
    * `null` when nothing is being dragged. While a drag runs the handles are
    * not drawn: the layout under them is the drag's, not the slide's.
+   *
+   * `rects` is where the hand has those zones. A compression shows the slide in
+   * the steps it can be stored in (`shownFor`), and the block's outline is
+   * what keeps following the pointer between them.
    */
-  dragging?: { ids: readonly NodeId[] } | null
+  dragging?: { ids: readonly NodeId[]; rects: ReadonlyMap<NodeId, Rect> } | null
   /**
    * Whether the breadcrumb and the action buttons are drawn on the slide.
    *
@@ -166,7 +170,7 @@ export function ZoneOverlay({
   const handles = !selectionOnly && !dragging
   const grips =
     handles && selectedNodeId && selectedRect ? edgeGrips(slide.root, selectedNodeId) : []
-  const activeRect = dragging ? unionOf(dragging.ids.map((id) => geometry.rects.get(id))) : null
+  const activeRect = dragging ? unionOf(dragging.ids.map((id) => dragging.rects.get(id))) : null
 
   return (
     <div className="zone-overlay" data-testid="zone-overlay">
