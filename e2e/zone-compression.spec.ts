@@ -301,6 +301,51 @@ test.describe('compressing zones into air', () => {
     },
   )
 
+  test(
+    'a zone resized from inside between its air shows and stores the same steps, both ways',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Mellom luft')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1], 'y')
+      const [top] = await zoneRects(page)
+      await select(page, top)
+      await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 200, 0, { shift: true })
+      expect(await leafShape(page)).toBe('ncnc')
+      const byId = async (): Promise<ZoneRect> => {
+        const found = (await contentRects(page)).find((rect) => rect.id === top.id)
+        if (!found) throw new Error('the zone is gone')
+        return found
+      }
+
+      let changed = 0
+      for (const amount of [40, 80, 120, -40, -80, -120]) {
+        const start = await byId()
+        // Inside the zone, across its row: a resize, which grows or shrinks
+        // the air on both sides of it.
+        await dragFrom(page, await insideOf(page, start), 0, amount, { release: false })
+        const label = `${amount} px`
+        expect(await worstOverflow(page), label).toBeLessThanOrEqual(1)
+        const shown = await byId()
+        const shape = await leafShape(page)
+        await page.mouse.up()
+        await page.waitForTimeout(250)
+        const stored = await byId()
+        expect(await leafShape(page), label).toBe(shape)
+        expect(Math.abs(stored.x - shown.x), label).toBeLessThan(1)
+        expect(Math.abs(stored.w - shown.w), label).toBeLessThan(1)
+        if (Math.abs(stored.w - start.w) > 1) {
+          changed += 1
+          await page.getByTestId('undo').click()
+          expect(Math.abs((await byId()).w - start.w), label).toBeLessThan(1)
+        }
+      }
+      expect(changed).toBeGreaterThan(0)
+      expect(guard.errors).toEqual([])
+    },
+  )
+
   test('an outer edge compresses from its own side, and Shift from both', async ({ page }) => {
     await createPresentation(page, 'Ytterkant')
     await enterZoneMode(page)

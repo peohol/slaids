@@ -2110,13 +2110,16 @@ angresteg, som gjenoppretter både størrelser og struktur. Escape avbryter drag
 og et slipp utenfor editoren avslutter det som vanlig.
 
 **Vist i trinn.** Modellen over er kontinuerlig, men sliden viser den ikke slik:
-et drag som berører luft, viser hele tiden layouten et slipp ville lagret –
+et drag som berører luft – legger den til, lar den vokse eller krympe, eller
+bruker den opp – viser hele tiden layouten et slipp ville lagret –
 den nærmeste godtatte av kandidatene over (`shownFor`) – og slippet endrer derfor ingenting
 på sliden. Grunnen er stigen 1–10: luft ved siden av én sone kan aldri lagres
 tynnere enn `1 : 10 : 1`, en tolvdel av splitten på hver side, så et lite drag
 kunne ellers vises som en liten komprimering og hoppe ved slipp. Sonene går
 derfor i synlige hakk, mens blokkens stiplede ramme følger pekeren kontinuerlig
-mellom dem. Et trinn vises bare når slippets egen kommando – `rearrangeZones`
+mellom dem. Soner som gesten holder på samme forholdstall (`equalityKeysForDrag`
+og søsknene), beholder det også her, men bare med soner av samme slag: luft
+skaleres med fotavtrykket og innhold med lengden. Et trinn vises bare når slippets egen kommando – `rearrangeZones`
 med de samme fit-kontrollene – godtar det; ellers vises nærmeste trinn som
 godtas, eller utgangstilstanden. Slippet lagrer nøyaktig trinnet som ble vist,
 så tekst nær fit-grensen blir aldri klippet under draget og sliden endrer seg

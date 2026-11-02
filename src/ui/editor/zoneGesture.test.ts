@@ -844,3 +844,47 @@ describe('a step is only shown where what is in it still fits', () => {
     }
   })
 })
+
+describe('resizing a zone between air shows and stores the same steps, both ways', () => {
+  const wordy = (words: number): LayoutNode =>
+    createLeaf(containerWithDoc(paragraphDoc(Array.from({ length: words }, (_, at) => `ord${at % 7}`).join(' '))))
+
+  /** A stored `n : a : n` above an empty zone, with `a` holding `content`. */
+  const between = (a: LayoutNode): Deck =>
+    deckWith(createSplit('y', [1, 1], [createSplit('x', [1, 4, 1], [air(), a, air()]), text()]))
+
+  for (const [label, zone] of [
+    ['an empty zone', () => text()],
+    ['text close to filling it', () => wordy(60)],
+  ] as const) {
+    it(`${label}: the air grows or shrinks in steps, and what is shown is stored`, () => {
+      const seen = new Set<string>()
+      for (const sign of [1, -1]) {
+        for (let amount = 4; amount <= 240; amount += 4) {
+          const a = zone()
+          const deck = between(a)
+          const gesture = begin(deck, { kind: 'zone', nodeId: a.id })
+          const lengths = liveLengths(gesture, 0, sign * amount)
+          if (!lengths) continue
+          const view = shownFor(gesture, lengths, accepts(deck))
+          const where = `${sign * amount} px`
+          // The air changed, so the slide shows a step it can store.
+          expect(view.kind, where).toBe('arrangement')
+          const shownRoot = replaceNode(rootOf(deck), view.nodeId, view.node)
+          const after = release(deck, gesture, lengths)
+          expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
+          const shown = geometryOf(deck, shownRoot)
+          const stored = geometryOf(after)
+          for (const leaf of collectLeaves(shownRoot)) expectSameRect(stored.get(leaf.id), shown.get(leaf.id))
+          // Centred it was, and centred it stays: the two pieces of air keep one ratio.
+          const root = rootOf(after)
+          const wrap = root.kind === 'split' ? root.children[0] : null
+          if (wrap?.kind === 'split' && wrap.children.length === 3) expect(wrap.weights[0], where).toBe(wrap.weights[2])
+          if (view.kind === 'arrangement' && view.commit) seen.add(sign > 0 ? 'one way' : 'the other')
+        }
+      }
+      // Both directions stepped somewhere along the way.
+      expect(seen.size).toBe(2)
+    })
+  }
+})

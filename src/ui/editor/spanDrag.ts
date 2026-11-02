@@ -205,10 +205,11 @@ const SNAPS_PER_STRUCTURE = 6
 
 /**
  * How far down its own ranking a proportional snap looks for layouts that also
- * keep two mirrored pieces of air equal — which that search cannot ask for
- * directly, and the nearest of which are not always among its first few.
+ * keep zones sharing a key equal — two mirrored pieces of air, or zones the
+ * gesture keeps sharing a ratio — which that search cannot ask for directly,
+ * and the nearest of which are not always among its first few.
  */
-const MIRRORED_SEARCH = SNAPS_PER_STRUCTURE * 8
+const EQUAL_SEARCH = SNAPS_PER_STRUCTURE * 8
 
 /**
  * The committed layouts closest to the live one, best first.
@@ -226,6 +227,9 @@ const MIRRORED_SEARCH = SNAPS_PER_STRUCTURE * 8
  * snapped to the same ratio, so the block that was centred while the pointer
  * was down is centred when it is stored — even where the nearest whole ratios
  * would rather keep one and drop the other.
+ *
+ * `equalityKeys`, one per child, are the zones the gesture keeps sharing a
+ * ratio (see `equalityKeysForDrag`): they are kept equal on the snap too.
  */
 export function arrangementCandidates(
   span: Span,
@@ -234,6 +238,7 @@ export function arrangementCandidates(
   rect: Rect,
   gap: number,
   mirrored: readonly [number, number] | null = null,
+  equalityKeys: readonly (string | null)[] | null = null,
 ): LayoutNode[] {
   const children = span.split.children
   const optional = children
@@ -275,7 +280,7 @@ export function arrangementCandidates(
         ? [children[kept[0]]]
         : kept.length > MAX_SPLIT_CHILDREN
           ? withinChildLimit(span, lengths, kept, groups, gap, twins)
-          : snapped(span, lengths, kept, groups, twins)
+          : snapped(span, lengths, kept, groups, twins, equalityKeys)
     if (layouts.length === 0) continue
     structures.push({ layouts, best: Math.min(...layouts.map(error)) })
   }
@@ -290,6 +295,7 @@ function snapped(
   kept: readonly number[],
   groups: readonly (readonly number[])[],
   twins: readonly [number, number] | null,
+  equalityKeys: readonly (string | null)[] | null,
 ): SplitNode[] {
   // Air kept at no length or less is still air the author keeps: it is offered
   // its smallest ratio by asking for very little of the split.
@@ -308,12 +314,11 @@ function snapped(
   const children = kept.map((index) => span.split.children[index])
   // A block the gesture promised to keep in proportion is held to it on the
   // snap as well: the plain ladder would gladly bend it for a closer total.
-  const keys = kept.map((index) => mirrorKey(twins, index))
-  const [first, second] = twins ? twins.map((index) => kept.indexOf(index)) : [-1, -1]
+  const keys = kept.map((index) => mirrorKey(twins, index) ?? equalityKeys?.[index] ?? null)
   const layouts =
     preserved.length > 0
-      ? proportionalQuantizations(desired, base, preserved, MIRRORED_SEARCH)
-          .filter((weights) => !twins || weights[first] === weights[second])
+      ? proportionalQuantizations(desired, base, preserved, EQUAL_SEARCH)
+          .filter((weights) => sharesKeys(weights, keys))
           .slice(0, SNAPS_PER_STRUCTURE)
       : rankedRatioQuantizations(desired, SNAPS_PER_STRUCTURE, { equalityKeys: keys })
   return layouts.map((weights) => ({ ...span.split, children, weights }))
@@ -404,6 +409,17 @@ function desiredFor(lengths: readonly number[]): number[] {
 /** The closest whole ratios for `lengths`, with indices sharing a key kept equal. */
 function snappedWeights(lengths: readonly number[], equalityKeys: readonly (string | null)[]): number[] {
   return rankedRatioQuantizations(desiredFor(lengths), 1, { equalityKeys })[0]
+}
+
+/** Whether every two zones sharing a key share a ratio. */
+function sharesKeys(weights: readonly number[], keys: readonly (string | null)[]): boolean {
+  const seen = new Map<string, number>()
+  return keys.every((key, index) => {
+    if (key === null) return true
+    const value = seen.get(key)
+    if (value === undefined) seen.set(key, weights[index])
+    return value === undefined || value === weights[index]
+  })
 }
 
 /** The equality key that holds the two `twins` to one ratio. */

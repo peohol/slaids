@@ -35,6 +35,7 @@
 
 import { collectNodes, findNode, findParent, findSplit } from '../../domain/layout'
 import { isNegativeSpace } from '../../domain/negativeSpace'
+import { equalityKeysForDrag, equalityKeysForZoneDrag, equalityKeysForZoneResize } from '../../domain/ratios'
 import { splitRect } from '../../domain/geometry'
 import type { Axis, LayoutNode, NodeId, Rect } from '../../domain/types'
 import {
@@ -324,33 +325,81 @@ export type ZoneDragRelease =
   | { kind: 'arrangement'; nodeId: NodeId; original: LayoutNode; candidates: LayoutNode[] }
 
 export function releaseOf(drag: ZoneDrag, lengths: readonly number[]): ZoneDragRelease | null {
-  const { span, start } = drag
+  const { span } = drag
   const released = [...lengths]
   if (!changesAir(drag, released)) {
-    const before = span.base as number[]
-    const rules =
-      start.kind === 'boundary'
-        ? drag.operation === 'shift-boundary'
-          ? shiftedBoundarySnapRules(before, start.boundary, released)
-          : boundarySnapRules(before, start.boundary)
-        : drag.index !== null && (drag.operation === 'resize' || drag.operation === 'translate')
-          ? zoneSnapRules(before, drag.index, drag.operation, released)
-          : null
+    const rules = snapRulesFor(drag, released)
     return rules ? { kind: 'ratios', nodeId: span.split.id, released, rules } : null
   }
+  const keys = equalityKeysFor(drag)
   const original = findOriginal(span)
   return {
     kind: 'arrangement',
     nodeId: span.replacedId,
     original,
-    candidates: arrangementCandidates(span, released, preservedGroups(drag), drag.rect, drag.gap, mirroredAir(drag)),
+    candidates: arrangementCandidates(
+      span,
+      released,
+      preservedGroups(drag),
+      drag.rect,
+      drag.gap,
+      mirroredAir(drag),
+      keys && arrangementKeys(span, keys),
+    ),
   }
+}
+
+/** The snap rules `ratioDrag.ts` has for a drag that only shares out its split's room. */
+function snapRulesFor(drag: ZoneDrag, released: readonly number[]): SnapRules | null {
+  const { span, start, operation, index } = drag
+  const before = span.base as number[]
+  if (start.kind === 'boundary') {
+    return operation === 'shift-boundary'
+      ? shiftedBoundarySnapRules(before, start.boundary, released)
+      : boundarySnapRules(before, start.boundary)
+  }
+  return index !== null && (operation === 'resize' || operation === 'translate')
+    ? zoneSnapRules(before, index, operation, released)
+    : null
+}
+
+/**
+ * Which zones a drag that shares out a split's room keeps sharing a ratio —
+ * the keys its own snap rules use — or `null` for a gesture that has none: a
+ * compression, Shift on a divider (whose blocks keep their proportions
+ * instead), and a split with air the drag made.
+ */
+function equalityKeysFor(drag: ZoneDrag): (number | string | null)[] | null {
+  const { span, start, operation, index } = drag
+  if (span.base.some((ratio) => ratio === null)) return null
+  const before = span.base as number[]
+  if (start.kind === 'boundary' && operation === 'boundary') return equalityKeysForDrag(before, start.boundary)
+  if (index === null) return null
+  if (operation === 'resize') return equalityKeysForZoneResize(before, index)
+  return operation === 'translate' ? equalityKeysForZoneDrag(before, index) : null
+}
+
+/**
+ * A gesture's equality keys, for a release that changes air: zones it keeps
+ * sharing a ratio go on sharing one, but only with zones of their own kind —
+ * air is scaled by its footprint and content by its length (see `scaled`), so
+ * a piece of air and a zone that happened to be written down as the same
+ * number are no longer the same size.
+ */
+function arrangementKeys(
+  span: Span,
+  keys: readonly (number | string | null)[],
+): (string | null)[] {
+  return keys.map((key, index) =>
+    key === null ? null : `${isNegativeSpace(span.split.children[index]) ? 'n' : 'c'}:${key}`,
+  )
 }
 
 /**
  * Whether a release touches air: a compression, which always gives room to air,
- * a split made for the drag, air added to it, or air it shrank — which may be
- * gone. Anything else is a ratio change.
+ * a split made for the drag, air added to it, or air it grew or shrank — which
+ * may be gone. All of these are shown and stored in the steps a whole ratio
+ * can hold air in (`shownFor`). Anything else is a ratio change.
  */
 function changesAir(drag: ZoneDrag, lengths: readonly number[]): boolean {
   const { span } = drag
@@ -359,9 +408,14 @@ function changesAir(drag: ZoneDrag, lengths: readonly number[]): boolean {
     drag.operation === 'compress-one-side' ||
     span.replacedId !== span.split.id ||
     span.base.some((ratio) => ratio === null) ||
-    span.split.children.some((child, index) => isNegativeSpace(child) && lengths[index] < span.lengths[index])
+    span.split.children.some(
+      (child, index) => isNegativeSpace(child) && Math.abs(lengths[index] - span.lengths[index]) > AIR_UNCHANGED,
+    )
   )
 }
+
+/** How far, in design pixels, air may move by rounding alone and still be the air it was. */
+const AIR_UNCHANGED = 1e-6
 
 /**
  * The air on either side of a symmetric compression's block, when the two are
