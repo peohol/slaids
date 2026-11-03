@@ -612,7 +612,8 @@ export function EditorStage({
       const state = dragRef.current
       if (!state) return
       if (event.key === 'Shift') {
-        if (followShift(state, event.type === 'keydown')) show(state)
+        // The modifier, not the key: with both Shift keys down, letting go of one leaves Shift held.
+        if (followShift(state, event.getModifierState('Shift'))) show(state)
         return
       }
       if (event.key !== 'Escape' || event.type !== 'keydown') return
