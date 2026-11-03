@@ -280,10 +280,10 @@ test.describe('myk minstegrense', () => {
     const bigBox = await zoneLocator(page, left).boundingBox()
     expect(bigBox && smallBox && bigBox.width > smallBox.width * 1.5).toBe(true)
     expect(await contentInside(page, left)).toBe(true)
-    await caretInto(field)
-    await page.keyboard.press('Home')
-    await page.keyboard.press('Delete')
-    await expect.poll(text).toBe(before.slice(1))
+    // Enlarging puts the caret in the field itself, at the end of the text.
+    await expect(field).toBeFocused()
+    await page.keyboard.press('Backspace')
+    await expect.poll(text).toBe(`d${before.slice(1, -1)}`)
     await page.getByTestId('zone-shrunk-show-slide').click()
     await expect(page.getByTestId('zone-shrunk-enlarge')).toBeVisible()
 

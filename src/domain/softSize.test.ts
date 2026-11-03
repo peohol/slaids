@@ -5,7 +5,7 @@ import { createLeaf, createSplit } from './layout'
 import { minimumSizeFor } from './geometry'
 import { createPresentation, withSlide } from './presentation'
 import { paragraphDoc } from './richdoc'
-import { FIT_SCALE_PRECISION, MIN_FIT_SCALE, fitScale, shortestFittingLength } from './softSize'
+import { FIT_SCALE_PRECISION, MIN_FIT_SCALE, fitScale, fitScaleAsync, shortestFittingLength } from './softSize'
 import { contentAt } from './testDecks'
 import { rearrangeZones, setSplitWeights } from './commands'
 import { airMeetings } from './negativeSpace'
@@ -63,6 +63,14 @@ describe('fitScale', () => {
     let warm = 0
     fitScale(count(() => (warm += 1)), 300, 160, answer)
     expect(warm).toBeLessThan(cold)
+  })
+
+  it('answers the same when each measurement has to be waited for', async () => {
+    for (const count of [5, 300, 4000]) {
+      const fits = fitsBox(words(count))
+      const waited = await fitScaleAsync(async (w, h) => fits(w, h), 300, 160, 0.4)
+      expect(waited, `${count} words`).toBe(fitScale(fits, 300, 160, 0.4))
+    }
   })
 
   it('ends for content no scale can show', () => {

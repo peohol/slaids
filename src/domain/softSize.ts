@@ -75,22 +75,49 @@ export function fitScale(
   height: number,
   hint = 1,
 ): number {
+  const search = fitScaleSearch(width, height, hint)
+  let step = search.next()
+  while (!step.done) step = search.next(fitsIn(width / step.value, height / step.value))
+  return step.value
+}
+
+/**
+ * `fitScale` for a measurement that has to be waited for — a page in another
+ * process, as when a preview is rasterised (`render/chromium.ts`). The same
+ * search, step for step: only how each answer arrives differs.
+ */
+export async function fitScaleAsync(
+  fitsIn: (width: number, height: number) => Promise<boolean>,
+  width: number,
+  height: number,
+  hint = 1,
+): Promise<number> {
+  const search = fitScaleSearch(width, height, hint)
+  let step = search.next()
+  while (!step.done) step = search.next(await fitsIn(width / step.value, height / step.value))
+  return step.value
+}
+
+/**
+ * The search behind both: it yields each scale it wants measured, is told
+ * whether the content fits at it, and returns the answer.
+ */
+function* fitScaleSearch(width: number, height: number, hint: number): Generator<number, number, boolean> {
   if (!(width > 0) || !(height > 0)) return 1
-  const fitsAt = (scale: number): boolean => fitsIn(width / scale, height / scale)
-  if (fitsAt(1)) return 1
+  if (yield 1) return 1
 
   // A bracket: `low` fits, `high` does not. Grown outwards from the hint.
   let low: number
   let high: number
   const start = hint > 0 && hint < 1 ? Math.max(hint, MIN_FIT_SCALE) : 0.5
-  if (fitsAt(start)) {
+  if (yield start) {
     low = start
     high = 1
     // Try a hair above the hint first: the common case is that it barely moved.
     let step = 1 + FIT_SCALE_PRECISION * 4
     while (low * step < 1) {
       const probe = low * step
-      if (!fitsAt(probe)) {
+      if (!(yield probe)) {
         high = probe
         break
       }
@@ -102,7 +129,7 @@ export function fitScale(
     let step = 1 + FIT_SCALE_PRECISION * 4
     for (;;) {
       low = Math.max(MIN_FIT_SCALE, high / step)
-      if (fitsAt(low)) break
+      if (yield low) break
       if (low <= MIN_FIT_SCALE) return MIN_FIT_SCALE
       high = low
       step *= step
@@ -111,7 +138,7 @@ export function fitScale(
 
   while ((high - low) / high > FIT_SCALE_PRECISION) {
     const middle = (low + high) / 2
-    if (fitsAt(middle)) low = middle
+    if (yield middle) low = middle
     else high = middle
   }
   return low

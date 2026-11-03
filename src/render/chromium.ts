@@ -38,6 +38,10 @@ import { constants } from 'node:fs'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import serverlessChromium from '@sparticuz/chromium'
 import { SYMBOL_FALLBACK_WEB_FONT, webFontWeights } from '../domain/fonts'
+import { FIT_TOLERANCE } from '../domain/constants'
+import { fitScaleAsync } from '../domain/softSize'
+import { measureOverflowParts } from '../ui/slide/overflowParts'
+import { drawZoneFit, isZoneFitScaled } from '../ui/slide/ZoneFitBox'
 import type { RasterImage, RasterRequest, SlideRasterizer } from './rasterize'
 import { pngPixelSize } from './rasterize'
 
@@ -161,6 +165,7 @@ export function chromiumRasterizer(options: ChromiumRasterizerOptions = {}): Sli
 
       const fontsReady = await waitForFonts(page, request.fontFamilies, fontTimeoutMs)
       await settleImages(page)
+      await fitShrunkZones(page)
 
       const shot = await page.screenshot({ type: 'png', captureBeyondViewport: false })
       const bytes = new Uint8Array(shot)
@@ -257,6 +262,67 @@ async function settleImages(page: Page): Promise<void> {
   await page.evaluate(async () => {
     await Promise.all([...document.images].map((image) => image.decode().catch(() => undefined)))
   })
+}
+
+/** What the page is given to draw small zones with; see `fitShrunkZones`. */
+interface ZoneFitHelpers {
+  measure: typeof measureOverflowParts
+  draw: typeof drawZoneFit
+}
+
+/**
+ * Draw every zone a person made smaller than its text the way the app does.
+ *
+ * In the app a zone below its content's soft minimum finds its own scale once
+ * it is laid out (`ui/slide/ZoneFitBox.tsx`), and that takes running code —
+ * which a static preview document has none of. So the rasteriser does it, in
+ * the page, before the picture is taken: the same search (`fitScaleAsync` is
+ * `fitScale` with its measurements awaited), the same reading of the clipping
+ * boxes (`measureOverflowParts`) and the same drawing (`drawZoneFit`), the
+ * last two handed to the page as the functions themselves rather than copies.
+ * A zone at normal size costs one measurement and is left as it is.
+ *
+ * Only the picture changes. Whether a zone's content fits is still answered at
+ * normal size by the fit gate an agent's calls go through, so a zone drawn
+ * small reads back as not fitting however it looks here.
+ */
+export async function fitShrunkZones(page: Page): Promise<void> {
+  // The zone's size in the slide's own pixels, as the static markup drew it at
+  // normal size — not the bounding box, which a scaled page would distort.
+  const zones = await page.$$eval('.zone-fit__inner', (inners) =>
+    inners.map((inner) => ({
+      width: parseFloat((inner as HTMLElement).style.width),
+      height: parseFloat((inner as HTMLElement).style.height),
+    })),
+  )
+  if (zones.length === 0) return
+  await page.addScriptTag({
+    content: `window.__slaidsZoneFit = { measure: ${measureOverflowParts.toString()}, draw: ${drawZoneFit.toString()} }`,
+  })
+  for (const [index, zone] of zones.entries()) {
+    const at = (scale: number, scaled: boolean, tolerance: number | null) =>
+      page.evaluate(
+        (i: number, width: number, height: number, s: number, isScaled: boolean, limit: number | null) => {
+          const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
+          const inner = document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i]
+          helpers.draw(inner, width, height, s, isScaled)
+          return limit === null || Object.values(helpers.measure(inner)).every((overflow) => overflow <= limit)
+        },
+        index,
+        zone.width,
+        zone.height,
+        scale,
+        scaled,
+        tolerance,
+      )
+    const scale = await fitScaleAsync(
+      // A box `width` wide is the zone laid out for a scale of `zone.width / width`.
+      (width) => at(zone.width / width, false, FIT_TOLERANCE),
+      zone.width,
+      zone.height,
+    )
+    if (isZoneFitScaled(scale)) await at(scale, true, null)
+  }
 }
 
 async function launch(env: Record<string, string | undefined>): Promise<Browser> {

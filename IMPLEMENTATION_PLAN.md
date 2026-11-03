@@ -2777,8 +2777,11 @@ Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
   delte snapshots. Den offscreen-måleren kommandoer og agenter dømmes av,
   tegner innholdet *uten* boksen, så en forminsket sone aldri leses som en sone
   som får plass. Agentens PNG-forhåndsvisning (`src/render/`) er statisk markup
-  uten effekter, og viser derfor innholdet i normal størrelse og klippet — det
-  samme svaret fit-målingen gir agenten.
+  uten effekter; rasteriseringen kjører derfor det samme søket i siden før
+  skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts` og
+  `drawZoneFit`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
+  er bare et bilde: `inspect_slide`/`validate_slide` svarer fortsatt fra
+  normal størrelse og melder at innholdet ikke får plass.
 - I redigeringsmodusene (sone og innhold) markeres sonen med en diskret oransje
   stiplet kant og et lite varselmerke der det er plass
   (`ShrunkZoneMarker`). Markeringen tar ingen peker, ligner ikke valgmarkeringen

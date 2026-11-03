@@ -64,6 +64,32 @@ export function useAtNormalSize(): AtNormalSize {
   return useContext(NormalSizeContext) ?? direct
 }
 
+/** Whether a found scale is drawn as one, rather than being rounding. */
+export function isZoneFitScaled(scale: number): boolean {
+  return scale < SCALED
+}
+
+/**
+ * Lay the content box out for a zone of `width × height` drawn at `scale`.
+ *
+ * Self-contained on purpose — no reference outside its own parameters — so
+ * the preview rasteriser can hand this very function to the page it
+ * screenshots (`render/chromium.ts`) and the preview draws a small zone the
+ * way the app does, rather than by a copy of how the app does it.
+ */
+export function drawZoneFit(
+  element: HTMLElement,
+  width: number,
+  height: number,
+  scale: number,
+  scaled: boolean,
+): void {
+  element.style.width = `${width / scale}px`
+  element.style.height = `${height / scale}px`
+  element.style.transform = scaled ? `scale(${scale})` : ''
+  element.parentElement?.classList.toggle('zone-fit__clip--scaled', scaled)
+}
+
 export interface ZoneFitBoxProps {
   width: number
   height: number
@@ -92,29 +118,23 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   useEffect(() => () => onScaleRef.current?.(1), [])
 
   const draw = useCallback(
-    (element: HTMLElement, at: number) => {
-      element.style.width = `${width / at}px`
-      element.style.height = `${height / at}px`
-      element.style.transform = at < SCALED ? `scale(${at})` : ''
-    },
+    (element: HTMLElement, at: number) => drawZoneFit(element, width, height, at, isZoneFitScaled(at)),
     [width, height],
   )
 
   const refit = useCallback(() => {
     const element = innerRef.current
     if (!element) return
-    element.style.transform = ''
     const found = fitScale(
       (w, h) => {
-        element.style.width = `${w}px`
-        element.style.height = `${h}px`
+        drawZoneFit(element, w, h, 1, false)
         return worstOverflow(element) <= FIT_TOLERANCE
       },
       width,
       height,
       scaleRef.current,
     )
-    const next = found < SCALED ? found : 1
+    const next = isZoneFitScaled(found) ? found : 1
     draw(element, next)
     if (next !== scaleRef.current) {
       scaleRef.current = next
@@ -171,7 +191,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   const atNormalSize = useCallback<AtNormalSize>(
     (read) => {
       const element = innerRef.current
-      if (!element || scaleRef.current >= SCALED) return read()
+      if (!element || !isZoneFitScaled(scaleRef.current)) return read()
       draw(element, 1)
       try {
         return read()
@@ -182,7 +202,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     [draw],
   )
 
-  const scaled = scale < SCALED
+  const scaled = isZoneFitScaled(scale)
   return (
     <div className="zone-fit" data-fit-scale={scaled ? scale.toFixed(3) : undefined}>
       <div className={scaled ? 'zone-fit__clip zone-fit__clip--scaled' : 'zone-fit__clip'}>
