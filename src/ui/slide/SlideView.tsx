@@ -4,6 +4,10 @@
  * Every box is positioned from `computeSlideGeometry`, which is why the editor,
  * the thumbnails, presentation mode and offscreen measurement can never drift
  * apart.
+ *
+ * A zone a person made smaller than its content needs at normal size is drawn
+ * scaled down to fit (`ZoneFitBox`) — here, in presentation mode and in every
+ * thumbnail alike, since all of them draw a slide through this component.
  */
 
 import type { ReactNode } from 'react'
@@ -23,6 +27,7 @@ import type { ContentSlide, LeafNode, PresentationTheme, Rect } from '../../doma
 import { PageColorsProvider, useSectionColorsFor, useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
 import { ZoneContentView } from './ZoneContentView'
+import { ZoneFitBox } from './ZoneFitBox'
 
 /**
  * The governing section's accent, as the two custom properties a pill reads.
@@ -142,7 +147,13 @@ export function SlideView({
             data-node-id={leaf.id}
             style={absoluteStyle(rect)}
           >
-            {renderLeaf ? renderLeaf(leaf, rect) : leaf.content && <ZoneContentView content={leaf.content} />}
+            {renderLeaf
+              ? renderLeaf(leaf, rect)
+              : leaf.content && (
+                  <ZoneFitBox width={rect.width} height={rect.height}>
+                    <ZoneContentView content={leaf.content} />
+                  </ZoneFitBox>
+                )}
           </div>
         )
       })}

@@ -1041,6 +1041,43 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--chrome-accent) 30%, transparent);
 }
 
+/*
+ * A zone whose content is drawn smaller than normal (`ShrunkZoneMarker`).
+ *
+ * Orange and dashed, just inside the zone's edge, where the selection is a
+ * solid line in the accent blue on it — the two can be on the same zone and
+ * still be told apart. A thin dark halo keeps the dashes visible on a light
+ * slide and a dark one alike. Lengths are in screen pixels: `--zone-shrunk-unit`
+ * is one of them, in slide units. Nothing here takes a pointer.
+ */
+.zone-shrunk {
+  --zone-shrunk-color: #ff9a3c;
+  position: absolute;
+  /* Just outside the zone, in the gap: the text runs right up to the zone's
+     edge, and a line drawn on the edge would sit on its first letters. */
+  inset: calc(-4 * var(--zone-shrunk-unit));
+  z-index: 1;
+  pointer-events: none;
+  border: calc(2 * var(--zone-shrunk-unit)) dashed var(--zone-shrunk-color);
+  border-radius: calc(6 * var(--zone-shrunk-unit));
+}
+
+/* On the corner, clear of the zone: its nearest point is outside the text. */
+.zone-shrunk__badge {
+  position: absolute;
+  top: calc(-16 * var(--zone-shrunk-unit));
+  right: calc(-16 * var(--zone-shrunk-unit));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(20 * var(--zone-shrunk-unit));
+  height: calc(20 * var(--zone-shrunk-unit));
+  border-radius: 50%;
+  background: var(--zone-shrunk-color);
+  color: #241200;
+  box-shadow: 0 0 0 calc(1.5 * var(--zone-shrunk-unit)) rgba(0, 0, 0, 0.35);
+}
+
 .zone-actions-anchor {
   pointer-events: none;
 }
@@ -3708,4 +3745,31 @@
  */
 :root[data-compact='true'] .stage-note {
   display: none;
+}
+
+/* The inspector's words for the same mark: a warning, quietly. */
+.zone-shrunk-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--chrome-warning);
+  border-radius: var(--radius-md);
+  background: var(--chrome-warning-soft);
+  font-size: 13px;
+}
+
+.zone-shrunk-notice p {
+  margin: 0;
+}
+
+.zone-shrunk-notice .btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.zone-shrunk-notice__scale {
+  color: var(--chrome-text-dim);
 }

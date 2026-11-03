@@ -1796,7 +1796,12 @@ export function EditorView({
         caret: focus?.caret ?? null,
         onLongPressField: focusPressedField,
       }
-    : {}
+    : focus
+      ? /* A roomy workspace focuses a field only to write in text a person's
+           resize drew small (`ShrunkZoneNotice`): the same view, entered from
+           the inspector rather than by a long press. */
+        { textEditing: { only: focus.fieldId } as const, focusRect, caret: focus.caret }
+      : {}
 
   const stageNode = viewedDerivedPage ? (
     <ReadOnlySlideStage
@@ -1868,6 +1873,11 @@ export function EditorView({
       onOptimizeImage={(nodeId) =>
         setOptimizeScope({ kind: 'panel', slideId: contentSlide.id, nodeId })
       }
+      readableEditing={{
+        enlarged: focus !== null,
+        onEnlarge: focusPressedField,
+        onShowSlide: exitFocus,
+      }}
     />
   ) : null
 

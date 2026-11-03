@@ -58,6 +58,7 @@ import {
   zoneTitle,
 } from './zoneDescription'
 import { ZoneSizeControls, sizeContextsFor } from './ZoneSizeControls'
+import { ShrunkZoneNotice } from './ShrunkZoneMarker'
 import type { ZoneAction } from './ZoneOverlay'
 
 /** An action as the inspector draws it. */
@@ -82,6 +83,7 @@ export function Inspector({
   contentKinds,
   onSetContentKind,
   onOptimizeImage,
+  readableEditing,
 }: {
   slide: ContentSlide
   /**
@@ -96,6 +98,15 @@ export function Inspector({
   onSetContentKind: (kind: ZoneContentKind) => void
   /** Shrink the file behind this zone's picture; see `ImageOptimizeModal`. */
   onOptimizeImage: (nodeId: string) => void
+  /**
+   * Drawing one zone large enough to write in, and back; see
+   * `ShrunkZoneNotice`. Left out where the stage has no such view.
+   */
+  readableEditing?: {
+    enlarged: boolean
+    onEnlarge: (nodeId: string) => void
+    onShowSlide: () => void
+  }
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
@@ -456,6 +467,14 @@ export function Inspector({
       )}
 
       <InspectorSection title="Sone" testId="inspector-zone">
+        {leaf && readableEditing && (
+          <ShrunkZoneNotice
+            nodeId={leaf.id}
+            enlarged={readableEditing.enlarged}
+            onEnlarge={readableEditing.onEnlarge}
+            onShowSlide={readableEditing.onShowSlide}
+          />
+        )}
         {/* The way down the tree without aiming at the slide: a split's own
             zones, by name, one press each. The path above is the way up. */}
         {node.kind === 'split' && (

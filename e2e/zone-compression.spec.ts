@@ -489,9 +489,14 @@ test.describe('compressing zones into air', () => {
       const scaled = await contentRects(page)
       expect(scaled[0].w).toBeLessThan(before[0].w - 10)
       expect(scaled[1].w / scaled[0].w).toBeCloseTo(before[1].w / before[0].w, 1)
-      // Without it: only the two zones beside the divider change.
+      // Without it: the two zones beside the divider take the change. The
+      // others move at most by the step the drag is shown — and stored — in,
+      // which is far less than the scaling took from them.
       await page.keyboard.up('Shift')
-      await expect.poll(async () => (await contentRects(page))[0].w).toBeCloseTo(before[0].w, 0)
+      const scaledBy = before[0].w - scaled[0].w
+      await expect
+        .poll(async () => Math.abs((await contentRects(page))[0].w - before[0].w))
+        .toBeLessThan(scaledBy / 2)
       const moved = await contentRects(page)
       expect(moved[2].w).toBeLessThan(before[2].w - 30)
       await letGo(page)

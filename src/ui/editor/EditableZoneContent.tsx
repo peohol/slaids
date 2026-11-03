@@ -18,6 +18,7 @@ import { sameField } from './textTarget'
 import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
+import { useAtNormalSize } from '../slide/ZoneFitBox'
 import { EditableImagePanel } from './EditableImagePanel'
 import { RichTextEditor } from './RichTextEditor'
 
@@ -54,6 +55,7 @@ export function EditableZoneContent({
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
+  const atNormalSize = useAtNormalSize()
 
   /**
    * How much *this* region of the zone overflows, not the zone as a whole.
@@ -68,8 +70,11 @@ export function EditableZoneContent({
    */
   const measurePart = useCallback(
     (part: string) =>
-      hostRef.current ? (measureOverflowParts(hostRef.current)[part] ?? 0) : 0,
-    [],
+      // At normal size, even while the zone is drawn smaller: a zone a person
+      // shrank below what its text needs has still not been given room for
+      // more of it, and the scaled drawing would say it had.
+      atNormalSize(() => (hostRef.current ? (measureOverflowParts(hostRef.current)[part] ?? 0) : 0)),
+    [atNormalSize],
   )
 
   const renderCaption = (caption: ImageCaption) => (

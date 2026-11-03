@@ -6,16 +6,16 @@
  * the same change stated discretely: bigger, smaller, or a ratio typed in.
  *
  * They are not a second implementation of anything. Every button ends in
- * `setSplitWeights`, which is where the ratios are quantised, where the minimum
- * zone size is checked and where the fit guard refuses a change that would hide
- * content — so a zone grown by a button lands on exactly the layout a drag to
- * the same place would have committed, and is refused in exactly the cases a
- * drag is.
+ * `setSplitWeights` — by way of `setSplitWeightsByHand`, because a button is a
+ * person's own resize just as a drag is — which is where the ratios are
+ * quantised and where the hard minimum of what each zone holds is checked. Like
+ * a drag, a button may take a zone below the size its text fits in at normal
+ * type; the slide then draws the text smaller and marks the zone, and the next
+ * press the other way gives the room back.
  */
 
-import { setSplitWeights } from '../../domain/commands'
+import { setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import { breadcrumbLabels, findParent, findSplit } from '../../domain/layout'
-import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
 import type { ContentSlide, NodeId, SplitNode } from '../../domain/types'
 import { Icon } from '../components/Icon'
@@ -75,12 +75,7 @@ export function ZoneSizeControls({
 
   const apply = (weights: number[]): void => {
     runStructural('zone-weights', (presentation) =>
-      setSplitWeights(presentation, {
-        slideId: slide.id,
-        nodeId: split.id,
-        weights,
-        ...domFitCheckers,
-      }),
+      setSplitWeightsByHand(presentation, { slideId: slide.id, nodeId: split.id, weights }),
     )
   }
 
