@@ -2,9 +2,10 @@
  * Compressing zones into negative space, with the pointer.
  *
  * The arithmetic is tested in `zoneGesture.test.ts`; this is the part only a
- * browser can show: which handle a press lands on, that Shift is read at the
- * press, that the live layout follows the hand, and that one drag is one
- * undo step that brings back sizes and structure alike.
+ * browser can show: which handle a press lands on, that Shift can be pressed
+ * and let go while the pointer is down, that the live layout follows the
+ * hand, and that one drag is one undo step that brings back sizes and
+ * structure alike.
  */
 
 import type { Page } from '@playwright/test'
@@ -66,7 +67,11 @@ async function insideOf(page: Page, zone: ZoneRect): Promise<Point> {
   return slidePoint(page, zone.x + zone.w / 2, zone.y + zone.h / 2)
 }
 
-/** Press at `point`, move by design-space `dx`/`dy`, optionally holding Shift. */
+/**
+ * Press at `point`, move by design-space `dx`/`dy`, optionally holding Shift
+ * the whole way. Without `release` the pointer — and Shift — stay down, and
+ * `letGo` lets go of both.
+ */
 async function dragFrom(
   page: Page,
   { x, y }: Point,
@@ -78,12 +83,15 @@ async function dragFrom(
   if (shift) await page.keyboard.down('Shift')
   await page.mouse.move(x, y)
   await page.mouse.down()
-  if (shift) await page.keyboard.up('Shift')
   await page.mouse.move(x + dx * scale, y + dy * scale, { steps: 10 })
-  if (release) {
-    await page.mouse.up()
-    await page.waitForTimeout(250)
-  }
+  if (release) await letGo(page)
+}
+
+/** Let go of the pointer, then of Shift. */
+async function letGo(page: Page): Promise<void> {
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  await page.waitForTimeout(250)
 }
 
 async function handleBox(page: Page, index: number) {
@@ -209,8 +217,7 @@ test.describe('compressing zones into air', () => {
           await expect(stage(page).getByTestId('drag-block')).toBeVisible()
           const shown = await byId()
           const shape = await leafShape(page)
-          await page.mouse.up()
-          await page.waitForTimeout(250)
+          await letGo(page)
           const stored = await byId()
           const label = `${way.shift ? 'Shift' : way.side} ${amount} px`
           expect(await leafShape(page), label).toBe(shape)
@@ -277,8 +284,7 @@ test.describe('compressing zones into air', () => {
           expect(await worstOverflow(page), label).toBeLessThanOrEqual(1)
           const shown = await byId()
           const shape = await leafShape(page)
-          await page.mouse.up()
-          await page.waitForTimeout(250)
+          await letGo(page)
           const stored = await byId()
           expect(await leafShape(page), label).toBe(shape)
           expect(Math.abs(stored.x - shown.x), label).toBeLessThan(1)
@@ -382,8 +388,7 @@ test.describe('compressing zones into air', () => {
         await dragFrom(page, grip, way.sign * 120, 0, { shift: way.shift, release: false })
         // Still one piece of air on each side while the pointer is down…
         expect(await pieces(), way.side).toBe(2)
-        await page.mouse.up()
-        await page.waitForTimeout(250)
+        await letGo(page)
         // …and once it is stored, with the zone narrower than before.
         expect(await leafShape(page), way.side).toBe('ncnc')
         expect(await pieces(), way.side).toBe(2)
@@ -428,6 +433,77 @@ test.describe('compressing zones into air', () => {
     const [compressed] = await contentRects(page)
     expect(compressed.x - top.x).toBeCloseTo(top.x + top.w - (compressed.x + compressed.w), 0)
   })
+
+  test(
+    'Shift pressed or let go while the pointer is down switches between both sides and one',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const guard = watchForErrors(page)
+      await createPresentation(page, 'Shift underveis')
+      await enterZoneMode(page)
+      await splitSelected(page, [1, 1], 'y')
+      const [top] = await zoneRects(page)
+      const zone = async (): Promise<ZoneRect> => {
+        const found = (await contentRects(page)).find((rect) => rect.id === top.id)
+        if (!found) throw new Error('the zone is gone')
+        return found
+      }
+      /** Air left of the zone minus air right of it, on screen. */
+      const lopsided = async (): Promise<number> => {
+        const now = await zone()
+        return now.x - top.x - (top.x + top.w - (now.x + now.w))
+      }
+
+      // An edge, pressed without Shift: air on its own side only.
+      await select(page, top)
+      await dragFrom(page, centreOf(await gripBox(page, 'x', 'start')), 150, 0, { release: false })
+      expect(await leafShape(page)).toBe('ncc')
+      // Shift down, the pointer still: the same press now compresses from both sides.
+      await page.keyboard.down('Shift')
+      await expect.poll(() => leafShape(page)).toBe('ncnc')
+      expect(Math.abs(await lopsided())).toBeLessThan(1)
+      // Shift up again: back to one side, as if it had never been pressed.
+      await page.keyboard.up('Shift')
+      await expect.poll(() => leafShape(page)).toBe('ncc')
+      // And down once more before letting go: what is stored is what is shown.
+      await page.keyboard.down('Shift')
+      await expect.poll(() => leafShape(page)).toBe('ncnc')
+      const shown = await zone()
+      await letGo(page)
+      expect(await leafShape(page)).toBe('ncnc')
+      const stored = await zone()
+      expect(Math.abs(stored.x - shown.x)).toBeLessThan(1)
+      expect(Math.abs(stored.w - shown.w)).toBeLessThan(1)
+      expect(Math.abs(await lopsided())).toBeLessThan(1)
+      // One drag, one undo step, whatever Shift did on the way.
+      await page.getByTestId('undo').click()
+      expect(await leafShape(page)).toBe('cc')
+
+      // A divider, the other way round: pressed with Shift, let go of it mid-drag.
+      await page.getByTestId('undo').click()
+      await select(page, (await zoneRects(page))[0])
+      await splitSelected(page, [2, 3, 4, 3, 2], 'x')
+      const before = await contentRects(page)
+      await dragFrom(page, centreOf(await handleBox(page, 2)), -80, 0, { shift: true, release: false })
+      // Shift: the halves scale, and the left one keeps its insides.
+      const scaled = await contentRects(page)
+      expect(scaled[0].w).toBeLessThan(before[0].w - 10)
+      expect(scaled[1].w / scaled[0].w).toBeCloseTo(before[1].w / before[0].w, 1)
+      // Without it: only the two zones beside the divider change.
+      await page.keyboard.up('Shift')
+      await expect.poll(async () => (await contentRects(page))[0].w).toBeCloseTo(before[0].w, 0)
+      const moved = await contentRects(page)
+      expect(moved[2].w).toBeLessThan(before[2].w - 30)
+      await letGo(page)
+      const after = await contentRects(page)
+      // Stored as the same drag pressed without Shift would store it.
+      await page.getByTestId('undo').click()
+      await dragFrom(page, centreOf(await handleBox(page, 2)), -80, 0)
+      const plain = await contentRects(page)
+      for (const [index, rect] of after.entries()) expect(rect.w).toBeCloseTo(plain[index].w, 0)
+      expect(guard.errors).toEqual([])
+    },
+  )
 
   test('the air comes and goes while the pointer is down, and Escape leaves everything as it was', async ({
     page,

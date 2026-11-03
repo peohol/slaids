@@ -59,6 +59,8 @@ import {
   releaseOf,
   shownFor,
   startZoneDrag,
+  withShift,
+  type ZoneDragContext,
   type ZoneDrag,
   type ZoneDragStart,
   type ZoneDragView,
@@ -89,8 +91,13 @@ export interface StageMenuHit {
  */
 interface DragState {
   drag: ZoneDrag
+  /** What the drag was started from, to start it over when Shift changes (`withShift`). */
+  context: ZoneDragContext
   startX: number
   startY: number
+  /** Where the pointer is now, so a Shift pressed without moving redraws at once. */
+  pointerX: number
+  pointerY: number
   /** Where each of the drag's children sat when it started, for measuring against. */
   startRects: Map<NodeId, Rect>
   /**
@@ -393,28 +400,29 @@ export function EditorStage({
    */
   const beginDrag = (start: ZoneDragStart, event: React.PointerEvent): boolean => {
     const options = geometryForTheme(theme)
-    const drag = startZoneDrag(
-      {
-        root: displaySlide.root,
-        rects: geometry.rects,
-        gap: tokens.gap,
-        // What the child actually holds decides how small it may get — an
-        // empty zone can be dragged down to nothing, a card stops at the card.
-        // Measured under this deck's own theme, because the chrome a card
-        // spends is the chrome the tokens dictate.
-        minimumAlong: (node, axis) => {
-          const min = minimumSizeFor(node, options)
-          return axis === 'x' ? min.width : min.height
-        },
+    const context: ZoneDragContext = {
+      root: displaySlide.root,
+      rects: geometry.rects,
+      gap: tokens.gap,
+      // What the child actually holds decides how small it may get — an
+      // empty zone can be dragged down to nothing, a card stops at the card.
+      // Measured under this deck's own theme, because the chrome a card
+      // spends is the chrome the tokens dictate.
+      minimumAlong: (node, axis) => {
+        const min = minimumSizeFor(node, options)
+        return axis === 'x' ? min.width : min.height
       },
-      start,
-    )
+    }
+    const drag = startZoneDrag(context, start)
     const presentation = useEditorStore.getState().presentation
     if (!drag || !presentation) return false
     dragRef.current = {
       drag,
+      context,
       startX: event.clientX,
       startY: event.clientY,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
       startRects: childRects(drag, drag.span.lengths),
       baseline: new Map(),
       measured: new Set(),
@@ -508,15 +516,30 @@ export function EditorStage({
       return verdict
     }
 
-    const move = (event: PointerEvent): void => {
-      const state = dragRef.current
-      if (!state) return
+    /**
+     * The drag with Shift as it is now. Pressed or let go mid-drag, it turns
+     * the drag into the other kind from the same press; the rects the drag
+     * started from are the new kind's own, as its children may differ.
+     */
+    const followShift = (state: DragState, shift: boolean): boolean => {
+      const drag = withShift(state.drag, state.context, shift)
+      if (drag === state.drag) return false
+      state.drag = drag
+      state.startRects = childRects(drag, drag.span.lengths)
+      // What was shown belonged to the other kind; until this one has a frame
+      // of its own, letting go stores nothing.
+      setPreview(null)
+      return true
+    }
+
+    /** Show the drag for the pointer where it is now. */
+    const show = (state: DragState): void => {
       // A pointer distance on screen, in design-space pixels.
       const scale = renderedScale()
       const lengths = liveLengths(
         state.drag,
-        (event.clientX - state.startX) / scale,
-        (event.clientY - state.startY) / scale,
+        (state.pointerX - state.startX) / scale,
+        (state.pointerY - state.startY) / scale,
       )
       if (!lengths) return
       // A gesture the geometry cannot honour — a zone at the end of its split,
@@ -531,6 +554,17 @@ export function EditorStage({
       // user drag into an invalid state and snapping back on release.
       if (wouldHideContent(state, lengths)) return
       setPreview({ ...shownFor(state.drag, lengths, (nodeId, layout) => accepts(state, nodeId, layout)), lengths })
+    }
+
+    const move = (event: PointerEvent): void => {
+      const state = dragRef.current
+      if (!state) return
+      state.pointerX = event.clientX
+      state.pointerY = event.clientY
+      // Read on every move as well as from the keys, so a Shift changed while
+      // the window had no key focus is still the one that counts.
+      followShift(state, event.shiftKey)
+      show(state)
     }
 
     const up = (): void => {
@@ -573,9 +607,15 @@ export function EditorStage({
       }
     }
 
-    /** Escape lets go of the drag and leaves the slide as it was. */
+    /** Escape lets go of the drag and leaves the slide as it was; Shift switches its kind. */
     const key = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || !dragRef.current) return
+      const state = dragRef.current
+      if (!state) return
+      if (event.key === 'Shift') {
+        if (followShift(state, event.type === 'keydown')) show(state)
+        return
+      }
+      if (event.key !== 'Escape' || event.type !== 'keydown') return
       event.preventDefault()
       event.stopPropagation()
       draggedRef.current = true
@@ -590,12 +630,14 @@ export function EditorStage({
     window.addEventListener('pointercancel', cancel)
     window.addEventListener('blur', cancel)
     window.addEventListener('keydown', key, true)
+    window.addEventListener('keyup', key, true)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
       window.removeEventListener('keydown', key, true)
+      window.removeEventListener('keyup', key, true)
     }
   }, [cancelDrag, fitContext, preview, renderedScale, runStructural, slide.id])
 

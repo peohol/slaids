@@ -28,6 +28,8 @@ import {
   sameLayout,
   shownFor,
   startZoneDrag,
+  withShift,
+  type ZoneDragContext,
   type ZoneDrag,
   type ZoneDragStart,
   type ZoneDragView,
@@ -56,20 +58,22 @@ function geometryOf(deck: Deck, root: LayoutNode = rootOf(deck)): Map<string, Re
 
 const gapOf = (deck: Deck): number => themeMetrics(deck.presentation.theme).gap
 
-function begin(deck: Deck, start: ZoneDragStart): ZoneDrag {
+/** What the stage starts a drag from, for `deck`. */
+function contextOf(deck: Deck): ZoneDragContext {
   const options = geometryForTheme(deck.presentation.theme)
-  const drag = startZoneDrag(
-    {
-      root: rootOf(deck),
-      rects: geometryOf(deck),
-      gap: gapOf(deck),
-      minimumAlong: (node, axis) => {
-        const min = minimumSizeFor(node, options)
-        return axis === 'x' ? min.width : min.height
-      },
+  return {
+    root: rootOf(deck),
+    rects: geometryOf(deck),
+    gap: gapOf(deck),
+    minimumAlong: (node, axis) => {
+      const min = minimumSizeFor(node, options)
+      return axis === 'x' ? min.width : min.height
     },
-    start,
-  )
+  }
+}
+
+function begin(deck: Deck, start: ZoneDragStart): ZoneDrag {
+  const drag = startZoneDrag(contextOf(deck), start)
   if (!drag) throw new Error('the drag did not start')
   return drag
 }
@@ -997,4 +1001,75 @@ describe('drags in the layouts the merge has to rewrite to keep content exact', 
       expect(dragged).toBeGreaterThan(0)
     }, 30_000)
   }
+})
+
+describe('Shift pressed or let go while the pointer is down', () => {
+  /** A row of three zones, and the middle one's split. */
+  const row = (): { deck: Deck; split: SplitNode; middle: LayoutNode } => {
+    const middle = text()
+    const deck = deckWith(createSplit('y', [1, 1], [createSplit('x', [1, 1, 1], [text(), middle, text()]), text()]))
+    return { deck, split: splitAt(rootOf(deck), (rootOf(deck) as SplitNode).children[0].id), middle }
+  }
+
+  /** Where every content zone is drawn when `drag` is at `x`, `y` — new air gets new ids, so content is compared. */
+  const contentAt = (deck: Deck, drag: ZoneDrag, x: number, y: number): Map<string, Rect> => {
+    const lengths = liveLengths(drag, x, y)
+    if (!lengths) throw new Error('the movement meant nothing')
+    const root = drawn(deck, shownFor(drag, lengths, accepts(deck)))
+    const rects = geometryOf(deck, root)
+    return new Map(collectLeaves(root).filter((leaf) => !isNegativeSpace(leaf)).map((leaf) => [leaf.id, rects.get(leaf.id)!]))
+  }
+  const expectSameContent = (a: Map<string, Rect>, b: Map<string, Rect>, where: string): void => {
+    expect([...a.keys()].sort(), where).toEqual([...b.keys()].sort())
+    for (const [id, rect] of a) expectSameRect(rect, b.get(id))
+  }
+
+  it('turns an edge drag into the other kind from the same press, both ways and back', () => {
+    const top = text()
+    const deck = deckWith(createSplit('y', [1, 1], [top, text()]))
+    const edge = (shift: boolean): ZoneDragStart => ({ kind: 'edge', nodeId: top.id, axis: 'x', side: 'start', shift })
+    for (const [from, to] of [
+      [false, true],
+      [true, false],
+    ]) {
+      for (const amount of [40, 120, 200]) {
+        const where = `${from ? 'Shift' : 'one side'} → ${to ? 'Shift' : 'one side'}, ${amount} px`
+        const switched = withShift(begin(deck, edge(from)), contextOf(deck), to)
+        expectSameContent(contentAt(deck, switched, amount, 0), contentAt(deck, begin(deck, edge(to)), amount, 0), where)
+        // And let go again: as if the key had never been touched.
+        const back = withShift(switched, contextOf(deck), from)
+        expectSameContent(contentAt(deck, back, amount, 0), contentAt(deck, begin(deck, edge(from)), amount, 0), where)
+      }
+    }
+    // The two kinds are not the same drag: one side moves, or both do.
+    const [one, both] = [false, true].map((shift) => contentAt(deck, begin(deck, edge(shift)), 200, 0))
+    expect(one.get(top.id)?.width).not.toBeCloseTo(both.get(top.id)?.width ?? 0, 0)
+  })
+
+  it('switches a divider between moving the boundary and scaling the two halves', () => {
+    const { deck, split } = row()
+    for (const [from, to] of [
+      [false, true],
+      [true, false],
+    ]) {
+      const press = (shift: boolean): ZoneDragStart => ({ kind: 'boundary', splitId: split.id, boundary: 1, shift })
+      const drag = begin(deck, press(from))
+      // The first movement decides that it is a drag along the split…
+      expect(liveLengths(drag, -30, 0)).not.toBeNull()
+      // …and Shift decides which one, from then on.
+      const switched = withShift(drag, contextOf(deck), to)
+      const fresh = begin(deck, press(to))
+      expect(liveLengths(fresh, -30, 0)).not.toBeNull()
+      expect(switched.operation).toBe(fresh.operation)
+      expect(liveLengths(switched, -80, 0)).toEqual(liveLengths(fresh, -80, 0))
+    }
+  })
+
+  it('means nothing inside a zone, and nothing when it does not change', () => {
+    const { deck, split, middle } = row()
+    const inside = begin(deck, { kind: 'zone', nodeId: middle.id })
+    expect(withShift(inside, contextOf(deck), true)).toBe(inside)
+    const divider = begin(deck, { kind: 'boundary', splitId: split.id, boundary: 0, shift: false })
+    expect(withShift(divider, contextOf(deck), false)).toBe(divider)
+  })
 })
