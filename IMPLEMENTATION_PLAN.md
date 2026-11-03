@@ -2071,8 +2071,13 @@ av sitt eget håndtak, og et trykk der når aldri sonen under.
 ### Komprimering inn i negativt rom
 
 Et drag kan også gjøre innhold mindre og gi plassen til luft. Hva et drag gjør,
-avgjøres av hvor det starter, av den første bevegelsens retning og av Shift, lest
-**én gang** ved trykket. Operasjonen ligger så fast resten av draget:
+avgjøres av hvor det starter og av den første bevegelsens retning; det ligger så
+fast resten av draget. Shift velger mellom de to variantene i tabellen og kan
+trykkes eller slippes **mens pekeren er nede**: draget blir da den andre
+varianten fra samme trykk, som om Shift hadde vært slik hele tiden, og det som
+vises er den variantens trinn (`withShift`). Slipp lagrer varianten som gjaldt
+da. Inni en sone og ved et drag på tvers av et skille betyr Shift ingenting.
+Det hele er fortsatt ett drag og ett angresteg:
 
 | Trykk på | Langs splitten | På tvers av splitten |
 | --- | --- | --- |

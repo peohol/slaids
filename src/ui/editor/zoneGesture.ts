@@ -161,6 +161,25 @@ export function startZoneDrag(context: ZoneDragContext, start: ZoneDragStart): Z
   return { ...idle, start, operation, rect, ...prepared, sides }
 }
 
+/**
+ * The drag as it would be had Shift been `shift` from the press — so Shift
+ * can be pressed or let go while the pointer is down, and the movement so far
+ * counts as the other kind from where it started.
+ *
+ * An outer edge compresses from both sides with Shift and from its own
+ * without, which prepares air on different sides, so the drag is started over
+ * from the same press. A divider dragged along its split scales the two
+ * halves with Shift and moves the boundary without; across it, and inside a
+ * zone, Shift means nothing.
+ */
+export function withShift(drag: ZoneDrag, context: ZoneDragContext, shift: boolean): ZoneDrag {
+  const { start } = drag
+  if (start.kind === 'zone' || start.shift === shift) return drag
+  if (start.kind === 'edge') return startZoneDrag(context, { ...start, shift }) ?? drag
+  const along = drag.operation === 'boundary' || drag.operation === 'shift-boundary'
+  return { ...drag, start: { ...start, shift }, operation: along ? (shift ? 'shift-boundary' : 'boundary') : drag.operation }
+}
+
 function otherAxis(axis: Axis): Axis {
   return axis === 'x' ? 'y' : 'x'
 }
