@@ -17,6 +17,7 @@ import {
   createPresentation,
   drawnSmaller,
   enterContentMode,
+  enterSubmenu,
   enterZoneMode,
   splitSelected,
   stage,
@@ -285,14 +286,18 @@ test.describe('myk minstegrense', () => {
     await expect(page.getByTestId('toast')).toHaveCount(0)
 
     // Undone, the text is back at its normal size, unmarked; redone, small again.
-    // One step at a time, each waited for: a press sent before the last one
-    // has landed would undo past the typing, into the zone's creation.
+    // One step at a time, each given time to land: a press sent before the
+    // last one has would undo past the typing, into the zone's creation. Not
+    // every step changes the text, so a step that leaves it is let be.
     const stepUntil = async (button: 'undo' | 'redo', target: string): Promise<void> => {
       for (let i = 0; i < 10; i += 1) {
         const now = await text()
         if (now === target) return
         await page.getByTestId(button).click()
-        await expect.poll(text).not.toBe(now)
+        await expect
+          .poll(text, { timeout: 2_000 })
+          .not.toBe(now)
+          .catch(() => undefined)
       }
     }
     await stepUntil('undo', before)
@@ -310,6 +315,51 @@ test.describe('myk minstegrense', () => {
     await expect.poll(text).toBe(full)
     await expect.poll(() => fitScale(page, left)).toBeCloseTo(savedScale, 2)
     expect(await contentInside(page, left)).toBe(true)
+    expect(errors).toEqual([])
+  })
+
+  test('lar forholdsmenyen gjøre en forminsket sone smalere igjen, slik den var', async ({ page }) => {
+    // The case as it was found: three zones at 1 : 1 : 1, the middle one
+    // written past what fits and drawn smaller. The menu gives it room at
+    // 1 : 2 : 1, and must give that room back at 1 : 1 : 1 — the ratio the
+    // text was in a moment ago.
+    const { errors } = watchForErrors(page)
+    await createPresentation(page, 'Forholdsmeny')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1, 1], 'x')
+    const middle = (await zoneRects(page))[1]
+    await enterContentMode(page)
+    await addContentToZone(page, middle.id, 'container')
+    const field = zoneLocator(page, middle.id).locator('.tiptap').first()
+    await caretInto(field)
+    await page.keyboard.insertText(TEXT.repeat(3))
+    await expect.poll(() => fitScale(page, middle.id)).toBeLessThan(1)
+    const narrowScale = await fitScale(page, middle.id)
+    await enterZoneMode(page)
+
+    const chooseRatio = async (weights: string): Promise<void> => {
+      await rootRatios(page)
+      await page.getByTestId('inspector-action-more').click()
+      await page.getByTestId('menu-ratios').focus()
+      await enterSubmenu(page, 'ratios')
+      const option = page.getByTestId(`menu-ratio-${weights}`)
+      await expect(option).not.toHaveAttribute('data-disabled', '')
+      await option.focus()
+      await page.keyboard.press('Enter')
+      await expect(page.getByTestId('context-menu')).toHaveCount(0)
+    }
+
+    await chooseRatio('1-2-1')
+    await expect.poll(() => rootRatios(page)).toContain('1 : 2 : 1')
+    await expect.poll(() => fitScale(page, middle.id)).toBeGreaterThan(narrowScale)
+
+    await chooseRatio('1-1-1')
+    await expect.poll(() => rootRatios(page)).toContain('1 : 1 : 1')
+    await expect.poll(() => fitScale(page, middle.id)).toBeLessThan(1)
+    // Found again from where the search last stopped, so to within its precision.
+    expect(Math.abs((await fitScale(page, middle.id)) - narrowScale)).toBeLessThan(0.02)
+    expect(await contentInside(page, middle.id)).toBe(true)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
     expect(errors).toEqual([])
   })
 

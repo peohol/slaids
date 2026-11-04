@@ -302,8 +302,13 @@ En sone med innhold har to grenser, og de betyr forskjellige ting
 
 Bare en person kan lagre en sone under den myke grensen, på to måter: ved å
 gjøre sonen mindre, eller ved å skrive eller lime inn mer tekst i den enn det er
-plass til (§17, «Skriving i en sone»). Størrelsesendringen har én inngang:
-`src/domain/commands/manualLayout.ts`
+plass til (§17, «Skriving i en sone»). Størrelsesendringen gjelder alle måter
+en person endrer forholdene i en deling på: dra, størrelsesknappene i
+inspektøren, forholdene og «Fordel likt» i sonemenyen, og forholdstallene i
+«Rediger deling» når retning og antall soner er uendret (ny retning eller nytt
+antall er en ny struktur og holdes til fit-regelen). Ellers kunne en sone som
+allerede er forminsket, få mer plass, men aldri gi den tilbake. Den har én
+inngang: `src/domain/commands/manualLayout.ts`
 (`setSplitWeightsByHand`, `rearrangeZonesByHand`). Den kaller de samme
 kommandoene som alle andre, men uten fit-målerne — slik at fit-regresjon ikke
 vurderes, mens hard minstegrense, kvantisering, strukturregler og luftregelen

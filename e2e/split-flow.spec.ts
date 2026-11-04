@@ -199,14 +199,18 @@ test.describe('split dialog flow', () => {
     await expect(page.getByTestId('split-apply')).toBeEnabled()
   })
 
-  test('says before «Bruk» that ratios which would hide content are refused', async ({ page }) => {
+  test('says before «Bruk» that a new structure which would hide content is refused, but not a ratio', async ({
+    page,
+  }) => {
     await deckWithLongCard(page, 'Avslag', 3)
     await splitSelected(page, [1, 1], 'x')
     await expect(cards(page)).toHaveCount(1)
     await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).first().click()
     await openSplitDialog(page)
-    await page.getByTestId('split-weight-1').fill('5')
 
+    // Another direction is another structure, and is held to the fit rule.
+    await page.getByTestId('split-axis-y').click()
+    await page.getByTestId('split-weight-1').fill('2')
     await expect(page.getByTestId('split-check')).toHaveText(
       'Innholdet får ikke plass med disse forholdstallene. Gjelder sone 1 (skravert).',
     )
@@ -215,9 +219,14 @@ test.describe('split dialog flow', () => {
       page.getByTestId('split-preview').locator('[data-preview-zone="1"]'),
     ).toHaveAttribute('data-too-small', 'true')
 
-    await page.getByTestId('split-weight-1').fill('1')
+    // A ratio along the split's own direction is a resize by hand, as in the
+    // zone menu: the card is drawn smaller rather than refused.
+    await page.getByTestId('split-axis-x').click()
+    await page.getByTestId('split-weight-1').fill('5')
     await expect(page.getByTestId('split-check')).toHaveCount(0)
     await expect(page.getByTestId('split-apply')).toBeEnabled()
+    await page.getByTestId('split-apply').click()
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
   })
 
   test('says before «Bruk» where the content goes, and when it goes to the sandbox', async ({ page }) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createPresentation } from '../../../domain/presentation'
 import {
+  containerWithDoc,
   createContentOfKind,
   createNegativeSpace,
   createTitledCard,
@@ -8,7 +9,8 @@ import {
 } from '../../../domain/content'
 import { estimateFitChecker } from '../../../domain/fit'
 import { MAX_SPLIT_CHILDREN } from '../../../domain/constants'
-import { makeSandboxItem, setZoneContent, splitLeaf } from '../../../domain/commands'
+import { makeSandboxItem, setSplitWeights, setZoneContent, splitLeaf } from '../../../domain/commands'
+import { paragraphDoc } from '../../../domain/richdoc'
 import { contentAt } from '../../../domain/testDecks'
 import type { Presentation, SplitNode, ZoneContent } from '../../../domain/types'
 import { tidyMenu, type MenuAction, type MenuEntry } from '../../components/contextMenu'
@@ -144,6 +146,39 @@ describe('zoneModeMenu', () => {
 
     const uneven = deckWithSplit([1, 3])
     expect(entry(menuFor(uneven, rootOf(uneven).id).entries, 'equalize')).toMatchObject({ disabled: false })
+  })
+
+  /*
+   * A ratio picked from the menu is a resize by hand, like a drag. With the
+   * middle zone's text needing more than a third of the row, 1 : 1 : 1 draws it
+   * smaller — and the menu offers it, from 1 : 2 : 1 as well as to it, instead
+   * of letting the zone grow and then never shrink back.
+   */
+  it('offers a ratio that would draw a zone\'s text smaller, as a drag would', () => {
+    const wide = deckWithSplit([1, 2, 1])
+    const slideId = contentAt(wide, 1).id
+    const middle = rootOf(wide).children[1].id
+    const text = (words: number) =>
+      containerWithDoc(paragraphDoc(Array.from({ length: words }, (_, i) => `ord${i % 7}`).join(' ')))
+    // The most text that still fits at 1 : 2 : 1, found rather than assumed.
+    let deck: Presentation | null = null
+    for (let words = 10; words < 2000; words += 10) {
+      const placed = setZoneContent(wide, { slideId, nodeId: middle, content: text(words), ...checks })
+      if (!placed.ok) break
+      deck = placed.value.presentation
+    }
+    if (!deck) throw new Error('ingen tekst fikk plass')
+    // The fit rule an agent works under would refuse the narrower ratio …
+    expect(setSplitWeights(deck, { slideId, nodeId: rootOf(deck).id, weights: [1, 1, 1], ...checks }).ok).toBe(false)
+
+    // … and the menu offers it all the same, as «equal» too.
+    const on = handlers()
+    const menu = menuFor(deck, rootOf(deck).id, on)
+    expect(entry(menu.entries, 'ratio-1-2-1')).toMatchObject({ checked: true })
+    expect(entry(menu.entries, 'ratio-1-1-1')).toMatchObject({ disabled: false })
+    expect(entry(menu.entries, 'equalize')).toMatchObject({ disabled: false })
+    ;(entry(menu.entries, 'ratio-1-1-1') as MenuAction).onSelect()
+    expect(on.setWeights).toHaveBeenLastCalledWith(rootOf(deck).id, [1, 1, 1])
   })
 
   /*
