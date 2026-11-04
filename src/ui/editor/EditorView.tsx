@@ -39,12 +39,12 @@ import {
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
-  setSplitWeights,
   setZoneContent,
   splitLeaf,
   updateSplit,
   type StructuralOutcome,
 } from '../../domain/commands'
+import { setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
@@ -705,11 +705,28 @@ export function EditorView({
    * split, `splitLeaf` on a leaf — with the editor's fit checks. One builder
    * for both the dialog's dry run and «Bruk», so what the dialog warns about
    * is what «Bruk» then does.
+   *
+   * A proposal that keeps the split's direction and its zones and changes only
+   * the ratio is a resize by hand, as the same ratio picked from the zone menu
+   * is (`setWeights` below): content that no longer fits at normal size is
+   * drawn smaller, not refused. A new direction or another number of zones is
+   * a different structure and is held to the fit rule.
    */
   const splitCommand = useCallback(
     (result: SplitModalResult) =>
       (current: Presentation): Result<StructuralOutcome> => {
         if (!contentSlide || !selectedNodeId) return err('NODE_NOT_FOUND', 'Fant ikke sonen.')
+        if (
+          selectedNode?.kind === 'split' &&
+          result.axis === selectedNode.axis &&
+          result.weights.length === selectedNode.children.length
+        ) {
+          return setSplitWeightsByHand(current, {
+            slideId: contentSlide.id,
+            nodeId: selectedNodeId,
+            weights: result.weights,
+          })
+        }
         return selectedNode?.kind === 'split'
           ? updateSplit(current, {
               slideId: contentSlide.id,
@@ -1178,9 +1195,11 @@ export function EditorView({
         useEditorStore.getState().selectNode(nodeId)
         setSplitOpen(true)
       },
+      // A ratio a person picks is a resize by hand: see `weightsRefusal` in
+      // `contextMenu/zoneMenu.ts`, which asks this same command.
       setWeights: (splitId, weights) =>
         void runStructural('ratio', (current) =>
-          setSplitWeights(current, { slideId, nodeId: splitId, weights, ...domFitCheckers }),
+          setSplitWeightsByHand(current, { slideId, nodeId: splitId, weights }),
         ),
       duplicate: (nodeId) => {
         const parentId = findParent(contentSlide.root, nodeId)?.id

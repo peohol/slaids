@@ -22,9 +22,9 @@ import {
   placeSandboxItem,
   reorderLayoutNode,
   splitLeaf,
-  updateSplit,
   type StructuralOptions,
 } from '../../../domain/commands'
+import { setSplitWeightsByHand } from '../../../domain/commands/manualLayout'
 import { contentDocs, contentLabel } from '../../../domain/content'
 import { computeSlideGeometry } from '../../../domain/geometry'
 import { findLeaf, findNode, findParent } from '../../../domain/layout'
@@ -145,6 +145,28 @@ function sameWeights(a: readonly number[], b: readonly number[]): boolean {
 /** The refusal a dry run of the command gives, or `null` when it would go through. */
 function refusalOf(result: Result<unknown>): string | null {
   return result.ok ? null : describeError(result.error)
+}
+
+/**
+ * Why `split` cannot be given `weights`, or `null` — asked of the command
+ * `setWeights` runs.
+ *
+ * A ratio a person picks is a resize by hand, like a drag or the size buttons:
+ * content that would no longer fit at normal size is drawn smaller rather than
+ * refused (`domain/commands/manualLayout.ts`), and only a zone below what its
+ * kind of content can be drawn in at all is. Judged by the fit rule instead,
+ * a zone already drawn small could be given more room but never have it taken
+ * back — not even the ratio it had a moment before.
+ */
+function weightsRefusal(input: ZoneMenuInput, split: SplitNode, weights: number[]): string | null {
+  return refusalOf(
+    setSplitWeightsByHand(input.presentation, {
+      slideId: input.slide.id,
+      nodeId: split.id,
+      weights,
+      ...(input.checks.geometry ? { geometry: input.checks.geometry } : {}),
+    }),
+  )
 }
 
 /** What a zone is, as the menu's title says it. */
@@ -353,16 +375,7 @@ function equalizeAction(
 ): MenuAction {
   const equal = split.children.map(() => 1)
   const already = sameWeights(split.weights, equal)
-  const reason = already
-    ? 'Sonene er allerede like store.'
-    : refusalOf(
-        updateSplit(input.presentation, {
-          slideId: input.slide.id,
-          nodeId: split.id,
-          weights: equal,
-          ...input.checks,
-        }),
-      )
+  const reason = already ? 'Sonene er allerede like store.' : weightsRefusal(input, split, equal)
   return {
     kind: 'action',
     id,
@@ -481,16 +494,7 @@ function siblingEntries(input: ZoneMenuInput, handlers: ZoneMenuHandlers): MenuE
 function ratioSubmenu(input: ZoneMenuInput, handlers: ZoneMenuHandlers, split: SplitNode): MenuEntry {
   const presets = ratioPresets(split.children.length).map((weights): MenuAction => {
     const current = sameWeights(split.weights, weights)
-    const reason = current
-      ? null
-      : refusalOf(
-          updateSplit(input.presentation, {
-            slideId: input.slide.id,
-            nodeId: split.id,
-            weights,
-            ...input.checks,
-          }),
-        )
+    const reason = current ? null : weightsRefusal(input, split, weights)
     return {
       kind: 'action',
       id: `ratio-${weights.join('-')}`,
