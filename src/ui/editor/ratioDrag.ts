@@ -426,8 +426,21 @@ export function commitDraggedRatios(
   attempt: (weights: number[]) => Result<StructuralOutcome>,
   preference: SnapPreference = {},
 ): Result<StructuralOutcome> {
+  return firstAccepted(snapCandidates(equalityKeys, released, preference), attempt)
+}
+
+/**
+ * The whole-ratio layouts a released drag may store, in the order they are
+ * tried: what `commitDraggedRatios` walks, and what the stage walks while the
+ * pointer is still down to show the step letting go would store.
+ */
+export function snapCandidates(
+  equalityKeys: readonly (number | string | null)[],
+  released: readonly number[],
+  preference: SnapPreference = {},
+): number[][] {
   const { prefer, only } = preference
-  return firstAccepted(distinctLayouts(only ?? ladder(equalityKeys, released, prefer)), attempt)
+  return distinctLayouts(only ?? ladder(equalityKeys, released, prefer))
 }
 
 /** The plain ladder of snaps, with the rungs `prefer` asks for first. */

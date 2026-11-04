@@ -283,6 +283,41 @@ Den samme regelen brukes av layout- og ratio-kommandoene, innholdsvelgeren i
 alle flater, drag/placement-targets, `validateSlideGeometry` og Agent Core. Det
 finnes ingen egen implementasjon for editoren og en annen for agenten.
 
+### Hard og myk minstegrense
+
+En sone med innhold har to grenser, og de betyr forskjellige ting
+(`src/domain/softSize.ts`):
+
+- **Hard minstegrense** er innholdstypens minstemål over: hva typen trenger
+  *tom*. En gruppe trenger hvert barns harde grense pluss mellomrommene mellom
+  dem (`minimumSizeFor`). Den håndheves alltid, av alle, også når et menneske
+  drar (`ZONE_TOO_SMALL`).
+- **Myk minstegrense** er den minste størrelsen der *det innholdet sonen faktisk
+  har* får plass med normal typografi: tekstmengden, temaet, fonten,
+  korttittelen, delfeltene, bildeteksten. Den er ikke et tall som lagres, men et
+  svar fra den samme fit-målingen som alt annet (`canFit`, DOM-måleren
+  offscreen). For en agent er den bindende (`CONTENT_DOES_NOT_FIT`). For en
+  person som drar, er den en magnetisk grense som kan overvinnes (§11.5,
+  «Den myke grensen under dra»).
+
+Bare en persons egen størrelsesendring kan lagre en sone under den myke
+grensen, og bare gjennom én inngang: `src/domain/commands/manualLayout.ts`
+(`setSplitWeightsByHand`, `rearrangeZonesByHand`). Den kaller de samme
+kommandoene som alle andre, men uten fit-målerne — slik at fit-regresjon ikke
+vurderes, mens hard minstegrense, kvantisering, strukturregler og luftregelen
+gjelder uendret. Modulen er ikke eksportert fra `commands/index.ts`, og
+`manualLayout.boundary.test.ts` feiler hvis noe utenfor `src/ui/editor/`
+importerer den. Det finnes ingen API-parameter som slår av fit-regelen:
+agentoperasjonene har strikte inndataskjemaer, sender alltid fit-målerne
+(`structuralOptions`), og en ukjent nøkkel som `allowOverflow` avvises.
+
+En sone en person har gjort for liten, er fortsatt ugyldig sett fra agenten:
+`inspect_slide` melder `fits: false`, `validate_slide` melder
+`CONTENT_DOES_NOT_FIT`, og fit-regelen («aldri verre») gjør at en agent kan
+reparere den — gjøre den større, korte ned teksten — men aldri gjøre den
+mindre eller fylle den med mer. Den forminskede visningen (§17) påvirker ingen
+av disse svarene; de måles alltid i normal størrelse.
+
 ---
 
 ## 7.1\. Negativt rom
@@ -1967,15 +2002,18 @@ stabil – en layout som allerede er lovlig kommer uendret tilbake i stedet for 
 drive mot en større ekvivalent av seg selv. Resten brytes av den minste vektoren
 i rekkefølge, så samme input gir alltid samme output.
 
-### Dragging: trinnløst under, snapp ved slipp
+### Dragging: vist i trinnene som lagres
 
-Mens pekeren er nede kvantiseres ingenting. Layouten følger pekeren nøyaktig. Å
-snappe underveis ville gitt et hakkete håndtak og målt fit på tilstander
-forfatteren bare er innom. Unntaket er drag som legger til, utvider eller
-bruker opp luft; de vises i trinnene de kan lagres i (se «Komprimering inn i
-negativt rom», «Vist i trinn»).
+Et drag vises i trinnene det kan lagres i, hele veien: det som står på sliden
+når pekeren slippes, er nøyaktig det som lagres. Tidligere fulgte et
+forholdsdrag pekeren trinnløst og snappet ved slipp, mens drag inn i luft ble
+vist i trinn; med den myke grensen (under) må alle drag vise det som lagres,
+fordi det er dét — og ikke en flytende mellomtilstand — som avgjør om teksten
+får plass. Trinnet velges på nytt først når pekeren har flyttet seg
+`STEP_HYSTERESIS_PX` (3 skjermpiksler) fra der trinnet ble valgt, så en hånd
+som hviler på grensen mellom to trinn ikke får sliden til å flimre.
 
-Ved slipp kvantiseres hele fordelingen, med én tilleggsregel:
+Trinnet som vises er det samme som slippet ville valgt:
 
 > Soner som hadde samme forholdstall før dragingen, og som gesten ikke skilte
 > fra hverandre, skal ha samme forholdstall etterpå.
@@ -2001,6 +2039,53 @@ sin andel, og de prøves først, i den rekkefølgen de ble rangert. Sammenlignin
 er eksakt fordi begge sider av den er heltall. En preferanse innsnevrer bare
 hvilket trinn som velges; finnes ingen, faller gesten tilbake til det nærmeste,
 og den kan derfor aldri få en gest til å mislykkes.
+
+### Den myke grensen under dra
+
+Et drag kan ta en sone med innhold under dens myke minstegrense (§7), ned til
+den harde. Grensen er likevel verdt å finne, og å finne uten å lete:
+
+- **Stopp.** Når en sone som får plass, krymper til der teksten slutter å få
+  plass, blir den stående mens hånden drar `SOFT_LIMIT_RESISTANCE_PX` (16
+  skjermpiksler) videre. Deretter følger den hånden igjen, like langt bak, så
+  den aldri hopper.
+- **Tilbake.** En sone som er under grensen, trekkes opp på den når pekeren
+  kommer innenfor 16 skjermpiksler av stedet der teksten får plass.
+- **Uavhengig av zoom og fart.** Motstanden er i skjermpiksler og regnes om med
+  skalaen sliden tegnes i. Hver gest er en ren funksjon av én skalar —
+  hvor langt pekeren har gått langs sin akse (`dragAmount`, `lengthsAt` i
+  `zoneGesture.ts`) — og hvert barns lengde endrer seg monotont med den. Et
+  barns myke grense blir dermed et punkt på pekerens akse, og magneten er en
+  avbildning av aksen på seg selv (`magneticAmount` i `softLimitDrag.ts`). Den
+  avhenger av hvor pekeren er, ikke hvordan den kom dit: et raskt kast og en
+  langsom bevegelse, mus og berøring, ender samme sted.
+- **Målt én gang.** Hvert barns myke grense måles offscreen med den samme
+  fit-måleren som kommandoene bruker, ved bisection (`shortestFittingLength`),
+  første gang draget faktisk trenger den, og huskes resten av draget. Hver
+  mulig commit vurderes én gang og huskes også. Ingen DOM-måling per
+  pekerbevegelse ut over dette.
+- **Riktig inngang.** Er minst ett barn tatt lenger under sin myke grense enn
+  det var da draget startet, lagres trinnet gjennom
+  `manualLayout.ts`; ellers gjennom de vanlige kommandoene med fit-regelen. Et
+  drag som bare gjør en for liten sone større, er en reparasjon og går den
+  vanlige veien.
+
+Det gjelder for alle tre gestene, for komprimering inn i luft og for nøstede
+grupper: barna som måles er barna i splitten gesten endrer, og en gruppes myke
+grense er der den første av dens etterkommere slutter å få plass.
+
+#### Hvorfor 1–10 beholdes
+
+Forholdstallene er fortsatt heltall 1–10. Over en hel rad (1456 px å fordele
+mellom to soner) ligger trinnene 5–38 designpiksler fra hverandre: tettest midt
+mellom enkle forhold, glissest rundt `1 : 1` og `1 : 2`, der det enkle forholdet
+er det man vil treffe. I nøstede splitter er avstandene tilsvarende mindre. Den
+harde grensen nås: for en tekstsone (180 px) er det nærmeste trinnet over den
+182 px. Trinnene bestemmer dermed ikke hvor fint man kan dra under den myke
+grensen mer enn de allerede gjør over den. Å heve maksimumsverdien ville gjort
+hvert lagret forhold vanskeligere å lese og skrive (§11.5, «Hvorfor»), endret
+kvantiseringen av alle eksisterende dekk og agentkontrakten, uten å løse noe
+denne funksjonen trenger.
 
 ### De tre gestene
 
@@ -2172,7 +2257,8 @@ manipuleres der pekeren har den, og de andre håndtakene skjules.
 ### Stoppbetingelser
 
 Ingen gest avvises fordi den ble dratt for langt; den stopper der geometrien
-stopper, og blir stående der. Grensen stopper ved naboens minstemål. En resize
+stopper, og blir stående der. Minstemålet her er den harde grensen (§7); den
+myke er en magnet som kan overvinnes (se «Den myke grensen under dra»). Grensen stopper ved naboens minstemål. En resize
 stopper når den første søskensonen når sitt minstemål – å fortsette inn i de
 andre ville bøyd forholdet den lovet å bevare – eller ved sonens eget minstemål
 når det er den som krymper. En forskyvning stopper når siden som komprimeres har nådd den første av
@@ -2670,6 +2756,43 @@ utenfor den. Klippet ligger på innholdsboksen, som har nøyaktig sonens
 størrelse; sone-elementet selv klipper ikke, slik at et korts skygge kan falle
 i gapet. Sliden klipper: en skygge kan havne i gapet, aldri utenfor sliden.
 
+### Forminsket visning: når en person har gjort sonen for liten
+
+En sone en person har dratt under innholdets myke minstegrense (§7), tegnes med
+innholdet forminsket, slik at alt fortsatt er synlig innenfor sonen
+(`src/ui/slide/ZoneFitBox.tsx`). Innholdet legges ut i en boks `1/s` ganger
+sonen og tegnes skalert ned med `s`, der `s` er den største skalaen der alt får
+plass (`fitScale` i `softSize.ts`, presisjon 0,5 %). Alt i sonen krymper
+sammen — skrift, avstander, lister, tabeller, referanser, korttittel, padding,
+bildetekst — fordi det er tegningen som skaleres, ikke en liste over størrelser.
+Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
+
+- Lagret skriftstørrelse og tema endres ikke. Skalaen er ikke lagret; den
+  avledes av innhold og geometri hver gang, og forsvinner av seg selv når sonen
+  får plass igjen.
+- Målingen er tegningen: skalaen finnes ved å måle det synlige elementet med
+  samme `measureOverflowParts` som all annen fit, og søket starter fra forrige
+  svar, så et drag koster én eller to layouter av den ene sonen.
+- Den samme visningen brukes i editoren, i presentasjonsmodus, i miniatyrer og i
+  delte snapshots. Den offscreen-måleren kommandoer og agenter dømmes av,
+  tegner innholdet *uten* boksen, så en forminsket sone aldri leses som en sone
+  som får plass. Agentens PNG-forhåndsvisning (`src/render/`) er statisk markup
+  uten effekter; rasteriseringen kjører derfor det samme søket i siden før
+  skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts` og
+  `drawZoneFit`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
+  er bare et bilde: `inspect_slide`/`validate_slide` svarer fortsatt fra
+  normal størrelse og melder at innholdet ikke får plass.
+- I redigeringsmodusene (sone og innhold) markeres sonen med en diskret oransje
+  stiplet kant og et lite varselmerke der det er plass
+  (`ShrunkZoneMarker`). Markeringen tar ingen peker, ligner ikke valgmarkeringen
+  og vises aldri i presentasjon eller eksport. Inspektøren forklarer den for valgt
+  sone: «Innholdet er automatisk forminsket. Gjør sonen større for å gjenopprette
+  normal skriftstørrelse.», og tilbyr å vise bare den sonen forstørret for
+  redigering — den samme fokuserte visningen en kompakt arbeidsflate skriver i.
+- Skriving i en forminsket sone holdes til normal størrelse som ellers: et
+  tegn for et tegn, sletting og omformulering går; mer tekst avvises med en
+  melding om å gjøre sonen større.
+
 ### Semantisk fit
 
 En sentral funksjon:
@@ -2726,6 +2849,11 @@ Det er akseptabelt at tidlig prototype først:
 Men full `canFit()`-håndheving skal være første prioritet etter den operative vertikale slicen.
 
 Ved streng typing-validering kan «last valid document»-mønster brukes, men IME/composition må ikke brytes ved rollback midt i composition.
+
+Typing-validering bruker samme regel som kommandoene (`isOverflowRegression`):
+en endring som gjør en overflyt verre, rulles tilbake; en som lar den være som
+den var eller gjør den mindre, godtas. Slik kan tekst i en sone som allerede
+ikke får plass i normal størrelse rettes, ikke bare kuttes.
 
 ---
 

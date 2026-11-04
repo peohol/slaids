@@ -50,7 +50,9 @@ import { findContentSlide } from '../domain/presentation'
 import { imageNode } from '../domain/richdoc'
 import type { CardBody, Rect, RichDoc, RichNode } from '../domain/types'
 import { loadPreviewAssets } from './assets'
-import { DEFAULT_FONT_TIMEOUT_MS, resolveExecutable, waitForFonts } from './chromium'
+import { DEFAULT_FONT_TIMEOUT_MS, fitShrunkZones, resolveExecutable, waitForFonts } from './chromium'
+import { setSplitWeightsByHand } from '../domain/commands/manualLayout'
+import { FIT_TOLERANCE } from '../domain/constants'
 import { previewDocument } from './document'
 
 afterEach(closeTestDatabases)
@@ -370,6 +372,92 @@ describe('den hodeløse fit-målingen mot en ekte nettleser', () => {
       const short = await compareCardTitle(context, deck, 'Kort')
       expect(short.measured).toBe(0)
       expect(short.estimated).toBe(0)
+    },
+    BROWSER_TIMEOUT_MS,
+  )
+})
+
+/*
+ * A zone a person made smaller than its text, as an agent's preview draws it.
+ *
+ * The preview document is static markup, so nothing in it can find the scale
+ * the app draws such a zone at; the rasteriser does that in the page before
+ * the picture is taken (`fitShrunkZones`). What it must produce is what the
+ * app shows: the whole text, smaller, inside the zone — not the zone clipped
+ * at normal size.
+ */
+describe('forhåndsvisningen av en sone et menneske har gjort for liten', () => {
+  it(
+    'tegner teksten forminsket og helt innenfor sonen, og lar sonen ved siden av være',
+    async () => {
+      const context = testAgentContext()
+      const deck = await newAgentDeck(context)
+      const split = await agentOperation<{ childNodeIds: string[] }>(context, 'split_zone', {
+        presentationId: deck.presentationId,
+        slideId: deck.slideId,
+        nodeId: deck.rootNodeId,
+        axis: 'x',
+        weights: [1, 1],
+      })
+      const text = Array.from({ length: 120 }, (_, index) => `ord${index % 9}`).join(' ')
+      for (const [nodeId, words] of [
+        [split.childNodeIds[0], text],
+        [split.childNodeIds[1], 'Kort.'],
+      ]) {
+        await agentOperation(context, 'set_zone_text', {
+          presentationId: deck.presentationId,
+          slideId: deck.slideId,
+          nodeId,
+          blocks: [{ type: 'paragraph', spans: [{ text: words }] }],
+        })
+      }
+      const shrunk = setSplitWeightsByHand(await storedPresentation(context, deck.presentationId), {
+        slideId: deck.slideId,
+        nodeId: deck.rootNodeId,
+        weights: [1, 6],
+      })
+      if (!shrunk.ok) throw new Error(shrunk.error.code)
+      const presentation = shrunk.value.presentation
+
+      const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
+      if (!page) throw new Error('Fant ikke siden.')
+      const assets = await loadPreviewAssets(page, context.repository)
+      const preview = previewDocument({ presentation, page, assets: assets.source })
+
+      const zones = await measureInBrowser(preview, async (tab) => {
+        // At normal size, as the document arrives: the text does not fit.
+        const before = await tab.$$eval('.zone-fit__inner', (inners) =>
+          inners.map((inner) =>
+            Math.max(
+              0,
+              ...[...inner.querySelectorAll<HTMLElement>('[data-fit-scroll]')].map(
+                (box) => box.scrollHeight - box.clientHeight,
+              ),
+            ),
+          ),
+        )
+        await fitShrunkZones(tab)
+        const after = await tab.$$eval('.zone-fit__inner', (inners) =>
+          inners.map((inner) => ({
+            transform: (inner as HTMLElement).style.transform,
+            overflow: Math.max(
+              0,
+              ...[...inner.querySelectorAll<HTMLElement>('[data-fit-scroll]')].map(
+                (box) => box.scrollHeight - box.clientHeight,
+              ),
+            ),
+          })),
+        )
+        return { before, after }
+      })
+
+      expect(zones.before[0]).toBeGreaterThan(FIT_TOLERANCE)
+      const scale = Number(/scale\(([\d.]+)\)/.exec(zones.after[0].transform)?.[1])
+      expect(scale).toBeGreaterThan(0)
+      expect(scale).toBeLessThan(1)
+      expect(zones.after[0].overflow).toBeLessThanOrEqual(FIT_TOLERANCE)
+      // The zone beside it fits, and is drawn exactly as it was.
+      expect(zones.after[1].transform).toBe('')
     },
     BROWSER_TIMEOUT_MS,
   )

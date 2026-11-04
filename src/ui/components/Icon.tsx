@@ -90,6 +90,7 @@ export type IconName =
   | 'appearance'
   | 'moon'
   | 'sun'
+  | 'text-shrunk'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -187,6 +188,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
   sun: (
     <path d="M12 8a4 4 0 100 8 4 4 0 000-8zM12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4" />
   ),
+  /* Two letters, the second smaller, and arrows pressing in: text drawn smaller to fit. */
+  'text-shrunk': <path d="M3 18l3.5-10L10 18M4.3 14.5h4.4M13 18l2-5.5 2 5.5M13.7 16.4h2.6M20 7l-3 3M20 10V7h-3" />,
   heading: <path d="M6 5v14M18 5v14M6 12h12" />,
   move: <path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />,
   code: <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />,

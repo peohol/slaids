@@ -88,6 +88,15 @@
  *
  * What is *not* gated here, deliberately, and why:
  *
+ *  - **A person's own resize**, through `manualLayout.ts` only:
+ *    `setSplitWeightsByHand` and `rearrangeZonesByHand` are `setSplitWeights`
+ *    and `rearrangeZones` without the fit checkers, so a person may take a
+ *    zone below what its text needs at normal size — the slide then draws the
+ *    text smaller (`ui/slide/ZoneFitBox.tsx`) and nothing is hidden. Every
+ *    other rule still holds: the hard minimum, quantisation, structure, air.
+ *    The module is not exported from the commands index and only the editor's
+ *    UI may import it (`manualLayout.boundary.test.ts`), so no agent route can
+ *    reach it.
  *  - **Undo and redo** restore a state the document has already been in. There
  *    is nothing to validate; refusing would strand the user in the state they
  *    are trying to leave.
@@ -364,6 +373,19 @@ export function pageOverflow(
 }
 
 /**
+ * Whether one part's overflow is worse than it was: the fit rule itself, for
+ * one number. Showing less than before is refused; an edit that leaves an
+ * overflow as it was — or makes it smaller — is not, which is what lets a part
+ * that does not fit at normal size still be worked on (a zone a person drew
+ * smaller than its text, a font that arrived wider) rather than only cut.
+ * Commands apply it part by part through `overflowRegressions`; the editor's
+ * typing guard applies it keystroke by keystroke.
+ */
+export function isOverflowRegression(overflow: number, previousOverflow: number): boolean {
+  return overflow > FIT_TOLERANCE && overflow > previousOverflow + FIT_TOLERANCE
+}
+
+/**
  * Nodes that overflow in `next` and were not already overflowing at least as
  * much before. `previousOverflowOf` is a function rather than a map so callers
  * can avoid measuring the previous state at all when nothing overflows now.
@@ -376,7 +398,7 @@ export function overflowRegressions(
   for (const [key, overflow] of next) {
     if (overflow <= FIT_TOLERANCE) continue
     const previousOverflow = previousOverflowOf(key)
-    if (overflow > previousOverflow + FIT_TOLERANCE) {
+    if (isOverflowRegression(overflow, previousOverflow)) {
       entries.push({
         key,
         nodeId: nodeIdOfKey(key),

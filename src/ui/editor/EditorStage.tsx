@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
+import { FIT_TOLERANCE, SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
 import {
   TITLE_NODE_ID,
@@ -18,19 +18,22 @@ import {
   rectContainsPoint,
   viewportToSlide,
 } from '../../domain/geometry'
-import { replaceNode } from '../../domain/layout'
+import { collectContent, replaceNode } from '../../domain/layout'
 import { normalizedSlide } from '../../domain/presentation'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
-  overflowRegressions,
   rearrangeZones,
   setSlideTitle,
   setSplitWeights,
   subtreeOverflow,
+  type StructuralOutcome,
 } from '../../domain/commands'
+import { rearrangeZonesByHand, setSplitWeightsByHand } from '../../domain/commands/manualLayout'
+import type { Result } from '../../domain/result'
 import { isNegativeSpace } from '../../domain/negativeSpace'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { useActiveEditor } from '../../state/activeEditor'
+import { useZoneScales } from '../../state/zoneScales'
 import type { MenuAnchor } from '../components/contextMenu'
 import type { Editor } from '@tiptap/react'
 import type {
@@ -50,21 +53,33 @@ import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
 import { RichTextEditor } from './RichTextEditor'
-import { commitDraggedRatios } from './ratioDrag'
 import {
   childRects,
+  dragAmount,
   layoutKey,
-  liveLengths,
+  lengthsAt,
   manipulatedIds,
-  releaseOf,
   shownFor,
   startZoneDrag,
   withShift,
+  type ZoneDragCommit,
   type ZoneDragContext,
   type ZoneDrag,
   type ZoneDragStart,
   type ZoneDragView,
 } from './zoneGesture'
+import {
+  SOFT_LIMIT_RESISTANCE_PX,
+  STEP_HYSTERESIS_PX,
+  isPastSoftLimit,
+  learnSoftLimit,
+  magneticAmount,
+  softThresholds,
+  type ChildSoftLimit,
+  type SoftThreshold,
+} from './softLimitDrag'
+import { ZoneFitBox } from '../slide/ZoneFitBox'
+import { ShrunkZoneMarker } from './ShrunkZoneMarker'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
 import { FULL_SLIDE, NO_ZOOM, type StageZoom } from './stageView'
 import { StageSurface } from './StageSurface'
@@ -87,7 +102,7 @@ export interface StageMenuHit {
 
 /**
  * A zone drag in flight: what `zoneGesture.ts` decided about it, where the
- * pointer started, and what the content looked like before.
+ * pointer started, and what it has measured about the content so far.
  */
 interface DragState {
   drag: ZoneDrag
@@ -101,31 +116,61 @@ interface DragState {
   /** Where each of the drag's children sat when it started, for measuring against. */
   startRects: Map<NodeId, Rect>
   /**
-   * Overflow each zone had before the drag started, measured the first time it
-   * is asked for. The gesture may move as long as no zone gets worse, which is
-   * the same rule the commit applies on release — so a drag never stops
-   * somewhere the commit would refuse, and a zone that already overflows can
-   * still be dragged wider to repair it.
-   *
-   * Measuring is an offscreen render per zone, so it is done on demand and only
-   * for zones the gesture actually takes room from: a zone that keeps its rect
-   * cannot change how much of it shows, and one that gains room cannot show
-   * less of its content than it did with less.
+   * Each child's soft limit — the shortest it can be with its content at
+   * normal size — by its index in the drag's split, measured the first time
+   * the gesture moves that child in a direction where the limit matters. It is
+   * an offscreen render per probe, so it is done on demand, once per drag.
    */
-  baseline: Map<NodeId, number>
-  measured: Set<NodeId>
+  limits: Map<number, ChildSoftLimit>
+  /** The limits as points on the pointer's axis; `null` until worked out again. */
+  thresholds: SoftThreshold[] | null
+  /** The step being shown, and the pointer amount it was chosen at (`STEP_HYSTERESIS_PX`). */
+  shown: { amount: number; view: ZoneDragView; byHand: boolean } | null
   /** The document the drag started from, which every step it shows is checked against. */
   presentation: Presentation
   /**
-   * Whether the release command accepts a layout, by `layoutKey`: a drag that
-   * steps through layouts meets the same few again and again, and each answer
-   * is an offscreen render.
+   * Whether the release command accepts a layout: a drag that steps through
+   * layouts meets the same few again and again, and each answer is an
+   * offscreen render.
    */
   verdicts: Map<string, boolean>
 }
 
-/** The live layout a drag is showing, and the pointer's lengths it came from. */
-type DragPreview = ZoneDragView & { lengths: number[] }
+/**
+ * The layout a drag is showing, the pointer's lengths it came from, and
+ * whether storing it takes a zone below its content's soft minimum — which
+ * only the hand-made commands do (`domain/commands/manualLayout.ts`).
+ */
+type DragPreview = ZoneDragView & { lengths: number[]; byHand: boolean }
+
+/** One string per commit: same command, same layout, same string. */
+function commitKey(commit: ZoneDragCommit): string {
+  return commit.kind === 'ratios'
+    ? `r:${commit.nodeId}:${commit.weights.join(',')}`
+    : `a:${commit.nodeId}|${layoutKey(commit.layout)}`
+}
+
+/**
+ * The command letting go of a drag runs.
+ *
+ * A step that keeps every zone at or above its content's soft minimum goes
+ * through the ordinary commands, fit guard and all — exactly what an agent's
+ * call would run. One the hand pushed past a soft limit goes through the
+ * hand-made ones, which check everything but the fit at normal size.
+ */
+function commitDrag(
+  presentation: Presentation,
+  slideId: string,
+  commit: ZoneDragCommit,
+  byHand: boolean,
+): Result<StructuralOutcome> {
+  if (commit.kind === 'ratios') {
+    const input = { slideId, nodeId: commit.nodeId, weights: commit.weights }
+    return byHand ? setSplitWeightsByHand(presentation, input) : setSplitWeights(presentation, { ...input, ...domFitCheckers })
+  }
+  const input = { slideId, nodeId: commit.nodeId, layout: commit.layout }
+  return byHand ? rearrangeZonesByHand(presentation, input) : rearrangeZones(presentation, { ...input, ...domFitCheckers })
+}
 
 export interface EditorStageProps {
   slide: ContentSlide
@@ -255,6 +300,7 @@ export function EditorStage({
   const runStructural = useEditorStore((state) => state.runStructural)
   const setActiveField = useEditorStore((state) => state.setActiveField)
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
+  const reportScale = useZoneScales((state) => state.report)
   const titleEditorRef = useRef<Editor | null>(null)
   const { theme, numbering } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
@@ -424,8 +470,9 @@ export function EditorStage({
       pointerX: event.clientX,
       pointerY: event.clientY,
       startRects: childRects(drag, drag.span.lengths),
-      baseline: new Map(),
-      measured: new Set(),
+      limits: new Map(),
+      thresholds: null,
+      shown: null,
       presentation,
       verdicts: new Map(),
     }
@@ -466,51 +513,49 @@ export function EditorStage({
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    /** The overflow `node` had before the drag started. */
-    const rememberBaseline = (state: DragState, node: LayoutNode): void => {
-      if (state.measured.has(node.id)) return
-      state.measured.add(node.id)
-      const rect = state.startRects.get(node.id)
-      if (!rect) return
-      for (const [nodeId, overflow] of subtreeOverflow(node, rect, fitContext, domFitCheckers)) {
-        state.baseline.set(nodeId, overflow)
+    /** Whether everything in `node` fits `rect` at normal size. */
+    const fitsNormally = (node: LayoutNode, rect: Rect): boolean => {
+      for (const overflow of subtreeOverflow(node, rect, fitContext, domFitCheckers).values()) {
+        if (overflow > FIT_TOLERANCE) return false
       }
+      return true
     }
 
     /**
-     * Whether the layout the pointer is asking for would hide content that is
-     * visible now.
-     *
-     * Only the zones that lost room are asked: a zone whose length is unchanged
-     * has the same rect it had, and one that gained room cannot show less than
-     * it did with less. That is also what keeps a drag affordable — the answer
-     * is an offscreen render of the zone.
+     * Learn the soft limit of every child the pointer at `lengths` is moving,
+     * where it matters: a child that fits, once it is being made smaller; one
+     * that does not fit, as soon as it moves at all — it can be pulled up onto
+     * its limit, or pushed further below it. Returns whether anything new was
+     * learnt.
      */
-    const wouldHideContent = (state: DragState, lengths: readonly number[]): boolean => {
-      const rects = childRects(state.drag, lengths)
-      const { split } = state.drag.span
-      return split.children.some((child) => {
-        const before = state.startRects.get(child.id)
-        const after = rects.get(child.id)
-        if (!before || !after || isNegativeSpace(child)) return false
-        const along = (rect: Rect): number => (split.axis === 'x' ? rect.width : rect.height)
-        if (along(after) >= along(before)) return false
-        rememberBaseline(state, child)
-        const next = subtreeOverflow(child, after, fitContext, domFitCheckers)
-        return overflowRegressions(next, (nodeId) => state.baseline.get(nodeId) ?? 0).length > 0
+    const learnLimits = (state: DragState, lengths: readonly number[]): boolean => {
+      const { span, rect } = state.drag
+      const axis = span.split.axis
+      const room = axis === 'x' ? rect.width : rect.height
+      let learnt = false
+      span.split.children.forEach((child, index) => {
+        if (isNegativeSpace(child) || collectContent(child).length === 0) return
+        const start = span.lengths[index]
+        const now = lengths[index]
+        const startRect = state.startRects.get(child.id)
+        if (Math.abs(now - start) < 1e-9 || !startRect) return
+        const known = state.limits.get(index)
+        const limit = learnSoftLimit(known, index, start, now, span.floors[index], room, (length) =>
+          fitsNormally(child, axis === 'x' ? { ...startRect, width: length } : { ...startRect, height: length }),
+        )
+        if (limit === known) return
+        state.limits.set(index, limit)
+        learnt = true
       })
+      return learnt
     }
 
-    /** The command a release runs, for `layout` in place of `nodeId`. */
-    const arrange = (presentation: Presentation, nodeId: NodeId, layout: LayoutNode) =>
-      rearrangeZones(presentation, { slideId: slide.id, nodeId, layout, ...domFitCheckers })
-
-    /** Whether the release would store `layout`: the same command, asked in advance. */
-    const accepts = (state: DragState, nodeId: NodeId, layout: LayoutNode): boolean => {
-      const key = `${nodeId}|${layoutKey(layout)}`
+    /** Whether the release would store `commit`: the same command, asked in advance. */
+    const accepts = (state: DragState, commit: ZoneDragCommit, byHand: boolean): boolean => {
+      const key = `${byHand ? 'hand' : 'fit'}|${commitKey(commit)}`
       let verdict = state.verdicts.get(key)
       if (verdict === undefined) {
-        verdict = arrange(state.presentation, nodeId, layout).ok
+        verdict = commitDrag(state.presentation, slide.id, commit, byHand).ok
         state.verdicts.set(key, verdict)
       }
       return verdict
@@ -526,34 +571,60 @@ export function EditorStage({
       if (drag === state.drag) return false
       state.drag = drag
       state.startRects = childRects(drag, drag.span.lengths)
+      // The children may be other ones, and the limits were theirs.
+      state.limits = new Map()
+      state.thresholds = null
+      state.shown = null
       // What was shown belonged to the other kind; until this one has a frame
       // of its own, letting go stores nothing.
       setPreview(null)
       return true
     }
 
-    /** Show the drag for the pointer where it is now. */
+    /**
+     * Show the drag for the pointer where it is now.
+     *
+     * The pointer's travel goes through the magnet first (`softLimitDrag.ts`),
+     * which holds the drag on each soft limit for a stretch of the hand's
+     * travel; the step shown is then the nearest one the release would store,
+     * checked with the very command the release runs.
+     */
     const show = (state: DragState): void => {
       // A pointer distance on screen, in design-space pixels.
       const scale = renderedScale()
-      const lengths = liveLengths(
-        state.drag,
-        (state.pointerX - state.startX) / scale,
-        (state.pointerY - state.startY) / scale,
-      )
+      const { drag } = state
+      const raw = dragAmount(drag, (state.pointerX - state.startX) / scale, (state.pointerY - state.startY) / scale)
+      if (raw === null) return
+      const rawLengths = lengthsAt(drag, raw)
+      if (!rawLengths) return
+      if (learnLimits(state, rawLengths)) state.thresholds = null
+      const limits = [...state.limits.values()]
+      const room = drag.span.split.axis === 'x' ? drag.rect.width : drag.rect.height
+      state.thresholds ??= softThresholds((amount) => lengthsAt(drag, amount), limits, room * 4)
+      const amount = magneticAmount(raw, state.thresholds, SOFT_LIMIT_RESISTANCE_PX / scale)
+      const lengths = lengthsAt(drag, amount)
       if (!lengths) return
       // A gesture the geometry cannot honour — a zone at the end of its split,
       // a side already at its minimum, a pointer back where it started — asks
       // for the layout the split already has, and there is nothing to preview
       // or, later, to commit.
-      if (sameWeights(lengths, state.drag.span.lengths)) {
+      if (sameWeights(lengths, drag.span.lengths)) {
+        state.shown = null
         setPreview(null)
         return
       }
-      // The drag stops where the content stops fitting, rather than letting the
-      // user drag into an invalid state and snapping back on release.
-      if (wouldHideContent(state, lengths)) return
-      setPreview({ ...shownFor(state.drag, lengths, (nodeId, layout) => accepts(state, nodeId, layout)), lengths })
+      const byHand = isPastSoftLimit(lengths, drag.span.lengths, limits)
+      // The hysteresis is for a hand trembling between two steps, never for
+      // the soft limit: a hair either side of where the magnet holds is a
+      // different answer — text at normal size or not — and must show as one.
+      const kept = state.shown
+      if (kept && kept.byHand === byHand && Math.abs(amount - kept.amount) < STEP_HYSTERESIS_PX / scale) {
+        setPreview({ ...kept.view, byHand, lengths })
+        return
+      }
+      const view = shownFor(drag, lengths, (commit) => accepts(state, commit, byHand))
+      state.shown = { amount, view, byHand }
+      setPreview({ ...view, byHand, lengths })
     }
 
     const move = (event: PointerEvent): void => {
@@ -575,36 +646,11 @@ export function EditorStage({
       if (!state || !pending) return
       draggedRef.current = true
 
-      // A drag that touched air stores exactly the step it was showing, which
-      // was checked with this command when it was shown; one that ends where
-      // it began leaves nothing behind — no air, no extra level.
-      if (pending.kind === 'arrangement') {
-        const { commit, nodeId } = pending
-        if (commit) runStructural('ratio', (presentation) => arrange(presentation, nodeId, commit))
-        return
-      }
-
-      const release = releaseOf(state.drag, pending.lengths)
-      if (release?.kind === 'ratios') {
-        // The released geometry is a wish; what gets stored is the nearest
-        // ratio the deck can be written in, held to whatever the gesture
-        // promised.
-        runStructural('ratio', (presentation) =>
-          commitDraggedRatios(
-            release.rules.equalityKeys,
-            release.released,
-            (weights) =>
-              setSplitWeights(presentation, {
-                slideId: slide.id,
-                nodeId: release.nodeId,
-                weights,
-                // A ratio change may not shrink a zone past what its content needs.
-                ...domFitCheckers,
-              }),
-            release.rules.preference,
-          ),
-        )
-      }
+      // A drag stores exactly the step it was showing, which was checked with
+      // the same command when it was shown; one that ends where it began
+      // leaves nothing behind — no air, no extra level.
+      const { commit, byHand } = pending
+      if (commit) runStructural('ratio', (presentation) => commitDrag(presentation, slide.id, commit, byHand))
     }
 
     /** Escape lets go of the drag and leaves the slide as it was; Shift switches its kind. */
@@ -751,7 +797,7 @@ export function EditorStage({
                 )}
               </div>
             )}
-            renderLeaf={(leaf) => (
+            renderLeaf={(leaf, rect) => (
               <ZoneDropZone nodeId={leaf.id} acceptable={dropTargets.has(leaf.id)}>
                 {!leaf.content ? (
                   /* The picker's buttons are drawn inside the slide, so they
@@ -764,19 +810,32 @@ export function EditorStage({
                     compact={mode === 'zone' || textEditing !== 'all'}
                     onAdd={onAddContent}
                   />
-                ) : mode === 'zone' ? (
-                  /* Zone mode draws content statically — there is no typing in
-                     it — because the mode is about the zones themselves. */
-                  <ZoneContentView content={leaf.content} />
                 ) : (
-                  <EditableZoneContent
-                    content={leaf.content}
-                    nodeId={leaf.id}
-                    slideId={slide.id}
-                    editable={canTypeIn(textEditing, leaf.id)}
-                    caret={caret}
-                    onPickImage={onPickImage}
-                  />
+                  /* Drawn smaller when a person's resize took the zone below
+                     what its content needs at normal size — and marked, in
+                     both modes, for as long as it is. */
+                  <ZoneFitBox
+                    width={rect.width}
+                    height={rect.height}
+                    onScale={(fit) => reportScale(leaf.id, fit)}
+                    marker={<ShrunkZoneMarker stageScale={scale || 1} width={rect.width} height={rect.height} />}
+                  >
+                    {mode === 'zone' ? (
+                      /* Zone mode draws content statically — there is no
+                         typing in it — because the mode is about the zones
+                         themselves. */
+                      <ZoneContentView content={leaf.content} />
+                    ) : (
+                      <EditableZoneContent
+                        content={leaf.content}
+                        nodeId={leaf.id}
+                        slideId={slide.id}
+                        editable={canTypeIn(textEditing, leaf.id)}
+                        caret={caret}
+                        onPickImage={onPickImage}
+                      />
+                    )}
+                  </ZoneFitBox>
                 )}
               </ZoneDropZone>
             )}

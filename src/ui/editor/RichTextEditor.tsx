@@ -3,15 +3,18 @@
  *
  * Two rules make this component the enforcement point of the content-fit
  * invariant:
- *  - an edit that makes the content overflow its zone is rolled back to the
- *    last valid document (never mid-IME-composition, and never when the edit
- *    is what *reduces* the overflow), and
+ *  - an edit that makes the content overflow its zone, or overflow it more
+ *    than it already did, is rolled back to the last valid document (never
+ *    mid-IME-composition) — the same rule, `isOverflowRegression`, that every
+ *    command is held to — and
  *  - pasted HTML is normalised before it can reach the schema.
  */
 
 import { useCallback, useEffect, useRef } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { FIT_TOLERANCE } from '../../domain/constants'
+import { isOverflowRegression } from '../../domain/commands/fitGuard'
+import { SHRUNK_ZONE_TYPING_MESSAGE } from './ShrunkZoneMarker'
 import { trimTrailingBlankLines } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -170,11 +173,15 @@ export function RichTextEditor({
         accept()
         return
       }
-      // Any edit that reduces the overflow is allowed, otherwise an overflowing
-      // document could never be repaired.
-      const fitsHere = overflow <= FIT_TOLERANCE || overflow < lastOverflow.current - FIT_TOLERANCE
-      if (!fitsHere) {
-        rollBack(overflowMessage)
+      // An edit that does not make an overflow worse is allowed: otherwise an
+      // overflowing document — a zone a person drew smaller than its text —
+      // could be cut but never corrected, not even a letter for a letter.
+      if (isOverflowRegression(overflow, lastOverflow.current)) {
+        // A field that already did not fit at normal size — almost always a
+        // zone a person drew smaller than its text — has room to correct, not
+        // to grow, and saying «does not fit» over text drawn with room to
+        // spare would read as wrong.
+        rollBack(lastOverflow.current > 0 ? SHRUNK_ZONE_TYPING_MESSAGE : overflowMessage)
         return
       }
 

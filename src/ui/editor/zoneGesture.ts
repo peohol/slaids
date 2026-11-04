@@ -41,6 +41,7 @@ import type { Axis, LayoutNode, NodeId, Rect } from '../../domain/types'
 import {
   boundarySnapRules,
   draggedWeights,
+  snapCandidates,
   range,
   resizedWeights,
   shiftedBoundarySnapRules,
@@ -193,43 +194,66 @@ function otherAxis(axis: Axis): Axis {
  * its air at that moment, before the first frame that shows it.
  */
 export function liveLengths(drag: ZoneDrag, deltaX: number, deltaY: number): number[] | null {
+  const amount = dragAmount(drag, deltaX, deltaY)
+  return amount === null ? null : lengthsAt(drag, amount)
+}
+
+/**
+ * How far, in design-space pixels, the pointer has travelled in the one
+ * direction the drag's operation reads, signed the way the operation reads it;
+ * `null` while the movement does not mean anything yet.
+ *
+ * Every operation is a function of one number — a boundary of how far it moved
+ * along its split, a resize of how far across, an edge of how far inwards — and
+ * that number is what the soft limit is found on and what the magnet holds
+ * (`softLimitDrag.ts`). `lengthsAt` turns it into the layout.
+ */
+export function dragAmount(drag: ZoneDrag, deltaX: number, deltaY: number): number | null {
   const { start } = drag
   if (start.kind === 'edge') {
     const along = start.axis === 'x' ? deltaX : deltaY
-    const inward = start.side === 'start' ? along : -along
-    return drag.block && drag.sides
-      ? compressedLengths(drag.span, drag.block, start.shift ? -2 * inward : -inward, drag.sides)
-      : null
+    return start.side === 'start' ? along : -along
   }
-
   const mode: ZoneDragMode | null = operationMode(drag) ?? zoneDragMode(drag.span.split.axis, deltaX, deltaY)
   if (!mode) return null
   if (!drag.operation) decide(drag, mode)
   // Read after deciding: a compression gets its air, and perhaps a split of
   // its own, at that moment.
-  const { span, index } = drag
-  const axis = span.split.axis
-
-  const along = axis === 'x' ? deltaX : deltaY
+  const axis = drag.span.split.axis
   switch (drag.operation) {
     case 'boundary':
-      return start.kind === 'boundary'
-        ? draggedWeights(span.lengths, start.boundary, along, span.floors)
-        : null
+    case 'shift-boundary':
+    case 'translate':
+      return axis === 'x' ? deltaX : deltaY
+    case 'compress':
+    case 'resize':
+      return zoneDragAmount(axis, 'resize', deltaX, deltaY)
+    default:
+      return null
+  }
+}
+
+/** The live lengths for a `dragAmount`: a pure function of the drag as it started. */
+export function lengthsAt(drag: ZoneDrag, amount: number): number[] | null {
+  const { start, span, index } = drag
+  if (start.kind === 'edge') {
+    return drag.block && drag.sides
+      ? compressedLengths(span, drag.block, start.shift ? -2 * amount : -amount, drag.sides)
+      : null
+  }
+  switch (drag.operation) {
+    case 'boundary':
+      return start.kind === 'boundary' ? draggedWeights(span.lengths, start.boundary, amount, span.floors) : null
     case 'shift-boundary':
       return start.kind === 'boundary'
-        ? shiftedBoundaryWeights(span.lengths, start.boundary, along, span.floors)
+        ? shiftedBoundaryWeights(span.lengths, start.boundary, amount, span.floors)
         : null
     case 'compress':
-      return drag.block
-        ? compressedLengths(span, drag.block, zoneDragAmount(axis, 'resize', deltaX, deltaY), 'both')
-        : null
+      return drag.block ? compressedLengths(span, drag.block, amount, 'both') : null
     case 'translate':
-      return index !== null ? translatedWeights(span.lengths, index, along, span.floors) : null
+      return index !== null ? translatedWeights(span.lengths, index, amount, span.floors) : null
     case 'resize':
-      return index !== null
-        ? resizedWeights(span.lengths, index, zoneDragAmount(axis, 'resize', deltaX, deltaY), span.floors)
-        : null
+      return index !== null ? resizedWeights(span.lengths, index, amount, span.floors) : null
     default:
       return null
   }
@@ -285,44 +309,90 @@ export function previewFor(drag: ZoneDrag, lengths: readonly number[]): { nodeId
 }
 
 /**
- * What the slide shows while the pointer is down: `node` drawn in place of
- * `nodeId`. For a drag that touches air, `commit` is the layout letting go
- * stores — the one shown — or `null` when letting go stores nothing.
+ * What letting go of a drag stores: whole ratios for a split, or a whole
+ * layout in place of a node for a drag that touched air.
  */
-export type ZoneDragView =
-  | { kind: 'ratios'; nodeId: NodeId; node: LayoutNode }
-  | { kind: 'arrangement'; nodeId: NodeId; node: LayoutNode; commit: LayoutNode | null }
+export type ZoneDragCommit =
+  | { kind: 'ratios'; nodeId: NodeId; weights: number[] }
+  | { kind: 'arrangement'; nodeId: NodeId; layout: LayoutNode }
+
+/**
+ * What the slide shows while the pointer is down: `node` drawn in place of
+ * `nodeId`, and `commit`, what letting go stores — the very layout shown — or
+ * `null` when letting go stores nothing.
+ */
+export interface ZoneDragView {
+  nodeId: NodeId
+  node: LayoutNode
+  commit: ZoneDragCommit | null
+}
 
 /**
  * What the slide shows while the pointer is at `lengths`.
  *
- * A drag that only shares out a split's room follows the hand exactly and is
- * snapped when it is let go (`previewFor`). One that adds, grows or uses up air
- * is shown as the layout its release stores, so it moves in visible steps and
- * letting go changes nothing on the slide: whole ratios up to `MAX_ZONE_RATIO`
- * cannot hold air thinner than a twelfth of a split beside one zone, and a
- * preview that drew thinner air would promise a layout the release could not
- * keep.
+ * Every drag is shown as the layout its release stores, so it moves in the
+ * steps a deck can be written in and letting go changes nothing on the slide.
+ * Whole ratios up to `MAX_ZONE_RATIO` are a ladder, not a continuum: a preview
+ * that followed the hand between the rungs would promise a layout the release
+ * could not keep, and the difference would be a jump at the moment of letting
+ * go — or, below a zone's soft minimum, a different size of text than the one
+ * the author was looking at. The hand itself is still followed exactly by the
+ * outline the overlay draws (`childRects`).
  *
- * The layout shown is the nearest of `arrangementCandidates` that `accepts` —
- * the very command the release runs, with the same fit checks — so a step is
- * never shown that would hide content or be refused on release. Where none
- * nearer than the layout the drag started from is accepted, that layout is
- * what is shown, and letting go stores nothing.
+ * The layout shown is the nearest candidate `accepts` — the very command the
+ * release runs, with the same checks — so a step is never shown that would be
+ * refused on release. Where none nearer than the layout the drag started from
+ * is accepted, that layout is what is shown, and letting go stores nothing.
  */
 export function shownFor(
   drag: ZoneDrag,
   lengths: readonly number[],
-  accepts: (nodeId: NodeId, layout: LayoutNode) => boolean,
+  accepts: (commit: ZoneDragCommit) => boolean,
 ): ZoneDragView {
-  const release = releaseOf(drag, lengths)
-  if (release?.kind !== 'arrangement') return { kind: 'ratios', ...previewFor(drag, lengths) }
-  const { nodeId, original } = release
-  for (const candidate of release.candidates) {
-    if (sameLayout(candidate, original)) break
-    if (accepts(nodeId, candidate)) return { kind: 'arrangement', nodeId, node: candidate, commit: candidate }
+  const options = releaseCandidates(drag, lengths)
+  const original = findOriginal(drag.span)
+  if (!options) return { nodeId: drag.span.replacedId, node: original, commit: null }
+  for (const commit of options.candidates) {
+    const node = drawnFor(drag, commit)
+    if (sameLayout(node, options.original)) break
+    if (accepts(commit)) return { nodeId: commit.nodeId, node, commit }
   }
-  return { kind: 'arrangement', nodeId, node: original, commit: null }
+  return { nodeId: options.nodeId, node: options.original, commit: null }
+}
+
+/** The layout a commit draws in place of its node. */
+function drawnFor(drag: ZoneDrag, commit: ZoneDragCommit): LayoutNode {
+  return commit.kind === 'arrangement' ? commit.layout : { ...drag.span.split, weights: commit.weights }
+}
+
+/**
+ * Everything letting go at `lengths` could store, closest first, and the
+ * layout that storing nothing leaves.
+ */
+export function releaseCandidates(
+  drag: ZoneDrag,
+  lengths: readonly number[],
+): { nodeId: NodeId; original: LayoutNode; candidates: ZoneDragCommit[] } | null {
+  const release = releaseOf(drag, lengths)
+  if (!release) return null
+  if (release.kind === 'arrangement') {
+    const { nodeId } = release
+    return {
+      nodeId,
+      original: release.original,
+      candidates: release.candidates.map((layout) => ({ kind: 'arrangement', nodeId, layout })),
+    }
+  }
+  const { nodeId, rules, released } = release
+  return {
+    nodeId,
+    original: findOriginal(drag.span),
+    candidates: snapCandidates(rules.equalityKeys, released, rules.preference).map((weights) => ({
+      kind: 'ratios',
+      nodeId,
+      weights,
+    })),
+  }
 }
 
 /** The ids of the zones the drag is acting on as one, for drawing them as one. */

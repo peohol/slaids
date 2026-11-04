@@ -60,6 +60,41 @@
   line-height: var(--slaids-body-line-height);
 }
 
+/*
+ * A zone drawn smaller than normal (`ZoneFitBox`). The outer box is the zone;
+ * the inner one is where the content is laid out — the zone's own size when
+ * it fits, `1/s` times it when it does not — and is drawn scaled from its
+ * top-left corner, so it lands exactly on the zone either way.
+ */
+.zone-fit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Drawn smaller, the box the content is laid out in is larger than the zone —
+ * a transform does not change layout — and a box that overflows its parent can
+ * be scrolled by a caret placed in its text, which would slide the content out
+ * of its own frame. So a scaled zone clips it, with `clip` rather than
+ * `hidden` because only `clip` cannot scroll. The margin lets a card's drop
+ * shadow (`CARD_SHADOW`) still fall into the gap; a zone at normal size is not
+ * clipped here at all.
+ */
+.zone-fit__clip {
+  position: absolute;
+  inset: 0;
+}
+
+.zone-fit__clip--scaled {
+  overflow: clip;
+  overflow-clip-margin: 24px;
+}
+
+.zone-fit__inner {
+  transform-origin: 0 0;
+}
+
 .zone-content--container {
   min-height: 0;
 }

@@ -20,7 +20,6 @@ import { createPresentation, withSlide } from '../../domain/presentation'
 import { paragraphDoc } from '../../domain/richdoc'
 import { contentAt } from '../../domain/testDecks'
 import type { LayoutNode, Presentation, Rect, SplitNode } from '../../domain/types'
-import { commitDraggedRatios } from './ratioDrag'
 import {
   liveLengths,
   previewFor,
@@ -29,6 +28,7 @@ import {
   shownFor,
   startZoneDrag,
   withShift,
+  type ZoneDragCommit,
   type ZoneDragContext,
   type ZoneDrag,
   type ZoneDragStart,
@@ -89,38 +89,31 @@ function drawn(deck: Deck, view: ZoneDragView): LayoutNode {
   return mergeNegativeSpace(replaceNode(rootOf(deck), view.nodeId, view.node))
 }
 
-/** The command a release of a drag that touched air runs, as the stage runs it. */
-function arrange(deck: Deck, nodeId: string, layout: LayoutNode) {
-  return rearrangeZones(deck.presentation, { slideId: deck.slideId, nodeId, layout, fits: estimateFitChecker })
+/** The command a release runs, as the stage runs it for a step that keeps the text at normal size. */
+function commit(deck: Deck, change: ZoneDragCommit) {
+  return change.kind === 'ratios'
+    ? setSplitWeights(deck.presentation, {
+        slideId: deck.slideId,
+        nodeId: change.nodeId,
+        weights: change.weights,
+        fits: estimateFitChecker,
+      })
+    : rearrangeZones(deck.presentation, {
+        slideId: deck.slideId,
+        nodeId: change.nodeId,
+        layout: change.layout,
+        fits: estimateFitChecker,
+      })
 }
 
 /** The stage's question while the pointer is down: would the release store this? */
-const accepts = (deck: Deck) => (nodeId: string, layout: LayoutNode): boolean => arrange(deck, nodeId, layout).ok
+const accepts = (deck: Deck) => (change: ZoneDragCommit): boolean => commit(deck, change).ok
 
-/** Release the drag at `lengths` and commit it as the stage would. */
+/** Release the drag at `lengths` and commit it as the stage would: exactly the step shown, or nothing. */
 function release(deck: Deck, drag: ZoneDrag, lengths: readonly number[]): Deck {
   const view = shownFor(drag, lengths, accepts(deck))
-  if (view.kind === 'arrangement') {
-    // What the stage does: store exactly the step that was shown, or nothing.
-    if (!view.commit) return deck
-    const result = arrange(deck, view.nodeId, view.commit)
-    if (!result.ok) throw new Error(`refused: ${result.error.message}`)
-    return { ...deck, presentation: result.value.presentation }
-  }
-  const released = releaseOf(drag, lengths)
-  if (released?.kind !== 'ratios') throw new Error('nothing to release')
-  const result = commitDraggedRatios(
-    released.rules.equalityKeys,
-    released.released,
-    (weights) =>
-      setSplitWeights(deck.presentation, {
-        slideId: deck.slideId,
-        nodeId: released.nodeId,
-        weights,
-        fits: estimateFitChecker,
-      }),
-    released.rules.preference,
-  )
+  if (!view.commit) return deck
+  const result = commit(deck, view.commit)
   if (!result.ok) throw new Error(`refused: ${result.error.message}`)
   return { ...deck, presentation: result.value.presentation }
 }
@@ -831,7 +824,7 @@ describe('a step is only shown where what is in it still fits', () => {
           if (released?.kind !== 'arrangement') continue
           const [nearest] = released.candidates
           if (nearest && !sameLayout(nearest, released.original) && !sameLayout(nearest, view.node)) refusedNearest += 1
-          if (view.kind === 'arrangement' && view.commit) compressed += 1
+          if (view.commit?.kind === 'arrangement') compressed += 1
         }
       }
       // Both happened: steps that fit were shown and stored, and steps nearer
@@ -879,7 +872,7 @@ describe('resizing a zone between air shows and stores the same steps, both ways
           const view = shownFor(gesture, lengths, accepts(deck))
           const where = `${sign * amount} px`
           // The air changed, so the slide shows a step it can store.
-          expect(view.kind, where).toBe('arrangement')
+          expect(releaseOf(gesture, lengths)?.kind, where).toBe('arrangement')
           const shownRoot = drawn(deck, view)
           const after = release(deck, gesture, lengths)
           expect(sameLayout(rootOf(after), shownRoot), where).toBe(true)
@@ -890,7 +883,7 @@ describe('resizing a zone between air shows and stores the same steps, both ways
           const root = rootOf(after)
           const wrap = root.kind === 'split' ? root.children[0] : null
           if (wrap?.kind === 'split' && wrap.children.length === 3) expect(wrap.weights[0], where).toBe(wrap.weights[2])
-          if (view.kind === 'arrangement' && view.commit) seen.add(sign > 0 ? 'one way' : 'the other')
+          if (view.commit?.kind === 'arrangement') seen.add(sign > 0 ? 'one way' : 'the other')
         }
       }
       // Both directions stepped somewhere along the way.
@@ -982,13 +975,9 @@ describe('drags in the layouts the merge has to rewrite to keep content exact', 
               const lengths = liveLengths(gesture, node.axis === 'x' ? amount : 0, node.axis === 'y' ? amount : 0)
               if (!lengths) continue
               const view = shownFor(gesture, lengths, accepts(deck))
-              // A ratio drag may be refused for a zone it makes too small; that is its own rule.
-              let after = deck
-              try {
-                after = release(deck, gesture, lengths)
-              } catch {
-                expect(view.kind, where).toBe('ratios')
-              }
+              // A step that would make a zone too small is never shown, so
+              // letting go stores the step shown or nothing at all.
+              const after = release(deck, gesture, lengths)
               // What is drawn while the pointer is down, and what is stored.
               expect(airMeetings(drawn(deck, view)), where).toBe(0)
               expect(airMeetings(rootOf(after)), where).toBe(0)
