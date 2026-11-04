@@ -285,15 +285,21 @@ test.describe('myk minstegrense', () => {
     await expect(page.getByTestId('toast')).toHaveCount(0)
 
     // Undone, the text is back at its normal size, unmarked; redone, small again.
-    for (let i = 0; i < 10 && (await text()) !== before; i += 1) {
-      await page.getByTestId('undo').click()
+    // One step at a time, each waited for: a press sent before the last one
+    // has landed would undo past the typing, into the zone's creation.
+    const stepUntil = async (button: 'undo' | 'redo', target: string): Promise<void> => {
+      for (let i = 0; i < 10; i += 1) {
+        const now = await text()
+        if (now === target) return
+        await page.getByTestId(button).click()
+        await expect.poll(text).not.toBe(now)
+      }
     }
+    await stepUntil('undo', before)
     await expect.poll(text).toBe(before)
     await expect.poll(() => fitScale(page, left)).toBe(1)
     await expect(zoneLocator(page, left).getByTestId('zone-shrunk-marker')).toHaveCount(0)
-    for (let i = 0; i < 10 && (await text()) !== full; i += 1) {
-      await page.getByTestId('redo').click()
-    }
+    await stepUntil('redo', full)
     await expect.poll(text).toBe(full)
     await expect.poll(() => fitScale(page, left)).toBeLessThan(typedScale * 0.8)
 

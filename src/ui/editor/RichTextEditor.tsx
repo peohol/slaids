@@ -90,10 +90,12 @@ export interface RichTextEditorProps {
   overflowMessage?: string
   /**
    * A second opinion on the document, for consequences this zone cannot
-   * measure — a citation whose number changes what *other* zones need. Returns
-   * a message to roll the edit back, or `null` to let it stand.
+   * measure — a citation whose number changes what *other* zones need. Given
+   * the edited document and the one it replaces (the last accepted; the store
+   * already holds the edit by now), returns a message to roll the edit back,
+   * or `null` to let it stand.
    */
-  validateDoc?: (doc: RichDoc) => string | null
+  validateDoc?: (doc: RichDoc, previous: RichDoc) => string | null
 }
 
 export function RichTextEditor({
@@ -188,7 +190,7 @@ export function RichTextEditor({
 
       // Fits here, but this document is not the only thing it decides: a
       // citation added or moved renumbers labels across the deck.
-      const elsewhere = validateDocRef.current?.(currentDoc(editor)) ?? null
+      const elsewhere = validateDocRef.current?.(currentDoc(editor), lastValid.current.doc) ?? null
       if (elsewhere) {
         rollBack(elsewhere)
         return

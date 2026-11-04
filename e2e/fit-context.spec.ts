@@ -447,6 +447,64 @@ test.describe('citation numbering and fit', () => {
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 
+  test('refuses a citation typed into a zone when the renumbering pushes another slide\'s title out', async ({
+    page,
+  }) => {
+    // The editor's own flow: the caret in a zone, a reference created and cited
+    // from the dialog. The zone itself would take any amount of text — it is
+    // drawn smaller instead — but what a new number does to *another* slide is
+    // not this zone's to give away.
+    //
+    // Slide 3's title holds one pill citing A1, A2, B1 and B2, which read
+    // `1–4`. A new reference cited on slide 1 after A1 and A2 becomes 3, so
+    // the same pill would read `1, 2, 4, 5` — wider, in a title already full.
+    await createPresentation(page, 'Citation i sone')
+    const first = (await zoneRects(page))[0]
+    await addContentToZone(page, first.id, 'untitled-card')
+    const firstZone = stage(page).locator(`.slide-zone[data-node-id="${first.id}"]`)
+    const firstField = firstZone.locator('.tiptap').first()
+    await caretInto(firstField)
+    await page.keyboard.insertText('Tekst ')
+    await citeNewReferences(page, firstField, ['Kilde A1', 'Kilde A2'])
+    await expect(firstZone.locator('.rd-citation')).toHaveText('1, 2')
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-without-title').click()
+    const second = (await zoneRects(page))[0]
+    await addContentToZone(page, second.id, 'untitled-card')
+    const secondField = stage(page)
+      .locator(`.slide-zone[data-node-id="${second.id}"] .tiptap`)
+      .first()
+    await citeNewReferences(page, secondField, ['Kilde B1', 'Kilde B2'])
+
+    await page.getByTestId('add-slide').click()
+    await page.getByTestId('new-slide-with-title').click()
+    const titleField = stage(page).locator('[data-testid="slide-title"] .tiptap')
+    await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
+    await fillLineToCapacity(page, titleField)
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+
+    // Back on slide 1 (index 0 is the front page), the caret after the pill,
+    // and a new reference cited there.
+    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
+    await firstField.evaluate((element) => {
+      const { editor } = element as HTMLElement & {
+        editor: { commands: { focus: (at: 'end') => boolean } }
+      }
+      editor.commands.focus('end')
+    })
+    await citeNewReference(page, 'Kilde E')
+
+    // Refused in the guard's words, and nothing was renumbered: slide 1 still
+    // cites only A1 and A2, and slide 3's title is as it was, unclipped.
+    await expect(toast(page, 'Citation-nummereringen')).toBeVisible()
+    await expect(firstZone.locator('.rd-citation')).toHaveText('1, 2')
+    await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+  })
+
   test('renumbers citations across slides when the deck is reordered', async ({ page }) => {
     // What a browser can show here is the renumbering itself. Whether it is
     // *refused* at the fit boundary is proved in `commands/citationFit.test.ts`

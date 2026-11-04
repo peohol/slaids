@@ -81,10 +81,11 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             editable={editable}
             caret={caret}
-            validateDoc={(next) =>
+            validateDoc={(next, previous) =>
               docEditRenumberProblem({
+                slideId,
                 nodeId,
-                currentDoc: card.title,
+                previousDoc: previous,
                 nextDoc: next,
                 commit: (presentation, doc) => setCardTitle(presentation, { slideId, nodeId, doc }),
               })
@@ -104,10 +105,11 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             editable={editable}
             caret={caret}
-            validateDoc={(next) =>
+            validateDoc={(next, previous) =>
               docEditRenumberProblem({
+                slideId,
                 nodeId,
-                currentDoc: field.doc,
+                previousDoc: previous,
                 nextDoc: next,
                 commit: (presentation, doc) =>
                   setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
@@ -201,13 +203,14 @@ function CaptionEditor({
           setImageCaption(presentation, { slideId, nodeId, remove: true }),
         )
       }}
-      validateDoc={(next) =>
+      validateDoc={(next, previous) =>
         // A caption may cite, and a citation's number comes from where it first
         // occurs in the whole deck — so an edit here can widen a label on a
         // slide nobody touched. The local measurement cannot see that.
         docEditRenumberProblem({
+          slideId,
           nodeId,
-          currentDoc: caption.doc,
+          previousDoc: previous,
           nextDoc: next,
           commit: (presentation, doc) =>
             setImageCaption(presentation, { slideId, nodeId, doc }),
@@ -246,7 +249,7 @@ function FieldEditor({
   /** The field that was asked for, which may or may not be this one. */
   caret: ActiveField | null
   onChange: (doc: RichDoc) => void
-  validateDoc?: (doc: RichDoc) => string | null
+  validateDoc?: (doc: RichDoc, previous: RichDoc) => string | null
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const setActiveField = useEditorStore((state) => state.setActiveField)
