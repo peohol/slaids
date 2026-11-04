@@ -23,7 +23,6 @@ import {
   slidePoint,
   splitSelected,
   stage,
-  toast,
   watchForErrors,
   zoneRects,
   openInspectorKindMenu,
@@ -165,7 +164,7 @@ test.describe('negativt rom', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('rolls back a card title that runs out of its header', async ({ page }) => {
+  test('draws a card title that runs out of its header smaller', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Korttittel')
     const zones = await zoneRects(page)
@@ -175,7 +174,9 @@ test.describe('negativt rom', () => {
     await header.locator('.tiptap').click()
     await page.keyboard.insertText('En korttittel som er alt for lang for headeren sin. '.repeat(6))
 
-    await expect(toast(page, 'Tittelen får ikke plass')).toBeVisible()
+    // Taken, and the zone draws it smaller rather than refusing it.
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
     // Measured the way the fit gate measures it: the header is the box that
     // clips, and nothing inside it keeps its overflow to itself any more.
     const overflow = await header.evaluate(

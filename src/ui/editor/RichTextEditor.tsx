@@ -3,18 +3,22 @@
  *
  * Two rules make this component the enforcement point of the content-fit
  * invariant:
- *  - an edit that makes the content overflow its zone, or overflow it more
- *    than it already did, is rolled back to the last valid document (never
+ *  - in a field that measures its overflow (`measureOverflow`), an edit that
+ *    makes the content overflow its box, or overflow it more than it already
+ *    did, is rolled back to the last valid document (never
  *    mid-IME-composition) — the same rule, `isOverflowRegression`, that every
  *    command is held to — and
  *  - pasted HTML is normalised before it can reach the schema.
+ *
+ * A zone's own fields measure nothing: what a person writes there is always
+ * taken, and the zone draws it smaller until it fits (`ui/slide/ZoneFitBox`).
+ * Only the fit of *other* zones (`validateDoc`) can still refuse it.
  */
 
 import { useCallback, useEffect, useRef } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { FIT_TOLERANCE } from '../../domain/constants'
 import { isOverflowRegression } from '../../domain/commands/fitGuard'
-import { SHRUNK_ZONE_TYPING_MESSAGE } from './ShrunkZoneMarker'
 import { trimTrailingBlankLines } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -78,8 +82,9 @@ export interface RichTextEditorProps {
   onBlur?: () => void
   onEditorReady?: (editor: Editor | null) => void
   /**
-   * Returns how much the surrounding zone currently overflows, in logical
-   * pixels. When it is positive after an edit, the edit is rejected.
+   * Returns how much the field's box currently overflows, in logical pixels.
+   * An edit that makes it worse is rejected. Left out where the content is
+   * drawn smaller instead of being refused.
    */
   measureOverflow?: () => number
   overflowMessage?: string
@@ -115,6 +120,7 @@ export function RichTextEditor({
   const initialised = useRef(false)
   const lastEmitted = useRef<string>(JSON.stringify(doc))
   const measureRef = useRef(measureOverflow)
+  const measure = useCallback(() => measureRef.current?.() ?? 0, [])
   const onChangeRef = useRef(onChange)
   const validateDocRef = useRef(validateDoc)
 
@@ -134,8 +140,7 @@ export function RichTextEditor({
    */
   const validate = useCallback(
     (editor: Editor): void => {
-      const measure = measureRef.current
-      if (!measure || editor.isDestroyed || editor.view.composing) return
+      if (editor.isDestroyed || editor.view.composing) return
 
       const overflow = measure()
       // The first validation observes whatever the document arrived as; only
@@ -177,11 +182,7 @@ export function RichTextEditor({
       // overflowing document — a zone a person drew smaller than its text —
       // could be cut but never corrected, not even a letter for a letter.
       if (isOverflowRegression(overflow, lastOverflow.current)) {
-        // A field that already did not fit at normal size — almost always a
-        // zone a person drew smaller than its text — has room to correct, not
-        // to grow, and saying «does not fit» over text drawn with room to
-        // spare would read as wrong.
-        rollBack(lastOverflow.current > 0 ? SHRUNK_ZONE_TYPING_MESSAGE : overflowMessage)
+        rollBack(overflowMessage)
         return
       }
 
@@ -194,7 +195,7 @@ export function RichTextEditor({
       }
       accept()
     },
-    [overflowMessage],
+    [measure, overflowMessage],
   )
 
   const scheduleValidate = useCallback(
@@ -220,15 +221,14 @@ export function RichTextEditor({
    * better than before" and gets rolled back, so the zone can never be fixed.
    */
   const rebaseline = useCallback((editor: Editor): void => {
-    const measure = measureRef.current
-    if (!measure || editor.isDestroyed || editor.view.composing) return
+    if (editor.isDestroyed || editor.view.composing) return
     const overflow = measure()
     lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
     lastValid.current = {
       doc: currentDoc(editor),
       anchor: editor.state.selection.anchor,
     }
-  }, [])
+  }, [measure])
 
   const scheduleRebaseline = useCallback(
     (editor: Editor) => {

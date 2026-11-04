@@ -20,7 +20,6 @@ import {
   scrollSettled,
   selectionTaken,
   stage,
-  toast,
   waitForSaved,
   watchForErrors,
   zoneRects,
@@ -329,12 +328,13 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(stage(page)).toContainText('Kort nok.')
 
     // The zone is drawn several times its real size here and would happily
-    // hold this. The zone at 1600 × 900 would not, so the edit is refused —
-    // measured against the slide, exactly as a command measures it.
+    // hold this. The zone at 1600 × 900 would not — measured against the
+    // slide, exactly as a command measures it — so the text is taken and the
+    // zone draws it smaller, rather than refusing it.
     await page.keyboard.insertText('Altfor mye tekst til denne sonen. '.repeat(120))
-    await expect(toast(page, 'får ikke plass')).toBeVisible()
-    await expect(field).not.toContainText('Altfor mye tekst')
-    // The draft that was accepted is still there; nothing was lost.
+    await expect(field).toContainText('Altfor mye tekst')
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
     await expect(field).toContainText('Kort nok.')
 
     await exitFocus(page)
@@ -1188,12 +1188,12 @@ test.describe('kompakt arbeidsflate', () => {
     /*
      * And the surface is still not the measure. The zone is drawn several times
      * its real size here and would happily hold this; the zone at 1600 × 900
-     * would not, so the edit is refused with the same message and the draft
-     * that was accepted stays.
+     * would not, so the text is taken and drawn smaller, as on the whole slide.
      */
     await page.keyboard.insertText('Altfor mye tekst til en halv slide. '.repeat(120))
-    await expect(toast(page, 'får ikke plass')).toBeVisible()
-    await expect(field).not.toContainText('Altfor mye tekst')
+    await expect(field).toContainText('Altfor mye tekst')
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
     await expect(field).toContainText('Skrevet rett i sonen.')
 
     // One × ends the typing and the focused view together, in one press.

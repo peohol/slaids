@@ -29,7 +29,8 @@ test.describe('content fit', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('rejects body text that would overflow its zone', async ({ page }) => {
+  test('takes body text that would overflow its zone, and draws it smaller', async ({ page }) => {
+    const guard = watchForErrors(page)
     await createPresentation(page, 'Innholdsgrense')
     await enterZoneMode(page)
     await splitSelected(page, [1, 1, 1], 'x')
@@ -37,23 +38,24 @@ test.describe('content fit', () => {
 
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
-    const field = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] .subfield .tiptap`)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
+    const field = zone.locator('.subfield .tiptap')
     await field.click()
     // insertText lands in one transaction, which is what a paste looks like.
+    const sentence = 'Dette er en setning som fyller opp sonen ganske raskt. '.repeat(12)
     for (let i = 0; i < 6; i += 1) {
-      await page.keyboard.insertText('Dette er en setning som fyller opp sonen ganske raskt. '.repeat(12))
+      await page.keyboard.insertText(sentence)
     }
 
-    await expect(page.getByTestId('toast')).toBeVisible()
-    const overflow = await page.evaluate(() => {
-      const stage = document.querySelector('[data-testid="stage-slide"]') as HTMLElement
-      let worst = 0
-      for (const element of stage.querySelectorAll<HTMLElement>('[data-fit-scroll]')) {
-        worst = Math.max(worst, element.scrollHeight - element.clientHeight)
-      }
-      return worst
-    })
-    expect(overflow).toBeLessThanOrEqual(1)
+    // Every word is kept …
+    await expect
+      .poll(() => field.evaluate((element) => element.textContent ?? ''))
+      .toBe(sentence.repeat(6))
+    // … and drawn smaller, with nothing clipped and nothing refused.
+    await expect.poll(() => zone.locator('.zone-fit').getAttribute('data-fit-scale')).not.toBeNull()
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
   })
 
   test('refuses a global font change that would hide existing text', async ({ page }) => {

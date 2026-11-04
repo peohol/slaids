@@ -436,8 +436,47 @@ export async function selectionTaken(field: Locator): Promise<void> {
 }
 
 /**
- * Fill a zone's body field until the editor stops accepting more — the text is
- * then close to the zone's capacity for the current font and numbering.
+ * Whether the zone a field sits in is drawn smaller than normal size, once
+ * the frame that follows the last edit has re-fitted it (`ZoneFitBox`).
+ */
+export async function drawnSmaller(field: Locator): Promise<boolean> {
+  return field.evaluate(
+    (element) =>
+      new Promise<boolean>((resolve) => {
+        // The editor's check and the re-fit both run in the next frame; the
+        // one after that sees what they settled on.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() =>
+            resolve(element.closest('.zone-fit')?.hasAttribute('data-fit-scale') ?? false),
+          ),
+        )
+      }),
+  )
+}
+
+/** Remove the last `count` characters before the caret, in one edit. */
+async function deleteBeforeCaret(field: Locator, count: number): Promise<void> {
+  await field.evaluate((element, n) => {
+    const { editor } = element as HTMLElement & {
+      editor: {
+        state: { selection: { from: number } }
+        commands: { deleteRange: (range: { from: number; to: number }) => boolean }
+      }
+    }
+    const to = editor.state.selection.from
+    editor.commands.deleteRange({ from: Math.max(1, to - n), to })
+  }, count)
+}
+
+/**
+ * Fill a zone's body field until it holds as much as it can at normal size —
+ * the text is then close to the zone's capacity for the current font and
+ * numbering.
+ *
+ * A zone's fields take any amount of text and draw it smaller when it no
+ * longer fits, so "full" is the last length at which the zone is still drawn
+ * at normal size: each chunk that tips it over is taken back, and then the
+ * remaining slack is closed a character at a time.
  *
  * Self-calibrating on purpose: a test that says "one more character no longer
  * fits" means nothing unless the zone was actually full first, and hard-coded
@@ -450,29 +489,40 @@ export async function fillZoneToCapacity(
 ): Promise<void> {
   const field = stage(page).locator(`.slide-zone[data-node-id="${nodeId}"] .tiptap`).first()
   await caretInto(field)
+  const chunk = 'Dette er en setning som fyller sonen. '.repeat(3)
   for (let i = 0; i < (options.chunks ?? 40); i += 1) {
-    await page.keyboard.insertText('Dette er en setning som fyller sonen. '.repeat(3))
+    await page.keyboard.insertText(chunk)
+    if (await drawnSmaller(field)) {
+      await deleteBeforeCaret(field, chunk.length)
+      await expect.poll(() => drawnSmaller(field)).toBe(false)
+      break
+    }
   }
   // A test that has to finish inside a deadline the app is counting can trade
   // the last few characters of slack for the seconds the top-up costs.
-  if (options.topUp !== false) await topUpToCapacity(page, field)
+  if (options.topUp === false) return
+  // A narrow glyph on purpose: the slack this leaves behind is the smallest
+  // effect a test can hope to observe afterwards, and 'i' is a third of 'm'.
+  for (let i = 0; i < 400; i += 1) {
+    await page.keyboard.insertText('i')
+    if (await drawnSmaller(field)) {
+      await deleteBeforeCaret(field, 1)
+      await expect.poll(() => drawnSmaller(field)).toBe(false)
+      break
+    }
+  }
+  await page.waitForTimeout(250)
 }
 
 /**
  * Insert one character at a time until the editor stops accepting them.
  *
- * The coarse fill above leaves as much slack as its last rejected chunk, which
- * can be a hundred characters — enough to swallow the effect a test is trying
- * to observe. This closes that gap to a character or two. The small pause is
- * what lets the deferred validation run between attempts.
- *
- * It stops when the editor says no, not after a fixed count: a narrow glyph
- * fills a chunk's worth of slack only after a couple of hundred tries, and a
- * fixed forty left the zone visibly short of full — so a later «one more thing
- * no longer fits» was really «one more thing fits», and the test failed on
- * something the product did right. A refusal is a press that did not make the
- * text longer, seen twice running so a rollback landing late is not mistaken
- * for room.
+ * For the fields that still refuse text that does not fit — a slide title, a
+ * section's lines; a zone's fields take it and draw it smaller, see
+ * `fillZoneToCapacity`. A refusal is a press that did not make the text
+ * longer, seen twice running so a rollback landing late is not mistaken for
+ * room. The small pause is what lets the deferred validation run between
+ * attempts.
  */
 export async function topUpToCapacity(page: Page, field: Locator, attempts = 400): Promise<void> {
   await caretInto(field)

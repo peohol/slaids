@@ -359,10 +359,14 @@ test.describe('citation numbering and fit', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
 
     // The pill occupies room like any other glyph run: with the zone full, one
-    // more citation is refused rather than clipped.
+    // more citation tips it over, and the zone draws its content smaller
+    // rather than clipping the pill or refusing it.
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
+    await expect(zone.locator('.zone-fit[data-fit-scale]')).toHaveCount(0)
     await citeNewReference(page, 'Kilde nummer to')
-    await expect(toast(page, 'Innholdet får ikke plass i sonen.')).toBeVisible()
-    await expect(stage(page).locator('.rd-citation')).toHaveText('1')
+    // Adjacent to the first, so the two share one pill.
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1, 2')
+    await expect(zone.locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 

@@ -26,17 +26,6 @@ import { Icon } from '../components/Icon'
 export const SHRUNK_ZONE_MESSAGE =
   'Innholdet er automatisk forminsket. Gjør sonen større for å gjenopprette normal skriftstørrelse.'
 
-/**
- * Why more text was refused in a zone drawn small.
- *
- * Text is held to its normal size when it is written, the same as anywhere
- * else: shrinking a zone made room for nothing, and the type would only get
- * smaller with every word. Shortening, rewording and formatting are all still
- * fine; for more, the zone has to grow.
- */
-export const SHRUNK_ZONE_TYPING_MESSAGE =
-  'Sonen er for liten til mer tekst i normal skriftstørrelse. Gjør sonen større for å skrive mer.'
-
 /** The badge's diameter, in screen pixels. */
 const BADGE_PX = 20
 

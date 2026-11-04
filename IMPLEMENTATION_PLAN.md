@@ -300,8 +300,10 @@ En sone med innhold har to grenser, og de betyr forskjellige ting
   person som drar, er den en magnetisk grense som kan overvinnes (§11.5,
   «Den myke grensen under dra»).
 
-Bare en persons egen størrelsesendring kan lagre en sone under den myke
-grensen, og bare gjennom én inngang: `src/domain/commands/manualLayout.ts`
+Bare en person kan lagre en sone under den myke grensen, på to måter: ved å
+gjøre sonen mindre, eller ved å skrive eller lime inn mer tekst i den enn det er
+plass til (§17, «Skriving i en sone»). Størrelsesendringen har én inngang:
+`src/domain/commands/manualLayout.ts`
 (`setSplitWeightsByHand`, `rearrangeZonesByHand`). Den kaller de samme
 kommandoene som alle andre, men uten fit-målerne — slik at fit-regresjon ikke
 vurderes, mens hard minstegrense, kvantisering, strukturregler og luftregelen
@@ -2758,7 +2760,8 @@ i gapet. Sliden klipper: en skygge kan havne i gapet, aldri utenfor sliden.
 
 ### Forminsket visning: når en person har gjort sonen for liten
 
-En sone en person har dratt under innholdets myke minstegrense (§7), tegnes med
+En sone en person har dratt under innholdets myke minstegrense (§7), eller
+skrevet mer i enn det er plass til, tegnes med
 innholdet forminsket, slik at alt fortsatt er synlig innenfor sonen
 (`src/ui/slide/ZoneFitBox.tsx`). Innholdet legges ut i en boks `1/s` ganger
 sonen og tegnes skalert ned med `s`, der `s` er den største skalaen der alt får
@@ -2850,10 +2853,22 @@ Men full `canFit()`-håndheving skal være første prioritet etter den operative
 
 Ved streng typing-validering kan «last valid document»-mønster brukes, men IME/composition må ikke brytes ved rollback midt i composition.
 
-Typing-validering bruker samme regel som kommandoene (`isOverflowRegression`):
-en endring som gjør en overflyt verre, rulles tilbake; en som lar den være som
-den var eller gjør den mindre, godtas. Slik kan tekst i en sone som allerede
-ikke får plass i normal størrelse rettes, ikke bare kuttes.
+**Skriving i en sone.** En sones egne tekstfelt (brødtekst, delfelt,
+korttittel, bildetekst) avviser aldri tekst fordi den ikke får plass. Skriver
+eller limer en person inn mer enn sonen rommer i normal skriftstørrelse, tas
+alt imot, og sonen tegner innholdet forminsket til alt får plass (se
+«Forminsket visning» over). Lagret skriftstørrelse og tema endres ikke; angres
+eller kortes teksten ned, er normal størrelse tilbake av seg selv. Feltene måler
+derfor ingen overflyt (`EditableZoneContent` gir ingen `measureOverflow`). Det
+eneste som fortsatt kan avvise en endring der, er konsekvenser for *andre*
+soner: en citation som omnummererer et dekk så innhold et annet sted ikke får
+plass (`docEditRenumberProblem`). Agenter er uendret: `set_zone_text` og de
+andre operasjonene holdes til fit-regelen.
+
+Felter utenfor en sone — slidetittelen og en inndelingsside — tegnes ikke
+forminsket, og der bruker typing-valideringen samme regel som kommandoene
+(`isOverflowRegression`): en endring som gjør en overflyt verre, rulles
+tilbake; en som lar den være som den var eller gjør den mindre, godtas.
 
 ---
 
@@ -6948,8 +6963,9 @@ likt.
 det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
 gjennom den samme offscreen-måleren kommandoene bruker. At det fokuserte feltet
 er tegnet større endrer ingenting: visningen er en transform, og målingen skjer
-i layout, ikke på skjermen. En endring som ikke får plass rulles tilbake med
-samme melding som på stagen, og kladden som ble godtatt blir stående.
+i layout, ikke på skjermen. Mer tekst enn sonen rommer tas imot og tegnes
+forminsket, som på stagen (§17, «Skriving i en sone»); i en slidetittel rulles
+den tilbake med samme melding som på stagen.
 
 **Konsekvens som må kjennes:** en sone som er bred i det logiske rommet tegnes
 ikke stor på en smal skjerm, fordi fokuseringen er en uniform skalering av den
