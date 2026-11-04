@@ -778,10 +778,11 @@ export function EditorStage({
                       setActiveEditor(titleEditorRef.current)
                       setActiveField({ nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' })
                     }}
-                    validateDoc={(next) =>
+                    validateDoc={(next, previous) =>
                       docEditRenumberProblem({
+                        slideId: slide.id,
                         nodeId: TITLE_NODE_ID,
-                        currentDoc: slide.title ?? next,
+                        previousDoc: previous,
                         nextDoc: next,
                         commit: (presentation, doc) => setSlideTitle(presentation, slide.id, doc),
                       })

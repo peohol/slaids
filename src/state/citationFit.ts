@@ -31,9 +31,23 @@ function citationSignature(doc: RichDoc): string {
 }
 
 export interface DocEditGuardInput {
-  /** The zone being edited; its own overflow is the live editor's business. */
+  /**
+   * The zone being edited; its own overflow is the live editor's business.
+   * Both ids, because a node id alone is not unique across the deck: every
+   * slide's title is `TITLE_NODE_ID`, and another slide's title is exactly
+   * what a renumbering can push out of its line.
+   */
+  slideId: string
   nodeId: string
-  currentDoc: RichDoc
+  /**
+   * The document as it was before the edit: the last one the editor accepted.
+   *
+   * Not the store's, and not the one the field was rendered with. The editor
+   * writes every edit to the store as it is typed and judges it a frame later,
+   * so by the time this runs both of those already hold the edit — and an edit
+   * compared with itself never renumbers anything.
+   */
+  previousDoc: RichDoc
   nextDoc: RichDoc
   /** How this document is written back, so the prospective deck can be built. */
   commit: (presentation: Presentation, doc: RichDoc) => Result<Presentation>
@@ -44,15 +58,19 @@ export interface DocEditGuardInput {
  * `null` when it is safe.
  */
 export function docEditRenumberProblem(input: DocEditGuardInput): string | null {
-  if (citationSignature(input.currentDoc) === citationSignature(input.nextDoc)) return null
+  if (citationSignature(input.previousDoc) === citationSignature(input.nextDoc)) return null
 
-  const before = useEditorStore.getState().presentation
-  if (!before) return null
-  const after = input.commit(before, input.nextDoc)
+  const deck = useEditorStore.getState().presentation
+  if (!deck) return null
+  // Both sides are built from the same deck with only this document set, so
+  // they differ by the edit and nothing else — whether or not the store has
+  // taken the edit yet.
+  const after = input.commit(deck, input.nextDoc)
   if (!after.ok) return after.error.message
+  const before = input.commit(deck, input.previousDoc)
 
-  const regressions = findFitRegressions(before, after.value, domFitCheckers).filter(
-    (regression) => regression.nodeId !== input.nodeId,
+  const regressions = findFitRegressions(before.ok ? before.value : deck, after.value, domFitCheckers).filter(
+    (regression) => regression.slideId !== input.slideId || regression.nodeId !== input.nodeId,
   )
   if (regressions.length === 0) return null
   return regressions.length === 1

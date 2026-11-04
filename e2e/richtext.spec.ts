@@ -156,11 +156,12 @@ test.describe('rich text', () => {
     await chooseFromTextMenu(page, 'image-tools', 'image-width', 'image-width-50')
     await expect.poll(ratio).toBeCloseTo(0.5, 1)
 
-    // Full width would make the figure taller than the card has room for, so
-    // the content-fit guard rejects it and the width stays where it was.
+    // Full width makes the figure taller than the card has room for at normal
+    // size; the width is taken, and the zone draws its content smaller.
     await chooseFromTextMenu(page, 'image-tools', 'image-width', 'image-width-100')
-    await expect(page.getByTestId('toast')).toBeVisible()
-    await expect.poll(ratio).toBeCloseTo(0.5, 1)
+    await expect.poll(ratio).toBeCloseTo(1, 1)
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
   })
 
   test('inserts a citation into a card title', async ({ page }) => {

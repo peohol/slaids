@@ -15,11 +15,11 @@ import {
   addContentToZone,
   caretInto,
   createPresentation,
+  drawnSmaller,
   enterContentMode,
   enterZoneMode,
   splitSelected,
   stage,
-  toast,
   waitForSaved,
   watchForErrors,
   zoneRects,
@@ -30,7 +30,7 @@ import { createLeaf } from '../src/domain/layout'
 import { geometryForTheme } from '../src/domain/metrics'
 import { defaultTheme } from '../src/domain/presentation'
 import { SOFT_LIMIT_RESISTANCE_PX } from '../src/ui/editor/softLimitDrag'
-import { SHRUNK_ZONE_MESSAGE, SHRUNK_ZONE_TYPING_MESSAGE } from '../src/ui/editor/ShrunkZoneMarker'
+import { SHRUNK_ZONE_MESSAGE } from '../src/ui/editor/ShrunkZoneMarker'
 
 /** The narrowest a text zone may ever be, whatever it says. */
 const HARD_MIN_WIDTH = minimumSizeFor(createLeaf(createContainer()), geometryForTheme(defaultTheme())).width
@@ -243,6 +243,76 @@ test.describe('myk minstegrense', () => {
     expect(font).toBe(normalFont)
   })
 
+  test('tar imot tekst som skrives eller limes inn forbi det som får plass, og forminsker den', async ({
+    page,
+  }) => {
+    const { errors } = watchForErrors(page)
+    const left = await rowWithText(page, 'Skriv forbi')
+    await enterContentMode(page)
+    const field = zoneLocator(page, left).locator('.tiptap').first()
+    const text = () => field.evaluate((element) => element.textContent ?? '')
+    const before = await text()
+    expect(await fitScale(page, left)).toBe(1)
+
+    // Typed key by key, on past what fits at normal size: every letter is
+    // taken, and the zone draws the text smaller instead of refusing it.
+    await caretInto(field)
+    const sentence = 'Enda en setning som skrives. '
+    let typed = ''
+    for (let i = 0; i < 20 && !(await drawnSmaller(field)); i += 1) {
+      await page.keyboard.type(sentence)
+      typed += sentence
+    }
+    expect(await drawnSmaller(field), 'typing went past what fits').toBe(true)
+    await expect.poll(text).toBe(typed + before)
+    await expect(zoneLocator(page, left).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    expect(await contentInside(page, left)).toBe(true)
+    const typedScale = await fitScale(page, left)
+
+    // A paste far bigger than the zone: all of it, smaller still.
+    const pasted = 'Limt inn tekst som ikke får plass. '.repeat(40)
+    await field.evaluate((element, data) => {
+      const transfer = new DataTransfer()
+      transfer.setData('text/plain', data)
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+      )
+    }, pasted)
+    await expect.poll(text).toContain(pasted.trim())
+    const full = await text()
+    await expect.poll(() => fitScale(page, left)).toBeLessThan(typedScale * 0.8)
+    expect(await contentInside(page, left)).toBe(true)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
+
+    // Undone, the text is back at its normal size, unmarked; redone, small again.
+    // One step at a time, each waited for: a press sent before the last one
+    // has landed would undo past the typing, into the zone's creation.
+    const stepUntil = async (button: 'undo' | 'redo', target: string): Promise<void> => {
+      for (let i = 0; i < 10; i += 1) {
+        const now = await text()
+        if (now === target) return
+        await page.getByTestId(button).click()
+        await expect.poll(text).not.toBe(now)
+      }
+    }
+    await stepUntil('undo', before)
+    await expect.poll(text).toBe(before)
+    await expect.poll(() => fitScale(page, left)).toBe(1)
+    await expect(zoneLocator(page, left).getByTestId('zone-shrunk-marker')).toHaveCount(0)
+    await stepUntil('redo', full)
+    await expect.poll(text).toBe(full)
+    await expect.poll(() => fitScale(page, left)).toBeLessThan(typedScale * 0.8)
+
+    // Saved and reopened: the same text, drawn the same.
+    await waitForSaved(page)
+    const savedScale = await fitScale(page, left)
+    await page.reload()
+    await expect.poll(text).toBe(full)
+    await expect.poll(() => fitScale(page, left)).toBeCloseTo(savedScale, 2)
+    expect(await contentInside(page, left)).toBe(true)
+    expect(errors).toEqual([])
+  })
+
   test('lar en forminsket sone redigeres, forstørret, og viser den uten merke i presentasjon', async ({
     page,
   }) => {
@@ -266,10 +336,13 @@ test.describe('myk minstegrense', () => {
     await page.keyboard.press('Shift+ArrowRight')
     await page.keyboard.insertText('d')
     await expect.poll(text).toBe(`d${before.slice(1)}`)
-    // More text is held to normal size, like anywhere else, and says why.
-    await page.keyboard.insertText('Mange flere ord som ikke får plass. '.repeat(6))
-    await expect(toast(page, SHRUNK_ZONE_TYPING_MESSAGE)).toBeVisible()
-    await expect.poll(text).toBe(`d${before.slice(1)}`)
+    // More text is taken too, and drawn smaller still.
+    const scaleBefore = await fitScale(page, left)
+    const more = 'Mange flere ord som ikke får plass. '.repeat(6)
+    await page.keyboard.insertText(more)
+    const grown = `d${more}${before.slice(1)}`
+    await expect.poll(text).toBe(grown)
+    await expect.poll(() => fitScale(page, left)).toBeLessThan(scaleBefore)
     expect(await contentInside(page, left)).toBe(true)
 
     // The inspector draws just this zone large enough to write in, and back.
@@ -283,7 +356,7 @@ test.describe('myk minstegrense', () => {
     // Enlarging puts the caret in the field itself, at the end of the text.
     await expect(field).toBeFocused()
     await page.keyboard.press('Backspace')
-    await expect.poll(text).toBe(`d${before.slice(1, -1)}`)
+    await expect.poll(text).toBe(grown.slice(0, -1))
     await page.getByTestId('zone-shrunk-show-slide').click()
     await expect(page.getByTestId('zone-shrunk-enlarge')).toBeVisible()
 

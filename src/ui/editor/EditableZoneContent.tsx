@@ -3,13 +3,16 @@
  *
  * Uses the same frame as the static renderer, so what the user edits is exactly
  * what will be presented — and exactly what the fit measurement sees.
+ *
+ * None of these fields refuses text for lack of room. The zone is drawn inside
+ * a `ZoneFitBox`, which draws whatever does not fit at normal size smaller
+ * until it does, so a person typing on or pasting into a full zone gets the
+ * text, smaller, rather than a refusal (IMPLEMENTATION_PLAN §17).
  */
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { setCardTitle, setImageCaption, setSubfieldDoc } from '../../domain/commands'
-import { measureOverflowParts } from '../../state/measure'
-import { CAPTION_PART, CARD_TITLE_PART, subfieldPart } from '../../domain/fit'
 import { docEditRenumberProblem } from '../../state/citationFit'
 import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
@@ -18,7 +21,6 @@ import { sameField } from './textTarget'
 import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
-import { useAtNormalSize } from '../slide/ZoneFitBox'
 import { EditableImagePanel } from './EditableImagePanel'
 import { RichTextEditor } from './RichTextEditor'
 
@@ -53,29 +55,7 @@ export function EditableZoneContent({
   /** Opens the upload dialog for a picture panel with no file in it yet. */
   onPickImage: (nodeId: string) => void
 }) {
-  const hostRef = useRef<HTMLDivElement>(null)
   const run = useEditorStore((state) => state.run)
-  const atNormalSize = useAtNormalSize()
-
-  /**
-   * How much *this* region of the zone overflows, not the zone as a whole.
-   *
-   * A zone is several places that can clip — a card's header, each field of its
-   * body, the caption over a picture — and an editor that measured all of them
-   * together could not tell «my field got worse» from «the field next to me was
-   * already worse». That is the hole a card title grew through: the body was
-   * over its box, so the zone's worst number never moved while the title ran
-   * out of its header. Each editor asks about its own part, which is the same
-   * unit the domain's fit guard compares. See `FitParts`.
-   */
-  const measurePart = useCallback(
-    (part: string) =>
-      // At normal size, even while the zone is drawn smaller: a zone a person
-      // shrank below what its text needs has still not been given room for
-      // more of it, and the scaled drawing would say it had.
-      atNormalSize(() => (hostRef.current ? (measureOverflowParts(hostRef.current)[part] ?? 0) : 0)),
-    [atNormalSize],
-  )
 
   const renderCaption = (caption: ImageCaption) => (
     <CaptionBox caption={caption}>
@@ -85,13 +65,12 @@ export function EditableZoneContent({
         slideId={slideId}
         editable={editable}
         takeCaret={editable && sameField(caret, { nodeId, subfieldId: null, kind: 'caption' })}
-        measureOverflow={() => measurePart(CAPTION_PART)}
       />
     </CaptionBox>
   )
 
   return (
-    <div className="zone-host" ref={hostRef}>
+    <div className="zone-host">
       <ZoneContentFrame
         content={content}
         renderTitle={(card) => (
@@ -102,12 +81,11 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             editable={editable}
             caret={caret}
-            measureOverflow={() => measurePart(CARD_TITLE_PART)}
-            overflowMessage="Tittelen får ikke plass i kortet."
-            validateDoc={(next) =>
+            validateDoc={(next, previous) =>
               docEditRenumberProblem({
+                slideId,
                 nodeId,
-                currentDoc: card.title,
+                previousDoc: previous,
                 nextDoc: next,
                 commit: (presentation, doc) => setCardTitle(presentation, { slideId, nodeId, doc }),
               })
@@ -127,11 +105,11 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             editable={editable}
             caret={caret}
-            measureOverflow={() => measurePart(subfieldPart(field.id))}
-            validateDoc={(next) =>
+            validateDoc={(next, previous) =>
               docEditRenumberProblem({
+                slideId,
                 nodeId,
-                currentDoc: field.doc,
+                previousDoc: previous,
                 nextDoc: next,
                 commit: (presentation, doc) =>
                   setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
@@ -175,14 +153,12 @@ function CaptionEditor({
   slideId,
   editable,
   takeCaret,
-  measureOverflow,
 }: {
   caption: ImageCaption
   nodeId: string
   slideId: string
   editable: boolean
   takeCaret: boolean
-  measureOverflow: () => number
 }) {
   const run = useEditorStore((state) => state.run)
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -213,8 +189,6 @@ function CaptionEditor({
       autoFocus={editable && isDocEmpty(caption.doc)}
       takeCaret={takeCaret}
       className="image-caption__text"
-      measureOverflow={measureOverflow}
-      overflowMessage="Bildeteksten får ikke plass i bildet."
       onEditorReady={(editor) => {
         editorRef.current = editor
       }}
@@ -229,13 +203,14 @@ function CaptionEditor({
           setImageCaption(presentation, { slideId, nodeId, remove: true }),
         )
       }}
-      validateDoc={(next) =>
+      validateDoc={(next, previous) =>
         // A caption may cite, and a citation's number comes from where it first
         // occurs in the whole deck — so an edit here can widen a label on a
         // slide nobody touched. The local measurement cannot see that.
         docEditRenumberProblem({
+          slideId,
           nodeId,
-          currentDoc: caption.doc,
+          previousDoc: previous,
           nextDoc: next,
           commit: (presentation, doc) =>
             setImageCaption(presentation, { slideId, nodeId, doc }),
@@ -264,8 +239,6 @@ function FieldEditor({
   editable,
   caret,
   onChange,
-  measureOverflow,
-  overflowMessage,
   validateDoc,
 }: {
   doc: RichDoc
@@ -276,9 +249,7 @@ function FieldEditor({
   /** The field that was asked for, which may or may not be this one. */
   caret: ActiveField | null
   onChange: (doc: RichDoc) => void
-  measureOverflow: () => number
-  overflowMessage?: string
-  validateDoc?: (doc: RichDoc) => string | null
+  validateDoc?: (doc: RichDoc, previous: RichDoc) => string | null
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -318,8 +289,6 @@ function FieldEditor({
       onChange={onChange}
       onFocus={handleFocus}
       onEditorReady={handleReady}
-      measureOverflow={measureOverflow}
-      overflowMessage={overflowMessage}
       validateDoc={validateDoc}
     />
   )

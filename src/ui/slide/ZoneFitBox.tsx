@@ -1,9 +1,11 @@
 /**
  * A zone's content, drawn smaller when it does not fit at normal size.
  *
- * Only a person's own resize can leave a zone below its content's soft
- * minimum (`domain/commands/manualLayout.ts`); when it does, nothing may be
- * hidden. So the content is laid out in a box `1/s` times the zone and drawn
+ * Only a person can leave a zone with more content than it has room for at
+ * normal size: by resizing it below its content's soft minimum
+ * (`domain/commands/manualLayout.ts`), or by writing or pasting more into it
+ * than fits — a zone's fields take all of it (`ui/editor/EditableZoneContent`).
+ * Either way nothing may be hidden. So the content is laid out in a box `1/s` times the zone and drawn
  * scaled back down by `s`, with `s` the largest scale at which it fits
  * (`domain/softSize.ts`). Everything in the zone shrinks together — the type,
  * the space between paragraphs, list indents, a card's header and padding,
@@ -21,15 +23,13 @@
  * The scale is found again whenever something it depends on changes: the
  * zone's size, the theme and the citation numbers at once; the drawing inside
  * — the content, a font arriving, a picture loading — one animation frame
- * later, after the editor's typing guard has had its say. The search starts from the last answer, so a geometry
- * that moves a little costs a layout or two of this one zone, and a zone that
- * fits costs one.
+ * later, after the editor has had its say about the edit. The search starts
+ * from the last answer, so a geometry that moves a little costs a layout or
+ * two of this one zone, and a zone that fits costs one.
  */
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -43,26 +43,6 @@ import { useSlideRender } from './SlideRenderContext'
 
 /** Below this a scale is a scale; above it, rounding. */
 const SCALED = 1 - 1e-4
-
-/**
- * Run a reading of the zone's layout as if it were at normal size.
- *
- * The editor's typing guard asks how far a field overflows *at normal type* —
- * a zone that is drawn small has still not been given room for more text —
- * and reading the scaled box would answer for the enlarged one instead. This
- * lays the box out at the zone's own size for the duration of `read`, and puts
- * it back before anything is painted.
- */
-export type AtNormalSize = <T>(read: () => T) => T
-
-const NormalSizeContext = createContext<AtNormalSize | null>(null)
-
-const direct: AtNormalSize = (read) => read()
-
-/** `AtNormalSize` for the zone this is rendered in; reads directly outside one. */
-export function useAtNormalSize(): AtNormalSize {
-  return useContext(NormalSizeContext) ?? direct
-}
 
 /** Whether a found scale is drawn as one, rather than being rounding. */
 export function isZoneFitScaled(scale: number): boolean {
@@ -117,11 +97,6 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   // drawn small anywhere.
   useEffect(() => () => onScaleRef.current?.(1), [])
 
-  const draw = useCallback(
-    (element: HTMLElement, at: number) => drawZoneFit(element, width, height, at, isZoneFitScaled(at)),
-    [width, height],
-  )
-
   const refit = useCallback(() => {
     const element = innerRef.current
     if (!element) return
@@ -135,13 +110,13 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
       scaleRef.current,
     )
     const next = isZoneFitScaled(found) ? found : 1
-    draw(element, next)
+    drawZoneFit(element, width, height, next, next !== 1)
     if (next !== scaleRef.current) {
       scaleRef.current = next
       setScale(next)
     }
     onScaleRef.current?.(next)
-  }, [draw, width, height])
+  }, [width, height])
 
   // The geometry, the theme and the numbering: re-fitted before the change is
   // painted, so a drag never shows a frame of the new size at the old scale.
@@ -154,12 +129,12 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   // for a static drawing, an editor that fills itself after mounting, a
   // picture that loads, a font that arrives) without any prop of this box
   // changing, so it watches the drawing itself. And not at once: what the
-  // editor hands over while someone types has not been judged yet — the typing
-  // guard looks at it in the next animation frame and rolls back an edit that
-  // does not fit (`RichTextEditor`). Re-fitting at once would draw that edit
-  // shrunk, mark and all, and then put it back. A frame asked for after the
-  // edit runs after the guard's, so it measures what stays. Several changes in
-  // one frame are one re-fit.
+  // editor hands over while someone types has not been judged yet — the editor
+  // looks at it in the next animation frame and rolls back an edit that would
+  // hide content in *another* zone (`RichTextEditor`, `validateDoc`).
+  // Re-fitting at once would draw that edit shrunk, mark and all, and then put
+  // it back. A frame asked for after the edit runs after the editor's, so it
+  // measures what stays. Several changes in one frame are one re-fit.
   useLayoutEffect(() => {
     const element = innerRef.current
     if (!element) return
@@ -188,20 +163,6 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     }
   }, [refit])
 
-  const atNormalSize = useCallback<AtNormalSize>(
-    (read) => {
-      const element = innerRef.current
-      if (!element || !isZoneFitScaled(scaleRef.current)) return read()
-      draw(element, 1)
-      try {
-        return read()
-      } finally {
-        draw(element, scaleRef.current)
-      }
-    },
-    [draw],
-  )
-
   const scaled = isZoneFitScaled(scale)
   return (
     <div className="zone-fit" data-fit-scale={scaled ? scale.toFixed(3) : undefined}>
@@ -215,7 +176,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
             transform: scaled ? `scale(${scale})` : undefined,
           }}
         >
-          <NormalSizeContext.Provider value={atNormalSize}>{children}</NormalSizeContext.Provider>
+          {children}
         </div>
       </div>
       {scaled && marker}
