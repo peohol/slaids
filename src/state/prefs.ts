@@ -6,8 +6,17 @@
 
 const PREFIX = 'slaids.ui.'
 
-/** Which presentation to reopen on startup. Cleared on sign-out. */
-export const LAST_OPEN_PRESENTATION_KEY = 'lastOpenPresentation'
+/**
+ * Which presentation to reopen on startup, per user.
+ *
+ * Kept per user because a browser can outlive a session without a sign-out —
+ * a session kept only for the tab ends when the browser closes — and the next
+ * person to sign in on it must not be sent to a presentation of someone else's.
+ * Local mode has no users and one key. Cleared when its user signs out here.
+ */
+export function lastOpenPresentationKey(userId: string | null): string {
+  return userId ? `lastOpenPresentation.${userId}` : 'lastOpenPresentation'
+}
 
 export interface WindowGeometry {
   x: number

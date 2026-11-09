@@ -6,23 +6,27 @@ import { Toaster } from './ui/components/Toaster'
 import { TooltipProvider } from './ui/components/Tooltip'
 import { AssetSourceProvider } from './state/assetSource'
 import { repositoryAssetSource } from './state/assetSources'
-import { LAST_OPEN_PRESENTATION_KEY, readPref, writePref } from './state/prefs'
+import { lastOpenPresentationKey, readPref, writePref } from './state/prefs'
 import { useSessionStore } from './state/session'
 
-function Workspace() {
+function Workspace({ userId }: { userId: string | null }) {
+  const lastOpenKey = lastOpenPresentationKey(userId)
   const [openId, setOpenId] = useState<string | null>(() =>
-    readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null),
+    readPref<string | null>(lastOpenKey, null),
   )
 
-  const open = useCallback((id: string) => {
-    writePref(LAST_OPEN_PRESENTATION_KEY, id)
-    setOpenId(id)
-  }, [])
+  const open = useCallback(
+    (id: string) => {
+      writePref(lastOpenKey, id)
+      setOpenId(id)
+    },
+    [lastOpenKey],
+  )
 
   const close = useCallback(() => {
-    writePref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)
+    writePref<string | null>(lastOpenKey, null)
     setOpenId(null)
-  }, [])
+  }, [lastOpenKey])
 
   return openId ? <EditorView presentationId={openId} onClose={close} /> : <LibraryView onOpen={open} />
 }
@@ -62,7 +66,7 @@ export default function App() {
 
   return (
     <PrivatePage>
-      <Workspace key={userId ?? 'local'} />
+      <Workspace key={userId ?? 'local'} userId={userId} />
     </PrivatePage>
   )
 }

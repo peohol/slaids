@@ -23,7 +23,7 @@ import { describeIncompleteConfig, readSupabaseConfigState } from '../supabase/c
 import { resetRepositoryCaches } from '../persistence/activeRepository'
 import { readUserAccess, type SlaidsRole } from '../persistence/slaidsUsers'
 import { clearAssetCache } from './assets'
-import { LAST_OPEN_PRESENTATION_KEY, writePref } from './prefs'
+import { lastOpenPresentationKey, writePref } from './prefs'
 import { useEditorStore } from './store'
 import { notify } from './toast'
 
@@ -86,14 +86,14 @@ export function normalizeEmail(email: string): string {
  * editor are unmounted by the auth gate; this clears what lives outside React
  * so nothing from the previous session is still on screen or in a cache.
  */
-function clearUserScopedState(): void {
+function clearUserScopedState(userId: string): void {
   resetRepositoryCaches()
   clearAssetCache()
   const editor = useEditorStore.getState()
   editor.setPresentation(null)
   editor.setLoadError(null)
   editor.setLoading(false)
-  writePref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)
+  writePref<string | null>(lastOpenPresentationKey(userId), null)
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -116,7 +116,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     // Only when we are *leaving* a user. The first sign-in of a session has no
     // predecessor to clear after, and clearing there would throw away the
     // "reopen what was last open" preference on every reload.
-    if (previous !== null && previous !== userId) clearUserScopedState()
+    if (previous !== null && previous !== userId) clearUserScopedState(previous)
     const changed = previous !== userId
     set({
       status: userId ? 'signed-in' : 'signed-out',

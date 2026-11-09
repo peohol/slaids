@@ -208,6 +208,25 @@ test.describe('hold meg innlogget', () => {
     await reopened.context().close()
   })
 
+  test('neste bruker i samme nettleser åpner ikke det forrige brukeren hadde åpent', async ({ browser, context, page, supabase, peder }) => {
+    const other = supabase.addUser('annen@example.com')
+    await page.goto('/')
+    await signIn(page, supabase, peder.email)
+    await page.getByTestId('new-presentation').click()
+    await page.getByTestId('presentation-title-input').fill('Peders')
+    await page.getByTestId('create-presentation').click()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await waitForSaved(page)
+
+    // Nettleseren lukkes uten utlogging; økten var bare for fanen.
+    const reopened = await reopenBrowser(browser, context, supabase)
+    await signIn(reopened, supabase, other.email)
+
+    await expect(reopened.getByTestId('presentation-card')).toHaveCount(0)
+    await expect(reopened.getByTestId('editor')).toHaveCount(0)
+    await reopened.context().close()
+  })
+
   test('en ny innlogging uten valget fjerner en tidligere husket økt', async ({ browser, context, page, supabase, peder }) => {
     const other = supabase.addUser('annen@example.com')
     await page.goto('/')
