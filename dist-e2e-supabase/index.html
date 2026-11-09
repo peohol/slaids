@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      `interactive-widget` is deliberately left at its default, `resizes-visual`:
+      the on-screen keyboard shrinks the *visual* viewport and leaves the layout
+      viewport alone. Slaids is built on exactly that split. How much room there
+      is — and therefore which editor shell is mounted — is read from the layout
+      viewport, so it stays put while somebody types; how much is on screen is
+      read from `visualViewport`, so a bottom bar stays above the keyboard.
+
+      `resizes-content` would shrink both together, and would break both halves:
+      a keyboard on a tablet could push the layout viewport under the compact
+      threshold and swap the editor shell out from under the caret, and the
+      keyboard itself would become invisible to us, since the inset we measure
+      is the difference between the two heights.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Slaids – presentasjoner med matematisk stram soneinndeling." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23678'/%3E%3Crect x='5' y='6' width='22' height='4' rx='1.5' fill='%23fff'/%3E%3Crect x='5' y='13' width='8' height='13' rx='1.5' fill='%23fff'/%3E%3Crect x='16' y='13' width='11' height='6' rx='1.5' fill='%23fff'/%3E%3Crect x='16' y='22' width='11' height='4' rx='1.5' fill='%23fff'/%3E%3C/svg%3E"
+    />
+    <title>Slaids</title>
+    <script type="module" crossorigin src="/assets/index-DfLeEtQ_.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BTephtD3.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
