@@ -39,14 +39,34 @@ se § 6).
 
 ### Funn som påvirker planen
 
-1. **Innebygd e-post sender bare til teammedlemmer.** Supabases innebygde
-   e-posttjeneste leverer bare til adresser som er medlemmer av
-   Supabase-organisasjonen (`email_address_not_authorized` ellers), og har en lav
-   timesgrense. Peder er eier og får koder. En ny bruker får ikke koder uten
-   enten egen SMTP eller teammedlemskap (som gir innsyn i databasen). **Peder
-   valgte 2026-11-09 å sende kodene via Resend** (egen SMTP i Supabase, avsender
-   på et domene Peder eier). Koden i Slaids er lik uansett; det er en
-   prosjektinnstilling i Supabase (§ 6 steg 5).
+1. **Innebygd e-post sender bare til teammedlemmer – derfor egen SMTP.**
+   Bestillingen sa opprinnelig at Supabases innebygde e-post skulle brukes og at
+   Resend/SMTP ikke skulle settes opp. Kartleggingen viste at den innebygde
+   tjenesten bare leverer til adresser som er medlemmer av
+   Supabase-organisasjonen (`email_address_not_authorized` ellers; se
+   [Auth SMTP](https://supabase.com/docs/guides/auth/auth-smtp)). En ny
+   Slaids-bruker kan altså ikke få en kode med den innebygde tjenesten, og å
+   gjøre brukeren til medlem av organisasjonen er uakseptabelt fordi det gir
+   innsyn i databasen. Dette ble lagt fram for Peder som et eget valg, og
+   **Peder besluttet uttrykkelig 2026-11-09 kl. 07:46 å sende kodene via
+   Resend**. Beslutningen ble tatt på et beslutningskort i Claude-prosjektets
+   hovedtråd «Innfør flerbrukerstøtte i Slaids», med valget «Bruk Resend for
+   innloggingskoder». Den
+   erstatter punktet i den opprinnelige bestillingen.
+   - Det som faktisk er konfigurert, er egen SMTP i **Supabase Auth** (§ 6
+     steg 5): `smtp.resend.com:465`, avsender `Slaids <innlogging@slaids.no>`,
+     og en Resend-nøkkel som bare kan sende fra `slaids.no`.
+   - Ingenting om Resend er konfigurert i Slaids' Vercel-prosjekt, og
+     ingenting trengs der, fordi Slaids aldri sender e-post selv.
+   - Ingen etappe inneholder kode for Resend eller SMTP. Slaids kaller bare
+     `signInWithOtp`/`verifyOtp` og er lik uansett hvem som leverer e-posten.
+   - Går man tilbake til innebygd e-post, virker innlogging bare for
+     organisasjonsmedlemmer, altså Peder.
+   - **Åpent til § 6 steg 8 er gjort:** at en kode faktisk kommer fram til en
+     adresse som ikke er medlem av organisasjonen, er ennå ikke prøvd i
+     produksjon. CI prøver innloggingen bare mot en stubbet Supabase.
+     Flerbrukerflyten regnes ikke som produksjonsklar før den ekte prøven
+     (Peder og en ny bruker) er bestått.
 2. **Andre apper i prosjektet.** Kontrollert i produksjon 2026-11-09: den eneste
    Auth-brukeren er Peder, og mdeditz har ingen tilgang for `anon`/
    `authenticated` – den bruker ikke Supabase Auth. Endringer i e-postmal og
@@ -264,13 +284,14 @@ reverseres som beskrevet.
    har (for § 1 funn 2). Avvik stopper utrullingen.
 2. **Sikkerhetskopi** (gjort 2026-11-09): JSON-eksport av alle `slaids_*`-tabeller og listen over
    Storage-objekter, lagret i prosjektmappen. Filene i Storage flyttes ikke.
-3. **Migrasjon (etappe 1)** i én transaksjon sammen med raden i
+3. **Migrasjon (etappe 1)** (gjort 2026-11-09 08:59 UTC fra 851e34d) i én transaksjon sammen med raden i
    `public.slaids_migrations`. Reversering:
    `supabase/rollback/20261109090000_slaids_multi_user.down.sql` setter de gamle
    policyene tilbake og fjerner ledger-raden (testet i
    `supabase/tests/access.test.ts`).
-4. **Kontroll**: RLS prøvd med simulerte JWT-er i en transaksjon som rulles
-   tilbake (Peder ser alt, en annen Auth-bruker ser ingenting).
+4. **Kontroll** (gjort 2026-11-09, uten avvik): RLS prøvd med simulerte JWT-er i en transaksjon som rulles
+   tilbake (Peder ser alt, en annen Auth-bruker ser ingenting). Lesekontrollen
+   etter migrasjonen står i § 6.1.
 5. **Auth-innstillinger** (gjort 2026-11-09): egen SMTP via Resend
    (`innlogging@slaids.no`, nøkkel som bare kan sende fra slaids.no);
    e-post-OTP-lengde 6; e-postgrense 30 per time; «Magic Link»-malen med koden.
@@ -279,6 +300,48 @@ reverseres som beskrevet.
 7. **Merge og Vercel**: PR-ene i rekkefølgen over. Ingen nye Vercel-variabler
    kreves; `SLAIDS_AGENT_OAUTH=on` kan erstatte `SLAIDS_AGENT_OAUTH_OWNERS`
    senere.
-8. **Ekte prøve**: Peder logger inn med kode og ser biblioteket; Peder oppretter
+8. **Ekte prøve** (avgjør om flerbrukerflyten er produksjonsklar; innlogging og ny bruker bestått 2026-11-09 på forhåndsvisningen av #128 mot produksjonsdatabasen, se § 6.2; `mcp-smoke` og delingslenken gjenstår til etter merge): Peder logger inn med kode og ser biblioteket; Peder oppretter
    den nye brukeren; den nye brukeren logger inn og ser et tomt bibliotek;
    `mcp-smoke` mot produksjon; en eksisterende delingslenke åpnes.
+
+### 6.1 Lesekontroll etter migrasjonen (produksjon, 2026-11-09 ca. 09:50 UTC)
+
+Kontrollen er kjørt med skrivebeskyttede spørringer
+(`/database/query/read-only` i Supabase Management API) mot Slaids' prosjekt.
+Den er avidentifisert og inneholder ingen nøkler eller persondata. Den kan
+gjentas med spørringene i høyre kolonne.
+
+| Kontroll | Resultat | Spørring (forkortet) |
+| --- | --- | --- |
+| (a) Migrasjonsposten | `20261109090000 slaids_multi_user` | `select version, name from public.slaids_migrations where version = '20261109090000'` |
+| (b) Tilgangslisten | 1 rad: `admin`, aktiv | `select role, active, count(*) from public.slaids_users group by 1, 2` |
+| (b) Eksisterende eier er aktiv admin | 1 (raden peker på den eksisterende Auth-brukeren med Peders UUID) | `… join auth.users … where user_id = '<Peders UUID>' and role = 'admin' and active` |
+| Auth-brukere totalt | 1 | `select count(*) from auth.users` |
+| (c) `slaids_*`-policyer i `public` | 22, hvorav 21 med `slaids_is_active_user()` og 0 med fast UUID | `pg_policies`, `qual`/`with_check` |
+| (c) `slaids_*`-policyer i `storage` | 4, alle med `slaids_is_active_user()` og 0 med fast UUID | samme |
+| (c) Policy uten aktivsjekk | bare `slaids_users_select_own`. Det er med vilje: en deaktivert bruker må kunne lese sin egen rad for å få beskjeden «deaktivert». | samme |
+| Stikontroll | `slaids_assets_object_path_check` finnes | `pg_constraint` |
+| Trigger | `slaids_users_keep_admin` på `slaids_users` | `pg_trigger` |
+| Auth-SMTP (ikke-hemmelige felt) | `smtp.resend.com:465`, avsender `Slaids <innlogging@slaids.no>`, passord satt (ikke vist), OTP-lengde 6, e-postgrense 30/t | `GET /v1/projects/<ref>/config/auth` |
+
+Peders beslutning om Resend ligger på et beslutningskort i Claude-prosjektets
+hovedtråd. Tråden er privat og har ingen offentlig lenke, så den etterprøvbare
+bekreftelsen er Peders egen kommentar på PR #126.
+
+### 6.2 Ekte prøve av innlogging og ny bruker (2026-11-09)
+
+Prøven ble gjort på forhåndsvisningen av PR #128, som har alle fire etappene og
+bruker produksjonsdatabasen. Ekte koder ble sendt via Resend. Peder bekreftet
+at alt virket, og resultatet ble kontrollert skrivebeskyttet i databasen
+etterpå:
+
+| Kontroll | Resultat |
+| --- | --- |
+| Peder logget inn med kode | ja, 09:56 UTC; `admin`, aktiv |
+| Ny bruker opprettet fra Administrasjon → Brukere | ja; `user`, aktiv, `created_by` satt |
+| Ny bruker (adresse utenfor Supabase-organisasjonen) logget inn med kode | ja, 09:59 UTC; koden kom fram via Resend |
+| Den nye brukerens bibliotek | tomt; alle 8 presentasjoner har fortsatt Peder som eier |
+| Peders filer i Storage | 85, uendret |
+
+Gjenstår etter merge: `mcp-smoke` mot produksjon og åpning av en eksisterende
+delingslenke (etter at Edge Function fra #127 er deployet).
