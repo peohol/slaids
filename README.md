@@ -345,7 +345,7 @@ begge steder: en ny innlogging fjerner den fra lagringen den ikke valgte, og
 utlogging fjerner den fra begge.
 
 Tilgangen sjekkes ved oppstart, ved innlogging og når fanen får fokus igjen
-(høyst hvert 15. sekund). Deaktivering stenger dermed en åpen fane, og databasen
+(høyst hvert 15. sekund; kommer brukeren tilbake før det, sjekkes det når de 15 sekundene er gått). Deaktivering stenger dermed en åpen fane, og databasen
 avviser kontoens forespørsler fra samme øyeblikk uansett.
 
 Innloggingen krever to innstillinger i Supabase (Authentication → Emails):

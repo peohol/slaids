@@ -170,15 +170,15 @@ export function OAuthConsentView({
 
   if (state.kind === 'loading' || state.kind === 'deciding') {
     return (
-      <div className="auth" data-testid="oauth-consent-loading">
+      <main className="auth" data-testid="oauth-consent-loading">
         <p className="hint">{state.kind === 'loading' ? 'Henter forespørselen …' : 'Sender deg videre …'}</p>
-      </div>
+      </main>
     )
   }
 
   if (state.kind === 'no-request') {
     return (
-      <div className="auth" data-testid="oauth-consent-empty">
+      <main className="auth" data-testid="oauth-consent-empty">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="hint">
@@ -186,13 +186,13 @@ export function OAuthConsentView({
             forespørsel å svare på akkurat nå.
           </p>
         </div>
-      </div>
+      </main>
     )
   }
 
   if (state.kind === 'failed') {
     return (
-      <div className="auth" data-testid="oauth-consent-error">
+      <main className="auth" data-testid="oauth-consent-error">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="error-text" role="alert">
@@ -200,12 +200,12 @@ export function OAuthConsentView({
           </p>
           <p className="hint">Be appen om å prøve på nytt.</p>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="auth" data-testid="oauth-consent">
+    <main className="auth" data-testid="oauth-consent">
       <div className="auth__card">
         <h1 className="auth__title">Slaids</h1>
         <p className="auth__subtitle">
@@ -250,6 +250,6 @@ export function OAuthConsentView({
           </button>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

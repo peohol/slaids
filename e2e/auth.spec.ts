@@ -7,6 +7,7 @@
  */
 
 import type { Browser, BrowserContext, Page } from '@playwright/test'
+import { audit, SCHEMES } from './axe'
 import { expect, routeLocalFonts, test as base } from './fixtures'
 import { waitForSaved, watchForErrors } from './helpers'
 import { SESSION_STORAGE_KEY, SupabaseStub, type StubUser } from './supabaseStub'
@@ -291,6 +292,60 @@ test.describe('tilgangslisten', () => {
 
     await expect(page.getByTestId('auth-deactivated')).toBeVisible()
     await expect(page.getByTestId('presentation-grid')).toHaveCount(0)
+  })
+
+  test('en retur til fanen like etter forrige sjekk blir sjekket når ventetiden er over', async ({ page, supabase, peder }) => {
+    await page.clock.install()
+    await page.goto('/')
+    await signIn(page, supabase, peder.email)
+
+    // Tilbake i fanen etter fem sekunder – for tidlig for en ny sjekk.
+    await page.clock.fastForward('00:05')
+    supabase.setActive(peder, false)
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByTestId('presentation-grid')).toBeVisible()
+
+    // Fanen beholder fokus; ingen ny hendelse kommer. Sjekken kommer likevel.
+    await page.clock.fastForward('00:11')
+    await expect(page.getByTestId('auth-deactivated')).toBeVisible()
+  })
+})
+
+test.describe('tilgjengelighet og små skjermer', () => {
+  for (const [name, scheme] of SCHEMES) {
+    test(`innloggingsskjermene består WCAG-revisjonen i ${name} utseende`, async ({ page, supabase, peder }) => {
+      const outsider = supabase.addUser('annen-app@example.com', { member: false })
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.goto('/')
+
+      await expect(page.getByTestId('sign-in-email')).toBeVisible()
+      expect(await audit(page)).toEqual([])
+
+      await requestCode(page, peder.email)
+      await page.getByTestId('sign-in-code').fill('000000')
+      await expect(page.getByTestId('sign-in-error')).toBeVisible()
+      expect(await audit(page)).toEqual([])
+
+      await page.getByTestId('sign-in-change-email').click()
+      await signInWithoutLibrary(page, supabase, outsider.email)
+      await expect(page.getByTestId('auth-no-access')).toBeVisible()
+      expect(await audit(page)).toEqual([])
+    })
+  }
+
+  test('får plass på en telefon uten sidelengs rulling', async ({ page, peder }) => {
+    await page.setViewportSize({ width: 360, height: 640 })
+    await page.goto('/')
+    await requestCode(page, peder.email)
+
+    const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    expect(fits).toBe(true)
+    for (const id of ['sign-in-code', 'sign-in-verify', 'sign-in-resend', 'sign-in-change-email']) {
+      const box = await page.getByTestId(id).boundingBox()
+      expect(box, id).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(360)
+    }
   })
 })
 

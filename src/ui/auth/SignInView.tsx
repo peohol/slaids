@@ -135,7 +135,7 @@ export function SignInView() {
 
   if (step.kind === 'email') {
     return (
-      <div className="auth" data-testid="sign-in">
+      <main className="auth" data-testid="sign-in">
         <form className="auth__card" onSubmit={submitEmail} noValidate>
           <h1 className="auth__title">Slaids</h1>
           <p className="auth__subtitle">
@@ -188,13 +188,13 @@ export function SignInView() {
             {busy === 'sending' ? 'Sender kode …' : 'Send kode'}
           </button>
         </form>
-      </div>
+      </main>
     )
   }
 
   const address = step.email
   return (
-    <div className="auth" data-testid="sign-in">
+    <main className="auth" data-testid="sign-in">
       <form
         className="auth__card"
         onSubmit={(event) => {
@@ -278,6 +278,6 @@ export function SignInView() {
           </button>
         </div>
       </form>
-    </div>
+    </main>
   )
 }

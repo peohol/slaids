@@ -9,9 +9,10 @@
  * gate at all and the app behaves exactly as it did before Supabase existed.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useSessionStore, type AccessStatus, type SessionStatus } from '../../state/session'
 import { SignInView } from './SignInView'
+import { throttleWithTrailing } from './throttle'
 
 export type GateView =
   | 'app'
@@ -56,23 +57,24 @@ export function gateView(status: SessionStatus, access: AccessStatus | null): Ga
   }
 }
 
-/** Ask the access list again when the person comes back to the tab. */
+/**
+ * Ask the access list again when the person comes back to the tab — at most
+ * once per interval, and a return inside the interval is answered when it ends
+ * rather than ignored.
+ */
 function useAccessRecheck(active: boolean): void {
   const refreshAccess = useSessionStore((state) => state.refreshAccess)
-  const lastCheck = useRef(0)
   useEffect(() => {
     if (!active) return
-    lastCheck.current = Date.now()
+    // Counted from now: the gate has just been let through by a fresh check.
+    const throttled = throttleWithTrailing(() => void refreshAccess(), ACCESS_RECHECK_INTERVAL_MS)
     const recheck = (): void => {
-      if (document.visibilityState !== 'visible') return
-      const now = Date.now()
-      if (now - lastCheck.current < ACCESS_RECHECK_INTERVAL_MS) return
-      lastCheck.current = now
-      void refreshAccess()
+      if (document.visibilityState === 'visible') throttled.call()
     }
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', recheck)
     return () => {
+      throttled.cancel()
       window.removeEventListener('focus', recheck)
       document.removeEventListener('visibilitychange', recheck)
     }
@@ -86,7 +88,7 @@ function AccessRefused({ kind }: { kind: 'no-access' | 'deactivated' }) {
   const refreshAccess = useSessionStore((state) => state.refreshAccess)
   const who = email ?? 'denne kontoen'
   return (
-    <div className="auth" data-testid={`auth-${kind}`}>
+    <main className="auth" data-testid={`auth-${kind}`}>
       <div className="auth__card">
         <h1 className="auth__title">
           {kind === 'deactivated' ? 'Kontoen er deaktivert' : 'Ingen tilgang til Slaids'}
@@ -113,7 +115,7 @@ function AccessRefused({ kind }: { kind: 'no-access' | 'deactivated' }) {
           Sjekk tilgangen på nytt
         </button>
       </div>
-    </div>
+    </main>
   )
 }
 
@@ -138,20 +140,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (view === 'misconfigured') {
     // No retry: a missing build variable is not something this page can fix.
     return (
-      <div className="auth" data-testid="auth-misconfigured">
+      <main className="auth" data-testid="auth-misconfigured">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="error-text" role="alert">
             {error ?? 'Supabase-oppsettet er ufullstendig.'}
           </p>
         </div>
-      </div>
+      </main>
     )
   }
 
   if (view === 'unavailable') {
     return (
-      <div className="auth" data-testid="auth-unavailable">
+      <main className="auth" data-testid="auth-unavailable">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="error-text" role="alert">
@@ -170,17 +172,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
             Prøv igjen
           </button>
         </div>
-      </div>
+      </main>
     )
   }
 
   if (view === 'loading') {
     return (
-      <div className="auth" data-testid="auth-loading">
+      <main className="auth" data-testid="auth-loading">
         <p className="hint">
           {status === 'signed-in' ? 'Sjekker tilgang …' : 'Sjekker innlogging …'}
         </p>
-      </div>
+      </main>
     )
   }
 
