@@ -49,11 +49,15 @@ se § 6).
    gjøre brukeren til medlem av organisasjonen er uakseptabelt fordi det gir
    innsyn i databasen. Dette ble lagt fram for Peder som et eget valg, og
    **Peder besluttet uttrykkelig 2026-11-09 kl. 07:46 å sende kodene via
-   Resend**. Det erstatter punktet i den opprinnelige bestillingen. Peder
-   bekreftet beslutningen på nytt kl. 09:21 ved å koble Resend til
-   Vercel-prosjektet.
-   - SMTP er en prosjektinnstilling i Supabase Auth (§ 6 steg 5), med
-     avsenderen `innlogging@slaids.no`.
+   Resend**. Beslutningen ble tatt på et beslutningskort i Claude-prosjektets
+   hovedtråd «Innfør flerbrukerstøtte i Slaids», med valget «Bruk Resend for
+   innloggingskoder». Peder har bekreftet den skriftlig på PR #126. Den
+   erstatter punktet i den opprinnelige bestillingen.
+   - Det som faktisk er konfigurert, er egen SMTP i **Supabase Auth** (§ 6
+     steg 5): `smtp.resend.com:465`, avsender `Slaids <innlogging@slaids.no>`,
+     og en Resend-nøkkel som bare kan sende fra `slaids.no`.
+   - Ingenting om Resend er konfigurert i Slaids' Vercel-prosjekt, og
+     ingenting trengs der, fordi Slaids aldri sender e-post selv.
    - Ingen etappe inneholder kode for Resend eller SMTP. Slaids kaller bare
      `signInWithOtp`/`verifyOtp` og er lik uansett hvem som leverer e-posten.
    - Går man tilbake til innebygd e-post, virker innlogging bare for
