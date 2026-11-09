@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { setSupabaseClient } from '../supabase/client'
 import { createPresentation } from '../domain/presentation'
-import { LAST_OPEN_PRESENTATION_KEY, readPref, writePref } from './prefs'
+import { lastOpenPresentationKey, readPref, writePref } from './prefs'
 import { authSessionStorage } from '../supabase/authStorage'
 import { stopSessionWatcher, useSessionStore } from './session'
 import { useToasts } from './toast'
@@ -172,13 +172,13 @@ describe('auth-gating', () => {
   it('lar en reload beholde hvilken presentasjon som var åpen', async () => {
     configure()
     setSupabaseClient(fakeClient({ session: { user: USER } }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().start()
 
     // Opening a session is not leaving one: there is no previous user whose
     // traces need clearing, and the preference must survive.
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBe('p1')
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBe('p1')
   })
 
   it('viser en forståelig feil når Supabase er konfigurert men utilgjengelig', async () => {
@@ -464,7 +464,7 @@ describe('utlogging', () => {
     )
     await useSessionStore.getState().start()
     useEditorStore.getState().setPresentation(createPresentation({ title: 'Hemmelig' }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().signOut()
 
@@ -476,7 +476,7 @@ describe('utlogging', () => {
     expect(state.userId).toBeNull()
     // Og da må brukerens data være borte fra skjermen, akkurat som ellers.
     expect(useEditorStore.getState().presentation).toBeNull()
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBeNull()
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBeNull()
   })
 
   it('tåler at SIGNED_OUT kommer før signOut-løftet er ferdig', async () => {
@@ -521,7 +521,7 @@ describe('utlogging', () => {
     await useSessionStore.getState().start()
 
     useEditorStore.getState().setPresentation(createPresentation({ title: 'Hemmelig' }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().signOut()
 
@@ -530,6 +530,13 @@ describe('utlogging', () => {
     expect(state.userId).toBeNull()
     expect(state.email).toBeNull()
     expect(useEditorStore.getState().presentation).toBeNull()
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBeNull()
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBeNull()
+  })
+})
+
+describe('sist åpne presentasjon', () => {
+  it('huskes per bruker, så neste bruker i samme nettleser ikke får den', () => {
+    expect(lastOpenPresentationKey('a')).not.toBe(lastOpenPresentationKey('b'))
+    expect(lastOpenPresentationKey(null)).not.toBe(lastOpenPresentationKey('a'))
   })
 })
