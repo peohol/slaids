@@ -1,44 +1,51 @@
 #!/bin/sh
-# Keeps an older production build from replacing a newer one on the live
-# domains. Wired twice in vercel.json:
-#
-#   ignoreCommand  `sh scripts/vercel-ignore-build.sh`
-#                  Vercel's "Ignored Build Step": exit 0 skips the build,
-#                  exit 1 lets it run.
-#   buildCommand   `… && sh scripts/vercel-ignore-build.sh --after-build`
-#                  Exit 1 fails the build, so a failed build is never promoted.
+# Vercel "Ignored Build Step", wired as `ignoreCommand` in vercel.json.
+# Exit 0 skips the build; exit 1 lets it run.
 #
 # Vercel promotes each finished production build in the order the builds
-# finish. When GitHub's push notifications arrive late, or a newer commit is
-# pushed while a build is running, an older commit on the production branch
-# can finish last and replace the newer one. So a production build runs, and
-# is kept, only while its commit is still the tip of its branch. The check
-# before the build skips late notifications. The check after the build
-# closes the window of the build itself.
+# finish. When GitHub's push notifications reach Vercel late, an older commit
+# on the production branch can be built after a newer one and silently
+# replace it on the live domains. So a production build runs only when its
+# commit is not older than the branch's last successful deployment,
+# VERCEL_GIT_PREVIOUS_SHA (Vercel exposes it only to this step).
 #
-# Previews always build. When the tip cannot be read, both checks let the
-# build through, as before this guard. Rolling back is unaffected: Vercel's
-# Instant Rollback reuses an existing build and never runs these steps.
+# The repository is private and the build has no Git credentials. The check
+# therefore works on Vercel's own shallow clone, which holds the last few
+# commits up to the one being built:
+#   - previous deployment in that history (an ancestor) -> newer, build
+#   - this commit is an ancestor of the previous one   -> older, skip
+#   - previous deployment not in the history            -> it is newer than
+#     this commit, or older than the clone reaches. Main is deployed on every
+#     merge, so the first is the case; skip.
+#
+# Previews always build, and so does a branch's first deployment. Rolling
+# back is unaffected: Vercel's Instant Rollback reuses an existing build and
+# never runs this step.
+#
+# Two cases look the same as "newer" here and are therefore skipped: production
+# more than the clone's depth behind, and a rewritten branch (force-push), whose
+# old deployment is no longer in the history. Neither happens with this repo's
+# squash merges. If one does, set SLAIDS_ALLOW_OLDER_BUILD=1 in the Vercel
+# project for one deployment, then remove it.
 
-after_build=false
-[ "$1" = "--after-build" ] && after_build=true
+[ "$VERCEL_ENV" = "production" ] || exit 1
+[ "$SLAIDS_ALLOW_OLDER_BUILD" = "1" ] && exit 1
 
-# Exit code that lets the build go ahead / that stops it, for this mode.
-if $after_build; then proceed=0; stop=1; else proceed=1; stop=0; fi
+head=$VERCEL_GIT_COMMIT_SHA
+previous=$VERCEL_GIT_PREVIOUS_SHA
 
-[ "$VERCEL_ENV" = "production" ] || exit $proceed
+[ -n "$previous" ] || exit 1
+[ "$previous" = "$head" ] && exit 1
 
-repo="https://github.com/${VERCEL_GIT_REPO_OWNER}/${VERCEL_GIT_REPO_SLUG}.git"
-tip=$(git ls-remote "$repo" "refs/heads/${VERCEL_GIT_COMMIT_REF}" 2>/dev/null | cut -f1)
-
-if [ -z "$tip" ]; then
-  echo "Could not read the tip of ${VERCEL_GIT_COMMIT_REF}; building."
-  exit $proceed
+if git cat-file -e "${previous}^{commit}" 2>/dev/null; then
+  git merge-base --is-ancestor "$previous" "$head" && exit 1
+  if git merge-base --is-ancestor "$head" "$previous"; then
+    echo "Skipping: ${head} is older than the last production deployment (${previous})."
+    exit 0
+  fi
+  # Both present but unrelated: build what was pushed.
+  exit 1
 fi
 
-if [ "$tip" != "$VERCEL_GIT_COMMIT_SHA" ]; then
-  echo "Stopping: ${VERCEL_GIT_COMMIT_SHA} is no longer the tip of ${VERCEL_GIT_COMMIT_REF} (now ${tip})."
-  exit $stop
-fi
-
-exit $proceed
+echo "Skipping: the last production deployment (${previous}) is not in this commit's history, so it is newer than ${head}. To build anyway (rewritten branch, or production far behind), set SLAIDS_ALLOW_OLDER_BUILD=1 for one deployment."
+exit 0
