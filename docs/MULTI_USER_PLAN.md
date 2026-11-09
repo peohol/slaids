@@ -51,7 +51,7 @@ se § 6).
    **Peder besluttet uttrykkelig 2026-11-09 kl. 07:46 å sende kodene via
    Resend**. Beslutningen ble tatt på et beslutningskort i Claude-prosjektets
    hovedtråd «Innfør flerbrukerstøtte i Slaids», med valget «Bruk Resend for
-   innloggingskoder». Peder har bekreftet den skriftlig på PR #126. Den
+   innloggingskoder». Den
    erstatter punktet i den opprinnelige bestillingen.
    - Det som faktisk er konfigurert, er egen SMTP i **Supabase Auth** (§ 6
      steg 5): `smtp.resend.com:465`, avsender `Slaids <innlogging@slaids.no>`,
