@@ -40,11 +40,23 @@ export interface AdminUsersModalProps {
   onOpenChange: (open: boolean) => void
   /** The signed-in administrator, so the screen can say «deg». */
   currentUserId: string | null
+  /**
+   * Called after the administrator changed their own role or status, so the
+   * session can ask the access list again: a self-demotion takes the menu
+   * away, a self-deactivation closes the workspace, at once.
+   */
+  onOwnAccessChanged?: () => void
   /** Injected in tests; the app talks to its own server. */
   client?: UsersClient
 }
 
-export function AdminUsersModal({ open, onOpenChange, currentUserId, client }: AdminUsersModalProps) {
+export function AdminUsersModal({
+  open,
+  onOpenChange,
+  currentUserId,
+  onOwnAccessChanged,
+  client,
+}: AdminUsersModalProps) {
   const api = useMemo<UsersClient>(() => client ?? new AdminUsersClient(), [client])
 
   const [users, setUsers] = useState<AdminUser[] | null>(null)
@@ -102,6 +114,7 @@ export function AdminUsersModal({ open, onOpenChange, currentUserId, client }: A
       await api.update(user.userId, next)
       notify.success(done)
       refresh()
+      if (user.userId === currentUserId) onOwnAccessChanged?.()
     } catch (failure) {
       notify.error(failure instanceof Error ? failure.message : 'Kunne ikke endre brukeren.')
     } finally {

@@ -52,13 +52,19 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(client: RecordingClient): Promise<void> {
+async function mount(client: RecordingClient, onOwnAccessChanged?: () => void): Promise<void> {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root!.render(<AdminUsersModal open onOpenChange={() => {}} currentUserId={ME} client={client} />)
+    root!.render(<AdminUsersModal
+        open
+        onOpenChange={() => {}}
+        currentUserId={ME}
+        onOwnAccessChanged={onOwnAccessChanged}
+        client={client}
+      />)
   })
   await settle()
 }
@@ -144,6 +150,17 @@ describe('Administrasjon → Brukere', () => {
     expect(rowFor('anna@example.no').textContent).toContain('Deaktivert')
     await click(rowFor('anna@example.no').querySelector('[data-testid="admin-user-reactivate"]'))
     expect(client.updates.at(-1)).toEqual({ userId: ANNA, change: { active: true } })
+  })
+
+  it('ber økten sjekke tilgangen på nytt bare når du endrer deg selv', async () => {
+    const client = new RecordingClient()
+    client.users.push({ userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', email: 'kari@example.no', role: 'admin', active: true, createdAt: '', lastSignInAt: null })
+    const ownAccessChanged = vi.fn()
+    await mount(client, ownAccessChanged)
+    await click(rowFor('kari@example.no').querySelector('[data-testid="admin-user-demote"]'))
+    expect(ownAccessChanged).not.toHaveBeenCalled()
+    await click(rowFor('meg@example.no').querySelector('[data-testid="admin-user-demote"]'))
+    expect(ownAccessChanged).toHaveBeenCalledTimes(1)
   })
 
   it('viser serverens begrunnelse når den sier nei', async () => {

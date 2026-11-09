@@ -94,6 +94,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const sessionEmail = useSessionStore((state) => state.email)
   const signOut = useSessionStore((state) => state.signOut)
   const sessionUserId = useSessionStore((state) => state.userId)
+  const refreshAccess = useSessionStore((state) => state.refreshAccess)
   // Only a convenience: the server checks the role again on every call.
   const isAdmin = useSessionStore((state) => state.role === 'admin') && mode === 'supabase'
 
@@ -703,7 +704,12 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
           token out of memory, rather than an effect that clears it. */}
       {managingTokens && <AgentTokensModal open onOpenChange={setManagingTokens} />}
       {isAdmin && managingUsers && (
-        <AdminUsersModal open onOpenChange={setManagingUsers} currentUserId={sessionUserId} />
+        <AdminUsersModal
+          open
+          onOpenChange={setManagingUsers}
+          currentUserId={sessionUserId}
+          onOwnAccessChanged={() => void refreshAccess()}
+        />
       )}
 
       <NewPresentationModal
