@@ -30,7 +30,7 @@ layoutet er nestet.
 
 **Bibliotek**
 
-- passordinnlogging for Slaids' ene personlige bruker når appen kjører mot Supabase (se «Lagring»)
+- innlogging med en sekssifret kode på e-post (ingen passord, ingen registrering) når appen kjører mot Supabase, med valget «Hold meg innlogget på denne enheten» (se «Innlogging»)
 - opprett presentasjon med tittel, startfarge og globale fonter
 - åpne, gi nytt navn, dupliser (inkludert filer), slett til søppelkassen – med
   gjenoppretting, sletting for godt og automatisk tømming etter 30 dager
@@ -312,6 +312,46 @@ deploy-skriptet aldri kjører det.
 Deling har i tillegg en Edge Function, `slaids-share`, som er den eneste
 offentlige inngangen. Se «Deling» lenger ned for hva den gjør og hvorfor den
 finnes.
+
+### Innlogging
+
+Innlogging er e-postadresse og en sekssifret engangskode, ikke passord:
+
+1. Brukeren skriver e-postadressen sin og trykker «Send kode».
+2. Supabase Auth sender koden (`signInWithOtp` med `shouldCreateUser: false`,
+   så en ukjent adresse får en feilmelding og ingen ny konto).
+3. Brukeren skriver koden; det siste sifferet sender inn skjemaet
+   (`verifyOtp`, `type: 'email'`).
+4. Slaids leser brukerens egen rad i tilgangslisten `slaids_users`. Bare et
+   aktivt medlem slipper inn; en Auth-bruker som ikke står på listen (for
+   eksempel fra en annen app i prosjektet) får skjermen «Ingen tilgang», og en
+   deaktivert konto får «Kontoen er deaktivert». Begge har «Logg ut».
+
+Det finnes ingen registrering: kontoer opprettes av en administrator.
+Feilmeldingene sier hva som skjedde og hva brukeren kan gjøre: feil eller
+utløpt kode (Supabase skiller ikke de to), ventetid før ny kode (nedtelling på
+knappen, og ventetiden Supabase selv oppgir når den sier fra), for mange
+e-poster på kort tid, adresse uten konto og nettverksfeil. Ber brukeren om en
+kode rett etter at én ble sendt – etter en omlasting, for eksempel – går
+skjermen rett til kodefeltet, siden den forrige koden fortsatt virker.
+
+**«Hold meg innlogget på denne enheten»** er av som standard. Valget bestemmer
+hvor Supabase-økten lagres (`src/supabase/authStorage.ts`, én adapter i den ene
+Supabase-klienten): i `localStorage` når det er valgt, slik at innloggingen
+overlever at nettleseren lukkes og fornyes av Supabase så lenge økten er gyldig;
+ellers i fanens `sessionStorage`, som forsvinner når nettleserøkten slutter. En
+fane uten husket innlogging deler ikke økten med andre faner. Økten ligger aldri
+begge steder: en ny innlogging fjerner den fra lagringen den ikke valgte, og
+utlogging fjerner den fra begge.
+
+Tilgangen sjekkes ved oppstart, ved innlogging og når fanen får fokus igjen
+(høyst hvert 15. sekund; kommer brukeren tilbake før det, sjekkes det når de 15 sekundene er gått). Deaktivering stenger dermed en åpen fane, og databasen
+avviser kontoens forespørsler fra samme øyeblikk uansett.
+
+Innloggingen krever to innstillinger i Supabase (Authentication → Emails):
+koden er seks sifre (Email OTP length), og e-postmalen for «Magic Link»
+inneholder `{{ .Token }}`. Uten `{{ .Token }}` sender Supabase bare en lenke, og
+lenken logger ikke inn i Slaids.
 
 ### Brukeradministrasjon
 
@@ -1735,10 +1775,10 @@ til `www.slaids.no` med `authorization_id` i behold. Slaids har sitt eget
 prosjekt nå, så omveien er borte: regelen i Huskis gjør ingenting for Slaids
 lenger og kan fjernes når Huskis-repoet ryddes.
 
-På Slaids-siden ligger `/oauth/consent` bak `AuthGate`: eieren logger inn som
-vanlig – med passord, uten omdirigering, så forespørselen overlever
-påloggingen – og ser deretter samtykkeskjermen for den samme
-`authorization_id`-en.
+På Slaids-siden ligger `/oauth/consent` bak `AuthGate`: brukeren logger inn som
+vanlig – med engangskode, på samme adresse og uten omdirigering, så
+forespørselen overlever påloggingen – og ser deretter samtykkeskjermen for den
+samme `authorization_id`-en.
 
 #### Slik verifiserer du at det virker, i rekkefølge
 
